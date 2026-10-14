@@ -20,7 +20,12 @@ class TavilyProvider(SearchProvider):
     probe_url = _URL
 
     async def search(
-        self, query: str, *, max_results: int, include_content: bool
+        self,
+        query: str,
+        *,
+        max_results: int,
+        include_content: bool,
+        domain: str | None = None,
     ) -> list[WebSearchHit]:
         body = {
             "query": query,
@@ -29,6 +34,8 @@ class TavilyProvider(SearchProvider):
             "include_answer": False,
             "include_raw_content": include_content,
         }
+        if domain:
+            body["include_domains"] = [domain]
         headers = {"Authorization": f"Bearer {self.api_key}"}
         async with self.client() as client:
             data = await request_json(

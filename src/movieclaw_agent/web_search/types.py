@@ -41,6 +41,11 @@ class SearchProvider:
         return httpx.AsyncClient(transport=self._transport, timeout=TIMEOUT)
 
     async def search(
-        self, query: str, *, max_results: int, include_content: bool
+        self,
+        query: str,
+        *,
+        max_results: int,
+        include_content: bool,
+        domain: str | None = None,
     ) -> list[WebSearchHit]:
         raise NotImplementedError

@@ -20,7 +20,12 @@ class ExaProvider(SearchProvider):
     probe_url = _URL
 
     async def search(
-        self, query: str, *, max_results: int, include_content: bool
+        self,
+        query: str,
+        *,
+        max_results: int,
+        include_content: bool,
+        domain: str | None = None,
     ) -> list[WebSearchHit]:
         contents: dict[str, Any] = {"highlights": {"maxCharacters": _SNIPPET}}
         if include_content:
@@ -31,6 +36,8 @@ class ExaProvider(SearchProvider):
             "numResults": max_results,
             "contents": contents,
         }
+        if domain:
+            body["includeDomains"] = [domain]
         headers = {"x-api-key": self.api_key}
         async with self.client() as client:
             data = await request_json(

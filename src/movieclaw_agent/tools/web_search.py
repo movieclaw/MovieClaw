@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
+from urllib.parse import urlparse
 
 from movieclaw_agent.toolkit import AgentTool
 from movieclaw_agent.web_search import SearchProvider, WebSearchError
@@ -79,11 +81,15 @@ def make_web_search_tool(provider: SearchProvider) -> AgentTool:
             raise ValueError(f"query 过长（最多 {_MAX_QUERY} 字）。请收成一个明确问题再搜。")
         max_results = _clamp_results(args.get("max_results"))
         include_content = bool(args.get("include_content"))
+        domain = normalize_domain(args.get("domain"))
         await _pace()
         started = time.monotonic()
         try:
             hits = await provider.search(
-                query, max_results=max_results, include_content=include_content
+                query,
+                max_results=max_results,
+                include_content=include_content,
+                domain=domain,
             )
         except WebSearchError as exc:
             message = redact(str(exc), provider.api_key)
@@ -128,12 +134,44 @@ def make_web_search_tool(provider: SearchProvider) -> AgentTool:
                         "type": "boolean",
                         "description": "是否附上正文摘录。默认否；摘要不够时再打开",
                     },
+                    "domain": {
+                        "type": "string",
+                        "description": "可选。只搜索这个域名，例如 example.com。不填则不限制",
+                    },
                 },
                 "required": ["query"],
             },
         ),
         handler=handler,
     )
+
+
+_HOST = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+
+
+def normalize_domain(value: object) -> str | None:
+    """收成主机名。空值表示不限制；写了但不是域名则拒绝，避免把整句查询塞进域名。"""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.lower().startswith("site:"):
+        text = text[5:].strip()
+    if "://" in text:
+        host = urlparse(text).hostname
+    else:
+        host = text.split("/")[0].split("?")[0].split("#")[0]
+        if "@" in host:
+            host = host.rsplit("@", 1)[-1]
+        if host.count(":") == 1:
+            host = host.split(":", 1)[0]
+    host = (host or "").strip(".").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    if not _HOST.fullmatch(host):
+        raise ValueError("domain 必须是域名，例如 example.com。")
+    return host
 
 
 def _clamp_results(value: object) -> int:

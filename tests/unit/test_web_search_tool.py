@@ -26,9 +26,21 @@ class _Fake:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    async def search(self, query: str, *, max_results: int, include_content: bool):
+    async def search(
+        self,
+        query: str,
+        *,
+        max_results: int,
+        include_content: bool,
+        domain: str | None = None,
+    ):
         self.calls.append(
-            {"query": query, "max_results": max_results, "include_content": include_content}
+            {
+                "query": query,
+                "max_results": max_results,
+                "include_content": include_content,
+                "domain": domain,
+            }
         )
         return [
             WebSearchHit(
@@ -68,7 +80,7 @@ def test_tool_description_is_general_web_search_not_media_only():
         for param in tool.definition.parameters["properties"].values():
             assert banned not in param["description"]
     params = tool.definition.parameters["properties"]
-    assert list(params) == ["query", "max_results", "include_content"]
+    assert list(params) == ["query", "max_results", "include_content", "domain"]
     assert tool.definition.parameters["required"] == ["query"]
     assert "site:example.com" in params["query"]["description"]
     assert "默认 5" in params["max_results"]["description"]
@@ -96,6 +108,17 @@ async def test_tool_formats_a_citation_and_clamps_the_result_count():
     assert provider.calls[0]["query"] == "沙丘2 主演"
 
 
+async def test_domain_is_normalized_before_the_search_and_a_bad_one_is_rejected():
+    provider = _Fake()
+    tool = make_web_search_tool(provider)  # type: ignore[arg-type]
+    await tool.handler({"query": "oscars", "domain": "https://www.Example.com/awards"})
+    assert provider.calls[0]["domain"] == "example.com"
+
+    with pytest.raises(ValueError, match="域名"):
+        await tool.handler({"query": "oscars", "domain": "not a domain"})
+    assert len(provider.calls) == 1
+
+
 async def test_tool_rejects_an_empty_query_without_calling_the_provider():
     provider = _Fake()
     tool = make_web_search_tool(provider)  # type: ignore[arg-type]
@@ -114,7 +137,14 @@ async def test_logs_redact_the_key_and_errors_stay_readable(caplog):
     assert "***" in caplog.text
 
     class _Broken(_Fake):
-        async def search(self, query: str, *, max_results: int, include_content: bool):
+        async def search(
+            self,
+            query: str,
+            *,
+            max_results: int,
+            include_content: bool,
+            domain: str | None = None,
+        ):
             raise WebSearchError(f"rejected {_KEY}", kind="auth")
 
     broken = make_web_search_tool(_Broken())  # type: ignore[arg-type]
@@ -127,7 +157,14 @@ async def test_brave_style_provider_says_it_has_no_page_text():
         id = "brave"
         supports_content = False
 
-        async def search(self, query: str, *, max_results: int, include_content: bool):
+        async def search(
+            self,
+            query: str,
+            *,
+            max_results: int,
+            include_content: bool,
+            domain: str | None = None,
+        ):
             return [WebSearchHit(title="Dune", url="https://example.com/dune", snippet="cast")]
 
     tool = make_web_search_tool(_Brave())  # type: ignore[arg-type]

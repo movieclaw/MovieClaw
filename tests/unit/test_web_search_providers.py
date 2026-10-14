@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -32,6 +34,7 @@ async def _search(cls, handler, **kwargs):
         "Dune Part Two cast",
         max_results=kwargs.get("max_results", 5),
         include_content=kwargs.get("include_content", False),
+        domain=kwargs.get("domain"),
     )
 
 
@@ -112,6 +115,24 @@ async def test_each_provider_maps_title_url_snippet_and_date(cls, header):
         assert hit.content is None
     else:
         assert hit.content == "Full page about the cast."
+
+
+async def test_domain_is_a_separate_filter_on_each_provider():
+    calls: list[httpx.Request] = []
+
+    async def run(cls):
+        calls.clear()
+        await _search(cls, _record(calls), domain="example.com")
+
+    await run(TavilyProvider)
+    assert json.loads(calls[0].content)["include_domains"] == ["example.com"]
+
+    await run(ExaProvider)
+    assert json.loads(calls[0].content)["includeDomains"] == ["example.com"]
+
+    await run(BraveProvider)
+    assert calls[0].url.params["q"] == "Dune Part Two cast site:example.com"
+    assert _KEY not in str(calls[0].url)
 
 
 async def test_tavily_omits_page_text_unless_asked():

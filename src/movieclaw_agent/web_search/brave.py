@@ -22,13 +22,21 @@ class BraveProvider(SearchProvider):
     supports_content = False
 
     async def search(
-        self, query: str, *, max_results: int, include_content: bool
+        self,
+        query: str,
+        *,
+        max_results: int,
+        include_content: bool,
+        domain: str | None = None,
     ) -> list[WebSearchHit]:
         del include_content  # Brave 的网页搜索没有正文，参数只为对齐另外两家
         headers = {
             "Accept": "application/json",
             "X-Subscription-Token": self.api_key,
         }
+        # 这个接口没有独立的域名参数，限定域名时把 site: 写进查询。
+        if domain:
+            query = f"{query} site:{domain}"
         params = {"q": query, "count": max_results, "text_decorations": "false"}
         async with self.client() as client:
             data = await request_json(
