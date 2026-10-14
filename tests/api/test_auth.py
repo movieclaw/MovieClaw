@@ -178,6 +178,7 @@ _ADMIN_VIEW_EXTRAS = {
         "allow_subscribe": True,
         "allow_search": True,
         "allow_direct_download": True,
+        "allow_video_download": True,
     },
     # 登录 / 建号的响应不带当前设备（客户端要看就调 /auth/me）
     "device": None,
@@ -400,6 +401,7 @@ def fill_path_params(path: str) -> str:
         .replace("{share_id}", "1")
         .replace("{key}", "cache.images")  # 缓存管理的登记目录 key
         .replace("{attempt_id}", "test-attempt")  # 播放体验记录的播放编号
+        .replace("{export_id}", "no-such-export")  # 离线下载的导出号
         .replace("{relay_id}", "r_test")  # App 推送的自建中继
         .replace("{token}", "no-such-image")  # 推送配图的签名
         .replace("{item_id}", "1")  # 推送「这部剧不再提醒」的条目

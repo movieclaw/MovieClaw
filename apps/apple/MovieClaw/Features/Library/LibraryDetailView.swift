@@ -157,7 +157,18 @@ struct LibraryDetailView: View {
         }
     }
 
+    /// 离线模式（docs/design/offline-download.md §1）：换成这个库在 iPhone 上已下载的条目
+    @State private var reachability = ServerReachability.shared
+
     var body: some View {
+        if reachability.isOffline {
+            OfflineLibraryWall(libraryId: libraryId)
+        } else {
+            onlineBody
+        }
+    }
+
+    private var onlineBody: some View {
         stateContent
         .appBackground()
         .navigationTitle(library?.name ?? "")

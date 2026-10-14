@@ -17,6 +17,8 @@ export interface SessionCapabilities {
   allow_subscribe: boolean;
   allow_search: boolean;
   allow_direct_download: boolean;
+  /** 下载影片到设备；旧服务器没有这个字段 */
+  allow_video_download?: boolean | null;
 }
 
 /** 当前登录会话（见 schemas.auth.SessionView）。 */

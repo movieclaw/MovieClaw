@@ -791,6 +791,7 @@ async def test_remote_session_dispatches_job_without_local_process(manager, monk
             plan: PlaybackPlan | None = None,
             source_id: int | None = None,
             learn_speed: bool = False,
+            preemptible: bool = False,
         ):
             self.reserved = (job_id, backend)
             return SimpleNamespace(
@@ -891,6 +892,7 @@ async def test_remote_session_uses_worker_connect_address_without_any_config(
             plan: PlaybackPlan | None = None,
             source_id: int | None = None,
             learn_speed: bool = False,
+            preemptible: bool = False,
         ):
             return SimpleNamespace(
                 worker_id="mac-mini-a",
@@ -979,6 +981,7 @@ async def test_remote_start_failure_does_not_fallback_to_local_software(manager,
             plan: PlaybackPlan | None = None,
             source_id: int | None = None,
             learn_speed: bool = False,
+            preemptible: bool = False,
         ):
             raise session_mod.RemoteWorkerUnavailable("Worker 刚刚断线")
 
@@ -1083,6 +1086,7 @@ async def test_remote_restart_failure_cleans_up_new_job(manager, tmp_path, monke
             plan: PlaybackPlan | None = None,
             source_id: int | None = None,
             learn_speed: bool = False,
+            preemptible: bool = False,
         ):
             return SimpleNamespace(
                 worker_id="mac-mini-a",
@@ -1177,6 +1181,7 @@ async def test_remote_seek_restart_uses_the_worker_that_took_the_job(
             plan: PlaybackPlan | None = None,
             source_id: int | None = None,
             learn_speed: bool = False,
+            preemptible: bool = False,
         ):
             self.reserved.append((job_id, backend))
             return SimpleNamespace(
@@ -2198,6 +2203,7 @@ async def test_remote_disc_session_reads_ffconcat_and_follows_worker_caps(manage
             plan: PlaybackPlan | None = None,
             source_id: int | None = None,
             learn_speed: bool = False,
+            preemptible: bool = False,
         ):
             self.reserved_disc = disc
             return SimpleNamespace(
@@ -2327,3 +2333,71 @@ async def test_remote_segment_wait_wakes_up_when_the_artifact_lands(manager, tmp
     )
     assert await asyncio.wait_for(waiter, 2) == tmp_path / "seg00005.m4s"
     assert time.monotonic() - landed < 1.0
+
+
+# ---------------------------------------------------------------------------
+# 离线导出让路（offline-download.md §5.3）：播放永远优先
+# ---------------------------------------------------------------------------
+
+
+async def test_playback_evicts_a_local_export_when_transcode_slots_are_full(manager, monkeypatch):
+    """本机转码名额被离线导出占着：播放照常起来，导出被停并标记「被挤掉」（不是失败）。"""
+    install_fake(monkeypatch, WRITES_PLAYLIST_THEN_SLEEPS)
+    try:
+        export = await manager.start(
+            make_plan(PlaybackTier.SOFTWARE_TRANSCODE),
+            source_path="/m/a.mkv", member_id=-1, max_transcode=1, export_id="exp1",
+        )
+        playback = await manager.start(
+            make_plan(PlaybackTier.SOFTWARE_TRANSCODE, file_id=2),
+            source_path="/m/b.mkv", member_id=0, max_transcode=1,
+        )
+        assert playback.state == "ready"
+        assert export.state == "stopped" and export.preempted
+        assert manager.get(export.id) is None
+    finally:
+        await manager.shutdown()
+
+
+async def test_export_never_evicts_another_export_or_playback(manager, monkeypatch):
+    """导出自己开会话时名额满了：照常报满（它去排队），不挤任何人。"""
+    install_fake(monkeypatch, WRITES_PLAYLIST_THEN_SLEEPS)
+    try:
+        playback = await manager.start(
+            make_plan(PlaybackTier.SOFTWARE_TRANSCODE),
+            source_path="/m/a.mkv", member_id=0, max_transcode=1,
+        )
+        with pytest.raises(SessionLimitError):
+            await manager.start(
+                make_plan(PlaybackTier.SOFTWARE_TRANSCODE, file_id=2),
+                source_path="/m/b.mkv", member_id=-1, max_transcode=1, export_id="exp1",
+            )
+        assert playback.state == "ready"
+    finally:
+        await manager.shutdown()
+
+
+async def test_local_export_runs_niced(manager, monkeypatch):
+    """本机转的导出降优先级：宁可导出慢，不让播放卡。"""
+    install_fake(monkeypatch, WRITES_PLAYLIST_THEN_SLEEPS)
+    seen: list[list[str]] = []
+    real_exec = asyncio.create_subprocess_exec
+
+    async def spy(*argv, **kwargs):
+        seen.append(list(argv))
+        return await real_exec(*argv, **kwargs)
+
+    monkeypatch.setattr(session_mod.asyncio, "create_subprocess_exec", spy)
+    try:
+        await manager.start(
+            make_plan(PlaybackTier.SOFTWARE_TRANSCODE),
+            source_path="/m/a.mkv", member_id=-1, max_transcode=2, export_id="exp1",
+        )
+        await manager.start(
+            make_plan(PlaybackTier.SOFTWARE_TRANSCODE, file_id=2),
+            source_path="/m/b.mkv", member_id=0, max_transcode=2,
+        )
+        assert seen[0][:3] == ["nice", "-n", "10"]
+        assert seen[1][0] != "nice"
+    finally:
+        await manager.shutdown()

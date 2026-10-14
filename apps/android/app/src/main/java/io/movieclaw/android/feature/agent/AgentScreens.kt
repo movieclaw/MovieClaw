@@ -337,114 +337,30 @@ fun AgentConversationScreen(
                 }
             }
 
-            // 输入区（iOS `AgentComposer`：白 5%、圆角 22 的容器，里面是输入框 + 底部工具行）
-            var showModelMenu by remember { mutableStateOf(false) }
-            Column(
-                Modifier
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(Color.White.copy(alpha = 0.05f))
-                    .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(22.dp)),
-            ) {
-                TextField(
-                    value = state.input,
-                    onValueChange = vm::onInput,
-                    placeholder = { Text("问点什么,或让我干活…", fontSize = 15.sp, color = TextFaint) },
-                    maxLines = 5,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { vm.send() }),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        cursorColor = Accent,
-                    ),
-                    shape = RoundedCornerShape(22.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                )
-                // 工具行（iOS `toolRow`）：图片键 · 模型 chip …… 发送
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(
-                        onClick = {
-                            pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        },
-                        modifier = Modifier.size(44.dp),
-                    ) {
-                        Icon(
-                            Icons.Rounded.Image,
-                            contentDescription = "添加图片",
-                            tint = TextMuted,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                    if (state.models.isNotEmpty()) {
-                        ModelChip(
-                            label = AgentThinking.resolve(state.models, state.modelRef)?.label ?: "模型",
-                            enabled = !state.running,
-                            onClick = { showModelMenu = true },
-                        )
-                    }
-                    Spacer(Modifier.weight(1f))
-                    IconButton(
-                        onClick = vm::send,
-                        enabled = !state.running,
-                        modifier = Modifier.size(44.dp).background(
-                            if (state.running) Color.White.copy(alpha = 0.08f) else Accent,
-                            CircleShape,
-                        ),
-                    ) {
-                        if (state.running) {
-                            CircularProgressIndicator(color = TextMuted, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(
-                                Icons.AutoMirrored.Rounded.Send,
-                                contentDescription = "发送",
-                                tint = Color(0xFF0A0E12),
-                                modifier = Modifier.size(19.dp),
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 模型 / 思维链菜单（iOS `AgentModelMenu`）：Popup 锚在输入区上方（左上对齐）
-            if (showModelMenu) {
-                val menuOffset = with(androidx.compose.ui.platform.LocalDensity.current) {
-                    androidx.compose.ui.unit.IntOffset(12.dp.roundToPx(), -112.dp.roundToPx())
-                }
-                androidx.compose.ui.window.Popup(
-                    alignment = Alignment.BottomStart,
-                    offset = menuOffset,
-                    onDismissRequest = { showModelMenu = false },
-                    properties = androidx.compose.ui.window.PopupProperties(focusable = true),
-                ) {
-                    io.movieclaw.android.core.designsystem.MenuAppear(originX = 0.12f, originY = 1f) {
-                        androidx.compose.material3.Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = io.movieclaw.android.core.designsystem.MenuSurface,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, io.movieclaw.android.core.designsystem.LineColor),
-                            shadowElevation = 12.dp,
-                        ) {
-                            ModelMenu(
-                                models = state.models,
-                                modelRef = state.modelRef,
-                                thinkingLevel = state.thinkingLevel,
-                                onPickModel = { ref ->
-                                    vm.setModel(ref)
-                                    showModelMenu = false
-                                },
-                                onPickThinking = { level -> vm.setThinkingLevel(level) },
-                            )
-                        }
-                    }
-                }
-            }
+            // 与新会话页共用同一个 composer（附件 tray / 输入容器 / 工具行 / 模型菜单）
+            AgentComposerBar(
+                input = state.input,
+                onInput = vm::onInput,
+                placeholder = "问点什么,或让我干活…",
+                attachments = state.attachments,
+                uploading = state.uploading,
+                onPickImage = {
+                    pickImage.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                onRemoveAttachment = vm::removeAttachment,
+                models = state.models,
+                modelRef = state.modelRef,
+                thinkingLevel = state.thinkingLevel,
+                onPickModel = vm::setModel,
+                onPickThinking = vm::setThinkingLevel,
+                sendEnabled = !state.running && !state.uploading,
+                sending = state.running,
+                onSend = vm::send,
+                maxLines = 5,
+                horizontalPadding = 12.dp,
+            )
         }
     }
 }

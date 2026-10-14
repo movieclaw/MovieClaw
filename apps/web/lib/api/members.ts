@@ -24,6 +24,8 @@ export interface MemberView {
   allow_subscribe: boolean;
   allow_search: boolean;
   allow_direct_download: boolean;
+  /** 下载影片到设备（App 离线下载、Jellyfin 客户端下载） */
+  allow_video_download: boolean;
   /** true=全部库可见（含未来新建）；false=按 library_ids 白名单 */
   all_libraries: boolean;
   /** 内容年龄上限（岁）；null=不限。超出的作品在墙/搜索/合集/Jellyfin/详情/起播六处都看不到 */
@@ -45,6 +47,7 @@ export interface MemberUpdatePayload {
   allow_subscribe?: boolean;
   allow_search?: boolean;
   allow_direct_download?: boolean;
+  allow_video_download?: boolean;
   all_libraries?: boolean;
   /** 内容年龄上限；**取消上限传 -1**（不传是「不改动」，两者不是一回事） */
   content_age_limit?: number;

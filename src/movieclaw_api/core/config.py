@@ -169,6 +169,11 @@ class Settings(BaseSettings):
     reels_clips_dir: str = Field(
         default="./data/cache/reels-clips", alias="MOVIECLAW_REELS_CLIPS_DIR"
     )
+    # 离线下载的转码导出（docs/design/offline-download.md §5.3）：App 选了 1080p / 720p / 480p
+    # 下载时服务端转出的整片 MP4，按导出指纹分目录；下载完或 72 小时没人取就回收
+    offline_exports_dir: str = Field(
+        default="./data/cache/offline-exports", alias="MOVIECLAW_OFFLINE_EXPORTS_DIR"
+    )
     # MKV 精简索引：只含视频轨索引点的 Cues，随播放会话下发，App 起播时不必再下原索引
     # （docs/design/playback-qoe.md §9.12）。每个文件一份几 KB～几十 KB 的记录，按 file_id 命名。
     playback_cues_cache_dir: str = Field(

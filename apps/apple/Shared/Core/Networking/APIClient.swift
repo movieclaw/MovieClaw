@@ -342,9 +342,16 @@ nonisolated struct APIClient: Sendable {
     func performReturningHeaders(_ request: URLRequest) async throws -> (Data, [String: String]) {
         let data: Data
         let response: URLResponse
+        let startedAt = Date()
         do {
             (data, response) = try await session.data(for: authorized(request), delegate: PerfTrace.enabled ? PerfTrace.NetworkMetrics.shared : nil)
         } catch let error as URLError {
+            #if os(iOS)
+            // 连通性判断旁听每个请求的结果（docs/design/offline-download.md §2.2）；常驻的 SSE 连接断开是常态，不算
+            if session !== Self.liveSession {
+                ServerReachability.report(origin: server.origin, outcome: .of(error), startedAt: startedAt)
+            }
+            #endif
             switch error.code {
             case .timedOut: throw APIError.timeout
             case .cancelled: throw CancellationError()
@@ -354,6 +361,11 @@ nonisolated struct APIClient: Sendable {
         guard let http = response as? HTTPURLResponse else {
             throw APIError.network("服务器响应异常")
         }
+        #if os(iOS)
+        if session !== Self.liveSession {
+            ServerReachability.report(origin: server.origin, outcome: .of(http), startedAt: startedAt)
+        }
+        #endif
         guard (200 ..< 300).contains(http.statusCode) else {
             let body = try? Self.decoder.decode(APIErrorBody.self, from: data)
             let message = (body ?? APIErrorBody(message: nil, code: nil, details: nil)).userMessage(status: http.statusCode)

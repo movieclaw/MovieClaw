@@ -36,6 +36,10 @@ def unauthorized() -> JellyfinError:
     return JellyfinError(401)
 
 
+def forbidden() -> JellyfinError:
+    return JellyfinError(403)
+
+
 def bad_request_text(text: str = GENERIC_ERROR_TEXT) -> JellyfinError:
     return JellyfinError(400, text=text)
 

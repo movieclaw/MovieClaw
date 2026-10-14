@@ -78,6 +78,7 @@ async def update_member(
     allow_subscribe: bool | None = None,
     allow_search: bool | None = None,
     allow_direct_download: bool | None = None,
+    allow_video_download: bool | None = None,
     all_libraries: bool | None = None,
     library_ids: list[int] | None = None,
     all_sites: bool | None = None,
@@ -111,6 +112,8 @@ async def update_member(
         member.allow_search = allow_search
     if allow_direct_download is not None:
         member.allow_direct_download = allow_direct_download
+    if allow_video_download is not None:
+        member.allow_video_download = allow_video_download
     if all_libraries is not None:
         member.all_libraries = all_libraries
     if all_sites is not None:

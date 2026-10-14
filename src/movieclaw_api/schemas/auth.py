@@ -75,6 +75,9 @@ class SessionCapabilities(BaseModel):
     allow_subscribe: bool = True
     allow_search: bool = True
     allow_direct_download: bool = True
+    #: 下载影片到设备（docs/design/offline-download.md §9）。可空给生成的客户端类型看：
+    #: 旧服务器没有这个字段，客户端把「缺失」当成「服务器不支持离线下载」
+    allow_video_download: bool | None = True
 
 
 class DeviceBrief(BaseModel):

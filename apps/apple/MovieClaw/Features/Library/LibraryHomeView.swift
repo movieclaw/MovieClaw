@@ -33,12 +33,19 @@ struct LibraryHomeView: View {
     @State private var clearingLibrary = false
     /// 片段（docs/design/reels.md）：蜂窝网络下进入前的确认
     @State private var confirmingReelsOnCellular = false
+    /// 离线模式（docs/design/offline-download.md §1）：同一个页签，内容换成 iPhone 上已下载的
+    @State private var reachability = ServerReachability.shared
+    @State private var offline = OfflineStore.shared
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                content
-                footer
+                if reachability.isOffline {
+                    OfflineLibraryHomeView()
+                } else {
+                    content
+                    footer
+                }
             }
             .padding(.bottom, 32)
         }
@@ -185,9 +192,18 @@ struct LibraryHomeView: View {
             .padding(.top, 64)
         } else if let libraries {
             if failed {
-                Text("与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据")
-                    .font(.footnote)
-                    .foregroundStyle(Color(red: 0.99, green: 0.9, blue: 0.54))
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据")
+                        .font(.footnote)
+                        .foregroundStyle(Color(red: 0.99, green: 0.9, blue: 0.54))
+                    // 断网时不自动切离线（网慢不误判），给一个按钮由用户决定（docs/design/offline-download.md §2.4）
+                    if !offline.downloadedItemIds.isEmpty {
+                        Button("看 iPhone 上的 \(offline.downloadedItemIds.count) 部") { reachability.enterOffline() }
+                            .font(.footnote.weight(.semibold))
+                            .buttonStyle(.glass)
+                            .accessibilityIdentifier("enter-offline")
+                    }
+                }
                     .padding(.horizontal, 16).padding(.vertical, 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Theme.warning.opacity(0.1), in: .rect(cornerRadius: 12))
@@ -224,6 +240,7 @@ struct LibraryHomeView: View {
                     .padding(.top, 64)
                     .accessibilityIdentifier("home-all-hidden")
                 }
+                OfflineDownloadingRow()
                 ForEach(visibleRows) { row in
                     rowView(row)
                 }
@@ -371,6 +388,7 @@ struct LibraryHomeView: View {
                         .buttonStyle(.plain)
                         .contextMenu {
                             ForEach(item.info, id: \.self) { Text($0) }
+                            OfflineDeleteMenuButton(itemId: item.id, title: item.title)
                         }
                     }
                 }

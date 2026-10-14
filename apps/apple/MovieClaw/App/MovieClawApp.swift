@@ -29,7 +29,20 @@ struct MovieClawApp: App {
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         PushCenter.shared.start()
+        // 离线下载：重建同名的后台下载会话，系统据此交付上次没交付的事件（后台下完的文件）
+        OfflineDownloader.shared.activate()
         return true
+    }
+
+    /// 后台下载有事件要交付（下完、失败）：系统把 App 唤醒，处理完调 completionHandler
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        guard OfflineDownloader.sessionIdentifiers.contains(identifier) else {
+            completionHandler()
+            return
+        }
+        OfflineDownloader.shared.backgroundCompletions[identifier] = completionHandler
+        OfflineDownloader.shared.activate()
     }
 
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {

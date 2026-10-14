@@ -489,29 +489,31 @@ class AgentConversationViewModel @Inject constructor(
     }
 
     /** 图片附件:读字节 → multipart 上传 → 记录 attachment_id */
-    fun attachImage(uri: Uri) {
+    fun attachImage(uri: android.net.Uri) {
         _ui.update { it.copy(uploading = true) }
         viewModelScope.launch {
-            val origin = sessionRepository.ui.value.origin ?: return@launch
-            val bytes = withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                }.getOrNull()
-            }
-            if (bytes == null) {
-                _ui.update { it.copy(uploading = false, notice = McNotice("无法读取所选图片", FeedbackTone.Error)) }
+            val origin = sessionRepository.ui.value.origin
+            if (origin == null) {
+                _ui.update { it.copy(uploading = false) }
                 return@launch
             }
-            val temp = File(context.cacheDir, "agent_upload_${System.currentTimeMillis()}.jpg")
-            withContext(Dispatchers.IO) { runCatching { temp.writeBytes(bytes) } }
-            runCatching {
-                val part = MultipartBody.Part.createFormData("file", temp.name, temp.asRequestBody("image/jpeg".toMediaType()))
-                apiFactory.forOrigin(origin).uploadAgentAttachment(part).dataOrThrow()
-            }
-                .onSuccess { attachment ->
-                    _ui.update { it.copy(uploading = false, attachments = it.attachments + attachment) }
+            val api = apiFactory.forOrigin(origin)
+            when (val outcome = uploadAgentAttachment(context, uri) { file, mime ->
+                val part = okhttp3.MultipartBody.Part.createFormData(
+                    "file", file.name, file.asRequestBody(mime.toMediaType()),
+                )
+                api.uploadAgentAttachment(part).dataOrThrow()
+            }) {
+                is UploadOutcome.Ok -> _ui.update {
+                    it.copy(uploading = false, attachments = it.attachments + outcome.attachment)
                 }
-                .onFailure { e -> _ui.update { it.copy(uploading = false, notice = McNotice(friendlyMessage(e), FeedbackTone.Error)) } }
+                UploadOutcome.Unreadable -> _ui.update {
+                    it.copy(uploading = false, notice = McNotice("无法读取所选图片", FeedbackTone.Error))
+                }
+                is UploadOutcome.Failed -> _ui.update {
+                    it.copy(uploading = false, notice = McNotice(friendlyMessage(outcome.error), FeedbackTone.Error))
+                }
+            }
         }
     }
 

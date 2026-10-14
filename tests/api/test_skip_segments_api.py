@@ -525,9 +525,12 @@ def _track_parallel_reads(monkeypatch, delay: float = 0.05) -> dict[str, int]:
 class _FakeTranscode:
     """转码会话管理器里的一路会话（只带 ``playback_load`` 看的字段）。"""
 
-    def __init__(self, *, transcoding: bool = True, remote: bool = False) -> None:
+    def __init__(
+        self, *, transcoding: bool = True, remote: bool = False, export_id: str | None = None
+    ) -> None:
         self.is_transcoding = transcoding
         self.remote = remote
+        self.export_id = export_id
         self.last_ping = time.monotonic()
 
 
@@ -612,7 +615,8 @@ def test_backfill_pauses_while_transcoding_and_resumes_after(
 
 
 def test_playback_load_tiers() -> None:
-    """转码 > 在看 > 空闲；外置 Worker 上的转码、本机直通都不算本机转码；没心跳的会话不算。"""
+    """转码 > 在看 > 空闲；外置 Worker 上的转码、本机直通都不算本机转码；没心跳的会话不算。
+    外置 Worker 上的离线导出什么都不算。"""
     manager = get_session_manager()
     activity.reset()
     cases = [
@@ -620,6 +624,9 @@ def test_playback_load_tiers() -> None:
         ([_FakeTranscode(transcoding=False)], skip_segments.PLAYING),
         ([_FakeTranscode(remote=True)], skip_segments.PLAYING),
         ([_FakeTranscode(transcoding=False), _FakeTranscode()], skip_segments.TRANSCODING),
+        # 离线导出：在转码器上转的没人在看、不占本机，不算负载；在本机转的照样算本机转码
+        ([_FakeTranscode(remote=True, export_id="e")], skip_segments.IDLE),
+        ([_FakeTranscode(export_id="e")], skip_segments.TRANSCODING),
     ]
     stale = _FakeTranscode()
     stale.last_ping -= 60

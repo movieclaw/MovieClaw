@@ -134,6 +134,8 @@ def user_policy(
         )
         policy["IsAdministrator"] = False
         policy["IsDisabled"] = member.status != "active"
+        # 下载影片到设备（member-permissions-v2.md §3.2）：客户端据此显示 / 隐藏下载按钮
+        policy["EnableContentDownloading"] = bool(member.allow_video_download)
         return policy
     policy = _admin_policy()
     if visible_library_ids is not None:

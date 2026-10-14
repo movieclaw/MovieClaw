@@ -55,6 +55,8 @@ class StreamMeter:
     #: 本条连接的 Range 起点。整文件下载据此还原"下载到文件哪个位置"——
     #: 断点续传从中间开始，只看 bytes_sent 会把进度算回 0。
     start_offset: int = 0
+    #: 离线下载的转码导出号（下的是导出产物时）：活动页据此把这一行换成转码信息
+    export_id: str | None = None
     started_at: datetime = field(default_factory=utcnow)
     bytes_sent: int = 0
     _samples: deque = field(default_factory=deque)  # [(monotonic, 字节数)]
@@ -263,6 +265,7 @@ def register_stream(
     size_bytes: int,
     client: ClientInfo,
     start_offset: int = 0,
+    export_id: str | None = None,
 ) -> StreamMeter:
     """登记一条开始服务的字节流并返回其计量器。
 
@@ -279,6 +282,7 @@ def register_stream(
         size_bytes=size_bytes,
         client=client,
         start_offset=start_offset,
+        export_id=export_id,
     )
     _meters.append(meter)
     if kind == STREAM_KIND_PLAY:

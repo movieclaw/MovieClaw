@@ -162,6 +162,9 @@ class RemoteWorkerRegistry:
         self._progress_samples: dict[str, tuple[float, int]] = {}
         self._job_speeds: dict[str, tuple[float, int, float]] = {}
         self._paused_jobs: set[str] = set()
+        #: 可被播放挤掉的任务（离线下载的转码导出）：播放视角下它们占的名额算空闲，
+        #: 真要派播放任务时由会话层先停掉它（session.py ``_evict_export_for_remote``）
+        self._preemptible_jobs: set[str] = set()
 
     # -- Worker 生命周期 -------------------------------------------------
 
@@ -294,12 +297,50 @@ class RemoteWorkerRegistry:
     # -- 能力与状态 ------------------------------------------------------
 
     def has_capable_worker(
-        self, backend: str = "videotoolbox", segment_type: str = "fmp4", *, disc: bool = False
+        self,
+        backend: str = "videotoolbox",
+        segment_type: str = "fmp4",
+        *,
+        disc: bool = False,
+        strict: bool = False,
     ) -> bool:
-        """同步查询是否有能执行指定后端、回传指定分片类型（原盘还要能读原盘）的空闲 Worker。"""
+        """同步查询是否有能执行指定后端、回传指定分片类型（原盘还要能读原盘）的空闲 Worker。
+
+        默认是播放视角：离线导出占着的名额算空闲（播放来了它让路）。``strict`` 只认真正
+        空着的名额——离线导出自己排队时用，不能把别的导出当成可挤掉的。"""
         if not remote_worker_enabled():
             return False
-        return self._select_worker(backend, segment_type, disc=disc) is not None
+        return (
+            self._select_worker(backend, segment_type, disc=disc, yield_preemptible=not strict)
+            is not None
+        )
+
+    def workers_have_encoder(self, encoder: str, backend: str = "videotoolbox") -> bool:
+        with self._lock:
+            workers = [
+                c
+                for c in self._workers.values()
+                if backend in c.capabilities.backends and self._is_fresh(c)
+            ]
+            return bool(workers) and all(encoder in c.capabilities.encoders for c in workers)
+
+    def preemptible_job_for(
+        self, backend: str = "videotoolbox", segment_type: str = "fmp4", *, disc: bool = False
+    ) -> str | None:
+        """播放要派任务、却只剩被离线导出占着的名额：返回该让路的导出任务号。
+
+        有真正空着的名额就返回 None——不为了播放白白打断导出。"""
+        if not remote_worker_enabled():
+            return None
+        with self._lock:
+            if self._select_worker(backend, segment_type, disc=disc) is not None:
+                return None
+            connection = self._select_worker(
+                backend, segment_type, disc=disc, yield_preemptible=True
+            )
+            if connection is None:
+                return None
+            return next(iter(sorted(connection.jobs & self._preemptible_jobs)), None)
 
     def has_busy_worker(self, backend: str = "videotoolbox") -> bool:
         """有能执行这个后端的 Worker 在线，只是任务名额都占满了（正在排空的不算）。
@@ -312,7 +353,8 @@ class RemoteWorkerRegistry:
         with self._lock:
             return any(
                 backend in connection.capabilities.backends
-                and len(connection.jobs) >= connection.max_jobs
+                # 离线导出占着的名额播放来了就让出来，不算「满」
+                and len(connection.jobs - self._preemptible_jobs) >= connection.max_jobs
                 and not connection.draining
                 and self._is_fresh(connection)
                 for connection in self._workers.values()
@@ -419,6 +461,7 @@ class RemoteWorkerRegistry:
         plan: PlaybackPlan | None = None,
         source_id: int | None = None,
         learn_speed: bool = False,
+        preemptible: bool = False,
     ) -> WorkerConnection:
         """选一个空闲 Worker 并占住槽位，返回它的连接。
 
@@ -455,6 +498,8 @@ class RemoteWorkerRegistry:
                 attempt_id if isinstance(attempt_id, str) and attempt_id else job_id
             )
             connection.jobs.add(job_id)
+            if preemptible:
+                self._preemptible_jobs.add(job_id)
             if plan is not None and source_id is not None and learn_speed:
                 self._job_profiles[job_id] = self._profile(plan, source_id)
         return connection
@@ -655,15 +700,18 @@ class RemoteWorkerRegistry:
         disc: bool = False,
         plan: PlaybackPlan | None = None,
         source_id: int | None = None,
+        yield_preemptible: bool = False,
     ) -> WorkerConnection | None:
+        """``yield_preemptible``：把离线导出占着的名额也算空闲（播放视角）。"""
         with self._lock:
+            preemptible = self._preemptible_jobs if yield_preemptible else set()
             candidates = [
                 connection
                 for connection in self._workers.values()
                 if backend in connection.capabilities.backends
                 and segment_type in connection.capabilities.segment_types
                 and (not disc or connection.capabilities.disc_sources)
-                and len(connection.jobs) < connection.max_jobs
+                and len(connection.jobs - preemptible) < connection.max_jobs
                 and not connection.draining
                 and self._is_fresh(connection)
             ]
@@ -813,6 +861,7 @@ class RemoteWorkerRegistry:
             self._progress_samples.pop(job_id, None)
             self._job_speeds.pop(job_id, None)
             self._paused_jobs.discard(job_id)
+            self._preemptible_jobs.discard(job_id)
             if worker_id:
                 connection = self._workers.get(worker_id)
                 if connection is not None:
@@ -943,10 +992,21 @@ def effective_remote_transcode_config() -> RemoteTranscodeRuntimeConfig:
 
 
 def remote_worker_available(
-    backend: str = "videotoolbox", segment_type: str = "fmp4", *, disc: bool = False
+    backend: str = "videotoolbox",
+    segment_type: str = "fmp4",
+    *,
+    disc: bool = False,
+    strict: bool = False,
 ) -> bool:
-    """供播放决策/执行层同步查询远程硬件是否在线且有空闲槽位（``disc``：还要能读原盘）。"""
-    return _registry.has_capable_worker(backend, segment_type, disc=disc)
+    """供播放决策/执行层同步查询远程硬件是否在线且有空闲槽位（``disc``：还要能读原盘）。
+
+    离线导出占着的槽位对播放算空闲（播放来了它让路）；``strict`` 只认真正空着的。"""
+    return _registry.has_capable_worker(backend, segment_type, disc=disc, strict=strict)
+
+
+def remote_workers_have_encoder(encoder: str, backend: str = "videotoolbox") -> bool:
+    """在线、能执行这个后端的 Worker 都申报了这个编码器（任务派给谁由调度定，得人人都有）。"""
+    return _registry.workers_have_encoder(encoder, backend)
 
 
 def remote_worker_busy(backend: str = "videotoolbox") -> bool:

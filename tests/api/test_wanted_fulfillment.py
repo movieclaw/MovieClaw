@@ -143,7 +143,7 @@ async def test_inventory_emits_fulfilled_event(db, monkeypatch):
 
     emitted = []
 
-    async def publish(session, event, build):  # type: ignore[no-untyped-def]
+    async def publish(session, event, build, *, occurred_at=None):  # type: ignore[no-untyped-def]
         if event.name == "subscription.fulfilled":
             emitted.append(build())
 

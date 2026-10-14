@@ -287,6 +287,20 @@ private nonisolated struct AuthorizedDataLoader: DataLoading {
            let token = AuthTokenRegistry.shared.token(for: url) {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        #if os(iOS)
+        // 离线下载的本机图片（docs/design/offline-download.md §4）：离线模式直接用、不发请求；在线时请求失败才回落
+        if let url = request.url, OfflineModeFlag.isOffline, let data = OfflineImages.shared.localData(for: url) {
+            Self.deliver(data, url: url, didReceiveData: didReceiveData, completion: completion)
+            return RetryingTask()
+        }
+        let completion: @Sendable (Error?) -> Void = { [url = request.url] error in
+            if error != nil, let url, let data = OfflineImages.shared.localData(for: url) {
+                Self.deliver(data, url: url, didReceiveData: didReceiveData, completion: completion)
+            } else {
+                completion(error)
+            }
+        }
+        #endif
         guard let fallback = Self.withoutVariant(request) else {
             return base.loadData(with: request, didReceiveData: didReceiveData, completion: completion)
         }
@@ -300,6 +314,17 @@ private nonisolated struct AuthorizedDataLoader: DataLoading {
             }
         }
         return task
+    }
+
+    private static func deliver(
+        _ data: Data, url: URL,
+        didReceiveData: @escaping @Sendable (Data, URLResponse) -> Void,
+        completion: @escaping @Sendable (Error?) -> Void
+    ) {
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)
+            ?? URLResponse(url: url, mimeType: nil, expectedContentLength: data.count, textEncodingName: nil)
+        didReceiveData(data, response)
+        completion(nil)
     }
 
     /// 带 `variant` 的请求去掉这个参数；不带的返回 nil（不需要兜底）

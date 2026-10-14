@@ -1219,3 +1219,50 @@ def test_remote_disc_reads_the_concat_list_over_http():
     i = argv.index("-i")
     assert argv[i - 4 : i] == ["-f", "concat", "-safe", "0"]
     assert "-reconnect" in argv[:i]
+
+
+# ---------------------------------------------------------------------------
+# 离线导出的 HEVC 输出（offline-download.md §5.1）：只在 VideoToolbox 上出
+# ---------------------------------------------------------------------------
+
+
+def _hevc_plan(height: int = 1080) -> PlaybackPlan:
+    return plan(
+        PlaybackTier.HARDWARE_TRANSCODE,
+        video=VideoPlan(
+            action="transcode", codec="hevc", source_codec="h264", source_bit_depth=8,
+            height=height,
+        ),
+        audio=AudioPlan(action="transcode", codec="aac", channels=2, track_ref="embedded:0"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("height", "maxrate", "bufsize"), [(1080, "4M", "8M"), (720, "2M", "4M"), (480, "1M", "2M")]
+)
+def test_hevc_export_on_videotoolbox(height, maxrate, bufsize):
+    argv = argv_of(_hevc_plan(height), hw_backend="videotoolbox", start_number=0)
+    assert pair(argv, "-c:v") == "hevc_videotoolbox"
+    assert pair(argv, "-profile:v") == "main"
+    assert pair(argv, "-tag:v") == "hvc1"  # Apple 只认 hvc1
+    assert pair(argv, "-maxrate") == maxrate and pair(argv, "-bufsize") == bufsize
+    # hevc_videotoolbox 没有这个选项；High@4.1 是 H.264 的概念
+    assert "-a53cc" not in argv and "-level:v" not in argv
+
+
+def test_hevc_export_on_the_mac_gpu_chain_keeps_hardware_frames():
+    caps = WorkerVideoCaps(hw_decoders=frozenset({"h264"}), filters=frozenset({"scale_vt"}))
+    argv = argv_of(
+        _hevc_plan(), hw_backend="videotoolbox", worker_caps=caps, start_number=0
+    )
+    assert pair(argv, "-c:v") == "hevc_videotoolbox"
+    assert "-pix_fmt" not in argv  # GPU 链路的帧已是 NV12 硬件帧，再要 yuv420p 会接不上
+
+
+@pytest.mark.parametrize("backend", [None, "vaapi"])
+def test_hevc_plan_without_a_hevc_encoder_stays_h264(backend):
+    """没有 HEVC 编码器的后端（NAS 软件、其他显卡）：照旧出 H.264，不会报错。"""
+    argv = argv_of(_hevc_plan(), hw_backend=backend, start_number=0)
+    assert pair(argv, "-c:v") in {"libx264", "h264_vaapi"}
+    assert pair(argv, "-tag:v") == "avc1"
+    assert pair(argv, "-maxrate") == "6M"  # 码率也按 H.264 给

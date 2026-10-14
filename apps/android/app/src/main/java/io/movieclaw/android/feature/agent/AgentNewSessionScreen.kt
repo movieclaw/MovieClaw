@@ -2,6 +2,8 @@ package io.movieclaw.android.feature.agent
 
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.asRequestBody
+import io.movieclaw.android.core.designsystem.FeedbackTone
+import io.movieclaw.android.core.designsystem.McNotice
 import io.movieclaw.android.core.designsystem.AccentSoft
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.foundation.clickable
@@ -128,49 +130,26 @@ class AgentNewSessionViewModel @Inject constructor(
         viewModelScope.launch {
             val origin = sessionRepository.ui.value.origin
             if (origin == null) {
-                _ui.update { it.copy(uploading = false) }   // 别把"上传中…"挂在界面上
+                _ui.update { it.copy(uploading = false) }
                 return@launch
             }
-            val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
-            }
-            if (bytes == null) {
-                _ui.update {
-                    it.copy(
-                        uploading = false,
-                        notice = io.movieclaw.android.core.designsystem.McNotice("无法读取所选图片", io.movieclaw.android.core.designsystem.FeedbackTone.Error),
-                    )
-                }
-                return@launch
-            }
-            // 扩展名/MIME 都按真实类型来（原来是写死的 .jpg + image/jpeg，PNG 会被当成 JPEG 传上去）
-            val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
-            val ext = when (mime) {
-                "image/png" -> "png"
-                "image/webp" -> "webp"
-                "image/gif" -> "gif"
-                "image/heic", "image/heif" -> "heic"
-                else -> "jpg"
-            }
-            val temp = java.io.File(context.cacheDir, "agent_upload_${System.currentTimeMillis()}.$ext")
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { temp.writeBytes(bytes) } }
-            runCatching {
+            val api = apiFactory.forOrigin(origin)
+            when (val outcome = uploadAgentAttachment(context, uri) { file, mime ->
                 val part = okhttp3.MultipartBody.Part.createFormData(
-                    "file", temp.name, temp.asRequestBody(mime.toMediaType()),
+                    "file", file.name, file.asRequestBody(mime.toMediaType()),
                 )
-                apiFactory.forOrigin(origin).uploadAgentAttachment(part).dataOrThrow()
-            }
-                .onSuccess { attachment -> _ui.update { it.copy(uploading = false, attachments = it.attachments + attachment) } }
-                .onFailure { e ->
-                    _ui.update {
-                        it.copy(
-                            uploading = false,
-                            notice = io.movieclaw.android.core.designsystem.McNotice(friendlyMessage(e), io.movieclaw.android.core.designsystem.FeedbackTone.Error),
-                        )
-                    }
+                api.uploadAgentAttachment(part).dataOrThrow()
+            }) {
+                is UploadOutcome.Ok -> _ui.update {
+                    it.copy(uploading = false, attachments = it.attachments + outcome.attachment)
                 }
-            // 传完就删临时文件（原来一直堆在 cacheDir 里）
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { temp.delete() } }
+                UploadOutcome.Unreadable -> _ui.update {
+                    it.copy(uploading = false, notice = McNotice("无法读取所选图片", FeedbackTone.Error))
+                }
+                is UploadOutcome.Failed -> _ui.update {
+                    it.copy(uploading = false, notice = McNotice(friendlyMessage(outcome.error), FeedbackTone.Error))
+                }
+            }
         }
     }
 
@@ -248,144 +227,34 @@ fun AgentNewSessionScreen(
         val pickImage = androidx.activity.compose.rememberLauncherForActivityResult(
             androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
         ) { uri -> uri?.let(vm::attachImage) }
-        if (state.attachments.isNotEmpty() || state.uploading) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            ) {
-                state.attachments.forEach { attachment ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(AccentSoft)
-                            .clickable { vm.removeAttachment(attachment.attachmentId) }
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
-                    ) {
-                        Icon(Icons.Rounded.Image, contentDescription = null, tint = Accent, modifier = Modifier.size(13.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text(attachment.name.take(18), fontSize = 11.sp, color = Accent)
-                        Spacer(Modifier.width(5.dp))
-                        Text("×", fontSize = 12.sp, color = Accent)
-                    }
-                }
-                if (state.uploading) {
-                    Text("上传中…", fontSize = 11.sp, color = TextFaint)
-                }
-            }
-        }
-        // 输入区与对话页同一套（iOS `AgentComposer` 结构）：容器里是输入框 + 底部工具行，
-        // 工具行里放模型 chip 与发送键——两页观感一致，首条消息也能先选模型
-        var showModelMenu by remember { mutableStateOf(false) }
-        Column(
-            Modifier
-                .padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(22.dp))
-                .background(Color.White.copy(alpha = 0.05f))
-                .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(22.dp)),
-        ) {
-            TextField(
-                value = state.input,
-                onValueChange = vm::onInput,
-                placeholder = { Text("描述你的需求…", fontSize = 15.sp, color = TextFaint) },
-                minLines = 3,
-                maxLines = 8,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { vm.create(onCreated) }),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    cursorColor = Accent,
-                ),
-                shape = RoundedCornerShape(22.dp),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            )
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(
-                    onClick = {
-                        pickImage.launch(
-                            androidx.activity.result.PickVisualMediaRequest(
-                                androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
-                            )
-                        )
-                    },
-                    modifier = Modifier.size(44.dp),
-                ) {
-                    Icon(Icons.Rounded.Image, contentDescription = "添加图片", tint = TextMuted, modifier = Modifier.size(20.dp))
-                }
-                if (state.models.isNotEmpty()) {
-                    ModelChip(
-                        label = AgentThinking.resolve(state.models, state.modelRef)?.label ?: "模型",
-                        enabled = !state.creating,
-                        onClick = { showModelMenu = true },
+        // 与对话页共用的 composer（附件 tray + 输入容器 + 工具行 + 模型菜单都在组件里）
+        AgentComposerBar(
+            input = state.input,
+            onInput = vm::onInput,
+            placeholder = "描述你的需求…",
+            attachments = state.attachments,
+            uploading = state.uploading,
+            onPickImage = {
+                pickImage.launch(
+                    androidx.activity.result.PickVisualMediaRequest(
+                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
                     )
-                }
-                Spacer(Modifier.weight(1f))
-                val canSend = !state.creating && !state.uploading &&
-                    (state.input.isNotBlank() || state.attachments.isNotEmpty())
-                IconButton(
-                    onClick = { vm.create(onCreated) },
-                    enabled = canSend,
-                    modifier = Modifier.size(44.dp).background(
-                        if (canSend) Accent else Color.White.copy(alpha = 0.08f),
-                        CircleShape,
-                    ),
-                ) {
-                    if (state.creating) {
-                        CircularProgressIndicator(color = TextMuted, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.Send,
-                            contentDescription = "开始对话",
-                            tint = Color(0xFF0A0E12),
-                            modifier = Modifier.size(19.dp),
-                        )
-                    }
-                }
-            }
-        }
-        state.error?.let {
-            Text(it, fontSize = 12.sp, color = Danger, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
-        }
-        Spacer(Modifier.height(14.dp))
-        Spacer(Modifier.height(6.dp))
-        if (showModelMenu) {
-            val menuOffset = with(androidx.compose.ui.platform.LocalDensity.current) {
-                androidx.compose.ui.unit.IntOffset(16.dp.roundToPx(), (-210).dp.roundToPx())
-            }
-            androidx.compose.ui.window.Popup(
-                alignment = Alignment.TopStart,
-                offset = menuOffset,
-                onDismissRequest = { showModelMenu = false },
-                properties = androidx.compose.ui.window.PopupProperties(focusable = true),
-            ) {
-                io.movieclaw.android.core.designsystem.MenuAppear(originX = 0.12f, originY = 1f) {
-                    androidx.compose.material3.Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = io.movieclaw.android.core.designsystem.MenuSurface,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, io.movieclaw.android.core.designsystem.LineColor),
-                        shadowElevation = 12.dp,
-                    ) {
-                        ModelMenu(
-                            models = state.models,
-                            modelRef = state.modelRef,
-                            thinkingLevel = state.thinkingLevel,
-                            onPickModel = { ref ->
-                                vm.setModel(ref)
-                                showModelMenu = false
-                            },
-                            onPickThinking = { level -> vm.setThinkingLevel(level) },
-                        )
-                    }
-                }
-            }
-        }
+                )
+            },
+            onRemoveAttachment = vm::removeAttachment,
+            models = state.models,
+            modelRef = state.modelRef,
+            thinkingLevel = state.thinkingLevel,
+            onPickModel = vm::setModel,
+            onPickThinking = vm::setThinkingLevel,
+            sendEnabled = !state.creating && !state.uploading &&
+                (state.input.isNotBlank() || state.attachments.isNotEmpty()),
+            sending = state.creating,
+            onSend = { vm.create(onCreated) },
+            minLines = 3,
+            maxLines = 8,
+            horizontalPadding = 16.dp,
+            menuLift = 210.dp,
+        )
     }
 }

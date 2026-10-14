@@ -206,6 +206,7 @@ struct AccountSwitcherSheet: View {
             ? "这是当前账号。退出后本机不再保留它的登录状态，会自动切到其他账号；再回来需要重新输入密码。"
             : "本机将不再保留它的登录状态，再回来需要重新输入密码。账号本身不受影响。"
         guard await feedback.confirm("退出「\(account.nickname)」？", message: message, confirmTitle: "退出", destructive: true) else { return }
+        if isCurrent { await OfflineDownloadCleanup.askOnLogout(feedback: feedback) }
         busy = true
         defer { busy = false }
         do {
@@ -225,6 +226,7 @@ struct AccountSwitcherSheet: View {
             message: "\(scope)都会退出登录，再回来需要逐个重新输入密码。共用设备时建议这样做。",
             confirmTitle: "全部退出", destructive: true
         ) else { return }
+        await OfflineDownloadCleanup.askOnLogoutEverywhere(feedback: feedback)
         dismiss()
         model.logoutEverywhere()
     }

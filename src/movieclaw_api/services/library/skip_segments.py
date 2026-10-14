@@ -280,7 +280,12 @@ def playback_load() -> str:
     iOS / Jellyfin 客户端都汇到这里）。外置 Worker 上的转码不占本机 CPU，按「在看」算。
     """
     now = time.monotonic()
-    fresh = [t for t in get_session_manager().active() if now - t.last_ping <= _FRESH_S]
+    fresh = [
+        t
+        for t in get_session_manager().active()
+        # 外置 Worker 上的离线导出没人在看、也不占本机：不算负载
+        if now - t.last_ping <= _FRESH_S and not (t.export_id is not None and t.remote)
+    ]
     if any(t.is_transcoding and not t.remote for t in fresh):
         return TRANSCODING
     if fresh:

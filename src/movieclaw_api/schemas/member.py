@@ -24,6 +24,7 @@ class MemberUpdateRequest(BaseModel):
     allow_subscribe: bool | None = None
     allow_search: bool | None = None
     allow_direct_download: bool | None = None
+    allow_video_download: bool | None = None
     all_libraries: bool | None = Field(
         default=None, description="True=全部库可见（含未来新建）；False=按 library_ids 白名单"
     )
@@ -75,6 +76,8 @@ class MemberView(BaseModel):
     allow_subscribe: bool
     allow_search: bool
     allow_direct_download: bool
+    #: 可空给生成的客户端类型看：旧服务器没有这个字段，App 解码成员列表不能因此失败
+    allow_video_download: bool | None = True
     all_libraries: bool
     library_ids: list[int] = Field(default_factory=list)
     all_sites: bool

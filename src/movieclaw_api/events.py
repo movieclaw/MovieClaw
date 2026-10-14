@@ -83,11 +83,16 @@ def _utc_text(value: datetime) -> str:
 
 
 async def publish(
-    session: AsyncSession, event: Event[P, Any], build: Callable[[], Any]
+    session: AsyncSession,
+    event: Event[P, Any],
+    build: Callable[[], Any],
+    *,
+    occurred_at: datetime | None = None,
 ) -> None:
     """在业务事务里发一个事件，随调用方下一次提交成立。
 
-    ``build`` 可同步可异步，返回 ``None`` 表示不发。
+    ``build`` 可同步可异步，返回 ``None`` 表示不发。``occurred_at``（不带时区的 UTC）
+    给补传的事件用：离线观看记录回到服务器时，事件时间是它真正发生的时间。
     """
     try:
         live = listening(event)
@@ -102,7 +107,7 @@ async def publish(
         from movieclaw_db.models import utcnow
 
         event_id = new_ulid()
-        occurred_at = utcnow()
+        occurred_at = occurred_at or utcnow()
         origin = current_origin.get()
         if durable:
             from movieclaw_api.services import durable_events

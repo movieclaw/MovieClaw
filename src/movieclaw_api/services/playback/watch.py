@@ -207,6 +207,8 @@ async def _open_log(
                 PlaybackLog.season_number == unit[1],
                 PlaybackLog.episode_number == unit[2],
                 PlaybackLog.ended_at.is_(None),  # type: ignore[union-attr]
+                # 本机播放的观看记录（离线补传）是另一条通道，按编号合并；实时上报不往它上面接
+                PlaybackLog.viewing_id.is_(None),  # type: ignore[union-attr]
             )
             .order_by(PlaybackLog.id.desc())  # type: ignore[union-attr]
             .limit(1)

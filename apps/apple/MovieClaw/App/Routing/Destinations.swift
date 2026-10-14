@@ -17,10 +17,10 @@ extension AppRoute {
     private var page: some View {
         switch self {
         // 发现
-        case let .discover(kind): DiscoverView(kind: kind)
+        case let .discover(kind): OfflineGate { DiscoverView(kind: kind) }
         case let .discoverCollection(kind, provider, collectionId):
             DiscoverCollectionView(kind: kind, provider: provider, collectionId: collectionId)
-        case let .mediaDetail(titleRef): MediaDetailView(titleRef: titleRef)
+        case let .mediaDetail(titleRef): OfflineGate { MediaDetailView(titleRef: titleRef) }
         case let .person(tmdbId): PersonDetailView(tmdbId: tmdbId)
         case let .discoveredPerson(tmdbId): DiscoveredPersonView(tmdbId: tmdbId)
         // 媒体库
@@ -38,22 +38,23 @@ extension AppRoute {
         case let .libraryManage(create, tab, item): LibraryManageView(openCreate: create, initialTab: tab, initialItemId: item)
         case .reels: ReelsView()
         // 搜索
-        case let .searchHome(mode): SearchHomeView(initialMode: mode)
-        case let .search(query): SearchResultsView(query: query)
+        case let .searchHome(mode): OfflineGate { SearchHomeView(initialMode: mode) }
+        case let .search(query): OfflineGate { SearchResultsView(query: query) }
         // 订阅
-        case .subscriptions: SubscriptionsView()
-        case let .subscription(id, upgradeRun): SubscriptionDetailView(subscriptionId: id, openUpgradeRun: upgradeRun)
+        case .subscriptions: OfflineGate { SubscriptionsView() }
+        case let .subscription(id, upgradeRun): OfflineGate { SubscriptionDetailView(subscriptionId: id, openUpgradeRun: upgradeRun) }
         case let .subscriptionWall(kind): SubscriptionWallView(kind: kind)
         // 活动
         case .activity: ActivityView()
         case let .activityPage(page): ActivityPageView(page: page)
         // AI 会话
-        case .newSession: AgentNewSessionView()
-        case let .session(id): AgentConversationView(sessionId: id)
+        case .newSession: OfflineGate { AgentNewSessionView() }
+        case let .session(id): OfflineGate { AgentConversationView(sessionId: id) }
         // 我的 / 设置
         case .my: MorePage()
-        case .settings: SettingsIndexView()
-        case let .settingsSection(section, query): SettingsSectionView(section: section).environment(\.routeQuery, query)
+        case .offlineStorage: OfflineStorageView()
+        case .settings: OfflineGate { SettingsIndexView() }
+        case let .settingsSection(section, query): OfflineGate { SettingsSectionView(section: section).environment(\.routeQuery, query) }
         // Router 把它改成全屏呈现，不会真的压栈；这里只为穷举
         case let .deviceApproval(code, scannedHost): DeviceApprovalFlow(launch: DeviceApprovalLaunch(code: code, host: scannedHost))
         // 分享

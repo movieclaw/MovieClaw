@@ -297,3 +297,45 @@ async def test_reserve_is_fast_and_capacity_is_not_oversubscribed():
     with pytest.raises(RemoteWorkerUnavailable):
         r.reserve("overflow", backend="videotoolbox", plan=p)
     assert all(len(w.jobs) == 4 for w in workers)
+
+
+@pytest.mark.asyncio
+async def test_export_jobs_count_as_free_for_playback_and_name_the_one_to_evict(monkeypatch):
+    """离线导出占着的名额：播放视角算空闲，并指名该让路的导出；导出自己排队只认真空位。"""
+    monkeypatch.setattr(
+        "movieclaw_api.services.playback.remote_worker.remote_worker_enabled", lambda: True
+    )
+    r = RemoteWorkerRegistry()
+    await add(r, "mac", max_jobs=1)
+    r.reserve("export-job", backend="videotoolbox", preemptible=True)
+    assert r.has_capable_worker("videotoolbox")  # 播放：可以挤
+    assert not r.has_capable_worker("videotoolbox", strict=True)  # 导出：没空位
+    assert not r.has_busy_worker("videotoolbox")  # 不算「转码器忙」
+    assert r.preemptible_job_for("videotoolbox") == "export-job"
+    with pytest.raises(RemoteWorkerUnavailable):
+        r.reserve("playback-job", backend="videotoolbox")  # 不先停导出就占不上
+    r.remove_job("export-job")
+    assert r.reserve("playback-job", backend="videotoolbox").worker_id == "mac"
+    assert r.preemptible_job_for("videotoolbox") is None  # 播放的任务不可挤
+    assert r.has_busy_worker("videotoolbox")
+
+
+@pytest.mark.asyncio
+async def test_no_eviction_while_a_real_slot_is_free(monkeypatch):
+    monkeypatch.setattr(
+        "movieclaw_api.services.playback.remote_worker.remote_worker_enabled", lambda: True
+    )
+    r = RemoteWorkerRegistry()
+    await add(r, "mac", max_jobs=2)
+    r.reserve("export-job", backend="videotoolbox", preemptible=True)
+    assert r.preemptible_job_for("videotoolbox") is None
+
+
+@pytest.mark.asyncio
+async def test_hevc_only_when_every_online_worker_has_the_encoder():
+    r = RemoteWorkerRegistry()
+    assert not r.workers_have_encoder("hevc_videotoolbox")  # 没人在线
+    await add(r, "new", encoders=["h264_videotoolbox", "hevc_videotoolbox"])
+    assert r.workers_have_encoder("hevc_videotoolbox")
+    await add(r, "old")  # 只有 H.264 的旧 Worker：派给它就出不了 HEVC
+    assert not r.workers_have_encoder("hevc_videotoolbox")

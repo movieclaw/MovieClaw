@@ -149,6 +149,7 @@ struct ProfileSettingsView: View {
         guard await feedback.confirm("退出当前账号？",
             message: "将退出「\(session.nickname)」在本机的登录，其他已登录账号会保留。",
             confirmTitle: "退出登录", destructive: true) else { return }
+        await OfflineDownloadCleanup.askOnLogout(feedback: feedback)
         loggingOut = true
         await model.logout()
         loggingOut = false
