@@ -4,11 +4,27 @@ import SwiftUI
 /// 下载中（有才出现，每一集一行，下完就移到已下载）→ 清理建议（有已看完的才出现）
 /// → 已下载（点进条目、左滑 / 长按删除）→ 其他账号 → 容量条（放最后）；下载设置在右上角菜单。首页的「正在下载」提示条点进这里
 struct OfflineStorageView: View {
+    var body: some View {
+        List { OfflineStorageSections() }
+            .listStyle(.plain)
+            .listSectionSpacing(8)
+            .contentMargins(.bottom, 24, for: .scrollContent)
+            .appBackground()
+            .navigationTitle("下载")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { OfflineStorageSettingsMenu() }
+            }
+            .accessibilityIdentifier("offline-storage")
+    }
+}
+
+/// 同一份下载管理内容用于独立下载页和「我的」页签，避免在 List 中再嵌套 List。
+struct OfflineStorageSections: View {
+    var embedded = false
     @State private var store = OfflineStore.shared
-    @Environment(\.api) private var api
     @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var otherOwners: [(owner: OfflineOwner, bytes: Int64, items: Int)] = []
-    @State private var allowCellular = OfflineSettings.allowCellular
     @State private var confirm: Confirm?
     /// 容量条的读数：打开页面、下完一集、删除时才取一次（查磁盘余量不便宜，下载中也不该每秒跳）
     @State private var capacity: StorageCapacity?
@@ -30,7 +46,7 @@ struct OfflineStorageView: View {
         let items = store.downloadedItems
         let active = store.activeUnits
         let watched = watchedUnits
-        List {
+        Group {
             if !active.isEmpty {
                 Section {
                     ForEach(active) { unit in
@@ -40,7 +56,8 @@ struct OfflineStorageView: View {
                     }
                 } header: {
                     // 标识只挂在标题上：挂在 Section 上会盖掉每一行自己的标识
-                    Text("下载中").accessibilityIdentifier("offline-storage-downloading")
+                    Text("下载中").font(.headline).foregroundStyle(Theme.text)
+                        .accessibilityIdentifier("offline-storage-downloading")
                 }
             }
             if !watched.isEmpty {
@@ -48,9 +65,9 @@ struct OfflineStorageView: View {
                     HStack(spacing: 12) {
                         Image(systemName: "checkmark.circle.fill").font(.title2).foregroundStyle(Theme.success)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("删除已看完的")
+                            Text("删除已看完的").font(.body.weight(.medium))
                             Text("\(watched.count) 个已看完，占用 \(Formatters.bytes(Int(watched.reduce(0) { $0 + $1.receivedBytes })))")
-                                .font(.caption).foregroundStyle(Theme.textMuted)
+                                .font(.footnote).foregroundStyle(Theme.textMuted)
                         }
                         Spacer(minLength: 8)
                         Button("删除") { confirm = .watched }
@@ -61,7 +78,7 @@ struct OfflineStorageView: View {
                     .padding(.vertical, 2)
                 }
             }
-            Section("已下载") {
+            Section {
                 if items.isEmpty {
                     Text(active.isEmpty ? "还没有下载。在影片详情页点「下载」，没网的时候也能看。" : "下完的会出现在这里。")
                         .font(.subheadline).foregroundStyle(Theme.textMuted)
@@ -76,6 +93,19 @@ struct OfflineStorageView: View {
                     }
                     .modifier(confirmation(.items([item.mediaItemId])))
                 }
+            } header: {
+                HStack(spacing: 8) {
+                    Text("已下载").font(.headline).foregroundStyle(Theme.text)
+                    if !items.isEmpty {
+                        Text("\(items.count) 部").font(.subheadline).foregroundStyle(Theme.textMuted)
+                    }
+                    if embedded {
+                        Spacer()
+                        OfflineStorageSettingsMenu()
+                    }
+                }
+                .task { await loadOtherOwners() }
+                .task(id: store.doneBytes) { capacity = await StorageCapacity.read(downloads: store.doneBytes) }
             }
             if !otherOwners.isEmpty {
                 Section {
@@ -102,32 +132,14 @@ struct OfflineStorageView: View {
             Section {
                 StorageUsageBar(capacity: capacity)
                     .accessibilityIdentifier("offline-storage-summary")
+                    .padding(.top, 12)
             }
         }
-        .navigationTitle("下载")
-        .toolbar {
-            // 下载设置只有一项：右上角菜单里直接开关（同「文件」「照片」的显示选项），不单占一个分组
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Section("关闭时只在 Wi-Fi 下下载") {
-                        // 菜单里用系统勾选项：继承 App 全局的 SystemSwitchStyle 滑动开关的话，菜单项会变灰、点不动
-                        Toggle("使用蜂窝网络下载", systemImage: "antenna.radiowaves.left.and.right", isOn: $allowCellular)
-                            .toggleStyle(.automatic)
-                    }
-                } label: {
-                    Image(systemName: "gearshape")
-                }
-                .accessibilityLabel("下载设置")
-                .accessibilityIdentifier("offline-settings")
-            }
-        }
-        .onChange(of: allowCellular) { _, value in
-            OfflineSettings.allowCellular = value
-            OfflineDownloader.shared.applyNetworkSettings()
-        }
-        .task { await loadOtherOwners() }
-        .task(id: store.doneBytes) { capacity = await StorageCapacity.read(downloads: store.doneBytes) }
-        .accessibilityIdentifier("offline-storage")
+        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+        .listRowSeparator(.hidden)
+        .listSectionSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .textCase(nil)
     }
 
     /// 删除确认挂在触发它的那一行 / 那个按钮上：iOS 26 的确认框以气泡从来源处弹出，挂在整个列表上会浮在页面中间
@@ -149,18 +161,23 @@ struct OfflineStorageView: View {
         let units = store.units(ofItem: item.mediaItemId)
         let done = units.filter(\.playable)
         let active = units.filter(\.isActive)
-        return HStack(spacing: 12) {
-            LibraryArtwork(url: api.image(item.posterUrl, width: ImageWidth.points(44)), imageAspect: item.primaryAspect,
-                           frameAspect: Theme.posterAspect)
-                .frame(width: 44)
-                .clipShape(.rect(cornerRadius: 6))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title).lineLimit(1)
-                Text(detailLine(item, done: done, active: active)).font(.caption).foregroundStyle(Theme.textMuted).lineLimit(1)
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(spacing: 16))
+        return layout {
+            OfflineStoragePoster(item: item)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(item.title)
+                    .font(.body.weight(.semibold)).foregroundStyle(Theme.text)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(detailLine(item, done: done, active: active))
+                    .font(.footnote).foregroundStyle(Theme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(Formatters.bytes(Int(store.doneBytesByItem[item.mediaItemId] ?? 0)))
+                    .font(.footnote).monospacedDigit().foregroundStyle(Theme.textMuted)
             }
-            Spacer(minLength: 8)
-            Text(Formatters.bytes(Int(store.doneBytesByItem[item.mediaItemId] ?? 0))).font(.subheadline).monospacedDigit()
-                .foregroundStyle(Theme.textMuted)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("offline-storage-item-\(item.mediaItemId)")
     }
@@ -225,56 +242,86 @@ struct OfflineStorageView: View {
     }
 }
 
-/// 「下载中」的一行：小剧照（电影用横幅）+ 片名 + 哪一集 · 档位 + 状态与速度 + 进度。
+/// 下载中与已下载共用同一条海报、文字对齐线。
+private struct OfflineStoragePoster: View {
+    let item: OfflineItemSummary
+    @Environment(\.api) private var api
+
+    var body: some View {
+        LibraryArtwork(url: api.image(item.posterUrl, width: ImageWidth.points(60)),
+                       imageAspect: item.primaryAspect, frameAspect: Theme.posterAspect)
+            .frame(width: 60, height: 90)
+            .clipShape(.rect(cornerRadius: 8))
+            .accessibilityHidden(true)
+    }
+}
+
+/// 独立下载页用工具栏，内嵌下载列表用分区标题；共享同一个本机设置菜单。
+private struct OfflineStorageSettingsMenu: View {
+    @State private var allowCellular = OfflineSettings.allowCellular
+
+    var body: some View {
+        Menu {
+            Section("关闭时只在 Wi-Fi 下下载") {
+                Toggle("使用蜂窝网络下载", systemImage: "antenna.radiowaves.left.and.right", isOn: $allowCellular)
+                    .toggleStyle(.automatic)
+            }
+        } label: {
+            Image(systemName: "gearshape")
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("下载设置")
+        .accessibilityIdentifier("offline-settings")
+        .onChange(of: allowCellular) { _, value in
+            OfflineSettings.allowCellular = value
+            OfflineDownloader.shared.applyNetworkSettings()
+        }
+    }
+}
+
+/// 「下载中」的一行：海报 + 片名 + 哪一集 · 档位 + 状态与速度 + 进度。
 /// 点进条目；左滑 / 长按暂停、继续、取消。下完就从这一组消失
 private struct OfflineDownloadingStorageRow: View {
     let unit: OfflineUnit
     let item: OfflineItemSummary
     @State private var store = OfflineStore.shared
-    @Environment(\.api) private var api
-    /// 早先开始的下载没记剧照：从本机存的这一季里找
-    @State private var archivedStill: String?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        let still = unit.isMovie ? item.backdropUrl : (unit.stillUrl ?? archivedStill)
         let speed = unit.state == .downloading ? store.speeds[unit.fileId].flatMap { $0 > 0 ? $0 : nil } : nil
         let tint = unit.needsAttention ? Theme.warning : Theme.info
         NavigationLink(value: AppRoute.libraryItem(libraryId: item.libraryId, itemId: item.mediaItemId,
                                                    season: unit.isMovie ? nil : unit.season,
                                                    episode: unit.isMovie ? nil : unit.episode)) {
-            HStack(spacing: 12) {
-                LibraryArtwork(url: still.flatMap { api.image($0, width: ImageWidth.points(88)) }
-                    ?? (unit.isMovie ? api.image(item.posterUrl, width: ImageWidth.points(88)) : nil),
-                    imageAspect: still == nil && unit.isMovie ? item.primaryAspect : nil,
-                    frameAspect: 16 / 9,
-                    fallbackText: still == nil && !unit.isMovie ? "\(unit.episode)" : nil)
-                    .frame(width: 88)
-                    .clipShape(.rect(cornerRadius: 6))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.title).lineLimit(1)
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+                : AnyLayout(HStackLayout(spacing: 16))
+            layout {
+                OfflineStoragePoster(item: item)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(item.title).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text([unit.isMovie ? nil : "第 \(unit.season) 季第 \(unit.episode) 集", unit.profileLabel]
                         .compactMap { $0 }.joined(separator: " · "))
-                        .font(.caption).foregroundStyle(Theme.textMuted).lineLimit(1)
+                        .font(.footnote).foregroundStyle(Theme.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 6) {
-                        Text(OfflineUnitStatus.text(unit)).foregroundStyle(tint).lineLimit(1)
+                        Text(OfflineUnitStatus.text(unit)).foregroundStyle(tint)
                         if let speed {
                             Text("\(Formatters.bytes(Int(speed)))/s").foregroundStyle(Theme.textMuted)
                         }
                     }
-                    .font(.caption).monospacedDigit()
+                    .font(.footnote).monospacedDigit()
                     ProgressView(value: max(0, min(1, unit.progressFraction))).tint(tint)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.vertical, 2)
         }
         .swipeActions { actions }
         .contextMenu { actions }
         .accessibilityIdentifier("offline-downloading-\(unit.fileId)")
-        .task(id: unit.fileId) {
-            guard !unit.isMovie, unit.stillUrl == nil,
-                  let season = await OfflineStore.shared.season(itemId: unit.mediaItemId, season: unit.season) else { return }
-            archivedStill = season.episodes.first { $0.episodeNumber == unit.episode }?.stillUrl
-        }
     }
 
     @ViewBuilder
@@ -306,49 +353,57 @@ struct StorageCapacity: Equatable, Sendable {
 /// 容量条（同系统「iPhone 储存空间」）：MovieClaw 下载 / 其他已用 / 剩余。读数是快照，不跟下载进度变
 private struct StorageUsageBar: View {
     let capacity: StorageCapacity?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         let downloads = capacity?.downloads ?? 0
         let free = capacity?.free
         let total = capacity?.total
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("iPhone").font(.headline)
-                Spacer()
-                if let total, let free {
-                    Text("已用 \(Formatters.bytes(Int(total - free))) / \(Formatters.bytes(Int(total)))")
-                        .font(.subheadline).monospacedDigit().foregroundStyle(Theme.textMuted)
+        VStack(alignment: .leading, spacing: 12) {
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+                : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
+            layout {
+                Text("本机储存空间").font(.subheadline.weight(.medium)).foregroundStyle(Theme.text)
+                if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
+                if let free {
+                    Text("可用 \(Formatters.bytes(Int(free)))")
+                        .font(.footnote).monospacedDigit().foregroundStyle(Theme.textMuted)
                 }
             }
             if let total, total > 0, let free {
                 let other = max(0, total - free - downloads)
                 GeometryReader { proxy in
-                    HStack(spacing: 2) {
-                        Rectangle().fill(Theme.info).frame(width: max(downloads > 0 ? 3 : 0, proxy.size.width * CGFloat(downloads) / CGFloat(total)))
-                        Rectangle().fill(.white.opacity(0.35)).frame(width: proxy.size.width * CGFloat(other) / CGFloat(total))
-                        Rectangle().fill(.white.opacity(0.08))
+                    // 最小可见下载段仍计入总宽，不能把右侧可用空间挤出面板。
+                    let downloadedWidth = min(proxy.size.width, max(downloads > 0 ? 3 : 0,
+                        proxy.size.width * CGFloat(downloads) / CGFloat(total)))
+                    HStack(spacing: 0) {
+                        Rectangle().fill(Theme.info).frame(width: downloadedWidth)
+                        Rectangle().fill(.white.opacity(0.25))
+                            .frame(width: min(proxy.size.width - downloadedWidth, proxy.size.width * CGFloat(other) / CGFloat(total)))
+                        Rectangle().fill(.white.opacity(0.06))
                     }
-                    .clipShape(.rect(cornerRadius: 4))
+                    .clipShape(.capsule)
                 }
-                .frame(height: 14)
-                HStack(spacing: 14) {
-                    legend(Theme.info, "MovieClaw 下载 \(Formatters.bytes(Int(downloads)))")
-                    legend(.white.opacity(0.35), "其他")
-                    Spacer(minLength: 0)
-                    Text("剩余 \(Formatters.bytes(Int(free)))").font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted)
+                .frame(height: 6)
+                layout {
+                    legend(Theme.info, "下载 \(Formatters.bytes(Int(downloads)))")
+                    if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
+                    legend(.white.opacity(0.25), "其他已用")
                 }
             } else {
                 Text("MovieClaw 下载 \(Formatters.bytes(Int(downloads)))").font(.subheadline).monospacedDigit()
             }
         }
-        .padding(.vertical, 4)
+        .padding(16)
+        .background(Theme.surfaceInset, in: .rect(cornerRadius: 16))
         .accessibilityElement(children: .combine)
     }
 
     private func legend(_ color: Color, _ text: String) -> some View {
         HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 8, height: 8)
-            Text(text).font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted)
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text(text).font(.footnote).monospacedDigit().foregroundStyle(Theme.textMuted)
         }
     }
 }

@@ -603,12 +603,11 @@ final class OfflineReviewReproUITests: XCTestCase {
         ensureMovieDownloaded()
         // 从「我的」点入口进：入口与页面都叫「下载」
         let app = launch(reset: false, route: "/my")
-        let entry = app.buttons["more-downloads"]
-        XCTAssertTrue(entry.waitForExistence(timeout: 20), app.debugDescription)
-        XCTAssertTrue(entry.label.hasPrefix("下载") && !entry.label.contains("存储"), entry.label)
-        entry.tap()
+        let downloadsTab = app.buttons["more-tab-downloads"]
+        if downloadsTab.waitForExistence(timeout: 5) { downloadsTab.tap() }
+        XCTAssertFalse(app.buttons["more-downloads"].exists, "直接显示下载管理，无需二次进入")
+        XCTAssertTrue(app.buttons["more-profile-card"].exists, "下载管理仍在我的页面")
         XCTAssertTrue(app.descendants(matching: .any)["offline-storage-summary"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.navigationBars["下载"].exists, "页面就叫「下载」：\(app.navigationBars.allElementsBoundByIndex.map(\.identifier))")
         XCTAssertFalse(app.buttons["编辑"].exists || app.buttons["Edit"].exists, "不该再有「编辑」")
         XCTAssertTrue(app.staticTexts["已下载"].exists, "应有「已下载」分组\n\(app.debugDescription)")
         // 容量条放在最后：在「已下载」那一行下面
@@ -618,7 +617,7 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertGreaterThan(summary.frame.minY, firstRow.frame.maxY, "容量条应在已下载列表之后")
         XCTAssertFalse(app.switches["使用蜂窝网络下载"].exists, "下载设置不该再占页面里的分组")
         snapshot("storage-page")
-        // 下载设置在右上角菜单：开关蜂窝下载，再打开菜单状态跟着变
+        // 下载设置在内容区的齿轮菜单：开关蜂窝下载，再打开菜单状态跟着变
         let settings = app.buttons["offline-settings"]
         XCTAssertTrue(settings.exists)
         settings.tap()

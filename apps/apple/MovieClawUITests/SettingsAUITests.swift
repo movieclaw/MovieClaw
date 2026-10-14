@@ -164,6 +164,7 @@ final class SettingsAUITests: XCTestCase {
         XCTAssertTrue(app.buttons["open-scanner"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.buttons["open-search"].exists, "我的页只保留扫码")
         snapshot("我的-Logo与扫码")
+        if app.buttons["more-tab-server"].exists { tapSafely(app, app.buttons["more-tab-server"], "服务器页签") }
         tapSafely(app, app.buttons["more-settings"], "服务器设置")
         XCTAssertTrue(app.staticTexts["settings-description"].waitForExistence(timeout: 10))
         let members = app.buttons["settings-members"]

@@ -345,6 +345,9 @@ final class AgentUITests: XCTestCase {
     @MainActor
     func testQuickBarOnMoreSubpages() {
         let app = launch(route: "/my")
+        let serverTab = element(app, "more-tab-server")
+        XCTAssertTrue(serverTab.waitForExistence(timeout: 20))
+        safeTap(app, serverTab, "服务器页签")
         let settings = element(app, "more-settings")
         XCTAssertTrue(settings.waitForExistence(timeout: 20))
         safeTap(app, settings, "服务器设置")
