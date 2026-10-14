@@ -529,6 +529,11 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["offline-storage-summary"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.buttons["编辑"].exists || app.buttons["Edit"].exists, "不该再有「编辑」")
         XCTAssertTrue(app.staticTexts["已下载"].exists, "应有「已下载」分组\n\(app.debugDescription)")
+        // 容量条放在最后：在「已下载」那一行下面
+        let summary = app.descendants(matching: .any)["offline-storage-summary"]
+        let firstRow = app.cells.containing(.any, identifier: "offline-storage-item-\(movieId)").firstMatch
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 10))
+        XCTAssertGreaterThan(summary.frame.minY, firstRow.frame.maxY, "容量条应在已下载列表之后")
         XCTAssertFalse(app.switches["使用蜂窝网络下载"].exists, "下载设置不该再占页面里的分组")
         snapshot("storage-page")
         // 下载设置在右上角菜单：开关蜂窝下载，再打开菜单状态跟着变

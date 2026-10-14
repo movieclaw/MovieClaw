@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// 我的 → 下载与存储（docs/design/offline-download.md §8），分组同系统「iPhone 储存空间」：
-/// 容量条 → 下载中（有才出现，每一集一行，下完就移到已下载）→ 清理建议（有已看完的才出现）
-/// → 已下载（点进条目、左滑 / 长按删除）→ 其他账号；下载设置在右上角菜单。首页的「正在下载」提示条点进这里
+/// 我的 → 下载与存储（docs/design/offline-download.md §8）：
+/// 下载中（有才出现，每一集一行，下完就移到已下载）→ 清理建议（有已看完的才出现）
+/// → 已下载（点进条目、左滑 / 长按删除）→ 其他账号 → 容量条（放最后）；下载设置在右上角菜单。首页的「正在下载」提示条点进这里
 struct OfflineStorageView: View {
     @State private var store = OfflineStore.shared
     @Environment(\.api) private var api
@@ -29,10 +29,6 @@ struct OfflineStorageView: View {
         let active = store.activeUnits
         let watched = watchedUnits
         List {
-            Section {
-                StorageUsageBar(downloads: store.totalBytes, free: OfflineDisk.availableBytes, total: OfflineDisk.totalCapacity)
-                    .accessibilityIdentifier("offline-storage-summary")
-            }
             if !active.isEmpty {
                 Section {
                     ForEach(active) { unit in
@@ -99,6 +95,11 @@ struct OfflineStorageView: View {
                 } footer: {
                     Text("这台 iPhone 上其他账号的下载，重新登录那个账号就能看。")
                 }
+            }
+            // 容量放最后：这一页先管下载，剩余空间是参考（空间不够时选档面板会直接提示）
+            Section {
+                StorageUsageBar(downloads: store.totalBytes, free: OfflineDisk.availableBytes, total: OfflineDisk.totalCapacity)
+                    .accessibilityIdentifier("offline-storage-summary")
             }
         }
         .navigationTitle("下载与存储")
