@@ -59,6 +59,19 @@ def test_builtin_agent_tools_omit_web_search_until_a_provider_is_attached(tmp_pa
     assert attach_web_search_tool(base, None) == base
 
 
+def test_tool_description_is_general_web_search_not_media_only():
+    tool = make_web_search_tool(_Fake())  # type: ignore[arg-type]
+    text = tool.definition.description
+    assert "site:" in text
+    assert "电影" not in text
+    assert "剧集" not in text
+    params = tool.definition.parameters["properties"]
+    assert list(params) == ["query", "max_results", "include_content"]
+    assert tool.definition.parameters["required"] == ["query"]
+    assert "site:example.com" in params["query"]["description"]
+    assert "默认 5" in params["max_results"]["description"]
+
+
 def test_web_and_im_paths_load_the_provider_and_none_profile_does_not():
     profile = inspect.getsource(agent_routes._profile_tools)
     assert profile.index('profile == "none"') < profile.index("load_web_search_provider")
