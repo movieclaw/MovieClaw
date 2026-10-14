@@ -63,8 +63,10 @@ def test_tool_description_is_general_web_search_not_media_only():
     tool = make_web_search_tool(_Fake())  # type: ignore[arg-type]
     text = tool.definition.description
     assert "site:" in text
-    assert "电影" not in text
-    assert "剧集" not in text
+    for banned in ("电影", "剧集", "供应商", "Brave"):
+        assert banned not in text
+        for param in tool.definition.parameters["properties"].values():
+            assert banned not in param["description"]
     params = tool.definition.parameters["properties"]
     assert list(params) == ["query", "max_results", "include_content"]
     assert tool.definition.parameters["required"] == ["query"]
