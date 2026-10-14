@@ -21,6 +21,11 @@ from pathlib import Path
 SEPARATOR = "\n---\n\n## 简体中文\n"
 # 从拆分客户端后的第一个服务器版本开始补；更早的 changelog 里已手写客户端版本
 SINCE = (0, 38, 0)
+# 拆分客户端时用 v0.37.0 里的旧包补建的首条记录：发布时间晚于 v0.37.0，但包早就随它发出去了
+SEEDED = {
+    "ios-v0.7.0", "tvos-v0.7.0", "macos-v0.7.0", "transcoder-v0.33.0",
+    "android-v0.3.1", "androidtv-v0.2.2",
+}
 # 独立发版的客户端，按这个顺序列出：tag 前缀 → (英文名, 中文名)
 CLIENTS = {
     "ios": ("iPhone & iPad", "iPhone 与 iPad"),
@@ -73,13 +78,11 @@ def sections(tag: str, releases: list[dict], repo: str) -> tuple[str, str] | Non
             continue
         version = release["tag"].split("-v", 1)[1]
         url = f"https://github.com/{repo}/releases/tag/{release['tag']}"
-        # 上一个服务器版本之后才发、且这个 App 之前有更早的发布记录才算新；第一条记录（如拆分时
-        # 用旧包补建的）不算，免得把早就随旧服务器版本发出去的包当成新版
-        earlier = latest(prefix, [r for r in releases if r["tag"] != release["tag"]], cutoff)
+        # 上一个服务器版本之后才发的算新；拆分时用 v0.37.0 旧包补建的记录不算
         new = (
-            bool(previous and earlier)
+            bool(previous)
+            and release["tag"] not in SEEDED
             and release["published_at"] > previous["published_at"]
-            and version_of(earlier["tag"].split("-v", 1)[1]) < version_of(version)
         )
         if new:
             new_en.append(f"[{name_en} {version}]({url})")

@@ -85,13 +85,17 @@ class ReleaseBodyTest(unittest.TestCase):
         items[1] = release("v0.38.0", None, draft=True)
         self.assertIn("**Android 0.4.0** (new)", self.body(items))
 
-    def test_first_release_of_an_app_is_listed_but_not_new(self):
-        # Apple TV 的第一个独立发布记录在 v0.37.0 之后才出现（如拆分时补建的）
-        items = [r for r in releases() if r["tag"] != "tvos-v0.7.0"]
-        items.append(release("tvos-v0.7.0", "2026-10-15T00:00:00Z"))
+    def test_seeded_records_are_not_new_but_a_real_first_release_is(self):
+        # 拆分时补建的记录发布于 v0.37.0 之后，但不算新；Windows 真正首发算新
+        items = [r for r in releases() if r["tag"] not in ("tvos-v0.7.0", "windows-v0.1.0")]
+        items += [
+            release("tvos-v0.7.0", "2026-10-15T00:00:00Z"),
+            release("windows-v0.1.0", "2026-10-16T00:00:00Z"),
+        ]
         body = self.body(items)
         self.assertIn("- **Apple TV 0.7.0**: TestFlight", body)
-        self.assertIn("No app updates since v0.37.0.", body)
+        self.assertIn(f"New since v0.37.0: [Windows 0.1.0]({URL}windows-v0.1.0).", body)
+        self.assertIn("- **Windows 0.1.0** (new)", body)
 
     def test_without_any_app_release_the_changelog_is_unchanged(self):
         items = [release("v0.37.0"), release("v0.38.0", "2026-10-20T00:00:00Z")]
