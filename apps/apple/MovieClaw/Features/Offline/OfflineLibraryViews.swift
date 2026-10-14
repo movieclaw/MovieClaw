@@ -278,14 +278,14 @@ struct OfflineLibraryWall: View {
 }
 
 /// 在线首页的「正在下载」提示条：有排队 / 下载中 / 暂停 / 失败的单元时才出现，下完自动消失。
-/// 只汇总（几部、总速度、总进度）；每一集的状态在「下载与存储」的「下载中」里，点一下进去
+/// 只汇总（在下什么、总速度、总进度）；每一集的状态在「下载与存储」的「下载中」里，点一下进去
 struct OfflineDownloadingRow: View {
     @State private var store = OfflineStore.shared
 
     var body: some View {
         let active = store.activeUnits
         if !active.isEmpty {
-            let summary = OfflineDownloadSummary(active, speeds: store.speeds)
+            let summary = OfflineDownloadSummary(active, speeds: store.speeds, titles: store.items.mapValues(\.title))
             NavigationLink(value: AppRoute.offlineStorage) {
                 HStack(spacing: 12) {
                     OfflineProgressRing(fraction: summary.fraction, tint: summary.tint, paused: summary.allPaused)
@@ -319,8 +319,8 @@ struct OfflineDownloadSummary {
     let tint: Color
     let allPaused: Bool
 
-    init(_ units: [OfflineUnit], speeds: [Int: Double]) {
-        let items = Set(units.map(\.mediaItemId)).count
+    /// - Parameter titles: 条目号 → 片名（只下一部时标题写片名）
+    init(_ units: [OfflineUnit], speeds: [Int: Double], titles: [Int: String] = [:]) {
         let downloading = units.filter { $0.state == .downloading }
         let failed = units.filter(\.needsAttention)
         let waitingTranscode = units.filter(\.waitingForTranscode)
@@ -331,7 +331,7 @@ struct OfflineDownloadSummary {
         fraction = expected > 0 ? Double(received) / Double(expected) : nil
         allPaused = units.allSatisfy { $0.state == .paused }
         tint = !failed.isEmpty && downloading.isEmpty ? Theme.warning : Theme.info
-        title = allPaused ? "\(items) 部已暂停下载" : "\(items) 部正在下载"
+        title = Self.title(units, titles: titles, paused: allPaused)
         var parts: [String] = []
         if speed > 0 {
             parts.append("\(Formatters.bytes(Int(speed)))/s")
@@ -342,9 +342,30 @@ struct OfflineDownloadSummary {
         } else if !allPaused, downloading.isEmpty {
             parts.append("等待下载")
         }
-        if units.count > items { parts.append("还剩 \(units.count) 个") }
         if let fraction { parts.append("\(Int(fraction * 100))%") }
         detail = parts.isEmpty ? "点按查看" : parts.joined(separator: " · ")
+    }
+
+    /// 标题写清在下什么：「正在下载《沙丘》」「正在下载《兰香如故》5 集」「3 部电影正在下载」
+    /// 「2 部剧共 5 集正在下载」「3 部电影、5 集剧集正在下载」；全暂停时「正在下载」换成「已暂停」
+    static func title(_ units: [OfflineUnit], titles: [Int: String], paused: Bool) -> String {
+        let movies = Set(units.filter(\.isMovie).map(\.mediaItemId))
+        let episodes = units.filter { !$0.isMovie }
+        let shows = Set(episodes.map(\.mediaItemId))
+        let named: (Int) -> String? = { id in titles[id].map { "《\($0)》" } }
+        let single: String? = switch (movies.count, shows.count) {
+        case (1, 0): named(movies.first!)
+        case (0, 1): named(shows.first!).map { "\($0)\(episodes.count) 集" }
+        default: nil
+        }
+        if let single { return (paused ? "已暂停下载" : "正在下载") + single }
+        let subject = switch (movies.count, shows.count) {
+        case (_, 0): "\(movies.count) 部电影"
+        case (0, 1): "\(episodes.count) 集剧集"
+        case (0, _): "\(shows.count) 部剧共 \(episodes.count) 集"
+        default: "\(movies.count) 部电影、\(episodes.count) 集剧集"
+        }
+        return subject + (paused ? "已暂停下载" : "正在下载")
     }
 }
 

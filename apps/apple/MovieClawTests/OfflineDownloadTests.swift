@@ -238,17 +238,35 @@ struct OfflineDownloadSummaryTests {
         return unit
     }
 
-    @Test func countsTitlesNotEpisodesAndSumsSpeed() {
+    private func movie(_ fileId: Int, item: Int, _ state: OfflineUnit.State = .downloading) -> OfflineUnit {
+        OfflineUnit(fileId: fileId, mediaItemId: item, season: 0, episode: 0, profile: "original", profileLabel: "原画", state: state,
+                    expectedBytes: 100, fileExtension: "mp4", createdAt: Date())
+    }
+
+    @Test func sumsSpeedAndProgress() {
         let units = [unit(1, item: 7, .downloading, got: 50), unit(2, item: 7, .queued), unit(3, item: 9, .downloading, got: 100)]
         let summary = OfflineDownloadSummary(units, speeds: [1: 1_000_000, 3: 500_000])
-        #expect(summary.title == "2 部正在下载")
-        #expect(summary.detail == "\(Formatters.bytes(1_500_000))/s · 还剩 3 个 · 50%")
+        #expect(summary.title == "2 部剧共 3 集正在下载")
+        #expect(summary.detail == "\(Formatters.bytes(1_500_000))/s · 50%")
         #expect(summary.fraction == 0.5)
     }
 
+    @Test func titleSaysWhatIsDownloading() {
+        let titles = [7: "兰香如故", 9: "深渊无间", 20: "沙丘", 21: "银翼杀手"]
+        func title(_ units: [OfflineUnit]) -> String { OfflineDownloadSummary(units, speeds: [:], titles: titles).title }
+        #expect(title([movie(1, item: 20)]) == "正在下载《沙丘》")
+        #expect(title([movie(1, item: 20), movie(2, item: 21)]) == "2 部电影正在下载")
+        #expect(title([unit(1, item: 7, .downloading), unit(2, item: 7, .queued)]) == "正在下载《兰香如故》2 集")
+        #expect(title([unit(1, item: 7, .downloading), unit(2, item: 9, .queued)]) == "2 部剧共 2 集正在下载")
+        #expect(title([movie(1, item: 20), movie(2, item: 21), movie(3, item: 22), unit(4, item: 7, .queued), unit(5, item: 7, .queued)])
+            == "3 部电影、2 集剧集正在下载")
+        // 没片名（目录还没读到）：退回计数
+        #expect(OfflineDownloadSummary([unit(1, item: 99, .downloading)], speeds: [:]).title == "1 集剧集正在下载")
+    }
+
     @Test func allPausedSaysSo() {
-        let summary = OfflineDownloadSummary([unit(1, item: 7, .paused, got: 11)], speeds: [:])
-        #expect(summary.title == "1 部已暂停下载")
+        let summary = OfflineDownloadSummary([unit(1, item: 7, .paused, got: 11)], speeds: [:], titles: [7: "兰香如故"])
+        #expect(summary.title == "已暂停下载《兰香如故》1 集")
         #expect(summary.detail == "11%")
         #expect(summary.allPaused)
     }

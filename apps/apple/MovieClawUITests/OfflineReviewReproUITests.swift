@@ -329,7 +329,7 @@ final class OfflineReviewReproUITests: XCTestCase {
         let home = launch(reset: false, route: "/library")
         let bar = home.buttons["home-downloading"]
         XCTAssertTrue(bar.waitForExistence(timeout: 30), "首页应有「正在下载」提示条：\(home.debugDescription)")
-        XCTAssertTrue(bar.label.contains("1 部已暂停下载"), "提示条只汇总：\(bar.label)")
+        XCTAssertTrue(bar.label.contains("已暂停下载《示例剧》1 集"), "提示条写清在下什么：\(bar.label)")
         snapshot("home-downloading")
         bar.tap()
         let storageRow = home.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'offline-downloading-'")).firstMatch
