@@ -71,7 +71,7 @@ def emitted(monkeypatch) -> list:
 
     captured: list = []
 
-    async def publish(session, event, build):  # type: ignore[no-untyped-def]
+    async def publish(session, event, build, *, occurred_at=None):  # type: ignore[no-untyped-def]
         payload = build()
         if inspect.isawaitable(payload):
             payload = await payload

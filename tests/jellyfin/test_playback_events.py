@@ -33,7 +33,7 @@ def emitted(monkeypatch) -> list:
     watch._progress_last_emit.clear()  # progress 节流状态在用例间隔离
     captured: list = []
 
-    async def publish(session, event, build):  # type: ignore[no-untyped-def]
+    async def publish(session, event, build, *, occurred_at=None):  # type: ignore[no-untyped-def]
         if not event.name.startswith(("playback.", "library.item.fav", "library.item.unfav")):
             return
         payload = build()
