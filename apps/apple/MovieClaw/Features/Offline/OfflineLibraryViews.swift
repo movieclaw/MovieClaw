@@ -278,7 +278,7 @@ struct OfflineLibraryWall: View {
 }
 
 /// 在线首页的「正在下载」提示条：有排队 / 下载中 / 暂停 / 失败的单元时才出现，下完自动消失。
-/// 只汇总（在下什么、总速度、总进度）；每一集的状态在「下载与存储」的「下载中」里，点一下进去
+/// 只汇总（在下什么、总速度、总进度）；每一集的状态在「我的 → 下载」的「下载中」里，点一下进去
 struct OfflineDownloadingRow: View {
     @State private var store = OfflineStore.shared
 

@@ -71,7 +71,7 @@ enum AppRoute: Hashable {
 
     // MARK: 我的 / 设置
     case my
-    /// /my/downloads：下载与存储（docs/design/offline-download.md §8）
+    /// /my/downloads：下载（「我的」里的入口与页面都叫「下载」；docs/design/offline-download.md §8）
     case offlineStorage
     case settings
     /// /settings/{section}?…：query 原样透传给分区页（如 /settings/app?tab=storage、

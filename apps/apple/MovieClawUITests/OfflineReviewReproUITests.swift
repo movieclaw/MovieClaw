@@ -324,7 +324,7 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertFalse(card.label.contains("/s"), "暂停后不该还有速度：\(card.label)")
         snapshot("episode-paused")
 
-        // 首页「正在下载」：一条汇总提示条（几部、状态），点进「下载与存储」的「下载中」，那里每一集一行
+        // 首页「正在下载」：一条汇总提示条（几部、状态），点进「我的 → 下载」的「下载中」，那里每一集一行
         app.terminate()
         let home = launch(reset: false, route: "/library")
         let bar = home.buttons["home-downloading"]
@@ -333,7 +333,7 @@ final class OfflineReviewReproUITests: XCTestCase {
         snapshot("home-downloading")
         bar.tap()
         let storageRow = home.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'offline-downloading-'")).firstMatch
-        XCTAssertTrue(storageRow.waitForExistence(timeout: 15), "应进到下载与存储的「下载中」：\(home.debugDescription)")
+        XCTAssertTrue(storageRow.waitForExistence(timeout: 15), "应进到「下载」页的「下载中」：\(home.debugDescription)")
         XCTAssertTrue(storageRow.label.contains("第 1 季第 1 集") && storageRow.label.contains("已暂停"), storageRow.label)
         snapshot("storage-downloading")
         storageRow.tap()
@@ -564,8 +564,14 @@ final class OfflineReviewReproUITests: XCTestCase {
     @MainActor
     func testStoragePageLayout() throws {
         ensureMovieDownloaded()
-        let app = launch(reset: false, route: "/my/downloads")
+        // 从「我的」点入口进：入口与页面都叫「下载」
+        let app = launch(reset: false, route: "/my")
+        let entry = app.buttons["more-downloads"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertTrue(entry.label.hasPrefix("下载") && !entry.label.contains("存储"), entry.label)
+        entry.tap()
         XCTAssertTrue(app.descendants(matching: .any)["offline-storage-summary"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.navigationBars["下载"].exists, "页面就叫「下载」：\(app.navigationBars.allElementsBoundByIndex.map(\.identifier))")
         XCTAssertFalse(app.buttons["编辑"].exists || app.buttons["Edit"].exists, "不该再有「编辑」")
         XCTAssertTrue(app.staticTexts["已下载"].exists, "应有「已下载」分组\n\(app.debugDescription)")
         // 容量条放在最后：在「已下载」那一行下面

@@ -188,7 +188,7 @@ final class OfflineDownloadUITests: XCTestCase {
         if close.waitForExistence(timeout: 5) { close.tap() }
     }
 
-    /// 右上角菜单「下载」→ 全部 3 集原画→ 我的 → 下载与存储 → 左滑删除整部剧 → 目录空了
+    /// 右上角菜单「下载」→ 全部 3 集原画→ 我的 → 下载 → 左滑删除整部剧 → 目录空了
     @MainActor
     func test5SeasonDownloadAndDeleteFromStorage() throws {
         let app = launch(reset: true, route: "/library/2/item/\(showId)")

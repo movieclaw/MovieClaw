@@ -411,7 +411,7 @@ struct OfflineProfileSheet: View {
                     Text("空间不够：需要 \(Self.isEstimate(selected(first), files) ? "≈ " : "")\(Formatters.bytes(Int(needed(first, files))))（含预留 2 GB），iPhone 只剩 \(Formatters.bytes(Int(free)))。换个小一点的画质，或先清理空间。")
                         .foregroundStyle(Theme.danger)
                 } else {
-                    let network = OfflineSettings.allowCellular ? "会使用蜂窝网络下载" : "只在 Wi-Fi 下下载，可在「我的 → 下载与存储」里改"
+                    let network = OfflineSettings.allowCellular ? "会使用蜂窝网络下载" : "只在 Wi-Fi 下下载，可在「我的 → 下载」里改"
                     Text(free.map { "iPhone 剩余 \(Formatters.bytes(Int($0))) · \(network)" } ?? network)
                 }
             }

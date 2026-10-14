@@ -27,7 +27,7 @@ struct MorePage: View {
     @Environment(\.api) private var api
     @Environment(AgentQuickDraft.self) private var quick
 
-    /// 离线下载（docs/design/offline-download.md §1、§8）：「下载与存储」入口；离线时只留账号卡与它
+    /// 离线下载（docs/design/offline-download.md §1、§8）：「下载」入口；离线时只留账号卡与它
     @State private var reachability = ServerReachability.shared
     @State private var offlineStore = OfflineStore.shared
     @State private var sessions: [API.SessionSummary] = []
@@ -77,7 +77,7 @@ struct MorePage: View {
                         HStack {
                             Label {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("下载与存储")
+                                    Text("下载")
                                     Text(offlineStore.items.isEmpty ? "下载到 iPhone，没网也能看"
                                          : "已下载 \(offlineStore.downloadedItemIds.count) 部 · \(Formatters.bytes(Int(offlineStore.totalBytes)))")
                                         .font(.caption).foregroundStyle(Theme.textMuted)

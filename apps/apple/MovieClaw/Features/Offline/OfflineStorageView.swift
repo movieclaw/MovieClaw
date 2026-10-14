@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 我的 → 下载与存储（docs/design/offline-download.md §8）：
+/// 我的 → 下载（docs/design/offline-download.md §8）：
 /// 下载中（有才出现，每一集一行，下完就移到已下载）→ 清理建议（有已看完的才出现）
 /// → 已下载（点进条目、左滑 / 长按删除）→ 其他账号 → 容量条（放最后）；下载设置在右上角菜单。首页的「正在下载」提示条点进这里
 struct OfflineStorageView: View {
@@ -102,7 +102,7 @@ struct OfflineStorageView: View {
                     .accessibilityIdentifier("offline-storage-summary")
             }
         }
-        .navigationTitle("下载与存储")
+        .navigationTitle("下载")
         .toolbar {
             // 下载设置只有一项：右上角菜单里直接开关（同「文件」「照片」的显示选项），不单占一个分组
             ToolbarItem(placement: .topBarTrailing) {
