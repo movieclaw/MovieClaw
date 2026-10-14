@@ -345,7 +345,8 @@ def _meter_tail(response: exports.ExportTailResponse, meter) -> None:
     response_model=ApiResponse[None],
     summary="下载完了：通知服务端可以回收导出",
     operation_id="offline.exports.release",
-    openapi_extra=_HIDDEN,
+    # 只摘掉这台设备、别的设备还要时留着，不是不可逆的删除：confirm 档
+    openapi_extra={**_HIDDEN, "x-cli-dangerous": "confirm"},
 )
 async def release_offline_export(
     export_id: str,
