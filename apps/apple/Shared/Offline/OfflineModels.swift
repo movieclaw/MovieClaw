@@ -71,11 +71,18 @@ nonisolated struct OfflineUnit: Codable, Sendable, Hashable, Identifiable {
     var completedAt: Date?
     /// 本机打不开（引擎读不了）：提示重新下载
     var damaged = false
+    /// 服务器还在排队转码（导出接口回 503）时它说的在等什么：「等待转码，前面还有 2 个」/「等待转码器空闲」。
+    /// 内部仍按失败到点重试走（后台会话的定时开始），界面当成正常排队显示，不写「下载中断」
+    var transcodeWait: String?
 
     var id: Int { fileId }
     var unitKey: String { "\(season)-\(episode)" }
     var isMovie: Bool { season == 0 && episode == 0 }
     var playable: Bool { state == .done && !damaged }
+    /// 在排队等服务器转码（不是出错）
+    var waitingForTranscode: Bool { state == .failed && retryable && transcodeWait != nil }
+    /// 界面上要用警告色、写「重试」的：真失败（排队转码不算）或文件损坏
+    var needsAttention: Bool { (state == .failed && !waitingForTranscode) || damaged }
     var isActive: Bool { state != .done }
     var mediaFileName: String { "media.\(fileExtension)" }
 

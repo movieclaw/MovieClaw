@@ -361,6 +361,8 @@ class ExportManager:
         self._worker: asyncio.Task | None = None
         #: 正在驱动的播放会话
         self._session_id: str | None = None
+        #: 排队循环正在处理的导出（可能还在等名额，状态仍是排队）
+        self._current_id: str | None = None
         #: 这一轮会话从哪一段、什么时候开始（monotonic），算转码倍速用
         self._round_start: tuple[int, float] | None = None
         #: 正在被下载的导出（导出号 → 连接数）：回收时跳过
@@ -491,6 +493,14 @@ class ExportManager:
         except ValueError:
             return None
 
+    def waiting(self, export_id: str) -> tuple[str, int]:
+        """排队中的导出在等什么：（"transcoder" 轮到了、在等转码名额空出来 / 转码器回来，0）
+        或（"queue" 排在别的导出后面，前面还有几个——含正在转的那个）。"""
+        if export_id == self._current_id:
+            return "transcoder", 0
+        position = self.queue_position(export_id) or 0
+        return "queue", position + (1 if self._current_id is not None else 0)
+
     def collect_garbage(self) -> None:
         cutoff = time.time() - RETENTION_S
         for export_id, state in list(self._states.items()):
@@ -572,6 +582,7 @@ class ExportManager:
             state = self._states.get(export_id)
             if state is None or state.status != STATUS_QUEUED:
                 continue
+            self._current_id = export_id
             try:
                 await self._transcode(state)
             except asyncio.CancelledError:
@@ -583,6 +594,8 @@ class ExportManager:
                 state.error = str(exc) or exc.__class__.__name__
                 self._save(state)
                 logger.warning("离线导出失败：%s：%s", export_id, state.error)
+            finally:
+                self._current_id = None
 
     def _new_generation(self, state: ExportState) -> Path:
         """换代号从头写：旧代号的产物删掉，正在读旧产物的连接会发现代号变了而断开。"""

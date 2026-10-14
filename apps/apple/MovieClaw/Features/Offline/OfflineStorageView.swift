@@ -233,7 +233,7 @@ private struct OfflineDownloadingStorageRow: View {
     var body: some View {
         let still = unit.isMovie ? item.backdropUrl : (unit.stillUrl ?? archivedStill)
         let speed = unit.state == .downloading ? store.speeds[unit.fileId].flatMap { $0 > 0 ? $0 : nil } : nil
-        let tint = unit.state == .failed || unit.damaged ? Theme.warning : Theme.info
+        let tint = unit.needsAttention ? Theme.warning : Theme.info
         NavigationLink(value: AppRoute.libraryItem(libraryId: item.libraryId, itemId: item.mediaItemId,
                                                    season: unit.isMovie ? nil : unit.season,
                                                    episode: unit.isMovie ? nil : unit.episode)) {
@@ -274,7 +274,9 @@ private struct OfflineDownloadingStorageRow: View {
 
     @ViewBuilder
     private var actions: some View {
-        if unit.state == .paused || unit.state == .failed {
+        if unit.waitingForTranscode {
+            // 排队等服务器转码：到点自己会再去问，只给取消
+        } else if unit.state == .paused || unit.state == .failed {
             Button("继续下载", systemImage: "play") { OfflineDownloader.shared.resume(fileId: unit.fileId) }.tint(Theme.info)
         } else {
             Button("暂停", systemImage: "pause") { OfflineDownloader.shared.pause(fileId: unit.fileId) }.tint(.gray)

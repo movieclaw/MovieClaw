@@ -287,7 +287,7 @@ VideoToolbox 只给上限、码率由编码器按画面定，偏差主要来自�
 |---|---|
 | 已完成 | 静态文件：带 Content-Length 和 ETag，支持 Range 与 If-Range，可以续传 |
 | 进行中 | 200 分块传输，从头开始发，跟着文件增长往后发。只有 ffmpeg 成功退出且全部发完才正常结束；失败就掐断连接，客户端一定会报错，不会把半个文件当成完成 |
-| 排队中 | 503 + `Retry-After` |
+| 排队中 | 503 + `Retry-After`（前面没别的导出时 15 秒，否则每个 60 秒）+ `x-export-wait`（`queue` 排在别的导出后面 / `transcoder` 轮到了、在等转码名额或转码器回来）+ `x-export-ahead`（前面还有几个，含正在转的）。App 据此写「等待转码，前面还有 N 个」「即将开始转码」「等待转码器空闲」，用正常颜色和沙漏图标，不写「下载中断」（`OfflineUnit.transcodeWait` / `waitingForTranscode`；真机上曾显示成中断，2026-10-14 改） |
 | 失败 | 422 + 原因码 |
 
 **ETag 与代号**：

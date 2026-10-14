@@ -1441,7 +1441,8 @@ struct SeasonEpisodesSection: View {
             if unit.state == .queued || unit.state == .downloading {
                 Button("暂停", systemImage: "pause") { OfflineDownloader.shared.pause(fileId: unit.fileId) }
             }
-            if unit.state == .paused || unit.state == .failed {
+            // 排队等服务器转码不是出错：没有「继续下载」可点（到点自己会再去问）
+            if unit.state == .paused || (unit.state == .failed && !unit.waitingForTranscode) {
                 Button("继续下载", systemImage: "play") { OfflineDownloader.shared.resume(fileId: unit.fileId) }
             }
             Button(unit.state == .done ? "删除下载" : "取消下载", systemImage: "trash", role: .destructive) {

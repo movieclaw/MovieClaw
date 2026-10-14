@@ -265,3 +265,39 @@ struct OfflineDownloadSummaryTests {
         #expect(summary.fraction == nil)
     }
 }
+
+/// 服务器排队转码（503）不是出错：写在等什么、不用警告色，首页汇总也不算「中断」
+@MainActor
+struct OfflineTranscodeWaitTests {
+    private func waiting(_ note: String?) -> OfflineUnit {
+        var unit = OfflineUnit(fileId: 1, mediaItemId: 7, season: 1, episode: 1, profile: "720p", profileLabel: "720p",
+                               state: .failed, expectedBytes: 100, fileExtension: "mp4", createdAt: Date())
+        unit.retryable = true
+        unit.transcodeWait = note
+        return unit
+    }
+
+    @Test func notesFromServerHeaders() {
+        #expect(OfflineDownloader.transcodeWaitNote(wait: "queue", ahead: 2) == "等待转码，前面还有 2 个")
+        #expect(OfflineDownloader.transcodeWaitNote(wait: "queue", ahead: 0) == "即将开始转码")
+        #expect(OfflineDownloader.transcodeWaitNote(wait: "transcoder", ahead: 0) == "等待转码器空闲")
+        #expect(OfflineDownloader.transcodeWaitNote(wait: nil, ahead: nil) == "等待转码")  // 旧服务端
+    }
+
+    @Test func waitingIsNotAnInterruption() {
+        let unit = waiting("等待转码，前面还有 1 个")
+        #expect(unit.waitingForTranscode && !unit.needsAttention)
+        #expect(OfflineUnitStatus.text(unit) == "等待转码，前面还有 1 个")
+        #expect(OfflineDownloadStrip.status(unit) == "等待转码，前面还有 1 个")
+        let summary = OfflineDownloadSummary([unit], speeds: [:])
+        #expect(summary.detail.hasPrefix("等待转码"))
+        #expect(summary.tint == Theme.info)
+    }
+
+    @Test func realFailureStillWarns() {
+        var unit = waiting(nil)
+        unit.error = "网络连接中断"
+        #expect(!unit.waitingForTranscode && unit.needsAttention)
+        #expect(OfflineUnitStatus.text(unit) == "下载中断，稍后自动重试")
+    }
+}

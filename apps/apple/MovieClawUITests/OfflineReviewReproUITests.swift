@@ -250,6 +250,45 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertFalse(original.exists)
     }
 
+    /// 转码档排队：服务端一次只转一份导出（别的设备 / 别人正在转时，这一集收到 503 排队）。
+    /// 分集卡与存储页「下载中」写「等待转码，前面还有 1 个」，不能写「下载中断」、不用警告色；排到了照常下完。
+    /// 真机上用户看到过「下载中断，稍后自动重试」
+    @MainActor
+    func testQueuedTranscodeSaysItIsWaiting() throws {
+        // 先占住转码队列：电影 720p 的导出（别的设备在转）
+        let backend = Backend(server: backendURL, username: username, password: password)
+        let detail = backend.request("GET", "/libraries/1/items/\(movieId)") as? [String: Any]
+        let movieFile = ((detail?["files"] as? [[String: Any]])?.first?["id"] as? Int) ?? 0
+        XCTAssertGreaterThan(movieFile, 0, "拿不到电影的文件号：\(String(describing: detail))")
+        let blocker = backend.request("POST", "/offline/exports", body: ["file_id": movieFile, "profile": "720p"]) as? [String: Any]
+        XCTAssertNotNil(blocker?["export_id"], "占队列的导出没建起来")
+        XCTAssertNotEqual(blocker?["status"] as? String, "done", "占队列的导出已经转完了（上一轮留下的），占不住队列")
+
+        let app = launch(reset: true, route: "/library/2/item/\(showId)")
+        let card = app.buttons["episode-1"]
+        XCTAssertTrue(card.waitForExistence(timeout: 30))
+        card.press(forDuration: 1.2)
+        tapMenuItem(app, "下载这一集")
+        let transcoded = app.buttons["offline-profile-480p"]
+        XCTAssertTrue(transcoded.waitForExistence(timeout: 30), app.debugDescription)
+        transcoded.tap()
+        app.buttons["offline-profile-confirm"].tap()
+
+        XCTAssertTrue(waitUntil(timeout: 30) { card.label.contains("等待转码") }, "分集卡应写等待转码：\(card.label)")
+        XCTAssertTrue(card.label.contains("前面还有 1 个"), card.label)
+        XCTAssertFalse(card.label.contains("中断"), card.label)
+        snapshot("episode-queued-transcode")
+
+        let storage = launch(reset: false, route: "/my/downloads")
+        let row = storage.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'offline-downloading-'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20), storage.debugDescription)
+        XCTAssertTrue(waitUntil(timeout: 10) { row.label.contains("等待转码") || row.label.contains("即将开始转码") }, row.label)
+        snapshot("storage-queued-transcode")
+        // 排到了照常下完：「下载中」那一行消失，条目进「已下载」
+        XCTAssertTrue(waitUntil(timeout: 240) { !row.exists }, "排到了应照常下完：\(row.exists ? row.label : "")")
+        XCTAssertTrue(storage.descendants(matching: .any)["offline-storage-item-\(showId)"].waitForExistence(timeout: 10))
+    }
+
     /// 选档行上的「共 47.1 MB」「共 ≈ 47.1 MB」取出 MB 数
     private static func megabytes(_ label: String) -> Double {
         let size = (label.components(separatedBy: "共 ").last ?? "").replacingOccurrences(of: "≈ ", with: "")

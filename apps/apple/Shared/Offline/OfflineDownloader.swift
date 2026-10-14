@@ -330,6 +330,7 @@ final class OfflineDownloader {
         guard var unit = store.units[fileId], unit.state == .paused || unit.state == .failed else { return }
         unit.state = unit.profile != "original" && unit.exportId == nil ? .preparing : .queued
         unit.error = nil
+        unit.transcodeWait = nil
         unit.retryable = true
         unit.nextRetryAt = nil
         store.upsert(unit)
@@ -450,14 +451,17 @@ final class OfflineDownloader {
         reconcile(reason: "finished")
     }
 
-    func failedHTTP(tag: OfflineTaskTag, status: Int, retryAfter: TimeInterval?, message: String?) {
+    func failedHTTP(tag: OfflineTaskTag, status: Int, retryAfter: TimeInterval?, message: String?,
+                    exportWait: String? = nil, exportsAhead: Int? = nil) {
         switch status {
         case 503:
-            // 导出还在排队：按服务端说的时间再来（后台会话的定时开始，不用 App 醒着）
+            // 导出还在排队：按服务端说的时间再来（后台会话的定时开始，不用 App 醒着）。界面写在等什么
+            let note = Self.transcodeWaitNote(wait: exportWait, ahead: exportsAhead)
             updateUnit(tag) { unit in
                 unit.state = .failed
                 unit.retryable = true
                 unit.error = "服务器正在排队转码"
+                unit.transcodeWait = note
                 unit.nextRetryAt = Date().addingTimeInterval(retryAfter ?? 60)
             }
         case 401:
@@ -489,9 +493,17 @@ final class OfflineDownloader {
         store.updateReceived(fileId: tag.file, received: received, expected: expected)
     }
 
+    /// 排队转码时界面上的一句话（服务端 503 的 x-export-wait / x-export-ahead；旧服务端没有，就只说在排队）
+    nonisolated static func transcodeWaitNote(wait: String?, ahead: Int?) -> String {
+        if wait == "transcoder" { return "等待转码器空闲" }
+        if let ahead, ahead > 0 { return "等待转码，前面还有 \(ahead) 个" }
+        return wait == "queue" ? "即将开始转码" : "等待转码"
+    }
+
     private func failTag(_ tag: OfflineTaskTag, _ message: String, retryable: Bool) {
         updateUnit(tag) { unit in
             unit.state = .failed
+            unit.transcodeWait = nil
             unit.error = message
             unit.retryable = retryable
             unit.attempts += 1
@@ -580,8 +592,11 @@ nonisolated final class OfflineSessionDelegate: NSObject, URLSessionDownloadDele
         guard status == 200 || status == 206 else {
             let body = (try? Data(contentsOf: location)).flatMap { String(data: $0.prefix(2000), encoding: .utf8) }
             let retryAfter = http?.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
+            let exportWait = http?.value(forHTTPHeaderField: "x-export-wait")
+            let exportsAhead = http?.value(forHTTPHeaderField: "x-export-ahead").flatMap(Int.init)
             Task { @MainActor in
-                OfflineDownloader.shared.failedHTTP(tag: tag, status: status, retryAfter: retryAfter, message: body)
+                OfflineDownloader.shared.failedHTTP(tag: tag, status: status, retryAfter: retryAfter, message: body,
+                                                    exportWait: exportWait, exportsAhead: exportsAhead)
             }
             return
         }

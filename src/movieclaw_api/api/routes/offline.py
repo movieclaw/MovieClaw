@@ -271,11 +271,17 @@ async def download_offline_export(
     manager = exports.get_export_manager()
     manager.touch(state)
     if state.status == exports.STATUS_QUEUED:
-        # 还没轮到：客户端按 Retry-After 定时重试（后台下载会话的 earliestBeginDate）
-        position = manager.queue_position(export_id) or 0
+        # 还没轮到：客户端按 Retry-After 定时重试（后台下载会话的 earliestBeginDate）。
+        # 附上在等什么，App 据此写「等待转码，前面还有 N 个」/「等待转码器空闲」，而不是「下载中断」
+        wait, ahead = manager.waiting(export_id)
+        retry = 15 if wait == "queue" and ahead == 0 else min(600, 60 * max(1, ahead))
         return Response(
             status_code=503,
-            headers={"retry-after": str(min(600, 60 * (position + 1)))},
+            headers={
+                "retry-after": str(retry),
+                "x-export-wait": wait,
+                "x-export-ahead": str(ahead),
+            },
         )
     if state.status == exports.STATUS_FAILED:
         return Response(

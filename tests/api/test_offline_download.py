@@ -689,7 +689,8 @@ def test_queued_export_answers_retry_after(client: TestClient, tmp_path: Path) -
     manager._loaded = True
     manager._states[state.export_id] = state
     resp = client.get(f"{_API}/offline/exports/queued/content")
-    assert resp.status_code == 503 and int(resp.headers["retry-after"]) >= 60
+    # 前面没有别的导出：马上就轮到，15 秒后再来（排在别人后面时按前面的个数每个 60 秒）
+    assert resp.status_code == 503 and int(resp.headers["retry-after"]) == 15
 
 
 # ---------------------------------------------------------------------------
@@ -901,3 +902,29 @@ def test_activity_shows_transcode_info_instead_of_export_hash(client, tmp_path) 
         assert row["file_name"] == "480p HEVC 转码版" and row["size_bytes"] == 4_100_000
     finally:
         activity.unregister_stream(meter)
+
+
+def test_queued_export_says_what_it_is_waiting_for(client, tmp_path) -> None:
+    """排队中的导出：503 带上在等什么（App 写「等待转码，前面还有 N 个」，不写「下载中断」）。"""
+    _lib, _item, file_id = seed(client, tmp_path, real=False)
+    manager, _running = _fake_state(client, file_id, "busy", status=exports.STATUS_RUNNING)
+    _fake_state(client, file_id, "second", status=exports.STATUS_QUEUED)
+    _fake_state(client, file_id, "third", status=exports.STATUS_QUEUED)
+    manager._queue.extend(["second", "third"])
+    manager._current_id = "busy"
+    try:
+        second = client.get(f"{_API}/offline/exports/second/content")
+        third = client.get(f"{_API}/offline/exports/third/content")
+        assert second.status_code == third.status_code == 503
+        assert (second.headers["x-export-wait"], second.headers["x-export-ahead"]) == ("queue", "1")
+        assert (third.headers["x-export-wait"], third.headers["x-export-ahead"]) == ("queue", "2")
+        assert int(second.headers["retry-after"]) == 60
+        # 轮到了，但转码名额被播放占着 / 转码器不在
+        manager._queue.clear()
+        manager._current_id = "second"
+        waiting = client.get(f"{_API}/offline/exports/second/content")
+        assert waiting.headers["x-export-wait"] == "transcoder"
+        assert waiting.headers["x-export-ahead"] == "0"
+    finally:
+        manager._queue.clear()
+        manager._current_id = None

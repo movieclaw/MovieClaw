@@ -322,7 +322,8 @@ struct OfflineDownloadSummary {
     init(_ units: [OfflineUnit], speeds: [Int: Double]) {
         let items = Set(units.map(\.mediaItemId)).count
         let downloading = units.filter { $0.state == .downloading }
-        let failed = units.filter { $0.state == .failed || $0.damaged }
+        let failed = units.filter(\.needsAttention)
+        let waitingTranscode = units.filter(\.waitingForTranscode)
         let speed = downloading.reduce(0) { $0 + (speeds[$1.fileId] ?? 0) }
         let sized = units.filter { $0.expectedBytes > 0 }
         let expected = sized.reduce(Int64(0)) { $0 + $1.expectedBytes }
@@ -336,6 +337,8 @@ struct OfflineDownloadSummary {
             parts.append("\(Formatters.bytes(Int(speed)))/s")
         } else if !failed.isEmpty, downloading.isEmpty {
             parts.append("\(failed.count) 个下载中断")
+        } else if !waitingTranscode.isEmpty, downloading.isEmpty {
+            parts.append("等待转码")
         } else if !allPaused, downloading.isEmpty {
             parts.append("等待下载")
         }
@@ -375,7 +378,7 @@ struct OfflineDownloadStrip: View {
     @State private var store = OfflineStore.shared
 
     var body: some View {
-        let tint = unit.state == .failed || unit.damaged ? Theme.warning : Theme.info
+        let tint = unit.needsAttention ? Theme.warning : Theme.info
         let speed = unit.state == .downloading ? store.speeds[unit.fileId].flatMap { $0 > 0 ? $0 : nil } : nil
         ZStack(alignment: .bottom) {
             RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(tint, lineWidth: 2)
@@ -410,7 +413,7 @@ struct OfflineDownloadStrip: View {
     private func icon(_ tint: Color) -> some View {
         switch unit.state {
         case .paused: Image(systemName: "pause.circle.fill")
-        case .failed: Image(systemName: "exclamationmark.circle.fill")
+        case .failed: Image(systemName: unit.waitingForTranscode ? "hourglass" : "exclamationmark.circle.fill")
         default:
             if unit.damaged {
                 Image(systemName: "exclamationmark.circle.fill")
@@ -429,7 +432,7 @@ struct OfflineDownloadStrip: View {
         case .queued: "等待下载"
         case .downloading: "下载中\(percent)"
         case .paused: "已暂停\(percent)"
-        case .failed: unit.retryable ? "下载中断，稍后重试" : "下载失败"
+        case .failed: unit.waitingForTranscode ? unit.transcodeWait ?? "等待转码" : unit.retryable ? "下载中断，稍后重试" : "下载失败"
         case .done: "已下载"
         }
     }
@@ -444,7 +447,9 @@ enum OfflineUnitStatus {
         case .downloading:
             unit.expectedBytes > 0 ? "下载中 \(Int(unit.progressFraction * 100))%" : "下载中 \(Formatters.bytes(Int(unit.receivedBytes)))"
         case .paused: "已暂停"
-        case .failed: unit.retryable ? "下载中断，稍后自动重试" : (unit.error ?? "下载失败")
+        case .failed:
+            unit.waitingForTranscode ? unit.transcodeWait ?? "等待转码"
+                : unit.retryable ? "下载中断，稍后自动重试" : (unit.error ?? "下载失败")
         case .done: unit.damaged ? "文件损坏，请重新下载" : "已下载"
         }
     }

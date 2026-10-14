@@ -48,7 +48,9 @@ struct OfflineDownloadControl: View {
             case .paused:
                 Button("继续下载", systemImage: "play") { downloader.resume(fileId: unit.fileId) }
             case .failed:
-                Button("重试", systemImage: "arrow.clockwise") { downloader.resume(fileId: unit.fileId) }
+                if !unit.waitingForTranscode {
+                    Button("重试", systemImage: "arrow.clockwise") { downloader.resume(fileId: unit.fileId) }
+                }
             }
             Button(unit.state == .done ? "删除下载" : "取消下载", systemImage: "trash", role: .destructive) { confirmDelete = true }
         } label: {
@@ -80,10 +82,11 @@ struct OfflineDownloadStatusBar: View {
     @State private var store = OfflineStore.shared
 
     var body: some View {
-        let warning = unit.state == .failed || unit.damaged
+        let warning = unit.needsAttention
         let tint = warning ? Theme.warning : Theme.info
         let speed = unit.state == .downloading ? store.speeds[unit.fileId].flatMap { $0 > 0 ? $0 : nil } : nil
-        let text = unit.state == .failed ? "\(OfflineDownloadStrip.status(unit))，点按重试" : OfflineDownloadStrip.status(unit)
+        let text = unit.state == .failed && !unit.waitingForTranscode
+            ? "\(OfflineDownloadStrip.status(unit))，点按重试" : OfflineDownloadStrip.status(unit)
         HStack(spacing: 10) {
             icon(tint)
             Text(text).lineLimit(1)
@@ -103,7 +106,7 @@ struct OfflineDownloadStatusBar: View {
     private func icon(_ tint: Color) -> some View {
         switch unit.state {
         case .paused: Image(systemName: "pause.circle.fill")
-        case .failed: Image(systemName: "exclamationmark.circle.fill")
+        case .failed: Image(systemName: unit.waitingForTranscode ? "hourglass" : "exclamationmark.circle.fill")
         default:
             if unit.damaged {
                 Image(systemName: "exclamationmark.circle.fill")
