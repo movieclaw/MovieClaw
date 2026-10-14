@@ -65,6 +65,10 @@ from movieclaw_api.services.agent_sessions import (
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.llm_config import acquire_llm_router
 from movieclaw_api.services.mclaw_tool import render_service_map
+from movieclaw_api.services.web_search_config import (
+    attach_web_search_tool,
+    load_web_search_provider,
+)
 from movieclaw_api.settings import AppServerSetting, get_setting_store
 from movieclaw_db.engine import get_session
 from movieclaw_db.repositories.agent_session_repo import (
@@ -341,7 +345,10 @@ ToolProfile = Literal["web", "full", "mclaw", "none"]
 async def _profile_tools(
     profile: ToolProfile, session_id: str, owner: str | None
 ) -> list[AgentTool]:
-    """按档位构建工具集。令牌按会话签发，所以要在会话建好之后现建。"""
+    """按档位构建工具集。令牌按会话签发，所以要在会话建好之后现建。
+
+    网页搜索配好了才挂上；``none`` 档明确不要工具，连搜索也不给。
+    """
     if profile == "none":
         return []
     if profile == "mclaw":
@@ -350,10 +357,11 @@ async def _profile_tools(
         # 受限工具集的工作目录按来源隔开（插件各用各的）
         return await _restricted_tools(session_id, owner or "web")
     cli_env = await _cli_env(session_id)
+    web_search = await load_web_search_provider()
     if profile == "web":
-        return get_agent_tools(cli_env, generative_ui=True)
+        return attach_web_search_tool(get_agent_tools(cli_env, generative_ui=True), web_search)
     # full：插件驱动的会话没有网页界面，卡片画不出来（docs/design/agent-generative-ui.md §2）
-    return get_agent_tools(cli_env)
+    return attach_web_search_tool(get_agent_tools(cli_env), web_search)
 
 
 def _resolve_model_choice(requested: str, inherited: str | None) -> str | None:
@@ -906,7 +914,10 @@ async def retry_session_message(
     # 供应商校验和运行所需上下文在删除轨迹前准备完成；下面才进入不可逆阶段。
     llm_router = await acquire_llm_router(session)
     system_prompt = await _agent_system_prompt()
-    tools = get_agent_tools(await _cli_env(session_id), generative_ui=True)
+    tools = attach_web_search_tool(
+        get_agent_tools(await _cli_env(session_id), generative_ui=True),
+        await load_web_search_provider(),
+    )
 
     store.discard_from_user_message(session_id, payload.message_id)
     # 重试路径同款兜底：截断后若仍残留未配对的工具调用（上次异常停机遗留），

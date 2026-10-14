@@ -8,6 +8,7 @@
  * （GET /llm/models，同 id 跨实例冲突的项已带「（实例名）」标注）。
  * 服务端保证只要接入了供应商，两个默认就已有值（首次接入自动设为其目录
  * 第一个模型），所以这里显示的永远是真实存的值；一个都没接入时给空态引导。
+ * 同页还有「搜索能力接入」：配了供应商才给智能体网页搜索工具。
  */
 
 import { useEffect, useState } from "react";
@@ -25,6 +26,7 @@ import {
   SettingsRow,
   SettingsSection,
 } from "@/components/settings-ui";
+import { WebSearchSettings } from "@/components/web-search-settings";
 import {
   type LlmDefaults,
   type LlmModelOption,
@@ -179,6 +181,8 @@ export function AiSettingsSection() {
           </SettingsList>
         </SettingsSection>
       )}
+
+      <WebSearchSettings />
     </div>
   );
 }

@@ -29,10 +29,12 @@ def test_generative_ui_is_off_by_default(tmp_path, monkeypatch) -> None:
 
 def test_web_session_paths_opt_in_explicitly() -> None:
     """网页会话的两条装配路径（发消息 / 改写重问）都必须显式打开开关。"""
-    source = inspect.getsource(agent_routes)
-    calls = [line for line in source.splitlines() if "get_agent_tools(await _cli_env" in line]
-    assert calls, "找不到网页会话的工具装配调用"
-    assert all("generative_ui=True" in line for line in calls), calls
+    profile = inspect.getsource(agent_routes._profile_tools)
+    retry = inspect.getsource(agent_routes.retry_session_message)
+    assert profile.count("generative_ui=True") == 1
+    assert "generative_ui=True" in retry
+    assert "generative_ui=False" not in profile
+    assert "generative_ui=False" not in retry
 
 
 def test_im_channels_never_carry_the_tool() -> None:

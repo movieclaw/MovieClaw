@@ -87,6 +87,7 @@ from movieclaw_api.api.routes.system_notices import router as system_notices_rou
 from movieclaw_api.api.routes.tips import router as tips_router
 from movieclaw_api.api.routes.transcode_worker import router as transcode_worker_router
 from movieclaw_api.api.routes.ui import router as ui_router
+from movieclaw_api.api.routes.web_search import router as web_search_router
 from movieclaw_api.api.routes.webhook import router as webhook_router
 
 api_router = APIRouter()
@@ -187,6 +188,7 @@ _ADMIN_ROUTERS = [
     download_sources_router,
     downloaders_router,
     llm_router,
+    web_search_router,
     session_router,
     agent_skills_router,
     # 旧版 App 的通道接口（只为已发布的 App 保留，内部走通道中枢）

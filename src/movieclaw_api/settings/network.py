@@ -38,6 +38,12 @@ BUILTIN_EGRESS_SERVICES: list[dict[str, str]] = [
     {"id": "douban", "label": "豆瓣", "description": "豆瓣榜单与搜索（国内网络通常可直连）"},
     {"id": "llm", "label": "AI 模型", "description": "大语言模型供应商接口"},
     {
+        "id": "web_search",
+        "label": "网页搜索",
+        "description": "智能体的网页搜索（Tavily / Exa / Brave）。"
+        "这些接口多在海外，国内网络通常需要代理",
+    },
+    {
         "id": "telegram",
         "label": "Telegram 推送",
         "description": "Telegram bot 收发消息(api.telegram.org),国内网络需代理",

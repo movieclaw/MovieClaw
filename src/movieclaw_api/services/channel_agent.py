@@ -27,6 +27,10 @@ from movieclaw_api.services.agent_sessions import get_agent_session_store
 from movieclaw_api.services.im_attachments import prepare_agent_input
 from movieclaw_api.services.llm_config import acquire_llm_router
 from movieclaw_api.services.mclaw_tool import render_service_map
+from movieclaw_api.services.web_search_config import (
+    attach_web_search_tool,
+    load_web_search_provider,
+)
 from movieclaw_channel.pusher import StepReplyPusher
 from movieclaw_db.engine import get_database
 from movieclaw_db.repositories.agent_session_repo import AgentSessionRepository
@@ -76,7 +80,10 @@ async def _restricted_tools(session_id: str, channel_id: str):
         "MOVIECLAW_SERVER": f"http://127.0.0.1:{settings.port}",
         "MOVIECLAW_TOKEN": token,
     }
-    return [make_mclaw_tool(workdir, cli_env, render_service_map())]
+    tools = [make_mclaw_tool(workdir, cli_env, render_service_map())]
+    # 网页搜索是只读的外部查询，没有宿主机 shell，受限通道也可以用。
+    # 没配置时 load 返回 None，工具集与现在完全一样。
+    return attach_web_search_tool(tools, await load_web_search_provider())
 
 
 async def run_agent(

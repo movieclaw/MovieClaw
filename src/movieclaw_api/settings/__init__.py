@@ -66,6 +66,7 @@ from movieclaw_api.settings.store import (
     init_setting_store,
     reset_setting_store,
 )
+from movieclaw_api.settings.web_search import WebSearchSetting
 from movieclaw_api.settings.webhook import (
     WebhookEndpoint,
     WebhookSetting,
@@ -115,8 +116,9 @@ __all__ = [
     "CloudSetting",
     "PushChannelsSetting",
     "BUILTIN_EGRESS_SERVICES",
-    # AI 设定（各用途默认模型）
+    # AI 设定（各用途默认模型、网页搜索）
     "LlmDefaultsSetting",
+    "WebSearchSetting",
     "McpEndpoint",
     "McpEndpointsSetting",
     # 应用服务（外部访问地址）
