@@ -62,7 +62,7 @@ def test_builtin_agent_tools_omit_web_search_until_a_provider_is_attached(tmp_pa
 def test_tool_description_is_general_web_search_not_media_only():
     tool = make_web_search_tool(_Fake())  # type: ignore[arg-type]
     text = tool.definition.description
-    assert "site:" in text
+    assert text == "搜索网络以获取最新信息。返回可选的摘要回答和来源 URL 列表。"
     for banned in ("电影", "剧集", "供应商", "Brave"):
         assert banned not in text
         for param in tool.definition.parameters["properties"].values():

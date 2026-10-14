@@ -27,13 +27,7 @@ _MAX_QUERY = 400
 #: 全进程至少间隔这么久再发出下一次搜索，避免一次对话打满供应商配额。
 MIN_INTERVAL_SECONDS = 1.0
 
-_DESCRIPTION = (
-    "搜索互联网。默认最多返回 5 条，每条包含标题、链接和摘要。"
-    "可以用 site:域名、filetype:pdf、intitle:词、-排除词，"
-    "或引号中的精确短语来收窄结果。"
-    "默认只有摘要；需要正文摘录时把 include_content 设为 true。"
-    "引用时带上标题和链接。"
-)
+_DESCRIPTION = "搜索网络以获取最新信息。返回可选的摘要回答和来源 URL 列表。"
 
 _lock = asyncio.Lock()
 _last_call = 0.0
