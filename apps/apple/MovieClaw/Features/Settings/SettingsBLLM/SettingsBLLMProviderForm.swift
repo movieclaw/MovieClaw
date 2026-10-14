@@ -41,6 +41,7 @@ struct SettingsBLLMProviderForm: View {
     @State private var busy = false
     @State private var error: String?
     @State private var discarding = false
+    @State private var chatGPTSignIn = ChatGPTSignIn()
 
     init(provider: API.LlmProviderView?, presets: [API.LlmPresetView], takenNames: [String], initialProviderType: String? = nil, onSaved: @escaping () -> Void) {
         self.provider = provider
@@ -138,7 +139,7 @@ struct SettingsBLLMProviderForm: View {
                 }
                 providerSection
                 if providerType == "chatgpt" {
-                    ChatGPTPlanConnectionSection(provider: provider?.providerType == "chatgpt" ? provider : nil)
+                    ChatGPTPlanConnectionSection(provider: provider?.providerType == "chatgpt" ? provider : nil, onConnected: onSaved, signIn: chatGPTSignIn)
                 } else {
                 connectionSection
                 catalogSection
@@ -156,12 +157,17 @@ struct SettingsBLLMProviderForm: View {
                 }
         }
         .disabled(busy)
+        .sheet(item: $chatGPTSignIn.page, onDismiss: { chatGPTSignIn.browserDismissed() }) { page in
+            SafariView(url: page.url).ignoresSafeArea()
+        }
+        .onDisappear { if chatGPTSignIn.page == nil { chatGPTSignIn.cancel() } }
         .interactiveDismissDisabled(busy || dirty)
         .alert("放弃未保存的修改？", isPresented: $discarding) {
             Button("继续编辑", role: .cancel) { }
             Button("放弃修改", role: .destructive) { dismiss() }
         }
         .onChange(of: providerType) { _, _ in
+            chatGPTSignIn.cancel()
             // 换供应商：端点 / UA / 高级设置 / 参数子表单都与上一家无关，一并清掉
             baseUrl = ""
             userAgent = ""

@@ -4,13 +4,15 @@
 
 ## 使用
 
-在运行浏览器的电脑上安装包含此功能的 `mclaw`，先执行 `mclaw login` 配对自己的 MovieClaw 服务器，然后执行：
+在 iPhone「模型接入」点击「连接 ChatGPT 订阅」，再点击 **Continue with ChatGPT**。App 会打开系统 Safari 登录页面，并在手机上接收官方要求的 loopback 回调；完成后自动连接当前服务器，账号和模型目录随接入显示。用户关闭页面或取消时关闭监听器，可重新发起。
+
+电脑也可使用包含此功能的 `mclaw`：先执行 `mclaw login` 配对自己的 MovieClaw 服务器，然后执行：
 
 ```sh
 mclaw llm chatgpt login
 ```
 
-浏览器打开 OpenAI 官方授权页。选择 **Continue with ChatGPT**，允许使用订阅；完成后终端确认连接结果。网页或 iPhone 在「模型接入」选择「ChatGPT 订阅」，可查看步骤与刷新接入；连接完成后在现有对话框或 AI 设定选择模型。
+浏览器打开 OpenAI 官方授权页，允许使用订阅后终端确认连接结果。网页的「ChatGPT 订阅」提供电脑助手步骤；iPhone 支持直接授权，也保留电脑助手选项。连接完成后在现有对话框或 AI 设定选择模型。
 
 重新授权已有接入使用 `--provider <ID>`；新增账号省略该参数。每个账号是独立供应商实例，可以分别选择。授权页面显示的应用名称默认 MovieClaw；衍生应用应通过 `--app-name` 使用自己的真实名称。
 
@@ -18,7 +20,7 @@ mclaw llm chatgpt login
 
 ## 自部署授权
 
-OpenAI 的开源通路要求 `http://127.0.0.1:<port>/auth/callback`，不能把 NAS 公网地址或手机自定义 scheme 当成回调。`mclaw` 在电脑绑定 loopback 监听器，再向已配对的服务器请求授权地址；回调的 code / state / issued client ID 通过同一认证通路交回服务器。PKCE verifier、nonce 与 OAuth 令牌由服务器持有，浏览器和手机不保存令牌，也不需要复制密钥。
+OpenAI 的开源通路要求 `http://127.0.0.1:<port>/auth/callback`，不能把 NAS 公网地址或手机自定义 scheme 当成回调。iOS 使用只绑定 `127.0.0.1` 的 Network 监听器，启动后再请求授权地址，并用系统 Safari 控制器显示官方页面；电脑使用 `mclaw` 监听。回调的 code / state / issued client ID 通过原有认证通路交回服务器。PKCE verifier、nonce 与 OAuth 令牌由服务器持有，浏览器和手机不保存令牌，也不需要复制密钥。
 
 部署时使用可信连接访问自己的服务器，公网访问使用 HTTPS。服务器与电脑助手都需要此功能；仅更新手机不能新增服务端端点。
 
@@ -43,3 +45,5 @@ OpenAI 的开源通路要求 `http://127.0.0.1:<port>/auth/callback`，不能把
 ## 验证范围
 
 自动化用隔离 SQLite 与模拟 OpenAI 响应验证授权码交换、PKCE、签名/账号边界、重放拒绝、目录过滤、加密/脱敏、令牌刷新和完成事件，以及现有 API Key 与管理员权限回归。真实账号授权和实际订阅推理需要账号本人在 OpenAI 页面完成；离线测试和编译不能代替该证据。
+
+iOS 测试还覆盖 HTTP 回调的 Host/state/重复参数检查、真实 loopback socket、回放拒绝和取消后端口关闭。Simulator 中已通过生产界面打开官方登录页，验证取消/重试，并用模拟授权码走完真实服务器的交换、保存与已连接界面。OpenAI 令牌与模型响应使用测试替身，这些结果不代表真实账号已授权或订阅推理已验证。
