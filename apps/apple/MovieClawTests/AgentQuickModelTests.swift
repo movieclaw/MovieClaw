@@ -4,6 +4,27 @@ import Testing
 
 @MainActor
 struct AgentQuickModelTests {
+    @Test func legacyModelCapabilitiesDecodeAndExpandedFlagsSurviveEditing() throws {
+        var payload: [String: Any] = ["id": "legacy", "context_window": 8192, "max_output_tokens": 2048,
+                                    "supports_tools": true, "supports_parallel_tool_calls": false,
+                                    "supports_thinking": false, "modalities": ["text"], "thinking_levels": []]
+        let legacy = try JSONDecoder().decode(API.ModelInfo.self, from: JSONSerialization.data(withJSONObject: payload))
+        #expect(legacy.requiresResponsesForTools == nil)
+        #expect(legacy.fixedSampling == nil)
+        payload["requires_responses_for_tools"] = true
+        payload["chat_tools_require_no_reasoning"] = true
+        payload["max_tokens_parameter"] = "max_completion_tokens"
+        payload["sampling_requires_no_reasoning"] = true
+        payload["fixed_sampling"] = true
+        let expanded = try JSONDecoder().decode(API.ModelInfo.self, from: JSONSerialization.data(withJSONObject: payload))
+        let input = expanded.settingsBLLMInput
+        #expect(input.requiresResponsesForTools == true)
+        #expect(input.chatToolsRequireNoReasoning == true)
+        #expect(input.maxTokensParameter == "max_completion_tokens")
+        #expect(input.samplingRequiresNoReasoning == true)
+        #expect(input.fixedSampling == true)
+    }
+
     @Test func quickEntryKeepsSelectedModelAndEffortAndResetsOnModelChange() throws {
         let previous = AgentComposerPrefs.load()
         defer { previous.save() }

@@ -1704,6 +1704,12 @@ nonisolated extension APIClient {
         return try await send("GET", "/llm/models")
     }
 
+    /// 查询端点上报的模型 ID（不保存配置）
+    /// `POST /llm/models/discover`
+    func llmModelsDiscover(body: API.LlmModelDiscoveryPayload) async throws -> [String] {
+        return try await send("POST", "/llm/models/discover", body: body)
+    }
+
     /// 列出可接入的供应商类型及其模型目录
     /// `GET /llm/presets`
     func llmPresets() async throws -> [API.LlmPresetView] {

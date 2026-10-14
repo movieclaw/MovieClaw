@@ -839,46 +839,6 @@ nonisolated extension API {
         }
     }
 
-    struct ChatGPTAuthorizePayload: Codable, Hashable, Sendable {
-        var redirectUri: String
-        var name: String?
-        var appName: String?
-        var providerId: Int?
-
-        enum CodingKeys: String, CodingKey {
-            case redirectUri = "redirect_uri"
-            case name
-            case appName = "app_name"
-            case providerId = "provider_id"
-        }
-    }
-
-    struct ChatGPTAuthorizeView: Codable, Hashable, Sendable {
-        var attemptId: String
-        var state: String
-        var authorizeUrl: String
-
-        enum CodingKeys: String, CodingKey {
-            case attemptId = "attempt_id"
-            case state
-            case authorizeUrl = "authorize_url"
-        }
-    }
-
-    struct ChatGPTCompletePayload: Codable, Hashable, Sendable {
-        var attemptId: String
-        var state: String
-        var code: String
-        var clientId: String?
-
-        enum CodingKeys: String, CodingKey {
-            case attemptId = "attempt_id"
-            case state
-            case code
-            case clientId = "client_id"
-        }
-    }
-
     struct ChannelAccountView: Codable, Hashable, Sendable {
         var channelId: String
         var accountId: String
@@ -1097,6 +1057,46 @@ nonisolated extension API {
             case title
             case synthetic
             case imageUrl = "image_url"
+        }
+    }
+
+    struct ChatGPTAuthorizePayload: Codable, Hashable, Sendable {
+        var redirectUri: String
+        var name: String?
+        var appName: String?
+        var providerId: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case redirectUri = "redirect_uri"
+            case name
+            case appName = "app_name"
+            case providerId = "provider_id"
+        }
+    }
+
+    struct ChatGPTAuthorizeView: Codable, Hashable, Sendable {
+        var attemptId: String
+        var state: String
+        var authorizeUrl: String
+
+        enum CodingKeys: String, CodingKey {
+            case attemptId = "attempt_id"
+            case state
+            case authorizeUrl = "authorize_url"
+        }
+    }
+
+    struct ChatGPTCompletePayload: Codable, Hashable, Sendable {
+        var attemptId: String
+        var state: String
+        var code: String
+        var clientId: String?
+
+        enum CodingKeys: String, CodingKey {
+            case attemptId = "attempt_id"
+            case state
+            case code
+            case clientId = "client_id"
         }
     }
 
@@ -5732,6 +5732,39 @@ nonisolated extension API {
         }
     }
 
+    /// 查询草稿端点的模型 ID；不保存实例，不要求先填写模型参数。
+    struct LlmModelDiscoveryPayload: Codable, Hashable, Sendable {
+        var name: String?
+        /// 供应商类型：openai / bailian / openai_compat
+        var providerType: String
+        /// API 端点（留空用预设默认）
+        var baseUrl: String?
+        /// 自定义 User-Agent 请求头（留空使用 openai SDK 自带 UA）
+        var userAgent: String?
+        /// API 协议：openai_chat（Chat Completions）/ openai_responses（Responses API）；留空跟随预设默认，仅预设 selectable_protocols 非空时可选。编辑时不传沿用原值
+        var apiProtocol: String?
+        /// API Key；新增必填，编辑时留空沿用原 Key（改了供应商类型或端点须重填）
+        var apiKey: String?
+        /// 连接测试用的模型 id；留空取目录里第一个（预设目录或自定义目录）
+        var defaultModel: String?
+        /// 自定义模型目录 JSON 数组，元素形如 {"id":"模型id","context_window":131072,"max_output_tokens":8192}（openai_compat 端点至少一条）
+        var extraModels: [API.ModelInfoInput]?
+        /// 编辑时沿用密钥的实例 id
+        var providerId: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case name
+            case providerType = "provider_type"
+            case baseUrl = "base_url"
+            case userAgent = "user_agent"
+            case apiProtocol = "api_protocol"
+            case apiKey = "api_key"
+            case defaultModel = "default_model"
+            case extraModels = "extra_models"
+            case providerId = "provider_id"
+        }
+    }
+
     /// 对话框模型选择器的一个选项（口径见 services.llm_config 模块说明）。
     struct LlmModelOptionView: Codable, Hashable, Sendable {
         /// 提交给 session.start 的模型引用：裸模型 id，或同 id 在多个实例时的「实例名/模型id」
@@ -6731,16 +6764,24 @@ nonisolated extension API {
     }
 
     /// 模型目录条目：agent 做上下文预算 / 能力判断的依据。
-    /// token 三元组的语义（None 一律表示官方未单独公布）：
+    /// token 规格的语义（None 一律表示官方未单独公布）：
     /// - context_window     输入+输出共享的总上下文；
     /// - max_input_tokens   单独的输入上限（百炼公布，OpenAI 不单独公布）；
     /// - max_output_tokens  单次响应的输出上限，agent 设 max_tokens 的依据。
+    /// - default_output_tokens 默认输出长度，不冒充最大输出上限。
     struct ModelInfo: Codable, Hashable, Sendable {
         var id: String
         var contextWindow: Int?
         var maxInputTokens: Int?
+        var maxInputTokensThinking: Int?
         var maxOutputTokens: Int?
+        var defaultOutputTokens: Int?
         var supportsTools: Bool
+        var requiresResponsesForTools: Bool?
+        var chatToolsRequireNoReasoning: Bool?
+        var maxTokensParameter: String?
+        var samplingRequiresNoReasoning: Bool?
+        var fixedSampling: Bool?
         var supportsParallelToolCalls: Bool
         var supportsThinking: Bool
         var maxThinkingTokens: Int?
@@ -6755,8 +6796,15 @@ nonisolated extension API {
             case id
             case contextWindow = "context_window"
             case maxInputTokens = "max_input_tokens"
+            case maxInputTokensThinking = "max_input_tokens_thinking"
             case maxOutputTokens = "max_output_tokens"
+            case defaultOutputTokens = "default_output_tokens"
             case supportsTools = "supports_tools"
+            case requiresResponsesForTools = "requires_responses_for_tools"
+            case chatToolsRequireNoReasoning = "chat_tools_require_no_reasoning"
+            case maxTokensParameter = "max_tokens_parameter"
+            case samplingRequiresNoReasoning = "sampling_requires_no_reasoning"
+            case fixedSampling = "fixed_sampling"
             case supportsParallelToolCalls = "supports_parallel_tool_calls"
             case supportsThinking = "supports_thinking"
             case maxThinkingTokens = "max_thinking_tokens"
@@ -6767,16 +6815,24 @@ nonisolated extension API {
     }
 
     /// 模型目录条目：agent 做上下文预算 / 能力判断的依据。
-    /// token 三元组的语义（None 一律表示官方未单独公布）：
+    /// token 规格的语义（None 一律表示官方未单独公布）：
     /// - context_window     输入+输出共享的总上下文；
     /// - max_input_tokens   单独的输入上限（百炼公布，OpenAI 不单独公布）；
     /// - max_output_tokens  单次响应的输出上限，agent 设 max_tokens 的依据。
+    /// - default_output_tokens 默认输出长度，不冒充最大输出上限。
     struct ModelInfoInput: Codable, Hashable, Sendable {
         var id: String
         var contextWindow: Int?
         var maxInputTokens: Int?
+        var maxInputTokensThinking: Int?
         var maxOutputTokens: Int?
+        var defaultOutputTokens: Int?
         var supportsTools: Bool?
+        var requiresResponsesForTools: Bool?
+        var chatToolsRequireNoReasoning: Bool?
+        var maxTokensParameter: String?
+        var samplingRequiresNoReasoning: Bool?
+        var fixedSampling: Bool?
         var supportsParallelToolCalls: Bool?
         var supportsThinking: Bool?
         var maxThinkingTokens: Int?
@@ -6787,8 +6843,15 @@ nonisolated extension API {
             case id
             case contextWindow = "context_window"
             case maxInputTokens = "max_input_tokens"
+            case maxInputTokensThinking = "max_input_tokens_thinking"
             case maxOutputTokens = "max_output_tokens"
+            case defaultOutputTokens = "default_output_tokens"
             case supportsTools = "supports_tools"
+            case requiresResponsesForTools = "requires_responses_for_tools"
+            case chatToolsRequireNoReasoning = "chat_tools_require_no_reasoning"
+            case maxTokensParameter = "max_tokens_parameter"
+            case samplingRequiresNoReasoning = "sampling_requires_no_reasoning"
+            case fixedSampling = "fixed_sampling"
             case supportsParallelToolCalls = "supports_parallel_tool_calls"
             case supportsThinking = "supports_thinking"
             case maxThinkingTokens = "max_thinking_tokens"
@@ -12106,7 +12169,8 @@ nonisolated extension API {
     /// 模型的思考控制方言声明（能力事实，不是功能承诺）。
     /// 三种 kind 覆盖已知端点：
     /// - ``effort``：档位原词直传（请求体 reasoning_effort），levels 声明该模型
-    /// 的原生档位子集 = 用户菜单；off 编码为 reasoning_effort="none"；
+    /// 的原生档位子集 = 用户菜单；off 默认编码 reasoning_effort="none"，
+    /// 关闭开关走另一字段时由 off_body 声明；
     /// - ``budget``：enable_thinking + thinking_budget，档位按模型
     /// max_thinking_tokens 比例分段（低 25% / 中 50% / 高 100%）；未声明
     /// 预算上限的模型退化为仅开关；
@@ -12116,18 +12180,21 @@ nonisolated extension API {
         var kind: String
         var levels: [String]
         var supportsOff: Bool
+        var offBody: [String: API.JSONValue]?
 
         enum CodingKeys: String, CodingKey {
             case kind
             case levels
             case supportsOff = "supports_off"
+            case offBody = "off_body"
         }
     }
 
     /// 模型的思考控制方言声明（能力事实，不是功能承诺）。
     /// 三种 kind 覆盖已知端点：
     /// - ``effort``：档位原词直传（请求体 reasoning_effort），levels 声明该模型
-    /// 的原生档位子集 = 用户菜单；off 编码为 reasoning_effort="none"；
+    /// 的原生档位子集 = 用户菜单；off 默认编码 reasoning_effort="none"，
+    /// 关闭开关走另一字段时由 off_body 声明；
     /// - ``budget``：enable_thinking + thinking_budget，档位按模型
     /// max_thinking_tokens 比例分段（低 25% / 中 50% / 高 100%）；未声明
     /// 预算上限的模型退化为仅开关；
@@ -12137,11 +12204,13 @@ nonisolated extension API {
         var kind: String
         var levels: [String]?
         var supportsOff: Bool?
+        var offBody: [String: API.JSONValue]?
 
         enum CodingKeys: String, CodingKey {
             case kind
             case levels
             case supportsOff = "supports_off"
+            case offBody = "off_body"
         }
     }
 

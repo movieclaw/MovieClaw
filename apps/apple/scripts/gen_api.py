@@ -40,6 +40,13 @@ API_PREFIX = "/api/v1"
 
 # 新增响应字段在旧服务器中不存在。保持可选，也保留既有 Swift 本地构造调用。
 BACKWARD_COMPATIBLE_RESPONSE_FIELDS = {
+    "ModelInfo": {
+        "requires_responses_for_tools",
+        "chat_tools_require_no_reasoning",
+        "max_tokens_parameter",
+        "sampling_requires_no_reasoning",
+        "fixed_sampling",
+    },
     "SubscriptionView": {"selection_mode"},
     "SubscriptionDetailView": {"selection_mode"},
     "WantedView": {"selection_version"},
