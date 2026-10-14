@@ -41,7 +41,15 @@ async def healthcheck(request: Request) -> HealthResponse:
         environment=settings.app_env,
         spec_hash=get_spec_hash(request.app),
         version=__version__,
-        # 配置存储自带内存缓存：只有第一次读库
-        instance_id=(await get_jellyfin_compat()).server_id,
+        instance_id=await _instance_id(),
     )
+
+
+async def _instance_id() -> str | None:
+    """配置存储自带内存缓存：只有第一次读库。存储还没就绪（启动早期）时不带——
+    健康检查是存活探测，不能因为它 500。"""
+    try:
+        return (await get_jellyfin_compat()).server_id
+    except RuntimeError:
+        return None
 
