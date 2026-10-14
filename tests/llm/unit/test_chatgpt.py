@@ -23,6 +23,81 @@ from movieclaw_llm.protocols.openai_chatgpt import OpenAIChatGPTProtocol
 from movieclaw_llm.providers import get_preset
 
 
+def test_account_catalog_uses_reported_efforts_for_new_models():
+    from movieclaw_llm.chatgpt import account_model_catalog
+
+    catalog = account_model_catalog(
+        [
+            {
+                "slug": "future-model",
+                "visibility": "list",
+                "context_window": 500000,
+                "input_modalities": ["text", "image"],
+                "supported_reasoning_levels": [
+                    {"effort": "low"},
+                    {"effort": "high"},
+                    {"effort": "max"},
+                    {"effort": "ultra"},
+                ],
+            },
+            {"slug": "hidden", "visibility": "hidden"},
+        ]
+    )
+    assert [m.id for m in catalog] == ["future-model"]
+    assert catalog[0].thinking_levels == ["low", "high", "max"]
+    assert catalog[0].context_window == 500000 and catalog[0].modalities == ["text", "image"]
+
+
+@pytest.mark.parametrize("level", ["low", "medium", "high", "xhigh", "max"])
+def test_legacy_gpt61_catalog_exposes_menu_and_sends_requested_effort(level):
+    from movieclaw_api.services.llm_config import build_model_options, to_domain_config
+    from movieclaw_db.models.llm_provider import LlmProvider
+
+    row = LlmProvider(
+        id=1,
+        name="ChatGPT",
+        provider_type="chatgpt",
+        api_key="unused",
+        default_model="gpt-6.1-sol",
+        extra_models=[{"id": "gpt-6.1-sol"}],
+    )
+    options = build_model_options([row], "gpt-6.1-sol")
+    assert len(options) == 1 and options[0].thinking_levels == [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ]
+    config = to_domain_config(row, credentials().model_dump_json())
+    p = OpenAIChatGPTProtocol(config, get_preset("chatgpt"))
+    payload = p._build_payload(
+        ChatRequest(
+            messages=[ChatMessage(role="user", content="Hello")],
+            settings=ModelSettings(thinking_level=level),
+        ),
+        "gpt-6.1-sol",
+        stream=True,
+    )
+    assert payload["reasoning"] == {"effort": level}
+    assert payload["include"] == ["reasoning.encrypted_content"]
+
+
+def test_explicit_account_efforts_override_preset_without_inventing_off():
+    from movieclaw_llm.chatgpt import account_model_catalog, restore_account_model_controls
+
+    catalog = account_model_catalog(
+        [
+            {
+                "slug": "gpt-6-sol",
+                "visibility": "list",
+                "supported_reasoning_levels": [{"effort": "low"}],
+            }
+        ]
+    )
+    assert restore_account_model_controls(catalog)[0].thinking_levels == ["low"]
+
+
 def credentials(**changes):
     values = dict(
         client_id="oaiapp_test",

@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from pydantic import BaseModel, Field, ValidationError
 
 from movieclaw_llm.exceptions import LlmAuthError
+from movieclaw_llm.models import ModelInfo, ThinkingControl
 
 ISSUER = "https://auth.openai.com"
 AUTHORIZE_URL = ISSUER + "/api/accounts/authorize"
@@ -20,6 +21,65 @@ TOKEN_URL = ISSUER + "/api/accounts/oauth/token"
 RESOURCE = "https://api.openai.com/v1"
 PLAN_SCOPE = "chatgpt.tokens.use.direct"
 SCOPES = "openid profile email offline_access resource.invoke " + PLAN_SCOPE
+
+
+def account_model_catalog(rows: list[dict]) -> list[ModelInfo]:
+    """Use account-reported capabilities, with documented presets only as a fallback."""
+    from movieclaw_llm.providers import get_preset
+
+    known = {m.id: m for m in get_preset("openai").models}
+    catalog = []
+    for row in rows:
+        if (
+            row.get("visibility") != "list"
+            or not isinstance(row.get("slug"), str)
+            or not row["slug"]
+        ):
+            continue
+        model = known.get(row["slug"]) or ModelInfo(
+            id=row["slug"],
+            context_window=32768,
+            max_output_tokens=8192,
+            supports_tools=True,
+            supports_parallel_tool_calls=True,
+        )
+        changes = {}
+        for field in ("context_window", "max_output_tokens"):
+            if isinstance(row.get(field), int) and row[field] > 0:
+                changes[field] = row[field]
+        if "context_window" in changes and model.max_input_tokens:
+            changes["max_input_tokens"] = min(model.max_input_tokens, changes["context_window"])
+        if isinstance(row.get("input_modalities"), list):
+            changes["modalities"] = [m for m in row["input_modalities"] if m in ("text", "image")]
+        if isinstance(row.get("supports_parallel_tool_calls"), bool):
+            changes["supports_parallel_tool_calls"] = row["supports_parallel_tool_calls"]
+        if isinstance(row.get("supported_reasoning_levels"), list):
+            levels = [
+                r.get("effort") if isinstance(r, dict) else r
+                for r in row["supported_reasoning_levels"]
+            ]
+            levels = [level for level in levels if isinstance(level, str)]
+            # Codex's "ultra" includes agent orchestration; it is not a public Responses effort.
+            changes["thinking_control"] = ThinkingControl(
+                kind="effort",
+                levels=levels,
+                supports_off="none" in levels,
+            )
+        catalog.append(model.model_copy(update=changes))
+    return catalog
+
+
+def restore_account_model_controls(models: list[ModelInfo]) -> list[ModelInfo]:
+    """Repair legacy menus without changing account membership or explicit controls."""
+    from movieclaw_llm.providers import get_preset
+
+    known = {m.id: m for m in get_preset("openai").models}
+    return [
+        m.model_copy(update={"thinking_control": known[m.id].thinking_control})
+        if m.thinking_control is None and m.id in known
+        else m
+        for m in models
+    ]
 
 
 class ChatGPTCredentials(BaseModel):

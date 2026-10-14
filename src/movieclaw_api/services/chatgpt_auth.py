@@ -27,14 +27,13 @@ from movieclaw_llm.chatgpt import (
     RESOURCE,
     SCOPES,
     ChatGPTCredentials,
+    account_model_catalog,
     token_request,
     verify_id_token,
 )
 from movieclaw_llm.exceptions import LlmAuthError
-from movieclaw_llm.models import ModelInfo
 from movieclaw_llm.protocols import build_protocol
 from movieclaw_llm.protocols.openai_chatgpt import OpenAIChatGPTProtocol
-from movieclaw_llm.providers import get_preset
 from movieclaw_net import egress_transport
 
 
@@ -269,19 +268,7 @@ async def complete_sign_in(
         scopes=scopes,
         expires_at=time.time() + int(data.get("expires_in", 3600)),
     )
-    # 只纳入账号实际返回的目录；未知型号使用保守预算，不宣称其真实规格。
-    known = {m.id: m for m in get_preset("openai").models}
-    catalog = [
-        known.get(m["slug"])
-        or ModelInfo(
-            id=m["slug"],
-            context_window=m.get("context_window") or 32768,
-            max_output_tokens=m.get("max_output_tokens") or 8192,
-            supports_tools=True,
-            supports_parallel_tool_calls=True,
-        )
-        for m in models
-    ]
+    catalog = account_model_catalog(models)
     from movieclaw_api.services.llm_config import LlmConfigService
 
     service = LlmConfigService(session)

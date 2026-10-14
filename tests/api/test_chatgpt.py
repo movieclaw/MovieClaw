@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import json
 import sqlite3
 from urllib.parse import parse_qs, urlparse
 
@@ -162,3 +163,47 @@ def test_chatgpt_tokens_cannot_be_forwarded_to_custom_endpoint(client):
         },
     )
     assert result.status_code == 400
+
+
+def test_connection_refresh_updates_saved_account_capabilities_without_relogin(client, monkeypatch):
+    from tests.llm.unit.test_chatgpt import credentials
+
+    from movieclaw_llm.chatgpt import account_model_catalog
+    from movieclaw_llm.models import ProviderInfo
+
+    class AccountProtocol(_FakeProtocol):
+        async def test_connection(self):
+            catalog = account_model_catalog(
+                [
+                    {
+                        "slug": "gpt-6.1-sol",
+                        "visibility": "list",
+                        "context_window": 500000,
+                        "supported_reasoning_levels": [{"effort": "low"}, {"effort": "high"}],
+                    },
+                ]
+            )
+            return ProviderInfo(models=[m.id for m in catalog], model_catalog=catalog)
+
+    monkeypatch.setitem(PROTOCOLS, "openai_chatgpt", AccountProtocol)
+    c, path = client
+    result = c.post(
+        "/api/v1/llm/providers",
+        json={
+            "name": "ChatGPT",
+            "provider_type": "chatgpt",
+            "api_key": credentials().model_dump_json(),
+            "default_model": "gpt-6.1-sol",
+            "extra_models": [{"id": "gpt-6.1-sol"}],
+        },
+    )
+    assert result.status_code == 200, result.text
+    models = c.get("/api/v1/llm/models").json()["data"]
+    assert [m["model_id"] for m in models] == ["gpt-6.1-sol"]
+    assert models[0]["thinking_levels"] == ["low", "high"]
+    with sqlite3.connect(path) as db:
+        row = db.execute("select extra_models, api_key from llm_provider").fetchone()
+    saved = json.loads(row[0])[0]
+    assert saved["context_window"] == 500000
+    assert saved["thinking_control"]["levels"] == ["low", "high"]
+    assert row[1].startswith("enc::") and "test-access" not in row[1]

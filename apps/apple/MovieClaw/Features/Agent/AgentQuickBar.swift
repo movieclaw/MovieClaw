@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 「我的」页的 AI 一行输入框（2026-10-12 用户按 Muse 的底栏输入框要求）：加号 · 输入框 · 发送；
-/// 没有语音输入；模型 / 思维链不占地方，用新会话页记住的上次选择（AgentComposerPrefs）。发送 = 新建会话并进入。
+/// 未展开时保持小入口；展开后可选模型 / 思维链，沿用上次选择（AgentComposerPrefs）。发送 = 新建会话并进入。
 ///
 /// 要两样系统各给一半的东西：
 /// - 下滑时跟标签栏一起缩进那一行——只有标签栏附件（tabViewBottomAccessory）有，自定义视图读不到标签栏收没收起；
@@ -21,8 +21,30 @@ final class AgentQuickDraft {
     var sending = false
     var askingConsent = false
     var consentProviders: [String] = []
+    var modelOptions: [API.LlmModelOptionView] = []
+    var choice = AgentComposerPrefs.load()
 
     var canSend: Bool { !draft.isEmpty && !sending }
+
+    func loadModels(api: APIClient) async {
+        applyModelOptions(await AgentCatalog.modelOptions(api: api))
+    }
+
+    func applyModelOptions(_ options: [API.LlmModelOptionView]) {
+        modelOptions = options
+        choice = AgentComposerPrefs.load().reconciled(with: options)
+    }
+
+    func chooseModel(_ ref: String?) {
+        choice = AgentComposerPrefs(model: ref, thinking: nil).reconciled(with: modelOptions)
+        choice.save()
+    }
+
+    func chooseThinking(_ level: String?) {
+        choice.thinking = level
+        choice = choice.reconciled(with: modelOptions)
+        choice.save()
+    }
 
     func open(plusMenu: Bool = false) {
         opensPlusMenu = plusMenu
@@ -45,11 +67,12 @@ final class AgentQuickDraft {
     func send(api: APIClient, router: Router, feedback: Feedback) {
         let message = draft.message
         let images = draft.images.map { AgentTurnImage(attachmentId: $0.attachmentId, name: $0.name) }
+        let selected = choice
         sending = true
         Task {
             defer { sending = false }
             do {
-                let choice = AgentComposerPrefs.load().reconciled(with: await AgentCatalog.modelOptions(api: api))
+                let choice = selected.reconciled(with: await AgentCatalog.modelOptions(api: api))
                 let id = try await AgentConversationRegistry.start(
                     api: api, input: message, images: images, thinking: choice.thinking, model: choice.model
                 )
@@ -149,10 +172,16 @@ struct AgentQuickInput: View {
             compact: true,
             opensPlusMenu: quick.opensPlusMenu,
             onIdle: { quick.editing = false },
+            modelOptions: quick.modelOptions,
+            modelValue: quick.choice.model,
+            onModelChange: quick.chooseModel,
+            thinkingValue: quick.choice.thinking,
+            onThinkingChange: quick.chooseThinking,
             onSubmit: { quick.submit(api: api, router: router, feedback: feedback) }
         )
         .padding(.horizontal, AgentQuickInput.sideInset)
         .padding(.bottom, AgentQuickInput.bottomGap)
+        .task { await quick.loadModels(api: api) }
     }
 
     /// 与系统附件对齐的边距（模拟器量的，见 AgentUITests.testQuickBarHandoffKeepsOneInput）

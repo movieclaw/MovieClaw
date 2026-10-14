@@ -118,7 +118,7 @@ struct AgentComposer: View {
             }
             tray
             if compact {
-                // 一行（「我的」页底部的 AI 输入框，见 AgentQuickInput）：加号 · 输入框 · 发送，模型用上次的选择不占地方
+                // 展开的快捷输入：消息行保持紧凑，下一行可选当前模型与思考强度。
                 HStack(alignment: .bottom, spacing: Self.inset) {
                     plusButton
                     inputField
@@ -126,6 +126,13 @@ struct AgentComposer: View {
                     sendButton
                 }
                 .padding(Self.inset)
+                if !modelOptions.isEmpty {
+                    HStack {
+                        modelControl
+                        Spacer(minLength: 0)
+                    }
+                    .padding([.horizontal, .bottom], Self.inset)
+                }
             } else {
                 inputField
                     .padding(.horizontal, 14)
@@ -301,50 +308,55 @@ struct AgentComposer: View {
         HStack(spacing: Self.inset) {
             plusButton
 
-            if !modelOptions.isEmpty {
-                let model = AgentCatalog.resolve(modelOptions, ref: modelValue)
-                let label = model?.label ?? "模型"
-                // 显式选了思考档位才跟在模型名后面（灰字），「默认」不占地方
-                let thinking = thinkingValue.flatMap { value in
-                    AgentThinking.stops(model?.thinkingLevels ?? []).contains(value) ? AgentThinking.label(value) : nil
-                }
-                Button {
-                    showsModelMenu = true
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(label).lineLimit(1).foregroundStyle(Theme.text)
-                        if let thinking { Text(thinking).foregroundStyle(Theme.textMuted) }
-                    }
-                    .font(.system(size: 15))
-                    .padding(.horizontal, 14)
-                    .frame(height: Self.control)
-                    .background(Self.controlFill, in: .capsule)
-                    .expandedHitArea(vertical: 4)
-                }
-                .buttonStyle(.plain)
-                .disabled(disabled)
-                .accessibilityLabel("模型与思维链：\(label)\(thinking.map { "，思考\($0)" } ?? "")")
-                .accessibilityIdentifier("agent-model-menu")
-                .popover(isPresented: $showsModelMenu, arrowEdge: .bottom) {
-                    AgentModelMenu(
-                        options: modelOptions,
-                        value: modelValue,
-                        thinkingValue: thinkingValue,
-                        onChange: { ref in
-                            onModelChange(ref)
-                            showsModelMenu = false
-                        },
-                        onThinkingChange: onThinkingChange
-                    )
-                    .presentationCompactAdaptation(.popover)
-                }
-            }
+            modelControl
 
             Spacer(minLength: 0)
 
             sendButton
         }
         .padding([.horizontal, .bottom], Self.inset)
+    }
+
+    @ViewBuilder
+    private var modelControl: some View {
+        if !modelOptions.isEmpty {
+            let model = AgentCatalog.resolve(modelOptions, ref: modelValue)
+            let label = model?.label ?? "模型"
+            // 显式选了思考档位才跟在模型名后面（灰字），「默认」不占地方
+            let thinking = thinkingValue.flatMap { value in
+                AgentThinking.stops(model?.thinkingLevels ?? []).contains(value) ? AgentThinking.label(value) : nil
+            }
+            Button {
+                showsModelMenu = true
+            } label: {
+                HStack(spacing: 6) {
+                    Text(label).lineLimit(1).foregroundStyle(Theme.text)
+                    if let thinking { Text(thinking).foregroundStyle(Theme.textMuted) }
+                }
+                .font(.system(size: 15))
+                .padding(.horizontal, 14)
+                .frame(height: Self.control)
+                .background(Self.controlFill, in: .capsule)
+                .expandedHitArea(vertical: 4)
+            }
+            .buttonStyle(.plain)
+            .disabled(disabled)
+            .accessibilityLabel("模型与思维链：\(label)\(thinking.map { "，思考\($0)" } ?? "")")
+            .accessibilityIdentifier("agent-model-menu")
+            .popover(isPresented: $showsModelMenu, arrowEdge: .bottom) {
+                AgentModelMenu(
+                    options: modelOptions,
+                    value: modelValue,
+                    thinkingValue: thinkingValue,
+                    onChange: { ref in
+                        onModelChange(ref)
+                        showsModelMenu = false
+                    },
+                    onThinkingChange: onThinkingChange
+                )
+                .presentationCompactAdaptation(.popover)
+            }
+        }
     }
 
     private var plusButton: some View {

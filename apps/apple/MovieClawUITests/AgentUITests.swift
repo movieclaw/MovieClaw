@@ -199,6 +199,20 @@ final class AgentUITests: XCTestCase {
 
     // MARK: 「我的」页的一行输入框（真实发消息，默认跳过）
 
+    @MainActor
+    func testQuickBarShowsModelControlsOnlyAfterExpansion() {
+        let app = launch(route: "/my")
+        let entry = element(app, "agent-quick-entry")
+        XCTAssertTrue(entry.waitForExistence(timeout: 20))
+        XCTAssertFalse(element(app, "agent-model-menu").exists, "未展开入口应保持小框")
+        safeTap(app, entry, "新会话快捷入口")
+        let model = element(app, "agent-model-menu")
+        XCTAssertTrue(model.waitForExistence(timeout: 20), "第一条消息前应能选择模型")
+        safeTap(app, model, "模型与思考强度")
+        XCTAssertTrue(element(app, "agent-model-panel").waitForExistence(timeout: 5))
+        snapshot("quick-model-menu-before-first-message")
+    }
+
     /// 「我的」根页：平时标签栏附件是一行输入框（下滑跟着标签栏收起）；点它附件让位、同一位置换上真输入框跟着键盘上去，
     /// 收键盘落回原位再换回附件——全程只有一个输入框。加号原地弹加号菜单，选的技能落在托盘里；发送 = 新建会话并进入。
     /// 共发 1 条只读消息，结束后删除本会话。
@@ -221,6 +235,7 @@ final class AgentUITests: XCTestCase {
         sleep(1)
         XCTAssertEqual(inputs.count, 1, "打字时只应有一个输入框")
         XCTAssertFalse(entry.exists, "打字时附件应让位")
+        XCTAssertTrue(element(app, "agent-model-menu").exists, "展开后应能在发送第一条消息前选模型和档位")
         let input = inputs.firstMatch
         XCTAssertLessThan(input.frame.maxY, app.keyboards.firstMatch.frame.minY + 1, "输入框应在键盘之上")
         snapshot("agent-quick-focused")

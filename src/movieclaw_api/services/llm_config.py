@@ -53,7 +53,7 @@ from movieclaw_db.models.llm_provider import LlmProvider
 from movieclaw_db.models.site_credential import ConfigStatus
 from movieclaw_db.repositories.llm_provider_repo import LlmProviderRepository
 from movieclaw_llm import ChatMessage, ChatRequest, LlmError, LlmRouter, ModelInfo, ModelSettings
-from movieclaw_llm.chatgpt import RESOURCE, ChatGPTCredentials
+from movieclaw_llm.chatgpt import RESOURCE, ChatGPTCredentials, restore_account_model_controls
 from movieclaw_llm.models import LlmProviderConfig, ProviderPreset
 from movieclaw_llm.protocols import build_protocol
 from movieclaw_llm.providers import get_preset, list_presets
@@ -75,16 +75,21 @@ def to_domain_config(row: LlmProvider, api_key: str) -> LlmProviderConfig:
         api_key=api_key,
         base_url=row.base_url,
         default_model=row.default_model,
-        extra_models=[ModelInfo.model_validate(m) for m in row.extra_models or []],
+        extra_models=_extra_models(row),
         user_agent=row.user_agent,
         api_protocol=row.api_protocol,
     )
 
 
+def _extra_models(row: LlmProvider) -> list[ModelInfo]:
+    models = [ModelInfo.model_validate(m) for m in row.extra_models or []]
+    return restore_account_model_controls(models) if row.provider_type == "chatgpt" else models
+
+
 def provider_catalog(row: LlmProvider) -> list[ModelInfo]:
     """预设目录 + 用户补录（按 id 覆盖），裁掉当前协议无法调用工具的模型。"""
     merged = {m.id: m for m in get_preset(row.provider_type).models}
-    extras = [ModelInfo.model_validate(m) for m in row.extra_models or []]
+    extras = _extra_models(row)
     merged.update({m.id: m for m in extras})
     protocol = row.api_protocol or get_preset(row.provider_type).protocol
     return [
@@ -696,6 +701,8 @@ async def verify_llm_provider(provider_id: int) -> None:
             try:
                 info = await protocol.test_connection()
                 available = sorted(info.models)
+                if row.provider_type == "chatgpt" and info.model_catalog:
+                    row.extra_models = [m.model_dump() for m in info.model_catalog]
             except Exception:  # noqa: BLE001
                 logger.info("端点未提供模型列表接口，跳过（不影响验证结论）")
             logger.info("LLM 连接测试通过：%s / %s", row.name, row.default_model)

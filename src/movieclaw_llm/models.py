@@ -411,3 +411,4 @@ class ProviderInfo(BaseModel):
     """test_connection 的返回：连通性验证结果与端点上报的可用模型。"""
 
     models: list[str] = Field(default_factory=list)
+    model_catalog: list[ModelInfo] | None = None

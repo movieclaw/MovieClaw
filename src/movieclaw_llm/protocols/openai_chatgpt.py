@@ -9,7 +9,12 @@ from typing import Protocol
 
 import httpx
 
-from movieclaw_llm.chatgpt import RESOURCE, ChatGPTCredentials, refresh_credentials
+from movieclaw_llm.chatgpt import (
+    RESOURCE,
+    ChatGPTCredentials,
+    account_model_catalog,
+    refresh_credentials,
+)
 from movieclaw_llm.exceptions import LlmAuthError, LlmServerError
 from movieclaw_llm.models import ChatRequest, ChatResponse, ChatStreamEvent, ProviderInfo
 from movieclaw_llm.protocols.openai_responses import OpenAIResponsesProtocol
@@ -130,10 +135,8 @@ class OpenAIChatGPTProtocol(OpenAIResponsesProtocol):
             if response.status_code != 200:
                 raise LlmAuthError("无法读取 ChatGPT 账号的模型清单，请重新连接")
             data = response.json()
+            catalog = account_model_catalog(data.get("models", []))
             return ProviderInfo(
-                models=[
-                    row["slug"]
-                    for row in data.get("models", [])
-                    if row.get("visibility") == "list" and row.get("slug")
-                ]
+                models=[m.id for m in catalog],
+                model_catalog=catalog,
             )
