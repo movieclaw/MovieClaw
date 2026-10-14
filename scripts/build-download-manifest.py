@@ -127,12 +127,72 @@ def describe_android(
     return entry
 
 
+def describe_ipa(ipa: Path) -> dict:
+    """iPhone 未签名 IPA：版本、构建号与最低 iOS 从包内 Info.plist 读。"""
+    with zipfile.ZipFile(ipa) as z:
+        plists = [n for n in z.namelist() if re.fullmatch(r"Payload/[^/]+\.app/Info\.plist", n)]
+        if len(plists) != 1:
+            raise ValueError(f"{ipa.name} 必须只包含一个 Payload/*.app")
+        info = plistlib.loads(z.read(plists[0]))
+    if info.get("CFBundleIdentifier") != "io.movieclaw.app":
+        raise ValueError(f"{ipa.name} 不是 MovieClaw iPhone App：{info.get('CFBundleIdentifier')}")
+    with ipa.open("rb") as f:
+        digest = hashlib.file_digest(f, "sha256").hexdigest()
+    entry = {
+        "product": "iphone",
+        "version": str(info["CFBundleShortVersionString"]),
+        "build": str(info["CFBundleVersion"]),
+        "arch": "arm64",
+        "minimumSystemVersion": str(info["MinimumOSVersion"]),
+        "asset": ipa.name,
+        "size": ipa.stat().st_size,
+        "sha256": digest,
+        "signed": False,
+    }
+    for field in ("version", "minimumSystemVersion"):
+        if not re.fullmatch(r"\d+(?:\.\d+){1,3}", entry[field]):
+            raise ValueError(f"{ipa.name} 的 {field} 不合法：{entry[field]}")
+    return entry
+
+
+def describe_windows(directory: Path) -> list[dict]:
+    """Windows 安装版与便携版：以 Desktop CI 的 release-manifest.json 为准，核对实际文件。"""
+    manifest = json.loads((directory / "release-manifest.json").read_text(encoding="utf-8-sig"))
+    version = manifest["version"]
+    signed = manifest.get("signatures", {}).get("installer", {}).get("status") == "Valid"
+    packages = []
+    for item in manifest["files"]:
+        variant = {"Setup-x64.exe": "installer", "portable-x64.zip": "portable"}.get(
+            item["name"].removeprefix(f"MovieClaw-Windows-{version}-")
+        )
+        path = directory / item["name"]
+        with path.open("rb") as f:
+            digest = hashlib.file_digest(f, "sha256").hexdigest()
+        if variant is None or (path.stat().st_size, digest) != (item["size"], item["sha256"]):
+            raise ValueError(f"{item['name']} 与 release-manifest.json 不一致")
+        packages.append({
+            "product": "windows",
+            "variant": variant,
+            "version": version,
+            "build": str(manifest.get("buildNumber") or version),
+            "arch": "x86_64",
+            "minimumSystemVersion": "10",
+            "asset": item["name"],
+            "size": item["size"],
+            "sha256": digest,
+            "signed": signed,
+        })
+    return sorted(packages, key=lambda p: p["variant"])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()
-    client = re.fullmatch(r"(android|androidtv|macos|transcoder)-v(\d+\.\d+\.\d+)", args.tag)
+    client = re.fullmatch(
+        r"(android|androidtv|macos|transcoder|ios|windows)-v(\d+\.\d+\.\d+)", args.tag
+    )
     if not client and not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[\w.-]+)?", args.tag):
         parser.error("tag 必须是 vX.Y.Z，或客户端前缀（如 android-v、macos-v）加 X.Y.Z")
     packages = [describe(p) for p in sorted(args.directory.glob("MovieClaw*-macos-*.zip"))]
@@ -143,10 +203,14 @@ def main() -> None:
         describe_android(p, "androidtv", "io.movieclaw.androidtv", "arm")
         for p in sorted(args.directory.glob("MovieClaw-AndroidTV.apk"))
     ]
-    # 客户端独立 Release 只放自己的一个包，且包内版本必须就是 tag 的版本
+    packages += [describe_ipa(p) for p in sorted(args.directory.glob("MovieClaw-iOS-*.ipa"))]
+    if (args.directory / "release-manifest.json").exists():
+        packages += describe_windows(args.directory)
+    # 客户端独立 Release 只放自己的包（Windows 是安装版与便携版两个），包内版本必须就是 tag 的版本
     if client:
-        product = {"macos": "mac"}.get(client.group(1), client.group(1))
-        if [(p["product"], p["version"]) for p in packages] != [(product, client.group(2))]:
+        product = {"macos": "mac", "ios": "iphone"}.get(client.group(1), client.group(1))
+        count = 2 if product == "windows" else 1
+        if [(p["product"], p["version"]) for p in packages] != [(product, client.group(2))] * count:
             sys.exit(f"{args.tag} 只能包含版本 {client.group(2)} 的 {product} 安装包")
     manifest = {"schema": 1, "release": args.tag, "packages": packages}
     output = args.directory / "downloads.json"

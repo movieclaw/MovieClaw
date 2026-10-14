@@ -110,9 +110,12 @@ jobs:
           while IFS=$'\t' read -r name label; do
             labeled+=("dist/$name#$label")
           done < <(python3 -c 'import json; [print(a["name"] + "\t" + a["label"]) for a in json.load(open("dist/release-manifest.json"))["buildArtifacts"]]')
+          # 官网下载清单（安装版与便携版）与版本信息
+          python3 scripts/build-download-manifest.py --tag "$RELEASE_TAG" --directory dist
           gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             "dist/MovieClaw-Windows-$version-Setup-x64.exe" \
             "dist/MovieClaw-Windows-$version-portable-x64.zip" \
-            "${labeled[@]}" dist/SHA256SUMS.txt dist/release-manifest.json
+            "${labeled[@]}" dist/SHA256SUMS.txt dist/release-manifest.json dist/downloads.json
+          bash scripts/publish-release-info.sh "$RELEASE_TAG"
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
           echo "已发布：https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" | tee -a "$GITHUB_STEP_SUMMARY"

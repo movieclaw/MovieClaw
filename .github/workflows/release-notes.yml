@@ -56,8 +56,13 @@ jobs:
                   # 与 windows-release.yml 同口径：正文末尾附上 CI 验证范围（含 ci-verified 标记）
                   cat "$file" apps/desktop/release/ci-verified-scope.md > "$RUNNER_TEMP/notes.md"
                   gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"
+                  bash scripts/publish-release-info.sh "$tag"
                   ;;
-                *) gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$file" ;;
+                torrent-ner-v*) gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$file" ;;
+                *)
+                  gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$file"
+                  bash scripts/publish-release-info.sh "$tag"
+                  ;;
               esac
             else
               echo "跳过 $file：Release $tag 尚不存在"

@@ -195,6 +195,10 @@ jobs:
       - name: 生成官网下载清单
         run: bash scripts/publish-download-manifest.sh "$RELEASE_TAG"
 
+      # 官网更新日志读它：产品、版本与按语言拆好的说明
+      - name: 生成官网版本信息
+        run: bash scripts/publish-release-info.sh "$RELEASE_TAG"
+
       - name: 发布 Release（不标 latest）
         run: |
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false

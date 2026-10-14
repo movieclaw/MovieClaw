@@ -52,6 +52,15 @@ bash scripts/publish-download-manifest.sh v0.32.0
 
 官网更新日志和版本邮件读 `release.json`，不解析 Release 正文。发版流水线在转正前生成，说明格式不对会拦下转正；`docs/changelog/` 合入 main 后，`release-notes.yml` 同步正文并重新生成。
 
+服务器与每个客户端 Release 都有一份。服务器的带 `"product": "server"` 与下例字段；客户端的只有产品、版本与说明：
+`{"schema": 1, "release": "android-v0.3.2", "product": "android", "version": "0.3.2", "notes": {...}}`，产品标识为
+`iphone`（ios-v）、`appletv`（tvos-v）、`mac`（macos-v）、`transcoder`、`android`、`androidtv`、`windows`。
+客户端 changelog 的标题行写 `## <产品名> X.Y.Z: 标题`，拆分规则与服务器相同。
+
+`downloads.json` 里 iPhone（ios-v）记录未签名 IPA 的版本、构建号与最低 iOS（`product: iphone`）；Windows（windows-v）
+按 Desktop CI 的 `release-manifest.json` 记录安装版与便携版两个包（`product: windows`，`variant: installer / portable`），
+带构建号的 ZIP 不进清单。
+
 ```json
 {
   "schema": 1,

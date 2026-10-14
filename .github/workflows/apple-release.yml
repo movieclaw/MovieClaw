@@ -323,10 +323,12 @@ jobs:
             echo "::error::缺少 $asset，拒绝转正"
             exit 1
           fi
-          # 官网下载页只列 Mac 版与转码器；脚本校验包与 tag 是同一个产品、同一个版本
-          if [ "$PRODUCT" != ios ]; then
-            bash scripts/publish-download-manifest.sh "$RELEASE_TAG"
-          fi
+          # 脚本校验包与 tag 是同一个产品、同一个版本
+          bash scripts/publish-download-manifest.sh "$RELEASE_TAG"
+
+      # 官网更新日志读它：产品、版本与按语言拆好的说明（Apple TV 也要）
+      - name: 生成官网版本信息
+        run: bash scripts/publish-release-info.sh "$RELEASE_TAG"
 
       - name: 发布 Release（不标 latest）
         run: |

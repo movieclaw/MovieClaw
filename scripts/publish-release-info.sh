@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 生成并上传这个 Release 的 release.json（官网更新日志、版本邮件的数据来源）。
+# 生成并上传这个 Release 的 release.json（官网更新日志、版本邮件的数据来源），服务器与客户端都用。
 # 用于转正前终审、changelog 合入后刷新，以及给已发布版本补传。
 # 需要完整历史与 tag（actions/checkout 设 fetch-depth: 0）。
 set -euo pipefail
@@ -8,6 +8,16 @@ tag="${1:?需要 Release tag}"
 repo="${GITHUB_REPOSITORY:-movieclaw/MovieClaw}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+
+# 客户端 Release 只有产品、版本与说明
+if [[ "$tag" != v* ]]; then
+  args=(--tag "$tag")
+  [ -f "docs/changelog/$tag.md" ] && args+=(--changelog "docs/changelog/$tag.md")
+  python3 scripts/build-release-info.py "${args[@]}" > "$work/release.json"
+  cat "$work/release.json"
+  gh release upload "$tag" --repo "$repo" --clobber "$work/release.json"
+  exit 0
+fi
 
 # 手动触发的发版在转正时才创建 tag，此前以当前检出的提交为准（与 publish-release-body.sh 一致）。
 target="$tag"

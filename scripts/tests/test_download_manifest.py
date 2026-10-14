@@ -177,6 +177,61 @@ class DownloadManifestTest(unittest.TestCase):
             # 转码器 Release 不能夹带 Mac 版 App
             self.assertNotEqual(run("transcoder-v0.5.0").returncode, 0)
 
+    def test_iphone_ipa_reads_version_and_minimum_ios(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ipa = Path(tmp) / "MovieClaw-iOS-unsigned.ipa"
+            with zipfile.ZipFile(ipa, "w") as z:
+                z.writestr("Payload/MovieClaw.app/Info.plist", plistlib.dumps({
+                    "CFBundleIdentifier": "io.movieclaw.app",
+                    "CFBundleShortVersionString": "0.8.0",
+                    "CFBundleVersion": "202610140322",
+                    "MinimumOSVersion": "26.0",
+                }))
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--directory", tmp, "--tag", "ios-v0.8.0"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            [entry] = json.loads((Path(tmp) / "downloads.json").read_text())["packages"]
+            self.assertEqual(
+                (entry["product"], entry["version"], entry["build"], entry["minimumSystemVersion"]),
+                ("iphone", "0.8.0", "202610140322", "26.0"),
+            )
+            self.assertFalse(entry["signed"])
+
+    def test_windows_installer_and_portable_follow_the_ci_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            files = []
+            for suffix in ("Setup-x64.exe", "portable-x64.zip"):
+                path = directory / f"MovieClaw-Windows-0.1.0-{suffix}"
+                path.write_bytes(suffix.encode())
+                files.append({"name": path.name, "size": path.stat().st_size,
+                              "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+            # 带构建号的 ZIP 不进清单
+            (directory / "MovieClaw-Windows-0.1.0-build1.1-Setup-x64.zip").write_bytes(b"zip")
+            (directory / "release-manifest.json").write_text(json.dumps({
+                "version": "0.1.0", "buildNumber": "1.1", "files": files,
+                "signatures": {"installer": {"status": "NotSigned"}},
+            }))
+
+            def run(tag):
+                return subprocess.run(
+                    [sys.executable, str(SCRIPT), "--directory", tmp, "--tag", tag],
+                    capture_output=True, text=True,
+                )
+
+            self.assertEqual(run("windows-v0.1.0").returncode, 0)
+            packages = json.loads((directory / "downloads.json").read_text())["packages"]
+            self.assertEqual(
+                [(p["variant"], p["asset"], p["build"], p["signed"]) for p in packages],
+                [("installer", "MovieClaw-Windows-0.1.0-Setup-x64.exe", "1.1", False),
+                 ("portable", "MovieClaw-Windows-0.1.0-portable-x64.zip", "1.1", False)],
+            )
+            self.assertNotEqual(run("windows-v0.1.1").returncode, 0)
+            (directory / "MovieClaw-Windows-0.1.0-portable-x64.zip").write_bytes(b"changed")
+            self.assertNotEqual(run("windows-v0.1.0").returncode, 0)
+
     def test_android_requires_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
             apk = Path(tmp) / "MovieClaw-Android-arm64.apk"

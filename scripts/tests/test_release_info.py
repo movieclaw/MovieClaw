@@ -110,6 +110,37 @@ class ReleaseInfoTest(unittest.TestCase):
         releases = [release("v0.40.0", **{"MovieClaw-iOS-unsigned.ipa": "sha256:a"})]
         self.assertEqual(module.updated("v0.40.0", "v0.39.0", releases), ["server", "iphone"])
 
+    def test_server_release_names_its_product(self):
+        info = module.build("v0.40.0", 19, "v0.39.0", 19, [release("v0.40.0")], CHANGELOG)
+        self.assertEqual(info["product"], "server")
+
+    def test_client_release_has_product_version_and_notes(self):
+        notes = (
+            CHANGELOG.replace("## v0.40.0: Watch together", "## Android 0.3.2: Watch together")
+            .replace("## v0.40.0：一起看", "## Android 0.3.2：一起看")
+        )
+        info = module.build_client("android-v0.3.2", notes)
+        self.assertEqual(
+            (info["release"], info["product"], info["version"]),
+            ("android-v0.3.2", "android", "0.3.2"),
+        )
+        self.assertEqual(info["notes"]["en"]["title"], "Watch together")
+        self.assertEqual(info["notes"]["zh"]["title"], "一起看")
+        self.assertNotIn("imageUpdate", info)
+        self.assertIsNone(module.build_client("tvos-v0.7.0", None)["notes"])
+        self.assertEqual(module.build_client("ios-v0.8.0", None)["product"], "iphone")
+        with self.assertRaises(ValueError):
+            module.build_client("android-v0.3.3", notes)  # 标题里的版本对不上
+        with self.assertRaises(ValueError):
+            module.build_client("torrent-ner-v3", None)
+
+    def test_client_changelogs_follow_the_format(self):
+        for path in sorted((ROOT / "docs" / "changelog").glob("*-v*.md")):
+            if path.name.startswith("torrent-ner-"):
+                continue
+            with self.subTest(path.name):
+                module.build_client(path.stem, path.read_text(encoding="utf-8"))
+
     def test_published_changelogs_follow_the_format(self):
         # 仓库里所有还有 Release 的版本说明（v0.28.0 起）都必须能拆开。
         for path in sorted((ROOT / "docs" / "changelog").glob("v*.md")):
