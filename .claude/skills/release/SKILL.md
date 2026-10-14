@@ -82,8 +82,11 @@ python3 scripts/release-status.py --ref origin/main
 3. **流水线**：核对 tag 与版本号 → 建 draft → 构建 / 签名 / 测试 → 校验产物 → 转正。draft 期间对
    应用内更新、官网、install-cli.sh 都不可见。**任何一步失败 Release 停在 draft，修好后重跑整个
    工作流即可**（上传均带 `--clobber`，可安全重入）。
-4. **验证**：Release 页附件齐全、标题对、正文是 changelog 而不是自动生成的 PR 清单、没有被标成 latest
-   （服务器除外）。
+4. **官网同步**：流水线最后一步通知官网（`scripts/notify-cloud.sh`），官网自己去 GitHub 拉这个版本，
+   一分钟内出现在官网下载页和更新日志。通知失败只告警、不挡发版，官网每天全量对账一次兜底。
+   手动改过 Release（改标题、补传附件、删除）想立刻生效：Actions → cloud-sync 运行（填 tag 或留空全量）。
+5. **验证**：Release 页附件齐全、标题对、正文是 changelog 而不是自动生成的 PR 清单、没有被标成 latest
+   （服务器除外）；官网 https://movieclaw.io/zh/changelog 出现了这一版。
 
 推荐 changelog 与版本号同一个 PR 合入；来不及也可以先发后补：发版时没有 changelog 的，正文先用
 GitHub 自动生成的提交清单（Windows 用一句默认说明），changelog 合入后 release-notes.yml 自动同步成

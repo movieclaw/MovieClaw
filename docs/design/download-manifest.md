@@ -48,6 +48,13 @@ bash scripts/publish-download-manifest.sh v0.32.0
 
 验证：`python3 -m unittest discover -s scripts/tests -p 'test_download_manifest.py'`；Cloud 中运行 `pnpm test:downloads`、`pnpm build && bash scripts/test-download-variants.sh`，以及 `bash scripts/test-download.sh <官网地址>` 核对真实 ZIP 与页面版本。
 
+## 官网怎么读这些数据
+
+GitHub Release 是唯一事实源；官网 api 维护一张派生的发布表（MovieClaw-Cloud 的 `cloud.releases`），官网网页只读这张表。
+发版流水线与 release-notes 结束时用 `scripts/notify-cloud.sh` 通知官网（只带 tag，令牌在仓库机密
+`CLOUD_RELEASE_SYNC_TOKEN`），官网收到后自己去 GitHub 拉发布记录、`release.json` 与 `downloads.json`，校验后写入；
+官网每天全量对账一次，通知丢了也会补上。手动改过 Release 时运行 `cloud-sync` 工作流可立即同步。
+
 ## 版本信息清单 release.json
 
 官网更新日志和版本邮件读 `release.json`，不解析 Release 正文。发版流水线在转正前生成，说明格式不对会拦下转正；`docs/changelog/` 合入 main 后，`release-notes.yml` 同步正文并重新生成。

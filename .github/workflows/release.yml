@@ -265,3 +265,9 @@ jobs:
           fi
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
           echo "Release $RELEASE_TAG 已发布"
+
+      # 让官网立刻同步这个版本（失败只告警，官网每天全量对账兜底）
+      - name: 通知官网
+        env:
+          CLOUD_RELEASE_SYNC_TOKEN: ${{ secrets.CLOUD_RELEASE_SYNC_TOKEN }}
+        run: bash scripts/notify-cloud.sh "$RELEASE_TAG"

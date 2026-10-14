@@ -334,3 +334,9 @@ jobs:
         run: |
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
           echo "已发布：https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # 让官网立刻同步这个版本（失败只告警，官网每天全量对账兜底）
+      - name: 通知官网
+        env:
+          CLOUD_RELEASE_SYNC_TOKEN: ${{ secrets.CLOUD_RELEASE_SYNC_TOKEN }}
+        run: bash scripts/notify-cloud.sh "$RELEASE_TAG"

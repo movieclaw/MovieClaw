@@ -68,3 +68,10 @@ jobs:
               echo "跳过 $file：Release $tag 尚不存在"
             fi
           done
+
+      # 正文与 release.json 变了，让官网立刻对账：每次都会重新同步所有 changelog，按 tag 逐个通知只会
+      # 越来越长；对账只重拉内容指纹变了的记录（失败只告警，官网每天全量对账兜底）
+      - name: 通知官网
+        env:
+          CLOUD_RELEASE_SYNC_TOKEN: ${{ secrets.CLOUD_RELEASE_SYNC_TOKEN }}
+        run: bash scripts/notify-cloud.sh --all

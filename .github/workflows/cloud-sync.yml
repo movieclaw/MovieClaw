@@ -1,0 +1,39 @@
+# =============================================================================
+# 手动让官网（MovieClaw Cloud）同步 Release
+#
+# 发版流水线与 release-notes 结束时会自动通知官网；手动改过 Release（改标题、补传附件、删除等）后，
+# 想让官网立刻反映就运行本工作流：填 tag（空格分隔）只同步这几个，留空则让官网全量对账。
+# 官网收到后自己去 GitHub 拉数据（scripts/notify-cloud.sh）；不运行也没关系，官网每天会全量对账一次。
+# =============================================================================
+name: cloud-sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "要同步的 tag，空格分隔（如 v0.38.0 android-v0.3.2）；留空表示全量对账"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 通知官网
+        env:
+          CLOUD_RELEASE_SYNC_TOKEN: ${{ secrets.CLOUD_RELEASE_SYNC_TOKEN }}
+          TAGS: ${{ inputs.tags }}
+        run: |
+          if [ -z "${CLOUD_RELEASE_SYNC_TOKEN:-}" ]; then
+            echo "::error::仓库没有配置 CLOUD_RELEASE_SYNC_TOKEN 机密"
+            exit 1
+          fi
+          if [ -n "$TAGS" ]; then
+            # shellcheck disable=SC2086
+            bash scripts/notify-cloud.sh $TAGS
+          else
+            bash scripts/notify-cloud.sh --all
+          fi
