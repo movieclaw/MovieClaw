@@ -16,9 +16,13 @@ import SwiftUI
 final class AgentConversation {
     let id: String
     var title: String
-    var turns: [AgentTurn] = []
+    var turns: [AgentTurn] = [] {
+        didSet { cachedRows = nil }
+    }
     /// 从旧会话续开时的来源（只用于展示来源卡片）
-    var handoff: (sourceId: String, sourceTitle: String?)?
+    var handoff: (sourceId: String, sourceTitle: String?)? {
+        didSet { cachedRows = nil }
+    }
     /// 详情是否已从服务端回放（或由新任务页乐观建立）
     var loaded = false
     /// 首次加载失败的原因（404 = 会话不存在）
@@ -30,9 +34,18 @@ final class AgentConversation {
     @ObservationIgnored private var loading = false
     @ObservationIgnored private var prefetched: Task<AgentTranscript, Error>?
     @ObservationIgnored private let rowCache = AgentTranscriptRowCache()
+    @ObservationIgnored private var cachedRows: [AgentTranscriptRow]?
 
-    /// 消息列的行（段落级懒加载单位，见 AgentTranscriptRows）：由 turns 派生、按轮缓存，只重拆变了的那一轮
-    var rows: [AgentTranscriptRow] { rowCache.rows(turns: turns, handoff: handoff) }
+    /// 只有消息变化才重新拼接行；键盘、草稿和滚动状态更新直接复用完整数组。
+    var rows: [AgentTranscriptRow] {
+        // 命中缓存时也登记 Observation 依赖，流式输出 / 改写 / 来源变化仍能更新视图。
+        let turns = turns
+        let handoff = handoff
+        if let cachedRows { return cachedRows }
+        let rows = rowCache.rows(turns: turns, handoff: handoff)
+        cachedRows = rows
+        return rows
+    }
 
     init(id: String, title: String = "") {
         self.id = id

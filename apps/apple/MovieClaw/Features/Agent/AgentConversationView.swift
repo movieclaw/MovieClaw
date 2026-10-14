@@ -7,7 +7,7 @@ import SwiftUI
 ///
 /// 交互要点：
 /// - 进入时拉轨迹回放；会话仍在运行则自动接上事件流（离开再回来不重拉，继续跟随）；
-/// - 每次进入会话都停在最底部（最新一轮），见 `pinnedToBottom`；
+/// - 每次进入会话都停在最底部（最新一轮），见 `AgentTranscriptScroll`；
 /// - 生成中可继续打字，发送键变停止键；
 /// - 自动滚动只在用户本就贴近底部时跟随新内容（上滚查看历史时不打断），离开底部给「回到最新消息」按钮；
 /// - 「改写这条提问」只进入本地编辑态，发送时二次确认「替换并重新提问」才调用 retry；
@@ -33,16 +33,8 @@ struct AgentConversationView: View {
     @State private var retryTarget: String?
     @State private var retrying = false
     @State private var askingConsent = false
-    @State private var position = ScrollPosition(edge: .bottom)
-    @State private var nearBottom = true
-    /// 手指没在拖、也没在惯性滑（黑屏兜底只在静止时动手，见 `offscreen`）
-    @State private var scrollIdle = true
-    /// 进入会话后的贴底期。懒加载列表的内容高度是边渲染边算的：首帧只估出一小段
-    /// （真机实测大会话首帧 8645pt，几十毫秒内涨到 35749pt），只在首次布局定位到底部会停在对话中间。
-    /// 贴底期内内容再怎么长高都锚在底部；用户一开始拖动或 1.5 秒后结束，之后回到「贴近底部才跟随」的规则
-    @State private var pinnedToBottom = true
-    /// 第几次进入贴底期：进入会话是第 0 次；发出新消息（含改写重问）再来一次，见 `pinToLatest`
-    @State private var pinRound = 0
+    @State private var position = ScrollPosition(idType: String.self, edge: .bottom)
+    @State private var scroll = AgentTranscriptScroll()
     @State private var kickoff = AgentLoadKickoff()
     /// 输入框晚一拍建：App 这次运行里第一次建输入框很重（模拟器实测 120～280ms，同一次运行里再建只要约 10ms），
     /// 跟着页面一起建会把页面跳转推迟这么久。首帧先放等高占位，跳转画面出去后马上建——此时正在等轨迹，
@@ -173,67 +165,67 @@ struct AgentConversationView: View {
                     )
                     .equatable()
                     .padding(.top, row.spacing)
+                    // 每个定位目标都占满视口并包含左右留白，避免首次按行定位时横向偏移。
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
                 }
             }
-            .padding(.horizontal, 16)
+            .scrollTargetLayout()
             .padding(.vertical, 16)
         }
+        .accessibilityIdentifier("agent-transcript")
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom, for: .initialOffset)
-        .defaultScrollAnchor(pinnedToBottom ? .bottom : nil, for: .sizeChanges)
+        .defaultScrollAnchor(scroll.followsLatest ? .bottom : nil, for: .sizeChanges)
         .onScrollPhaseChange { _, phase in
-            if phase == .interacting { pinnedToBottom = false }
-            scrollIdle = phase == .idle
+            if scroll.update(phase: phase) { scrollToLatest() }
         }
-        // 黑屏兜底：懒加载的行边排版边改高度，滚动位置可能整个落到内容末尾之后（或开头之前），满屏黑、
-        // 要手动滑一下才回来（2026-10-13 真机：第一次进较长的会话偶尔黑屏）。静止时一旦出现就回到最新
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            Self.offscreen(visible: geometry.visibleRect, contentHeight: geometry.contentSize.height)
-        } action: { _, offscreen in
-            if offscreen, scrollIdle { position.scrollTo(edge: .bottom) }
+        .onScrollGeometryChange(for: AgentTranscriptScroll.Viewport.self) { geometry in
+            .init(
+                nearBottom: geometry.contentSize.height - geometry.visibleRect.maxY < 120,
+                offscreen: Self.offscreen(visible: geometry.visibleRect, contentHeight: geometry.contentSize.height)
+            )
+        } action: { _, viewport in
+            if scroll.update(viewport: viewport) { scrollToLatest() }
         }
-        .task(id: pinRound) {
-            // 从会话里推进的页面返回时不再跳到底部：只有贴底期（刚进入会话、刚发出消息）才定位
-            guard pinnedToBottom else { return }
-            let round = pinRound
-            position.scrollTo(edge: .bottom)
-            try? await Task.sleep(for: .seconds(1.5))
-            // 期间又发了一条：新一轮贴底期接着算，不提前结束
-            if round == pinRound { pinnedToBottom = false }
+        .task {
+            // 以最后一行的身份定位，避免只滚到懒加载暂时估算的内容边缘。
+            // 返回子页面时，保留用户正在阅读的历史位置。
+            if scroll.followsLatest { scrollToLatest() }
         }
         .scrollDismissesKeyboard(.interactively)
         .scrollEdgeEffectStyle(.hard, for: .bottom)
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentSize.height - geometry.visibleRect.maxY < 120
-        } action: { _, near in
-            nearBottom = near
-        }
         .onChange(of: conversation.turns) {
-            if nearBottom { position.scrollTo(edge: .bottom) }
+            if scroll.followsLatest { scrollToLatest() }
         }
         .overlay(alignment: .bottom) {
-            if !nearBottom {
-                // 液态玻璃圆形按钮（原先是手画的深色圆 + 描边 + 阴影，与页面其余玻璃控件不是一套）。
-                // 与输入框的加号 / 发送键同为 36pt（2026-10-12 用户要求）：系统 .glass 按钮样式会在内容外再加一圈边距，
-                // 量不准，改成自定尺寸 + 玻璃效果
-                Button {
-                    withAnimation { position.scrollTo(edge: .bottom) }
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: AgentComposer.control, height: AgentComposer.control)
-                        .glassEffect(.regular.interactive(), in: .circle)
-                        .expandedHitArea(horizontal: 4, vertical: 4)
+            // 只动画按钮；不要把懒加载行的高度修正也放进弹簧动画。
+            ZStack {
+                if !scroll.viewport.nearBottom {
+                    // 液态玻璃圆形按钮（原先是手画的深色圆 + 描边 + 阴影，与页面其余玻璃控件不是一套）。
+                    // 与输入框的加号 / 发送键同为 36pt（2026-10-12 用户要求）：系统 .glass 按钮样式会在内容外再加一圈边距，
+                    // 量不准，改成自定尺寸 + 玻璃效果
+                    Button {
+                        // 主动回最新时直接贴底，避免长列表动画和复用上一次的行 ID 定位请求。
+                        scroll.followsLatest = true
+                        position.scrollTo(edge: .bottom)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: AgentComposer.control, height: AgentComposer.control)
+                            .glassEffect(.regular.interactive(), in: .circle)
+                            .expandedHitArea(horizontal: 4, vertical: 4)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.text)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    .padding(.bottom, 10)
+                    .accessibilityLabel("回到最新消息")
+                    .accessibilityIdentifier("agent-scroll-latest")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.text)
-                .transition(.scale(scale: 0.6).combined(with: .opacity))
-                .padding(.bottom, 10)
-                .accessibilityLabel("回到最新消息")
-                .accessibilityIdentifier("agent-scroll-latest")
             }
+            .animation(.snappy, value: scroll.viewport.nearBottom)
         }
-        .animation(.snappy, value: nearBottom)
     }
 
     // MARK: 底部输入
@@ -354,13 +346,16 @@ struct AgentConversationView: View {
         return visible.minY >= contentHeight || visible.maxY <= 0
     }
 
-    /// 发出新消息后回到最新：重新进入贴底期。翻到很上面时只跳一次到底不够——懒加载的行边排版边长高，
-    /// 估出来的「底」不是真的底，会停在半路，之后流式回答也不再跟随（2026-10-13 用户反馈）。
-    /// 贴底期里内容再怎么长高都锚在底部，用户一拖动就结束
+    /// 发出新消息或点击「回到最新」时恢复跟随；用户开始拖动立即让出控制。
     private func pinToLatest() {
-        nearBottom = true
-        pinnedToBottom = true
-        pinRound += 1
+        scroll.followsLatest = true
+        scrollToLatest()
+    }
+
+    private func scrollToLatest() {
+        if let last = conversation.rows.last {
+            position.scrollTo(id: last.id, anchor: .bottom)
+        }
     }
 
     // MARK: 会话菜单
