@@ -62,23 +62,23 @@ _pending_lock = asyncio.Lock()
 
 class DatabaseChatGPTTokenStore:
     def __init__(self) -> None:
-        self._locks: dict[str, asyncio.Lock] = {}
+        self._locks: dict[int, asyncio.Lock] = {}
 
-    def lock(self, name: str) -> asyncio.Lock:
-        return self._locks.setdefault(name, asyncio.Lock())
+    def lock(self, provider_id: int) -> asyncio.Lock:
+        return self._locks.setdefault(provider_id, asyncio.Lock())
 
-    async def load(self, name: str) -> str:
+    async def load(self, provider_id: int) -> str:
         async with get_database().session() as session:
             repo = LlmProviderRepository(session)
-            row = await repo.get_by_name(name)
+            row = await repo.get(provider_id)
             if row is None or row.provider_type != "chatgpt":
                 raise LlmAuthError("ChatGPT 接入已移除，请重新连接")
             return repo.decrypted_api_key(row)
 
-    async def save(self, name: str, previous: str, updated: str) -> None:
+    async def save(self, provider_id: int, previous: str, updated: str) -> None:
         async with get_database().session() as session:
             repo = LlmProviderRepository(session)
-            row = await repo.get_by_name(name)
+            row = await repo.get(provider_id)
             if row is None or row.provider_type != "chatgpt":
                 raise LlmAuthError("ChatGPT 接入已移除，请重新连接")
             if repo.decrypted_api_key(row) != previous:
@@ -119,12 +119,15 @@ async def revoke_credentials(credentials: ChatGPTCredentials) -> bool:
 
 def build_server_protocol(config, preset):
     protocol = build_protocol(config, preset)
-    if isinstance(protocol, OpenAIChatGPTProtocol):
+    if isinstance(protocol, OpenAIChatGPTProtocol) and config.provider_id is not None:
         protocol.token_store = token_store
     return protocol
 
 
 async def start_sign_in(session, *, redirect_uri: str, name: str, app_name: str, provider_id=None):
+    name = name.strip()
+    if not name or "/" in name:
+        raise BadRequestException("模型接入名称不能为空或包含斜杠 /")
     try:
         callback = urlparse(redirect_uri)
         port = callback.port
@@ -193,6 +196,11 @@ async def start_sign_in(session, *, redirect_uri: str, name: str, app_name: str,
     }
     if prior is None:
         params["agent_name_hint"] = app_name
+    else:
+        if prior.id_token:
+            params["id_token_hint"] = prior.id_token
+        if prior.email:
+            params["login_hint"] = prior.email
     return {
         "attempt_id": attempt,
         "state": pending.state,
@@ -216,6 +224,7 @@ async def complete_sign_in(
         pending.client_id != "dynamic_agent_client" and issued_id != pending.client_id
     ):
         raise BadRequestException("ChatGPT 返回的客户端身份不匹配，请重新连接")
+    data = {}
     try:
         async with httpx.AsyncClient(transport=egress_transport("llm"), timeout=30) as client:
             data = await token_request(
@@ -253,9 +262,14 @@ async def complete_sign_in(
                 for m in models_response.json().get("models", [])
                 if m.get("visibility") == "list" and m.get("slug")
             ]
-    except (LlmAuthError, httpx.HTTPError, ValueError):
-        raise BadRequestException("ChatGPT 授权未完成，请检查订阅权限并重新连接") from None
+    except (LlmAuthError, httpx.HTTPError, ValueError) as exc:
+        await _revoke_rejected_grant(data, issued_id, pending.host_id)
+        message = (
+            str(exc) if isinstance(exc, LlmAuthError) else "ChatGPT 授权服务暂时不可用，请重新连接"
+        )
+        raise BadRequestException(message) from None
     if not models:
+        await _revoke_rejected_grant(data, issued_id, pending.host_id)
         raise BadRequestException("这个 ChatGPT 账号暂时没有可用模型，请检查订阅或工作区权限")
     credentials = ChatGPTCredentials(
         client_id=issued_id,
@@ -269,6 +283,18 @@ async def complete_sign_in(
         expires_at=time.time() + int(data.get("expires_in", 3600)),
     )
     catalog = account_model_catalog(models)
+    text_models = [m.id for m in catalog if "text" in m.modalities]
+    if not text_models:
+        await revoke_credentials(credentials)
+        raise BadRequestException("这个 ChatGPT 账号暂时没有可用的文本对话模型")
+    # Catalog ordering can change; prefer a known conversational model, preserving
+    # the existing choice during reauthorization when it remains available.
+    preferred = ["gpt-6.1-sol", "gpt-6-luna", "gpt-5.6-sol"]
+    if pending.provider_id is not None:
+        row = await LlmProviderRepository(session).get(pending.provider_id)
+        if row is not None:
+            preferred.insert(0, row.default_model)
+    default_model = next((m for m in preferred if m in text_models), text_models[0])
     from movieclaw_api.services.llm_config import LlmConfigService
 
     service = LlmConfigService(session)
@@ -277,14 +303,33 @@ async def complete_sign_in(
         "provider_type": "chatgpt",
         "base_url": None,
         "api_key": credentials.model_dump_json(),
-        "default_model": catalog[0].id,
+        "default_model": default_model,
         "extra_models": catalog,
     }
-    if pending.provider_id is not None:
-        return await service.update(pending.provider_id, **args)
-    repo = LlmProviderRepository(session)
-    suffix = 1
-    while await repo.get_by_name(args["name"]):
-        suffix += 1
-        args["name"] = f"{pending.name} {suffix}"
-    return await service.create(**args)
+    try:
+        if pending.provider_id is not None:
+            return await service.update(pending.provider_id, **args)
+        repo = LlmProviderRepository(session)
+        suffix = 1
+        while await repo.get_by_name(args["name"]):
+            suffix += 1
+            args["name"] = f"{pending.name} {suffix}"
+        return await service.create(**args)
+    except Exception:
+        await revoke_credentials(credentials)
+        raise
+
+
+async def _revoke_rejected_grant(data: dict, client_id: str, host_id: str) -> None:
+    if isinstance(data.get("refresh_token"), str) and data["refresh_token"]:
+        await revoke_credentials(
+            ChatGPTCredentials(
+                client_id=client_id,
+                subject="",
+                ext_agent_host_id=host_id,
+                access_token=data.get("access_token", ""),
+                refresh_token=data["refresh_token"],
+                scopes=[],
+                expires_at=0,
+            )
+        )

@@ -46,6 +46,7 @@ def test_account_catalog_uses_reported_efforts_for_new_models():
     assert [m.id for m in catalog] == ["future-model"]
     assert catalog[0].thinking_levels == ["low", "high", "max"]
     assert catalog[0].context_window == 500000 and catalog[0].modalities == ["text", "image"]
+    assert not catalog[0].supports_tools and not catalog[0].supports_parallel_tool_calls
 
 
 @pytest.mark.parametrize("level", ["low", "medium", "high", "xhigh", "max"])
@@ -187,7 +188,8 @@ def test_plan_payload_preserves_tools_without_unsupported_parameters():
                 ChatMessage(role="user", content="Find a film"),
             ],
             tools=[
-                ToolDefinition(name="search", description="Search", parameters={"type": "object"})
+                ToolDefinition(name="search", description="Search", parameters={"type": "object"}),
+                ToolDefinition(name="delete", description="Delete", parameters={"type": "object"}),
             ],
             tool_choice="search",
             settings=ModelSettings(temperature=0.2, max_tokens=100, top_p=0.5),
@@ -199,13 +201,15 @@ def test_plan_payload_preserves_tools_without_unsupported_parameters():
     assert payload["input"][0]["role"] == "developer"
     assert payload["tools"][0]["type"] == "namespace"
     assert payload["tools"][0]["tools"][0]["name"] == "search"
-    assert payload["tool_choice"]["namespace"] == "movieclaw"
+    assert payload["tool_choice"] == "required"
+    assert [t["name"] for t in payload["tools"][0]["tools"]] == ["search"]
     assert not ({"temperature", "top_p", "max_output_tokens"} & payload.keys())
 
 
 @pytest.mark.asyncio
 async def test_refresh_is_serialized_and_rotating_token_persisted(monkeypatch):
     p = protocol(credentials(expires_at=1))
+    p.config.provider_id = 27
     calls = []
 
     class Store:
@@ -213,12 +217,15 @@ async def test_refresh_is_serialized_and_rotating_token_persisted(monkeypatch):
         mutex = asyncio.Lock()
 
         def lock(self, name):
+            assert name == 27
             return self.mutex
 
         async def load(self, name):
+            assert name == 27
             return self.value
 
         async def save(self, name, previous, updated):
+            assert name == 27
             assert self.value == previous
             self.value = updated
 

@@ -381,6 +381,7 @@ class LlmProviderConfig(BaseModel):
     """
 
     name: str  # 实例名，路由用，全局唯一
+    provider_id: int | None = None  # 持久化身份，不随实例改名改变
     provider_type: str  # 预设 id：openai / bailian / openai_compat
     api_key: str
     base_url: str | None = None  # 覆盖预设端点

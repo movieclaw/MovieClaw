@@ -19,6 +19,7 @@ struct LLMSettingsView: View {
     /// 任一卡片操作进行中：禁用全部卡片按钮（同 Web busy）
     @State private var busy = false
     @State private var selectedProvider: Int?
+    @State private var disconnectNotice: String?
 
     private var inProgress: Bool {
         providers?.contains { SettingsBLLMStatus.inProgress($0.status) } ?? false
@@ -28,7 +29,7 @@ struct LLMSettingsView: View {
         Form {
             if presets.contains(where: { $0.id == "chatgpt" }) {
                 SettingsFormSection {
-                    Button("连接 ChatGPT 订阅", systemImage: "person.crop.circle.badge.checkmark") {
+                    Button("连接 ChatGPT 订阅（预览）", systemImage: "person.crop.circle.badge.checkmark") {
                         editing = SettingsBLLMEditing(initialProviderType: "chatgpt")
                     }
                     .accessibilityIdentifier("llm-connect-chatgpt")
@@ -51,6 +52,9 @@ struct LLMSettingsView: View {
                                     SettingsBDot(tone: SettingsBLLMStatus.tone(provider.status), size: 8)
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(provider.name).foregroundStyle(Theme.text)
+                                        if let account = provider.chatgptAccount {
+                                            Text(account).font(.caption).foregroundStyle(Theme.textMuted)
+                                        }
                                         Text(SettingsBLLMStatus.label(provider.status))
                                             .font(.caption).foregroundStyle(Theme.textMuted)
                                     }
@@ -95,6 +99,14 @@ struct LLMSettingsView: View {
             if let list = try? await api.llmProvidersList() { providers = list }
         }
         .refreshable { await initialLoad() }
+        .alert("ChatGPT 接入已移除", isPresented: Binding(
+            get: { disconnectNotice != nil },
+            set: { if !$0 { disconnectNotice = nil } }
+        )) {
+            Button("知道了", role: .cancel) { disconnectNotice = nil }
+        } message: {
+            Text(disconnectNotice ?? "")
+        }
         .sheet(item: $editing) { target in
             SettingsBLLMProviderForm(
                 provider: target.provider,
@@ -125,7 +137,7 @@ struct LLMSettingsView: View {
                     .frame(width: 48, height: 48)
                     .background(Color.white.opacity(0.07), in: .rect(cornerRadius: 14))
                 Text("还没有接入模型供应商").font(.body.weight(.medium))
-                Text("支持 OpenAI、阿里云百炼，以及任何 OpenAI 兼容端点（如自建 vLLM / Ollama）。")
+                Text("支持 ChatGPT 订阅（预览）、OpenAI、阿里云百炼，以及任何 OpenAI 兼容端点（如自建 vLLM / Ollama）。")
                     .font(.footnote)
                     .foregroundStyle(Theme.textMuted)
                     .multilineTextAlignment(.center)
@@ -192,11 +204,14 @@ struct LLMSettingsView: View {
         busy = true
         defer { busy = false }
         do {
-            _ = try await api.llmProvidersDelete(providerId: provider.id)
+            let result: APIEnvelope<Empty> = try await api.raw("DELETE", "/llm/providers/\(provider.id)")
             selectedProvider = nil
             LLMCapabilityProbe.shared.invalidate()
             AgentCatalog.invalidateModels()
             await load()
+            if provider.providerType == "chatgpt", let message = result.message, message != "已删除" {
+                disconnectNotice = message
+            }
         } catch {
             self.error = error.localizedDescription
         }

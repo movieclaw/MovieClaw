@@ -94,11 +94,18 @@ class LlmProviderView(BaseModel):
     def from_model(cls, row: LlmProvider) -> LlmProviderView:
         """从 ORM 记录构造脱敏视图。只挑选可公开字段，天然屏蔽密钥密文。"""
         account = None
+        credential_error = None
         if row.provider_type == "chatgpt":
             from movieclaw_db.repositories.llm_provider_repo import LlmProviderRepository
             from movieclaw_llm.chatgpt import ChatGPTCredentials
+            from movieclaw_llm.exceptions import LlmAuthError
 
-            account = ChatGPTCredentials.parse(LlmProviderRepository.decrypted_api_key(row)).email
+            try:
+                account = ChatGPTCredentials.parse(
+                    LlmProviderRepository.decrypted_api_key(row)
+                ).email
+            except (LlmAuthError, ValueError):
+                credential_error = "ChatGPT 授权不可用，请重新连接"
         return cls(
             id=row.id or 0,
             name=row.name,
@@ -108,9 +115,9 @@ class LlmProviderView(BaseModel):
             user_agent=row.user_agent,
             api_protocol=row.api_protocol,
             default_model=row.default_model,
-            status=row.status,
-            usable=row.status == ConfigStatus.ACTIVE,
-            last_error=row.last_error,
+            status=ConfigStatus.FAILED if credential_error else row.status,
+            usable=row.status == ConfigStatus.ACTIVE and credential_error is None,
+            last_error=credential_error or row.last_error,
             last_checked_at=row.last_checked_at,
             available_models=row.available_models,
             extra_models=[ModelInfo.model_validate(m) for m in row.extra_models or []],

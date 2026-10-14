@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/movieclaw/movieclaw/cli/internal/clierr"
@@ -32,6 +33,9 @@ func NewLLMGroup() *cobra.Command {
 		Long: "先用 mclaw login 配对服务器，再在运行浏览器的电脑执行此命令。\n令牌由服务器加密保存，不显示或写入电脑；连接后手机和网页均可使用。\n重新授权已有接入时使用 --provider ID；新增账号则省略该参数。",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if strings.TrimSpace(name) == "" || strings.Contains(name, "/") {
+				return clierr.Usagef("模型接入名称不能为空或包含斜杠 /")
+			}
 			if !stdinIsTTY() {
 				return clierr.Usagef("请在电脑的交互终端运行此命令，并在官方浏览器页面授权")
 			}

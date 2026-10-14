@@ -232,8 +232,7 @@ export function updateLlmDefaults(payload: LlmDefaultsPayload): Promise<LlmDefau
 }
 
 /** 删除一个实例（AI 设定里指向它的默认模型会自动兜底）。 */
-export function deleteLlmProvider(id: number): Promise<Record<string, never>> {
-  return unwrap(
-    request<ApiEnvelope<Record<string, never>>>(`/llm/providers/${id}`, { method: "DELETE" }),
-  );
+export async function deleteLlmProvider(id: number): Promise<string> {
+  const result = await request<ApiEnvelope<Record<string, never>>>(`/llm/providers/${id}`, { method: "DELETE" });
+  return result.message;
 }

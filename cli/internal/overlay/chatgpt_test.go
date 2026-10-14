@@ -6,6 +6,16 @@ import (
 	"testing"
 )
 
+func TestChatGPTNameCannotBreakModelRouting(t *testing.T) {
+	for _, name := range []string{"invalid/name", "   "} {
+		command := NewLLMGroup()
+		command.SetArgs([]string{"chatgpt", "login", "--name", name})
+		if command.Execute() == nil {
+			t.Fatal("invalid route name was accepted")
+		}
+	}
+}
+
 func TestChatGPTCallbackRejectsSpoofingAndReplay(t *testing.T) {
 	callbacks := make(chan chatGPTCallback, 1)
 	handler := chatGPTCallbackHandler("127.0.0.1:1455", "expected", callbacks)

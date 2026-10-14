@@ -38,12 +38,14 @@ def account_model_catalog(rows: list[dict]) -> list[ModelInfo]:
             continue
         model = known.get(row["slug"]) or ModelInfo(
             id=row["slug"],
-            context_window=32768,
-            max_output_tokens=8192,
-            supports_tools=True,
-            supports_parallel_tool_calls=True,
+            context_window=8192,
+            max_output_tokens=2048,
+            supports_tools=False,
+            supports_parallel_tool_calls=False,
         )
         changes = {}
+        if isinstance(row.get("supports_tools"), bool):
+            changes["supports_tools"] = row["supports_tools"]
         for field in ("context_window", "max_output_tokens"):
             if isinstance(row.get(field), int) and row[field] > 0:
                 changes[field] = row[field]

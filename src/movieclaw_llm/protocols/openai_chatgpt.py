@@ -22,9 +22,9 @@ from movieclaw_net import egress_transport
 
 
 class ChatGPTTokenStore(Protocol):
-    async def load(self, name: str) -> str: ...
-    async def save(self, name: str, previous: str, updated: str) -> None: ...
-    def lock(self, name: str) -> asyncio.Lock: ...
+    async def load(self, provider_id: int) -> str: ...
+    async def save(self, provider_id: int, previous: str, updated: str) -> None: ...
+    def lock(self, provider_id: int) -> asyncio.Lock: ...
 
 
 class OpenAIChatGPTProtocol(OpenAIResponsesProtocol):
@@ -45,10 +45,11 @@ class OpenAIChatGPTProtocol(OpenAIResponsesProtocol):
         )
 
     async def _authorize(self) -> None:
-        lock = self.token_store.lock(self.config.name) if self.token_store else self._refresh_lock
+        provider_id = self.config.provider_id
+        lock = self.token_store.lock(provider_id) if self.token_store else self._refresh_lock
         async with lock:
             previous = (
-                await self.token_store.load(self.config.name)
+                await self.token_store.load(provider_id)
                 if self.token_store
                 else self._credentials.model_dump_json()
             )
@@ -61,7 +62,7 @@ class OpenAIChatGPTProtocol(OpenAIResponsesProtocol):
                     credentials = await refresh_credentials(client, credentials)
                 if self.token_store:
                     await self.token_store.save(
-                        self.config.name,
+                        provider_id,
                         previous,
                         credentials.model_dump_json(),
                     )
@@ -86,7 +87,15 @@ class OpenAIChatGPTProtocol(OpenAIResponsesProtocol):
                 }
             ]
         if isinstance(payload.get("tool_choice"), dict):
-            payload["tool_choice"]["namespace"] = "movieclaw"
+            # A forced function choice has no namespace field in the public API.
+            # Offer only that function and require a call, preserving the namespace.
+            name = payload["tool_choice"]["name"]
+            payload["tools"][0]["tools"] = [
+                tool for tool in payload["tools"][0]["tools"] if tool["name"] == name
+            ]
+            if not payload["tools"][0]["tools"]:
+                raise LlmServerError(f"找不到指定的工具：{name}")
+            payload["tool_choice"] = "required"
         return payload
 
     def _convert_message(self, message, model_id):

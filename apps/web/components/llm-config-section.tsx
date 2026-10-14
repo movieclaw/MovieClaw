@@ -179,7 +179,7 @@ export function LlmConfigSection() {
             <SettingsEmpty
               icon={<SparkIcon className="size-5" />}
               title="还没有接入模型供应商"
-              description="支持 OpenAI、阿里云百炼，以及任何 OpenAI 兼容端点（如自建 vLLM / Ollama）。"
+              description="支持 ChatGPT 订阅（预览）、OpenAI、阿里云百炼，以及任何 OpenAI 兼容端点（如自建 vLLM / Ollama）。"
             />
           ) : (
             <SettingsList>
@@ -209,8 +209,11 @@ export function LlmConfigSection() {
                       ) {
                         return;
                       }
-                      await deleteLlmProvider(config.id);
+                      const message = await deleteLlmProvider(config.id);
                       await afterChange();
+                      if (config.provider_type === "chatgpt" && message !== "已删除") {
+                        await confirm({ title: "ChatGPT 接入已移除", description: message, confirmLabel: "知道了" });
+                      }
                     })
                   }
                 />
@@ -242,6 +245,7 @@ function ProviderRow({
 }) {
   const summary = [
     preset?.display_name ?? config.provider_type,
+    config.chatgpt_account,
     // 自定义端点的目录是用户补录的，条数比测试模型更有信息量
     config.extra_models.length > 0 ? `${config.extra_models.length} 个自定义模型` : null,
     `上次检查 ${formatRelativeTime(config.last_checked_at)}`,

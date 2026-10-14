@@ -71,6 +71,7 @@ def to_domain_config(row: LlmProvider, api_key: str) -> LlmProviderConfig:
     """ORM 记录 → movieclaw_llm 领域配置（LlmRouter 按它构建协议客户端）。"""
     return LlmProviderConfig(
         name=row.name,
+        provider_id=row.id,
         provider_type=row.provider_type,
         api_key=api_key,
         base_url=row.base_url,
@@ -260,6 +261,9 @@ async def resolve_provider_endpoint(session: AsyncSession) -> tuple[str, str, st
     options = build_model_options(rows)
     owner = _owner_of(rows, resolve_defaults(rows, setting, options).agent, options)
     row = owner[0] if owner else rows[0]
+    if row.provider_type == "chatgpt":
+        # OAuth bundles include refresh tokens and must never become probe headers.
+        raise BadRequestException("ChatGPT 订阅不使用 API Key 网络探测，请在「模型接入」中测试连接")
     base = row.base_url or (get_preset(row.provider_type).base_url or "")
     if not base:
         raise BadRequestException(f"供应商「{row.name}」未配置 API 端点地址")
@@ -309,6 +313,21 @@ class LlmConfigService:
         if preset.requires_base_url and not payload.base_url:
             raise BadRequestException(f"接入「{preset.display_name}」必须填写 API 端点地址")
         key = payload.api_key
+        if payload.provider_type == "chatgpt":
+            if not payload.provider_id or key or payload.base_url not in (None, RESOURCE):
+                raise BadRequestException("请先连接 ChatGPT 订阅，再查询已连接账号的模型")
+            row = await self.get(payload.provider_id)
+            if row.provider_type != "chatgpt":
+                raise BadRequestException("此实例不是 ChatGPT 订阅")
+            config = to_domain_config(row, self._repo.decrypted_api_key(row))
+            config.timeout_seconds = _TEST_TIMEOUT
+            protocol = build_server_protocol(config, preset)
+            try:
+                return sorted(set((await protocol.test_connection()).models))
+            except LlmError as exc:
+                raise BadRequestException(str(exc)) from exc
+            finally:
+                await protocol.close()
         if not key and payload.provider_id:
             row = await self.get(payload.provider_id)
             if payload.provider_type != row.provider_type or payload.base_url != row.base_url:
@@ -598,11 +617,14 @@ class LlmConfigService:
         before = build_model_options(await self._repo.list_all())
         revoked = True
         if row.provider_type == "chatgpt":
-            async with token_store.lock(row.name):
+            async with token_store.lock(row.id):
                 await self._session.refresh(row)
-                revoked = await revoke_credentials(
-                    ChatGPTCredentials.parse(self._repo.decrypted_api_key(row))
-                )
+                try:
+                    revoked = await revoke_credentials(
+                        ChatGPTCredentials.parse(self._repo.decrypted_api_key(row))
+                    )
+                except (LlmError, ValueError):
+                    revoked = False
                 await self._repo.delete(provider_id)
         else:
             await self._repo.delete(provider_id)

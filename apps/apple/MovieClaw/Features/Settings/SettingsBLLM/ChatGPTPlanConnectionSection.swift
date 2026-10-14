@@ -18,7 +18,7 @@ struct ChatGPTPlanConnectionSection: View {
 
     var body: some View {
         SettingsFormSection {
-            Text("使用 ChatGPT Plus / Pro 订阅，无需 API Key。额度与其他使用该订阅的 App 共享。")
+            Text("ChatGPT 订阅接入目前为预览功能。使用 ChatGPT Plus / Pro 订阅，无需 API Key。额度与其他使用该订阅的 App 共享。")
                 .font(.subheadline).foregroundStyle(Theme.textMuted)
             if let email = (signIn.connected ?? provider)?.chatgptAccount, !email.isEmpty {
                 LabeledContent("已连接账号", value: email)
