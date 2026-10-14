@@ -74,7 +74,7 @@ final class ShellParityUITests: XCTestCase {
         XCTAssertFalse(app.buttons["会话操作"].exists, "会话行不再挂「⋯」（按 iOS 惯例左滑 / 长按出操作）")
         snapshot("更多-页签")
         // 新会话入口是标签栏上方的一行输入框，列表里不再有「新会话」行（2026-10-12）
-        XCTAssertTrue(app.descendants(matching: .any)["agent-quick-entry"].exists, "「我的」页标签栏上方应有一行输入框")
+        XCTAssertTrue(app.descendants(matching: .any)["agent-composer-input"].exists, "「我的」页标签栏上方应有一行输入框")
         XCTAssertFalse(app.buttons["more-new-session"].exists, "有底部输入框后列表里不再放「新会话」")
         XCTAssertTrue(row.isHittable, "会话行不可点，停止操作")
         row.press(forDuration: 1.2)

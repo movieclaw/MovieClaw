@@ -4,6 +4,19 @@ import Testing
 
 @MainActor
 struct AgentQuickModelTests {
+    @Test func endingQuickEditingPreservesDraft() {
+        let quick = AgentQuickDraft()
+        quick.draft.text = "下次继续输入的草稿"
+        quick.editing = true
+        #expect(quick.editing)
+        quick.endEditing()
+        #expect(!quick.editing)
+        #expect(quick.draft.text == "下次继续输入的草稿")
+        quick.editing = true
+        #expect(quick.editing)
+        #expect(quick.draft.text == "下次继续输入的草稿")
+    }
+
     @Test func legacyModelCapabilitiesDecodeAndExpandedFlagsSurviveEditing() throws {
         var payload: [String: Any] = ["id": "legacy", "context_window": 8192, "max_output_tokens": 2048,
                                     "supports_tools": true, "supports_parallel_tool_calls": false,

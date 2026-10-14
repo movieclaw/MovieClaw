@@ -4,6 +4,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { GlassPanel } from "@/components/glass-panel";
+import { AgentCompanion } from "@/components/agent-companion";
+import type { CompanionState } from "@/lib/agent-companion";
 import { ChevronRightIcon, PlusIcon, SendIcon } from "@/components/icons";
 import {
   type ComposerImage,
@@ -79,6 +81,8 @@ export interface ComposerProps {
   /** 纯色模式：给阅读面板（对话页）用——不渲染 WebGL 玻璃、不折射背景大图，
    * 避免在不透明底色上把海报纹理透回来；首页氛围页保持默认玻璃形态 */
   flat?: boolean;
+  /** 仅 Agent 新任务和会话页传入；悬浮宠物不占输入区布局空间。 */
+  companion?: CompanionState;
 }
 
 /* —— 输入框：Codex 风格的无边框输入区（固定 2 行高，超出在框内滚动） —— */
@@ -100,10 +104,12 @@ export function Composer({
   disabled = false,
   placeholder,
   flat = false,
+  companion,
 }: ComposerProps) {
   const { backdrop } = useBackdrop();
   // 未受控时的内部状态（纯展示场景仍可直接 <Composer />）
   const [inner, setInner] = useState("");
+  const [focused, setFocused] = useState(false);
   const text = value ?? inner;
   const setText = onChange ?? setInner;
   // —— 图片附件（imageUpload 开启时生效）——
@@ -313,15 +319,12 @@ export function Composer({
     </div>
   );
 
-  if (flat) {
-    // 阅读面板上的纯色内嵌卡片：与全站输入框同圆角，发丝描边做边界
-    return (
-      <div className="rounded-[22px] bg-[var(--surface-inset)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]">
-        {body}
-      </div>
-    );
-  }
-  return (
+  // 宠物放在玻璃裁切层外，独立悬浮，不撑高输入框或扩大底色。
+  const surface = flat ? (
+    <div className="rounded-[22px] bg-[var(--surface-inset)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]">
+      {body}
+    </div>
+  ) : (
     // 输入框本身是一块真实液态玻璃卡片：折射下方背景大图，浮于内容区之上。
     <GlassPanel
       backgroundImage={backdrop}
@@ -332,6 +335,21 @@ export function Composer({
     >
       {body}
     </GlassPanel>
+  );
+  return (
+    <div
+      className="relative"
+      data-testid="agent-composer"
+      onFocusCapture={(event) => {
+        if ((event.target as HTMLElement).isContentEditable) setFocused(true);
+      }}
+      onBlurCapture={(event) => {
+        if ((event.target as HTMLElement).isContentEditable) setFocused(false);
+      }}
+    >
+      {surface}
+      {companion && <AgentCompanion activity={companion} attentive={focused && (text.trim().length > 0 || hasImages)} />}
+    </div>
   );
 }
 

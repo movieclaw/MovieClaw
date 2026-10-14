@@ -114,6 +114,7 @@ export function NewTask({ flat = false }: { flat?: boolean } = {}) {
         thinkingValue={choice.thinking}
         onThinkingChange={(level) => update({ model: choice.model, thinking: level })}
         busy={creating}
+        companion={error ? "failed" : creating ? "working" : "idle"}
         disabled={locked}
         placeholder={locked ? "请先接入 AI 模型，再开始对话" : undefined}
       />

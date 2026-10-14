@@ -32,6 +32,7 @@ import { parseSkillTokens } from "@/lib/agent-skills";
 import { useSkillNames } from "@/lib/skill-names";
 import { sessionAttachmentUrl } from "@/lib/api/agent";
 import { saveComposerPrefs } from "@/lib/composer-prefs";
+import { resolveCompanionState } from "@/lib/agent-companion";
 import { resolveModelOption, useLlmModelOptions } from "@/lib/llm-thinking";
 import { usePageChrome } from "@/lib/page-chrome";
 import { PAGE_NAV_BUTTON_CLASS } from "@/components/page-nav";
@@ -344,6 +345,7 @@ export function AgentConversationView({ conversationId }: { conversationId: stri
               saveComposerPrefs({ model: displayedModel, thinking: level });
             }}
             busy={running}
+            companion={resolveCompanionState(conversation.turns.at(-1), running, locked)}
             onStop={() => stop(conversationId)}
             disabled={locked || (retrying && activeRetryTarget != null)}
             placeholder={

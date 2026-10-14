@@ -25,7 +25,7 @@ struct AgentNewSessionView: View {
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(.rect)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .safeAreaBar(edge: .bottom, spacing: 0) {
                 VStack(alignment: .leading, spacing: 10) {
                     AgentComposer(
                         draft: $draft,
@@ -33,6 +33,7 @@ struct AgentNewSessionView: View {
                         busy: creating,
                         disabled: locked,
                         autoFocus: !locked,
+                        companion: error != nil ? .failed : creating ? .working : .idle,
                         modelOptions: modelOptions,
                         modelValue: choice.model,
                         // 换模型后旧档位可能不在新菜单里，清回默认

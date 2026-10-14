@@ -1,0 +1,7 @@
+MovieClaw 小幕 · 月夜伙伴 C — iPhone 首版图集
+Tool: built-in image_gen; transparent_background=true.
+Reference: approved moonlight companion concept (2026-10-14).
+Output: apps/apple/MovieClaw/Assets.xcassets/AgentMoonCompanion.imageset/moonlight.png
+
+Final generation prompt:
+Create a production transparent sprite sheet of the ivory moonlight cat in the reference. ONLY the cat artwork, no board, no text, no scenery, no labels. Exactly 4 columns x 6 rows, portrait canvas 1024 x 1536, 24 square cells. Each cell has one whole cat centered inside with generous transparent margin, same scale and ground baseline throughout. Preserve ivory round cat, simple dark oval eyes, mint/lavender inner ears, curved tail ending in a rounded triangular mint-lavender play shape. Clean hand-drawn 2D cel art, simple shading. Four successive animation frames per row: row1 lying on belly with front paws forward, blink; row2 same cat lifting head attentively; row3 side-facing right little running hop holding small movie ticket; row4 sitting inspecting ticket; row5 sitting happily raising ticket; row6 lying with worried lowered ears and head tilt. All rows have exactly four frames. All sprites completely contained within individual equal-sized cells, no overlap. Transparent alpha background. The input is character/style reference; produce only the sprite atlas.

@@ -10,7 +10,6 @@ struct MorePage: View {
     @Environment(ShellBadges.self) private var badges
     @Environment(\.permissions) private var permissions
     @Environment(\.api) private var api
-    @Environment(AgentQuickDraft.self) private var quick
 
     @State private var reachability = ServerReachability.shared
     @State private var offlineStore = OfflineStore.shared
@@ -57,20 +56,14 @@ struct MorePage: View {
         .listStyle(.plain)
         .listSectionSpacing(8)
         .contentMargins(.top, 0, for: .scrollContent)
-        .contentMargins(.bottom, 24, for: .scrollContent)
         .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20))
         .listSectionSeparator(.hidden)
         .environment(\.defaultMinListRowHeight, visibleSection == .conversations ? 44 : 60)
         .appBackground()
-        // 保留原有 AI 输入框及跟随键盘的行为。
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if permissions.isAdmin, !Self.accessoryAvailable { AgentQuickInput(quick: quick) }
-        }
         .navigationTitle("我的")
         .toolbarTitleDisplayMode(.inlineLarge)
         .task { await loadSessions() }
         .polling(every: 30, immediately: true) { await loadNotices() }
-        .agentComposerWarmup()
     }
 
     private func profile(_ session: API.SessionView) -> some View {
@@ -331,11 +324,6 @@ struct MorePage: View {
         Button("重命名", systemImage: "pencil") { Task { await rename(item) } }
         Divider()
         Button("删除会话", systemImage: "trash", role: .destructive) { Task { await remove(item) } }
-    }
-
-    private static var accessoryAvailable: Bool {
-        if #available(iOS 26.1, *) { return true }
-        return false
     }
 
     private func title(of item: API.SessionSummary) -> String {

@@ -45,8 +45,9 @@ struct MainTabView: View {
     @State private var switchingAccount = false
     /// 标签栏上方的「接着看」条（见 ResumeAccessory）
     @State private var resume = ResumeBarStore()
-    /// 「我的」页 AI 一行输入框的草稿与打字状态（见 AgentQuickBar）
+    /// 「我的」页快捷输入的草稿与编辑状态（见 AgentQuickBar）
     @State private var quickDraft = AgentQuickDraft()
+    @State private var quickInputHeight: CGFloat = 0
     /// 点开的推送通知（见 openPushTarget）
     @Environment(PushCenter.self) private var push
 
@@ -73,7 +74,6 @@ struct MainTabView: View {
         let session = model.session
         let permissions = session.map(Permissions.init(session:)) ?? .none
         let api = model.api ?? EnvironmentValues().api
-        let quickBar = onMoreTab && permissions.isAdmin ? quickDraft : nil
 
         TabView(selection: Binding(get: { router.selectedTab }, set: { tab in
             router.selectTab(tab)
@@ -108,11 +108,16 @@ struct MainTabView: View {
             }
             Tab(value: MainTab.more) {
                 TabRoot(tab: .more) { MorePage() }
-                    // 打字时接替附件的真输入框挂在整个「我的」导航栈上：根页和子页面都在附件原来的位置接替；
-                    // 往下拖收键盘（同「信息」）也对整个栈生效，子页面里才收得掉键盘
+                    // 快捷输入只属于「我的」导航栈，展开与收起共用页面内的玻璃容器。
                     .scrollDismissesKeyboard(.interactively)
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if quickDraft.editing, permissions.isAdmin { AgentQuickInput(quick: quickDraft) }
+                    // 栈外 safeAreaBar 不会替栈内 List / Form 增加内容边距；按实际高度为末项留出滚动空间。
+                    .contentMargins(.bottom, onMoreTab ? (permissions.isAdmin ? quickInputHeight : 0) + 24 : nil, for: .scrollContent)
+                    .contentMargins(.bottom, onMoreTab && permissions.isAdmin ? quickInputHeight : nil, for: .scrollIndicators)
+                    .safeAreaBar(edge: .bottom, spacing: 0) {
+                        if onMoreTab, permissions.isAdmin {
+                            AgentQuickInput(quick: quickDraft)
+                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { quickInputHeight = $0 }
+                        }
                     }
             } label: {
                 Label {
@@ -126,14 +131,15 @@ struct MainTabView: View {
             .accessibilityIdentifier("open-more")
         }
         // 「片段」上下滑动是在换条，不是在往下读：停在它上面时标签栏不收起（docs/design/reels.md）；
-        // 「我的」页正在用一行输入框打字时也不收：往下拖收键盘会被当成一次下滑把标签栏收起，
-        // 打字的输入框落回展开的位置、附件却换回到收起的那一行，跳一下（见 AgentQuickBar）
-        .tabBarMinimizeBehavior(onReels || quickDraft.editing ? .never : .onScrollDown)
+        // 显示快捷输入时菜单保持完整，避免滚动后只剩头像、上方却悬着整行输入框。
+        .tabBarMinimizeBehavior(onReels || (onMoreTab && permissions.isAdmin) ? .never : .onScrollDown)
         // 「接着看」条：片段页自己占满底部、AI 会话页底部是输入框（2026-09-30 用户反馈条贴在输入框下面很怪），都不显示；
-        // 「我的」根页这个位置是 AI 一行输入框
+        // 「我的」页使用自己的 AI 输入框，不切换全局附件中的内容。
         // 离线时也不显示：它来自服务器，可能指向一部没下载的片（离线首页自有「接着看」行）
-        .modifier(ResumeAccessoryModifier(item: resume.visibleItem, enabled: !onReels && !onAgentSession && !ServerReachability.shared.isOffline,
-                                          quickBar: quickBar, onHide: { resume.hide() }))
+        .modifier(ResumeAccessoryModifier(item: resume.visibleItem,
+                                          enabled: !onReels && !onAgentSession && !(onMoreTab && permissions.isAdmin) && !ServerReachability.shared.isOffline,
+                                          onHide: { resume.hide() }))
+        .modifier(AgentQuickConsentModifier(quick: permissions.isAdmin ? quickDraft : nil))
         // 进主界面、关掉播放器（看过就变了）、回到前台、换账号时重新取最近播放的那一条
         .task(id: "\(router.player == nil)|\(scenePhase == .active)|\(session?.nickname ?? "")|\(api.server.origin)") {
             guard router.player == nil, scenePhase == .active else { return }
@@ -360,7 +366,6 @@ struct MainTabView: View {
         // 预热中切了页签：马上拆掉预热的那份，不和真正要显示的页面抢主线程
         .onChange(of: router.selectedTab) { if !warmupTabs.isEmpty { warmupTabs = [] } }
         .environment(router)
-        .environment(quickDraft)
         .environment(feedback)
         .environment(badges)
         .environment(\.api, api)
@@ -829,7 +834,7 @@ struct TabBarDotBridge: UIViewRepresentable {
 ///
 /// 为什么：一个页面在这次运行里第一次上屏特别重——SwiftUI 第一次实例化这批视图类型、做协议一致性查找、
 /// 排版文字，模拟器实测第一次切到订阅首页主线程要忙约 300ms（第二次只要约 60ms）。这笔一次性开销在
-/// 落地页空闲时先消化掉（同「我的」页的输入框预热 AgentComposerWarmup），第一次切过去就接近第二次的速度。
+/// 落地页空闲时先消化掉，第一次切过去就接近第二次的速度。
 /// 预热的那份页面带着 `\.pageWarmup`：不发请求、不轮询、不记打点，只是画出来。
 private struct PageWarmup: View {
     let tabs: [MainTab]

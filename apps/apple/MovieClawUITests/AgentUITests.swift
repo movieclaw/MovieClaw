@@ -74,7 +74,12 @@ final class AgentUITests: XCTestCase {
     private func launch(route: String) -> XCUIApplication {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing", "-mcServer", server, "-mcUser", username, "-mcPass", password, "-mcRoute", route]
+        if env["MC_TEST_CURRENT_ACCOUNT"] == "1" {
+            // 真机只验证界面交互，沿用已登录账号，不覆盖服务器与凭据。
+            app.launchArguments = ["--ui-testing", "-mcRoute", route]
+        } else {
+            app.launchArguments = ["--ui-testing", "-mcServer", server, "-mcUser", username, "-mcPass", password, "-mcRoute", route]
+        }
         app.launch()
         return app
     }
@@ -233,14 +238,153 @@ final class AgentUITests: XCTestCase {
     // MARK: 「我的」页的一行输入框（真实发消息，默认跳过）
 
     @MainActor
+    func testOutsideTapDismissesKeyboardWithoutLosingDraft() throws {
+        try XCTSkipUnless(env["MC_TEST_COMPANION"] == "1", "使用隔离验收服务")
+        for (index, route) in ["/my", "/new", "/sessions/outside-tap-fixture"].enumerated() {
+            let app = launch(route: route)
+            let input = element(app, "agent-composer-input")
+            safeTap(app, input, "输入框")
+            let draft = "Keep this draft after tapping outside."
+            input.typeText(draft)
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+            // 框内再次定位光标不会失焦，键盘输入也不能被框外手势打断。
+            safeTap(app, input, "输入框内的光标")
+            XCTAssertTrue(app.keyboards.firstMatch.exists)
+            if index == 0 {
+                app.buttons["more-profile-card"].tap()
+            } else if index == 1 {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+            } else {
+                let message = app.staticTexts.containing(NSPredicate(format: "label CONTAINS '框外轻点验收'")).firstMatch
+                XCTAssertTrue(message.waitForExistence(timeout: 10) && message.isHittable)
+                message.tap()
+            }
+            XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "点页面内容、空白或消息正文都应收起键盘")
+            XCTAssertEqual(input.value as? String, draft)
+            if index == 0 {
+                XCTAssertFalse(element(app, "agent-model-menu").exists, "快捷输入失焦立即收回一行")
+                XCTAssertLessThan(input.frame.height, 30)
+            }
+            snapshot("outside-tap-\(index)")
+            safeTap(app, input, "再次编辑草稿")
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+            input.typeText(" Continue.")
+            XCTAssertTrue((input.value as? String)?.contains("Continue.") == true)
+            safeTap(app, element(app, "agent-composer-plus"), "加号")
+            XCTAssertTrue(element(app, "agent-plus-menu").waitForExistence(timeout: 5), "框内按钮不应被框外手势抢走")
+            dismissPopover(app, element(app, "agent-plus-menu"))
+            safeTap(app, input, "继续编辑")
+            safeTap(app, element(app, "agent-model-menu"), "模型选择")
+            XCTAssertTrue(element(app, "agent-model-panel").waitForExistence(timeout: 5))
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testOutsideTapDismissesKeyboardInMoreSettings() throws {
+        try XCTSkipUnless(env["MC_TEST_COMPANION"] == "1", "使用隔离验收服务")
+        let app = launch(route: "/my")
+        safeTap(app, element(app, "more-tab-server"), "服务器页签")
+        safeTap(app, element(app, "more-settings"), "服务器设置")
+        let input = element(app, "agent-composer-input")
+        safeTap(app, input, "设置页快捷输入框")
+        let draft = "Keep my settings draft."
+        input.typeText(draft)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        safeTap(app, element(app, "settings-description"), "设置页正文")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(input.value as? String, draft)
+        XCTAssertLessThan(input.frame.height, 30)
+        snapshot("outside-tap-settings")
+        safeTap(app, input, "继续编辑设置页草稿")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testQuickBarDoesNotLeakAcrossTabs() {
+        let app = launch(route: "/library")
+        let bar = app.tabBars.firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 20))
+        let tabs = bar.buttons
+        XCTAssertEqual(tabs.count, 5)
+        let entry = element(app, "agent-composer-input")
+        for index in [0, 2, 3] {
+            tabs.element(boundBy: index).tap()
+            XCTAssertFalse(entry.exists)
+            snapshot("quick-transition-tab-\(index)-before")
+            tabs.element(boundBy: 4).tap()
+            XCTAssertTrue(entry.waitForExistence(timeout: 5))
+            tabs.element(boundBy: index).tap()
+            XCTAssertTrue(entry.waitForNonExistence(timeout: 5))
+            XCTAssertFalse(element(app, "agent-composer-input").exists)
+            snapshot("quick-transition-tab-\(index)-after")
+        }
+        app.terminate()
+    }
+
+    @MainActor
+    func testQuickDraftSurvivesCollapseAndTabSwitch() {
+        let app = launch(route: "/my")
+        let entry = element(app, "agent-composer-input")
+        safeTap(app, entry, "快捷输入入口")
+        let input = element(app, "agent-composer-input")
+        safeTap(app, input, "输入框")
+        // 使用逐键输入，避免 XCTest 输入中文时临时隐藏软键盘、改用粘贴。
+        let draft = "Continue after collapse. Keep this longer draft while the same input expands to multiple lines, folds to one line, and opens again."
+        input.typeText(draft)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        snapshot("quick-collapse-expanded")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        XCTAssertTrue(input.exists, "收起时仍然是同一个输入框")
+        XCTAssertFalse(element(app, "agent-model-menu").exists)
+        XCTAssertEqual(input.value as? String, draft)
+        snapshot("quick-collapse-restored")
+        app.tabBars.firstMatch.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(entry.waitForNonExistence(timeout: 5))
+        XCTAssertFalse(input.exists)
+        app.tabBars.firstMatch.buttons.element(boundBy: 4).tap()
+        safeTap(app, entry, "保留草稿的入口")
+        XCTAssertEqual(input.value as? String, draft)
+        XCTAssertFalse(element(app, "agent-plus-menu").exists)
+        XCTAssertFalse(element(app, "agent-model-panel").exists)
+        input.typeText(" Still editing.")
+        // 点同一个文本框可把光标放在点击处，继续输入不要求固定追加到末尾。
+        let edited = input.value as? String
+        XCTAssertEqual(edited?.replacingOccurrences(of: " Still editing.", with: ""), draft)
+        XCTAssertTrue(edited?.contains(" Still editing.") == true)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        snapshot("quick-collapse-editing-again")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(element(app, "agent-model-menu").waitForNonExistence(timeout: 5))
+        XCTAssertEqual(app.textFields.matching(identifier: "agent-composer-input").count, 1)
+        XCTAssertEqual(input.value as? String, edited)
+        snapshot("quick-collapse-long-draft")
+        app.terminate()
+    }
+
+    @MainActor
     func testQuickBarShowsModelControlsOnlyAfterExpansion() {
         let app = launch(route: "/my")
-        let entry = element(app, "agent-quick-entry")
+        let entry = element(app, "agent-composer-input")
         XCTAssertTrue(entry.waitForExistence(timeout: 20))
         XCTAssertFalse(element(app, "agent-model-menu").exists, "未展开入口应保持小框")
         safeTap(app, entry, "新会话快捷入口")
         let model = element(app, "agent-model-menu")
         XCTAssertTrue(model.waitForExistence(timeout: 20), "第一条消息前应能选择模型")
+        XCTAssertFalse(element(app, "agent-model-panel").exists, "聚焦只展开输入框，不自动打开模型列表")
+        let input = element(app, "agent-composer-input")
+        let plus = element(app, "agent-composer-plus")
+        let send = element(app, "agent-send")
+        XCTAssertLessThan(input.frame.maxY, plus.frame.minY, "文字在上，工具行在下")
+        XCTAssertEqual(plus.frame.midY, model.frame.midY, accuracy: 1)
+        XCTAssertEqual(send.frame.midY, model.frame.midY, accuracy: 1)
+        let quickFrames = [input.frame, plus.frame, model.frame, send.frame]
+        snapshot("quick-expanded-conversation-style")
         safeTap(app, model, "模型与思考强度")
         XCTAssertTrue(element(app, "agent-model-panel").waitForExistence(timeout: 5))
         if env["MC_ISOLATED_CHATGPT_QA"] == "1" {
@@ -249,46 +393,62 @@ final class AgentUITests: XCTestCase {
                           "服务器提供的思考档位仍应可调")
         }
         snapshot("quick-model-menu-before-first-message")
+        app.terminate()
+
+        // 使用同一服务器、同一模型，直接比对完整会话输入框的尺寸与内部间距。
+        let conversation = launch(route: "/new")
+        XCTAssertTrue(element(conversation, "agent-model-menu").waitForExistence(timeout: 20))
+        let fullFrames = ["agent-composer-input", "agent-composer-plus", "agent-model-menu", "agent-send"]
+            .map { element(conversation, $0).frame }
+        for (quick, full) in zip(quickFrames, fullFrames) {
+            XCTAssertEqual(quick.minX, full.minX, accuracy: 1)
+            XCTAssertEqual(quick.width, full.width, accuracy: 1)
+            XCTAssertEqual(quick.height, full.height, accuracy: 1)
+            XCTAssertEqual(quick.minY - quickFrames[0].minY, full.minY - fullFrames[0].minY, accuracy: 1)
+        }
+        snapshot("conversation-composer-style-reference")
+        conversation.terminate()
     }
 
-    /// 「我的」根页：平时标签栏附件是一行输入框（下滑跟着标签栏收起）；点它附件让位、同一位置换上真输入框跟着键盘上去，
-    /// 收键盘落回原位再换回附件——全程只有一个输入框。加号原地弹加号菜单，选的技能落在托盘里；发送 = 新建会话并进入。
+    /// 「我的」根页：同一个输入框在单行和多行布局间切换，跟随键盘移动。
+    /// 加号展开后弹菜单，技能落在托盘里；发送 = 新建会话并进入。
     /// 共发 1 条只读消息，结束后删除本会话。
     @MainActor
     func testQuickBarStartsSession() throws {
         try XCTSkipUnless(env["MC_ALLOW_AGENT_LIVE"] == "1", "会消耗模型额度，需显式设置 MC_ALLOW_AGENT_LIVE=1")
         let marker = String(UUID().uuidString.prefix(6))
         let app = launch(route: "/my")
-        let entry = element(app, "agent-quick-entry")
+        let entry = element(app, "agent-composer-input")
         let inputs = app.descendants(matching: .any).matching(identifier: "agent-composer-input")
         XCTAssertTrue(entry.waitForExistence(timeout: 20), "「我的」页标签栏上方应有一行输入框")
-        XCTAssertEqual(inputs.count, 0, "平时只有附件里的入口")
+        XCTAssertEqual(inputs.count, 1, "收起时也只有同一个输入框")
         XCTAssertFalse(app.buttons["more-new-session"].exists, "有一行输入框后列表里不再放「新会话」")
-        let restY = element(app, "agent-quick-entry-plus").frame.midY
+        let restY = element(app, "agent-composer-plus").frame.midY
         snapshot("agent-quick-bar")
 
-        // 点它：附件让位，真输入框跟着键盘上去，屏幕上只有它一个
+        // 聚焦后原地展开，屏幕上仍然只有同一个输入框
         safeTap(app, entry, "一行输入框")
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "点输入框应弹出键盘")
         sleep(1)
         XCTAssertEqual(inputs.count, 1, "打字时只应有一个输入框")
-        XCTAssertFalse(entry.exists, "打字时附件应让位")
+        XCTAssertTrue(entry.exists, "展开后输入框保持在原来的视图树中")
         XCTAssertTrue(element(app, "agent-model-menu").exists, "展开后应能在发送第一条消息前选模型和档位")
         let input = inputs.firstMatch
         XCTAssertLessThan(input.frame.maxY, app.keyboards.firstMatch.frame.minY + 1, "输入框应在键盘之上")
         snapshot("agent-quick-focused")
 
-        // 往下拖收键盘：落回原位、换回附件，仍只有一个
+        // 往下拖收键盘：同一个输入框落回原位、收成单行
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
             .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "往下拖应收起键盘")
-        XCTAssertTrue(entry.waitForExistence(timeout: 5), "收起键盘后应换回附件")
-        XCTAssertEqual(inputs.count, 0, "收起键盘后只剩附件")
-        XCTAssertEqual(element(app, "agent-quick-entry-plus").frame.midY, restY, accuracy: 1, "附件回到原位")
+        XCTAssertTrue(entry.waitForExistence(timeout: 5), "收起键盘后输入框仍在")
+        XCTAssertEqual(inputs.count, 1, "收起后输入框仍在")
+        XCTAssertFalse(element(app, "agent-model-menu").exists)
+        XCTAssertEqual(element(app, "agent-composer-plus").frame.midY, restY, accuracy: 1, "单行加号回到原位")
         snapshot("agent-quick-dismissed")
 
-        // 附件上的加号：原地换上真输入框并弹出加号菜单，选的技能落在托盘里
-        safeTap(app, element(app, "agent-quick-entry-plus"), "一行输入框的加号")
+        // 单行加号：展开同一个输入框并弹出菜单，选的技能落在托盘里
+        safeTap(app, element(app, "agent-composer-plus"), "一行输入框的加号")
         XCTAssertTrue(element(app, "agent-plus-menu").waitForExistence(timeout: 10), "加号应原地弹出加号菜单")
         snapshot("agent-quick-plus-menu")
         let skill = app.buttons.matching(NSPredicate(format: "label CONTAINS 'skill-creator'")).firstMatch
@@ -316,11 +476,9 @@ final class AgentUITests: XCTestCase {
 
     // MARK: 「我的」页下滑收起标签栏（只读）
 
-    /// 从媒体库点头像页签进「我的」，第一次下滑标签栏就该收起，一行输入框跟着缩进标签栏那一行。
-    /// 回归保护（2026-10-13）：会话输入框的预热挂在背景时，标签栏把它当成主滚动视图，拆掉后就再也不收起，
-    /// 要等附件开关过一次（点一次输入框）才好。会话少到滑不动时跳过
+    /// 有快捷输入时菜单保持完整，不能滚动后只剩头像按钮、上方却悬着整行输入框。
     @MainActor
-    func testMoreTabBarMinimizesOnFirstScroll() throws {
+    func testQuickBarKeepsTabBarExpandedWhileScrolling() throws {
         try XCTSkipUnless(backend.sessionCount() >= 10, "会话太少，「我的」页滑不动")
         let app = launch(route: "/library")
         // 头像页签在最右（iOS 27 模拟器上按 open-more 标识找不到标签栏按钮，按位置取）
@@ -328,20 +486,28 @@ final class AgentUITests: XCTestCase {
         sleep(2)
         let buttons = app.tabBars.buttons
         buttons.element(boundBy: buttons.count - 1).tap()
-        let entry = element(app, "agent-quick-entry")
+        let entry = element(app, "agent-composer-input")
         XCTAssertTrue(entry.waitForExistence(timeout: 10), "「我的」页标签栏上方应有一行输入框")
-        sleep(2)  // 让会话输入框的预热建完又拆掉
+        sleep(2)  // 等页面和底栏完成首次布局
         let rest = entry.frame
-        XCTAssertGreaterThan(app.tabBars.buttons.count, 1)
-        app.collectionViews.firstMatch.swipeUp(velocity: .default)
-        sleep(2)
-        XCTAssertEqual(app.tabBars.buttons.count, 1, "第一次下滑标签栏就应收起")
-        XCTAssertGreaterThan(entry.frame.midY, rest.midY, "一行输入框应跟着缩进标签栏那一行")
-        snapshot("agent-quick-minimized")
+        let tabCount = app.tabBars.buttons.count
+        XCTAssertGreaterThan(tabCount, 1)
+        for index in 0..<2 {
+            if index == 0 { app.collectionViews.firstMatch.swipeUp(velocity: .default) }
+            else { app.collectionViews.firstMatch.swipeDown(velocity: .default) }
+            XCTAssertEqual(app.tabBars.buttons.count, tabCount, "快捷输入显示时，滚动不能单独收起菜单")
+            XCTAssertEqual(entry.frame.midY, rest.midY, accuracy: 1, "滚动不改变底部输入框的位置")
+            XCTAssertLessThanOrEqual(entry.frame.maxY, app.tabBars.firstMatch.frame.minY, "输入框不能与菜单重叠")
+            snapshot("agent-quick-scroll-\(index)")
+        }
+        safeTap(app, entry, "滚动后的快捷入口")
+        XCTAssertTrue(element(app, "agent-composer-input").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        app.terminate()
     }
 
     /// 「我的」下面的子页面（服务器设置等）标签栏上方也是 AI 一行输入框，不是「接着看」（2026-10-13 用户要求）；
-    /// 在子页面里点它，同样原地换上跟键盘走的真输入框，收键盘换回附件（不发送）
+    /// 在子页面里点它，同样在页面内展开跟键盘走的输入框，收键盘后原地收起（不发送）
     @MainActor
     func testQuickBarOnMoreSubpages() {
         let app = launch(route: "/my")
@@ -352,19 +518,19 @@ final class AgentUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 20))
         safeTap(app, settings, "服务器设置")
         sleep(1)
-        let entry = element(app, "agent-quick-entry")
+        let entry = element(app, "agent-composer-input")
         XCTAssertTrue(entry.waitForExistence(timeout: 10), "「我的」子页面标签栏上方应是 AI 一行输入框")
         XCTAssertFalse(element(app, "resume-accessory").exists, "子页面不该是「接着看」")
         safeTap(app, entry, "一行输入框")
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "点输入框应弹出键盘")
         let input = element(app, "agent-composer-input")
-        XCTAssertTrue(input.exists && !entry.exists, "子页面里打字时也是真输入框接替附件")
+        XCTAssertTrue(input.exists && entry.exists, "子页面也沿用同一个输入框展开")
         XCTAssertLessThan(input.frame.maxY, app.keyboards.firstMatch.frame.minY + 1, "输入框应在键盘之上")
         snapshot("agent-quick-subpage-focused")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
             .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "往下拖应收起键盘")
-        XCTAssertTrue(entry.waitForExistence(timeout: 5), "收起键盘后应换回附件")
+        XCTAssertTrue(entry.waitForExistence(timeout: 5), "收起键盘后输入框仍在")
     }
 
     // MARK: 翻到上面再发消息：回到最新（真实发消息，默认跳过）

@@ -1,0 +1,12 @@
+Tool: built-in imagegen (edit, transparent_background=true)
+Source: AgentMoonCompanion.imageset/moonlight.png (first version)
+Output: apps/apple/MovieClaw/Assets.xcassets/AgentMoonCompanion.imageset/moonlight.png
+
+Use case: precise-object-edit.
+Edit target: the attached 4-column by 6-row transparent sprite atlas of the cream Moonlight companion cat. Keep the exact same 1024x1536 canvas, 256x256 cell grid, character identity, hand drawn linework, cream body, mint/lavender ear tips, gradient triangular tail tip, consistent scale and cell positions.
+Change ONLY the yellow rectangular ticket/cracker prop in rows 3, 4 and 5 to a recognizable little blue-silver fish with a round eye, tapered body and forked tail.
+Row 3: cat departing carrying a small fish in its mouth, four sequential hopping poses.
+Row 4: working loop: cat holding the fish in both front paws, lifting fish to mouth and gently nibbling it, four sequential frames with small changes of paws, mouth and cheeks. The fish must clearly look like a fish at small icon size, not a cracker or ticket. Cute, no gore, no bones.
+Row 5: happy finished cat lifting the fish triumphantly in its paw, four frames.
+Rows 1, 2, 6 retain original idle, attentive, worried poses unchanged. No extra props.
+Background: true alpha transparency, fully transparent empty space, NO painted background, NO gradients or haze outside the cat, NO ground shadow, NO panel, NO grid lines, NO text. Each character fully contained in its cell with clear transparent margins and stable foot baseline. Output production sprite sheet only.

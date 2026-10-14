@@ -101,6 +101,54 @@ final class PersonalSpaceUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["个人页验收更新说明"].waitForExistence(timeout: 10))
     }
 
+    @MainActor func testQuickInputLeavesSettingsBottomReachable() {
+        launch()
+        tap("more-profile-card")
+        let logout = app.buttons["logout"]
+        XCTAssertTrue(logout.waitForExistence(timeout: 10))
+        for _ in 0..<3 { app.swipeUp(velocity: .slow) }
+        let input = app.descendants(matching: .any)["agent-composer-input"].firstMatch
+        XCTAssertTrue(input.exists)
+        snapshot("quick-profile-bottom")
+        XCTAssertLessThan(logout.frame.maxY, input.frame.minY - 12, "退出登录应能完整滚到输入框上方")
+        XCTAssertTrue(logout.isHittable)
+        logout.tap()
+        XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 5))
+        app.alerts.buttons["取消"].tap()
+        back()
+        tap("more-tab-server")
+        tap("more-settings")
+        let about = app.buttons["settings-about"]
+        for _ in 0..<6 { app.swipeUp(velocity: .slow) }
+        XCTAssertTrue(about.exists && about.isHittable)
+        snapshot("quick-settings-bottom")
+        XCTAssertLessThan(about.frame.maxY, input.frame.minY - 12, "设置列表最后一项不能被输入框遮挡")
+        about.tap()
+        XCTAssertTrue(app.navigationBars["关于"].waitForExistence(timeout: 5))
+        XCTAssertTrue(input.exists, "直接导航进入子页面仍保留快捷输入")
+        for _ in 0..<3 { app.swipeUp(velocity: .slow) }
+        let footer = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '影视资料与图片由你的服务器'")).firstMatch
+        XCTAssertTrue(footer.exists)
+        XCTAssertLessThan(footer.frame.maxY, input.frame.minY - 12, "多层导航后的说明文字也应完整可见")
+        back()
+        back()
+        XCTAssertTrue(app.buttons["more-profile-card"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.descendants(matching: .textField).matching(identifier: "agent-composer-input").count, 1)
+    }
+
+    @MainActor func testQuickInputLeavesLargeTextProfileBottomReachable() {
+        launch(large: true)
+        tap("more-profile-card")
+        XCTAssertTrue(app.navigationBars["个人信息"].waitForExistence(timeout: 5))
+        let logout = app.buttons["logout"]
+        for _ in 0..<8 { app.swipeUp(velocity: .slow) }
+        XCTAssertTrue(logout.waitForExistence(timeout: 5))
+        let input = app.descendants(matching: .any)["agent-composer-input"].firstMatch
+        XCTAssertTrue(logout.isHittable && input.exists)
+        XCTAssertLessThan(logout.frame.maxY, input.frame.minY - 12, "大字号下退出按钮仍须完整可见")
+        snapshot("quick-profile-bottom-large-text")
+    }
+
     @MainActor func testConversationActionsAndPagination() {
         launch()
         let row = app.buttons.matching(identifier: "more-session-row").firstMatch
@@ -184,7 +232,7 @@ final class PersonalSpaceUITests: XCTestCase {
         let summary = app.descendants(matching: .any)["offline-storage-summary"].firstMatch
         for _ in 0..<3 { app.swipeUp(velocity: .slow) }
         XCTAssertTrue(summary.isHittable)
-        let composer = app.descendants(matching: .any)["agent-quick-entry"].firstMatch
+        let composer = app.descendants(matching: .any)["agent-composer-input"].firstMatch
         XCTAssertTrue(composer.exists)
         XCTAssertLessThanOrEqual(summary.frame.maxY + 16, composer.frame.minY,
                                  "容量面板与底部输入栏之间保留可见留白")

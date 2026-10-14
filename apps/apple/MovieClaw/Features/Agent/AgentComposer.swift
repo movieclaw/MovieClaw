@@ -57,12 +57,10 @@ struct AgentComposer: View {
     var disabled = false
     var imageUpload = true
     var autoFocus = false
-    /// 排成一行：加号 · 输入框 · 发送，液态玻璃底（「我的」页打字时接替标签栏附件的输入框，见 AgentQuickInput）
-    var compact = false
-    /// 一出现就弹出加号菜单（从附件上的加号点进来）
-    var opensPlusMenu = false
-    /// 既没在打字、也没在选东西时回调（键盘完全收起后才算，见 checkIdle）：一行输入框据此把位置还给标签栏附件
-    var onIdle: (() -> Void)?
+    /// 快捷入口可折叠；会话页不传，始终使用完整布局。输入框与按钮在两种布局间保持身份。
+    var expansion: Binding<Bool>?
+    /// 仅完整 Agent 会话显示小幕。
+    var companion: AgentCompanionState?
     var modelOptions: [API.LlmModelOptionView] = []
     var modelValue: String?
     var onModelChange: (String?) -> Void = { _ in }
@@ -76,6 +74,7 @@ struct AgentComposer: View {
     @State private var uploading = 0
     @State private var uploadError: String?
     @State private var showsPlusMenu = false
+    @State private var openingPlusMenu = false
     @State private var showsModelMenu = false
     @State private var pickingPhotos = false
     @State private var photoItems: [PhotosPickerItem] = []
@@ -88,8 +87,6 @@ struct AgentComposer: View {
     @State private var slashHighlight = 0
     /// 选完图片 / 技能后把焦点放回输入框接着打字（取消菜单不放回，算收起）
     @State private var resumeTyping = false
-    /// 屏幕键盘在不在（外接键盘时没有键盘通知，按焦点判断）
-    @State private var keyboardShowing = false
 
     /// 每条消息的图片上限（与服务端 MAX_ATTACHMENTS_PER_MESSAGE 一致）
     static let maxImages = 4
@@ -99,13 +96,13 @@ struct AgentComposer: View {
     static let control: CGFloat = 36
     static let inset: CGFloat = 8
     static let radius = control / 2 + inset
-    /// 外框底色：比黑底抬一档；按钮底再抬一档
-    static let fill = Color(white: 0.12)
+    /// 控件在玻璃背板上略抬一档，保持图标与文字清晰。
     static let controlFill = Color.white.opacity(0.09)
 
     private var canSubmit: Bool { !disabled && !busy && uploading == 0 && !draft.isEmpty }
     /// 正在选东西：加号 / 模型菜单、相册、拍照、文件、上传中——这时失去焦点不算闲置
-    private var presenting: Bool { showsPlusMenu || showsModelMenu || pickingPhotos || capturingPhoto || importingFiles || uploading > 0 }
+    private var presenting: Bool { openingPlusMenu || showsPlusMenu || showsModelMenu || pickingPhotos || capturingPhoto || importingFiles || uploading > 0 }
+    private var collapsed: Bool { expansion?.wrappedValue == false }
     private var showStop: Bool { busy && onStop != nil }
     private var slash: (query: String, range: Range<String.Index>)? {
         disabled ? nil : AgentSkillText.slashQuery(in: draft.text)
@@ -113,48 +110,54 @@ struct AgentComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if slashActive, let slash {
+            if !collapsed, slashActive, let slash {
                 slashMenu(query: slash.query)
             }
-            tray
-            if compact {
-                // 展开的快捷输入：消息行保持紧凑，下一行可选当前模型与思考强度。
-                HStack(alignment: .bottom, spacing: Self.inset) {
-                    plusButton
-                    inputField
-                        .padding(.vertical, 7)
-                    sendButton
-                }
-                .padding(Self.inset)
-                if !modelOptions.isEmpty {
-                    HStack {
-                        modelControl
-                        Spacer(minLength: 0)
-                    }
-                    .padding([.horizontal, .bottom], Self.inset)
-                }
-            } else {
-                inputField
-                    .padding(.horizontal, 14)
-                    .padding(.top, 16)
-                    .padding(.bottom, 14)
-                toolRow
+            if !collapsed { tray }
+            inputField
+                .padding(.horizontal, collapsed ? 52 : 14)
+                .padding(.top, collapsed ? 12 : 16)
+                .padding(.bottom, collapsed ? 12 : 14)
+            Color.clear.frame(height: collapsed ? 0 : Self.control + Self.inset)
+        }
+        .overlay(alignment: .bottom) { toolRow }
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: Self.radius, style: .continuous))
+        // 行数与工具行立即切换；整个控件的位置交给安全区随系统键盘动画移动。
+        .animation(nil, value: collapsed)
+        .background {
+            AgentOutsideTap(enabled: !presenting) {
+                focused = false
+                expansion?.wrappedValue = false
             }
         }
-        .modifier(ComposerSurface(glass: compact))
-        .onAppear { if autoFocus, !disabled { focused = true } }
-        .task {
-            guard opensPlusMenu, !disabled else { return }
-            // 等键盘弹起走完再弹，动画途中弹出的气泡会落在旧位置
-            try? await Task.sleep(for: .milliseconds(350))
-            showsPlusMenu = true
+        .overlay(alignment: .topTrailing) {
+            if let companion {
+                AgentCompanion(activity: companion, attentive: focused && !draft.isEmpty)
+                    .frame(width: 90, height: 72)
+                    .offset(y: -62)
+            }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardShowing = true }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
-            keyboardShowing = false
+        .onAppear { if autoFocus, !disabled { focused = true } }
+        .task(id: openingPlusMenu) {
+            guard openingPlusMenu else { return }
+            // 同一个加号从单行移到底部工具行，位置稳定后再定位菜单。
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            showsPlusMenu = true
+            openingPlusMenu = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            guard !presenting else { return }
+            // 键盘布局变化只收起外观，不反向强制失焦（切换输入法 / 外接键盘仍可能在编辑）。
+            expansion?.wrappedValue = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            if focused { expansion?.wrappedValue = true }
+        }
+        .onChange(of: focused) {
+            if focused { expansion?.wrappedValue = true }
             checkIdle()
         }
-        .onChange(of: focused) { checkIdle() }
         .onChange(of: presenting) { _, now in
             if !now, resumeTyping {
                 resumeTyping = false
@@ -272,12 +275,26 @@ struct AgentComposer: View {
 
     // MARK: 输入框
 
+    private var inputPlaceholder: String {
+        if collapsed {
+            if !draft.images.isEmpty { return "已添加 \(draft.images.count) 张图片" }
+            if !draft.skills.isEmpty { return draft.skills.map { "⚡ \($0)" }.joined(separator: " ") }
+        }
+        return placeholder ?? (busy ? "生成中，可先输入下一条…" : "随心输入，描述一个新任务…")
+    }
+
     private var inputField: some View {
-        TextField(placeholder ?? (busy ? "生成中，可先输入下一条…" : "随心输入，描述一个新任务…"), text: $draft.text, axis: .vertical)
+        TextField(inputPlaceholder, text: $draft.text, axis: .vertical)
             .font(.system(size: 17))
-            .lineLimit(1 ... 6)
+            .lineLimit(1 ... (collapsed ? 1 : 6))
             .focused($focused)
             .disabled(disabled)
+            .simultaneousGesture(TapGesture().onEnded {
+                guard !disabled else { return }
+                // 所有入口点击时都同步焦点，不依赖 safeAreaBar 内不同 iOS 版本的焦点回调时序。
+                expansion?.wrappedValue = true
+                focused = true
+            })
             // 外接键盘同 Web：回车发送、Shift+回车换行；技能快选展开时回车选中高亮的技能、上下键移动高亮。
             // 屏幕键盘的换行键仍是换行、发送靠发送键，符合 iOS 多行输入习惯
             .onKeyPress(.return, phases: .down) { press in
@@ -308,13 +325,14 @@ struct AgentComposer: View {
         HStack(spacing: Self.inset) {
             plusButton
 
-            modelControl
+            if !collapsed { modelControl }
 
             Spacer(minLength: 0)
 
             sendButton
         }
-        .padding([.horizontal, .bottom], Self.inset)
+        .padding(.horizontal, Self.inset)
+        .padding(.bottom, collapsed ? 4 : Self.inset)
     }
 
     @ViewBuilder
@@ -361,7 +379,13 @@ struct AgentComposer: View {
 
     private var plusButton: some View {
         Button {
-            showsPlusMenu = true
+            if collapsed {
+                openingPlusMenu = true
+                expansion?.wrappedValue = true
+                focused = true
+            } else {
+                showsPlusMenu = true
+            }
         } label: {
             Image(systemName: "plus").font(.system(size: 18, weight: .regular))
                 .frame(width: Self.control, height: Self.control)
@@ -416,15 +440,10 @@ struct AgentComposer: View {
         .accessibilityIdentifier(showStop ? "agent-stop" : "agent-send")
     }
 
-    /// 闲置 = 没在选东西、没有焦点、屏幕键盘也已完全收起。等键盘收完（didHide）再交还：
-    /// 输入框跟着键盘落到底，落定后原地换回标签栏附件，中途不会同时露出两个
+    /// 离开焦点就收成一行，随后整个控件跟随系统键盘落下；不等 didHide 再做第二段动画。
     private func checkIdle() {
-        guard let onIdle, !presenting, !focused, !keyboardShowing else { return }
-        Task {
-            // 菜单刚关、焦点还没回来的那一瞬两头都空，再看一眼
-            try? await Task.sleep(for: .milliseconds(150))
-            if !presenting, !focused, !keyboardShowing { onIdle() }
-        }
+        guard let expansion, !presenting, !focused else { return }
+        expansion.wrappedValue = false
     }
 
     // MARK: 「/」技能快选
@@ -931,21 +950,6 @@ struct AgentThinkingToggle: View {
         }
         .padding(.horizontal, 10)
         .padding(.bottom, 8)
-    }
-}
-
-/// 输入框外壳：页面里是深灰实底 + 细描边；一行版（标签栏附件的接替者）是液态玻璃，与系统附件同款
-private struct ComposerSurface: ViewModifier {
-    let glass: Bool
-
-    func body(content: Content) -> some View {
-        if glass {
-            content.glassEffect(.regular.interactive(), in: .rect(cornerRadius: AgentComposer.radius, style: .continuous))
-        } else {
-            content
-                .background(AgentComposer.fill, in: .rect(cornerRadius: AgentComposer.radius, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: AgentComposer.radius, style: .continuous).strokeBorder(Color.white.opacity(0.09)))
-        }
     }
 }
 
