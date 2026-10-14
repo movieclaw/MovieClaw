@@ -47,11 +47,9 @@ _YESTERDAY = (_TODAY - timedelta(days=1)).isoformat()
 _FUTURE_DATE = _TODAY + timedelta(days=10)
 _FUTURE = _FUTURE_DATE.isoformat()
 
-# 首页预告按站点业务日历（Asia/Shanghai）判断"今天"，UTC 凌晨会差一天，
-# 因此预告相关夹具统一用站点日历日构造，避免测试在特定时段假红。
-_SITE_TODAY = publish_calendar_date(utcnow())
-_SITE_TODAY_ISO = _SITE_TODAY.isoformat()
-_IN_WINDOW = (_SITE_TODAY + timedelta(days=3)).isoformat()
+# 首页预告按站点业务日历（Asia/Shanghai）判断"今天"。这两部剧的播出日不写在
+# 模块加载时：xdist 会先导入再跑，导入若卡在零点前、用例跑在零点后，"今天"就偏一天。
+# 播出日在假 TMDB 应答里按当次请求现算，见 _fake_tmdb。
 
 _ROUTES = {
     "/3/movie/100": {
@@ -124,45 +122,42 @@ _ROUTES = {
             {"episode_number": 3, "name": "E3", "air_date": None},
         ],
     },
-    # 首页预告夹具：202 = 三天后播（窗口内）、203 = 今天播
-    "/3/tv/202": {
-        "id": 202,
-        "name": "本周更新剧集",
-        "original_name": "This Week Show",
-        "first_air_date": _IN_WINDOW,
-        "status": "Returning Series",
-        "external_ids": {},
-        "alternative_titles": {"results": []},
-        "translations": {"translations": []},
-        "seasons": [{"season_number": 1}],
-    },
-    "/3/tv/202/season/1": {
-        "name": "第 1 季",
-        "air_date": _IN_WINDOW,
-        "episodes": [{"episode_number": 1, "name": "E1", "air_date": _IN_WINDOW}],
-    },
-    "/3/tv/203": {
-        "id": 203,
-        "name": "今日更新剧集",
-        "original_name": "Today Show",
-        "first_air_date": _SITE_TODAY_ISO,
-        "status": "Returning Series",
-        "external_ids": {},
-        "alternative_titles": {"results": []},
-        "translations": {"translations": []},
-        "seasons": [{"season_number": 1}],
-    },
-    "/3/tv/203/season/1": {
-        "name": "第 1 季",
-        "air_date": _SITE_TODAY_ISO,
-        "episodes": [{"episode_number": 1, "name": "E1", "air_date": _SITE_TODAY_ISO}],
-    },
 }
+
+
+def _arrival_payload(path: str) -> dict | None:
+    """202 三天后播，203 今天播。日期跟本次请求的站点日历走。"""
+    site_today = publish_calendar_date(utcnow())
+    if path in {"/3/tv/202", "/3/tv/202/season/1"}:
+        air_date = (site_today + timedelta(days=3)).isoformat()
+        show_id, name, original = 202, "本周更新剧集", "This Week Show"
+    elif path in {"/3/tv/203", "/3/tv/203/season/1"}:
+        air_date = site_today.isoformat()
+        show_id, name, original = 203, "今日更新剧集", "Today Show"
+    else:
+        return None
+    if path.endswith("/season/1"):
+        return {
+            "name": "第 1 季",
+            "air_date": air_date,
+            "episodes": [{"episode_number": 1, "name": "E1", "air_date": air_date}],
+        }
+    return {
+        "id": show_id,
+        "name": name,
+        "original_name": original,
+        "first_air_date": air_date,
+        "status": "Returning Series",
+        "external_ids": {},
+        "alternative_titles": {"results": []},
+        "translations": {"translations": []},
+        "seasons": [{"season_number": 1}],
+    }
 
 
 def _fake_tmdb() -> TmdbClient:
     def handler(request: httpx.Request) -> httpx.Response:
-        payload = _ROUTES.get(request.url.path)
+        payload = _arrival_payload(request.url.path) or _ROUTES.get(request.url.path)
         if payload is None:
             return httpx.Response(404, json={})
         return httpx.Response(200, json=payload)
@@ -807,7 +802,7 @@ async def test_today_arrivals_falls_back_to_nearest_upcoming_day(db) -> None:
 
     assert [row.media.title for row in arrivals] == ["本周更新剧集"]
     assert arrivals[0].days_ahead == 3
-    assert arrivals[0].expected_day == _SITE_TODAY + timedelta(days=3)
+    assert arrivals[0].expected_day == publish_calendar_date(utcnow()) + timedelta(days=3)
 
 
 async def test_today_arrivals_prefers_today_over_upcoming(db) -> None:
