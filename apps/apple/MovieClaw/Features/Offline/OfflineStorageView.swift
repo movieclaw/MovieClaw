@@ -10,6 +10,8 @@ struct OfflineStorageView: View {
     @State private var otherOwners: [(owner: OfflineOwner, bytes: Int64, items: Int)] = []
     @State private var allowCellular = OfflineSettings.allowCellular
     @State private var confirm: Confirm?
+    /// 容量条的读数：打开页面、下完一集、删除时才取一次（查磁盘余量不便宜，下载中也不该每秒跳）
+    @State private var capacity: StorageCapacity?
 
     private enum Confirm: Identifiable {
         case items([Int])
@@ -98,7 +100,7 @@ struct OfflineStorageView: View {
             }
             // 容量放最后：这一页先管下载，剩余空间是参考（空间不够时选档面板会直接提示）
             Section {
-                StorageUsageBar(downloads: store.totalBytes, free: OfflineDisk.availableBytes, total: OfflineDisk.totalCapacity)
+                StorageUsageBar(capacity: capacity)
                     .accessibilityIdentifier("offline-storage-summary")
             }
         }
@@ -124,6 +126,7 @@ struct OfflineStorageView: View {
             OfflineDownloader.shared.applyNetworkSettings()
         }
         .task { await loadOtherOwners() }
+        .task(id: store.doneBytes) { capacity = await StorageCapacity.read(downloads: store.doneBytes) }
         .accessibilityIdentifier("offline-storage")
     }
 
@@ -156,7 +159,7 @@ struct OfflineStorageView: View {
                 Text(detailLine(item, done: done, active: active)).font(.caption).foregroundStyle(Theme.textMuted).lineLimit(1)
             }
             Spacer(minLength: 8)
-            Text(Formatters.bytes(Int(store.bytes(ofItem: item.mediaItemId)))).font(.subheadline).monospacedDigit()
+            Text(Formatters.bytes(Int(store.doneBytesByItem[item.mediaItemId] ?? 0))).font(.subheadline).monospacedDigit()
                 .foregroundStyle(Theme.textMuted)
         }
         .accessibilityIdentifier("offline-storage-item-\(item.mediaItemId)")
@@ -205,6 +208,8 @@ struct OfflineStorageView: View {
         case let .owner(owner):
             OfflineOwners.remove(owner)
             otherOwners.removeAll { $0.owner.key == owner.key }
+            // 别的账号的下载不在本账号的目录里，删了容量条读数不会自己变
+            Task { capacity = await StorageCapacity.read(downloads: store.doneBytes) }
         }
         confirm = nil
     }
@@ -285,13 +290,27 @@ private struct OfflineDownloadingStorageRow: View {
     }
 }
 
-/// 存储页顶部的容量条（同系统「iPhone 储存空间」）：MovieClaw 下载 / 其他已用 / 剩余
-private struct StorageUsageBar: View {
+/// 容量条的一次读数。磁盘余量的查询（含可清理空间的估算）放到后台线程，不卡主线程
+struct StorageCapacity: Equatable, Sendable {
     let downloads: Int64
     let free: Int64?
     let total: Int64?
 
+    static func read(downloads: Int64) async -> StorageCapacity {
+        await Task.detached(priority: .utility) {
+            StorageCapacity(downloads: downloads, free: OfflineDisk.availableBytes, total: OfflineDisk.totalCapacity)
+        }.value
+    }
+}
+
+/// 容量条（同系统「iPhone 储存空间」）：MovieClaw 下载 / 其他已用 / 剩余。读数是快照，不跟下载进度变
+private struct StorageUsageBar: View {
+    let capacity: StorageCapacity?
+
     var body: some View {
+        let downloads = capacity?.downloads ?? 0
+        let free = capacity?.free
+        let total = capacity?.total
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text("iPhone").font(.headline)

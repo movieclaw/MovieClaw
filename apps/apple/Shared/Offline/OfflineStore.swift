@@ -20,6 +20,10 @@ final class OfflineStore {
     private(set) var doneFileIds: Set<Int> = []
     /// 至少有一个能播单元的条目
     private(set) var downloadedItemIds: Set<Int> = []
+    /// 下完的副本占的字节（总计 / 按条目）：同 `doneFileIds` 只在完成、删除时变，下载进度不改它——
+    /// 「下载」页的容量条、「我的」入口的大小读它，下载中不跟着每秒跳
+    private(set) var doneBytes: Int64 = 0
+    private(set) var doneBytesByItem: [Int: Int64] = [:]
     /// 每个条目还没下完的单元（详情页右上角「取消下载」）：只在开始 / 完成 / 删除时变，下载进度不改它——
     /// 页面读 `units` 的话每次进度刷新都整页重算，开着的菜单被重建，点下去的项落空
     private(set) var activeByItem: [Int: [ActiveUnit]] = [:]
@@ -152,6 +156,10 @@ final class OfflineStore {
         if done != doneFileIds { doneFileIds = done }
         let itemIds = Set(units.values.filter(\.playable).map(\.mediaItemId))
         if itemIds != downloadedItemIds { downloadedItemIds = itemIds }
+        let byItem = units.values.filter(\.playable).reduce(into: [Int: Int64]()) { $0[$1.mediaItemId, default: 0] += $1.receivedBytes }
+        if byItem != doneBytesByItem { doneBytesByItem = byItem }
+        let total = byItem.values.reduce(0, +)
+        if total != doneBytes { doneBytes = total }
         let active = Dictionary(grouping: units.values.filter(\.isActive)) { $0.mediaItemId }
             .mapValues { $0.map { ActiveUnit(fileId: $0.fileId, season: $0.season, episode: $0.episode) }.sorted { $0.fileId < $1.fileId } }
         if active != activeByItem { activeByItem = active }

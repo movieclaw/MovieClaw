@@ -79,7 +79,7 @@ struct MorePage: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("下载")
                                     Text(offlineStore.items.isEmpty ? "下载到 iPhone，没网也能看"
-                                         : "已下载 \(offlineStore.downloadedItemIds.count) 部 · \(Formatters.bytes(Int(offlineStore.totalBytes)))")
+                                         : "已下载 \(offlineStore.downloadedItemIds.count) 部 · \(Formatters.bytes(Int(offlineStore.doneBytes)))")
                                         .font(.caption).foregroundStyle(Theme.textMuted)
                                 }
                             } icon: {

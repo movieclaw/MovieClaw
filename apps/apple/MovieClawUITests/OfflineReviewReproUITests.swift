@@ -289,6 +289,43 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertTrue(storage.descendants(matching: .any)["offline-storage-item-\(showId)"].waitForExistence(timeout: 10))
     }
 
+    /// 「下载」页底部的容量条：下载中不跟着进度跳（也不每秒去查磁盘），下完一集才更新一次
+    @MainActor
+    func testCapacityBarOnlyUpdatesWhenADownloadFinishes() throws {
+        let app = launch(reset: true, route: "/library/2/item/\(showId)")
+        let card = app.buttons["episode-1"]
+        XCTAssertTrue(card.waitForExistence(timeout: 30))
+        // 限速到约 400 KB/s：25 MB 的一集要下一分钟
+        setMode(["mode": "slow", "bps": 400_000])
+        card.press(forDuration: 1.2)
+        tapMenuItem(app, "下载这一集")
+        let original = app.buttons["offline-profile-original"]
+        XCTAssertTrue(original.waitForExistence(timeout: 30))
+        original.tap()
+        app.buttons["offline-profile-confirm"].tap()
+        XCTAssertTrue(waitUntil(timeout: 30) { card.label.contains("下载中") }, card.label)
+
+        let storage = launch(reset: false, route: "/my/downloads")
+        let row = storage.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'offline-downloading-'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        let summary = storage.descendants(matching: .any)["offline-storage-summary"]
+        storage.swipeUp()
+        XCTAssertTrue(summary.waitForExistence(timeout: 10))
+        let during = summary.label
+        // 这几秒里下载在走（行上的百分比在变），容量条一个字都不该变
+        let progressBefore = row.label
+        Thread.sleep(forTimeInterval: 8)
+        XCTAssertNotEqual(row.label, progressBefore, "下载应在进行：\(row.label)")
+        XCTAssertEqual(summary.label, during, "下载中容量条不该跟着变")
+        snapshot("capacity-during-download")
+
+        setMode(["mode": "pass"])
+        XCTAssertTrue(waitUntil(timeout: 120) { !row.exists }, "应下完")
+        XCTAssertTrue(waitUntil(timeout: 10) { summary.label != during }, "下完应更新一次：\(summary.label)")
+        XCTAssertFalse(summary.label.contains("MovieClaw 下载 0 KB") || summary.label.contains("MovieClaw 下载 Zero KB"), summary.label)
+        snapshot("capacity-after-download")
+    }
+
     /// 选档行上的「共 47.1 MB」「共 ≈ 47.1 MB」取出 MB 数
     private static func megabytes(_ label: String) -> Double {
         let size = (label.components(separatedBy: "共 ").last ?? "").replacingOccurrences(of: "≈ ", with: "")
