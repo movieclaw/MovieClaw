@@ -18,6 +18,11 @@ import (
 var knownNonGenerated = []string{
 	"llm.chatgpt.authorize",
 	"llm.chatgpt.complete",
+	// 智能体网页搜索的密钥：设置页的事。隐藏是为了不让对话式 Agent 经 mclaw 读到或改写密钥
+	"llm.web-search.show",
+	"llm.web-search.update",
+	"llm.web-search.clear",
+	"llm.web-search.test",
 	// 会话图片附件：二进制上传/下载是 Web 基础设施，CLI 场景无消费方
 	"session.attachments.upload",
 	"session.attachments.download",
