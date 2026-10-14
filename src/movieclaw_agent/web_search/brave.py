@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import re
 from typing import Any
 
@@ -54,9 +55,9 @@ def _hit(item: Any) -> WebSearchHit | None:
     url = str(item.get("url") or "").strip()
     if not url or len(url) > 2000:
         return None
-    description = _TAGS.sub("", str(item.get("description") or ""))
+    description = html.unescape(_TAGS.sub("", str(item.get("description") or "")))
     return WebSearchHit(
-        title=clip_text(_TAGS.sub("", str(item.get("title") or "")), 200),
+        title=clip_text(html.unescape(_TAGS.sub("", str(item.get("title") or ""))), 200),
         url=url,
         snippet=clip_text(description, _SNIPPET),
         date=normalize_date(item.get("page_age") or item.get("age")),

@@ -1,7 +1,7 @@
 """智能体网页搜索的供应商层。
 
 适配器只负责一家 API 的请求和字段映射，统一收成 ``WebSearchHit``
-（title / url / snippet / date，以及可选的 content）。
+（title / url / snippet / date）。
 要加新供应商：写一个 ``SearchProvider`` 子类，放进 ``PROVIDERS``。
 """
 

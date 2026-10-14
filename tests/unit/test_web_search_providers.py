@@ -154,6 +154,8 @@ async def test_tavily_never_asks_for_page_text():
     assert hits[0].snippet == "snippet"
     body = calls[0].content
     assert b'"include_raw_content":false' in body or b'"include_raw_content": false' in body
+    # 不显式要日期，Tavily 只在 news 话题下回 published_date
+    assert json.loads(body)["include_published_date"] is True
 
 
 async def test_exa_asks_for_highlights_not_page_text():
@@ -235,3 +237,40 @@ async def test_empty_results_are_not_an_error():
         return httpx.Response(200, json={"results": []})
 
     assert await _search(ExaProvider, handler) == []
+
+
+async def test_open_breaker_fails_fast_without_a_retry():
+    from movieclaw_net.breaker import CircuitOpenError
+
+    calls = {"n": 0}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise CircuitOpenError("web_search", 30)
+
+    with pytest.raises(WebSearchError, match="暂停") as exc:
+        await _search(TavilyProvider, handler)
+    assert calls["n"] == 1
+    assert exc.value.kind == "network"
+
+
+async def test_brave_html_entities_are_decoded():
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "web": {
+                    "results": [
+                        {
+                            "title": "Dune &amp; Arrakis",
+                            "url": "https://example.com/dune",
+                            "description": "<strong>Paul</strong> &#x27;Muad&#39;Dib&#x27;",
+                        }
+                    ]
+                }
+            },
+        )
+
+    hits = await _search(BraveProvider, handler)
+    assert hits[0].title == "Dune & Arrakis"
+    assert hits[0].snippet == "Paul 'Muad'Dib'"

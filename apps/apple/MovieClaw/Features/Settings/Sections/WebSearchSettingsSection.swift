@@ -49,7 +49,9 @@ struct WebSearchSettingsSection: View {
 
     private func form(_ config: API.WebSearchConfigView) -> some View {
         let selected = config.providers.first { $0.id == provider }
-        let hint = probeToken != nil && !canSave ? " 请先测试连接，通过后才能保存。" : ""
+        // 表单就是已保存的样子（同一家、没填新 Key）时没有要保存的东西，不提示先测试
+        let unchanged = probeToken == "\(config.provider ?? "")\nsaved"
+        let hint = probeToken != nil && !canSave && !unchanged ? " 请先测试连接，通过后才能保存。" : ""
         return SettingsFormSection {
             Picker("供应商", selection: $provider) {
                 Text("请选择…").tag("")
@@ -82,10 +84,13 @@ struct WebSearchSettingsSection: View {
                     .accessibilityIdentifier("web-search-notice")
             }
             if let error { SettingsNotice(text: error) }
+            // 同一行两个按钮必须 borderless：默认样式下点这一行会把两个按钮都触发
             HStack(spacing: 12) {
                 Button(busy == .test ? "测试中…" : "测试连接") { Task { await test() } }
+                    .buttonStyle(.borderless)
                     .accessibilityIdentifier("web-search-test")
                 Button(busy == .save ? "保存中…" : "保存") { Task { await save() } }
+                    .buttonStyle(.borderless)
                     .disabled(!canSave)
                     .accessibilityIdentifier("web-search-save")
             }

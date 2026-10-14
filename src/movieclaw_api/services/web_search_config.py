@@ -80,8 +80,16 @@ async def clear_web_search() -> dict:
 
 
 async def load_web_search_provider() -> SearchProvider | None:
-    """没配供应商或没配密钥时返回 None，调用方据此不注册工具。"""
-    setting = await get_setting_store().get(WebSearchSetting)
+    """没配供应商或没配密钥时返回 None，调用方据此不注册工具。
+
+    每轮对话都会调到这里。配置读不出来（密钥解不开、存的供应商已不再支持）时
+    也按没配置处理，只少一个搜索工具，不能让整轮对话跟着失败。
+    """
+    try:
+        setting = await get_setting_store().get(WebSearchSetting)
+    except Exception:  # noqa: BLE001 -- 可选功能出错按未配置处理
+        logger.warning("网页搜索配置读取失败，本轮不提供 web_search", exc_info=True)
+        return None
     if not setting.configured:
         return None
     return build_provider(setting.provider, setting.api_key)

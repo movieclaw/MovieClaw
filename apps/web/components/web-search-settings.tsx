@@ -38,19 +38,24 @@ export function WebSearchSettings() {
   const [verifiedToken, setVerifiedToken] = useState<string | null>(null);
   const [busy, setBusy] = useState<"save" | "test" | "clear" | null>(null);
 
-  useEffect(() => {
+  function load() {
+    setError(null);
     getWebSearchConfig()
       .then((next) => {
         setConfig(next);
         setProvider(next.provider ?? "");
       })
       .catch((e) => setError((e as Error).message));
-  }, []);
+  }
+
+  useEffect(load, []);
 
   const selected = config?.providers.find((item) => item.id === provider) ?? null;
   const switching = config?.configured === true && provider !== (config.provider ?? "");
   const token = formToken(provider, apiKey, config);
   const canSave = token != null && token === verifiedToken;
+  // 表单就是已保存的样子（同一家、没填新 Key）时没有要保存的东西，不提示先测试
+  const unchanged = token != null && token === `${config?.provider ?? ""}\nsaved`;
 
   async function save() {
     if (!provider) {
@@ -133,7 +138,14 @@ export function WebSearchSettings() {
       title="搜索能力接入"
       description="选一家搜索服务并填入 API Key。先测试连接，通过后才能保存；没通过的密钥不会写入服务器。不配置就不会提供这个工具，对话和现在一样。"
     >
-      {config == null ? (
+      {config == null && error ? (
+        <div className="css-glass space-y-3 !rounded-xl p-5 max-sm:p-4">
+          <ErrorBanner>{error}</ErrorBanner>
+          <button type="button" onClick={load} className={SETTINGS_BUTTON_CLASS}>
+            重试
+          </button>
+        </div>
+      ) : config == null ? (
         <div className="h-[104px] animate-pulse rounded-xl bg-white/[0.04]" />
       ) : (
         <div className="css-glass space-y-4 !rounded-xl p-5 max-sm:p-4">
@@ -180,7 +192,7 @@ export function WebSearchSettings() {
           </label>
           <p className="text-caption leading-5 text-[var(--text-faint)]">
             {statusLine(config, selected)}
-            {token != null && !canSave ? " 请先测试连接，通过后才能保存。" : ""}
+            {token != null && !canSave && !unchanged ? " 请先测试连接，通过后才能保存。" : ""}
           </p>
           {notice && <p className="text-sub leading-5 text-[var(--ok)]">{notice}</p>}
           <div className="flex flex-wrap items-center gap-2">

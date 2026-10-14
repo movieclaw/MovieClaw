@@ -70,7 +70,8 @@ def test_builtin_agent_tools_omit_web_search_until_a_provider_is_attached(tmp_pa
 def test_tool_description_is_general_web_search_not_media_only():
     tool = make_web_search_tool(_Fake())  # type: ignore[arg-type]
     text = tool.definition.description
-    assert text == "搜索网络以获取最新信息。返回可选的摘要回答和来源 URL 列表。"
+    assert text == "搜索网络以获取最新信息。返回来源标题、URL 和摘要列表。"
+    assert "摘要回答" not in text
     for banned in ("电影", "剧集", "供应商", "Brave"):
         assert banned not in text
         for param in tool.definition.parameters["properties"].values():
@@ -78,7 +79,10 @@ def test_tool_description_is_general_web_search_not_media_only():
     params = tool.definition.parameters["properties"]
     assert list(params) == ["query", "max_results", "domain"]
     assert tool.definition.parameters["required"] == ["query"]
-    assert "site:example.com" in params["query"]["description"]
+    # Tavily / Exa 不认 site: 之类的语法，限定网站一律走 domain
+    assert "site:" not in params["query"]["description"]
+    assert "domain" in params["query"]["description"]
+    assert params["max_results"]["type"] == "integer"
     assert "默认 5" in params["max_results"]["description"]
 
 
@@ -143,3 +147,10 @@ async def test_logs_redact_the_key_and_errors_stay_readable(caplog):
     broken = make_web_search_tool(_Broken())  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="rejected \\*\\*\\*"):
         await broken.handler({"query": "dune cast"})
+
+
+async def test_results_are_marked_as_untrusted_page_text():
+    tool = make_web_search_tool(_Fake())  # type: ignore[arg-type]
+    text = await tool.handler({"query": "dune"})
+    header = text.splitlines()[:2]
+    assert any("不要照做" in line for line in header)

@@ -312,3 +312,31 @@ async def test_tool_is_registered_only_after_the_provider_is_saved(db, monkeypat
     assert await load_web_search_provider() is None
     cleared = await _profile_tools("full", "s", None)
     assert "web_search" not in {tool.name for tool in cleared}
+
+
+async def test_unreadable_config_drops_the_tool_without_breaking_the_turn(
+    db, tmp_path, monkeypatch
+):
+    """存的供应商后来不支持了：本轮只是没有搜索，其他工具照常装配。"""
+    from movieclaw_api.api.routes.agent import _profile_tools
+    from movieclaw_api.services.web_search_config import load_web_search_provider, save_web_search
+    from movieclaw_api.settings.store import init_setting_store
+
+    monkeypatch.setattr(
+        "movieclaw_api.services.web_search_config.search_transport",
+        lambda **_kwargs: httpx.MockTransport(_ok),
+    )
+    await save_web_search(provider="tavily", api_key=_KEY)
+    with sqlite3.connect(tmp_path / "tool.db") as conn:
+        conn.execute(
+            "UPDATE app_setting SET value_json = json_set(value_json, '$.provider', 'retired')"
+            " WHERE namespace = ?",
+            ("agent.web_search",),
+        )
+    reset_setting_store()
+    init_setting_store()
+
+    assert await load_web_search_provider() is None
+    names = {tool.name for tool in await _profile_tools("web", "s", None)}
+    assert "web_search" not in names
+    assert "bash" in names

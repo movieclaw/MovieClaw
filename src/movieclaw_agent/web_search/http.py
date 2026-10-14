@@ -11,8 +11,10 @@ from typing import Any
 
 import httpx
 
+from movieclaw_net.breaker import CircuitOpenError
+
 TIMEOUT = httpx.Timeout(12.0, connect=5.0)
-#: 超时、429、5xx 只再试一次。测试里把它改成 0，避免用例空等。
+#: 超时、连接失败、429、5xx 只再试一次（熔断打开时不试）。测试里把它改成 0，避免用例空等。
 RETRY_DELAY_SECONDS = 0.5
 _RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 
@@ -28,6 +30,10 @@ _TIMEOUT = (
 _CONNECT = (
     "无法连接搜索服务。请检查网络；若服务器在国内，"
     "请到「设置 → 网络」为「网页搜索」打开代理后再试。"
+)
+_BREAKER = (
+    "搜索服务近期连续连不上，已暂停请求一小会儿，稍后会自动恢复。"
+    "若一直如此，请到「设置 → 网络」对「网页搜索」做连通性测试。"
 )
 
 
@@ -105,11 +111,14 @@ async def request_json(
     json: dict[str, Any] | None = None,
     params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """发一次搜索请求。超时和 429/5xx 间隔 ``RETRY_DELAY_SECONDS`` 再试一次。"""
+    """发一次搜索请求。超时、连接失败和 429/5xx 间隔 ``RETRY_DELAY_SECONDS`` 再试一次。"""
     last_network: WebSearchError | None = None
     for attempt in range(2):
         try:
             response = await client.request(method, url, headers=headers, json=json, params=params)
+        except CircuitOpenError:
+            # 熔断期间再试也是立刻失败，直接说明是暂停中
+            raise WebSearchError(_BREAKER, kind="network") from None
         except httpx.TimeoutException:
             last_network = WebSearchError(_TIMEOUT, kind="network")
         except httpx.HTTPError:

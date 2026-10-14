@@ -31,6 +31,8 @@ class TavilyProvider(SearchProvider):
             "search_depth": "basic",
             "include_answer": False,
             "include_raw_content": False,
+            # 不开这个只有 news 话题才回日期
+            "include_published_date": True,
         }
         if domain:
             body["include_domains"] = [domain]
