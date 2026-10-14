@@ -1060,46 +1060,6 @@ nonisolated extension API {
         }
     }
 
-    struct ChatGPTAuthorizePayload: Codable, Hashable, Sendable {
-        var redirectUri: String
-        var name: String?
-        var appName: String?
-        var providerId: Int?
-
-        enum CodingKeys: String, CodingKey {
-            case redirectUri = "redirect_uri"
-            case name
-            case appName = "app_name"
-            case providerId = "provider_id"
-        }
-    }
-
-    struct ChatGPTAuthorizeView: Codable, Hashable, Sendable {
-        var attemptId: String
-        var state: String
-        var authorizeUrl: String
-
-        enum CodingKeys: String, CodingKey {
-            case attemptId = "attempt_id"
-            case state
-            case authorizeUrl = "authorize_url"
-        }
-    }
-
-    struct ChatGPTCompletePayload: Codable, Hashable, Sendable {
-        var attemptId: String
-        var state: String
-        var code: String
-        var clientId: String?
-
-        enum CodingKeys: String, CodingKey {
-            case attemptId = "attempt_id"
-            case state
-            case code
-            case clientId = "client_id"
-        }
-    }
-
     /// 整组认领：一次把多个待识别文件挂到同一个 TMDB 条目。
     /// 季集号默认不在这里指定——每个文件沿用扫描时已从文件名解析出的季集号，
     /// 这正是"一部剧几十集一次认领"能成立的前提。季号解析不出的一组（待识别

@@ -153,7 +153,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Identifiable {
         case .appPush: "官方推送与自建推送中继，各 App 走哪个通道"
         case .imPush: "微信 / Telegram / Discord / 飞书 推送与 AI 对话"
         case .webhook: "向外部服务推送播放、收藏等事件"
-        case .llm: "连接 ChatGPT 订阅或接入 OpenAI、百炼等模型供应商"
+        case .llm: "接入 OpenAI、百炼等模型供应商，查看服务器已有接入"
         case .mcp: "把 movieclaw 的能力开放给 Claude Code、Cursor 等 AI 客户端"
         case .ai: "智能体与字幕处理使用的默认模型"
         case .cloud: "连接到 MovieClaw 账号，家人的手机就能收到通知"

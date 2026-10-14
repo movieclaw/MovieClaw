@@ -14,26 +14,34 @@ struct SettingsBLLMProviderCard: View {
         Form {
             SettingsFormSection {
                 LabeledContent("连接状态") { SettingsBLLMStatusPill(status: provider.status) }
-                LabeledContent("供应商", value: preset?.displayName ?? provider.providerType)
+                LabeledContent("供应商", value: serverManaged ? "服务器模型" : preset?.displayName ?? provider.providerType)
                 LabeledContent("上次检查", value: provider.lastCheckedAt.map { Formatters.relative($0) } ?? "尚未检查")
                 if failed, let reason = provider.lastError {
                     Text(reason).font(.footnote).foregroundStyle(Theme.danger)
                 }
-                SettingsBAsyncButton(action: onReverify) {
-                    Label("重新测试连接", systemImage: "arrow.clockwise")
+                if serverManaged {
+                    Text("此接入由服务器管理。已配置的模型可在对话中选用。")
+                        .font(.footnote).foregroundStyle(Theme.textMuted)
+                        .accessibilityIdentifier("llm-server-managed")
+                } else {
+                    SettingsBAsyncButton(action: onReverify) {
+                        Label("重新测试连接", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(busy || SettingsBLLMStatus.inProgress(provider.status))
+                    .accessibilityIdentifier("llm-reverify-\(provider.id)")
                 }
-                .disabled(busy || SettingsBLLMStatus.inProgress(provider.status))
-                .accessibilityIdentifier("llm-reverify-\(provider.id)")
             }
             SettingsFormSection("连接信息") {
-                SettingsBValueRow(label: "API 端点", value: provider.baseUrl ?? preset?.baseUrl ?? "官方默认", mono: true)
+                if !serverManaged {
+                    SettingsBValueRow(label: "API 端点", value: provider.baseUrl ?? preset?.baseUrl ?? "官方默认", mono: true)
+                }
                 SettingsBValueRow(label: "连接测试模型", value: provider.defaultModel, mono: true)
-                if let ua = provider.userAgent { SettingsBValueRow(label: "User-Agent", value: ua, mono: true) }
-                if let proto = provider.apiProtocol {
+                if !serverManaged, let ua = provider.userAgent { SettingsBValueRow(label: "User-Agent", value: ua, mono: true) }
+                if !serverManaged, let proto = provider.apiProtocol {
                     SettingsBValueRow(label: "API 协议", value: SettingsBLLMFormat.protocolLabel(proto))
                 }
                 if !provider.extraModels.isEmpty {
-                    LabeledContent("自定义模型", value: "\(provider.extraModels.count) 个")
+                    LabeledContent(serverManaged ? "可用模型" : "自定义模型", value: "\(provider.extraModels.count) 个")
                 }
             }
             if let error { SettingsFormSection { SettingsBNotice(text: error, tone: .danger) } }
@@ -42,20 +50,23 @@ struct SettingsBLLMProviderCard: View {
         .navigationTitle(provider.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button("编辑配置", systemImage: "pencil", action: onEdit)
-                        .accessibilityIdentifier("llm-edit-\(provider.id)")
-                    Button("删除供应商", systemImage: "trash", role: .destructive) { Task { await onDelete() } }
-                        .accessibilityIdentifier("llm-delete-\(provider.id)")
-                } label: { Label("供应商操作", systemImage: "ellipsis") }
-                .disabled(busy)
-                .accessibilityIdentifier("llm-provider-actions")
+            if !serverManaged {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("编辑配置", systemImage: "pencil", action: onEdit)
+                            .accessibilityIdentifier("llm-edit-\(provider.id)")
+                        Button("删除供应商", systemImage: "trash", role: .destructive) { Task { await onDelete() } }
+                            .accessibilityIdentifier("llm-delete-\(provider.id)")
+                    } label: { Label("供应商操作", systemImage: "ellipsis") }
+                    .disabled(busy)
+                    .accessibilityIdentifier("llm-provider-actions")
+                }
             }
         }
     }
 
     private var failed: Bool { provider.status == "failed" }
+    private var serverManaged: Bool { provider.providerType == "chatgpt" }
 
 
 }

@@ -79,7 +79,6 @@ enum SettingsBLLMFormat {
     }
 
     static func providerHint(_ preset: API.LlmPresetView) -> String {
-        if preset.id == "chatgpt" { return "使用 Plus / Pro 订阅，无需 API Key" }
         if preset.id == "bailian" { return "聚合 Qwen / DeepSeek / Kimi / GLM" }
         if preset.id == "openai" { return "官方端点，可配代理" }
         if preset.requiresBaseUrl { return "自建 vLLM / Ollama / 任意网关" }

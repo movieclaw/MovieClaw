@@ -13,27 +13,36 @@ import XCTest
 /// 截图落盘目录 MC_SHOT_DIR（可选）。
 final class AgentUITests: XCTestCase {
     @MainActor
-    func testChatGPTDisconnectNoticeIsVisible() throws {
+    func testServerManagedModelsHaveNoNativeSubscriptionSetup() throws {
         guard env["MC_ISOLATED_CHATGPT_QA"] == "1", server == "http://127.0.0.1:3018" else {
             throw XCTSkip("仅允许隔离的 ChatGPT QA 服务")
         }
         let credentials = #"{"client_id":"oaiapp_qa","subject":"qa","email":"qa@example.invalid","ext_agent_host_id":"urn:uuid:qa","access_token":"qa-access","refresh_token":"qa-refresh","scopes":["chatgpt.tokens.use.direct"],"expires_at":2100000000}"#
         let provider = try XCTUnwrap(backend.request("POST", "/llm/providers", body: [
-            "name": "ChatGPT disconnect QA", "provider_type": "chatgpt", "api_key": credentials,
+            "name": "Server managed QA", "provider_type": "chatgpt", "api_key": credentials,
             "default_model": "qa-model", "extra_models": [["id": "qa-model", "context_window": 8192, "max_output_tokens": 2048]],
         ]) as? [String: Any])
         let id = try XCTUnwrap(provider["id"] as? Int)
         defer { backend.request("DELETE", "/llm/providers/\(id)") }
-        let app = launch(route: "/settings/llm")
-        XCTAssertTrue(app.staticTexts["qa@example.invalid"].waitForExistence(timeout: 15))
+        var app = launch(route: "/settings/llm")
+        XCTAssertTrue(app.buttons["llm-provider-\(id)"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["llm-connect-chatgpt"].exists)
         safeTap(app, app.buttons["llm-provider-\(id)"], "ChatGPT QA 接入")
-        safeTap(app, app.buttons["llm-provider-actions"], "接入操作")
-        safeTap(app, app.buttons["llm-delete-\(id)"], "删除 QA 接入")
-        safeTap(app, app.alerts.buttons["删除"], "确认删除 QA 接入")
-        XCTAssertTrue(app.alerts["ChatGPT 接入已移除"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.alerts.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "远端撤销未确认")).firstMatch.exists)
-        snapshot("chatgpt-unconfirmed-disconnect-notice")
-        safeTap(app, app.alerts.buttons["知道了"], "断开提醒")
+        XCTAssertTrue(element(app, "llm-server-managed").waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["llm-provider-actions"].exists)
+        XCTAssertFalse(app.buttons["llm-reverify-\(id)"].exists)
+        XCTAssertFalse(app.buttons["chatgpt-sign-in"].exists)
+        XCTAssertFalse(app.links["管理 ChatGPT 用量"].exists)
+        snapshot("server-managed-model-details")
+        app.terminate()
+        app = launch(route: "/settings/llm")
+        safeTap(app, app.buttons["llm-create"], "接入 API 模型供应商")
+        safeTap(app, app.buttons["llm-form-provider"], "供应商列表")
+        XCTAssertTrue(app.buttons["OpenAI"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["ChatGPT 订阅（预览）"].exists)
+        XCTAssertFalse(app.buttons["chatgpt-sign-in"].exists)
+        snapshot("native-api-provider-options")
+        app.terminate()
     }
 
     private var env: [String: String] { ProcessInfo.processInfo.environment }
@@ -234,6 +243,11 @@ final class AgentUITests: XCTestCase {
         XCTAssertTrue(model.waitForExistence(timeout: 20), "第一条消息前应能选择模型")
         safeTap(app, model, "模型与思考强度")
         XCTAssertTrue(element(app, "agent-model-panel").waitForExistence(timeout: 5))
+        if env["MC_ISOLATED_CHATGPT_QA"] == "1" {
+            XCTAssertTrue(app.staticTexts["gpt-6.1-sol"].exists, "服务器已有模型仍应可用")
+            XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "思维链强度")).firstMatch.exists,
+                          "服务器提供的思考档位仍应可调")
+        }
         snapshot("quick-model-menu-before-first-message")
     }
 

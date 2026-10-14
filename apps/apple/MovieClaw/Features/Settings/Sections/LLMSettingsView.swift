@@ -7,7 +7,6 @@ struct LLMSettingsView: View {
     private struct SettingsBLLMEditing: Identifiable {
         let id = UUID()
         var provider: API.LlmProviderView?
-        var initialProviderType: String?
     }
 
     @Environment(\.api) private var api
@@ -19,7 +18,9 @@ struct LLMSettingsView: View {
     /// 任一卡片操作进行中：禁用全部卡片按钮（同 Web busy）
     @State private var busy = false
     @State private var selectedProvider: Int?
-    @State private var disconnectNotice: String?
+
+    /// 订阅接入由服务器管理；App 只使用已配置的模型。
+    private var editablePresets: [API.LlmPresetView] { presets.filter { $0.id != "chatgpt" } }
 
     private var inProgress: Bool {
         providers?.contains { SettingsBLLMStatus.inProgress($0.status) } ?? false
@@ -27,14 +28,6 @@ struct LLMSettingsView: View {
 
     var body: some View {
         Form {
-            if presets.contains(where: { $0.id == "chatgpt" }) {
-                SettingsFormSection {
-                    Button("连接 ChatGPT 订阅（预览）", systemImage: "person.crop.circle.badge.checkmark") {
-                        editing = SettingsBLLMEditing(initialProviderType: "chatgpt")
-                    }
-                    .accessibilityIdentifier("llm-connect-chatgpt")
-                }
-            }
             if let error {
                 SettingsFormSection {
                     SettingsBNotice(text: error, tone: .danger)
@@ -52,9 +45,6 @@ struct LLMSettingsView: View {
                                     SettingsBDot(tone: SettingsBLLMStatus.tone(provider.status), size: 8)
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(provider.name).foregroundStyle(Theme.text)
-                                        if let account = provider.chatgptAccount {
-                                            Text(account).font(.caption).foregroundStyle(Theme.textMuted)
-                                        }
                                         Text(SettingsBLLMStatus.label(provider.status))
                                             .font(.caption).foregroundStyle(Theme.textMuted)
                                     }
@@ -77,7 +67,7 @@ struct LLMSettingsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("接入模型供应商", systemImage: "plus") { editing = SettingsBLLMEditing() }
-                    .disabled(busy || presets.isEmpty)
+                    .disabled(busy || editablePresets.isEmpty)
                     .accessibilityIdentifier("llm-create")
             }
         }
@@ -99,21 +89,12 @@ struct LLMSettingsView: View {
             if let list = try? await api.llmProvidersList() { providers = list }
         }
         .refreshable { await initialLoad() }
-        .alert("ChatGPT 接入已移除", isPresented: Binding(
-            get: { disconnectNotice != nil },
-            set: { if !$0 { disconnectNotice = nil } }
-        )) {
-            Button("知道了", role: .cancel) { disconnectNotice = nil }
-        } message: {
-            Text(disconnectNotice ?? "")
-        }
         .sheet(item: $editing) { target in
             SettingsBLLMProviderForm(
                 provider: target.provider,
-                presets: presets,
+                presets: editablePresets,
                 // 其它实例已占用的名字：留空按供应商名保存时据此加序号，避免撞唯一名
-                takenNames: (providers ?? []).filter { $0.id != target.provider?.id }.map(\.name),
-                initialProviderType: target.initialProviderType
+                takenNames: (providers ?? []).filter { $0.id != target.provider?.id }.map(\.name)
             ) {
                 Task { await load() }
             }
@@ -137,7 +118,7 @@ struct LLMSettingsView: View {
                     .frame(width: 48, height: 48)
                     .background(Color.white.opacity(0.07), in: .rect(cornerRadius: 14))
                 Text("还没有接入模型供应商").font(.body.weight(.medium))
-                Text("支持 ChatGPT 订阅（预览）、OpenAI、阿里云百炼，以及任何 OpenAI 兼容端点（如自建 vLLM / Ollama）。")
+                Text("支持 OpenAI、阿里云百炼，以及任何 OpenAI 兼容端点（如自建 vLLM / Ollama）。")
                     .font(.footnote)
                     .foregroundStyle(Theme.textMuted)
                     .multilineTextAlignment(.center)
@@ -147,7 +128,7 @@ struct LLMSettingsView: View {
                     Text("接入模型供应商").font(.body.weight(.semibold)).frame(maxWidth: .infinity)
                 }
                 .discoverProminentButton()
-                .disabled(presets.isEmpty)
+                .disabled(editablePresets.isEmpty)
                 .accessibilityIdentifier("llm-create-empty")
             }
             .frame(maxWidth: .infinity)
@@ -204,14 +185,11 @@ struct LLMSettingsView: View {
         busy = true
         defer { busy = false }
         do {
-            let result: APIEnvelope<Empty> = try await api.raw("DELETE", "/llm/providers/\(provider.id)")
+            _ = try await api.llmProvidersDelete(providerId: provider.id)
             selectedProvider = nil
             LLMCapabilityProbe.shared.invalidate()
             AgentCatalog.invalidateModels()
             await load()
-            if provider.providerType == "chatgpt", let message = result.message, message != "已删除" {
-                disconnectNotice = message
-            }
         } catch {
             self.error = error.localizedDescription
         }
