@@ -15,8 +15,6 @@ import io.movieclaw.android.core.model.CreateAdminRequest
 import io.movieclaw.android.core.model.ChangePasswordRequest
 import io.movieclaw.android.core.model.DeviceRenameRequest
 import io.movieclaw.android.core.model.LoginDevice
-import io.movieclaw.android.core.model.PlaybackMetricPayload
-import io.movieclaw.android.core.model.TrickplayView
 import io.movieclaw.android.core.model.UpgradeRunView
 import io.movieclaw.android.core.model.PlaybackPolicy
 import io.movieclaw.android.core.model.PlaybackPolicyPatchFull
@@ -54,10 +52,6 @@ import io.movieclaw.android.core.model.UpdateStatus
 import io.movieclaw.android.core.model.Notice
 import io.movieclaw.android.core.model.PipelineHealth
 import io.movieclaw.android.core.model.PlaybackActivityView
-import io.movieclaw.android.core.model.PlaybackPolicyPatch
-import io.movieclaw.android.core.model.PlaybackProgressRequest
-import io.movieclaw.android.core.model.PlaybackSessionRequest
-import io.movieclaw.android.core.model.PlaybackSessionView
 import io.movieclaw.android.core.model.PlaybackHistoryView
 import io.movieclaw.android.core.model.PlaybackWatchStatsView
 import io.movieclaw.android.core.model.PlaybackStateView
@@ -222,15 +216,6 @@ interface McApi {
     suspend fun deleteMember(@Path("memberId") memberId: Int): McEnvelope<JsonElement>
 
     /* ---------------- 播放策略(M2b/P2 设置区) ---------------- */
-
-    @POST("playback/metrics")
-    suspend fun reportMetrics(@Body body: PlaybackMetricPayload): McEnvelope<JsonElement>
-
-    @GET("playback/files/{fileId}/trickplay")
-    suspend fun trickplay(
-        @Path("fileId") fileId: Long,
-        @Query("token") token: String,
-    ): McEnvelope<TrickplayView>
 
     @GET("playback/policy")
     suspend fun playbackPolicy(): McEnvelope<PlaybackPolicy>
@@ -483,15 +468,6 @@ interface McApi {
 
     @GET("playback/up-next")
     suspend fun upNext(@Query("limit") limit: Int = 24): McEnvelope<UpNextView>
-
-    @POST("playback/sessions")
-    suspend fun startPlaybackSession(@Body body: PlaybackSessionRequest): McEnvelope<PlaybackSessionView>
-
-    @POST("playback/sessions/{sessionId}/ping")
-    suspend fun pingPlaybackSession(@Path("sessionId") sessionId: String): McEnvelope<JsonElement>
-
-    @DELETE("playback/sessions/{sessionId}")
-    suspend fun stopPlaybackSession(@Path("sessionId") sessionId: String): McEnvelope<JsonElement>
 
     /* ---------------- 收藏 / 合集 / 回收站 / 重复文件 ---------------- */
 
@@ -774,38 +750,6 @@ interface McApi {
     suspend fun setPlaybackMarks(@Body body: PlaybackMarksRequest): McEnvelope<PlaybackMarks>
 
     /**
-     * 取一条字幕的内容（libass 渲染用）。
-     * track 是中性轨引用：`external:<文件名>` / `embedded:<序号>`；
-     * token 用会话流地址里的**签名令牌**（与取流同一个）。
-     * 返回原始字节（可能是 SRT / ASS），交给 SubtitleAss 统一成 ASS。
-     *
-     * `startMs/endMs`（文件时间）走**窗口抽取**：只抽这一段。内封轨整轨要服务端通读
-     * 整个容器（实测 5.7 GB / 39.7 秒），窗口走单独的闸门、几秒就回来——先用它把
-     * 字幕画上，整轨到了再整表替换。整轨已有缓存时窗口直接给整轨。
-     */
-    @retrofit2.http.Streaming
-    @GET("playback/files/{fileId}/subtitles")
-    suspend fun subtitleContent(
-        @Path("fileId") fileId: Long,
-        @Query("track") track: String,
-        @Query("token") token: String,
-        @Query("format") format: String? = null,
-        @Query("start_ms") startMs: Long? = null,
-        @Query("end_ms") endMs: Long? = null,
-    ): okhttp3.ResponseBody
-
-    /**
-     * 内封字幕预热：服务端登记后**立即返回**（`pending`），后台把这条轨抽好落缓存。
-     * 与播放旁挂共用同一份产物；**不随请求断开取消**——快速切集、离开播放页也不白读
-     * （服务端 `subtitles/preview`，详情页的字幕徽章用的是同一个口子）。
-     */
-    @GET("libraries/files/{fileId}/subtitles/preview")
-    suspend fun subtitlePreview(
-        @Path("fileId") fileId: Long,
-        @Query("track") track: String,
-    ): McEnvelope<JsonElement>
-
-    /**
      * AI 字幕生成·预检（管理员）：只读 DB 与现成产物、**不读视频**——客户端 20 秒超时，
      * 超了就是异常。参数变了就重发（客户端要先把在途请求掐掉，免得同一大文件起多次抽取）。
      */
@@ -830,9 +774,6 @@ interface McApi {
         @Path("fileId") fileId: Long,
         @Query("filename") filename: String,
     ): McEnvelope<JsonElement>
-
-    @POST("playback/progress")
-    suspend fun reportProgress(@Body body: PlaybackProgressRequest): McEnvelope<PlaybackStateView>
 
     /** 观看统计（管理员）：当前周期与上一周期成对返回，还有逐日与"星期×小时"矩阵 */
     /** 立即换种：为这条停滞的下载找同品质替代源（旧任务保留到新源产生真实进度） */
@@ -872,9 +813,6 @@ interface McApi {
         @Query("season_number") seasonNumber: Int = 0,
         @Query("episode_number") episodeNumber: Int = 0,
     ): McEnvelope<PlaybackStateView>
-
-    @PUT("playback/policy")
-    suspend fun savePlaybackPolicy(@Body body: PlaybackPolicyPatch): McEnvelope<JsonElement>
 
     /* ---------------- 搜索(M2) ---------------- */
 
@@ -1289,30 +1227,6 @@ interface McApi {
         @Path("slug") slug: String,
         @Query("season_number") seasonNumber: Int,
     ): McEnvelope<SeasonEpisodesView>
-
-    @POST("share/{slug}/playback/sessions")
-    suspend fun startShareSession(
-        @Path("slug") slug: String,
-        @Body body: PlaybackSessionRequest,
-    ): McEnvelope<PlaybackSessionView>
-
-    @POST("share/{slug}/playback/progress")
-    suspend fun shareProgress(
-        @Path("slug") slug: String,
-        @Body body: PlaybackProgressRequest,
-    ): McEnvelope<PlaybackStateView>
-
-    @POST("share/{slug}/playback/sessions/{sessionId}/ping")
-    suspend fun pingShareSession(
-        @Path("slug") slug: String,
-        @Path("sessionId") sessionId: String,
-    ): McEnvelope<JsonElement>
-
-    @DELETE("share/{slug}/playback/sessions/{sessionId}")
-    suspend fun stopShareSession(
-        @Path("slug") slug: String,
-        @Path("sessionId") sessionId: String,
-    ): McEnvelope<JsonElement>
 
     @Multipart
     @POST("sessions/attachments")

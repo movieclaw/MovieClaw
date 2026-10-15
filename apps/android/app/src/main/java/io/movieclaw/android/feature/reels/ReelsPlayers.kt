@@ -8,23 +8,21 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.media3.common.Player
-import io.movieclaw.android.core.api.McApi
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import io.movieclaw.android.core.network.ApiFactory
-import io.movieclaw.android.core.network.dataOrThrow
+import io.movieclaw.android.core.network.BuildInfo
+import io.movieclaw.android.core.playback.CorePlaybackPrefs
 import io.movieclaw.android.core.playback.PlaybackNetwork
-import io.movieclaw.android.core.model.PlaybackSessionRequest
 import io.movieclaw.android.core.model.ReelItemView
-import io.movieclaw.android.core.playback.BufferProfile
-import io.movieclaw.android.core.playback.DeviceCapability
-import io.movieclaw.android.core.playback.EngineSource
-import io.movieclaw.android.core.playback.ExoEngine
-import io.movieclaw.android.core.playback.IsoBridge
-import io.movieclaw.android.core.playback.PlayerEngine
 import io.movieclaw.android.core.playback.ReelsQuality
-import io.movieclaw.android.core.playback.SourceByteCache
 import io.movieclaw.android.core.playback.SubtitleCues
-import io.movieclaw.android.core.playback.mpv.MpvEngine
-import io.movieclaw.android.core.playback.mpv.MpvNative
+import io.movieclaw.core.model.generated.PlaybackSessionRequest
+import io.movieclaw.core.network.ClientIdentity
+import io.movieclaw.core.network.generated.McApi
+import io.movieclaw.core.playback.CapabilityProbe
+import io.movieclaw.core.playback.ClipPlayer
+import io.movieclaw.core.playback.SourceByteCache
+import io.movieclaw.core.playback.UnifiedExo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withTimeoutOrNull
@@ -55,10 +53,8 @@ data class ReelSource(
     val fileOffsetMs: Long,
     val cacheKey: String?,
     val audioRef: String?,
-    /** 转码会话 id；直出为 null。离开这条时要停掉，播放中每 15 秒续命 */
+    /** 服务端会话 id（转码 / 光盘换封装）；直出为 null。离开这条时要停掉，播放中每 15 秒续命 */
     val sessionId: String? = null,
-    /** 光盘交付方式（服务端 `play.disc`）；非空 = 这条是光盘镜像，url 已是 IsoBridge 的本地流 */
-    val disc: String? = null,
     /** 关闭/心跳沿用建会话时的账号快照，切账号后不能重新取当前客户端。 */
     val sessionApi: McApi? = null,
 )
@@ -73,6 +69,8 @@ data class ReelSource(
  *     把下一条装载到片段起点停着，滑过去只需「播放」（省掉建引擎、探测、出第一帧）；
  *  3. **画质**：按「网络环境 × 用户选的档位」决定直出还是借转码会话，会话播放中续命。
  *
+ * 每一条的播放器是统一引擎的 [ClipPlayer]（与正片同一套 Exo 配置：FFmpeg 音频软解、解码器黑名单、字节缓存）。
+ *
  * 为什么播放器由这里（而不是每一页）持有：预起的那条属于**下一条**，而它的引擎是在
  * 当前这条还活着的时候建的——放在页面里就会随当前页被滑走而一起销毁。这里按节点换手，
  * 页面只负责把画面挂上去。
@@ -80,6 +78,8 @@ data class ReelSource(
 class ReelsPlayers(
     private val context: Context,
     private val apiFactory: ApiFactory,
+    /** 统一引擎的本机偏好（与正片共用一份解码器黑名单） */
+    private val prefs: CorePlaybackPrefs,
     private val scope: CoroutineScope,
     private val originProvider: () -> String?,
     /** 本机 device id（会话归属与活动页的「正在播放」用，同正片） */
@@ -116,31 +116,30 @@ class ReelsPlayers(
     var cues by mutableStateOf<List<SubtitleCues.Cue>>(emptyList())
         private set
 
-    /** 画面该挂哪个引擎：当前条的引擎（页面用 state 读它，换引擎会重组重绑；光盘镜像是 mpv） */
-    var currentEngine by mutableStateOf<PlayerEngine?>(null)
+    /** 画面该挂哪个播放器：当前条的（页面用 state 读它，换条会重组重绑） */
+    var currentEngine by mutableStateOf<ClipPlayer?>(null)
         private set
 
     /* ---------------- 内部 ---------------- */
 
     private class Clip(
         val item: ReelItemView,
-        val engine: PlayerEngine,
+        val engine: ClipPlayer,
         val source: ReelSource,
         var pollJob: Job? = null,
         var subtitleJob: Job? = null,
         var hasFirstFrame: Boolean = false,
         var startedAtMs: Long = 0L,
         var watchedMs: Long = 0L,
-        /** 换条时刻（出画事件的分母）：存进 Clip 是因为重播/继续会重开轮询，
-         *  而轮询里要判 mpv 的「位置一动就算出画」（attach 之后才有值） */
+        /** 换条时刻（出画事件的分母） */
         var impressionAtMs: Long = 0L,
     )
 
     /** 换条序号：连滑两条时把先落地那次作废（见 settle 注释） */
     private var settleSeq = 0
     private var settleJob: Job? = null
-    // 延后释放的引擎池：Exo 与 mpv（光盘镜像）都走这里统一收（泛型取 PlayerEngine）
-    private val pendingTeardowns = DeferredReelReleases<PlayerEngine>(scope) { it.release() }
+    // 延后释放的播放器池（拆播放器在主线程要几十毫秒，让开滑动收尾）
+    private val pendingTeardowns = DeferredReelReleases<ClipPlayer>(scope) { it.release() }
 
     private var current: Clip? = null
     private var standby: Clip? = null
@@ -153,8 +152,29 @@ class ReelsPlayers(
     private var qualityCap: Int = ReelsQuality.AUTO
     private var network: PlaybackNetwork = PlaybackNetwork.UNKNOWN
 
-    /** openSource 失败的原因：光盘类读不出来要说清是哪一步，不能都说成「缺少取流地址」 */
+    /** openSource 失败的原因：光盘类开不出会话要说清，不能都说成「缺少取流地址」 */
     private var openFailureReason: String? = null
+
+    /** 当前服务器的播放通道（生成的接口 + 取流用的 OkHttp）；换服务器 / 换账号时按 origin 现取 */
+    private fun channel(origin: String) = apiFactory.corePlayback(origin)
+
+    /**
+     * 片段取流与字节预取用的 OkHttp：与播放通道共用连接池，但**调度上限单独放宽**。Media3 的 OkHttp 数据源走异步调度，
+     * OkHttp 默认每台服务器同时只放 5 个请求；刷片同时挂着当前条、预起的下一条、最多 3 路预取与还没拆完的上一条，
+     * 再加上同一通道的接口请求，名额一满新请求就得排队等长连接读完（旧版走 HttpURLConnection，没有这个上限）。
+     */
+    private val mediaHttp = mutableMapOf<String, okhttp3.OkHttpClient>()
+
+    private fun mediaHttp(origin: String): okhttp3.OkHttpClient = mediaHttp.getOrPut(origin) {
+        channel(origin).http.newBuilder()
+            .dispatcher(okhttp3.Dispatcher().apply { maxRequests = 64; maxRequestsPerHost = 32 })
+            .build()
+    }
+
+    private val denylist by lazy { prefs.decoderDenylist() }
+
+    private fun newClip(origin: String, buffer: UnifiedExo.Buffer) =
+        ClipPlayer(context, mediaHttp(origin), BuildInfo.USER_AGENT, denylist, buffer)
 
     fun setQuality(cap: Int) {
         qualityCap = cap
@@ -166,7 +186,7 @@ class ReelsPlayers(
 
     fun currentItemId(): String? = current?.item?.id
 
-    fun engineFor(itemId: String): PlayerEngine? {
+    fun engineFor(itemId: String): ClipPlayer? {
         if (current?.item?.id == itemId) return current?.engine
         // 预起的那条：**装载好就把画面给它**——页面挂上 surface 它才出得了第一帧；
         // 等 standbyReadyId 再给就成了鸡生蛋（没 surface 永远不出帧）
@@ -194,8 +214,6 @@ class ReelsPlayers(
         val seq = settleSeq
         leaveCurrent(deferTeardown = true)
         val impressionAt = android.os.SystemClock.elapsedRealtime()
-        // 逐段计时（与播放器页同一套，日志 `McPlayer: 起播分段`）：点/滑到这条 → 决策+会话 → 引擎 → 首帧
-        io.movieclaw.android.core.playback.PlaybackStartupTrace.start()
         onEvent(item, "impression", null, null, item.segment.startMs, null)
 
         val ready = standby?.takeIf { it.item.id == item.id && it.source.playerStartMs >= 0 }
@@ -204,8 +222,8 @@ class ReelsPlayers(
             standbyReadyId = null
             adopt(ready, item, impressionAt)
             ready.engine.setPlaying(true)
-            // 预起只可能是 Exo（光盘镜像不预起，见 scheduleStandby）：还原音量
-            (ready.engine as? ExoEngine)?.player?.volume = 1f
+            // 预起时静音：转正还原音量
+            ready.engine.player.volume = 1f
             playing = true
             ended = false
             android.util.Log.i("McReels", "接上预起：${item.title.name}")
@@ -216,7 +234,7 @@ class ReelsPlayers(
         } else {
             dropStandby()
             settleJob = scope.launch {
-                // 失败原因分开报：光盘类读不出来要说清是哪一步（"缺少取流地址"会把镜像说错）
+                // 失败原因分开报：光盘类开不出会话要说清（"缺少取流地址"会把光盘说错）
                 val source = openSource(item) ?: run {
                     failMessage = openFailureReason ?: "这一条缺少取流地址"
                     onEvent(
@@ -228,17 +246,11 @@ class ReelsPlayers(
                 if (seq != settleSeq) {
                     android.util.Log.i("McReels", "作废一次换条（已滑走）：${item.title.name}")
                     closeSession(source.sessionId, source.sessionApi)
-                    // 作废的这次可能已经开过镜像的原生会话：顺手关掉，别留一个没人读的盘
-                    if (source.disc != null) IsoBridge.closeOwner(this@ReelsPlayers)
                     return@launch
                 }
-                io.movieclaw.android.core.playback.PlaybackStartupTrace.mark("决策+会话")
                 lastOpenWasTranscoded = source.sessionId != null
-                // 光盘镜像是 mpv 的活：Exo 读不了盘内 192 字节包的 m2ts（正片链路同一条判据，
-                // 实测 Exo 会白等 5 秒才失败回退）；其余照旧 Exo（硬解最优）
-                val engine: PlayerEngine =
-                    if (source.disc == "image") MpvEngine(context)
-                    else ExoEngine(context, BufferProfile.Normal)
+                val origin = originProvider() ?: return@launch
+                val engine = newClip(origin, UnifiedExo.Buffer.Main)
                 val clip = Clip(item = item, engine = engine, source = source)
                 current = clip
                 currentEngine = engine
@@ -259,7 +271,7 @@ class ReelsPlayers(
                 )
                 // 冷起播补两段：和引擎的打开、探测并行（iOS `boostColdStart`）
                 boostColdStart(item, source)
-                engine.open(engineSource(source, item), emptyList())
+                engine.open(clipSource(source))
                 // **这里必须把播放状态置真**：引擎是 autoplay 起播的，漏了这一步就会
                 // 「画面在放、状态却是暂停」——一进页面就顶着暂停键，全屏里点一下还弹不起来
                 // （只有「接上预起」那条分支置过，这条漏了）
@@ -270,16 +282,13 @@ class ReelsPlayers(
         schedulePrefetch(index)
     }
 
-    private fun engineSource(source: ReelSource, item: ReelItemView, autoplay: Boolean = true) = EngineSource(
+    private fun clipSource(source: ReelSource, autoplay: Boolean = true) = ClipPlayer.Source(
         url = source.url,
         hls = source.hls,
-        startPositionMs = source.playerStartMs,
+        startMs = source.playerStartMs,
         autoplay = autoplay,
-        initialAudioRef = source.audioRef,
+        audioIndex = source.audioRef?.removePrefix("embedded:")?.toIntOrNull(),
         cacheKey = source.cacheKey,
-        title = item.title.name,
-        subtitle = item.title.episode?.name,
-        artworkUrl = item.title.posterUrl,
     )
 
     /**
@@ -289,31 +298,34 @@ class ReelsPlayers(
     private suspend fun openSource(item: ReelItemView): ReelSource? {
         val origin = originProvider() ?: return null
         openFailureReason = null
-        // 光盘片源（v0.32 起「大图预告」与「片段」也放开原盘 / 镜像 / DVD / TS / AVI）：
-        // 按交付方式装载，与正片同一套（docs/design/disc-direct-play.md）。不进下面的会话
-        // 协商——限了画质也救不了光盘（服务端读不出盘内结构，转不了码），协商只会白跑一趟
-        item.play.disc?.let { return discSource(item, origin) }
+        // 光盘片源（v0.32 起「大图预告」与「片段」也放开原盘 / 镜像 / DVD / TS / AVI）：本机引擎读不了盘内结构，
+        // 与正片同一条路——开服务端会话，服务端读出正片后换封装或转码（不申报 disc_image / disc_folder）
+        val disc = item.play.disc != null
         val cap = ReelsQuality.effectiveCap(qualityCap, network)
-        if (cap == null) return directSource(item, origin)
+        if (cap == null && !disc) return directSource(item, origin)
         return runCatching {
-            val api = apiFactory.forOrigin(origin)
-            val view = api.startPlaybackSession(
+            val api = channel(origin).api
+            val view = api.playbackSessionStart(
                 PlaybackSessionRequest(
                     fileId = item.segment.fileId.takeIf { it > 0 },
                     mediaItemId = item.title.mediaItemId.takeIf { it > 0 },
-                    seasonNumber = item.title.episode?.season ?: 0,
-                    episodeNumber = item.title.episode?.episode ?: 0,
-                    // 限了上限就不报 universal：报了服务端会把原文件直通回来，上限形同虚设
-                    capability = DeviceCapability.probe(context, universal = false),
-                    maxHeight = cap,
+                    seasonNumber = (item.title.episode?.season ?: 0).toLong(),
+                    episodeNumber = (item.title.episode?.episode ?: 0).toLong(),
+                    // 统一引擎的如实申报（与正片同一份探测）：限了上限时服务端据此压码率
+                    capability = CapabilityProbe(context, denylist::isDenied).probe(),
+                    maxHeight = cap?.toLong(),
                     deviceId = runCatching { deviceIdProvider() }.getOrNull(),
                     startMs = item.segment.startMs,
-                    client = "android",
+                    client = ClientIdentity.PHONE_KIND,
                 )
-            ).dataOrThrow().let { it }
+            )
             val raw = if (view.timeline == "file") (view.masterUrl ?: view.streamUrl) else view.streamUrl
             if (raw.isNullOrEmpty()) {
                 closeSession(view.sessionId, api)
+                if (disc) {
+                    openFailureReason = view.decision.reason.ifEmpty { "这张光盘没法播放" }
+                    return@runCatching null
+                }
                 return@runCatching directSource(item, origin)
             }
             val url = if (raw.startsWith("http")) raw else origin.trimEnd('/') + raw
@@ -351,6 +363,10 @@ class ReelsPlayers(
             )
         }.getOrElse { error ->
             if (error is CancellationException) throw error
+            if (disc) {
+                openFailureReason = "光盘片源开不出播放会话：${error.message ?: "未知原因"}"
+                return null
+            }
             directSource(item, origin)
         }
     }
@@ -369,76 +385,24 @@ class ReelsPlayers(
         )
     }
 
-    /**
-     * 光盘片源：按 `play.disc` 的交付方式装载（与正片同一套）。
-     *
-     *  · `image`（光盘镜像）：走 IsoBridge——服务端只按 Range 供原字节，盘内结构（UDF →
-     *    BDMV/STREAM 正片 m2ts）在本机读出来，交给 mpv（只有它能放这种盘流）；
-     *  · `folder`（原盘目录 BDMV / VIDEO_TS）：本机内核读不了远端目录结构（与申报的
-     *    `discFolder=false` 同一条边界），明确失败、换下一条，而不是拿原字节硬播；
-     *  · 其余值：按普通文件回落（新服务端字段出现新值时不至于整条播不了）。
-     *
-     * 服务端对光盘不给预取范围、也不给音轨/字幕序号（盘内轨清单它读不出）——
-     * 音轨交给 mpv 按盘上默认轨起播，字幕本条不开（服务端同款注释）。
-     */
-    private suspend fun discSource(item: ReelItemView, origin: String): ReelSource? {
-        when (item.play.disc) {
-            "image" -> Unit
-            "folder" -> {
-                openFailureReason = "原盘目录暂不支持播放"
-                return null
-            }
-            else -> return directSource(item, origin)
-        }
-        if (!MpvNative.available) {
-            openFailureReason = "本机内核不支持光盘镜像"
-            return null
-        }
-        val raw = item.play.streamUrl ?: return null
-        val url = if (raw.startsWith("http")) raw else origin.trimEnd('/') + raw
-        // 开卷 + 扫目录是几十次远端小读（真机几百毫秒到秒级），必须离开主线程；
-        // owner 传本播放器实例：旧会话的异步收尾只关自己开的卷，不会误关换条后新开的盘
-        val local = withContext(Dispatchers.IO) { IsoBridge.open(url, this@ReelsPlayers) }
-        if (local == null) {
-            openFailureReason = "光盘镜像读取失败"
-            return null
-        }
-        android.util.Log.i("McReels", "光盘镜像装载：${item.title.name} → $local")
-        return ReelSource(
-            url = local,
-            hls = false,
-            playerStartMs = item.segment.startMs,
-            playerEndMs = item.segment.endMs,
-            fileOffsetMs = 0L,
-            // 镜像的字节由 IsoBridge 的原生预读窗口管，不进片源字节缓存（与正片一致）
-            cacheKey = null,
-            audioRef = item.play.audioOrdinal?.let { "embedded:$it" },
-            disc = "image",
-        )
-    }
-
     /** 把引擎的监听、位置轮询、字幕挂上（新建的与预起后接手的都走这里） */
     private fun attach(clip: Clip, impressionAt: Long) {
         val engine = clip.engine
         clip.impressionAtMs = impressionAt
-        // Exo 有首帧/错误回调；mpv（光盘镜像）没有——首帧靠位置轮询（与正片链路
-        // 同一判据：PlaybackController「firstFrameMs == null && positionMs() > 0」）
-        if (engine is ExoEngine) {
-            engine.player.addListener(object : Player.Listener {
-                override fun onRenderedFirstFrame() = markFirstFrame(clip, impressionAt)
+        engine.player.addListener(object : Player.Listener {
+            override fun onRenderedFirstFrame() = markFirstFrame(clip, impressionAt)
 
-                /** 首帧回调万一漏了（surface 刚挂上就追帧），画面尺寸一到也算出了画 */
-                override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
-                    if (videoSize.width > 0 && videoSize.height > 0) markFirstFrame(clip, impressionAt)
-                }
+            /** 首帧回调万一漏了（surface 刚挂上就追帧），画面尺寸一到也算出了画 */
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                if (videoSize.width > 0 && videoSize.height > 0) markFirstFrame(clip, impressionAt)
+            }
 
-                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    if (current !== clip) return
-                    failMessage = error.message ?: error.errorCodeName
-                    onEvent(clip.item, "fail", clip.watchedMs, null, positionMs, error.errorCodeName)
-                }
-            })
-        }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                if (current !== clip) return
+                failMessage = error.message ?: error.errorCodeName
+                onEvent(clip.item, "fail", clip.watchedMs, null, positionMs, error.errorCodeName)
+            }
+        })
 
         startPolling(clip)
 
@@ -462,17 +426,10 @@ class ReelsPlayers(
             while (isActive) {
                 delay(250)
                 val enginePos = engine.positionMs()
-                if (engine is MpvEngine && !clip.hasFirstFrame && enginePos > 0) {
-                    markFirstFrame(clip, clip.impressionAtMs)
-                }
                 positionMs = enginePos + clip.source.fileOffsetMs
-                // 状态与引擎对账：任何一处漏置都能在这里收敛（Exo 读 playWhenReady——它在
-                // 缓冲期会短暂为假，读 isPlaying() 会让暂停键闪一下；mpv 读 isPlaying()，
-                // 它读的就是我们设的 pause 属性，同义）
-                val want = when (engine) {
-                    is ExoEngine -> runCatching { engine.player.playWhenReady }.getOrDefault(playing)
-                    else -> engine.isPlaying()
-                }
+                // 状态与引擎对账：任何一处漏置都能在这里收敛（读 playWhenReady——isPlaying() 在
+                // 缓冲期会短暂为假，会让暂停键闪一下）
+                val want = engine.player.playWhenReady
                 if (want != playing && !(ended && !want)) playing = want
                 if (clip.hasFirstFrame && clip.startedAtMs > 0) {
                     clip.watchedMs = android.os.SystemClock.elapsedRealtime() - clip.startedAtMs
@@ -488,7 +445,7 @@ class ReelsPlayers(
         }
     }
 
-    /** 出画：Exo 的首帧回调与 mpv 的位置轮询两条路共用一个落点 */
+    /** 出画：首帧回调与画面尺寸回调共用一个落点 */
     private fun markFirstFrame(clip: Clip, impressionAt: Long) {
         // 旧条目的回调晚到时不认（换条/预起转正后 current 已易主）
         if (current !== clip || clip.hasFirstFrame) return
@@ -503,8 +460,6 @@ class ReelsPlayers(
             "McReels",
             "出画 ${clip.item.title.name}：等 ${clip.startedAtMs - impressionAt}ms",
         )
-        io.movieclaw.android.core.playback.PlaybackStartupTrace.mark("首帧")
-        io.movieclaw.android.core.playback.PlaybackStartupTrace.finish()
         val index = pendingItems.indexOfFirst { it.id == clip.item.id }
         if (index >= 0) afterFirstFrame(clip.item, index, pendingItems)
     }
@@ -591,8 +546,8 @@ class ReelsPlayers(
     // 从当前位置「看全片」：给正片播放器的起点（原片时间）
     fun filePositionMs(): Long = current?.let { it.engine.positionMs() + it.source.fileOffsetMs } ?: 0L
 
-    /** 当前条的带宽估计（bits/s）：等待态那行「↓ x.x MB/s」用（iOS 同一个读数）；mpv（光盘）没有这个读数 */
-    fun bandwidthBps(): Long? = (current?.engine as? ExoEngine)?.bandwidthBps
+    /** 当前条的带宽估计（bits/s）：等待态那行「↓ x.x MB/s」用（iOS 同一个读数） */
+    fun bandwidthBps(): Long? = current?.engine?.bandwidthBps
 
     /* ---------------- 收尾 ---------------- */
 
@@ -629,10 +584,6 @@ class ReelsPlayers(
         clip.subtitleJob?.cancel()
         val engine = clip.engine
         android.util.Log.i("McReels", "收引擎：${clip.item.title.name}")
-        // 光盘镜像：IsoBridge 的原生会话是全局的，必须**同步**关——换条是先 leave（关）再
-        // open（开），延迟到 500ms 后拆引擎时再关会把下一条刚开的镜像一起关掉；
-        // closeOwner 只在当前卷还是本播放器开的那种才关（旧会话的异步收尾不误关新盘）
-        if (clip.source.disc != null) IsoBridge.closeOwner(this@ReelsPlayers)
         if (deferTeardown) {
             engine.setPlaying(false)
             pendingTeardowns.defer(engine)
@@ -672,7 +623,7 @@ class ReelsPlayers(
                 .map { it.offset to it.length }
             if (ranges.isEmpty()) return@forEachIndexed
             prefetchJobs[key] = scope.launch {
-                SourceByteCache.prefetch(context, url, cacheKey, ranges)
+                SourceByteCache.prefetch(context, prefetchUpstream(origin), url, cacheKey, ranges)
             }
         }
     }
@@ -695,8 +646,12 @@ class ReelsPlayers(
             .map { it.offset to it.length.coerceAtMost(1L * 1024 * 1024) }
         val ranges = indexRanges + startRanges
         if (ranges.isEmpty()) return
-        scope.launch { SourceByteCache.prefetch(context, source.url, cacheKey, ranges) }
+        val origin = originProvider() ?: return
+        scope.launch { SourceByteCache.prefetch(context, prefetchUpstream(origin), source.url, cacheKey, ranges) }
     }
+
+    /** 预取用播放同一个连接池与 User-Agent */
+    private fun prefetchUpstream(origin: String) = OkHttpDataSource.Factory(mediaHttp(origin)).setUserAgent(BuildInfo.USER_AGENT)
 
     private fun isMetered(): Boolean {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
@@ -724,7 +679,7 @@ class ReelsPlayers(
         standbyJob?.cancel()
         val next = items.getOrNull(index + 1) ?: return
         if (standby?.item?.id == next.id) return
-        // 光盘片源不预起：装载要开卷（IsoBridge 秒级）、解码器也只有 mpv 那份，白占
+        // 光盘片源不预起：要服务端开会话换封装，预起会白占一路服务端名额
         if (next.play.disc != null) return
         if (ReelsQuality.effectiveCap(qualityCap, network) != null) return
         if (network == PlaybackNetwork.AWAY) return
@@ -741,14 +696,18 @@ class ReelsPlayers(
             val source = directSource(next, origin) ?: return@launch
             // 预起的那条用小缓冲档（12MB / 4 秒封顶）+ 静音：它只为「滑过去立刻动」存在，
             // 不能跟当前条抢内存（4K 下两条默认缓冲就是 OOM，实机抓到过）
-            val engine = ExoEngine(context, BufferProfile.Compact)
+            val engine = newClip(origin, UnifiedExo.Buffer.Standby)
             engine.player.volume = 0f
             val clip = Clip(item = next, engine = engine, source = source)
             standby = clip
             standbyReadyId = null
             engine.player.addListener(object : Player.Listener {
                 private fun ready() {
-                    if (standby === clip) standbyReadyId = clip.item.id
+                    if (standby !== clip) return
+                    standbyReadyId = clip.item.id
+                    // 预起那条在后台就出了画：接上时 settle / adopt 据此直接撤掉封面。它的首帧回调不会再来第二次，
+                    // 不在这里记下，接上之后页面会一直垫着封面转圈（画面其实在底下放着）
+                    clip.hasFirstFrame = true
                 }
                 override fun onRenderedFirstFrame() = ready()
                 override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
@@ -756,7 +715,7 @@ class ReelsPlayers(
                 }
             })
             // 装载到片段起点停着：不播（滑过去才「播放」）
-            engine.open(engineSource(source, next, autoplay = false), emptyList())
+            engine.open(clipSource(source, autoplay = false))
             android.util.Log.i("McReels", "预起下一条：${next.title.name}")
         }
     }
@@ -810,7 +769,7 @@ class ReelsPlayers(
                 delay(15_000)
                 val sessionApi = api ?: continue
                 // 三态同 iOS：只有服务端明确说没了才当没了，请求本身失败不算
-                runCatching { sessionApi.pingPlaybackSession(sessionId) }
+                runCatching { sessionApi.playbackSessionPing(sessionId) }
             }
         }
     }
@@ -819,7 +778,7 @@ class ReelsPlayers(
         if (id == null || api == null) return
         withContext(NonCancellable) {
             withTimeoutOrNull(5_000) {
-                runCatching { api.stopPlaybackSession(id) }
+                runCatching { api.playbackSessionStop(id) }
             }
         }
     }

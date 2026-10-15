@@ -323,3 +323,19 @@ internal const val EMBEDDED = "embedded:"
 internal const val EXTERNAL = "external:"
 
 internal fun embeddedIndexOf(ref: String): Int? = if (ref.startsWith(EMBEDDED)) ref.removePrefix(EMBEDDED).toIntOrNull() else null
+
+/**
+ * Exo 读到的轨按**容器顺序**排（服务端的 `embedded:N` 是容器里同类轨的第 N 条）。
+ *
+ * Exo 给出的分组顺序不保证是容器顺序：实测一个「国语 AC3（2 号轨）+ 英语 AAC（3 号轨）」的 MKV，分组里 AAC 排在前面，
+ * 按下标对应就把「国语」落成了英语轨。轨的 id 是容器里的轨道号（MKV 的 TrackNumber、MP4 的 track ID），按它排就是容器顺序；
+ * 有一个不是纯数字（如 TS 的 `1/256`）就保持 Exo 的顺序。
+ */
+object ContainerTrackOrder {
+    fun <T> sorted(items: List<T>, id: (T) -> String?): List<T> {
+        val numbers = items.map { id(it)?.toIntOrNull() }
+        if (numbers.any { it == null }) return items
+        return items.zip(numbers).sortedBy { it.second }.map { it.first }
+    }
+}
+

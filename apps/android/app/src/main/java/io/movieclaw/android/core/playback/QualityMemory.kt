@@ -15,9 +15,7 @@ import kotlinx.serialization.json.Json
 private val Context.qualityStore by preferencesDataStore(name = "mc_quality")
 
 /**
- * 画质记忆(iOS QualityMemory):按「网络环境 × 片名」记住用户选的画质上限。
- * 只记**限制性**的选择(上限低于源分辨率)以及等于「自动」的 0。
- * 上限 300 条,按时间 LRU 淘汰。
+ * 刷片的画质档位记忆（正片的画质记忆在统一引擎里，按「片名 × 网络环境」记，见 core QualityMemory）。
  */
 @Singleton
 class QualityMemory @Inject constructor(
@@ -28,28 +26,7 @@ class QualityMemory @Inject constructor(
     @Serializable
     private data class Entry(val key: String, val height: Int, val at: Long)
 
-    /** 返回记住的画质上限;null = 没记过,0 = 记住的是「自动」 */
-    suspend fun remembered(mediaItemId: Long, network: PlaybackNetwork): Int? {
-        val key = key(network, mediaItemId)
-        return load().firstOrNull { it.key == key }?.height
-    }
-
-    suspend fun remember(mediaItemId: Long, network: PlaybackNetwork, capHeight: Int?) {
-        val key = key(network, mediaItemId)
-        val entries = load().filterNot { it.key == key } +
-            Entry(key, capHeight ?: 0, System.currentTimeMillis())
-        val trimmed = entries.sortedByDescending { it.at }.take(MAX_ENTRIES)
-        context.qualityStore.edit { it[KEY_MEMORY] = json.encodeToString(trimmed) }
-    }
-
-    suspend fun forget(mediaItemId: Long, network: PlaybackNetwork) {
-        val key = key(network, mediaItemId)
-        val entries = load().filterNot { it.key == key }
-        context.qualityStore.edit { it[KEY_MEMORY] = json.encodeToString(entries) }
-    }
-
-    /* ---------------- 片段（刷片）的画质档位 ----------------
-     * 与正片分开记：刷片是「连着看很多条」，一个片名一条记忆没有意义，只按**网络环境**记一份。
+    /* 与正片分开记：刷片是「连着看很多条」，一个片名一条记忆没有意义，只按**网络环境**记一份。
      * 用户没选过时按默认策略走（见 ReelsQuality.defaultCap）：局域网原画直出、外网 720p。
      */
 
@@ -68,17 +45,8 @@ class QualityMemory @Inject constructor(
         context.qualityStore.edit { it[KEY_REELS] = json.encodeToString(entries) }
     }
 
-    private suspend fun load(): List<Entry> {
-        val raw = context.qualityStore.data.first()[KEY_MEMORY] ?: return emptyList()
-        return runCatching { json.decodeFromString<List<Entry>>(raw) }.getOrDefault(emptyList())
-    }
-
-    private fun key(network: PlaybackNetwork, mediaItemId: Long) = "${network.id}:$mediaItemId"
-
     private companion object {
-        val KEY_MEMORY = stringPreferencesKey("quality_memory")
         val KEY_REELS = stringPreferencesKey("reels_quality_memory")
-        const val MAX_ENTRIES = 300
     }
 }
 

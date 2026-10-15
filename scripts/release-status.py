@@ -57,7 +57,10 @@ PRODUCTS = (
     Product("Mac 转码器", "transcoder-v", "macos/MovieClawTranscoder/Resources/Info.plist", (
         "macos/MovieClawTranscoder",
     )),
-    Product("Android", "android-v", "apps/android/version.properties", ("apps/android",)),
+    Product(
+        "Android", "android-v", "apps/android/version.properties",
+        ("apps/android", "apps/android-core"),
+    ),
     Product(
         "Android TV", "androidtv-v", "apps/android-tv/version.properties",
         ("apps/android-tv", "apps/android-core"),

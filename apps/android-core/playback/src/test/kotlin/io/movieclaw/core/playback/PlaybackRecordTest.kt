@@ -38,7 +38,7 @@ class PlaybackRecordTest {
     }
 
     private fun PlaybackRecord.detail(outcome: String = "exited"): JsonObject = payload(
-        outcome, PlaybackNetwork.Home, "1.0", "wifi", JsonObject(emptyMap()), 0, null, null, null, null,
+        outcome, PlaybackNetwork.Home, "1.0", "wifi", JsonObject(emptyMap()), 0, null, null, null, null, "androidtv",
     ).detail!!
 
     @Test
@@ -63,7 +63,7 @@ class PlaybackRecordTest {
         now += 400
         r.noteFirstFrame()
         assertEquals(700L, r.firstFrameMs)
-        assertEquals(5000L, r.payload("exited", PlaybackNetwork.Home, "1", "wifi", JsonObject(emptyMap()), 0, null, null, null, null).userWaitMs)
+        assertEquals(5000L, r.payload("exited", PlaybackNetwork.Home, "1", "wifi", JsonObject(emptyMap()), 0, null, null, null, null, "androidtv").userWaitMs)
     }
 
     @Test
@@ -168,7 +168,7 @@ class PlaybackRecordTest {
         val pos = r.play(2000, 0, moving = true)
         r.beginReconnect("播放失败：ERROR_CODE_IO_NETWORK_CONNECTION_FAILED")
         r.play(6000, pos, moving = false)
-        val payload = r.payload("exited", PlaybackNetwork.Home, "1", "wifi", JsonObject(emptyMap()), pos, 3_600_000, null, null, null)
+        val payload = r.payload("exited", PlaybackNetwork.Home, "1", "wifi", JsonObject(emptyMap()), pos, 3_600_000, null, null, null, "androidtv")
         val kinds = payload.detail!!["interruptions"]!!.jsonArray.map { it.jsonObject["kind"]!!.jsonPrimitive.content }
         assertEquals(listOf("rebuffer", "reconnect"), kinds)
         assertEquals(1L, payload.rebufferCount)
@@ -194,9 +194,9 @@ class PlaybackRecordTest {
         r.device = JsonObject(mapOf("model" to JsonPrimitive("BRAVIA 4K VH2")))
         r.noteDelivery(JsonObject(mapOf("route" to JsonPrimitive("direct"), "tier" to JsonPrimitive(0))))
         r.noteFirstFrame()
-        val payload = r.payload("watched", PlaybackNetwork.Away, "1.2", "wired", JsonObject(emptyMap()), 10, 20, 3, 100, "tail")
+        val payload = r.payload("watched", PlaybackNetwork.Away, "1.2", "wired", JsonObject(emptyMap()), 10, 20, 3, 100, "tail", "android")
         assertEquals("rig:cut-hls", payload.labScenario)
-        assertEquals("androidtv", payload.client)
+        assertEquals("android", payload.client)
         assertEquals("wired", payload.`interface`)
         assertEquals("tail", payload.logTail)
         val detail = payload.detail!!
@@ -230,7 +230,7 @@ class PlaybackRecordTest {
         val store = PlaybackReportStore(prefs, dir)
         val r = record()
         r.noteFirstFrame()
-        store.saveRunning(r.payload("abnormal_exit", PlaybackNetwork.Home, "1", "wifi", JsonObject(emptyMap()), 0, null, null, null, "引擎日志"))
+        store.saveRunning(r.payload("abnormal_exit", PlaybackNetwork.Home, "1", "wifi", JsonObject(emptyMap()), 0, null, null, null, "引擎日志", "androidtv"))
         PlaybackReportStore.recordCrash(dir, IllegalStateException("surface lost"))
 
         val abnormal = store.takeAbnormal()!!

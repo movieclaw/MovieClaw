@@ -370,6 +370,8 @@ class PlaybackRecord(
         droppedFrames: Long?,
         totalFrames: Long?,
         logTail: String?,
+        /** 设备类型（androidtv / android，ClientIdentity.kind） */
+        client: String,
     ): PlaybackMetricPayload {
         val now = clock()
         // 还开着的卡顿 / 重连 / 跳转 / 切换：算到离开这一刻（不改记录本身，异常退出的快照之后还要接着记）
@@ -457,7 +459,7 @@ class PlaybackRecord(
             seasonNumber = unit.season,
             episodeNumber = unit.episode,
             origin = origin,
-            client = "androidtv",
+            client = client,
             labScenario = lab,
             route = route,
             networkClass = network.key,

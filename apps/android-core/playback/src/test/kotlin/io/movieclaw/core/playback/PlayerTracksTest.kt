@@ -216,4 +216,14 @@ class PlayerTracksTest {
         assertEquals("日语", RememberedChoices.shortLabel("日语 · AC3 · 5.1", listOf("日语 · AC3 · 5.1", "中文 · AAC")))
         assertEquals("日语 · AC3 · 5.1", RememberedChoices.shortLabel("日语 · AC3 · 5.1", listOf("日语 · AC3 · 5.1", "日语 · AAC")))
     }
+
+    @Test
+    fun engineTracksFollowContainerOrder() {
+        // Exo 实测的分组顺序：英语 AAC（3 号轨）在国语 AC3（2 号轨）前面；embedded:0 必须是国语
+        val groups = listOf("3" to "英语 AAC", "2" to "国语 AC3")
+        assertEquals(listOf("国语 AC3", "英语 AAC"), ContainerTrackOrder.sorted(groups) { it.first }.map { it.second })
+        // 轨号不是纯数字（TS 的 PID 写法）就不动 Exo 的顺序
+        val ts = listOf("1/257" to "b", "1/256" to "a")
+        assertEquals(listOf("b", "a"), ContainerTrackOrder.sorted(ts) { it.first }.map { it.second })
+    }
 }

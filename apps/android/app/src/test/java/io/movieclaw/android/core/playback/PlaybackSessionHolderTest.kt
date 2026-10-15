@@ -1,8 +1,8 @@
 package io.movieclaw.android.core.playback
 
-import io.movieclaw.android.core.designsystem.FeedbackBus
 import io.movieclaw.android.core.designsystem.ImageLoaders
 import io.movieclaw.android.core.network.ApiFactory
+import io.movieclaw.android.core.network.NetworkModule
 import io.movieclaw.android.core.network.ShareCookieJar
 import io.movieclaw.android.core.session.LibraryHomeSnapshotStore
 import io.movieclaw.android.core.session.SessionCacheCleaner
@@ -22,7 +22,6 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNamingStrategy
 import okhttp3.OkHttpClient
-import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
@@ -32,9 +31,12 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
+/**
+ * 播放宿主只管身份与生命周期（播放本身在统一引擎里）：成员播放归属启动它的账号、访客播放不绑成员身份、
+ * 换片替换旧的、请求走对通道（成员带令牌、访客走分享通道且不带令牌）。
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = android.app.Application::class)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlinx.serialization.ExperimentalSerializationApi::class)
@@ -45,8 +47,6 @@ class PlaybackSessionHolderTest {
         val ui: MutableStateFlow<SessionUi>,
     )
 
-    private fun holder(): PlaybackSessionHolder = fixture().holder
-
     @Suppress("UNCHECKED_CAST")
     private fun fixture(): Fixture {
         val context = RuntimeEnvironment.getApplication()
@@ -54,227 +54,193 @@ class PlaybackSessionHolderTest {
         val client = OkHttpClient()
         val vault = TokenVault(context)
         val cookies = ShareCookieJar()
-        val api = ApiFactory(json, client, client, vault, cookies)
+        // 与生产同一套客户端（带 User-Agent 与按身份附令牌的拦截器）：令牌附没附上要测的就是这层接线
+        val api = ApiFactory(
+            json, NetworkModule.generalClient(vault), NetworkModule.playbackClient(vault), vault, cookies,
+        )
         val images = ImageLoaders(context, vault, client, cookies)
         val cleaner = SessionCacheCleaner(context, images, LibraryHomeSnapshotStore(context, json))
         val repository = SessionRepository(context, json, vault, api, client, cleaner)
-        val holder = PlaybackSessionHolder(
-            context, api, repository, QualityMemory(context, json), FeedbackBus(),
-            PlaybackQoe(context, api, json), TrickplayProvider(context, images),
-        )
+        val holder = PlaybackSessionHolder(context, api, repository, PlaybackDataEvents(), CorePlaybackPrefs(context))
         val field = SessionRepository::class.java.getDeclaredField("_ui").apply { isAccessible = true }
         return Fixture(holder, vault, field.get(repository) as MutableStateFlow<SessionUi>)
     }
 
-    private fun TestScope.nextRequest(server: MockWebServer): RecordedRequest {
-        repeat(150) {
-            runCurrent()
-            server.takeRequest(20, TimeUnit.MILLISECONDS)?.let { return it }
-        }
-        error("Playback request did not arrive")
-    }
-
     private val target = PlayTarget(1, 1, "movie", "Movie")
-    private fun response(reason: String) = MockResponse()
-        .addHeader("Content-Type", "application/json")
-        .setBody("""{"success":true,"code":"OK","message":"","data":{"decision":{"outcome":"consent","reason":"$reason"}}}""")
 
-    @Test fun rapidGuestOpensKeepTheSecondRequestsState() = runTest {
-        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        val server = MockWebServer()
-        val releaseFirst = CountDownLatch(1)
-        server.dispatcher = object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse {
-                return if (request.path!!.contains("/first/")) {
-                    releaseFirst.await(3, TimeUnit.SECONDS)
-                    response("old request")
-                } else response("current request")
-            }
+    /** 取设备号走 DataStore（真实 IO 线程）：边推主线程边等 */
+    private fun TestScope.awaitState(holder: PlaybackSessionHolder, done: (PlaybackSessionHolder.State) -> Boolean) {
+        repeat(300) {
+            runCurrent()
+            if (done(holder.state.value)) return
+            Thread.sleep(10)
         }
-        server.start()
-        val holder = holder()
-        try {
-            val origin = server.url("/").toString()
-            holder.openGuest(origin, "first", target)
+        fail("状态没有到位：${holder.state.value}")
+    }
+
+    private fun TestScope.nextRequest(server: MockWebServer): RecordedRequest {
+        repeat(300) {
             runCurrent()
-            nextRequest(server)
-            holder.openGuest(origin, "second", target.copy(mediaItemId = 2))
-            runCurrent()
-            nextRequest(server)
-            repeat(100) {
-                runCurrent()
-                if (holder.state.value !is PlaybackSessionHolder.State.Consent) Thread.sleep(10)
-            }
-            assertEquals("current request", (holder.state.value as PlaybackSessionHolder.State.Consent).reason)
-            releaseFirst.countDown()
-            Thread.sleep(50)
-            runCurrent()
-            assertEquals("current request", (holder.state.value as PlaybackSessionHolder.State.Consent).reason)
-            holder.exit()
-            assertEquals(PlaybackSessionHolder.State.Idle, holder.state.value)
-        } finally {
-            holder.exit()
-            releaseFirst.countDown()
-            server.shutdown()
-            Dispatchers.resetMain()
+            server.takeRequest(10, TimeUnit.MILLISECONDS)?.let { return it }
+        }
+        error("播放请求没有发出")
+    }
+
+    /** 退出后控制器还有请求在 IO 线程上收尾、会切回主线程：等它们落地再撤掉测试用的主线程调度器 */
+    private fun TestScope.drain() = repeat(30) {
+        runCurrent()
+        Thread.sleep(10)
+    }
+
+    private fun Fixture.signIn(origin: String, user: String) {
+        vault.activate(origin, user, "$user-token")
+        ui.value = SessionUi(SessionPhase.READY, origin, SessionView(user))
+    }
+
+    private suspend fun Fixture.signOut() {
+        vault.deactivateActive()
+        ui.value = SessionUi(SessionPhase.NEEDS_LOGIN)
+    }
+
+    private fun MockWebServer.answerEverything() {
+        dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = MockResponse().setResponseCode(503)
         }
     }
 
-    @Test fun exitingWhileGuestRequestIsPendingKeepsHolderIdle() = runTest {
-        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        val server = MockWebServer()
-        val respond = CountDownLatch(1)
-        server.dispatcher = object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse {
-                respond.await(3, TimeUnit.SECONDS)
-                return response("late consent")
-            }
-        }
-        server.start()
-        val holder = holder()
-        try {
-            holder.openGuest(server.url("/").toString(), "share", target)
-            runCurrent()
-            nextRequest(server)
-            holder.exit()
-            respond.countDown()
-            Thread.sleep(50)
-            runCurrent()
-            assertEquals(PlaybackSessionHolder.State.Idle, holder.state.value)
-            assertNull(holder.sessionPlayer.value)
-        } finally {
-            holder.exit()
-            respond.countDown()
-            server.shutdown()
-            Dispatchers.resetMain()
-        }
-    }
+    private fun playing(state: PlaybackSessionHolder.State) = state is PlaybackSessionHolder.State.Playing
 
-    @Test fun newerQualityChoiceAndExitInvalidatePendingQualityRequest() = runTest {
-        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        val server = MockWebServer()
-        val releaseOldQuality = CountDownLatch(1)
-        val calls = java.util.concurrent.atomic.AtomicInteger()
-        server.dispatcher = object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse = when (calls.incrementAndGet()) {
-                1 -> response("initial consent")
-                2 -> {
-                    releaseOldQuality.await(3, TimeUnit.SECONDS)
-                    response("old quality")
-                }
-                else -> response("new quality")
-            }
-        }
-        server.start()
-        val holder = holder()
-        try {
-            holder.openGuest(server.url("/").toString(), "share", target)
-            runCurrent()
-            nextRequest(server)
-            repeat(100) {
-                runCurrent()
-                if (holder.state.value !is PlaybackSessionHolder.State.Consent) Thread.sleep(10)
-            }
-            assertEquals("initial consent", (holder.state.value as PlaybackSessionHolder.State.Consent).reason)
-            holder.changeQuality(720)
-            runCurrent()
-            nextRequest(server)
-            holder.changeQuality(480)
-            runCurrent()
-            nextRequest(server)
-            repeat(100) {
-                runCurrent()
-                if ((holder.state.value as? PlaybackSessionHolder.State.Consent)?.reason != "new quality") Thread.sleep(10)
-            }
-            assertEquals("new quality", (holder.state.value as PlaybackSessionHolder.State.Consent).reason)
-            holder.exit()
-            releaseOldQuality.countDown()
-            Thread.sleep(50)
-            runCurrent()
-            assertEquals(PlaybackSessionHolder.State.Idle, holder.state.value)
-            assertNull(holder.sessionPlayer.value)
-        } finally {
-            holder.exit()
-            releaseOldQuality.countDown()
-            server.shutdown()
-            Dispatchers.resetMain()
-        }
-    }
-
-
-    @Test fun logoutCancelsMemberPreparationBeforeAnyPlayerCanStart() = runTest {
+    @Test fun memberPlaybackStopsWhenTheAccountLogsOut() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val fixture = fixture()
-        val origin = "http://127.0.0.1:1"
         try {
-            fixture.vault.activate(origin, "alice", "alice-token")
-            fixture.ui.value = SessionUi(SessionPhase.READY, origin, SessionView("alice"))
+            fixture.signIn("http://127.0.0.1:1", "alice")
             fixture.holder.open(target)
-            assertEquals(PlaybackSessionHolder.State.Preparing, fixture.holder.state.value)
-            fixture.vault.deactivateActive()
-            fixture.ui.value = SessionUi(SessionPhase.NEEDS_LOGIN)
+            awaitState(fixture.holder, ::playing)
+            assertNotNull(fixture.holder.sessionPlayer.value)
+            fixture.signOut()
             runCurrent()
             assertEquals(PlaybackSessionHolder.State.Idle, fixture.holder.state.value)
             assertNull(fixture.holder.sessionPlayer.value)
         } finally {
             fixture.holder.exit()
+            drain()
             Dispatchers.resetMain()
         }
     }
 
-    @Test fun switchingAccountsCancelsOldMembersPreparation() = runTest {
+    @Test fun logoutWhileOpeningNeverStartsAPlayer() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val fixture = fixture()
-        val origin = "http://127.0.0.1:1"
         try {
-            fixture.vault.activate(origin, "alice", "alice-token")
-            fixture.ui.value = SessionUi(SessionPhase.READY, origin, SessionView("alice"))
+            fixture.signIn("http://127.0.0.1:1", "alice")
             fixture.holder.open(target)
-            fixture.vault.activate(origin, "bob", "bob-token")
-            fixture.ui.value = SessionUi(SessionPhase.READY, origin, SessionView("bob"))
+            assertEquals(PlaybackSessionHolder.State.Opening, fixture.holder.state.value)
+            fixture.signOut()
+            repeat(30) { runCurrent(); Thread.sleep(10) }
+            assertEquals(PlaybackSessionHolder.State.Idle, fixture.holder.state.value)
+            assertNull(fixture.holder.sessionPlayer.value)
+        } finally {
+            fixture.holder.exit()
+            drain()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun switchingAccountsStopsTheOldMembersPlayback() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val fixture = fixture()
+        try {
+            fixture.signIn("http://127.0.0.1:1", "alice")
+            fixture.holder.open(target)
+            awaitState(fixture.holder, ::playing)
+            fixture.signIn("http://127.0.0.1:1", "bob")
             runCurrent()
             assertEquals(PlaybackSessionHolder.State.Idle, fixture.holder.state.value)
             assertNull(fixture.holder.sessionPlayer.value)
         } finally {
             fixture.holder.exit()
+            drain()
             Dispatchers.resetMain()
         }
     }
 
-    @Test fun memberLogoutDoesNotCancelGuestPreparation() = runTest {
+    @Test fun memberLogoutKeepsGuestPlayback() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        val server = MockWebServer()
-        val respond = CountDownLatch(1)
-        server.dispatcher = object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse {
-                respond.await(3, TimeUnit.SECONDS)
-                return response("guest consent")
-            }
-        }
-        server.start()
         val fixture = fixture()
         try {
-            val origin = server.url("/").toString()
-            fixture.vault.activate(origin, "alice", "alice-token")
-            fixture.ui.value = SessionUi(SessionPhase.READY, origin, SessionView("alice"))
-            fixture.holder.openGuest(origin, "share", target)
-            nextRequest(server)
-            fixture.vault.deactivateActive()
-            fixture.ui.value = SessionUi(SessionPhase.NEEDS_LOGIN)
+            fixture.signIn("http://127.0.0.1:1", "alice")
+            fixture.holder.openGuest("http://127.0.0.1:1", "share", target)
+            awaitState(fixture.holder, ::playing)
+            fixture.signOut()
             runCurrent()
-            assertEquals(PlaybackSessionHolder.State.Preparing, fixture.holder.state.value)
-            respond.countDown()
-            repeat(100) {
-                runCurrent()
-                if (fixture.holder.state.value !is PlaybackSessionHolder.State.Consent) Thread.sleep(10)
-            }
-            assertEquals("guest consent", (fixture.holder.state.value as PlaybackSessionHolder.State.Consent).reason)
+            assertTrue(playing(fixture.holder.state.value))
         } finally {
             fixture.holder.exit()
-            respond.countDown()
-            server.shutdown()
+            drain()
             Dispatchers.resetMain()
         }
     }
 
+    @Test fun openingAnotherTitleReplacesTheCurrentPlayback() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val fixture = fixture()
+        try {
+            fixture.signIn("http://127.0.0.1:1", "alice")
+            fixture.holder.open(target)
+            awaitState(fixture.holder, ::playing)
+            val first = fixture.holder.sessionPlayer.value
+            fixture.holder.open(target.copy(mediaItemId = 2))
+            awaitState(fixture.holder) { (it as? PlaybackSessionHolder.State.Playing)?.active?.target?.mediaItemId == 2L }
+            assertNotSame(first, fixture.holder.sessionPlayer.value)
+            fixture.holder.exit()
+            assertEquals(PlaybackSessionHolder.State.Idle, fixture.holder.state.value)
+            assertNull(fixture.holder.sessionPlayer.value)
+        } finally {
+            fixture.holder.exit()
+            drain()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun memberRequestsCarryTheAccountsToken() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val server = MockWebServer().apply { answerEverything(); start() }
+        val fixture = fixture()
+        try {
+            fixture.signIn(server.url("/").toString().trimEnd('/'), "alice")
+            fixture.holder.open(target)
+            val paths = mutableMapOf<String, String?>()
+            repeat(2) { nextRequest(server).let { paths[it.path!!.substringBefore('?')] = it.getHeader("Authorization") } }
+            assertEquals("Bearer alice-token", paths["/api/v1/playback/sessions"])
+            assertTrue(paths.keys.toString(), "/api/v1/playback/items/1" in paths)
+        } finally {
+            fixture.holder.exit()
+            server.shutdown()
+            drain()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun guestRequestsGoThroughTheShareChannelWithoutMemberToken() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val server = MockWebServer().apply { answerEverything(); start() }
+        val fixture = fixture()
+        try {
+            val origin = server.url("/").toString().trimEnd('/')
+            fixture.signIn(origin, "alice")
+            fixture.holder.openGuest(origin, "abc", target)
+            val requests = List(2) { nextRequest(server) }
+            assertEquals(
+                setOf("/api/v1/share/abc/playback/sessions", "/api/v1/share/abc/playback/items/1"),
+                requests.map { it.path!!.substringBefore('?') }.toSet(),
+            )
+            requests.forEach { assertNull(it.getHeader("Authorization")) }
+        } finally {
+            fixture.holder.exit()
+            server.shutdown()
+            drain()
+            Dispatchers.resetMain()
+        }
+    }
 }

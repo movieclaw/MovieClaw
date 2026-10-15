@@ -22,66 +22,11 @@ echo "sdk.dir=<你的 Android SDK 路径>" > local.properties   # 或设 ANDROID
 ./gradlew :app:assembleDebug
 ```
 
-- 需要 JDK 17、Android SDK(compileSdk 36 / minSdk 26)、NDK 28.2(构建 ISO 直读那部分 JNI)。
-- **预编译原生库会在首次构建时自动下载**(约 38MB,来自 Releases 的 `android-native-libs`):
-  构建脚本先校验 sha256 再解压到 `app/src/main/jniLibs/arm64-v8a/`,只下一次。
-  地址与校验和在 `gradle.properties` 的 `nativeLibsUrl` / `nativeLibsSha256`,换版本改这两行;
-  开发构建离线或下载失败**不会中断构建**,只是产出一个仅 Exo 内核的包；正式打包会拒绝这种降级。
-  想显式跳过:`./gradlew :app:assembleDebug -PskipNativeLibsDownload=true`。
-### 预编译依赖(FFmpeg / mpv / libass)
-
-`app/src/main/jniLibs/arm64-v8a/` 下的 10 个 `.so` 是第三方二进制(入库前约 116MB、
-strip 进 APK 后约 33MB),**不入库**,作为 [Release 附件](https://github.com/anlan-home/movieclaw-android-libs/releases/tag/android-native-libs) 提供:
-
-| 文件 | 作用 |
-| --- | --- |
-| `libmp2.so` | mpv 内核(libmpv 接口),应用运行时 `dlopen` 它 |
-| `libavcodec` `libavformat` `libavfilter` `libavutil` `libswscale` `libswresample` `libavdevice` | FFmpeg 共享库,`libmp2.so` 的 `NEEDED` 依赖 |
-| `libc++_shared.so` | C++ 运行库(mpv / FFmpeg 需要;本项目的 JNI 库不依赖它) |
-| `libass.so` | 字幕渲染;仅供已废弃的 `cpp/libass_bridge.cpp`,可不带 |
-
-**少任何一个 `libmp2.so` 的 NEEDED 都会让 dlopen 失败**——动态链接器解析依赖时不看
-上游是否真的用到它,所以不能按需裁剪。
-
-缺这些库时**照样能编出可安装、可运行的 APK**(CMake 不链接它们,`libmp2.so` 是运行时
-dlopen;缺库时 `MpvNative.available` 为 false,应用干净地只用 Exo 内核),区别只在
-播放能力:ISO / BDMV 原盘直读、VC-1/MPEG-2/TrueHD/PGS 软解、HDR 与 ASS 特效字幕
-的 MPV 路径不可用。构建脚本会在首次构建时自动拉这个附件,拉不到就退回 Exo 内核包。
-
-二进制再分发注意许可:mpv GPL-2.0+、FFmpeg LGPL-2.1+ 或 GPL-2.0+(视构建开关)、
-libass ISC、libc++ Apache-2.0 with LLVM exception;附件里的 `NOTICE.md` 有逐项来源。
-
-附件地址写在 `gradle.properties` 的 `nativeLibsUrl`(换地址时 `nativeLibsSha256` 要同步换)。
-想从别处取(镜像 / fork / 本地文件),按这个优先级覆盖,不必改仓库里的文件:
-
-1. 命令行:`./gradlew :app:assembleRelease -PnativeLibsUrl=<url> -PnativeLibsSha256=<sha256>`
-2. `local.properties`(机器本地、不入库)加 `nativeLibsUrl=` / `nativeLibsSha256=`
-3. 仓库 `gradle.properties` 里的默认值
-
-### TLS 熵源临时修补
-
-当前已校验的原生附件中，`libmp2.so` 和 `libavformat.so` 的 mbedTLS 熵源错误指向
-`/Device/Null`。Android 上读取失败后，旧 MPV/curl 仍继续 HTTPS 握手，可能调用未初始化的随机回调并导致整个应用退出。
-
-`prepareNativeLibs` 保留 `app/src/main/jniLibs` 下载缓存原样，把库复制到
-`app/build/generated/nativeLibs`。仅对任务中固定 SHA-256 的两份原库，将唯一、NUL 终止的
-`/Device/Null` 等长替换为 `/dev/urandom`，并再次验证修补后的 SHA-256。
-未知哈希、未知库或异常标记会拒绝打包；没有坏标记的库直接复制。
-APK 只从生成目录读取预编译 JNI 库，`-PskipNativeLibsDownload=true` 的离线缓存同样必须经过该任务。
-生成目录的 `entropy-repair-manifest.txt` 记录每个库修补前后的哈希。附件的 ZIP 校验和保持不变，TLS 证书校验保持开启。
-MPV 开流前通过默认 `TrustManagerFactory` 获取 App 平台信任的 X.509 CA，去重后原子写入
-App 私有 PEM 文件，并设置 `tls-verify=yes`、`tls-ca-file`。不直接枚举用户证书库；
-导出或配置失败时停止加载，不会关闭校验或信任所有证书。
-
-离线验证（需要已缓存的已知原生附件）：
-
-```sh
-./gradlew :app:verifyNativeEntropyRepair -PskipNativeLibsDownload=true
-```
-
-验证覆盖两库的实际生成哈希、二次准备幂等、原始缓存与正常库保持不变，以及未知坏库拒绝。
-这是针对已确认附件的短期修补；应由原生库上游正确配置 Android 系统熵源、处理 TLS 初始化失败，
-重建并发布可追溯的新附件及 ZIP 校验和，再移除此兼容修补。
+- 需要 JDK 21、Android SDK(compileSdk 37 / minSdk 26)。
+- 播放引擎与 TV 版共用,源码在 `apps/android-core`(`settings.gradle.kts` 把它们挂成 `:core:*`)。
+- FFmpeg 音频软解库不入库:没编过时 App 照常能编、能放(只是 TrueHD / DTS 这类本机没有解码器的音轨
+  交给服务端转音轨);正式包必须带上,打包脚本会先跑 `apps/android-core/native/ffmpeg/build.sh`
+  (要 NDK 27.3)。本地想带上:`NDK=<NDK 目录> bash ../android-core/native/ffmpeg/build.sh`。
 
 ## 代码结构
 
@@ -89,14 +34,20 @@ App 私有 PEM 文件，并设置 `tls-verify=yes`、`tls-ca-file`。不直接�
 app/src/main/java/io/movieclaw/android/
   core/designsystem/   主题令牌、McTopBar / McCapsuleTabBar、卡片与格式化器
   core/network/        GeneralChannel / LiveChannel / PlaybackChannel 三通道 + 信封解包
-  core/playback/       双内核(Exo / MPV)、ISO 直读桥、字幕解析、轨道与进度上报
+  core/playback/       播放宿主(统一引擎的身份与后台服务)、画质/字幕偏好、刷片画质
   core/model/          服务端契约的数据模型(全局 SnakeCase 映射)
   feature/<板块>/      登录 / 发现 / 媒体库 / 订阅 / 活动 / 搜索 / 设置 / Agent / 播放器 …
   routing/AppNav.kt    全部路由
-app/src/main/cpp/      mpv_bridge(libmpv dlopen)、iso_native(UDF over HTTP Range)、libass_bridge
 ```
 
-## 当前进度:M1b(双内核播放)完成 —— Exo + MPV 全链路可用
+播放引擎(会话协议、Exo + FFmpeg 音频 + libass、失败兜底、上报、选轨、跳过片头片尾)在
+`apps/android-core/playback`,与 TV 版同一份代码。
+
+## 当前进度
+
+- **统一播放引擎(2026-10)**:手机与 TV 改用同一个引擎(`apps/android-core`,原 TV 版引擎):
+  Exo + FFmpeg 音频软解 + libass,本机放不了的走服务端流并逐级降档;mpv 内核、ISO 本机直读与预编译
+  原生库附件一并移除(光盘镜像改由服务端读盘换封装)。下面 M1b～M1d 里的双内核内容是历史记录。
 
 已完成:
 

@@ -71,7 +71,7 @@ class ClipPlayer(
         player.addListener(object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
                 val want = pendingAudioIndex ?: return
-                val groups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+                val groups = ContainerTrackOrder.sorted(tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }) { it.getTrackFormat(0).id }
                 if (groups.isEmpty()) return
                 pendingAudioIndex = null
                 val group = groups.getOrNull(want)?.takeIf { !it.isSelected && it.isSupported(true) } ?: return

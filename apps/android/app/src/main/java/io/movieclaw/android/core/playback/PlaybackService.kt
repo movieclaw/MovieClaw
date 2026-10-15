@@ -27,8 +27,8 @@ import kotlinx.coroutines.launch
 
 /**
  * 后台播放服务(MediaSessionService):
- *   MediaSession 的 player 在引擎切换时被换掉(setPlayer):Exo 直挂 ExoPlayer,
- *   MPV 挂 MpvPlayerProxy(SimpleBasePlayer 包装)。锁屏/通知/媒体键由 Media3 统一处理。
+ *   MediaSession 挂统一引擎的播放器(PlaybackController.player:系统的播放 / 暂停 / 快进都绕回控制器),
+ *   换一次播放就换一次 player(setPlayer)。锁屏/通知/媒体键由 Media3 统一处理。
  *
  * 生命周期契约(读 Media3 1.8 源码确认):
  *   - 服务由 App 侧 MediaController 连接拉起(MediaControllerImplBase 用 bindService);

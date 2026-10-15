@@ -14,11 +14,6 @@ local.properties
 *.iml
 captures/
 
-# 预编译三方库（FFmpeg / mpv / libass 的 arm64 产物，共 116MB）
-# 不入库：一是体积，二是这些是第三方二进制、分发另有其许可要求。
-# 获取方式见 README「预编译依赖」。
-app/src/main/jniLibs/**/*.so
-
 # CMake / NDK 中间产物
 .cxx/
 *.o

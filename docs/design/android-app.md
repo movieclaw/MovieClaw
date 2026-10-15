@@ -9,28 +9,28 @@
 
 | 事项 | 结论 | 理由 |
 |---|---|---|
-| 技术栈 | Kotlin + Jetpack Compose（Material 3），minSdk 26 / target 36，只出 `arm64-v8a` | 与 iOS 同样走全原生：播放要硬解、画中画、后台保活（MediaSessionService），网页做不到或做不好 |
+| 技术栈 | Kotlin + Jetpack Compose（Material 3），minSdk 26 / target 36（compileSdk 37），只出 `arm64-v8a` | 与 iOS 同样走全原生：播放要硬解、画中画、后台保活（MediaSessionService），网页做不到或做不好 |
 | 范围 | 手机端网页的全部功能原生重写（不内嵌网页） | 用户决定 |
-| 播放 | 双内核：**Exo**（默认，服务端直出 / HLS）+ **mpv**（libmpv，兜住 Exo 解不了的） | 与 iOS「本机能解决的一切都由本机引擎解决」同一思路；mpv 负责 ISO/BDMV 原盘直读、VC-1/MPEG-2/TrueHD/PGS 软解、HDR 与 ASS 特效字幕。缺原生库时**干净退回仅 Exo**（`MpvNative.available=false`） |
+| 播放 | 与 TV 版**共用一个引擎**（`apps/android-core`，2026-10 由原 TV 版引擎统一，同 iOS 的 `Shared/`）：Exo + FFmpeg 音频软解 + libass；本机如实申报能力，放不了的走服务端流（换封装 / 转码），失败按兜底阶梯重连 / 改走服务端流 / 逐级降档 | 原手机双内核（Exo + mpv）两套行为难维护；统一后手机与 TV 的兜底、能力探测、看门狗、诊断一致。光盘镜像由服务端读盘换封装，VC-1 等冷门编码交服务端转码 |
 | 认证 | 设备令牌（`POST /auth/device/login` 用账号密码换），存 **AndroidKeyStore** 加密的凭据库 | 与 iOS 同一套：这台手机是「我的设备」里的一台，可单独注销；多账号（多服务器）都在本机 |
 | 接口层 | 手写 Retrofit 接口 + kotlinx.serialization（SnakeCase、`ignoreUnknownKeys`） | 安卓侧只用得到其中一部分；字段可空、未知字段忽略，对服务端新旧版本宽容（例：字幕轨 `title` 缺失时回落语言码） |
 | 工程 | Gradle（Kotlin DSL）+ Hilt/KSP + Media3 + Coil 3 | 一以贯之的官方栈，CI 上 `testDebugUnitTest / assembleDebug / lintDebug` |
 | 版本号 | `apps/android/version.properties` 独立管理 `versionName` / 递增 `versionCode` | 单独发 `android-vX.Y.Z` Release，版本独立于服务器与 Apple；见 [发版说明](android-release.md) |
-| 原生库 | FFmpeg / mpv / libass 的预编译产物放**独立仓库** [movieclaw-android-libs](https://github.com/anlan-home/movieclaw-android-libs)，构建时下载 + 校验 sha256 | 压缩包约 38MB、解压 116MB，不宜入库；缺包不中断构建（退化成仅 Exo 内核的包，日志写明）。许可（mpv GPL-2.0+、FFmpeg LGPL/GPL、libass ISC、libc++ Apache）与逐项来源见该仓库 README 与包内 `NOTICE.md` |
+| 原生库 | 统一引擎的 FFmpeg 音频软解按 LGPL-2.1 自编（`apps/android-core/native/ffmpeg/build.sh`，产物不入库，正式包打包时现编）；libass 走 ass-media（Maven） | 与 TV 版同一套（androidtv-app.md §4.3）；mpv 与预编译原生库附件已移除 |
 | 包名 | `io.movieclaw.android` | 与 iOS 的 `io.movieclaw.app` 不同，见 §5；请求标识按上游约定 `MovieClaw-Android/<版本>` |
 | 外观 | 跟随手机端网页（纯黑底、材质用同一套玻璃令牌）；「底栏液态玻璃」这类本机开关放「我的 → 设置」 | 与 iOS 同为「不做网页的外观编辑」 |
 | 文案 | **一律取上游**（网页 / iOS 的现成文案逐字用），不自造 | 三端同一条轨、同一个功能叫同一个名字；代码注释里标了出处 |
 
 ## 2. 目录
 
-一个 Gradle 工程，手机端一个模块；`app/src/main/java/io/movieclaw/android/` 下按「核心 / 功能」两层：
+一个 Gradle 工程，手机端一个模块，另把与 TV 共用的 `apps/android-core/*` 挂成 `:core:*`（播放引擎、生成的播放接口与模型、
+FFmpeg 音频扩展）；`app/src/main/java/io/movieclaw/android/` 下按「核心 / 功能」两层：
 
 ```
 apps/android/
-  gradle.properties           版本、原生库地址（可被 local.properties / -P 覆盖）
-  gradle/libs.versions.toml   依赖版本唯一来源
+  gradle/libs.versions.toml   手机自己的依赖版本（与 core 共用的在 ../android-core/gradle/shared.versions.toml）
   app/
-    build.gradle.kts          版本号按构建日期；缺 jniLibs 时下载预编译原生库
+    build.gradle.kts          版本号
     src/main/java/io/movieclaw/android/
       MainActivity.kt         入口；深链 / 通知落点（mc_route / mc_tab）
       MovieClawApp.kt         Application（Hilt、图片加载器、通知通道）
@@ -40,17 +40,14 @@ apps/android/
         model/                手写数据模型（含平台专属：SkipSegments、Playback、SubtitleGen、Llm…）
         network/              ApiClient、SSE（EventStream）、缓存、错误中文化
         session/              连接/登录状态机、设备令牌（KeyStore）、权限、分享链接
-        playback/             PlaybackController（双引擎抽象）、TrackLabels、字幕解析与叠层数据、
-                              跳过段判定、片源字节缓存与预取、QoS 上报
+        playback/             PlaybackSessionHolder（统一引擎的成员 / 访客身份与后台服务）、TrackLabels、
+                              字幕外观、刷片画质与字幕窗口解析
         designsystem/         主题令牌（McType/McMetrics）、玻璃材质、底栏液态玻璃、远程图片
         notify/ discovery/     通知中心、服务发现
       feature/                <模块>：每个页面 + 自己的 ViewModel（account / activity / agent /
                               detail / discover / library / more / notices / onboarding / player /
                               reels / root / search / settings / share / subscriptions）
-    src/main/cpp/             JNI：mpv_bridge（libmpv dlopen）、iso_native（UDF over HTTP Range）
-    src/main/jniLibs/         预编译原生库落点（不入库，构建时下载）
     src/test/                 单元 / Robolectric 测试（含对 MockWebServer 的协议契约测试）
-  tests/native/               ASan/UBSan 原生回归（CI 上跑）
 ```
 
 ## 3. 约定
@@ -66,7 +63,7 @@ apps/android/
 
 - 顶栏 / 底栏 / 卡片 / 玻璃材质都取 `core/designsystem`（`McTopBar`、`FlatCard`、`GlassCapsule`…），
   页面不自造一份；悬浮顶栏是这一页的基准（正文给它让位）。
-- **播放页做不了真模糊**：视频在 SurfaceView 上（mpv / PlayerView 都是系统合成），Haze 抓不到它的像素，
+- **播放页做不了真模糊**：视频在 SurfaceView 上（系统合成），Haze 抓不到它的像素，
   所以播放页的玻璃一律是「黑底等价」（半透明深底 + 一圈淡白边）——别在播放页挂 Haze。
 - 底栏「液态玻璃」有一枚 A/B 试用开关（「我的 → 设置 → 显示与外观」）：开 = 液态玻璃版（弹簧胶囊 /
   按压辉光 / 高光边 / 拖动擦选），关 = 上一版形态；两边对齐稳定后删一边。
@@ -76,21 +73,38 @@ apps/android/
 - 一个模块一个 `feature/<模块>` 目录：页面 + ViewModel + 该模块专属组件都放在里面，不跨模块引用私有件。
 - 共享件放 `core/`；放不下就说明它其实是两个东西。
 
-## 4. 播放器架构（双引擎）
+## 4. 播放器架构（与 TV 共用的统一引擎）
 
-- **选择**：起播时由服务端决策（`POST /playback/sessions`）拿到 tier / 容器 / 流地址与**候选轨列表**；
-  客户端按解码能力选内核：能直出的走 Exo，解不了的（原盘、特殊编码）走 mpv。
-- **轨**：音轨 / 字幕菜单的名字由 `TrackLabels` 统一拼（详情页与播放器**必须同名**）；字幕优先用
-  文件自带标题，强制轨打「强制」；放不了的轨**置灰写明原因**，不给一个点了没反应的选项。
-- **字幕**：服务端旁挂下发（`/playback/files/{id}/subtitles`），客户端解析成纯文本 cue 自己画
-  （`SubtitleOverlayLayer`）——文件自带的样式（描边、底框）一律不要，这就是「黑框」从结构上消失的原因。
-  内封轨整轨要服务端通读整个容器（实测 5.7GB / 39.7 秒），因此：**先用窗口抽取**（起播点前 10 秒起、
-  5 分钟）几秒上屏，整轨到了整表替换；当前集与下一集（片尾卡出现后）都走 `subtitles/preview` 后台预热
-  （不随请求断开取消）。
-- **跳过段 / 连播**：判定照 iOS `SkipSegments`（服务端整季比对出的段；末尾 3 秒内不出按钮；
-  「一直放到结尾」的片尾交给连播卡）；连播卡与倒计时照 iOS `PlayerUpNextCard`（紧凑档），
-  倒计时按**帧时钟**逐帧推进、暂停冻住、连播 ≤3 集、任何用户操作清零。
-- **放弃也留档**：`SourceByteCache` 与预取（`/reels` 的 `play.prefetch`）落地在磁盘缓存，退版本 / 换源不重下。
+2026-10 起手机与 TV 用同一个播放引擎：`apps/android-core/playback`（原 TV 版引擎，设计见
+[androidtv-app.md](androidtv-app.md) §4、[player-engine.md](player-engine.md) §3「兜底阶梯」）。手机只保留控制层。
+
+- **引擎**：`PlaybackController`——如实申报能力（Exo 实际会选的解码器、HDR、杜比视界 profile、`local_tracks`），
+  服务端能直连就给原文件、放不了给 HLS；失败按 `FailurePolicy` 走：网络问题同档原地重开，确定解不了改走服务端流，
+  服务端流放不了逐级降档；卡顿归因与掉帧看门狗、解码器黑名单、播放记录（含异常退出补报）都在引擎里。
+  Exo 由 `UnifiedExo` 统一配置：FFmpeg 音频软解（透传 / 系统解码优先）、libass 特效字幕。
+- **手机的宿主差异**（`PlaybackHost`）：切后台接着放（锁屏听、画中画），系统媒体会话由 `PlaybackService` 持有、
+  挂 `PlaybackController.player`；设备类型 `android` / UA `MovieClaw-Android/<版本>`。能力申报与电视一致，**不报 `is_mobile`**：
+  服务端把「移动端 + 原生 HLS」当成 iOS 系统播放器，会把 5.1 音轨固定转成 AAC 双声道、限制转码画质，Exo 用不着。
+- **身份**：`PlaybackSessionHolder` 按成员（`MemberBackend`）/ 访客分享（`ShareBackend`，走 `/share/{slug}/playback/…`）建控制器；
+  退出登录、切账号立即停掉成员播放，访客播放不受影响。令牌由本 App 的拦截器按请求上的身份标记附带。
+- **轨**：菜单直接用引擎的 `PlayerState.audioOptions` / `subtitles`（放不了的轨置灰写原因）；详情页选好的轨经
+  `PlayTarget.preferredAudio / preferredSubtitle` 带进引擎，按用户选择处理。
+- **字幕**：直连原文件时内封 / 外挂文本轨由 Exo 本机解出（不再让服务端通读整个容器），服务端流的文本字幕取 VTT；
+  两路都由 `SubtitleOverlayLayer` 按用户的字幕外观自己画（不用文件自带样式，所以没有黑框）；图形字幕（PGS）直连时
+  Exo 解成位图，服务端流时由服务端压制进画面；ASS 交给 libass 叠加层。
+- **跳过段 / 连播**：判定与倒计时都在引擎（`SkipSegments`、`advanceAutoNext`：8 秒、暂停冻住、连播 ≤3 集、任何用户操作清零）。
+- **刷片**：`ReelsPlayers` 的编排（当前条、预起下一条、字节预取）不变，每条的播放器换成引擎的 `ClipPlayer`（同一套 Exo 配置）+
+  `SourceByteCache`；转码 / 光盘片源借服务端会话（光盘由服务端读盘换封装）。
+
+**统一时相对旧版手机的已知回退**（留到统一引擎上的优化阶段处理；旧版手机「本季播完接下一季」不算回退——iOS、网页、TV
+都只在本季内连播，三端保持一致，2026-10 定）：
+
+| 回退 | 说明 |
+|---|---|
+| 直连时内封字幕不能调时间轴 | Exo 解出的字幕时机由引擎定；服务端流的字幕照常可调 |
+| 正片不挂片源字节缓存、MKV 精简索引注入 | 刷片仍有字节缓存与预取 |
+| 本机读 ISO、VC-1 等冷门编码软解 | 交服务端换封装 / 转码（要服务端能转，占服务端资源） |
+| 起播分段计时日志（PlaybackStartupTrace） | 改看引擎播放记录的 startup marks |
 
 ## 5. 与 iOS / 网页的已知差异（逐条如实列）
 
@@ -110,7 +124,6 @@ apps/android/
    视觉以截图对照（发现页 hero、详情页轨道行、播放页控制层与两个覆盖层、活动页、我的页）。
 2. **单元 / 协议**：`./gradlew :app:testDebugUnitTest`（含 MockWebServer 的接口契约测试：筛选参数名、
    轨标题、身份隔离等）与 `./gradlew :app:lintDebug`。
-3. **原生**：`tests/native/run.sh`（ASan/UBSan 回归）。
-4. **CI**：`.github/workflows/android-stability.yml` 对 `main` 与 `android` 分支、`apps/android/**`
-   的改动跑上面三项 + `assembleDebug`（`-PskipNativeLibsDownload=true`，不下载原生库也能过）。
-5. 详细的稳定性整改记录见 [../android/stability-validation.md](../android/stability-validation.md)。
+3. **CI**：`.github/workflows/android-stability.yml` 对 `main` 与 `android` 分支、`apps/android/**` 与
+   `apps/android-core/**` 的改动先编 FFmpeg 音频库，再跑上面两项 + `assembleDebug`，并用临时证书走一遍正式打包校验。
+4. 详细的稳定性整改记录（统一引擎之前的双内核时期）见 [../android/stability-validation.md](../android/stability-validation.md)。

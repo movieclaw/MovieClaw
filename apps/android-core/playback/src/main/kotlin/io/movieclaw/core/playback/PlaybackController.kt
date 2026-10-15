@@ -36,6 +36,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.session.MediaSession
 import io.movieclaw.core.model.generated.PlaybackClientLogPayload
+import io.movieclaw.core.model.generated.PlaybackDecisionView
 import io.movieclaw.core.model.generated.PlaybackMetricPayload
 import io.movieclaw.core.model.generated.PlaybackProgressRequest
 import io.movieclaw.core.model.generated.PlaybackSessionRequest
@@ -108,6 +109,8 @@ class PlaybackController(
     private val lab: String = "",
     /** 电视 / 手机的宿主差异 */
     private val host: PlaybackHost = PlaybackHost(),
+    /** 一个单元的 stop 上报落库之后（「继续观看」等列表据此刷新） */
+    private val onStopCommitted: () -> Unit = {},
 ) {
     private val denylist = DecoderDenylist(prefs, identity.appVersion)
     private val capability = capabilityOverride ?: CapabilityProbe(context, denylist::isDenied)
@@ -232,7 +235,7 @@ class PlaybackController(
     /** 要服务端烧录的字幕（图形字幕放服务端流时）；"off" = 撤下烧录 */
     private var requestedSubtitle: String? = null
     private var requestedAudio: String? = null
-    /** 起播音轨要不要在 Exo 读到轨后显式选（服务端挑的不是容器默认轨，或用户选过） */
+    /** 起播音轨：直连原文件时 Exo 读到轨后显式选服务端计划里的那条 */
     private var pendingInitialAudio: Int? = null
     private var tracksKnown = false
     private val qualityMemory = QualityMemory(prefs)
@@ -416,7 +419,10 @@ class PlaybackController(
         if (reportedStart) {
             reportedStart = false
             val body = progressBody("stop", s.positionMs, paused = null)
-            enqueueReport { backend.progress(body) }
+            enqueueReport {
+                backend.progress(body)
+                onStopCommitted()
+            }
         }
         // 关会话也走上报队列：退出播放器时它要在协程收掉之前发完
         activeSessionId?.let { sid -> enqueueReport { backend.stopSession(sid) } }
@@ -652,14 +658,11 @@ class PlaybackController(
         }
         Log.i(TAG, "起播 item=${unit.mediaItemId} 档=${decision.tier} ${if (original) "原文件直连" else "服务端流"} start=${opened.startMs}")
 
-        // 起播音轨：用户这次选过、或服务端挑的不是容器默认轨 → Exo 读到轨后显式选它；挑的就是默认轨时交给 Exo 自己选
+        // 起播音轨：直连原文件时服务端计划里的那条一律落下（Exo 读到轨后显式选它，已经选中就不动）。
+        // 不能因为它恰好是容器默认轨就交给 Exo 自己挑：Exo 按系统语言挑轨，英文系统上放的是英语轨，菜单却勾着计划里的国语
         pendingInitialAudio = null
         val chosen = decision.audio?.trackRef
-        if (original && chosen != null) {
-            val index = embeddedIndexOf(chosen)
-            val containerDefault = audioOptions.firstOrNull { it.isDefault }?.ref ?: audioOptions.firstOrNull()?.ref
-            if (index != null && (requestedAudio != null || chosen != containerDefault)) pendingInitialAudio = index
-        }
+        if (original && chosen != null) pendingInitialAudio = embeddedIndexOf(chosen)
 
         // 装载
         qualitySuggestion.restartGrace()
@@ -1072,12 +1075,13 @@ class PlaybackController(
         applySubtitle()
     }
 
-    private fun audioGroups(tracks: Tracks = exo.currentTracks) = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+    private fun audioGroups(tracks: Tracks = exo.currentTracks) =
+        ContainerTrackOrder.sorted(tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }) { it.getTrackFormat(0).id }
 
     /** 内封字幕轨（不含旁挂的外挂轨），按容器顺序：第 N 条对应 embedded:N */
-    private fun embeddedTextGroups(tracks: Tracks = exo.currentTracks) = tracks.groups.filter { group ->
-        group.type == C.TRACK_TYPE_TEXT && group.getTrackFormat(0).id?.contains(EXTERNAL) != true
-    }
+    private fun embeddedTextGroups(tracks: Tracks = exo.currentTracks) = ContainerTrackOrder.sorted(
+        tracks.groups.filter { group -> group.type == C.TRACK_TYPE_TEXT && group.getTrackFormat(0).id?.contains(EXTERNAL) != true },
+    ) { it.getTrackFormat(0).id }
 
     private fun textGroupFor(option: SubtitleOption, tracks: Tracks = exo.currentTracks): Tracks.Group? {
         val index = option.embeddedIndex
@@ -1236,6 +1240,17 @@ class PlaybackController(
     fun cancelScrubFollow() {
         scrubFollowJob?.cancel()
     }
+
+    /** 播放速度（手机的倍速菜单与长按倍速；换会话、换集都保持） */
+    fun setSpeed(speed: Float) {
+        noteUserActivity()
+        exo.setPlaybackSpeed(speed)
+    }
+
+    val speed: Float get() = exo.playbackParameters.speed
+
+    /** 当前这份播放计划（档位、判据原文、字幕压制）：界面上的档位标签用；还没开出会话时 null */
+    val decision: PlaybackDecisionView? get() = session?.decision
 
     // ======================================================================
     // 音轨 / 字幕 / 画质
@@ -1782,6 +1797,7 @@ class PlaybackController(
             droppedFrames = counters?.droppedBufferCount?.toLong(),
             totalFrames = counters?.let { (it.renderedOutputBufferCount + it.droppedBufferCount + it.skippedOutputBufferCount).toLong() },
             logTail = if (r.wantsLogTail(outcome)) EngineLog.tail() else null,
+            client = identity.kind,
         )
     }
 

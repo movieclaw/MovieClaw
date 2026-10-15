@@ -1362,11 +1362,14 @@ fun ItemDetailScreen(
                     val subKind = if (readyDetail.kind == "tv") "tv" else "movie"
                     val tmdb = readyDetail.tmdbId ?: 0L
                     picking = null
-                    scope.launch {
-                        val existing = vm.subscriptionsOfKind(subKind).getOrDefault(emptyList())
-                            .firstOrNull { it.media.tmdbId?.toLong() == tmdb }
-                        if (existing != null) onOpenSubscription(existing.id, true)
-                        else onSubscribe("tmdb:$subKind:$tmdb")
+                    // 组合提交后再启动（协程挂在外层 scope 上，分支随 picking=null 离开组合也不受影响）
+                    androidx.compose.runtime.SideEffect {
+                        scope.launch {
+                            val existing = vm.subscriptionsOfKind(subKind).getOrDefault(emptyList())
+                                .firstOrNull { it.media.tmdbId?.toLong() == tmdb }
+                            if (existing != null) onOpenSubscription(existing.id, true)
+                            else onSubscribe("tmdb:$subKind:$tmdb")
+                        }
                     }
                 }
 
@@ -1386,13 +1389,15 @@ fun ItemDetailScreen(
 
                 ItemActionId.REGENERATE_CHAPTERS -> {
                     picking = null
-                    scope.launch {
-                        vm.regenerateChapters()
-                            .onSuccess {
-                                feedback.show(McNotice("已开始重新生成章节", FeedbackTone.Success))
-                                vm.load()
-                            }
-                            .onFailure { feedback.show(McNotice(friendlyMessage(it), FeedbackTone.Error)) }
+                    androidx.compose.runtime.SideEffect {
+                        scope.launch {
+                            vm.regenerateChapters()
+                                .onSuccess {
+                                    feedback.show(McNotice("已开始重新生成章节", FeedbackTone.Success))
+                                    vm.load()
+                                }
+                                .onFailure { feedback.show(McNotice(friendlyMessage(it), FeedbackTone.Error)) }
+                        }
                     }
                 }
 
@@ -1521,7 +1526,7 @@ private fun Hero(
     /** 正文其余部分（分集 / 演职员 / 文件）：与简介同用那一块上提 124 的列 */
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    // 版本/文件、音轨源、discSource 都跟着**选中的那一集**走（iOS `selectedEpisode.files`）：
+    // 版本/文件、音轨源都跟着**选中的那一集**走（iOS `selectedEpisode.files`）：
     // 原来一律拿 `detail.files.firstOrNull()`（第 1 季第 1 个文件），选了季也对不上
     val unitFiles = remember(detail.mediaItemId, unit, episodes) {
         val ids = unit?.let { u -> episodes[u.season]?.firstOrNull { it.episodeNumber == u.episode }?.fileIds }
@@ -1765,8 +1770,6 @@ private fun Hero(
                             // 详情页选好的轨随起播请求带走（服务端 apply 后返回的 plan 就是它）
                             preferredAudio = effectiveAudio,
                             preferredSubtitle = effectiveSubtitle,
-                            // 原盘（ISO / BDMV 目录）本机引擎读不了盘内结构，协商时特殊处理
-                            discSource = file?.container == "iso" || file?.container == "bluray",
                         )
                     )
                 },

@@ -101,7 +101,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - uses: gradle/actions/setup-gradle@v4
 
@@ -113,6 +113,8 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           : "${ANDROID_KEYSTORE_BASE64:?未配置 Android 正式签名密钥}"
+          # 统一播放引擎的 FFmpeg 音频软解由打包脚本现编（apps/android-core/native/ffmpeg/build.sh）
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.3.13750724" "cmake;3.22.1" > /dev/null
           export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/movieclaw-android.p12"
           umask 077
           trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
