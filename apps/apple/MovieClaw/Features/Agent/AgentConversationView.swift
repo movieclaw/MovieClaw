@@ -62,7 +62,7 @@ struct AgentConversationView: View {
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle(conversation.loaded ? conversation.title : "AI 会话")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarVisibility(.hidden, for: .tabBar)
+            .background { HidesTabBarWhenPushed() }
             .toolbar {
                 // 右上角只留「⋯」，操作的是当前会话；Web 顶栏的搜索与「+」在会话页里用不上（2026-09-26 用户决定去掉）
                 if conversation.loaded {
@@ -184,14 +184,7 @@ struct AgentConversationView: View {
             if scroll.update(phase: phase) { scrollToLatest(proxy) }
         }
         .onScrollGeometryChange(for: AgentTranscriptScroll.Viewport.self) { geometry in
-            let gap = geometry.contentSize.height - geometry.visibleRect.maxY
-            return .init(
-                nearBottom: gap < 120,
-                offscreen: Self.offscreen(visible: geometry.visibleRect, contentHeight: geometry.contentSize.height),
-                atBottom: gap <= 1,
-                contentHeight: geometry.contentSize.height.rounded(),
-                visibleHeight: geometry.visibleRect.height.rounded()
-            )
+            Self.viewport(contentHeight: geometry.contentSize.height, visible: geometry.visibleRect, insets: geometry.contentInsets)
         } action: { _, viewport in
             if scroll.update(viewport: viewport) { scrollToLatest(proxy) }
         }
@@ -345,10 +338,22 @@ struct AgentConversationView: View {
         }
     }
 
-    /// 视口与内容完全不相交（纯函数，单元测试见 AgentLogicTests）。内容还没出来（高度 0）不算
-    static func offscreen(visible: CGRect, contentHeight: CGFloat) -> Bool {
-        guard contentHeight > 0, visible.height > 0 else { return false }
-        return visible.minY >= contentHeight || visible.maxY <= 0
+    /// 滚动几何 → 贴底状态（纯函数，单元测试见 AgentLogicTests）。
+    /// `visibleRect` 覆盖整个屏幕，包括顶栏与输入区背后（实测贴底时 maxY = 内容高 + 输入区高），
+    /// 要扣掉安全区才是读得到的区域。滚过头（内容缩短后底部留空白）不算贴底，否则页面停在空白处无人校正。
+    static func viewport(contentHeight: CGFloat, visible: CGRect, insets: EdgeInsets) -> AgentTranscriptScroll.Viewport {
+        let top = visible.minY + insets.top
+        let bottom = visible.maxY - insets.bottom
+        let gap = contentHeight - bottom
+        return .init(
+            nearBottom: gap < 120,
+            // 内容还没出来（高度 0）不算
+            offscreen: contentHeight > 0 && bottom > top && (top >= contentHeight || bottom <= 0),
+            // 不满一屏时位置由系统的底部锚点摆放（实测会停在负偏移），不再校正，否则与锚点来回拉扯
+            atBottom: abs(gap) <= 1 || contentHeight <= bottom - top,
+            contentHeight: contentHeight.rounded(),
+            visibleHeight: visible.height.rounded()
+        )
     }
 
     /// 发出新消息或点击「回到最新」时恢复跟随；用户开始拖动立即让出控制。

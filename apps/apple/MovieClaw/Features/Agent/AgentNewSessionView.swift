@@ -61,7 +61,7 @@ struct AgentNewSessionView: View {
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("新会话")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarVisibility(.hidden, for: .tabBar)
+            .background { HidesTabBarWhenPushed() }
             .sheet(isPresented: $askingConsent) {
                 AgentAIConsentSheet(providers: AgentAIConsent.providers(modelOptions), onAgree: send)
             }

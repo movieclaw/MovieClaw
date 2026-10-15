@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 import Testing
@@ -293,15 +294,30 @@ struct AgentLogicTests {
         #expect(stoppedRows.last?.spacing == 6)
     }
 
-    @Test func transcriptOffscreenDetectsViewportPastTheContent() {
-        let screen = CGSize(width: 402, height: 700)
-        // 视口整个落在内容末尾之后（黑屏）/ 开头之前：要拉回来
-        #expect(AgentConversationView.offscreen(visible: CGRect(origin: CGPoint(x: 0, y: 5200), size: screen), contentHeight: 5000))
-        #expect(AgentConversationView.offscreen(visible: CGRect(origin: CGPoint(x: 0, y: -900), size: screen), contentHeight: 5000))
-        // 停在底部、橡皮筋拉过头一点但还压着内容、内容还没出来：都不动
-        #expect(!AgentConversationView.offscreen(visible: CGRect(origin: CGPoint(x: 0, y: 4300), size: screen), contentHeight: 5000))
-        #expect(!AgentConversationView.offscreen(visible: CGRect(origin: CGPoint(x: 0, y: 4900), size: screen), contentHeight: 5000))
-        #expect(!AgentConversationView.offscreen(visible: CGRect(origin: .zero, size: screen), contentHeight: 0))
+    @Test func transcriptViewportMeasuresTheReadableAreaBetweenBars() {
+        // iPhone Air 实测：visibleRect 盖住整屏 912pt，顶栏 122、输入区 127 在它里面
+        let insets = EdgeInsets(top: 122, leading: 0, bottom: 127, trailing: 0)
+        func viewport(_ minY: CGFloat, content: CGFloat = 1_616) -> AgentTranscriptScroll.Viewport {
+            AgentConversationView.viewport(contentHeight: content, visible: CGRect(x: 0, y: minY, width: 420, height: 912), insets: insets)
+        }
+        // 贴底：内容末尾正好落在输入区上沿
+        let resting = viewport(831)
+        #expect(resting.atBottom && resting.nearBottom && !resting.offscreen)
+        // 内容缩短后停在原处：最后一段上移到屏幕中间、下面一片空白——不是贴底，要校正
+        let shrunk = viewport(831, content: 1_300)
+        #expect(!shrunk.atBottom && !shrunk.offscreen)
+        // 内容整个缩进顶栏背后：看着是空白页，算越界
+        #expect(viewport(1_400, content: 1_500).offscreen)
+        #expect(viewport(-900).offscreen)
+        // 往上翻了一点：离底 150pt，给「回到最新」
+        let reading = viewport(681)
+        #expect(!reading.atBottom && !reading.nearBottom)
+        // 不满一屏的短会话由系统锚点摆放，停在哪都算贴底（实测两种偏移）；内容还没出来不算越界
+        for minY: CGFloat in [-122, -244] {
+            let short = viewport(minY, content: 157)
+            #expect(short.atBottom && short.nearBottom && !short.offscreen)
+        }
+        #expect(!viewport(-122, content: 0).offscreen)
     }
 
     @Test func composerBottomGapTucksIntoHomeIndicatorOnlyWithoutKeyboard() {
