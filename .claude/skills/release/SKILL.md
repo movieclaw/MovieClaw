@@ -122,7 +122,7 @@ GitHub 自动生成的提交清单（Windows 用一句默认说明），changelo
 
 ### Apple 平台（`ios-v` / `tvos-v` / `macos-v` / `transcoder-v`）
 
-- 一个工作流 `apple-release.yml` 按 tag 前缀分别构建：iPhone 编未签名 IPA；Apple TV 不构建，只建一条带
+- 一个工作流 `apple-release.yml` 按 tag 前缀分别构建：iPhone / iPad（同一个包）编未签名 IPA；Apple TV 不构建，只建一条带
   说明的 Release；Mac 版与转码器在 xcode-27 / macos-26 上编译，Developer ID 签名并公证，生成
   `downloads.json` 供官网下载页读取（macOS runner 上复核签名与公证）。
 - 转码器版本只在它自己的 `Info.plist`，不跟服务器走。
@@ -192,8 +192,10 @@ GitHub 自动生成的提交清单（Windows 用一句默认说明），changelo
 2. 从 main 打包上传：`source <本机 env> && apps/apple/scripts/release.sh --upload`
    （不带 `--upload` 只导出，用于先验证签名）。构建号取 UTC 时间自动递增。
    Apple TV 版加 `--tv`、Mac 版加 `--mac`（同一条 App 记录、各自一条构建序列），几端都要发就各跑一次。
+   iPad 不用另打包：默认那个 iOS 构建同时是 iPhone 与 iPad 版（`release.sh` 归档后会核对包里声明了 iPad）。
    TestFlight 的审核账号、备注与「Beta 版 App 描述」三端共用，提审前按 `docs/design/ios-release.md` §4 核对；
-   各端的「测试内容」只写那一端真有的功能。
+   各端的「测试内容」只写那一端真有的功能，iOS 构建的测试内容同时写 iPad 上的入口差异（同备注）。
+   提审正式版时 iPad 也要截图（13 英寸），Vision Pro 的分发开关见 ios-release.md §4。
 3. 上传后 5～30 分钟处理完；可用 ASC API 查 `processingState` / `buildAudienceType`。
    开了自动分发的内部测试组会自动收到；对外测试组按 checklist §5 加构建、提审。
 4. 看 Apple 邮件：ITMS-91053 等警告按邮件补隐私清单。
@@ -277,3 +279,4 @@ ffmpeg 版本，发版前按下表逐项过一遍。
 - [ ] App 依赖新服务器接口且不能降级 → 服务器已先发，App 的最低服务器版本已上调到它
 - [ ] 对应工作流全绿，Release 已转正、没有标成 latest，附件齐全
 - [ ] Mac 版 / 转码器 / Android：官网下载页显示了新版本（缓存最多 1 小时）
+- [ ] iOS 构建（iPhone 与 iPad 同一个包）：改了导航或页面布局时，iPhone 和 iPad 各装一次 TestFlight 看过
