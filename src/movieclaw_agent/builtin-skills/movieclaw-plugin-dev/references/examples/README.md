@@ -9,7 +9,6 @@ CI 里 `tests/api/test_example_plugins*.py` 会把它们装进临时数据目录
 | `watchlist_feed.py` | 片单订阅：外部片单里新出现的片名自动订阅（为了验收测试能秒级触发，用的是后台循环 + 配置里的间隔；正式插件的周期性同步按 `recipes.md` 第 6 节贡献定时任务） | 后台任务、宿主操作 `search.titles`、`subscriptions.create` |
 | `keyword_rules.py` | 关键字规则：给订阅加「必须包含 / 排除」关键字与额外搜索词 | 决策钩子 `subscription.candidates.filter` / `subscription.search.keywords`、插件数据（订阅扩展字段）、可靠事件 `subscription.deleted` |
 | `cloud_strm.py` | 网盘上传：入库暂存后传到网盘，媒体库里放指向插件的签名 `.strm` | 流水线槽位 `ingest.staged`、任务处理器（断点续传、进度、重试 / 阻塞）、插件路由（验签公开区）与签名链接、宿主操作 `library.get`、`library.scan.start` |
-| `openlist_direct_link.py` | 网盘挂载直链：strm 指向 CloudDrive2 / rclone 挂载的文件时，按路径规则换成 OpenList 的签名地址，播放器 302 直连网盘、视频流量不经服务器 | 决策钩子 `playback.strm.direct-link`（只读查询）、`movieclaw_sdk.net` 出口 |
 | `site_pack/` | 站点数据包：把一组自己适配的站点 YAML 打成插件分发 | 站点数据包注册表 `site-data-packs`（包形式的本地插件） |
 | `ntfy-channel/` | 第三方 IM 通道：在 ntfy App 里和 MovieClaw 对话、接收推送 | 通道注册表 `im-channels`（`movieclaw_sdk.channels`，见 `docs/design/plugin-channels.md`）；带清单，可直接 `mclaw plugin pack` 成插件包 |
 | `wecom-channel/` | 回调式 IM 通道：企业微信自建应用，平台把加密消息推到回调地址 | 通道驱动的 `webhook`（`Capabilities(webhook=True)`）、清单 `callbacks = ["webhook"]`、企业微信验签与 AES 解密、应用消息接口发回复、配对码绑定；带清单，可直接打包 |

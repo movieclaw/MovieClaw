@@ -65,7 +65,7 @@ tests 守着：契约有增删时本文必须同步）。都是实验级；清�
 | `subscription.candidates.rank` | 洋葱 | 重排候选（必须是原集合的重排） | `… import CANDIDATES_RANK` | — |
 | `dl.downloader.select` | 第一个说了算 | 没指定下载器时按站点 / 体积 / 类型选一个已接入的下载器（各场景能拿到的字段见 `recipes.md` 第 2 节） | `… import DOWNLOADER_SELECT` | — |
 | `dl.torrent.before-delete` | 第一个说了算 | 否决删种（如 H&R 没达标），否决后删除返回 409 | `… import TORRENT_BEFORE_DELETE` | — |
-| `playback.strm.direct-link` | 第一个说了算 | strm 指向服务器挂载目录里的文件（CloudDrive2 / rclone）时，给播放器换一个网盘直链，播放器被 302 过去、视频流量不经服务器。载荷有文件路径与播放器 UA（115 直链与 UA 绑定）；可以给内网 302 服务地址（alist `/d/…`），系统会带播放器的 UA 替它跟跳转；`ttl_s` 是可复用多久。不认领返回 `None`，没认领 / 出错 / 播放器连不上一律照旧由服务器出字节。只管播放器去哪取，服务器自己读（探测、转码、字幕）照旧读挂载 | `… import STRM_DIRECT_LINK, DirectLink` | `openlist_direct_link.py` |
+| `playback.strm.direct-link` | 第一个说了算 | strm 指向服务器挂载目录里的文件（CloudDrive2 / rclone）时，给播放器换一个网盘直链，播放器被 302 过去、视频流量不经服务器。载荷有文件路径与播放器 UA（115 直链与 UA 绑定）；可以给内网 302 服务地址（alist `/d/…`），系统会带播放器的 UA 替它跟跳转；`ttl_s` 是可复用多久。不认领返回 `None`，没认领 / 出错 / 播放器连不上一律照旧由服务器出字节。只管播放器去哪取，服务器自己读（探测、转码、字幕）照旧读挂载 | `… import STRM_DIRECT_LINK, DirectLink` | 插件仓库 movieclaw-plugins 的 `plugins/openlist-direct-link/` |
 
 ## 3. 注册表：给系统加一种新实现
 

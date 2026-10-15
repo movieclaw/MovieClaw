@@ -220,6 +220,12 @@ movies released by the Blender Foundation and others (CC BY).
 - Updates and rollbacks are buttons in the web UI. Routine upgrades download only a few megabytes, a broken update rolls itself back, and your data is never touched.
 - Errors are written for humans, for the person who deploys things but doesn't write code. (Log and UI messages are currently in Chinese.)
 
+### Plugins
+
+- The core stays general; personal setups are plugins. Messaging channels, downloaders, cloud-drive direct links and more live in the
+  [movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins) repo. Download a `.mcplugin` and upload it on the **Plugins** page in Settings.
+- Want to write one? Start with that repo's `example/GUIDE.md`, or ask the AI assistant to write it for you.
+
 ## Boundaries
 
 ### What it won't do

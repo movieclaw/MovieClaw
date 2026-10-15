@@ -258,16 +258,17 @@ strm 本来就让客户端走 `/Videos/{id}/stream`，不用改。离线下载�
 - 插件停用后立即不再 302（先看有没有监听，再查缓存）；
 - 插件没认领、出错、超时、给的地址不可用，一律照旧由服务器出字节，播放不受插件影响。
 
-**示例插件**：`movieclaw-plugin-dev` 技能的 `references/examples/openlist_direct_link.py`——同一个网盘也挂在
+**插件**：不进主仓库，在插件仓库 [movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins) 的
+`plugins/openlist-direct-link/`——同一个网盘也挂在
 OpenList 里时，按路径规则换成 OpenList 路径，经 `/api/fs/get` 取签名，交出 `/d/…?sign=`（内网也行，
 内核带播放器 UA 跟跳转到网盘 CDN）。CloudDrive2 自己也能出直链（gRPC `GetMountPoints` +
 `GetDownloadUrlPath`），写成插件是同一个形状。
 
 **验证**：`tests/api/test_strm_direct_link.py`（钩子层挂真插件：认领、缓存、并发合并、出错 / 非 http /
 内网自己出字节时回落、停用即止；端点层：网页取流、Worker 取源、普通文件不问）、
-`tests/jellyfin/test_http_flow.py`（Jellyfin 取流与下载）、`tests/api/test_example_openlist_direct_link.py`
-（示例插件在主进程与独立进程各跑一遍：仿 OpenList 验令牌给签名、`/d/` 按 UA 302 到网盘 CDN；不在规则里、
-OpenList 停了都照旧出字节）。
+`tests/jellyfin/test_http_flow.py`（Jellyfin 取流与下载）、`tests/api/test_strm_direct_link_runtime.py`
+（本地插件在主进程与独立进程各跑一遍：播放器 UA 经插件 IPC 原样到插件、认领的 302、没认领的照旧出字节）。
+OpenList 插件的用例在插件仓库里。
 
 **没做的**：
 
