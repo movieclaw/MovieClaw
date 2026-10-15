@@ -520,6 +520,67 @@ async def test_watcher_passes_scope_to_scan(db, tmp_path, monkeypatch) -> None:
         await watcher.stop()
 
 
+def test_settled_video_path_reads_write_finished_events() -> None:
+    """写后关闭、改名就位是「写入方已收尾」；created/modified 不是（实测见函数注释）。"""
+    pytest.importorskip("watchdog")
+    from watchdog.events import (
+        FileClosedEvent,
+        FileCreatedEvent,
+        FileModifiedEvent,
+        FileMovedEvent,
+    )
+
+    mkv = "/lib/M/M.mkv"
+    assert watch_mod._settled_video_path(FileClosedEvent(mkv)) == mkv
+    assert watch_mod._settled_video_path(FileMovedEvent(mkv + ".!qB", mkv)) == mkv
+    assert watch_mod._settled_video_path(FileMovedEvent("/lib/M/M.mkv.part", mkv)) == mkv
+    assert watch_mod._settled_video_path(FileCreatedEvent(mkv)) is None
+    assert watch_mod._settled_video_path(FileModifiedEvent(mkv)) is None
+    assert watch_mod._settled_video_path(FileClosedEvent("/lib/M/M.nfo")) is None
+    # mmap 写入全程没有 modified：写后关闭同时是原地覆盖的重探点名
+    assert watch_mod._modified_video_path(FileClosedEvent(mkv)) == mkv
+
+
+@pytest.mark.asyncio
+async def test_watcher_passes_settled_paths_to_scan(db, tmp_path, monkeypatch) -> None:
+    """下载完成时的写后关闭事件要作为 settled_paths 交给扫描，扫描才能不等静默窗口。"""
+    pytest.importorskip("watchdog")
+    monkeypatch.setattr(watch_mod, "_QUIET_SECONDS", 0.1)
+    monkeypatch.setattr(watch_mod, "_MAX_WAIT_SECONDS", 1.0)
+
+    root = tmp_path / "movies"
+    root.mkdir()
+    async with db.session() as session:
+        await LibraryRepository(session).create(name="电影库", kind="movie", root_paths=[str(root)])
+
+    calls: list[dict] = []
+
+    async def fake_scan(library_id, **kwargs):
+        calls.append({"library_id": library_id, **kwargs})
+
+    monkeypatch.setattr(scan_mod, "scan_library", fake_scan)
+
+    watcher = watch_mod.LibraryWatcher()
+    await watcher.start()
+    try:
+        assert watcher._startup is not None
+        await watcher._startup
+        from watchdog.events import FileClosedEvent
+
+        video = str(root / "影片X (2020)" / "X.2020.mkv")
+        watch = next(iter(watcher._entries.values()))[1]
+        watcher._observer.event_queue.put((FileClosedEvent(video), watch))
+        for _ in range(100):
+            await asyncio.sleep(0.05)
+            if calls:
+                break
+        assert calls, "监控未触发扫描"
+        assert calls[0]["settled_paths"] == {video}
+        assert calls[0]["reprobe_paths"] == {video}
+    finally:
+        await watcher.stop()
+
+
 async def test_watcher_stop_waits_for_scan_cleanup(monkeypatch) -> None:
     """关停必须等扫描清理完，不能把仍在用连接的任务留给数据库/事件循环收尾。"""
     entered = asyncio.Event()
@@ -572,7 +633,7 @@ async def test_watcher_defers_events_during_scan(db, tmp_path, monkeypatch) -> N
     watcher = watch_mod.LibraryWatcher()
     await watcher.start()
     try:
-        watcher._queue.put_nowait((7, "/lib/entry", None))
+        watcher._queue.put_nowait((7, "/lib/entry", None, None))
         for _ in range(100):
             await asyncio.sleep(0.05)
             if 7 in watcher._rescan_pending:

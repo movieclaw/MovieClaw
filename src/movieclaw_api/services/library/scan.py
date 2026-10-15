@@ -28,8 +28,13 @@ TMDB 网络故障恢复后重扫即可自动补识别；标记过 missing 的
 完整性检测（库对目录用途不做任何假设——根路径完全可以同时是下载目录，
 新文件可能是一个写入中的半成品）：**新文件 mtime 距今不足静默窗口的
 本轮暂缓入账**（下载器的 .!qB/.part 等未完成后缀本就不是视频扩展名，
-遍历天然不可见）。写入结束后不再有事件叫醒扫描，暂缓过文件的一轮扫描
-会按最近到期时间挂一次性补扫。扫描的角色是盘点不是守门，因此**不做
+遍历天然不可见）。静默窗口只是没有更好证据时的兜底：下载器报告文件
+写完、或 watch 事件说写入方已收尾（写后关闭/改名就位）且文件没有空洞，
+都当场入账（见 _DownloaderEvidence、_has_holes）。写入结束后不一定再有
+事件叫醒扫描，暂缓过文件的一轮扫描会挂补扫（只扫暂缓文件所在的条目，
+补扫自己又暂缓、或撞上库忙都会续期），并把这些目录从目录快照里作废——
+BT 往已有文件里写数据不改目录 mtime，留着快照会让增量对账永远跳过它。
+扫描的角色是盘点不是守门，因此**不做
 ffprobe 门禁**——探测失败的老文件可能只是格式怪，拦下反而让台账失真。
 
 改名归并：磁盘上被改名/移动的文件（旧路径消失 + 新路径出现）在落账前
@@ -40,6 +45,7 @@ ffprobe 门禁**——探测失败的老文件可能只是格式怪，拦下反�
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import logging
 import os
@@ -311,8 +317,17 @@ _PINNED_RUNTIME_RATIO = 3
 _PINNED_RUNTIME_GAP_SECONDS = 30 * 60
 
 # 新文件的静默窗口：mtime 距今不足该值视为"疑似写入中"，本轮暂缓入账。
-# 只看 mtime 不看大小——BT 客户端预分配全尺寸文件，大小从一开始就不变
+# 只看 mtime 不看大小——BT 客户端预分配全尺寸文件，大小从一开始就不变。
+# 这是没有更好证据时的兜底：下载器报告写完、或文件事件说写入方已收尾，
+# 都不必等满这个窗口（见 _write_settled）
 NEW_FILE_QUIET_SECONDS = 300
+
+# 暂缓文件里有下载器认得的（它说还没写完）：补扫期间按这个间隔只问下载器，
+# 一说写完就立刻补扫，不必等 mtime 静默窗口。只在有这类暂缓文件时才问
+_DOWNLOADER_POLL_SECONDS = 30.0
+
+# 补扫撞上库忙（另一轮扫描、整理、转移或后台作业）让路时，多久后再试
+_RESCAN_BUSY_RETRY_SECONDS = 30.0
 
 # 收尾补图片资产的并发路数。与整库刷新取同一个值（media_scrape.
 # _REFRESH_CONCURRENCY = 3）：瓶颈是等图床响应，3 路明显快过串行，
@@ -425,6 +440,12 @@ class ScanSummary:
     errors: list[str] = field(default_factory=list)
     # 暂缓文件的最近到期秒数（补扫的等待时长；对外接口不暴露）
     recheck_delay_seconds: float = 0.0
+    # 本轮暂缓的文件 → 所在的根下第一级条目（补扫只扫这些条目；对外接口不暴露）
+    deferred_scopes: dict[str, str] = field(default_factory=dict)
+    # 暂缓文件里下载器说还没写完的 → 所在库根（补扫期间轮询下载器；对外接口不暴露）
+    awaiting_downloader: dict[str, str] = field(default_factory=dict)
+    # 库忙让路、本轮什么都没做（补扫据此稍后重试；对外接口不暴露）
+    postponed: bool = False
     # 本轮挂上身份锚的条目（去重）：扫描收尾统一补齐图片资产与媒体目录
     # 镜像（docs/design/metadata.md 4.1；对外接口不暴露）
     identified_item_ids: set[int] = field(default_factory=set)
@@ -492,6 +513,9 @@ def scan_summary_payload(summary: ScanSummary) -> dict[str, object]:
     """生成可持久化的扫描结论；内部调度字段不进入 Job JSON。"""
     payload = asdict(summary)
     payload.pop("recheck_delay_seconds", None)
+    payload.pop("deferred_scopes", None)
+    payload.pop("awaiting_downloader", None)
+    payload.pop("postponed", None)
     payload.pop("identified_item_ids", None)
     payload.pop("reanchored_item_ids", None)
     payload.pop("added_files", None)
@@ -632,28 +656,184 @@ def request_stop_scan(library_id: int) -> bool:
     return _scan_tasks.request_stop(library_id)
 
 
-def _arm_rescan(library_id: int, delay: float) -> None:
-    """给暂缓过文件的库挂一次性补扫（每库至多一个，落定后自然归零）。"""
-    existing = _rescan_tasks.get(library_id)
-    if existing is not None and not existing.done():
-        return
+@dataclass
+class _RescanRequest:
+    """一个库挂着的暂缓补扫（每库至多一份，再次挂载时合并）。"""
+
+    due: float  # 到点时刻（事件循环时钟）：最早一个暂缓文件的静默期满
+    scopes: set[str] | None  # 补扫范围：暂缓文件所在的根下第一级条目；None = 整库
+    # 下载器说还没写完的文件 → 所在库根：到点前按间隔问下载器，说写完就提前补扫
+    awaiting: dict[str, str]
+    wake: asyncio.Event = field(default_factory=asyncio.Event)
+
+
+_rescan_requests: dict[int, _RescanRequest] = {}
+
+
+def _arm_rescan(
+    library_id: int,
+    delay: float,
+    scopes: set[str] | None = None,
+    awaiting: dict[str, str] | None = None,
+) -> None:
+    """给暂缓过文件的库挂补扫（每库一个任务，已挂着的合并范围、取更早的到点）。
+
+    补扫自己这一轮又暂缓了文件时，挂载发生在补扫任务内部：请求登记好，
+    任务循环接着办——早先「任务还没结束就不挂」的写法让补扫续不上期，
+    文件写得比一轮静默窗口久就再没人来扫它。
+    """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return  # 无事件循环（同步测试环境等）：由手动扫描/对账兜底
-    _rescan_tasks[library_id] = loop.create_task(_rescan_later(library_id, delay))
+    due = loop.time() + delay
+    request = _rescan_requests.get(library_id)
+    if request is None:
+        _rescan_requests[library_id] = _RescanRequest(
+            due=due,
+            scopes=None if scopes is None else set(scopes),
+            awaiting=dict(awaiting or {}),
+        )
+    else:
+        request.scopes = (
+            None if request.scopes is None or scopes is None else request.scopes | scopes
+        )
+        request.awaiting.update(awaiting or {})
+        if due < request.due:
+            request.due = due
+        request.wake.set()
+    task = _rescan_tasks.get(library_id)
+    if task is None or task.done():
+        _rescan_tasks[library_id] = loop.create_task(_rescan_later(library_id))
 
 
-async def _rescan_later(library_id: int, delay: float) -> None:
-    await asyncio.sleep(delay)
-    # 这一轮只为接住刚写完的新文件；历史规格补探必须由用户主动扫描触发，
-    # 否则下载期间一次短暂的 mtime 波动也会重新扫到整库未补探的旧文件。
-    summary = await scan_library(library_id, backfill_existing_specs=False)
-    # 暂缓的新文件这轮终于入账了：同样要识别片头片尾（docs/design/skip-intro.md），
-    # 这条路径不经过扫描作业，扫描作业收尾的那个挂钩够不着
-    from movieclaw_api.services.library.skip_segments import enqueue_after_scan
+async def _rescan_later(library_id: int) -> None:
+    loop = asyncio.get_running_loop()
+    while (request := _rescan_requests.get(library_id)) is not None:
+        wait = request.due - loop.time()
+        if wait > 0:
+            request.wake.clear()
+            nap = min(wait, _DOWNLOADER_POLL_SECONDS) if request.awaiting else wait
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(request.wake.wait(), nap)
+            if request.wake.is_set() or not request.awaiting or loop.time() >= request.due:
+                continue
+            # 静默期还没满，但下载器可能已经报告写完：报告了就提前补扫
+            evidence = _DownloaderEvidence()
+            finished = False
+            for path, root in request.awaiting.items():
+                if await evidence.verdict(Path(path), Path(root)):
+                    finished = True
+                    break
+            if not finished:
+                continue
+        _rescan_requests.pop(library_id, None)
+        # 这一轮只为接住刚写完的新文件；历史规格补探必须由用户主动扫描触发，
+        # 否则下载期间一次短暂的 mtime 波动也会重新扫到整库未补探的旧文件。
+        # 只扫暂缓文件所在的条目：整库增量对账会凭目录快照跳过「目录没变」的
+        # 目录，而 BT 往已有文件里写数据从不改目录 mtime
+        summary = await scan_library(
+            library_id, backfill_existing_specs=False, scope_paths=request.scopes
+        )
+        if summary.postponed:
+            # 库忙让路：什么都没扫，请求原样留着稍后再试，不能就此断链
+            _arm_rescan(library_id, _RESCAN_BUSY_RETRY_SECONDS, request.scopes, request.awaiting)
+            continue
+        # 暂缓的新文件这轮终于入账了：同样要识别片头片尾（docs/design/skip-intro.md），
+        # 这条路径不经过扫描作业，扫描作业收尾的那个挂钩够不着
+        from movieclaw_api.services.library.skip_segments import enqueue_after_scan
 
-    await enqueue_after_scan(library_id, summary)
+        await enqueue_after_scan(library_id, summary)
+
+
+class _DownloaderEvidence:
+    """向下载器问「这个文件写完没有」：一轮扫描（或一次轮询）内任务概览与清单各只取一次。
+
+    按名称把文件或它在库根之下的某层上级目录对到下载器任务（与监听导入
+    同一口径，免疫容器路径映射），再按任务文件清单核对这个文件的完成字节；
+    清单路径翻译不了时只认整种完成。同名任务有多个时从严：都说写完才算。
+    下载器没配、不可达、对不上任何任务都答「不知道」（None）——调用方退回
+    mtime 静默窗口，绝不因此猜完成。
+    """
+
+    def __init__(self) -> None:
+        self._briefs: list | None = None
+        self._loaded = False
+        self._details: dict[int, acquisition.TaskFiles | None] = {}
+
+    async def verdict(self, file: Path, root: Path) -> bool | None:
+        bridge = acquisition.current()
+        if not self._loaded:
+            self._loaded = True
+            try:
+                self._briefs = await bridge.download_tasks()
+            except Exception:  # noqa: BLE001 -- 下载器只是加速信号，故障时退回静默窗口
+                logger.warning("查询下载器任务失败，暂缓文件改按静默窗口判断", exc_info=True)
+        if not self._briefs:
+            return None
+        names = {file.name}
+        names.update(p.name for p in file.parents if p != root and root in p.parents)
+        path = str(file)
+        states: list[bool] = []
+        for brief in self._briefs:
+            if brief.name not in names and brief.content_name not in names:
+                continue
+            if id(brief) not in self._details:
+                try:
+                    found = await bridge.task_files([brief])
+                except Exception:  # noqa: BLE001 -- 拿不到清单就只认整种完成
+                    logger.warning("读取下载器文件清单失败，暂缓文件只认整种完成", exc_info=True)
+                    found = None
+                self._details[id(brief)] = found[0] if found else None
+            task = self._details[id(brief)]
+            if brief.completed or (task is not None and task.completed):
+                states.append(True)
+                continue
+            if task is None:
+                states.append(False)
+                continue
+            mine = [
+                f.completed
+                for f in task.files
+                if f.selected
+                and f.source is not None
+                and (str(f.source) == path or str(f.source).startswith(path + os.sep))
+            ]
+            if mine:
+                states.append(all(mine))
+            elif all(f.source is None for f in task.files):
+                states.append(False)  # 路径翻译不了、整种也没完成：从严算没写完
+            # 否则这个任务的清单里根本没有它：只是同名，不是它在写
+        return all(states) if states else None
+
+
+def _has_holes(path: Path) -> bool:
+    """文件里有没写到的空洞（稀疏文件）：BT 不预分配时，还没下到的分块就是空洞。
+
+    实测 qBittorrent 暂停任务时同样会关闭文件——「写入方关了文件」不等于
+    「写完了」，空洞是能当场否决它的证据。拿不到信息（不支持 SEEK_HOLE 的
+    文件系统、打不开）一律当没有：这条只用来否决快速判断，不能反过来拦住入账。
+    """
+    seek_hole = getattr(os, "SEEK_HOLE", None)
+    if seek_hole is None:
+        return False
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return False
+    try:
+        size = os.fstat(fd).st_size
+        return size > 0 and os.lseek(fd, 0, seek_hole) < size
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
+def _entry_scope(root: Path, file: Path) -> str:
+    """文件所在的根下第一级条目（范围扫描的最小单位，与 watch._scope_for 同口径）。"""
+    first = file.relative_to(root).parts[0]
+    return str(root / first)
 
 
 def last_scan(library_id: int) -> tuple | None:
@@ -756,6 +936,7 @@ async def scan_library(
     probe_retry_limit: int | None = None,
     reprobe_paths: set[str] | None = None,
     scope_paths: set[str] | None = None,
+    settled_paths: set[str] | None = None,
     reconcile_root_change: bool = False,
     previous_root_paths: list[str] | None = None,
     reconcile_new_root_paths: list[str] | None = None,
@@ -789,6 +970,11 @@ async def scan_library(
     扫描中跳过（清理要求「整根遍历过且可信」，交给对账与手动扫描）。
     范围解析存疑时自动退回整库遍历（见 _resolve_scope）。只应与
     ``backfill_existing_specs=False`` 搭配、不与 reconcile 参数同用。
+
+    ``settled_paths``：watch 事件说「写入方已经收尾」的文件（写完关闭、改名
+    就位，见 watch._settled_video_path）。这些文件不必等 mtime 静默窗口，
+    没有空洞（稀疏文件里没下到的分块）就当场入账——实测 qBittorrent 默认的
+    mmap 写入在下载全程不产生任何修改事件，完成那一刻的关闭是唯一的信号。
 
     ``reconcile_root_change`` 仅由媒体库编辑根路径后的后台扫描传入，且必须
     同时给出编辑前的 ``previous_root_paths``。它以旧/新根下相同的相对路径
@@ -830,10 +1016,12 @@ async def scan_library(
         lock_owner is not None and (job_context is None or lock_owner != job_context.job_id)
     ):
         summary.errors.append("该库有后台作业正在执行，扫描已顺延到下一次触发")
+        summary.postponed = True
         return summary
     running = _scan_tasks.state_of(library_id)
     if running is not None:
         summary.errors.append(f"该库已有任务在进行中（{PHASE_LABELS[running.phase]}）")
+        summary.postponed = True
         return summary
     # 与整理互斥：整理在批量改名，扫描此刻介入会把刚搬走的旧路径标 missing、
     # 把新路径当新文件重走识别链（人工认领可能丢失）。手动扫描、watchdog
@@ -841,6 +1029,7 @@ async def scan_library(
     # 更新，无需扫描补账，漏掉的变更由下轮对账兜底）
     if is_organizing(library_id):
         summary.errors.append("该库正在整理文件名，扫描已跳过（整理完成后可重新扫描）")
+        summary.postponed = True
         return summary
     # 与条目转移互斥，理由与整理完全相同：转移正在把整个条目目录搬进/搬出
     # 本库，扫描此刻介入会把搬走的旧路径标 missing、把搬来的新路径当新文件
@@ -848,6 +1037,7 @@ async def scan_library(
     # watchdog 事件也在这里被挡下
     if is_transferring(library_id):
         summary.errors.append("该库正在转移条目，扫描已跳过（转移完成后可重新扫描）")
+        summary.postponed = True
         return summary
     # 状态先立起来再干活：从这一行到 finally 之间的任何路径，"在跑"与
     # "跑到哪了"都由同一个对象回答，接口不可能取到半截状态
@@ -866,6 +1056,7 @@ async def scan_library(
             probe_retry_limit=probe_retry_limit,
             reprobe_paths=reprobe_paths or set(),
             scope_paths=scope_paths,
+            settled_paths=settled_paths or set(),
             reconcile_root_change=reconcile_root_change,
             previous_root_paths=previous_root_paths or [],
             reconcile_new_root_paths=reconcile_new_root_paths or [],
@@ -895,7 +1086,12 @@ async def scan_library(
         # 暂缓过文件的扫描要自己安排补扫：写入结束后不会再有事件叫醒我们
         # （手动停止的不自动补扫——用户的意图是"别扫了"）
         if summary.deferred and not summary.cancelled and finished_normally:
-            _arm_rescan(library_id, summary.recheck_delay_seconds)
+            _arm_rescan(
+                library_id,
+                summary.recheck_delay_seconds,
+                set(summary.deferred_scopes.values()),
+                summary.awaiting_downloader,
+            )
 
 
 @jobs.register_job_handler("library.scan")
@@ -1045,6 +1241,7 @@ async def _scan(
     probe_retry_limit: int | None,
     reprobe_paths: set[str],
     scope_paths: set[str] | None,
+    settled_paths: set[str],
     reconcile_root_change: bool,
     previous_root_paths: list[str],
     reconcile_new_root_paths: list[str],
@@ -1248,6 +1445,8 @@ async def _scan(
             await bridge.checkpoint(state, summary, force=True, before_write=session.commit)
         now_ts = time.time()
         min_remaining: float | None = None
+        downloader = _DownloaderEvidence()  # 惰性：本轮没有疑似写入中的文件就一次也不问
+        deferred_dirs: set[str] = set()
         mtime_backfilled = 0
         rows_refreshed = 0  # 秒过行的外挂字幕/规格刷新计数（批量一次 commit）
         identity_refreshed = 0  # 秒过行吸收了新出现的 sidecar NFO（同样批量一次 commit）
@@ -1398,13 +1597,30 @@ async def _scan(
             if -NEW_FILE_QUIET_SECONDS <= age < NEW_FILE_QUIET_SECONDS and (
                 is_disc or file.suffix.lower() != STRM_EXT
             ):
-                summary.deferred += 1
-                remaining = NEW_FILE_QUIET_SECONDS - age
-                min_remaining = (
-                    remaining if min_remaining is None else min(min_remaining, remaining)
+                # 静默窗口只是没有更好证据时的兜底：下载器报告写完、或文件事件说
+                # 写入方已收尾（且没有没下到的空洞），就不必干等满窗口。下载器
+                # 说没写完则以它为准，哪怕文件事件说关了（暂停也会关文件）
+                verdict = await downloader.verdict(file, root_path)
+                settled = verdict is True or (
+                    verdict is None
+                    and not is_disc
+                    and path_str in settled_paths
+                    and not await asyncio.to_thread(_has_holes, file)
                 )
-                await advance(done)
-                continue
+                if not settled:
+                    summary.deferred += 1
+                    summary.deferred_scopes[path_str] = _entry_scope(root_path, file)
+                    if verdict is False:
+                        summary.awaiting_downloader[path_str] = str(root_path)
+                    deferred_dirs.add(str(file.parent))
+                    if is_disc:
+                        deferred_dirs.add(path_str)  # 原盘的快照行记的是原盘目录自己
+                    remaining = NEW_FILE_QUIET_SECONDS - age
+                    min_remaining = (
+                        remaining if min_remaining is None else min(min_remaining, remaining)
+                    )
+                    await advance(done)
+                    continue
             try:
                 await _ingest_file(
                     session,
@@ -1439,9 +1655,14 @@ async def _scan(
                 leftover.cancel()
         probe_ahead.clear()
 
+        # 暂缓文件的目录从快照里作废，下一轮增量对账一定重列它：BT 往已有文件
+        # 里写数据从不改目录 mtime，快照若记着暂缓那一刻的目录，补扫链只要断
+        # 一次（重启、库忙），这个文件就得等一周一次的全量重建才被看见
+        if deferred_dirs:
+            await _forget_dir_snapshot(session, library_id, deferred_dirs)
         # 台账行的这几类原地改动都靠这一次 commit 落盘：身份来源改 NFO 不能
         # 指望同轮恰好有规格刷新（没装 ffprobe 的环境里就没有）
-        if mtime_backfilled or rows_refreshed or identity_refreshed:
+        if mtime_backfilled or rows_refreshed or identity_refreshed or deferred_dirs:
             await session.commit()
         if rows_refreshed:
             logger.info(
@@ -2379,6 +2600,18 @@ async def _store_dir_snapshot(
     for start in range(0, len(rows), _DIR_SNAPSHOT_CHUNK):
         session.add_all(rows[start : start + _DIR_SNAPSHOT_CHUNK])
         await session.flush()
+
+
+async def _forget_dir_snapshot(session, library_id: int, paths: set[str]) -> None:
+    """删掉这些目录的快照行：下一轮增量遍历把它们当新目录完整列出。调用方负责 commit。"""
+    doomed = sorted(paths)
+    for start in range(0, len(doomed), _DIR_SNAPSHOT_CHUNK):
+        await session.execute(
+            delete(LibraryDirSnapshot).where(
+                LibraryDirSnapshot.library_id == library_id,
+                LibraryDirSnapshot.path.in_(doomed[start : start + _DIR_SNAPSHOT_CHUNK]),  # type: ignore[union-attr]
+            )
+        )
 
 
 def _walk_videos(
