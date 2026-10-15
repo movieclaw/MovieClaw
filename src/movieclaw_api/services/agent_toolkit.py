@@ -87,58 +87,6 @@ async def profile_tools(
     return attach_web_search_tool(get_agent_tools(cli_env), web_search)
 
 
-# 前端页面路由表：模型拼可点击链接的唯一依据（(路径模式, 一行说明)）。
-# 与 apps/web/app/(app) 的真实页面结构由守护测试保持同步（见
-# tests/api/test_agent.py 的 test_page_routes_match_web_app_pages）——
-# 前端加页面、改路径时测试会拦下，这张表不会悄悄过期。
-PAGE_ROUTES: list[tuple[str, str]] = [
-    ("/", "首页"),
-    ("/search", "站点资源搜索页"),
-    ("/discover/{movie|tv}", "发现页（电影/剧集的榜单与分类浏览）"),
-    (
-        "/discover/{movie|tv}/collections/{tmdb|douban}/{片单ID}",
-        "完整影视片单（片单引用来自 discover list-collections）",
-    ),
-    ("/discover/movie/top250", "豆瓣电影 Top250 榜单"),
-    ("/discover/movie/high-score", "豆瓣高分电影榜单"),
-    ("/discover/people/{TMDB 影人ID}", "发现页影人详情与完整作品列表"),
-    ("/media/{movie|tv}/{TMDB ID}", "影片/剧集详情页"),
-    ("/media/douban/{豆瓣ID}", "豆瓣词条详情页"),
-    ("/subscriptions", "订阅列表"),
-    ("/subscriptions/wall/{类型}", "订阅海报墙：tv 全部剧集订阅、movie 全部电影订阅"),
-    ("/subscriptions/{订阅ID}", "订阅详情（ID 来自 subscriptions list/get）"),
-    ("/library", "媒体库总览（浏览入口：接下来继续、我的收藏、各库最近添加；行可自定义）"),
-    ("/library/favorites", "我的收藏（当前账号收藏的全部作品，与 Jellyfin 客户端里点的心同一份）"),
-    ("/library/customize", "自定义媒体库首页（行的顺序、显隐、排序与名字；每个成员各存一份）"),
-    (
-        "/library/kind/{movie|tv|video}",
-        "按类型的跨库墙：全部电影 / 全部剧集 / 全部其他视频"
-        "（同类型的库合成一面墙，同一部片只出现一次）",
-    ),
-    ("/library/manage", "媒体库管理（建库、扫描、整理、排序、可见范围；仅管理员）"),
-    ("/library/collections", "全部合集总览（含跨库合集；合集 ID 来自 collection list）"),
-    (
-        "/library/c/{合集ID}",
-        "合集详情（不限某个库；库内合集也可从这里打开）",
-    ),
-    ("/library/{库ID}", "某个媒体库的内容（库 ID 来自 library list）"),
-    (
-        "/library/{库ID}/c/{合集ID}",
-        "库内合集详情：收录规则与成员作品（合集 ID 来自 collection list）",
-    ),
-    (
-        "/library/{库ID}/item/{条目ID}",
-        "库内条目详情（条目 ID 来自 library items list）",
-    ),
-    ("/activity", "活动页（观看：实时播放/下载；任务：后台作业与下载任务）"),
-    ("/new", "AI 新任务直达页（Netflix 顶栏「＋ 新任务」入口；与首页共用内容）"),
-    ("/sessions/{会话ID}", "AI 会话详情（ID 来自 session list/start）"),
-    ("/people/{影人ID}", "影人档案（ID 来自 people 域）"),
-    ("/my", "「我的」页（用户信息、快捷入口、AI 会话与账号操作；Netflix 移动端底栏页签）"),
-    ("/settings", "设置页"),
-]
-
-
 async def agent_system_prompt(tools: Sequence[AgentTool]) -> str:
     """组装本次运行的系统提示词：通用正文 + 部署环境事实 + 技能清单 + 服务目录。
 
@@ -149,8 +97,7 @@ async def agent_system_prompt(tools: Sequence[AgentTool]) -> str:
       问题靠这里给出的路径用 bash 直接检索；技能清单的指令要靠 read 加载正文
       （docs/design/agent-skills.md）。
     - 外部访问地址来自「设置 → 应用设置」（保存即生效），每次运行时现读设置
-      存储，不做缓存；未配置时整块不输出——没有前缀，路由表也拼不出有效链接，
-      避免模型给用户无效地址。
+      存储，不做缓存；未配置时不输出。
     - 带 mclaw 时末尾接 <mclaw_service> 服务目录。
 
     技能清单每次运行现扫：改技能无需重启，下一轮生效。
@@ -166,12 +113,7 @@ async def agent_system_prompt(tools: Sequence[AgentTool]) -> str:
         )
     external_url = (await get_setting_store().get(AppServerSetting)).external_url
     if external_url:
-        routes = "\n".join(f"  {pattern}  {desc}" for pattern, desc in PAGE_ROUTES)
-        lines.append(
-            f"- 本应用的外部访问地址：{external_url}。提到订阅、影片、库内条目等页面时，"
-            "尽量附上可点击的 Markdown 链接：以外部访问地址为前缀，路径按下表拼接。"
-            f"只拼表内路径，不要用容器内地址拼链接。\n{routes}"
-        )
+        lines.append(f"- 本应用的外部访问地址：{external_url}。")
     sections = [build_system_prompt("\n".join(lines) or None, workspace=workspace)]
     if workspace:
         user_skills_dir = Path(get_settings().agent_skills_dir).resolve()

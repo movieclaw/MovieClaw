@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -395,48 +394,3 @@ def test_system_prompt_sections_follow_mounted_tools(client) -> None:
         assert section not in bare
     assert full.endswith("</mclaw_service>") and mclaw_only.endswith("</mclaw_service>")
     assert "<mclaw_service>" not in bare
-
-
-def test_page_routes_match_web_app_pages() -> None:
-    """路由表守护：声明的页面必须真实存在，前端新增页面必须显式处理（进表或豁免）。
-
-    归一化规则：路由表的 {参数} 与 Next.js 的 [参数] 目录都归一为 *，
-    只比较路径形状，参数叫什么名字不影响同步判断。
-    """
-    from movieclaw_api.services.agent_toolkit import PAGE_ROUTES
-
-    web_app = Path(__file__).resolve().parents[2] / "apps" / "web" / "app" / "(app)"
-    assert web_app.is_dir(), f"前端页面目录不存在：{web_app}"
-
-    fs_routes = set()
-    for page in web_app.rglob("page.tsx"):
-        rel = page.parent.relative_to(web_app).as_posix()
-        if rel == ".":
-            fs_routes.add("/")
-        else:
-            fs_routes.add(
-                "/" + "/".join("*" if seg.startswith("[") else seg for seg in rel.split("/"))
-            )
-
-    def normalize(pattern: str) -> str:
-        if pattern == "/":
-            return "/"
-        return "/" + "/".join(
-            "*" if seg.startswith("{") else seg for seg in pattern.strip("/").split("/")
-        )
-
-    declared = {normalize(pattern) for pattern, _ in PAGE_ROUTES}
-
-    # /settings 子分区（及分区里的详情页，如插件详情 /settings/plugins/<id>）由 /settings 兜底，
-    # 不逐项写进提示词路由表；
-    # /tasks 是重构为 /activity 后保留的重定向壳（保住旧收藏与站内深链），
-    # 不是可导航的页面，不该出现在给模型的路由表里
-    exempt = {"/settings/*", "/settings/*/*", "/tasks"}
-
-    ghosts = declared - fs_routes
-    assert not ghosts, f"路由表声明了前端不存在的页面：{sorted(ghosts)}"
-    unhandled = fs_routes - declared - exempt
-    assert not unhandled, (
-        f"前端新增了路由表未覆盖的页面：{sorted(unhandled)}——"
-        "要么补进 PAGE_ROUTES 告知模型，要么加入本测试的豁免清单"
-    )
