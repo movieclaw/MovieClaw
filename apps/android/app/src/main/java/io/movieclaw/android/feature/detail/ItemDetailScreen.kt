@@ -1858,8 +1858,6 @@ internal data class DetailTrackOption(
     val ref: String,
     val label: String,
     val isDefault: Boolean = false,
-    /** 本机渲染不了/服务端给不了地址时的原因；非空则置灰不可选（与播放器菜单同口径） */
-    val unavailableReason: String? = null,
 )
 
 /**
@@ -1889,7 +1887,6 @@ private fun trackOptions(
                     ref = ref,
                     label = TrackLabels.subtitle(s.language, kindOfCodec(s.codec), ref, false, s.title, s.forced),
                     isDefault = s.default,
-                    unavailableReason = TrackLabels.subtitleUnsupportedReason(kindOfCodec(s.codec)),
                 )
             }
         } else {
@@ -1945,11 +1942,10 @@ private fun TrackPickerSheet(
                 )
             }
             options.forEach { option ->
-                val reason = option.unavailableReason
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .then(if (reason == null) Modifier.clickable { onPick(option.ref) } else Modifier)
+                        .clickable { onPick(option.ref) }
                         .padding(horizontal = 20.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -1968,12 +1964,10 @@ private fun TrackPickerSheet(
                         Text(
                             option.label,
                             style = McType.sub,
-                            color = if (reason != null) TextFaint else TextPrimary,
+                            color = TextPrimary,
                             maxLines = 2,
                         )
-                        if (reason != null) {
-                            Text(reason, style = McType.caption2, color = TextFaint)
-                        } else if (option.isDefault) {
+                        if (option.isDefault) {
                             Text("片源默认轨", style = McType.caption2, color = TextFaint)
                         }
                     }
