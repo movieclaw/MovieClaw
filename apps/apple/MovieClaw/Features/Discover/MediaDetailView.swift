@@ -139,6 +139,8 @@ struct MediaDetailView: View {
                         }
                         // 下拉刷新时整块大图（连同两头的渐变）以底边为锚放大，顶上不露底色（同 Apple Music）
                         .stretchesOnPull()
+                        // iPad 宽窗口延伸到侧边栏底下，侧边栏四周不露出纯色底（见 PadBackdropExtension）
+                        .modifier(PadBackdropExtension())
                         .accessibilityHidden(true)
                 }
                 header(detail)

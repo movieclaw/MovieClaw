@@ -152,6 +152,7 @@ struct ImmersiveHeroBackdrop: View {
             .frame(height: height)
             .stretchesOnPull()
             .stretchesOnEdgeOverscroll(first: isFirst, last: isLast)
+            .modifier(PadBackdropExtension())
             .frame(maxHeight: .infinity, alignment: .bottom)
             .onChange(of: active, initial: true) { old, isActive in
                 // 页签切走再切回时，initial 这一次会随页面重新出现再调一遍（新旧值相同）。
@@ -467,5 +468,20 @@ struct ImmersiveHeroFadeCarousel<Slide: View>: View {
                     index = dx < 0 ? (index + 1) % count : (index - 1 + count) % count
                 }
         )
+    }
+}
+
+/// iPad 宽窗口：剧照镜像、模糊后延伸到侧边栏底下（系统的 `backgroundExtensionEffect`，同 iPad 上的 Apple TV / 音乐）。
+/// 剧照只占内容区（见 ImmersiveHeroBleed），浮动的侧边栏四周会露出背后的页面：不延伸的话那里是一块纯色，
+/// 和剧照左边沿拼出一个直角（真机反馈）。只给剧照层加，文字不延伸；手机上不加。
+struct PadBackdropExtension: ViewModifier {
+    @Environment(\.cardMetrics) private var cards
+
+    func body(content: Content) -> some View {
+        if cards.isWide {
+            content.backgroundExtensionEffect()
+        } else {
+            content
+        }
     }
 }
