@@ -167,7 +167,7 @@ async def test_tool_loop_two_steps(monkeypatch):
     # 第二步请求的上下文形态：system + user + assistant(带调用) + tool 结果
     round2 = _probe["requests"][1]
     assert [m.role for m in round2.messages] == ["system", "user", "assistant", "tool"]
-    assert round2.messages[0].text().startswith("你是 MovieClaw 影音助理")
+    assert round2.messages[0].text().startswith("你不是聊天机器人，而是住在 MovieClaw 里的观影伙伴")
     assert "必须在当前轮次重新调用工具查询最新接口数据" in round2.messages[0].text()
     tool_msg = round2.messages[-1]
     assert tool_msg.tool_call_id == "c1"
