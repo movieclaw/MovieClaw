@@ -15,6 +15,20 @@ data class PlaybackTarget(
     val startMs: Long? = null,
     /** 指定版本（只对第一个单元生效） */
     val fileId: Long? = null,
+    /**
+     * 进播放器之前就选好的音轨 / 字幕（手机详情页的轨道菜单，中性引用 `embedded:N` / `external:文件` / 字幕 `off`），
+     * 只对第一个单元生效，按用户这次的选择处理（会记进观看记忆）。null = 交给服务端的轨记忆。
+     */
+    val audioTrack: String? = null,
+    val subtitleTrack: String? = null,
+)
+
+/** 电视 / 手机的宿主差异：除这几项外，两端的播放行为完全相同 */
+data class PlaybackHost(
+    /** 切到后台接着放（手机：锁屏听、画中画）；电视切走即按用户暂停处理 */
+    val playInBackground: Boolean = false,
+    /** 控制器自己建系统媒体会话（电视）；手机由后台播放服务持有会话，挂 [PlaybackController.player] */
+    val ownsMediaSession: Boolean = true,
 )
 
 /** 起播状态机（对照 Apple 端 PlaybackController.Phase） */

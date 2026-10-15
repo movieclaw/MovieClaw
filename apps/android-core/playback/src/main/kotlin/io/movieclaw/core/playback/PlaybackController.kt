@@ -6,7 +6,6 @@ import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
-import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
@@ -26,27 +25,18 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.okhttp.OkHttpDataSource
-import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
-import androidx.media3.extractor.DefaultExtractorsFactory
 import io.github.peerless2012.ass.media.AssHandler
 import io.github.peerless2012.ass.media.AssHandlerConfig
-import io.github.peerless2012.ass.media.kt.withAssMkvSupport
-import io.github.peerless2012.ass.media.kt.withAssSupport
-import io.github.peerless2012.ass.media.parser.AssSubtitleParserFactory
 import io.github.peerless2012.ass.media.type.AssRenderType
 import io.github.peerless2012.ass.media.widget.AssSubtitleView
 import androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException
 import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
-import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.session.MediaSession
 import io.movieclaw.core.model.generated.PlaybackClientLogPayload
 import io.movieclaw.core.model.generated.PlaybackMetricPayload
-import io.movieclaw.core.model.generated.PlaybackPolicyPayload
 import io.movieclaw.core.model.generated.PlaybackProgressRequest
 import io.movieclaw.core.model.generated.PlaybackSessionRequest
 import io.movieclaw.core.model.generated.PlaybackSessionView
@@ -56,7 +46,6 @@ import io.movieclaw.core.network.ClientIdentity
 import io.movieclaw.core.network.ImageUrls
 import io.movieclaw.core.network.ServerAddress
 import io.movieclaw.core.network.UnreachableException
-import io.movieclaw.core.network.generated.McApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -101,13 +90,14 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class PlaybackController(
     context: Context,
-    private val api: McApi,
+    /** 成员走成员域播放接口（[MemberBackend]），访客走分享页通道（[ShareBackend]） */
+    private val backend: PlaybackBackend,
     private val server: ServerAddress,
     private val http: OkHttpClient,
     private val identity: ClientIdentity,
     private val deviceId: String,
-    /** 账号令牌：系统「正在播放」取封面要带（图片接口要登录） */
-    token: String,
+    /** 账号令牌：系统「正在播放」取封面要带（图片接口要登录）；访客没有 */
+    token: String?,
     prefs: PrefsStore,
     scope: CoroutineScope,
     private val target: PlaybackTarget,
@@ -116,6 +106,8 @@ class PlaybackController(
     private val probe: Boolean = false,
     /** 实验室场景名（调试参数 mc_lab）：这些播放的记录打上标签，统计默认排除 */
     private val lab: String = "",
+    /** 电视 / 手机的宿主差异 */
+    private val host: PlaybackHost = PlaybackHost(),
 ) {
     private val denylist = DecoderDenylist(prefs, identity.appVersion)
     private val capability = capabilityOverride ?: CapabilityProbe(context, denylist::isDenied)
@@ -161,41 +153,8 @@ class PlaybackController(
      * 不进视频管线——HDR / 杜比视界输出不受影响、不挡界面线程。渲染像素封顶 1080p：4K 电视上省 CPU，字幕仍清楚
      */
     private val ass = AssHandler(AssRenderType.OVERLAY_OPEN_GL, AssHandlerConfig(maxRenderPixels = 1920 * 1080))
-    private val assParsers = AssSubtitleParserFactory(ass)
 
-    private val exo: ExoPlayer = ExoPlayer.Builder(
-        context,
-        DefaultRenderersFactory(context)
-            // 扩展（FFmpeg 音频软解）排在系统解码器之后：系统能解、或能透传给电视 / 功放的（AC3 / E-AC-3 全景声 /
-            // TrueHD）照旧走系统，FFmpeg 只兜底两者都不行的。PREFER 会让 FFmpeg 抢先解成 PCM，透传就没了
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
-            .setEnableDecoderFallback(true)
-            // 这台机器上实测坏过的解码器不再选（DecoderDenylist）
-            .setMediaCodecSelector { mime, secure, tunneling ->
-                MediaCodecSelector.DEFAULT.getDecoderInfos(mime, secure, tunneling).filterNot { denylist.isDenied(it.name) }
-            }
-            .withAssSupport(ass),
-    )
-        .setMediaSourceFactory(
-            // MKV 里的 ASS 轨与外挂的 .ass 都交给 libass 解析（其余字幕照旧走 Exo）
-            DefaultMediaSourceFactory(dataSource, DefaultExtractorsFactory().withAssMkvSupport(assParsers, ass))
-                .setSubtitleParserFactory(assParsers),
-        )
-        .setBandwidthMeter(bandwidth)
-        // 缓冲字节上限跟着本进程的堆走（Exo 的缓冲在 Java 堆里）：默认上限约 130 MB，小堆的盒子放高码率片直接
-        // 内存溢出（Android 6 镜像堆上限 48 MB，《老友记》播放即崩）
-        .setLoadControl(
-            DefaultLoadControl.Builder()
-                .setTargetBufferBytes(BufferBudget.targetBytes(Runtime.getRuntime().maxMemory()))
-                .setPrioritizeTimeOverSizeThresholds(false)
-                .build(),
-        )
-        .setAudioAttributes(
-            AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
-            true,
-        )
-        .build()
-        .also(ass::init)
+    private val exo: ExoPlayer = UnifiedExo.build(context, dataSource, denylist, ass, bandwidth)
 
     /** ASS 字幕的叠加层（界面放在画面上方、与画面同大小） */
     fun assOverlay(context: Context): android.view.View = AssSubtitleView(context, ass)
@@ -227,12 +186,15 @@ class PlaybackController(
     /** 系统「正在播放」的信息（条目信息、分集清单到了之后补上；换集跟着换） */
     private var metadata: MediaMetadata = MediaMetadata.EMPTY
 
-    private val mediaSession: MediaSession? = runCatching {
+    private val mediaSession: MediaSession? = if (!host.ownsMediaSession) null else runCatching {
         MediaSession.Builder(context, player)
             .setId("movieclaw-player-${System.identityHashCode(this)}")
             .setBitmapLoader(
                 DataSourceBitmapLoader.Builder(context)
-                    .setDataSourceFactory(OkHttpDataSource.Factory(http).setDefaultRequestProperties(mapOf("Authorization" to "Bearer $token")))
+                    .setDataSourceFactory(
+                        OkHttpDataSource.Factory(http)
+                            .setDefaultRequestProperties(token?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()),
+                    )
                     .build(),
             )
             .build()
@@ -264,6 +226,8 @@ class PlaybackController(
     // ---- 选择 ----
 
     private var subtitleTouched = false
+    /** 进播放器前就选好的字幕（[PlaybackTarget.subtitleTrack]）：第一个单元的会话到了之后按用户选择落下 */
+    private var preselectedSubtitle: String? = null
     private var rememberedSubtitle: String? = null
     /** 要服务端烧录的字幕（图形字幕放服务端流时）；"off" = 撤下烧录 */
     private var requestedSubtitle: String? = null
@@ -356,7 +320,7 @@ class PlaybackController(
 
     private suspend fun loadInfo() {
         try {
-            val info = api.playbackItemInfo(target.mediaItemId)
+            val info = backend.itemInfo(target.mediaItemId)
             set { copy(info = info) }
             updateMediaMetadata()
         } catch (e: CancellationException) {
@@ -380,7 +344,7 @@ class PlaybackController(
             set { copy(episodes = emptyList()) }
             return
         }
-        val episodes = runCatching { api.playbackItemEpisodes(unit.mediaItemId, unit.season).episodes }.getOrDefault(emptyList())
+        val episodes = runCatching { backend.episodes(unit.mediaItemId, unit.season).episodes }.getOrDefault(emptyList())
         set { copy(episodes = episodes) }
         updateMediaMetadata()
     }
@@ -418,9 +382,16 @@ class PlaybackController(
         qualityOfferJob?.cancel()
         qualitySuggestion = QualitySuggestion()
         _cues.value = emptyList()
-        // startMs 只覆盖进入播放器的第一个单元；其余交给服务端按观看状态定起点
-        val start = if (overrideConsumed) null else target.startMs
+        // startMs 与预选轨道只覆盖进入播放器的第一个单元；其余交给服务端按观看状态定
+        val first = !overrideConsumed
+        val start = if (first) target.startMs else null
         overrideConsumed = true
+        preselectedSubtitle = null
+        if (first) {
+            // 预选音轨与用户在播放器里换轨同一口径：随开会话请求发上去（服务端按它出计划）、记进观看记忆
+            requestedAudio = target.audioTrack
+            preselectedSubtitle = target.subtitleTrack
+        }
         set {
             copy(
                 unit = next, speedLabel = null, hasSession = false, segments = null, pendingDecision = null,
@@ -445,10 +416,10 @@ class PlaybackController(
         if (reportedStart) {
             reportedStart = false
             val body = progressBody("stop", s.positionMs, paused = null)
-            enqueueReport { api.playbackProgress(body) }
+            enqueueReport { backend.progress(body) }
         }
         // 关会话也走上报队列：退出播放器时它要在协程收掉之前发完
-        activeSessionId?.let { sid -> enqueueReport { api.playbackSessionStop(sid) } }
+        activeSessionId?.let { sid -> enqueueReport { backend.stopSession(sid) } }
         activeSessionId = null
     }
 
@@ -541,14 +512,14 @@ class PlaybackController(
             downlinkBps = lastDownlinkBps?.toLong(),
             startMs = startMs,
             attemptId = record?.id,
-            client = ClientIdentity.KIND,
+            client = identity.kind,
             deviceId = deviceId,
         )
     }
 
     private suspend fun performRequest(body: PlaybackSessionRequest, startMs: Long?, myAttempt: Int) {
         val opened = try {
-            api.playbackSessionStart(body)
+            backend.startSession(body)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -572,7 +543,7 @@ class PlaybackController(
         }
         if (myAttempt != attempt || closed) {
             // 请求已被超越：响应里可能带着刚拉起的转码会话，此后没人认领，当场掐掉
-            opened.sessionId?.let { sid -> scope.launch { runCatching { api.playbackSessionStop(sid) } } }
+            opened.sessionId?.let { sid -> scope.launch { runCatching { backend.stopSession(sid) } } }
             return
         }
         handleSession(opened, startMs)
@@ -621,13 +592,13 @@ class PlaybackController(
         val fileId = decision.fileId ?: return fail("服务端没有给出可播放的文件", null)
 
         // 旧会话（换轨 / 换画质 / 降档之前那条）：新会话已就位，释放它
-        activeSessionId?.takeIf { it != opened.sessionId }?.let { old -> scope.launch { runCatching { api.playbackSessionStop(old) } } }
+        activeSessionId?.takeIf { it != opened.sessionId }?.let { old -> scope.launch { runCatching { backend.stopSession(old) } } }
 
         val token = tokenIn(opened.streamUrl)
         val original = decision.tier == 0L && token != null
         val url = if (original) {
             // 直连原文件：服务端为换封装起的会话用不上，立刻释放（不心跳）
-            opened.sessionId?.let { sid -> scope.launch { runCatching { api.playbackSessionStop(sid) } } }
+            opened.sessionId?.let { sid -> scope.launch { runCatching { backend.stopSession(sid) } } }
             activeSessionId = null
             server.resolve("/api/v1/playback/files/$fileId/stream?token=$token")
         } else {
@@ -659,8 +630,14 @@ class PlaybackController(
         val currentAudio = requestedAudio ?: decision.audio?.trackRef
         var selected = s.selectedSubtitle
         val burned = decision.video?.burnSubtitle
+        val preselected = preselectedSubtitle
+        preselectedSubtitle = null
         if (burned != null) {
             selected = burned
+        } else if (preselected != null && !subtitleTouched) {
+            // 进播放器前选好的字幕：算用户这次的选择（"off" = 明确关掉）
+            subtitleTouched = true
+            selected = preselected.takeIf { it != "off" }
         } else if (!subtitleTouched) {
             rememberedSubtitle = opened.watch?.subtitleTrack
             selected = subtitles.initialSelection(rememberedSubtitle)
@@ -718,6 +695,12 @@ class PlaybackController(
         deadSession = false
         startPingLoop()
         loadTrickplay(fileId, token)
+        // 预选的是图形字幕、这一路又画不了（服务端流）：照播放器里选它的口径，请服务端压制进画面
+        val graphic = preselected?.let { ref -> subtitles.options.firstOrNull { it.ref == ref && it.kind == "pgs" } }
+        if (graphic != null && burned == null && !exoRenders(graphic)) {
+            requestedSubtitle = graphic.ref
+            request(s.positionMs, Phase.SessionStarting)
+        }
     }
 
     /** 外挂字幕旁挂给 Exo（直连时）：文本轨要服务端转成 VTT（SRT 等编码五花八门），ASS 取原文件保留定位；图形外挂轨 Exo 读不了 */
@@ -769,11 +752,14 @@ class PlaybackController(
         request(s.positionMs, Phase.Deciding)
     }
 
+    /** 能不能在同意弹窗里直接开启软件转码（访客没有设置权，只能看说明） */
+    val canGrantConsent: Boolean get() = backend !is ShareBackend
+
     /** 同意弹窗「开启并播放」：写入全局开关后重新决策。失败抛出，弹窗显示原因 */
     suspend fun grantConsent() {
-        val saved = api.playbackPolicySet(PlaybackPolicyPayload(softwareTranscodeEnabled = true))
+        val saved = backend.enableSoftwareTranscode() ?: throw IllegalStateException("分享观看不能开启软件转码，请联系分享者")
         // 保存接口回显的是落库后的取值：不是 true 说明开关根本没生效，不能假装成功
-        if (!saved.softwareTranscodeEnabled) throw IllegalStateException("软件转码开关保存后未生效，请重试或查看服务端日志")
+        if (!saved) throw IllegalStateException("软件转码开关保存后未生效，请重试或查看服务端日志")
         consentGranted = true
         record?.endUserWait()
         request(s.positionMs, Phase.Deciding)
@@ -1392,9 +1378,12 @@ class PlaybackController(
         if (backgrounded == background) return
         backgrounded = background
         if (background) {
-            // 电视上切走就不看了：按用户暂停处理（回来时停在暂停态，片名和进度条都在）
-            pause()
-            if (reportedStart) sendProgress(paused = true)
+            // 电视上切走就不看了：按用户暂停处理（回来时停在暂停态，片名和进度条都在）。
+            // 手机在后台接着放（锁屏听、画中画），只停掉看门狗（下面的 resetWatchdogs 与 backgrounded 判断）
+            if (!host.playInBackground) {
+                pause()
+                if (reportedStart) sendProgress(paused = true)
+            }
         } else {
             qualitySuggestion.restartGrace()
             activeSessionId?.let { sid -> scope.launch { ping(sid) } }
@@ -1409,7 +1398,7 @@ class PlaybackController(
     private fun reportStart() {
         reportedStart = true
         val body = progressBody("start", null, paused = null)
-        enqueueReport { handleProgressResponse(api.playbackProgress(body)) }
+        enqueueReport { handleProgressResponse(backend.progress(body)) }
         startProgressLoop()
     }
 
@@ -1426,7 +1415,7 @@ class PlaybackController(
 
     private suspend fun ping(sid: String) {
         val alive = try {
-            api.playbackSessionPing(sid)
+            backend.pingSession(sid)
             true
         } catch (e: ApiException) {
             if (e.status == 404) false else null
@@ -1459,7 +1448,7 @@ class PlaybackController(
     private fun sendProgress(paused: Boolean?) {
         if (!reportedStart) return
         val body = progressBody("progress", s.positionMs, paused)
-        enqueueReport { handleProgressResponse(api.playbackProgress(body)) }
+        enqueueReport { handleProgressResponse(backend.progress(body)) }
     }
 
     private fun progressBody(event: String, positionMs: Long?, paused: Boolean?) = PlaybackProgressRequest(
@@ -1678,7 +1667,7 @@ class PlaybackController(
         if (token == null) return
         trickplayJob = scope.launch {
             repeat(6) {
-                val index = runCatching { api.playbackFileTrickplay(fileId, token) }.getOrNull()
+                val index = runCatching { backend.trickplay(fileId, token) }.getOrNull()
                 if (index?.ready == true) {
                     set { copy(trickplay = index) }
                     return@launch
@@ -1758,11 +1747,12 @@ class PlaybackController(
         val outcome = forceOutcome ?: r.outcome(s.phase == Phase.Error, s.phase == Phase.Ended, s.positionMs, s.durationMs)
         noteDelivery(r)
         r.noteLeaving()
-        val payload = recordPayload(r, outcome)
         reportStore.clearRunning()
+        if (!backend.reportsMetrics) return
+        val payload = recordPayload(r, outcome)
         reportStore.enqueue(payload)
         enqueueReport {
-            api.playbackMetricReport(payload)
+            backend.reportMetric(payload)
             reportStore.remove(payload.attemptId)
         }
     }
@@ -1799,7 +1789,7 @@ class PlaybackController(
     private fun sampleResources() {
         val r = record ?: return
         r.sampleResources(deviceFacts.memoryMb(), deviceFacts.thermal())
-        if (r.firstFrameAt != null || s.phase.isBusy) {
+        if (backend.reportsMetrics && (r.firstFrameAt != null || s.phase.isBusy)) {
             // 平时不带日志尾巴（快照几 KB）；出过问题才带上——崩溃时另有崩溃栈与日志尾巴同步写下
             runCatching { reportStore.saveRunning(recordPayload(r, "exited")) }
         }
@@ -1807,13 +1797,14 @@ class PlaybackController(
 
     /** 上次没收尾的播放（闪退）与没发出去的记录：补发 */
     private fun flushStoredReports() {
+        if (!backend.reportsMetrics) return
         val abnormal = reportStore.takeAbnormal()
         abnormal?.let(reportStore::enqueue)
         val pending = reportStore.queued()
         if (pending.isEmpty()) return
         enqueueReport {
             for (payload in pending) {
-                runCatching { api.playbackMetricReport(payload) }.onSuccess { reportStore.remove(payload.attemptId) }
+                runCatching { backend.reportMetric(payload) }.onSuccess { reportStore.remove(payload.attemptId) }
             }
         }
     }
@@ -1900,7 +1891,7 @@ class PlaybackController(
         record?.event(event, detail.joinToString(" ") { (k, v) -> "$k=$v" })
         val map = detail.toMap().toMutableMap()
         record?.id?.let { map["attempt_id"] = JsonPrimitive(it) }
-        scope.launch { runCatching { api.playbackClientLog(PlaybackClientLogPayload(event, JsonObject(map))) } }
+        scope.launch { runCatching { backend.clientLog(PlaybackClientLogPayload(event, JsonObject(map))) } }
     }
 
     private fun str(value: String?): JsonElement = value?.let(::JsonPrimitive) ?: JsonNull

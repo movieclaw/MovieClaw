@@ -54,6 +54,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.compose.ContentFrame
 import io.movieclaw.androidtv.LocalGraph
 import io.movieclaw.androidtv.LocalSession
+import io.movieclaw.core.playback.MemberBackend
 import io.movieclaw.core.playback.PlaybackController
 import io.movieclaw.core.playback.PlaybackTarget
 import io.movieclaw.core.playback.Phase
@@ -89,7 +90,7 @@ fun PlayerScreen(request: PlayRequest, onClose: () -> Unit) {
     val controller = remember(request) {
         PlaybackController(
             context = context.applicationContext,
-            api = account.api,
+            backend = MemberBackend(account.api),
             server = account.server,
             http = graph.http,
             identity = graph.identity,

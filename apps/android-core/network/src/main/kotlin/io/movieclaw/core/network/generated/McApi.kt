@@ -336,4 +336,42 @@ class McApi(private val transport: ApiTransport) {
         }
         return transport.send("GET", "/reels/preview/${mediaItemId}", query, null, serializer<ReelItemView?>(), enveloped = true)
     }
+
+    /** 分享页开始播放（`POST /share/{slug}/playback/sessions`） */
+    suspend fun sharePlaybackSessionStart(slug: String, body: PlaybackSessionRequest): PlaybackSessionView {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("POST", "/share/${slug}/playback/sessions", query, McJson.encodeToJsonElement(body), serializer<PlaybackSessionView>(), enveloped = true)
+    }
+
+    /** 分享页播放心跳（`POST /share/{slug}/playback/sessions/{session_id}/ping`） */
+    suspend fun sharePlaybackSessionPing(sessionId: String, slug: String): JsonObject {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("POST", "/share/${slug}/playback/sessions/${sessionId}/ping", query, null, serializer<JsonObject>(), enveloped = true)
+    }
+
+    /** 分享页结束播放（`DELETE /share/{slug}/playback/sessions/{session_id}`） */
+    suspend fun sharePlaybackSessionStop(sessionId: String, slug: String): JsonObject {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("DELETE", "/share/${slug}/playback/sessions/${sessionId}", query, null, serializer<JsonObject>(), enveloped = true)
+    }
+
+    /** 分享页播放心跳（只刷新活动页的实时会话，不落任何观看状态）（`POST /share/{slug}/playback/progress`） */
+    suspend fun sharePlaybackProgress(slug: String, body: PlaybackProgressRequest): PlaybackStateView {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("POST", "/share/${slug}/playback/progress", query, McJson.encodeToJsonElement(body), serializer<PlaybackStateView>(), enveloped = true)
+    }
+
+    /** 分享页播放器的条目信息（`GET /share/{slug}/playback/items/{media_item_id}`） */
+    suspend fun sharePlaybackItem(mediaItemId: Long, slug: String): PlaybackItemView {
+        val query = emptyList<Pair<String, String>>()
+        return transport.send("GET", "/share/${slug}/playback/items/${mediaItemId}", query, null, serializer<PlaybackItemView>(), enveloped = true)
+    }
+
+    /** 分享页播放器的分集清单（`GET /share/{slug}/playback/items/{media_item_id}/episodes`） */
+    suspend fun sharePlaybackItemEpisodes(mediaItemId: Long, slug: String, seasonNumber: Long): SeasonEpisodesView {
+        val query = buildList<Pair<String, String>> {
+            add("season_number" to seasonNumber.toString())
+        }
+        return transport.send("GET", "/share/${slug}/playback/items/${mediaItemId}/episodes", query, null, serializer<SeasonEpisodesView>(), enveloped = true)
+    }
 }

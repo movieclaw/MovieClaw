@@ -92,6 +92,13 @@ ENDPOINTS = [
     "POST /playback/metrics",
     # 首页 / 详情大图区的预告片段
     "GET /reels/preview/{media_item_id}",
+    # 访客分享页的播放（手机打开分享链接；与成员播放同一套请求 / 响应）
+    "POST /share/{slug}/playback/sessions",
+    "POST /share/{slug}/playback/sessions/{session_id}/ping",
+    "DELETE /share/{slug}/playback/sessions/{session_id}",
+    "POST /share/{slug}/playback/progress",
+    "GET /share/{slug}/playback/items/{media_item_id}",
+    "GET /share/{slug}/playback/items/{media_item_id}/episodes",
 ]
 
 KOTLIN_KEYWORDS = {

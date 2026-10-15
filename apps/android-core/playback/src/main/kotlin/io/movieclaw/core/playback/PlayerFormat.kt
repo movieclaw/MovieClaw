@@ -96,6 +96,9 @@ object BufferBudget {
     const val MIN_BYTES = 16 shl 20
     const val MAX_BYTES = 128 shl 20
 
+    /** 预起的下一条片段：只装载到起点 */
+    const val STANDBY_BYTES = 12 shl 20
+
     /** 堆上限的四分之一，夹在 16～128 MB（128 MB ≈ Exo 默认的视频缓冲上限） */
     fun targetBytes(maxHeapBytes: Long): Int = (maxHeapBytes / 4).coerceIn(MIN_BYTES.toLong(), MAX_BYTES.toLong()).toInt()
 }

@@ -25,4 +25,6 @@ dependencies {
     implementation(shared.ass.media)
     implementation(shared.kotlinx.coroutines.android)
     testImplementation(shared.junit)
+    testImplementation(shared.okhttp.mockwebserver)
+    testImplementation(shared.kotlinx.coroutines.test)
 }
