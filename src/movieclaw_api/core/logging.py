@@ -95,18 +95,27 @@ class RedactingFormatter(logging.Formatter):
     不直接调高 httpx 的日志级别：请求地址与状态码是排查网络问题的关键线索，
     只遮住密钥本身即可。放在 Formatter 而不是 Filter：格式化在 Handler 的异常保护内
     执行，消息参数不匹配之类的问题不会抛回业务代码；格式化后的整段文本也包含堆栈。
+
+    网盘直链（strm）同样会进日志：跟跳转失败、ffprobe / ffmpeg 报错都带着地址。各家的
+    签名参数名五花八门（``pickcode``、``sign``、``X-Amz-Signature``、``OSSAccessKeyId``、
+    ``auth_key``、``bdstoken``……），按名字后缀认；地址里的账号密码（``user:pass@host``）一并遮住。
     """
 
     _SECRET_PARAM = re.compile(
-        r"([?&](?:api_?key|access_?token|token|passkey|secret|sign|auth)=)[^&\s\"'#]+",
+        r"([?&](?:[\w.-]*(?:key|keyid|token|secret|sign|signature|sig|credential)|pickcode|auth)=)"
+        r"[^&\s\"'#()（）\[\]<>]+",
         re.IGNORECASE,
     )
+
+    #: 地址里的账号密码：``https://user:p%40ss@host/…`` → ``https://***@host/…``
+    _URL_USERINFO = re.compile(r"(\b[a-z][a-z0-9+.-]*://)[^/\s@'\"]+@", re.IGNORECASE)
 
     #: 插件回调地址里的密钥（docs/design/plugin-callbacks.md §4.2）：插件 id 与端点名照常记录
     _CALLBACK_KEY = re.compile(r"(/api/v1/hooks/[^/\s?#]+/[^/\s?#]+/)[A-Za-z0-9]{8,}")
 
     def format(self, record: logging.LogRecord) -> str:
         text = self._SECRET_PARAM.sub(r"\1***", super().format(record))
+        text = self._URL_USERINFO.sub(r"\1***@", text)
         return self._CALLBACK_KEY.sub(r"\1****", text)
 
 
