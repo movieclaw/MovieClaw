@@ -72,6 +72,9 @@ python3 scripts/release-status.py --ref origin/main
 
 1. **改版本号 + 写 changelog**（`docs/changelog/<tag>.md`，第四节），同一个 PR 合入 main。
    Android 的 `versionName` 与 `versionCode` 一起递增；Windows 的 Cargo.toml 与 package.json 一起改。
+   **合入前做一次独立核对**：每个要发的产品另起一个子代理，给它上一版 tag、本版代码、
+   `changelog-guide.md`、写好的说明和盘点表，按指南第五节「发版前独立核对」的清单对照代码检查。
+   核对结果（含「待真机复核」的项）写进发版 PR 描述；发现的缺陷要么修好，要么写进已知问题。
 2. **推 tag**：`git fetch origin main && git tag <tag> origin/main && git push origin <tag>`，构建的就是
    tag 所在的提交（可以是 main 上任意一个已合入的提交）。
    推不了 tag 的环境（远程会话的 git 凭证只能推分支）走点火通道
@@ -158,9 +161,10 @@ GitHub 自动生成的提交清单（Windows 用一句默认说明），changelo
   产品名用 `iPhone and iPad`、`Apple TV`、`Mac`、`Mac transcoder`、`Android`、`Android TV`、`Windows`
   （中文段对应 iPhone 与 iPad、Mac 转码器等），只写这个 App 自己的变化。
 - 客户端的盘点范围是**同前缀的上一个 tag**到本次（`git log --first-parent android-v0.3.1..HEAD --
-  apps/android`），文末对比链接也用同前缀的 tag（`android-v0.3.1...android-v0.3.2`）。某个客户端
-  第一次单独发版时，以 v0.37.0（最后一个附带客户端的服务器版本）为基线；Windows 首发 0.1.0 没有
-  基线，写成首个正式版本的介绍，不放对比链接。
+  apps/android`），文末对比链接也用同前缀的 tag（`android-v0.3.1...android-v0.3.2`）。基线永远是
+  **用户手上的上一版**：第一次单独发版时，用最后一次随服务器发出去的那一版（如 Windows 0.1.0 对照随
+  v0.37.0 发的 1.0.4）；只有用户手上从没有过任何版本的产品才算首发。写法见 `changelog-guide.md`
+  「客户端」与「首发版本」。
 - **服务器 changelog 不罗列各 App 的当前版本**（客户端一节自动生成），但功能需要的 App 最低版本、
   必须更新的 App 要写在正文里。
 
