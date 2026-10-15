@@ -12,6 +12,7 @@ import SwiftUI
 /// 用户看到的是一条「这个目录 movieclaw 看不到」，而不是 16 条「《某剧》无法入库」。
 /// 刷新：30 秒轮询 + 回前台立即刷新一次（`.polling` 自带）。
 struct NoticeCenterView: View {
+    @Environment(\.cardMetrics) private var cards
     @Environment(\.api) private var api
     @Environment(Router.self) private var router
     @State private var state: Loadable<[API.NoticeView]> = .loading
@@ -36,7 +37,7 @@ struct NoticeCenterView: View {
                             .foregroundStyle(Theme.textFaint)
                             .padding(.top, 6)
                     }
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .padding(.vertical, 12)
                 }
             }

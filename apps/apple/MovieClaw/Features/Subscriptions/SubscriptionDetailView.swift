@@ -15,6 +15,7 @@ import SwiftUI
 /// 取消订阅（成员 = 取消关注；管理员 = 带移除预览与删种删文件选项的彻底删除）。
 /// `openUpgradeRun` 为 true 时（媒体库「洗版」入口并轨到既有订阅）进入即打开洗一轮版。
 struct SubscriptionDetailView: View {
+    @Environment(\.cardMetrics) private var cards
     let subscriptionId: Int
     var openUpgradeRun: Bool = false
 
@@ -180,7 +181,7 @@ struct SubscriptionDetailView: View {
                 )
                 ActivityLogSection(activities: activities)
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.top, 8)
             .padding(.bottom, 40)
         }

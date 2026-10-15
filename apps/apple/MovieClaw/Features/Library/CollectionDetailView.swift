@@ -14,6 +14,7 @@ import SwiftUI
 /// 显示在首页 · 从首页移除 / 恢复显示 或 隐藏这个合集 · 删除合集；图床浏览时还有按作品分组与密度。
 /// 改名、隐藏、删除看 `manageable`，改条件、整理名单看 `editable`（后端按合集归属算好，见 §3.6）。
 struct CollectionDetailView: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int?
     let collectionId: Int
 
@@ -191,7 +192,7 @@ struct CollectionDetailView: View {
                 }
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 4)
     }
 
@@ -294,7 +295,7 @@ struct CollectionDetailView: View {
                 .font(.subheadline).foregroundStyle(Theme.textMuted)
                 .frame(maxWidth: .infinity).padding(.top, 64)
         } else {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)], alignment: .leading, spacing: 20) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: cards.wallMinimum), spacing: cards.spacing, alignment: .top)], alignment: .leading, spacing: 20) {
                 ForEach(cells(missing: pager.hasMore ? [] : missing)) { cell in
                     switch cell {
                     case let .item(item):
@@ -305,7 +306,7 @@ struct CollectionDetailView: View {
                     }
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .accessibilityIdentifier("collection-wall")
             WallLoadMoreFooter(hasMore: pager.hasMore, start: 0, loaded: rows.count, total: collection?.itemCount) {
                 await pager.loadMore()

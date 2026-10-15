@@ -110,7 +110,7 @@ struct AgentNewSessionView: View {
 
     /// 这张空页是会话的「前一帧」，不该留在导航栈里：把栈顶的 /new 换成 /sessions/{id}
     private func replaceRoute(with id: String) {
-        let tab = router.selectedTab
+        let tab = router.selection
         if var path = router.paths[tab], path.last == .newSession {
             path[path.count - 1] = .session(id: id)
             router.paths[tab] = path

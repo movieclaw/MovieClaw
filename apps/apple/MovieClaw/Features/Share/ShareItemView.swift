@@ -6,6 +6,7 @@ import SwiftUI
 /// 文件规格行、音轨 / 字幕（只读）→ 播放 → 简介 → （剧集）季集横滚 → 章节条 → 演职员 → 外部词条。
 /// 播放走 `router.play(PlayRequest(… shareSlug:))`，播放器用 `/share/{slug}/playback` 接口族，进度只存本机。
 struct ShareItemView: View {
+    @Environment(\.cardMetrics) private var cards
     let slug: String
     /// 合集分享时看哪一部；条目分享不传（范围就那一个）
     let mediaItemId: Int?
@@ -104,7 +105,7 @@ struct ShareItemView: View {
                         ExpandablePlot(text: plot).padding(.top, 8)
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
 
                 VStack(alignment: .leading, spacing: 24) {
                     if !isMovie, !item.seasons.isEmpty {
@@ -161,7 +162,7 @@ struct ShareItemView: View {
                 .foregroundStyle(.white.opacity(0.55))
                 .accessibilityIdentifier("share-expiry")
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 8)
     }
 
@@ -234,7 +235,7 @@ struct ShareItemView: View {
             .tint(.white.opacity(0.7))
             .padding(.top, 12)
             .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.04)).frame(height: 1) }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .accessibilityIdentifier("share-external-links")
         }
     }
@@ -323,6 +324,7 @@ struct ShareItemView: View {
 
 /// 分享页的分集区：季选择 + 分集横滚卡（`GET /share/{slug}/episodes`）；默认落在第一个在库的季与集
 private struct ShareSeasonEpisodes: View {
+    @Environment(\.cardMetrics) private var cards
     let slug: String
     let item: API.SharedItemView
     /// 合集分享才带（`?item=`）
@@ -371,10 +373,10 @@ private struct ShareSeasonEpisodes: View {
                         .font(.subheadline.monospacedDigit()).foregroundStyle(Theme.textFaint)
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             if failed {
                 Text("分集信息加载失败，请稍后重试。").font(.subheadline).foregroundStyle(Theme.textMuted)
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
             } else if let data {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 12) {
@@ -382,7 +384,7 @@ private struct ShareSeasonEpisodes: View {
                             card(episode)
                         }
                     }
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                 }
             } else {
                 HStack(spacing: 8) {
@@ -390,7 +392,7 @@ private struct ShareSeasonEpisodes: View {
                     Text("正在读取分集信息…")
                 }
                 .font(.subheadline).foregroundStyle(Theme.textMuted)
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             }
         }
         .task(id: currentSeason) { await load() }

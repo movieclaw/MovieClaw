@@ -52,6 +52,7 @@ struct ActivityPageView: View {
 
 /// 进行中 / 已结束：沿用任务中心的时间线与历史分组（完整过程与全部操作都在这里）
 private struct ActivityTasksPage: View {
+    @Environment(\.cardMetrics) private var cards
     let mode: TaskCenterPanel.Mode
 
     @Environment(ShellBadges.self) private var badges
@@ -61,7 +62,7 @@ private struct ActivityTasksPage: View {
         let store = badges.tasks
         ScrollView {
             TaskCenterPanel(store: store, mode: mode, actions: actions)
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
                 .padding(.top, 8)
                 .padding(.bottom, 48)
         }
@@ -313,6 +314,7 @@ private struct ActivityBoostPage: View {
 
 /// 最近播放 / 观看统计：筛选（周期、成员、范围）收进右上角的筛选菜单，当前条件写在标题下方
 private struct ActivityWatchPage: View {
+    @Environment(\.cardMetrics) private var cards
     let page: ActivityPage
 
     @Environment(ShellBadges.self) private var badges
@@ -342,7 +344,7 @@ private struct ActivityWatchPage: View {
                     )
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.top, 8)
             .padding(.bottom, 48)
         }

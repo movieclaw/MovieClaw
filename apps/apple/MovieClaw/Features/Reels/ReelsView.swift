@@ -314,6 +314,7 @@ private struct PageGeometry: Equatable {
 
 /// 片段的一页
 private struct ReelPage: View {
+    @Environment(\.cardMetrics) private var cards
     let item: API.ReelItemView
     let store: ReelsStore
     let isCurrent: Bool
@@ -364,7 +365,7 @@ private struct ReelPage: View {
                     // 卡顿换画质的提议、转码退回原画的提示：横带上方，不挡画面
                     let promptArea = bandCenter - bandHeight / 2 - 12
                     qualityPrompts
-                        .padding(.horizontal, Theme.pagePadding)
+                        .padding(.horizontal, cards.edge)
                         .frame(width: width, height: promptArea, alignment: .bottom)
                         .position(x: width / 2, y: promptArea / 2)
                 }
@@ -387,7 +388,7 @@ private struct ReelPage: View {
                     }
                     ReelProgressRow(item: item, player: player, visible: isCurrent && store.playerState == .paused)
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
                 .padding(.bottom, insets.bottom + 10)
             }
             .animation(.easeOut(duration: 0.25), value: waitingForFrame)
@@ -653,7 +654,7 @@ private struct ReelPage: View {
             // 不用再垫（垫了就是一块黑影）；出画后底下是黑底，渐暗只在压到视频的那一截看得出来
             if expanded, !waitingForFrame {
                 LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom)
-                    .padding(.horizontal, -Theme.pagePadding)
+                    .padding(.horizontal, -cards.edge)
                     .padding(.top, -40)
                     .allowsHitTesting(false)
             }

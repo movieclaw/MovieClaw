@@ -6,6 +6,7 @@ import SwiftUI
 /// 行尾「复制」「取消」。分享多了只有这里能一眼管住；过期 / 已取消的后端不列。
 /// 30 秒轮询，列表回报条数给页签计数。
 struct ManageSharesTab: View {
+    @Environment(\.cardMetrics) private var cards
     var onCountChange: (Int) -> Void = { _ in }
 
     @Environment(\.api) private var api
@@ -46,7 +47,7 @@ struct ManageSharesTab: View {
                 .padding(.vertical, 30)
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .task { await reload() }
         .polling(every: 30) { await reload() }
         .alert("取消《\(revoking?.title ?? "")》的分享？", isPresented: Binding(

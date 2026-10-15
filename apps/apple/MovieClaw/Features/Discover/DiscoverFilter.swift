@@ -211,6 +211,7 @@ struct DiscoverFilterMenu: View {
 /// 选一项菜单即收起。
 /// 顺序固定不按启用与否重排——改完一项胶囊原地变亮，手指下的东西不会跑位。
 struct DiscoverFilterChips: View {
+    @Environment(\.cardMetrics) private var cards
     let mediaType: String
     let genres: [API.DiscoveryGenreView]?
     @Binding var filters: DiscoveryFilters
@@ -224,13 +225,13 @@ struct DiscoverFilterChips: View {
                         chip(dimension, summary: dimension.summary(filters, genreNames: genreNames))
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
                 .padding(.vertical, 4)
             }
         }
         .scrollIndicators(.hidden)
         // 横滑出页边距：胶囊能滑到屏幕边缘再消失，而不是在 16pt 页边距处被一刀切掉
-        .padding(.horizontal, -Theme.pagePadding)
+        .padding(.horizontal, -cards.edge)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("当前筛选条件")
     }
@@ -274,6 +275,7 @@ struct DiscoverFilterChips: View {
 /// 横滑位置归零），而是 `.task(id: filters)` 原地重查：
 /// 先等 0.3 秒防抖（连勾几个类型只查最后一次），期间再改就取消重来。
 struct DiscoverFilteredGrid: View {
+    @Environment(\.cardMetrics) private var cards
     let mediaType: String
     @Binding var filters: DiscoveryFilters
 
@@ -334,7 +336,7 @@ struct DiscoverFilteredGrid: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.bottom, 32)
         }
         .task(id: filters) {

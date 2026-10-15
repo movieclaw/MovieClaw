@@ -24,6 +24,7 @@ import SwiftUI
 
 /// 回收站页签（Web LibraryRecycleBin）。onCountChange 回报 total_files，用于页签上的计数。
 struct ManageRecycleBinTab: View {
+    @Environment(\.cardMetrics) private var cards
     var onCountChange: (Int) -> Void = { _ in }
 
     @Environment(\.api) private var api
@@ -351,7 +352,7 @@ struct ManageRecycleBinTab: View {
                 }
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 16)
     }
 

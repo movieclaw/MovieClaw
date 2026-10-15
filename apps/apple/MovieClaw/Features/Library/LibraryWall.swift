@@ -305,17 +305,18 @@ struct WallLoadPreviousSentinel: View {
 
 /// 海报墙网格：手机上最小列宽 140pt（竖版）/ 160pt（横版），列距 12、行距 20，与 Web 同口径
 struct LibraryPosterGrid<Item: Identifiable, Cell: View>: View {
+    @Environment(\.cardMetrics) private var cards
     let items: [Item]
     var wide = false
     @ViewBuilder let cell: (Item) -> Cell
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: wide ? 160 : 140), spacing: 12, alignment: .top)], alignment: .leading, spacing: 20) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: cards.wallMinimum + (wide ? 20 : 0)), spacing: cards.spacing, alignment: .top)], alignment: .leading, spacing: 20) {
             ForEach(items) { item in
                 cell(item)
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
     }
 }
 

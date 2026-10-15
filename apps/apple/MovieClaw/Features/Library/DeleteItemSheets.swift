@@ -9,6 +9,7 @@ import SwiftUI
 /// 删除完成后弹层不可下滑关闭：只能点「回到库存页」（或左上「关闭」，行为相同），
 /// 保证调用方一定收到 `onDeleted` 去离开已经不存在的条目页。
 struct DeleteItemSheet: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     let mediaItemId: Int
     let title: String
@@ -41,7 +42,7 @@ struct DeleteItemSheet: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Theme.pagePadding)
+                    .padding(cards.edge)
                 }
                 .safeAreaInset(edge: .bottom) { bottomBar }
             }
@@ -103,7 +104,7 @@ struct DeleteItemSheet: View {
                 }
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.vertical, 12)
         .background(.bar)
     }
@@ -139,6 +140,7 @@ struct DeleteItemSheet: View {
 /// 2. 该单元有订阅盯着时，删掉最后一份拷贝订阅会自动重新下载补齐。
 /// 判断「是不是最后一个文件」与剧集的季集标签都要条目详情，由弹层自己拉。
 struct DeleteFileSheet: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     let mediaItemId: Int
     let file: API.LibraryFileView
@@ -175,7 +177,7 @@ struct DeleteFileSheet: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Theme.pagePadding)
+                    .padding(cards.edge)
                 }
                 .safeAreaInset(edge: .bottom) { bottomBar(isLast: isLast) }
             }
@@ -288,7 +290,7 @@ struct DeleteFileSheet: View {
                 }
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.vertical, 12)
         .background(.bar)
     }

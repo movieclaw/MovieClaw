@@ -10,6 +10,7 @@ import SwiftUI
 /// - tail -f 式跟随：停在底部时新日志自动滚入；向上翻阅则暂停跟随，浮出「N 条新日志」一键回底；
 /// - 全屏查看：同一份工具栏与日志窗口铺满屏幕。
 struct LogsSettingsView: View {
+    @Environment(\.cardMetrics) private var cards
     @Environment(\.api) private var api
     @State private var model = SettingsLogModel()
     @State private var fullscreen = false
@@ -27,7 +28,7 @@ struct LogsSettingsView: View {
                 }
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 8)
         .appBackground()
         .task {
@@ -480,6 +481,7 @@ private struct LogRow: View {
 // MARK: - 全屏
 
 private struct LogFullscreen: View {
+    @Environment(\.cardMetrics) private var cards
     @Bindable var model: SettingsLogModel
     @Binding var fullscreen: Bool
 
@@ -495,7 +497,7 @@ private struct LogFullscreen: View {
             if let error = model.error { SettingsNotice(text: error) }
             LogWindow(model: model, fullscreen: $fullscreen)
         }
-        .padding(Theme.pagePadding)
+        .padding(cards.edge)
         .background(Theme.background.ignoresSafeArea())
         .polling(every: model.refreshMs > 0 ? Double(model.refreshMs) / 1000 : 3) {
             if model.refreshMs > 0, model.isLatestDay, let day = model.activeDay {

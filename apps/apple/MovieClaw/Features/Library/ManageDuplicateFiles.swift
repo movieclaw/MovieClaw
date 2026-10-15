@@ -20,6 +20,7 @@ import SwiftUI
 
 /// 重复文件页签（Web LibraryDuplicateFiles）。libraries 用于库筛选/库名显示；initialItemId 对应 Web ?item=（只看这一个条目）。
 struct ManageDuplicateFilesTab: View {
+    @Environment(\.cardMetrics) private var cards
     let libraries: [API.LibraryView]?
     var initialItemId: Int? = nil
     var onCountChange: (Int) -> Void = { _ in }
@@ -331,7 +332,7 @@ struct ManageDuplicateFilesTab: View {
             .disabled(busy || running)
             .accessibilityIdentifier("dup-scan")
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 16)
     }
 
@@ -376,7 +377,7 @@ struct ManageDuplicateFilesTab: View {
                     detailSection(data, itemTitle: itemTitle)
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.top, 14)
         }
     }

@@ -481,7 +481,9 @@ struct DiscoverPosterRow: View {
     var moreTitle = "查看完整榜单"
     var onMore: (() -> Void)?
     var action: DiscoverPosterAction = .subscribe
-    var cardWidth: CGFloat = PhoneCardWidth.discoverPoster
+    /// 不传按窗口宽度取（`CardMetrics.discoverPoster`）
+    var cardWidth: CGFloat?
+    @Environment(\.cardMetrics) private var cards
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -497,15 +499,15 @@ struct DiscoverPosterRow: View {
                         .accessibilityIdentifier("row-more")
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 12) {
+                LazyHStack(alignment: .top, spacing: cards.spacing) {
                     ForEach(items) { item in
                         DiscoverPosterCard(item: item, action: action)
-                            .frame(width: cardWidth)
+                            .frame(width: cardWidth ?? cards.discoverPoster)
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
                 .padding(.vertical, 4)
             }
             .scrollClipDisabled()
@@ -516,21 +518,22 @@ struct DiscoverPosterRow: View {
 /// 行加载骨架：标题实显、海报位闪烁（数据到达原位替换不跳版）
 struct DiscoverRowSkeleton: View {
     let title: String
-    var cardWidth: CGFloat = 126
+    var cardWidth: CGFloat?
+    @Environment(\.cardMetrics) private var cards
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(Theme.text)
-                .padding(.horizontal, Theme.pagePadding)
-            HStack(spacing: 12) {
+                .padding(.horizontal, cards.edge)
+            HStack(spacing: cards.spacing) {
                 ForEach(0 ..< 4, id: \.self) { _ in
                     DiscoverSkeletonBlock(cornerRadius: Theme.posterRadius)
-                        .frame(width: cardWidth, height: cardWidth * 1.5)
+                        .frame(width: cardWidth ?? cards.discoverPoster, height: (cardWidth ?? cards.discoverPoster) * 1.5)
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             // minWidth: 0 不能省：4 张占位共 572pt，宽过手机屏。只写 maxWidth 时外框会沿用
             // 子视图的 572，把整页 VStack 撑宽、居中后左右各溢出一截（首启时整页像被拉宽，
             // 等行数据到了才弹回）；两端都给才会老实取屏宽，多出的占位靠 clipped 裁掉

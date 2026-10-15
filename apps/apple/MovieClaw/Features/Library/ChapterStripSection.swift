@@ -13,6 +13,7 @@ import SwiftUI
 ///
 /// 章节模型是 `API.ChapterView`（`LibraryFileView.chapters`，按文件给出）。
 struct ChapterStripSection: View {
+    @Environment(\.cardMetrics) private var cards
     let chapters: [API.ChapterView]
     /// 「从此处播放」，参数为秒
     var onPlayFrom: (Double) -> Void
@@ -30,7 +31,7 @@ struct ChapterStripSection: View {
     var body: some View {
         if !chapters.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                header.padding(.horizontal, Theme.pagePadding)
+                header.padding(.horizontal, cards.edge)
                 strip
             }
             .accessibilityElement(children: .contain)
@@ -86,7 +87,7 @@ struct ChapterStripSection: View {
                     }
                 }
                 .padding(.vertical, 2)
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             }
             .scrollClipDisabled()
             // 首次知道续播章节时把它横滚到中间；之后用户自己滑不再抢位置

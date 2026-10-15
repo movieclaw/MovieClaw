@@ -10,6 +10,7 @@ import SwiftUI
 ///
 /// 数据：首页刚刷过就直接复用，不重复打接口；从别处直达（或首页数据已旧）时补刷一次。
 struct SubscriptionWallView: View {
+    @Environment(\.cardMetrics) private var cards
     let kind: String
 
     @Environment(\.api) private var api
@@ -36,7 +37,7 @@ struct SubscriptionWallView: View {
                 section("已暂停", items: shelf.paused, identifier: "wall-paused")
                 section(kind == "movie" ? "已入库" : "已收齐", items: shelf.done, identifier: "wall-done")
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.top, 4)
             .padding(.bottom, 40)
         }
@@ -63,7 +64,7 @@ struct SubscriptionWallView: View {
                         .foregroundStyle(Theme.textFaint)
                 }
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)],
+                    columns: [GridItem(.adaptive(minimum: cards.wallMinimum), spacing: cards.spacing, alignment: .top)],
                     alignment: .leading,
                     spacing: 20
                 ) {

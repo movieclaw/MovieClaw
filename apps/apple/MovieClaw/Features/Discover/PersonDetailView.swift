@@ -4,6 +4,7 @@ import SwiftUI
 /// 列出他在**我的库里**参演与执导的作品，点作品进库内条目详情。
 /// 404 = 库内没有这位影人的作品（给出「刷新元数据」的解释与去媒体库入口）。
 struct PersonDetailView: View {
+    @Environment(\.cardMetrics) private var cards
     let tmdbId: Int
 
     @Environment(\.api) private var api
@@ -58,7 +59,7 @@ struct PersonDetailView: View {
                 creditGrid("参演", cast, showCharacter: true)
                 creditGrid("执导", directed, showCharacter: false)
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.bottom, 40)
         }
         .refreshable { await load() }

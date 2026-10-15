@@ -58,6 +58,9 @@ struct MorePage: View {
         .contentMargins(.top, 0, for: .scrollContent)
         .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20))
         .listSectionSeparator(.hidden)
+        // 限宽居中（手机比 820 窄，不受影响）。不用 padReadableWidth：plain 列表的分组小标题不吃 contentMargins
+        .frame(maxWidth: 820)
+        .frame(maxWidth: .infinity)
         .environment(\.defaultMinListRowHeight, visibleSection == .conversations ? 44 : 60)
         .appBackground()
         .navigationTitle("我的")

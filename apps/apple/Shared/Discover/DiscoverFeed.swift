@@ -72,7 +72,7 @@ final class DiscoverFeed {
         if let first = hero?.first { urls.append(DiscoverHeroImage.url(first, api: api)) }
         if let section = rowSections.first, case let .loaded(items) = rows[section.collectionRef] {
             // 与 DiscoverPosterRow 里的卡同宽同档（卡片按自己排出来的宽取图，见 MeasuredRemoteImage）
-            urls += items.prefix(4).map { api.image($0.posterUrl, width: ImageWidth.points(PhoneCardWidth.discoverPoster)) }
+            urls += items.prefix(4).map { api.image($0.posterUrl, width: ImageWidth.points(CardMetrics.current.discoverPoster)) }
         }
         return urls.compactMap { $0 }
     }

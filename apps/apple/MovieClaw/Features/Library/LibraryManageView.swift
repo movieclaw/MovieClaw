@@ -13,6 +13,7 @@ import SwiftUI
 /// 轮询节奏同 Web：任务中 3 秒（结束后再快轮询 12 秒）/ 刷新元数据 5 秒 / 入库中 10 秒 / 空闲 30 秒。
 /// 页签计数：回收站与分享在别的页签时 30 秒低频轮询，重复文件只在进页与切页签时读一次（结论只在扫描后才变）。
 struct LibraryManageView: View {
+    @Environment(\.cardMetrics) private var cards
     var openCreate: Bool = false
     var initialTab: String?
     /// 条目详情「处理重复」带来的条目（Web `?item=`）：重复文件页签只看这一个条目。
@@ -224,7 +225,7 @@ struct LibraryManageView: View {
             .font(.footnote)
             .accessibilityIdentifier("manage-summary")
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 8)
     }
 
@@ -236,7 +237,7 @@ struct LibraryManageView: View {
                     tabButton(t)
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
         }
     }
 
@@ -275,7 +276,7 @@ struct LibraryManageView: View {
     private var librariesTab: some View {
         if failed, libraries != nil {
             ManageBanner(text: "与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据")
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
                 .padding(.top, 16)
         }
         if let libraries {
@@ -325,13 +326,13 @@ struct LibraryManageView: View {
                 }
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 18)
 
         // 收藏范围重叠提示：只读不阻断
         ForEach(ManageLibraryRules.routingOverlapWarnings(libraries), id: \.self) { warning in
             ManageBanner(text: warning)
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
                 .padding(.top, 14)
         }
 
@@ -356,13 +357,13 @@ struct LibraryManageView: View {
         }
         .background(Color.white.opacity(0.02), in: .rect(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Theme.line))
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 14)
 
         Text("顺序即首页「我的媒体库」的展示顺序，在 ··· 菜单里「调整顺序」")
             .font(.caption)
             .foregroundStyle(Theme.textFaint)
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.top, 10)
     }
 

@@ -21,6 +21,7 @@ import SwiftUI
 
 /// 以 .sheet 呈现，自带 NavigationStack 与关闭按钮
 struct ReidentifySheet: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     let mediaItemId: Int
     var onApplied: () -> Void = {}
@@ -71,7 +72,7 @@ struct ReidentifySheet: View {
                         previewContent(preview)
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
                 .padding(.vertical, 12)
             }
             .scrollDismissesKeyboard(.interactively)
@@ -82,7 +83,7 @@ struct ReidentifySheet: View {
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .padding(.vertical, 10)
                     .background(.bar)
             }

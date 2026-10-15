@@ -31,6 +31,27 @@ enum MainTab: String, Hashable, CaseIterable {
     }
 }
 
+/// 标签栏 / 侧边栏上的一项，各有一个导航栈。
+///
+/// iPhone 只有五个固定页签（`.tab`）。iPad 的侧边栏照 Mac 版（docs/design/ipad.md §3、macos-app.md §3）：
+/// 首页、我的收藏，「媒体库」逐个列库，「合集」列显示在首页的合集——它们都归「媒体库」页签（`mainTab`），
+/// 路由归属、权限守卫、回首页都按它算；切走再切回来还停在原来那一层（同 Apple Music）
+enum ShellTab: Hashable {
+    case tab(MainTab)
+    /// 我的收藏（iPad 侧边栏）
+    case favorites
+    /// 一个媒体库的海报墙（iPad 侧边栏）
+    case mediaLibrary(Int)
+    /// 一个首页合集（iPad 侧边栏）
+    case collection(Int)
+
+    /// 归属的页签：侧边栏里的收藏、库、合集都属于「媒体库」
+    var mainTab: MainTab {
+        if case let .tab(tab) = self { return tab }
+        return .library
+    }
+}
+
 /// 全局弹层：多个模块都会唤起的对话框放这里，由根视图统一呈现，避免各页面重复挂载。
 enum AppSheet: Identifiable, Hashable {
     /// 订阅对话框（发现海报、详情页、搜索结果、AI 卡片、媒体库「洗版」都会用）
@@ -67,11 +88,17 @@ struct SubscribeRequest: Hashable {
 /// `push` 压到当前标签，`open(_:)` 按路由归属切到对应标签再压栈。
 @Observable
 final class Router {
-    var selectedTab: MainTab = .library {
+    /// 选中的那一项（iPhone 上就是五个页签之一）
+    var selection: ShellTab = .tab(.library) {
         // 打点：切页签的那一刻是页面打开的起点（见 PerfTrace）
-        didSet { if selectedTab != oldValue { PerfTrace.pageBegan(selectedTab.rawValue, trigger: "tab") } }
+        didSet { if selection != oldValue { PerfTrace.pageBegan(selectedTab.rawValue, trigger: "tab") } }
     }
-    var paths: [MainTab: [AppRoute]] = [:]
+    /// 选中项归属的页签。赋值 = 切到那个页签本身（iPad 上从某个库切回「首页」也走这里）
+    var selectedTab: MainTab {
+        get { selection.mainTab }
+        set { selection = .tab(newValue) }
+    }
+    var paths: [ShellTab: [AppRoute]] = [:]
     /// 发现的筛选结果位于根页面内，回首页时除退栈外还需要清空筛选。
     private(set) var discoverHomeRequest = UUID()
     /// 全屏播放器
@@ -90,12 +117,31 @@ final class Router {
     /// 结果页点顶部搜索词胶囊回到搜索首页时要回填的内容；搜索首页出现时取走（见 `SearchHomeView`）
     var searchDraft: SearchDraft?
 
-    /// 当前标签的导航栈（绑定给 NavigationStack）
-    func path(for tab: MainTab) -> Binding<[AppRoute]> {
+    /// iPad 侧边栏里逐个列着的库（手机上为空）：深链打开这些库的海报墙时直接选中侧边栏那一项
+    private(set) var sidebarLibraries: Set<Int> = []
+
+    /// 侧边栏的库清单到了（或变了）。冷启动时深链比清单先到、库页压在了首页栈上：清单一到就改成选中侧边栏那一项
+    func adoptSidebarLibraries(_ ids: Set<Int>) {
+        sidebarLibraries = ids
+        if selection == .tab(.library), currentPath.count == 1,
+           case let .library(id, nil, false)? = currentPath.first, ids.contains(id) {
+            currentPath = []
+            select(.mediaLibrary(id))
+        }
+    }
+
+    /// 某一项的导航栈（绑定给 NavigationStack）
+    func path(for item: ShellTab) -> Binding<[AppRoute]> {
         Binding(
-            get: { self.paths[tab] ?? [] },
-            set: { self.paths[tab] = $0 }
+            get: { self.paths[item] ?? [] },
+            set: { self.paths[item] = $0 }
         )
+    }
+
+    /// 当前选中项的导航栈
+    var currentPath: [AppRoute] {
+        get { paths[selection] ?? [] }
+        set { paths[selection] = newValue }
     }
 
     /// 当前账号的权限（由 MainTabView 写入），路由守卫据此把越权目标改道。
@@ -124,11 +170,11 @@ final class Router {
         if let sheet = sheetRoute(route) { return present(sheet) }
         if let root = Self.tabRoot(of: route) {
             selectedTab = root
-            paths[root] = []
+            paths[.tab(root)] = []
             rememberRootParameter(of: route)
             return
         }
-        paths[selectedTab, default: []].append(route)
+        paths[selection, default: []].append(route)
     }
 
     /// 切到路由归属的标签后压栈（通知、AI 卡片等「从别处跳过来」的场景）
@@ -142,19 +188,23 @@ final class Router {
         }
         if let root = Self.tabRoot(of: route) {
             selectedTab = root
-            paths[root] = []
+            paths[.tab(root)] = []
             rememberRootParameter(of: route)
             return
         }
-        // 切到路由归属的标签（该标签对当前账号不可见时——例如成员没有订阅页——留在当前标签）
-        if let target = route.tab, availableTabs.contains(target) { selectedTab = target }
+        if case let .library(id, nil, false) = route, sidebarLibraries.contains(id) {
+            return select(.mediaLibrary(id))
+        }
+        // 切到路由归属的标签（该标签对当前账号不可见时——例如成员没有订阅页——留在当前标签）；
+        // 已经在它下面（iPad 侧边栏选着某个库，打开的是库里的条目）就压在当前栈上，不跳回首页
+        if let target = route.tab, availableTabs.contains(target), target != selectedTab { selectedTab = target }
         // 设置分区的返回固定回设置列表（Web app-shell：/settings/[x] 的返回是 /settings）：
         // 从通知「去处理」、更多页「新版本」等处直达分区时，栈顶不是设置列表就先垫一层。
         // 「个人信息」不在设置列表里（入口是「我的」页头像卡），不垫
-        if case let .settingsSection(section, _) = route, section != .profile, paths[selectedTab]?.last != .settings {
-            paths[selectedTab, default: []].append(.settings)
+        if case let .settingsSection(section, _) = route, section != .profile, currentPath.last != .settings {
+            paths[selection, default: []].append(.settings)
         }
-        paths[selectedTab, default: []].append(route)
+        paths[selection, default: []].append(route)
     }
 
     /// 当前账号可见的标签（由 MainTabView 按权限写入）
@@ -183,31 +233,47 @@ final class Router {
     }
 
     func pop() {
-        _ = paths[selectedTab]?.popLast()
+        _ = paths[selection]?.popLast()
     }
 
     /// 从结果页回到搜索首页改词重搜：结果页正压在搜索首页上面就退回去，否则（订阅页手动选种、
     /// 深链等别处直达的结果页）在上面新开一个搜索首页。回填内容经 `searchDraft` 交给搜索首页
     func editSearch(_ draft: SearchDraft) {
         searchDraft = draft
-        var path = paths[selectedTab] ?? []
+        var path = currentPath
         if path.count >= 2, case .searchHome = path[path.count - 2] {
             path.removeLast()
         } else {
             path.append(.searchHome(mode: draft.mode))
         }
-        paths[selectedTab] = path
+        currentPath = path
     }
 
     /// 用户点按底栏；程序路由仍通过 open / push 保留目标页面的参数。
     func selectTab(_ tab: MainTab) {
-        selectedTab = tab
+        select(.tab(tab))
+    }
+
+    /// 点按标签栏 / 侧边栏的一项：切过去并退回它的根页面（再点一次当前项同样退回根页面）
+    func select(_ item: ShellTab) {
+        selection = item
         popToRoot()
     }
 
     func popToRoot() {
-        paths[selectedTab] = []
-        if selectedTab == .discover { discoverHomeRequest = UUID() }
+        paths[selection] = []
+        if selection == .tab(.discover) { discoverHomeRequest = UUID() }
+    }
+
+    /// 会话过期时记下的位置（重新登录后回到这里）：侧边栏里的库、合集、收藏折回「媒体库」页签，根页面垫在栈底
+    var resumePoint: (tab: MainTab, path: [AppRoute]) {
+        let root: AppRoute? = switch selection {
+        case .tab: nil
+        case .favorites: .favorites
+        case let .mediaLibrary(id): .library(id: id)
+        case let .collection(id): .collection(libraryId: nil, collectionId: id)
+        }
+        return (selectedTab, (root.map { [$0] } ?? []) + currentPath)
     }
 
     func play(_ request: PlayRequest) {

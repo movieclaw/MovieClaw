@@ -5,6 +5,7 @@ import SwiftUI
 
 /// 离线模式顶部的提示条：说明在看的是 iPhone 上的内容，可以手动重连
 struct OfflineBanner: View {
+    @Environment(\.cardMetrics) private var cards
     @State private var reachability = ServerReachability.shared
     @State private var store = OfflineStore.shared
 
@@ -26,7 +27,7 @@ struct OfflineBanner: View {
         .padding(.horizontal, 14).padding(.vertical, 10)
         .background(Theme.warning.opacity(0.08), in: .rect(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.warning.opacity(0.22)))
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("offline-banner")
     }
@@ -107,6 +108,7 @@ struct OfflinePosterCell: View {
 
 /// 离线首页：接着看 + 按库分组的已下载条目
 struct OfflineLibraryHomeView: View {
+    @Environment(\.cardMetrics) private var cards
     @State private var store = OfflineStore.shared
     @Environment(\.api) private var api
 
@@ -129,7 +131,7 @@ struct OfflineLibraryHomeView: View {
                             LazyHStack(alignment: .top, spacing: 12) {
                                 ForEach(group.items) { OfflinePosterCell(item: $0) }
                             }
-                            .padding(.horizontal, Theme.pagePadding)
+                            .padding(.horizontal, cards.edge)
                         }
                         .scrollClipDisabled()
                     }
@@ -186,7 +188,7 @@ struct OfflineLibraryHomeView: View {
                             OfflineResumeCard(item: entry.item, unit: entry.unit, progress: entry.progress)
                         }
                     }
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                 }
                 .scrollClipDisabled()
             }
@@ -280,6 +282,7 @@ struct OfflineLibraryWall: View {
 /// 在线首页的「正在下载」提示条：有排队 / 下载中 / 暂停 / 失败的单元时才出现，下完自动消失。
 /// 只汇总（在下什么、总速度、总进度）；每一集的状态在「我的 → 下载」的「下载中」里，点一下进去
 struct OfflineDownloadingRow: View {
+    @Environment(\.cardMetrics) private var cards
     @State private var store = OfflineStore.shared
 
     var body: some View {
@@ -302,7 +305,7 @@ struct OfflineDownloadingRow: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.top, 16)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("home-downloading")

@@ -7,6 +7,7 @@ import SwiftUI
 /// 视图切换（分组 / 列表 / 图览）在顶栏右上角（`TorrentViewModeMenu`，由 `SearchResultsView` 挂）。
 /// 行点按打开资源操作面板（下载 / 投给订阅 / 浏览图片 / 站点详情页）。
 struct TorrentResultsView: View {
+    @Environment(\.cardMetrics) private var cards
     @Bindable var model: TorrentSearchModel
     /// 手动选种模式：目标订阅（id + 标题）
     let grabTarget: (id: Int, title: String)?
@@ -41,7 +42,7 @@ struct TorrentResultsView: View {
                 }
                 results
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.bottom, 40)
         }
         .scrollDismissesKeyboard(.immediately)
@@ -203,7 +204,7 @@ struct TorrentResultsView: View {
                     conditionLabel(Label("清空", systemImage: "xmark").labelStyle(.titleAndIcon), active: false, chevron: false)
                 }
                 .buttonStyle(.plain)
-                .padding(.leading, Theme.pagePadding)
+                .padding(.leading, cards.edge)
                 .padding(.vertical, 4)
                 .transition(.move(edge: .leading).combined(with: .opacity))
                 .accessibilityLabel("清空全部筛选条件")
@@ -218,8 +219,8 @@ struct TorrentResultsView: View {
                         }
                     }
                     // 左边钉着「清空」时只留胶囊间距，胶囊横滑时从它右侧滑进滑出
-                    .padding(.leading, clearing ? 8 : Theme.pagePadding)
-                    .padding(.trailing, Theme.pagePadding)
+                    .padding(.leading, clearing ? 8 : cards.edge)
+                    .padding(.trailing, cards.edge)
                     .padding(.vertical, 4)
                 }
             }
@@ -228,7 +229,7 @@ struct TorrentResultsView: View {
         }
         .animation(.snappy, value: clearing)
         // 横滑出页边距：胶囊能滑到屏幕边缘再消失，而不是在 16pt 页边距处被一刀切掉
-        .padding(.horizontal, -Theme.pagePadding)
+        .padding(.horizontal, -cards.edge)
     }
 
     /// 排序胶囊：写当前键与方向；菜单分「常规 / 智能」，点当前项翻转升降序（同 Web SortDropdown）

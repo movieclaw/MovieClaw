@@ -200,12 +200,12 @@ struct SearchHomeView: View {
     /// - 搜索页由 Router 的路径压栈（`.searchHome`），环境里的 dismiss 弹不掉它；只在栈顶确实是本页时出栈
     private func closeAfterCancel() async {
         try? await Task.sleep(for: .milliseconds(600))
-        let tab = router.selectedTab
+        let tab = router.selection
         guard visible, !searchPresented, let top = router.paths[tab]?.last,
               case .searchHome = top else { return }
         router.pop()
         try? await Task.sleep(for: .milliseconds(600))
-        if visible, router.selectedTab == tab, router.paths[tab]?.last != top {
+        if visible, router.selection == tab, router.paths[tab]?.last != top {
             router.paths[tab, default: []].append(top)
             router.pop()
         }

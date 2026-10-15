@@ -204,6 +204,7 @@ private struct ShareCardShell<Content: View>: View {
 /// 合集分享的名单（Web `SharedCollectionView`）。成员由服务端每次现算：规则驱动的合集会自己长。
 /// 与站内合集网格刻意不复用——访客看到的只该是「这几部片」，没有隐藏、系列分组这些登录用户才有的概念
 private struct ShareCollectionView: View {
+    @Environment(\.cardMetrics) private var cards
     let slug: String
     let onOpen: (Int) -> Void
 
@@ -238,7 +239,7 @@ private struct ShareCollectionView: View {
                             .padding(.top, 16)
                         }
                     }
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .padding(.vertical, 16)
                 }
             } else {

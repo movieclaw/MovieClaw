@@ -25,6 +25,7 @@ struct LibraryItemDetailView: View {
     @Environment(\.permissions) private var permissions
     @Environment(Feedback.self) private var feedback
     @Environment(Router.self) private var router
+    @Environment(\.cardMetrics) private var cards
 
     @State private var detail: API.LibraryItemDetailView?
     @State private var library: API.LibraryView?
@@ -64,6 +65,8 @@ struct LibraryItemDetailView: View {
     @State private var heroSize: CGSize = .zero
     /// 页面底色（剧照底边的颜色）；取到之前为 nil，页面是黑底
     @State private var edgeTint: Color?
+    /// 页面尺寸（宽窗口的大图区高度按它算）
+    @State private var pageSize: CGSize = .zero
 
     /// 分集区当前选中的那一集（及其文件）
     struct SelectedEpisode: Equatable {
@@ -207,10 +210,10 @@ struct LibraryItemDetailView: View {
     /// 兜底态返回键的去处名（同 Web navFallback）：从发现详情来 →「发现详情」；从媒体库首页来 →「媒体库」；
     /// 其余按本库名（拿不到库名叫「库存」）。App 用真实返回栈判断来路，等价于 Web 的 returnTo / from=recent
     private var backLabel: String {
-        let stack = router.paths[router.selectedTab] ?? []
+        let stack = router.currentPath
         switch stack.dropLast().last {
         case .mediaDetail?: return "发现详情"
-        case nil where router.selectedTab == .library, .libraryHome?: return "媒体库"
+        case nil where router.selection == .tab(.library), .libraryHome?: return "媒体库"
         default: return library?.name ?? "库存"
         }
     }
@@ -244,22 +247,33 @@ struct LibraryItemDetailView: View {
 
     @ViewBuilder
     private func content(_ detail: API.LibraryItemDetailView) -> some View {
-        let heroURL = api.image(detail.backdropUrl ?? detail.posterUrl, width: Self.heroImageWidth)
+        let heroURL = api.image(detail.backdropUrl ?? detail.posterUrl, width: heroImageWidth)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if let heroURL {
-                    hero(heroURL)
+                let plot = isMovie ? detail.localMeta?.plot : (selectedEpisode?.episode.overview ?? detail.localMeta?.plot)
+                if wide {
+                    // 宽窗口照 Mac 版（macos-app.md §4.4）：剧照铺满大图区，左下角片名 / 事实行 / 简介 / 一排按钮，
+                    // 右下角导演、主演；挑版本与音轨、下载、系列合集这些 iPhone 才有的放到大图下面
+                    wideStage(detail, heroURL: heroURL, plot: plot)
+                        .onScrollVisibilityChange(threshold: 0.2) { visible in titleVisible = !visible }
+                    wideExtras(detail)
+                        .padding(.horizontal, cards.edge)
+                        .padding(.top, 8)
                 } else {
-                    Color.clear.frame(height: 110)
-                }
-                header(detail)
-                    .padding(.top, heroURL == nil ? 0 : -150)
-                    .padding(.horizontal, Theme.pagePadding)
-                    .onScrollVisibilityChange(threshold: 0.2) { visible in titleVisible = !visible }
-                if let plot = isMovie ? detail.localMeta?.plot : (selectedEpisode?.episode.overview ?? detail.localMeta?.plot), !plot.isEmpty {
-                    ExpandablePlot(text: plot)
-                        .padding(.horizontal, Theme.pagePadding)
-                        .padding(.top, 16)
+                    if let heroURL {
+                        hero(heroURL)
+                    } else {
+                        Color.clear.frame(height: 110)
+                    }
+                    header(detail)
+                        .padding(.top, heroURL == nil ? 0 : -150)
+                        .padding(.horizontal, cards.edge)
+                        .onScrollVisibilityChange(threshold: 0.2) { visible in titleVisible = !visible }
+                    if let plot, !plot.isEmpty {
+                        ExpandablePlot(text: plot)
+                            .padding(.horizontal, cards.edge)
+                            .padding(.top, 16)
+                    }
                 }
                 VStack(alignment: .leading, spacing: 28) {
                     if !isMovie, !detail.seasons.isEmpty {
@@ -299,6 +313,7 @@ struct LibraryItemDetailView: View {
             }
         }
         .ignoresSafeArea(edges: .top)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { pageSize = $0 }
         .scrollEdgeEffectHidden(heroURL != nil && !titleVisible, for: .top)
         .task(id: edgeKey(heroURL)) {
             guard let heroURL, heroSize.height > 0 else { return }
@@ -316,21 +331,28 @@ struct LibraryItemDetailView: View {
         return "\(url.absoluteString)#\(Int((heroSize.width / heroSize.height * 100).rounded()))"
     }
 
-    /// Hero 的显示高度：屏宽 × 1.15，最高屏高 62%
-    private static var heroHeight: CGFloat {
-        min(ImageWidth.screenSize.width * 1.15, ImageWidth.screenSize.height * 0.62)
+    /// Hero 的显示高度：手机屏宽 × 1.15，最高屏高 62%。
+    /// iPad 宽窗口同 Mac 版 `MacStageLayout`：按页面宽度把 16:9 剧照整张露出，至少 420，至多页面高度的 82%
+    private var heroHeight: CGFloat {
+        let screen = ImageWidth.screenSize
+        guard wide else { return min(screen.width * 1.15, screen.height * 0.62) }
+        let page = pageSize.width > 0 ? pageSize : screen
+        return min(max(page.width * 9 / 16, 420), max(420, page.height * 0.82))
     }
+
+    private var wide: Bool { cards.isWide }
+
 
     /// Hero 的取图宽度：屏宽 × `heroHeight` 的竖框（393×452 点）铺满 16:9 背景要按高算——按宽只要 1179 像素，
     /// 按高约 804 点 × 3 ≈ 2411 像素 → 2560 档（docs/design/image-sizing.md §6），不再取 4K 原图
-    private static var heroImageWidth: Int {
+    private var heroImageWidth: Int {
         ImageWidth.cover(CGSize(width: ImageWidth.screenSize.width, height: heroHeight), aspect: ImageAspect.backdrop)
     }
 
     /// 手机 Hero：剧照撑满宽度从状态栏底下铺起，顶部一抹暗托住返回键，底部渐变进页面底色
     /// （剧照底边的颜色，见 `HeroEdgeColor`），与下方整页无缝接上
     private func hero(_ url: URL) -> some View {
-        let height = Self.heroHeight
+        let height = heroHeight
         let pageTint = edgeTint ?? Theme.background
         return Color.clear
             .frame(maxWidth: .infinity)
@@ -350,6 +372,198 @@ struct LibraryItemDetailView: View {
             // 下拉刷新时整块大图（连同两头的渐变）以底边为锚放大，顶上不露底色（同 Apple Music）
             .stretchesOnPull()
             .accessibilityHidden(true)
+    }
+
+    // MARK: iPad 宽窗口（照 Mac 版详情页）
+
+    /// 大图区：剧照铺满，左下角片名 Logo → 事实行 → 类型 → 第几集 → 简介 → 一排按钮，右下角导演 / 主演
+    /// （同 Mac 版 `MacItemDetailView.hero` 与 Apple TV App）。高度至少 `heroHeight`，文字更高时跟着长；没有剧照时只排文字
+    private func wideStage(_ detail: API.LibraryItemDetailView, heroURL: URL?, plot: String?) -> some View {
+        let height = heroURL == nil ? 0 : heroHeight
+        let pageTint = edgeTint ?? Theme.background
+        return HStack(alignment: .bottom, spacing: 32) {
+            VStack(alignment: .leading, spacing: 0) {
+                titleArt(detail, logo: wideLogoSize)
+                    .accessibilityValue(String(detail.mediaItemId))
+                    .accessibilityIdentifier("item-title")
+                    .padding(.bottom, 16)
+                let facts = factsLine(detail)
+                if !facts.isEmpty {
+                    Text(facts.joined(separator: " · "))
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .padding(.bottom, 4)
+                }
+                if let genres = detail.localMeta?.genres, !genres.isEmpty {
+                    Text(genres.joined(separator: " · "))
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.72))
+                        .lineLimit(1)
+                        .padding(.bottom, 8)
+                }
+                if !isMovie, let selectedEpisode {
+                    Text("第 \(selectedEpisode.season) 季 第 \(selectedEpisode.episode.episodeNumber) 集\(selectedEpisode.episode.name.map { " · \($0)" } ?? "")")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .lineLimit(1)
+                        .padding(.bottom, 10)
+                }
+                if let plot, !plot.isEmpty {
+                    ExpandablePlot(text: plot)
+                        .frame(maxWidth: 560, alignment: .leading)
+                        .padding(.bottom, 18)
+                }
+                if !availableTrackFiles.isEmpty, isMovie || selectedEpisode != nil {
+                    wideActions()
+                }
+            }
+            .frame(maxWidth: 640, alignment: .leading)
+            Spacer(minLength: 0)
+            stageCredits(detail)
+        }
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.4), radius: 8)
+        .padding(.horizontal, cards.edge)
+        // 顶上给标签栏 / 返回键留出位置：窄的常规宽度窗口（iPad mini 竖屏）里文字比 16:9 的大图区高，大图区跟着长高、不顶到标签栏底下
+        .padding(.top, 120)
+        .padding(.bottom, 28)
+        .frame(maxWidth: .infinity, minHeight: height, alignment: .bottomLeading)
+        .background {
+            if let heroURL {
+                Color.clear
+                    .overlay { RemoteImage(url: heroURL) }
+                    .clipped()
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { heroSize = $0 }
+                    // 托字：左下一团黑往右上散开，再从左往右压一条（同 Mac 版 MacStageImage）
+                    .overlay {
+                        ZStack {
+                            RadialGradient(colors: [.black.opacity(0.55), .clear], center: .bottomLeading, startRadius: 0, endRadius: 1000)
+                            LinearGradient(colors: [.black.opacity(0.35), .clear], startPoint: .leading, endPoint: .init(x: 0.6, y: 0.5))
+                        }
+                    }
+                    .overlay(alignment: .top) {
+                        LinearGradient(colors: [.black.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom).frame(height: 112)
+                    }
+                    // 下沿渐隐进页面底色（剧照底边的颜色），与下面整页接上
+                    .overlay {
+                        LinearGradient(stops: [.init(color: .clear, location: 0.62), .init(color: pageTint.opacity(0.6), location: 0.83),
+                                               .init(color: pageTint, location: 1)],
+                                       startPoint: .top, endPoint: .bottom)
+                            .animation(.easeInOut(duration: 0.5), value: edgeTint?.description)
+                    }
+                    .stretchesOnPull()
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    /// 片名 Logo 的最大宽高：跟着页面宽度走（同 Mac 版 `MacStageLayout.logoSize`）
+    private var wideLogoSize: CGSize {
+        let width = pageSize.width > 0 ? pageSize.width : ImageWidth.screenSize.width
+        return CGSize(width: min(520, max(340, width * 0.32)), height: min(140, max(100, width * 0.085)))
+    }
+
+    /// 一排按钮（同 Mac 版）：主按钮写明播哪一集、从哪儿接着播；看过一段时多一颗「从头播放」；
+    /// 收藏、标为已看折成圆形玻璃钮；还剩多久写在最后
+    private func wideActions() -> some View {
+        let state = playButtonState
+        return HStack(spacing: 10) {
+            Button { play(start: nil) } label: {
+                Label(state.label, systemImage: "play.fill")
+                    .heroActionLabel()
+                    .padding(.horizontal, 6)
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.large)
+            .tint(.white)
+            .foregroundStyle(.black)
+            .accessibilityLabel(state.progressText.map { "\(state.label)，\($0)" } ?? state.label)
+            .accessibilityIdentifier("item-play")
+            if state.resumable {
+                Button { play(start: 0) } label: {
+                    Label("从头播放", systemImage: "backward.end.fill").heroActionLabel()
+                }
+                .buttonStyle(.glass)
+                .controlSize(.large)
+                .accessibilityIdentifier("item-restart")
+            }
+            if !readOnly {
+                wideCircleButton(favorite == true ? "heart.fill" : "heart", tint: favorite == true ? Theme.danger : nil,
+                                 label: favorite == true ? "取消收藏" : "收藏") { Task { await toggleFavorite() } }
+                    .accessibilityIdentifier("item-favorite")
+                wideCircleButton(state.finished ? "checkmark.circle.fill" : "checkmark", tint: state.finished ? Theme.success : nil,
+                                 label: state.finished ? "标记为未看" : "标记为已看") { Task { await togglePlayed() } }
+                    .accessibilityIdentifier("item-played")
+            }
+            if let progressText = state.progressText {
+                Text(progressText)
+                    .font(.footnote)
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.65))
+                    .padding(.leading, 4)
+                    .accessibilityIdentifier("item-progress")
+            }
+        }
+        .disabled(marking)
+    }
+
+    private func wideCircleButton(_ symbol: String, tint: Color?, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint ?? .white)
+                .frame(width: 22, height: 22)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .controlSize(.large)
+        .accessibilityLabel(label)
+    }
+
+    /// 大图区右下角的演职员：「导演 某某」「主演 某某、某某」，标签灰、人名白；放不下时不显示（同 Mac 版）
+    @ViewBuilder
+    private func stageCredits(_ detail: API.LibraryItemDetailView) -> some View {
+        let meta = detail.localMeta
+        let directors = (meta?.directorCredits.map(\.name)).flatMap { $0.isEmpty ? nil : $0 } ?? meta?.directors ?? []
+        let actors = (meta?.actors ?? []).prefix(3).map(\.name)
+        if !directors.isEmpty || !actors.isEmpty {
+            ViewThatFits(in: .horizontal) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let director = directors.first { creditLine("导演", [director]) }
+                    if !actors.isEmpty { creditLine("主演", Array(actors)) }
+                }
+                .fixedSize()
+                Color.clear.frame(width: 0, height: 0)
+            }
+            .padding(.bottom, 6)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private func creditLine(_ label: String, _ names: [String]) -> some View {
+        Text("\(Text(label + "  ").foregroundStyle(.white.opacity(0.6)))\(Text(names.joined(separator: "、")).foregroundStyle(.white))")
+            .font(.footnote.weight(.medium))
+            .lineLimit(1)
+    }
+
+    /// 大图下面：iPhone 才有的那些——系列 / 合集链接、挑版本与音轨字幕、电影的下载状态、刷新提示
+    private func wideExtras(_ detail: API.LibraryItemDetailView) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            seriesCollectionRows(detail)
+            if goneOnServer {
+                Text("服务器上已没有这个条目，下面是 iPad 上的副本，仍可播放与删除。")
+                    .font(.footnote).foregroundStyle(Theme.warning)
+            }
+            MediaTrackSection(files: trackFiles, selectedFileId: $selectedTrackFileId) { await reload() }
+            if isMovie, let unit = playUnit {
+                OfflineDownloadControl(detail: detail, season: unit.season, episode: unit.episode, files: downloadableFiles)
+                    .frame(maxWidth: HeroAction.maxWideLabelWidth)
+            }
+            statusBanners(detail)
+        }
+        .frame(maxWidth: 720, alignment: .leading)
     }
 
     // MARK: 头部信息区
@@ -378,27 +592,7 @@ struct LibraryItemDetailView: View {
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.72))
             }
-            if let seriesName = detail.seriesName {
-                metaLinkRow("系列") {
-                    if let cid = detail.seriesCollectionId {
-                        NavigationLink(seriesName, value: AppRoute.collection(libraryId: libraryId, collectionId: cid))
-                    } else {
-                        Text(seriesName)
-                    }
-                }
-            }
-            if !detail.collections.isEmpty {
-                metaLinkRow("合集") {
-                    ForEach(Array(detail.collections.prefix(3).enumerated()), id: \.element.id) { index, row in
-                        if index > 0 { Text(" · ").foregroundStyle(.white.opacity(0.3)) }
-                        NavigationLink(row.name, value: AppRoute.collection(libraryId: libraryId, collectionId: row.id))
-                    }
-                    if detail.collections.count > 3 {
-                        Text(" · ").foregroundStyle(.white.opacity(0.3))
-                        NavigationLink("还有 \(detail.collections.count - 3) 个", value: AppRoute.library(id: libraryId, view: "collections"))
-                    }
-                }
-            }
+            seriesCollectionRows(detail)
             if goneOnServer {
                 Text("服务器上已没有这个条目，下面是 iPhone 上的副本，仍可播放与删除。")
                     .font(.footnote).foregroundStyle(Theme.warning)
@@ -410,29 +604,61 @@ struct LibraryItemDetailView: View {
                 playAction(favoriteLabel: isMovie ? "这部电影" : "这部剧")
                     .padding(.top, 10)
             }
-            if detail.scraping || kicking {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small).tint(Theme.info)
-                    Text("正在刷新元数据\(detail.scrapingPhase.map { " · \($0)" } ?? "")").lineLimit(1)
-                    Spacer(minLength: 4)
-                    Text("完成后自动更新本页").font(.caption).foregroundStyle(.white.opacity(0.45))
+            statusBanners(detail)
+        }
+    }
+
+    /// 系列 / 合集两行链接（手机在片名区，iPad 宽窗口在大图下面）
+    @ViewBuilder
+    private func seriesCollectionRows(_ detail: API.LibraryItemDetailView) -> some View {
+        if let seriesName = detail.seriesName {
+            metaLinkRow("系列") {
+                if let cid = detail.seriesCollectionId {
+                    NavigationLink(seriesName, value: AppRoute.collection(libraryId: libraryId, collectionId: cid))
+                } else {
+                    Text(seriesName)
                 }
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(Theme.info)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .background(Theme.info.opacity(0.07), in: .rect(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.info.opacity(0.25)))
+            }
+        }
+        if !detail.collections.isEmpty {
+            metaLinkRow("合集") {
+                ForEach(Array(detail.collections.prefix(3).enumerated()), id: \.element.id) { index, row in
+                    if index > 0 { Text(" · ").foregroundStyle(.white.opacity(0.3)) }
+                    NavigationLink(row.name, value: AppRoute.collection(libraryId: libraryId, collectionId: row.id))
+                }
+                if detail.collections.count > 3 {
+                    Text(" · ").foregroundStyle(.white.opacity(0.3))
+                    NavigationLink("还有 \(detail.collections.count - 3) 个", value: AppRoute.library(id: libraryId, view: "collections"))
+                }
+            }
+        }
+    }
+
+    /// 刷新元数据进行中 / 刷新失败的提示条
+    @ViewBuilder
+    private func statusBanners(_ detail: API.LibraryItemDetailView) -> some View {
+        if detail.scraping || kicking {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small).tint(Theme.info)
+                Text("正在刷新元数据\(detail.scrapingPhase.map { " · \($0)" } ?? "")").lineLimit(1)
+                Spacer(minLength: 4)
+                Text("完成后自动更新本页").font(.caption).foregroundStyle(.white.opacity(0.45))
+            }
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(Theme.info)
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(Theme.info.opacity(0.07), in: .rect(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.info.opacity(0.25)))
+            .padding(.top, 8)
+        }
+        if let refreshError {
+            Text(refreshError)
+                .font(.footnote)
+                .foregroundStyle(Color(red: 1, green: 0.62, blue: 0.62))
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .cardStyle(radius: 12)
                 .padding(.top, 8)
-            }
-            if let refreshError {
-                Text(refreshError)
-                    .font(.footnote)
-                    .foregroundStyle(Color(red: 1, green: 0.62, blue: 0.62))
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .cardStyle(radius: 12)
-                    .padding(.top, 8)
-            }
         }
     }
 
@@ -450,14 +676,14 @@ struct LibraryItemDetailView: View {
     /// 本地 Logo 资产存的是 TMDB 原图（给电视端 clearlogo 用，常见 4000px 宽）：按 Logo 框宽（260 点）取 `w`；
     /// 旧服务器不认 `w` 会回原图，所以仍按显示宽度降采样再解码
     @ViewBuilder
-    private func titleArt(_ detail: API.LibraryItemDetailView) -> some View {
-        if let raw = detail.logoUrl, let url = api.image(raw, width: ImageWidth.points(260)) {
-            LazyImage(request: ImageRequest(url: url, processors: [.resize(width: 260)]),
+    private func titleArt(_ detail: API.LibraryItemDetailView, logo: CGSize = CGSize(width: 260, height: 96)) -> some View {
+        if let raw = detail.logoUrl, let url = api.image(raw, width: ImageWidth.points(logo.width)) {
+            LazyImage(request: ImageRequest(url: url, processors: [.resize(width: logo.width)]),
                       transaction: Transaction(animation: .easeOut(duration: 0.25))) { state in
                 if let image = state.image {
                     image.resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: 260, maxHeight: 96, alignment: .bottomLeading)
+                        .frame(maxWidth: logo.width, maxHeight: logo.height, alignment: .bottomLeading)
                         .shadow(color: .black.opacity(0.45), radius: 14, y: 4)
                 } else if state.error != nil {
                     titleText(detail)
@@ -465,7 +691,7 @@ struct LibraryItemDetailView: View {
                     Color.clear
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 96, alignment: .bottomLeading)
+            .frame(maxWidth: .infinity, minHeight: logo.height, alignment: .bottomLeading)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(detail.title)
             .accessibilityAddTraits(.isStaticText)
@@ -525,8 +751,16 @@ struct LibraryItemDetailView: View {
         return season == 0 ? "特别篇第 \(episode) 集" : "第 \(season) 季第 \(episode) 集"
     }
 
-    @ViewBuilder
-    private func playAction(favoriteLabel: String) -> some View {
+    /// 播放键的文案与进度（手机与 iPad 宽窗口共用）
+    private struct PlayButtonState {
+        var label: String
+        var resumable: Bool
+        var finished: Bool
+        var percent: Int?
+        var progressText: String?
+    }
+
+    private var playButtonState: PlayButtonState {
         let position = watched?.positionMs ?? 0
         let duration = watched?.durationMs
         let finished = watched?.played ?? false
@@ -542,6 +776,14 @@ struct LibraryItemDetailView: View {
         let progressText: String? = resumable
             ? remaining.map { $0 >= 1 ? "剩余 \(Self.runtimeText($0))" : "即将看完" } ?? (duration != nil ? "即将看完" : nil)
             : nil
+        return PlayButtonState(label: label, resumable: resumable, finished: finished, percent: percent, progressText: progressText)
+    }
+
+    @ViewBuilder
+    private func playAction(favoriteLabel: String) -> some View {
+        let state = playButtonState
+        let label = state.label, resumable = state.resumable, finished = state.finished
+        let percent = state.percent, progressText = state.progressText
 
         VStack(alignment: .leading, spacing: 12) {
             // 电影的下载状态条（在播放键上方）：本机有副本时才出现（开始下载在右上角「⋯」）；剧集的进度画在分集卡上
@@ -627,7 +869,7 @@ struct LibraryItemDetailView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     LibrarySectionHeader(title: "演职员")
                     ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(alignment: .top, spacing: 12) {
+                        LazyHStack(alignment: .top, spacing: cards.spacing) {
                             ForEach(Array(cast.enumerated()), id: \.offset) { _, person in
                                 if let id = person.personId {
                                     NavigationLink(value: AppRoute.person(tmdbId: id)) { castCard(person) }
@@ -637,7 +879,7 @@ struct LibraryItemDetailView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, Theme.pagePadding)
+                        .padding(.horizontal, cards.edge)
                     }
                     .scrollClipDisabled()
                 }
@@ -670,7 +912,7 @@ struct LibraryItemDetailView: View {
                 Theme.surfaceRaised
                 Text(Self.initials(of: person.name)).font(.title2.weight(.bold)).foregroundStyle(.white.opacity(0.3))
                 if person.avatar != nil {
-                    RemoteImage(url: api.image(person.avatar, width: ImageWidth.points(96)), placeholderSymbol: "person.fill")
+                    RemoteImage(url: api.image(person.avatar, width: ImageWidth.points(cards.cast)), placeholderSymbol: "person.fill")
                 }
             }
             .aspectRatio(Theme.posterAspect, contentMode: .fit)
@@ -681,7 +923,7 @@ struct LibraryItemDetailView: View {
                 Text(subtitle).font(.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
             }
         }
-        .frame(width: 96)
+        .frame(width: cards.cast)
         .contentShape(.rect)
     }
 
@@ -721,7 +963,7 @@ struct LibraryItemDetailView: View {
             .background(.white.opacity(0.015), in: .rect(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.04)))
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("item-files")
     }
@@ -745,7 +987,7 @@ struct LibraryItemDetailView: View {
                 }
             }
             .font(.footnote)
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("外部词条")
         }
@@ -971,10 +1213,13 @@ struct LibraryItemDetailView: View {
     /// 删除影片（或删掉最后一个文件连带条目）后离开：落到本库页（同 Web router.replace(/library/{id})）。
     /// 上一屏就是本库页时直接返回；否则把栈顶的条目页换成本库页
     private func leaveToLibrary() {
-        var stack = router.paths[router.selectedTab] ?? []
+        var stack = router.currentPath
         if !stack.isEmpty { stack.removeLast() }
-        if stack.last != .library(id: libraryId) { stack.append(.library(id: libraryId)) }
-        router.paths[router.selectedTab] = stack
+        // iPad 侧边栏选着的正是本库：根页面就是本库页，退到根即可
+        if stack.last != .library(id: libraryId), !(stack.isEmpty && router.selection == .mediaLibrary(libraryId)) {
+            stack.append(.library(id: libraryId))
+        }
+        router.currentPath = stack
     }
 
     /// - Parameter keepCurrent: 播完回来的刷新：旧值先留着、拿到新值再换，播放键不会先闪回「播放」
@@ -1202,6 +1447,7 @@ struct ExpandablePlot: View {
 /// 本季有观看记录（任一集看过或看了一半）时锚点那张卡标「接着看」，短季同样标。
 /// 刷新后（播放回来、标为已看）锚点变了就选中新锚点、段跟过去；没变不动。
 struct SeasonEpisodesSection: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     let detail: API.LibraryItemDetailView
     var initialSeason: Int?
@@ -1300,10 +1546,10 @@ struct SeasonEpisodesSection: View {
                         .font(.subheadline).monospacedDigit().foregroundStyle(Theme.textFaint)
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             if failed {
                 Text("分集信息加载失败，请稍后重试。").font(.subheadline).foregroundStyle(Theme.textMuted)
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
             } else if let data {
                 if let current {
                     EpisodeRangeChips(ranges: ranges, current: current.index, anchor: anchor) { switchRange(to: $0, anchor: anchor) }
@@ -1316,7 +1562,7 @@ struct SeasonEpisodesSection: View {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
                         // 一排最多 50 集（分段后一段），不用懒加载：懒加载横排按估算的位置滚，远处的卡常停不准
-                        HStack(alignment: .top, spacing: 12) {
+                        HStack(alignment: .top, spacing: cards.spacing) {
                             if let previous {
                                 RangeEdgeCard(title: "← 上一段", range: previous) { switchRange(to: previous, anchor: anchor) }
                                     .accessibilityIdentifier("episode-range-prev")
@@ -1337,7 +1583,7 @@ struct SeasonEpisodesSection: View {
                                     .accessibilityIdentifier("episode-range-next")
                             }
                         }
-                        .padding(.horizontal, Theme.pagePadding)
+                        .padding(.horizontal, cards.edge)
                     }
                     .scrollClipDisabled()
                     .task(id: "\(data.seasonNumber)|\(scrollRequest)") {
@@ -1360,7 +1606,7 @@ struct SeasonEpisodesSection: View {
                     Text("正在读取分集信息…")
                 }
                 .font(.subheadline).foregroundStyle(Theme.textMuted)
-                .padding(.horizontal, Theme.pagePadding).padding(.vertical, 20)
+                .padding(.horizontal, cards.edge).padding(.vertical, 20)
             }
         }
         .task(id: "\(currentSeason)|\(detail.fileCount)|\(reachability.isOffline)") { await load(reset: true) }
@@ -1479,6 +1725,7 @@ struct SeasonEpisodesSection: View {
 }
 
 private struct EpisodeCard: View {
+    @Environment(\.cardMetrics) private var cards
     let episode: API.EpisodeView
     let selected: Bool
     /// 本季有观看记录时，锚点那张卡左上角标「接着看」
@@ -1496,7 +1743,7 @@ private struct EpisodeCard: View {
     var body: some View {
         Button(action: onSelect) {
             VStack(alignment: .leading, spacing: 6) {
-                LibraryArtwork(url: api.image(episode.stillUrl, width: ImageWidth.points(200)), frameAspect: 16 / 9,
+                LibraryArtwork(url: api.image(episode.stillUrl, width: ImageWidth.points(cards.episode)), frameAspect: 16 / 9,
                                fallbackText: episode.stillUrl == nil ? "\(episode.episodeNumber)" : nil)
                     .clipShape(.rect(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? .white.opacity(0.85) : .white.opacity(0.08), lineWidth: selected ? 2 : 1))
@@ -1568,7 +1815,7 @@ private struct EpisodeCard: View {
                     .foregroundStyle(selected ? .white : Theme.text)
                     .lineLimit(1)
             }
-            .frame(width: 200)
+            .frame(width: cards.episode)
             .contentShape(.rect)
             .opacity(episode.owned ? 1 : 0.45)
             .saturation(episode.owned ? 1 : 0.5)
@@ -1598,6 +1845,7 @@ private struct EpisodeCard: View {
 
 /// 横排首尾的「← 上一段 / 下一段 →」小卡：点了换到那一段
 private struct RangeEdgeCard: View {
+    @Environment(\.cardMetrics) private var cards
     let title: String
     let range: EpisodeRange
     var onSelect: () -> Void
@@ -1609,7 +1857,7 @@ private struct RangeEdgeCard: View {
                 Text(range.label).monospacedDigit()
             }
             .font(.caption).foregroundStyle(Theme.textMuted)
-            .frame(width: 96, height: 200 * 9 / 16)
+            .frame(width: 96, height: cards.episode * 9 / 16)
             .background(.white.opacity(0.04), in: .rect(cornerRadius: 12))
             .contentShape(.rect)
         }
@@ -1619,6 +1867,7 @@ private struct RangeEdgeCard: View {
 
 /// 一排段胶囊（分集区与「全部分集」面板共用）：选中的段白底黑字，锚点所在的段右上角橙点；选中段滚到中间
 private struct EpisodeRangeChips: View {
+    @Environment(\.cardMetrics) private var cards
     let ranges: [EpisodeRange]
     let current: Int
     let anchor: Int?
@@ -1652,7 +1901,7 @@ private struct EpisodeRangeChips: View {
                         .id(range.index)
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             }
             .scrollClipDisabled()
             .task(id: current) {
@@ -1666,6 +1915,7 @@ private struct EpisodeRangeChips: View {
 /// 「全部分集」面板：段胶囊（打开时落在锚点的段）+ 5 列数字宫格。格子：已看 ✓、进度条、缺集虚线、锚点橙边、选中白底；
 /// 锚点在这一段时滚到可见（第 50 集在宫格最底下）。点格子交给分集区：关面板、选中那一集、段与横排跟过去
 private struct EpisodeGridSheet: View {
+    @Environment(\.cardMetrics) private var cards
     let episodes: [API.EpisodeView]
     let ranges: [EpisodeRange]
     let anchor: Int?
@@ -1697,7 +1947,7 @@ private struct EpisodeGridSheet: View {
                     .font(.subheadline.weight(.medium)).foregroundStyle(Theme.textMuted)
                     .accessibilityIdentifier("episode-grid-done")
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.top, 24)
             EpisodeRangeChips(ranges: ranges, current: range, anchor: anchor, idPrefix: "episode-grid-range") { range = $0.index }
             ScrollViewReader { proxy in
@@ -1709,7 +1959,7 @@ private struct EpisodeGridSheet: View {
                                 .id(episode.episodeNumber)
                         }
                     }
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .padding(.bottom, 30)
                 }
                 .task(id: range) {

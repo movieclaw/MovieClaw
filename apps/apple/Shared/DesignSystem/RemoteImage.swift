@@ -86,23 +86,88 @@ extension ImageWidth {
     }
 }
 
-/// iPhone 上几种固定宽度的卡片（点）：页面与首屏预载（`FirstScreenImages`，代码在 Shared）按同一个宽度取图，
-/// 地址一致才命中同一条缓存。改卡片宽度改这里
-enum PhoneCardWidth {
-    /// 首页横滑行的海报（收藏、库 / 类型 / 合集行）
-    static let homePoster: CGFloat = 124
+/// 横滑行、海报墙里几种卡片的尺寸与页边距（点）：iPhone 一套（`phone`）；iPad 宽窗口（常规宽度）照 Mac 版 `MacMetrics`
+/// 放大一档（`wide`，docs/design/ipad.md §4.1）——iPad 离眼睛比手机远，照搬手机尺寸看上去反而更小，一行也排得像缩略图墙。
+/// 比例不变（海报 2:3、剧照 16:9 由素材定），只换大小与间距。
+/// 页面经环境值 `cardMetrics` 读（跟着窗口宽度变，台前调度拉窄会退回手机那套），首屏预载（`FirstScreenImages`，
+/// 代码在 Shared）按 `CardMetrics.current` 取——两边同一套，取图地址一致才命中同一条缓存。改卡片宽度改这里
+struct CardMetrics: Equatable, Sendable {
+    /// 首页横滑行的海报（收藏、库 / 类型 / 合集行），也用于相似推荐、系列
+    var homePoster: CGFloat
     /// 发现页横滑行的海报（`DiscoverPosterRow.cardWidth`）
-    static let discoverPoster: CGFloat = 126
+    var discoverPoster: CGFloat
     /// 首页「接下来继续」横卡（16:9）
-    static let upNext: CGFloat = 200
+    var upNext: CGFloat
     /// 首页「我的媒体库」库 / 合集封面卡（21:10）
-    static let libraryCover: CGFloat = 230
-    /// 首页「按类型找电影 / 剧集」全幅剧照卡（同手机网页，196 × 124.6，保持 236:150）
-    static let genreTile: CGFloat = 196
+    var libraryCover: CGFloat
+    /// 首页「按类型找电影 / 剧集」全幅剧照卡（同网页与 Mac 版，196 × 124.6，保持 236:150）
+    var genreTile: CGFloat
     /// 订阅首页「刚刚入库」横卡（16:9）
-    static let recent: CGFloat = 264
+    var recent: CGFloat
     /// 「刚刚入库」卡左下角的小号片名 Logo 最宽
-    static let recentLogo: CGFloat = 118
+    var recentLogo: CGFloat
+    /// 详情页演职员卡（2:3）：比海报小一档，人物是辅助信息
+    var cast: CGFloat
+    /// 详情页分集卡（16:9）
+    var episode: CGFloat
+    /// 海报墙网格的最小列宽（`adaptive(minimum:)`，宽窗口同 Mac 版 MacPosterWall 的 150），宽一档的墙（剧照墙等）各页自己再加
+    var wallMinimum: CGFloat
+    /// 横滑行里卡片之间
+    var spacing: CGFloat
+    /// 页面左右边距（手机 16，同 `Theme.pagePadding`；宽窗口同 Mac 版 32）
+    var edge: CGFloat
+
+    static let phone = CardMetrics(homePoster: 124, discoverPoster: 126, upNext: 200, libraryCover: 230, genreTile: 196,
+                                   recent: 264, recentLogo: 118, cast: 96, episode: 200, wallMinimum: 140, spacing: 12, edge: 16)
+    static let wide = CardMetrics(homePoster: 168, discoverPoster: 168, upNext: 296, libraryCover: 296, genreTile: 196,
+                                  recent: 296, recentLogo: 140, cast: 128, episode: 296, wallMinimum: 150, spacing: 18, edge: 32)
+
+    /// 是不是宽窗口那套（详情页的 Mac 式大图区、列表限宽等也按它分支）
+    var isWide: Bool { self == .wide }
+
+    /// 某个窗口该用哪套：只有 iPad 的常规宽度用 `wide`。iPhone Pro Max 横屏也是常规宽度，但仍按手机排
+    /// （2026-10-15 定：宽版式只给 iPad，iPhone 横屏多是看片，不改它）
+    static func forWindow(regular: Bool) -> CardMetrics {
+        #if os(iOS)
+        regular && UIDevice.current.userInterfaceIdiom == .pad ? .wide : .phone
+        #else
+        .phone
+        #endif
+    }
+
+    /// 首屏预载用：当前窗口是常规宽度就是 `wide`（与页面的环境值同一口径）
+    @MainActor static var current: CardMetrics {
+        #if os(iOS)
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes.first as? UIWindowScene
+        return forWindow(regular: scene?.traitCollection.horizontalSizeClass == .regular)
+        #else
+        return .phone
+        #endif
+    }
+}
+
+/// 手机那套卡片宽度的旧名字（Apple TV 等不分窗口宽度的地方用）
+enum PhoneCardWidth {
+    static let homePoster = CardMetrics.phone.homePoster
+    static let discoverPoster = CardMetrics.phone.discoverPoster
+    static let upNext = CardMetrics.phone.upNext
+    static let libraryCover = CardMetrics.phone.libraryCover
+    static let genreTile = CardMetrics.phone.genreTile
+    static let recent = CardMetrics.phone.recent
+    static let recentLogo = CardMetrics.phone.recentLogo
+}
+
+private struct CardMetricsKey: EnvironmentKey {
+    static let defaultValue = CardMetrics.phone
+}
+
+extension EnvironmentValues {
+    /// 卡片尺寸：由各页签的导航根按窗口宽度注入（见 `TabRoot`）
+    var cardMetrics: CardMetrics {
+        get { self[CardMetricsKey.self] }
+        set { self[CardMetricsKey.self] = newValue }
+    }
 }
 
 @MainActor

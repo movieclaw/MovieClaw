@@ -172,6 +172,7 @@ struct ActivityView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .padReadableWidth(880)
         .headerProminence(.increased)
         .scrollContentBackground(.hidden)
         .refreshable {

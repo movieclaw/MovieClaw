@@ -14,6 +14,7 @@ struct SettingsIndexView: View {
 
     var body: some View {
         sections
+        .padReadableWidth()
         .navigationTitle("服务器设置")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(removing: cardTitleVisible ? .title : nil)

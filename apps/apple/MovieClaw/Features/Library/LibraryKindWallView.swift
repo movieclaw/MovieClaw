@@ -12,6 +12,7 @@ import SwiftUI
 ///
 /// 带 `genre`（`?g=878`）时是首页「按类型找电影」色块的落点：墙按这个 TMDB 类型筛好，标题是类型名。
 struct LibraryKindWallView: View {
+    @Environment(\.cardMetrics) private var cards
     let kind: String
     var genre: Int?
     @Environment(\.api) private var api
@@ -97,7 +98,7 @@ struct LibraryKindWallView: View {
                     .glassEffect(.regular.interactive(), in: .capsule)
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 4)
     }
 
@@ -111,13 +112,13 @@ struct LibraryKindWallView: View {
             // 其他视频是 16:9 抓帧，走宽列；影视按 2:3 钉死框比例——跨库的一面墙里偶有没刮到海报的本地条目，
             // 钉死后每格等高、片名落在一条线上（同 Web）
             let wide = kind == "video"
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: wide ? 200 : 140), spacing: 12, alignment: .top)], alignment: .leading, spacing: 20) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: cards.wallMinimum + (wide ? 60 : 0)), spacing: cards.spacing, alignment: .top)], alignment: .leading, spacing: 20) {
                 ForEach(items) { item in
                     LibraryInventoryCell(item: item, libraryId: item.libraryId ?? 0, frameAspect: wide ? 16 / 9 : Theme.posterAspect,
                                          showRating: effectiveSort == "rating")
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             WallLoadMoreFooter(hasMore: pager.hasMore, start: pager.start, loaded: items.count, total: pager.total) {
                 await pager.loadMore()
             }

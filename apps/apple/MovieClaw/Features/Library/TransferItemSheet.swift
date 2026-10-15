@@ -14,6 +14,7 @@ import SwiftUI
 /// 前后台暂停）：这是用户正盯着的短任务，回到前台应直接看到结果——与 Web 不用
 /// useVisiblePolling 的理由相同。进行中不给「取消」（搬到一半停不下来），弹层也不可下滑关闭。
 struct TransferItemSheet: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     let mediaItemId: Int
     let title: String
@@ -63,7 +64,7 @@ struct TransferItemSheet: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(Theme.pagePadding)
+                .padding(cards.edge)
             }
             .safeAreaInset(edge: .bottom) { bottomBar }
             .navigationTitle("转移到其他媒体库")
@@ -222,7 +223,7 @@ struct TransferItemSheet: View {
                 }
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.vertical, 12)
         .background(.bar)
     }

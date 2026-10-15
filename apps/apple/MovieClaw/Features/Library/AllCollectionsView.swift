@@ -6,6 +6,7 @@ import SwiftUI
 /// 类型（按所属库的 kind）与来源（自建 / 自动=系列+内置收藏）。计数按 faceted 口径算
 /// （带上另一个维度的筛选），数为 0 的档压暗且点不动——「永不空货架」。
 struct AllCollectionsView: View {
+    @Environment(\.cardMetrics) private var cards
     @Environment(\.api) private var api
     @State private var rows: [API.CollectionView]?
     @State private var libraries: [API.LibraryView] = []
@@ -38,7 +39,7 @@ struct AllCollectionsView: View {
                     : filtered ? "\(shown.count) / \(all.count) 个合集 · 按库分组" : "\(all.count) 个合集 · 按库分组")
                     .font(.subheadline)
                     .foregroundStyle(Theme.textMuted)
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .accessibilityIdentifier("collections-summary")
 
                 if rows == nil {
@@ -60,7 +61,7 @@ struct AllCollectionsView: View {
                             all.filter { matchesKind($0, kindFilter) && matchesSource($0, value) }.count
                         }
                     }
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .padding(.top, 14)
 
                     VStack(alignment: .leading, spacing: 28) {
@@ -69,13 +70,13 @@ struct AllCollectionsView: View {
                                 Text("跨库").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
                                 Text("不属于任何一个库的手动名单").font(.footnote).foregroundStyle(Theme.textFaint)
                             }
-                            .padding(.horizontal, Theme.pagePadding)
+                            .padding(.horizontal, cards.edge)
                             .padding(.bottom, -14)
                             LibraryCollectionsGrid(collections: cross, libraryId: nil)
                         }
                         ForEach(grouped, id: \.0.id) { library, items in
                             Text(library.name).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
-                                .padding(.horizontal, Theme.pagePadding)
+                                .padding(.horizontal, cards.edge)
                                 .padding(.bottom, -16)
                             LibraryCollectionsGrid(collections: items, libraryId: library.id)
                         }
@@ -131,6 +132,7 @@ struct AllCollectionsView: View {
 
 /// 合集卡片网格（Web `LibraryCollectionsView`）：我的合集与系列分两段；卡片是最多 3 张叠放的海报
 struct LibraryCollectionsGrid: View {
+    @Environment(\.cardMetrics) private var cards
     let collections: [API.CollectionView]
     let libraryId: Int?
     var emptyHint = "还没有合集。筛出一批片之后，点「存为合集」就能把这组条件留下来。"
@@ -143,7 +145,7 @@ struct LibraryCollectionsGrid: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 60)
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
         } else {
             let mine = collections.filter { $0.kind != "series" }
             let series = collections.filter { $0.kind == "series" }
@@ -161,9 +163,9 @@ struct LibraryCollectionsGrid: View {
             VStack(alignment: .leading, spacing: 12) {
                 if let title {
                     Text(title).font(.subheadline.weight(.medium)).foregroundStyle(Theme.textFaint)
-                        .padding(.horizontal, Theme.pagePadding)
+                        .padding(.horizontal, cards.edge)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)], alignment: .leading, spacing: 20) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: cards.wallMinimum), spacing: cards.spacing, alignment: .top)], alignment: .leading, spacing: 20) {
                     ForEach(items, id: \.id) { collection in
                         NavigationLink(value: AppRoute.collection(libraryId: libraryId ?? collection.libraryId, collectionId: collection.id)) {
                             CollectionCell(collection: collection)
@@ -172,7 +174,7 @@ struct LibraryCollectionsGrid: View {
                         .accessibilityIdentifier("collection-card-\(collection.id)")
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             }
         }
     }

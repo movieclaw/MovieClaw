@@ -17,6 +17,7 @@ import SwiftUI
 
 /// 以 .sheet 呈现，自带 NavigationStack 与关闭按钮
 struct IssueDrawerView: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     var initialTab: String? = nil
     var onChanged: () -> Void = {}
@@ -94,7 +95,7 @@ struct IssueDrawerView: View {
 
                 rows(snapshot, tab: tab, keyword: keyword)
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.interactively)

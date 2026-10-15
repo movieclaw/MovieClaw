@@ -15,6 +15,7 @@ import SwiftUI
 /// 首屏预存（同 Web `getMediaSeed`）：站内点卡片进来时先用列表字段（标题、海报、简介…）渲染，
 /// 详情接口返回后原位替换；有预存时接口失败也不打断页面，只有直达（无预存）才进失败页。
 struct MediaDetailView: View {
+    @Environment(\.cardMetrics) private var cards
     let titleRef: String
 
     @Environment(\.api) private var api
@@ -141,14 +142,14 @@ struct MediaDetailView: View {
                         .accessibilityHidden(true)
                 }
                 header(detail)
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .padding(.top, heroURL == nil ? 12 : -150)
                     .onScrollVisibilityChange(threshold: 0.2) { visible in titleVisible = !visible }
 
                 VStack(alignment: .leading, spacing: 28) {
                     if !item.overview.isEmpty {
                         overview(item.overview)
-                            .padding(.horizontal, Theme.pagePadding)
+                            .padding(.horizontal, cards.edge)
                     }
                     let people = castPeople(detail)
                     if !people.isEmpty {
@@ -167,7 +168,7 @@ struct MediaDetailView: View {
                         DiscoverPosterRow(title: "相似推荐", items: detail.recommendations.map(DiscoverPosterItem.init))
                     }
                     externalLinks(detail)
-                        .padding(.horizontal, Theme.pagePadding)
+                        .padding(.horizontal, cards.edge)
                 }
                 .padding(.top, 20)
                 .padding(.bottom, 40)
@@ -403,7 +404,7 @@ struct MediaDetailView: View {
     private func trailerRow(_ detail: API.DiscoveredTitleDetailsView) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("预告片").font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 12) {
                     ForEach(detail.videos, id: \.key) { video in
@@ -444,7 +445,7 @@ struct MediaDetailView: View {
                         .accessibilityLabel("播放预告片：\(video.name)")
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             }
         }
         .discoverContainer("detail-trailers")
@@ -520,6 +521,7 @@ struct WebLink: Identifiable {
 
 /// 演职员横滚条：2:3 头像卡 + 姓名 + 身份（导演/主创/饰 X）；有 TMDB 影人 ID 的进 TMDB 影人页
 struct DetailCastRow: View {
+    @Environment(\.cardMetrics) private var cards
     struct Person: Hashable {
         var name: String
         var subtitle: String?
@@ -535,14 +537,14 @@ struct DetailCastRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 12) {
                     ForEach(Array(people.enumerated()), id: \.offset) { _, person in
                         card(person)
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             }
         }
         .discoverContainer("detail-cast")
@@ -585,6 +587,7 @@ struct DetailCastRow: View {
 
 /// 剧照 / 海报两个分页的横滚图集；点开灯箱看大图
 struct DetailPhotoWall: View {
+    @Environment(\.cardMetrics) private var cards
     let title: String
     let backdrops: [API.MediaImage]
     let posters: [API.MediaImage]
@@ -609,7 +612,7 @@ struct DetailPhotoWall: View {
                     }
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 10) {
                     ForEach(Array(active.images.enumerated()), id: \.offset) { index, image in
@@ -624,7 +627,7 @@ struct DetailPhotoWall: View {
                         .accessibilityLabel("查看\(active.label)第 \(index + 1) 张")
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             }
         }
         .fullScreenCover(item: $lightbox) { DiscoverLightbox(content: $0).sheetFeedback() }

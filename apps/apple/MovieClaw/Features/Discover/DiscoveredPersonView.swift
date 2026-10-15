@@ -4,6 +4,7 @@ import SwiftUI
 /// 参演与幕后合并去重的完整 TMDB 影视履历。海报自带「已入库」绿斜标，未入库但已订阅的打「已订阅」蓝斜标；
 /// 点海报进发现详情。
 struct DiscoveredPersonView: View {
+    @Environment(\.cardMetrics) private var cards
     let tmdbId: Int
 
     @Environment(\.api) private var api
@@ -55,7 +56,7 @@ struct DiscoveredPersonView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .padding(.bottom, 40)
                 }
                 .refreshable { await load() }

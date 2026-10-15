@@ -115,6 +115,7 @@ private struct TargetOption: Identifiable, Hashable {
 
 /// 完整的「选择保存位置」弹窗
 struct DownloadTargetSheet: View {
+    @Environment(\.cardMetrics) private var cards
     let request: DownloadTargetRequest
     let remembered: API.DownloadTargetPrefView?
     let onSubmitted: (API.DownloadSubmitView) -> Void
@@ -276,7 +277,7 @@ struct DownloadTargetSheet: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(Theme.pagePadding)
+                .padding(cards.edge)
             }
             .background(Theme.background)
             .navigationTitle("选择保存位置")

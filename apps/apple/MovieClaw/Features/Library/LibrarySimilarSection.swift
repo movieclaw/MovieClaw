@@ -4,6 +4,7 @@ import SwiftUI
 /// 点进去是库内详情。卡片与首页库行同一张海报格。数据由详情页按条目拉一次（`ItemRelated`）：
 /// 刮削期间详情接口在轮询，推荐不跟着重拉
 struct LibrarySimilarSection: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     let items: [API.LibraryItemView]
 
@@ -13,19 +14,19 @@ struct LibrarySimilarSection: View {
         VStack(alignment: .leading, spacing: 12) {
             LibrarySectionHeader(title: "相似推荐")
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 12) {
+                LazyHStack(alignment: .top, spacing: cards.spacing) {
                     ForEach(items, id: \.mediaItemId) { item in
                         NavigationLink(value: AppRoute.libraryItem(libraryId: item.libraryId ?? libraryId, itemId: item.mediaItemId)) {
                             LibraryPosterCell(title: item.title, year: item.year,
-                                              url: api.image(item.posterUrl, width: ImageWidth.points(PhoneCardWidth.homePoster)),
+                                              url: api.image(item.posterUrl, width: ImageWidth.points(cards.homePoster)),
                                               imageAspect: item.primaryAspect)
-                                .frame(width: PhoneCardWidth.homePoster)
+                                .frame(width: cards.homePoster)
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("library-similar-\(item.mediaItemId)")
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             }
             .scrollClipDisabled()
         }
@@ -35,6 +36,7 @@ struct LibrarySimilarSection: View {
 /// 电影的作品系列一行（排在相似推荐下面，同 Apple TV / Mac / Web）：整个系列按上映顺序，标题旁写「已有 7 / 共 8」。
 /// 这一部标「本片」；库里有的点进库内详情；缺的那部与合集页同一张缺片卡（压暗，点进 TMDB 详情、长按订阅）
 struct LibrarySeriesSection: View {
+    @Environment(\.cardMetrics) private var cards
     let series: API.CollectionSeriesView
     let libraryId: Int
     let itemId: Int
@@ -47,12 +49,12 @@ struct LibrarySeriesSection: View {
                 Text("已有 \(series.ownedCount) / 共 \(series.total)")
             }
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 12) {
+                LazyHStack(alignment: .top, spacing: cards.spacing) {
                     ForEach(series.parts, id: \.tmdbId) { part in
-                        cell(part).frame(width: PhoneCardWidth.homePoster)
+                        cell(part).frame(width: cards.homePoster)
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             }
             .scrollClipDisabled()
         }
@@ -62,7 +64,7 @@ struct LibrarySeriesSection: View {
     private func cell(_ part: API.SeriesPartView) -> some View {
         if let id = part.mediaItemId {
             let poster = LibraryPosterCell(title: part.title, year: part.releaseDate.flatMap { Int($0.prefix(4)) },
-                                           url: api.image(part.posterUrl, width: ImageWidth.points(PhoneCardWidth.homePoster)),
+                                           url: api.image(part.posterUrl, width: ImageWidth.points(cards.homePoster)),
                                            cornerLabel: id == itemId ? "本片" : nil)
             if id == itemId {
                 poster
@@ -72,7 +74,7 @@ struct LibrarySeriesSection: View {
                     .accessibilityIdentifier("library-series-\(id)")
             }
         } else {
-            MissingPartCell(part: part, imageWidth: PhoneCardWidth.homePoster)
+            MissingPartCell(part: part, imageWidth: cards.homePoster)
         }
     }
 }

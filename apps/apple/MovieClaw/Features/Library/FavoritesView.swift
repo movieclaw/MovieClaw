@@ -10,6 +10,7 @@ import SwiftUI
 /// 格子与单库墙同一个 `LibraryInventoryCell`（库存概况、补齐缺集 / 自动续订、缺失提示），同 Web InventoryCell。
 /// 从详情页返回只整窗对账（`refresh`），不清空窗口、不动滚动位置；换排序才回墙首。
 struct FavoritesView: View {
+    @Environment(\.cardMetrics) private var cards
     @Environment(\.api) private var api
     @State private var pager = LibraryWallPager<API.FavoriteItemView>(pageSize: 60)
     @State private var sort = WallSortState.load(Self.sortKey, default: WallSortState(sort: "default"), allowed: Self.sortOptions.map(\.value))
@@ -142,7 +143,7 @@ struct FavoritesView: View {
                     .glassEffect(.regular.interactive(), in: .capsule)
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 4)
     }
 
@@ -168,7 +169,7 @@ struct FavoritesView: View {
                 await pager.loadPrevious()
                 if let anchor, let proxy = scrollProxy { proxy.scrollTo(anchor, anchor: .top) }
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)], alignment: .leading, spacing: 20) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: cards.wallMinimum), spacing: cards.spacing, alignment: .top)], alignment: .leading, spacing: 20) {
                 ForEach(items) { item in
                     // 与单库墙同一个格子（Web favorites-view → PosterWall → InventoryCell），每格落回自己所属的库；
                     // 整面墙钉死 2:3（同 Web FAVORITES_FRAME_ASPECT），收藏层级不上墙
@@ -176,7 +177,7 @@ struct FavoritesView: View {
                 }
             }
             .scrollTargetLayout()
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             WallLoadMoreFooter(hasMore: pager.hasMore, start: pager.start, loaded: items.count, total: pager.total) {
                 await pager.loadMore()
             }

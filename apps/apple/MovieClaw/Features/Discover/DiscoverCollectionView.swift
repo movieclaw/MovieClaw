@@ -5,6 +5,7 @@ import SwiftUI
 /// - TMDB 片单每页 20 条，滚到底自动续页（失败给「重试下一页」）；豆瓣片单一次取完（limit 500）；
 /// - 顶部可按片名搜索、按类型筛选**已加载**的条目（纯本地过滤，不触发请求；过滤期间不自动续页）。
 struct DiscoverCollectionView: View {
+    @Environment(\.cardMetrics) private var cards
     let kind: String
     let provider: String
     let collectionId: String
@@ -89,7 +90,7 @@ struct DiscoverCollectionView: View {
                     }
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.bottom, 32)
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic),

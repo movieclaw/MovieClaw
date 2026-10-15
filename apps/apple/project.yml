@@ -91,6 +91,12 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # iPad 四个方向都要支持（HIG），否则不能参与分屏与自由窗口
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         # 只用系统自带的加密（URLSession / AVPlayer 的 HTTPS，推送解密用 CryptoKit 的 AES-GCM），属于出口合规
         # 豁免的加密；声明后每次上传 App Store Connect 不再逐次追问加密问卷
         ITSAppUsesNonExemptEncryption: false
@@ -124,9 +130,8 @@ targets:
         # 前缀默认 io.movieclaw，可在 Signing.local.xcconfig 或 xcodebuild 参数里改，见 XcodeConfig/Signing.xcconfig
         PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).app
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        # 首版只上 iPhone（2026-09-28 用户决定）：iPad 布局未验收，声明支持就要交 iPad 截图、
-        # 审核也会在 iPad 上测。iPad 上仍可按 iPhone 兼容模式安装运行
-        TARGETED_DEVICE_FAMILY: "1"
+        # iPhone + iPad（iPad 适配，docs/design/ipad.md）。首版曾只上 iPhone（2026-09-28）
+        TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: NO
   # 通知扩展（docs/design/cloud-push.md §9，push-payload.md §6）：推送到达时按 key_id 取密钥解密，换上真正的
   # 标题、正文与配图；解不开就保留中继的通用文案。只读 App Group 里的密钥与登录对照，不碰登录令牌
@@ -160,7 +165,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).app.notification-service
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
         # 系统回调扩展的方法不在主线程，扩展不继承工程级的默认主线程隔离
@@ -208,7 +213,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).app.notification-content
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
   # 自研引擎（AetherEngine）的动态框架边界。

@@ -53,12 +53,12 @@ struct MainTabView: View {
 
     /// 当前停在「片段」页（媒体库页签栈顶）
     private var onReels: Bool {
-        router.selectedTab == .library && router.paths[.library]?.last == .reels
+        router.selectedTab == .library && router.currentPath.last == .reels
     }
 
     /// 当前停在 AI 会话页（新会话或已有会话）：那页隐藏了标签栏，附件却还会贴在输入框下面，要一起收掉
     private var onAgentSession: Bool {
-        switch router.paths[router.selectedTab]?.last {
+        switch router.currentPath.last {
         case .newSession?, .session?: true
         default: false
         }
@@ -75,39 +75,44 @@ struct MainTabView: View {
         let permissions = session.map(Permissions.init(session:)) ?? .none
         let api = model.api ?? EnvironmentValues().api
 
-        TabView(selection: Binding(get: { router.selectedTab }, set: { tab in
-            router.selectTab(tab)
+        TabView(selection: Binding(get: { router.selection }, set: { item in
+            router.select(item)
         })) {
-            Tab(value: MainTab.library) {
-                TabRoot(tab: .library) { LibraryHomeView() }
+            Tab(value: ShellTab.tab(.library)) {
+                TabRoot(item: .tab(.library)) { LibraryHomeView() }
             } label: {
                 iconLabel(.library)
             }
-            .accessibilityLabel(MainTab.library.title)
+            .accessibilityLabel(Self.isPad ? "首页" : MainTab.library.title)
+            if Self.isPad {
+                PadSidebarLibraryTabs()
+            }
             if permissions.canSubscribe {
-                Tab(value: MainTab.subscriptions) {
-                    TabRoot(tab: .subscriptions) { OfflineGate { SubscriptionsView() } }
+                Tab(value: ShellTab.tab(.subscriptions)) {
+                    TabRoot(item: .tab(.subscriptions)) { OfflineGate { SubscriptionsView() } }
                 } label: {
                     iconLabel(.subscriptions)
                 }
                 .accessibilityLabel(MainTab.subscriptions.title)
             }
-            Tab(value: MainTab.discover) {
-                TabRoot(tab: .discover) { OfflineGate { DiscoverView(kind: "movie") } }
+            Tab(value: ShellTab.tab(.discover)) {
+                TabRoot(item: .tab(.discover)) { OfflineGate { DiscoverView(kind: "movie") } }
             } label: {
                 iconLabel(.discover)
             }
             .accessibilityLabel(MainTab.discover.title)
             if permissions.isAdmin {
-                Tab(value: MainTab.activity) {
-                    TabRoot(tab: .activity) { OfflineGate { ActivityView() } }
+                Tab(value: ShellTab.tab(.activity)) {
+                    TabRoot(item: .tab(.activity)) { OfflineGate { ActivityView() } }
                 } label: {
                     iconLabel(.activity)
                 }
                 .accessibilityLabel(MainTab.activity.title)
+                // iPad 没有底栏圆点（见 TabBarDotBridge）：侧边栏 / 顶部标签栏上用系统角标写出需要处理的任务数
+                .badge(Self.isPad ? badges.needsAction : 0)
             }
-            Tab(value: MainTab.more) {
-                TabRoot(tab: .more) { MorePage() }
+            Tab(value: ShellTab.tab(.more)) {
+                TabRoot(item: .tab(.more)) { MorePage() }
                     // 快捷输入只属于「我的」导航栈，展开与收起共用页面内的玻璃容器。
                     .scrollDismissesKeyboard(.interactively)
                     // 栈外 safeAreaBar 不会替栈内 List / Form 增加内容边距；按实际高度为末项留出滚动空间。
@@ -116,20 +121,27 @@ struct MainTabView: View {
                     .safeAreaBar(edge: .bottom, spacing: 0) {
                         if onMoreTab, permissions.isAdmin {
                             AgentQuickInput(quick: quickDraft)
+                                // iPad 宽窗口与「我的」页同宽居中（手机比 820 窄，不受影响）
+                                .frame(maxWidth: 820)
                                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { quickInputHeight = $0 }
                         }
                     }
             } label: {
+                // iPad 侧边栏与顶部标签栏里写出昵称；手机只显示头像。
+                // 没有像 Mac 版那样把账号钉在侧边栏最底下：iPadOS 不允许一个页签只藏在侧边栏、仍留在标签栏里
                 Label {
-                    Text(MainTab.more.title)
+                    Text(Self.isPad ? (session?.nickname ?? MainTab.more.title) : MainTab.more.title)
                 } icon: {
                     Image(uiImage: avatarIcon ?? TabIcon.image(MainTab.more.systemImage))
                 }
-                .labelStyle(.iconOnly)
+                .labelStyle(Self.isPad ? AnyLabelStyle(.titleAndIcon) : AnyLabelStyle(.iconOnly))
             }
             .accessibilityLabel(MainTab.more.title)
             .accessibilityIdentifier("open-more")
+            .badge(Self.isPad && badges.updatePending ? Text("新版本") : nil)
         }
+        // iPad：顶部标签栏可展开成侧边栏（iPadOS 18 起的 sidebarAdaptable，同 Apple Music / TV 的 iPad 版）
+        .modifier(PadSidebarTabStyle(enabled: Self.isPad))
         // 「片段」上下滑动是在换条，不是在往下读：停在它上面时标签栏不收起（docs/design/reels.md）；
         // 显示快捷输入时菜单保持完整，避免滚动后只剩头像、上方却悬着整行输入框。
         .tabBarMinimizeBehavior(onReels || (onMoreTab && permissions.isAdmin) ? .never : .onScrollDown)
@@ -147,7 +159,8 @@ struct MainTabView: View {
         }
         .background { PageWarmup(tabs: warmupTabs) }
         // 头像页签：长按弹切换账号抽屉、双击切回上一个账号（仿 Instagram，见 AccountGestureHub）
-        .background(TabBarAccountGestures(onAvatarFrame: { if avatarTabFrame != $0 { avatarTabFrame = $0 } }))
+        // iPad 的「我的」在侧边栏里是一行：没有底栏头像，不挂这两个手势（切换账号进「我的」页）
+        .background(accountGestures)
         .onReceive(NotificationCenter.default.publisher(for: .avatarTabLongPressed)) { _ in openAccountSwitcher() }
         .onReceive(NotificationCenter.default.publisher(for: .avatarTabDoubleTapped)) { _ in
             Task { await switchToPreviousAccount() }
@@ -170,8 +183,9 @@ struct MainTabView: View {
         }
         // 活动页签（红 > 绿 > 蓝，同网页）与头像页签（有待安装的更新）的状态点：
         // SwiftUI 的 .badge 只能红底文字，下到 UIKit 画小圆点
+        // iPad 侧边栏多出库与合集，按顺序对位的 UIKit 桥对不上：只在手机上挂
         .background(TabBarDotBridge(
-            tabs: Self.visibleTabs(permissions),
+            tabs: Self.isPad ? [] : Self.visibleTabs(permissions),
             dots: [MainTab.activity: badges.activityDot, .more: badges.moreDot].compactMapValues { $0 }
         ))
         // 头像位图：先出首字版（照片下载前不空着），照片到了再换；改昵称 / 换头像后重画
@@ -289,7 +303,8 @@ struct MainTabView: View {
         .onAppear { if scenePhase == .active { wasActive = true } }
         .onDisappear {
             // 会话过期被打回登录页：记下此刻的位置，重新登录后回到这里（Web 401 → /login?next=原路径）
-            model.captureResume(tab: router.selectedTab, path: router.paths[router.selectedTab] ?? [])
+            let resume = router.resumePoint
+            model.captureResume(tab: resume.tab, path: resume.path)
         }
         .onChange(of: scenePhase) { _, phase in
             // 墙位置的「久别回归」判定全站共用一个时刻（各面墙出现时比较，见 LibraryWallRecall）
@@ -450,12 +465,34 @@ extension MainTabView {
         return tabs
     }
 
+    /// 头像页签的账号手势（只在手机上挂，见上面 `.background(accountGestures)`）
+    @ViewBuilder
+    private var accountGestures: some View {
+        if !Self.isPad {
+            TabBarAccountGestures(onAvatarFrame: { if avatarTabFrame != $0 { avatarTabFrame = $0 } })
+        }
+    }
+
     /// 只有图标的页签标签：标题留在 Label 里表明含义，显示时去掉（读屏名字由 Tab 的
     /// `.accessibilityLabel` 给——Label 里的标题不会传给系统标签栏）。图标统一成正方形，见 TabIcon
+    @ViewBuilder
     private func iconLabel(_ tab: MainTab) -> some View {
-        Label { Text(tab.title) } icon: { Image(uiImage: TabIcon.image(tab.systemImage)) }
-            .labelStyle(.iconOnly)
+        if Self.isPad {
+            // iPad 的顶部标签栏与侧边栏地方够：图标 + 文字（HIG：iPad 页签要写出名字）。
+            // 媒体库页签在 iPad 上叫「首页」：各个库逐个列在侧边栏里（同 Mac 版）
+            if tab == .library {
+                Label("首页", systemImage: "house")
+            } else {
+                Label(tab.title, systemImage: tab.systemImage)
+            }
+        } else {
+            Label { Text(tab.title) } icon: { Image(uiImage: TabIcon.image(tab.systemImage)) }
+                .labelStyle(.iconOnly)
+        }
     }
+
+    /// 跑在 iPad 上（含 iPad 上的窄窗口：窄了系统自己把侧边栏收回标签栏）
+    static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     /// 登录 / 切换账号 / 退出后自动切到下一个账号时的首个落点（只定一次）：
     /// - 会话过期前记下的位置（同一身份可进入时）优先还原；
@@ -476,7 +513,7 @@ extension MainTabView {
         if let resume = model.takeResume(), router.availableTabs.contains(resume.tab),
            resume.path.allSatisfy(permissions.allows) {
             router.selectedTab = resume.tab
-            router.paths[resume.tab] = resume.path
+            router.paths[.tab(resume.tab)] = resume.path
             return
         }
         // 媒体库是首页：管理员、成员都落在这里（原来管理员落「发现」，2026-09-30 用户调整）
@@ -486,19 +523,22 @@ extension MainTabView {
 
 /// 一个标签页的导航根：独立导航栈 + 路由映射 + 全局顶栏（右上角搜索）
 struct TabRoot<Root: View>: View {
-    let tab: MainTab
+    let item: ShellTab
     @ViewBuilder let root: () -> Root
     @Environment(Router.self) private var router
+    /// 窗口宽度：常规宽度（iPad 宽窗口）用放大一档的卡片（`CardMetrics.wide`，同 Mac 版）
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
-        NavigationStack(path: router.path(for: tab)) {
+        NavigationStack(path: router.path(for: item)) {
             root()
-                .appTopBar(tab: tab)
+                .appTopBar(tab: item.mainTab)
                 .navigationDestination(for: AppRoute.self) { route in
                     route.destination
                 }
         }
-        .environment(\.perfPage, tab.rawValue)
+        .environment(\.perfPage, item.mainTab.rawValue)
+        .environment(\.cardMetrics, .forWindow(regular: sizeClass == .regular))
     }
 }
 
@@ -585,6 +625,18 @@ struct AppTopBar: ViewModifier {
         content.toolbar {
             if tab == .more || (searchAccess.canOpenSearch && tab != .library) {
                 ToolbarSpacer(.fixed, placement: .primaryAction)
+            }
+            if tab == .more, MainTabView.isPad {
+                // iPad 侧边栏没有底栏头像的长按 / 双击手势：切换账号放到「我的」页右上角
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        router.present(.accountSwitcher)
+                    } label: {
+                        Image(systemName: "person.2")
+                    }
+                    .accessibilityLabel("切换账号")
+                    .accessibilityIdentifier("open-account-switcher")
+                }
             }
             if tab == .more {
                 ToolbarItem(placement: .primaryAction) {
@@ -883,4 +935,45 @@ private struct OfflineShell: ViewModifier {
             }
             .onChange(of: store.downloadedItemIds) { reachability.catalogChanged() }
     }
+}
+
+/// iPad 的页签样式：`sidebarAdaptable`——宽窗口顶部是标签栏、可一键展开成侧边栏；窄窗口自动退回标签栏。
+/// 侧边栏里的库清单同步给 Router（深链打开某个库时选中侧边栏那一项）
+private struct PadSidebarTabStyle: ViewModifier {
+    let enabled: Bool
+    @Environment(Router.self) private var router
+    /// 页签的显隐要挂上自定义才生效（侧边栏专有的项不进顶部标签栏）。侧边栏的「编辑」（系统自带，同 Apple Music）
+    /// 改过的排序与显隐按设备记住
+    @AppStorage("movieclaw.pad.tabCustomization") private var customization = TabViewCustomization()
+
+    private var libraryIds: [Int]? {
+        LibraryHomeStore.shared.libraries.map { $0.filter(\.viewerAccess).map(\.id) }
+    }
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .tabViewStyle(.sidebarAdaptable)
+                .tabViewCustomization($customization)
+                .onChange(of: libraryIds, initial: true) { _, ids in
+                    guard let ids else { return }
+                    router.adoptSidebarLibraries(Set(ids))
+                    // 选着的库没了（删了、被收回权限）：回首页
+                    if case let .mediaLibrary(id) = router.selection, !ids.contains(id) { router.select(.tab(.library)) }
+                }
+        } else {
+            content
+        }
+    }
+}
+
+/// 让 `labelStyle` 能按条件二选一
+struct AnyLabelStyle: LabelStyle {
+    private let make: (Configuration) -> AnyView
+
+    init<S: LabelStyle>(_ style: S) {
+        make = { AnyView(style.makeBody(configuration: $0)) }
+    }
+
+    func makeBody(configuration: Configuration) -> some View { make(configuration) }
 }

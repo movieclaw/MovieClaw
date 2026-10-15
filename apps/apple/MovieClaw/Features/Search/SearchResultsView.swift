@@ -15,6 +15,7 @@ import SwiftUI
 /// （同 Web：切垂直会去掉地址里的 snapshot，搜索身份变了整体重挂载），切回原垂直也是实时搜索。
 /// 路由的 `scope` 参数是 `SearchScope.encoded` 的查询串（label / cats / sites / poster / private）。
 struct SearchResultsView: View {
+    @Environment(\.cardMetrics) private var cards
     let query: AppRoute.SearchQuery
 
     @Environment(\.api) private var api
@@ -147,7 +148,7 @@ struct SearchResultsView: View {
                 .accessibilityIdentifier("search-vertical")
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 8)
         .padding(.bottom, 6)
     }
@@ -242,6 +243,7 @@ struct SearchResultsView: View {
 /// 两个来源分区并列（没有可靠对齐键，不合并去重），单边失败只在该分区提示。
 /// 快照回放读历史留存结果，不访问上游；两边都空时给「搜索站点资源」逃生入口。
 struct MediaSearchResultsView: View {
+    @Environment(\.cardMetrics) private var cards
     let keyword: String
     let snapshotId: Int?
     let onResearch: () -> Void
@@ -289,7 +291,7 @@ struct MediaSearchResultsView: View {
                     section("TMDB", items: tmdb, error: tmdbError)
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.bottom, 40)
         }
         .task { await load() }
@@ -367,6 +369,7 @@ struct MediaSearchResultsView: View {
 /// - 命中的演员/导演单独一行，点头像进库内影人页（与详情页演职员同一个入口，三端一致）。
 /// - 服务端游标分页，滚到底自动续页。空态出口指向「影视」。
 struct LibrarySearchResultsView: View {
+    @Environment(\.cardMetrics) private var cards
     let keyword: String
     let onSwitchToMedia: (() -> Void)?
     /// 搜索面板里边输入边搜（`SearchHomeView` 的媒体库模式）：关键词停顿 300ms 再请求，
@@ -445,7 +448,7 @@ struct LibrarySearchResultsView: View {
                     }
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.bottom, 40)
         }
         .task(id: keyword) {
@@ -506,13 +509,13 @@ struct LibrarySearchResultsView: View {
                         .accessibilityIdentifier("library-search-suggestion")
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
                 .padding(.vertical, 4)
             }
         }
         .scrollIndicators(.hidden)
         // 横滑出页边距：胶囊能滑到屏幕边缘再消失，而不是在页边距处被一刀切掉
-        .padding(.horizontal, -Theme.pagePadding)
+        .padding(.horizontal, -cards.edge)
         .discoverContainer("library-suggestions")
     }
 

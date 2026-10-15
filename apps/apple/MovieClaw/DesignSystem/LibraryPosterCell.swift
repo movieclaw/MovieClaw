@@ -155,6 +155,7 @@ struct LibraryPosterCell: View {
 
 /// 首页 / 详情页的分区头：标题 + 右侧入口（「查看全部」、⋯ 菜单）
 struct LibrarySectionHeader<Trailing: View>: View {
+    @Environment(\.cardMetrics) private var cards
     let title: String
     @ViewBuilder var trailing: () -> Trailing
 
@@ -169,7 +170,7 @@ struct LibrarySectionHeader<Trailing: View>: View {
                 .font(.subheadline)
                 .foregroundStyle(Theme.textFaint)
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
     }
 }
 

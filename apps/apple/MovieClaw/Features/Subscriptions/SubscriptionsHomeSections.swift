@@ -9,6 +9,7 @@ import SwiftUI
 
 /// 版块标题：粗体标题（可点时带「›」压栈到二级页）+ 右侧一句弱化的计数
 struct SubsHomeSectionHeader: View {
+    @Environment(\.cardMetrics) private var cards
     let title: String
     var trailing: String?
     /// 可点时按钮的 UI 测试标识
@@ -43,7 +44,7 @@ struct SubsHomeSectionHeader: View {
         }
         .font(.title3.weight(.bold))
         .foregroundStyle(Theme.text)
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
     }
 }
 
@@ -52,6 +53,7 @@ struct SubsHomeSectionHeader: View {
 /// 「刚刚入库」：订阅的回报时刻。一部作品一张 16:9 剧照卡，点一下直接播放（入口是这一批里
 /// 第一个没看完的单元）；看完的作品服务端不再返回，这一行自然消失。
 struct SubsHomeRecentRow: View {
+    @Environment(\.cardMetrics) private var metrics
     let cards: [API.RecentArrivalView]
 
     var body: some View {
@@ -65,7 +67,7 @@ struct SubsHomeRecentRow: View {
                 }
                 .scrollTargetLayout()
             }
-            .contentMargins(.horizontal, Theme.pagePadding, for: .scrollContent)
+            .contentMargins(.horizontal, metrics.edge, for: .scrollContent)
             .scrollTargetBehavior(.viewAligned)
             .scrollClipDisabled()
         }
@@ -79,7 +81,8 @@ private struct SubsHomeRecentCard: View {
     @Environment(\.api) private var api
     @Environment(Router.self) private var router
 
-    private static let width: CGFloat = PhoneCardWidth.recent
+    @Environment(\.cardMetrics) private var cards
+    private var width: CGFloat { cards.recent }
     private var isTV: Bool { card.media.kind == "tv" }
 
     /// 第三行：什么时候到的、这一批还有几集、看到哪了
@@ -115,7 +118,7 @@ private struct SubsHomeRecentCard: View {
                 .lineLimit(1)
                 .padding(.top, 9)
             }
-            .frame(width: Self.width, alignment: .leading)
+            .frame(width: width, alignment: .leading)
             .contentShape(.rect)
         }
         .buttonStyle(SubsHomePressStyle())
@@ -138,7 +141,7 @@ private struct SubsHomeRecentCard: View {
             .aspectRatio(16 / 9, contentMode: .fit)
             .overlay {
                 RemoteImage(url: api.image(card.stillUrl ?? card.media.backdropUrl ?? card.media.posterUrl,
-                                           width: ImageWidth.points(PhoneCardWidth.recent)))
+                                           width: ImageWidth.points(cards.recent)))
             }
             .overlay(alignment: .bottom) {
                 LinearGradient(colors: [.clear, .black.opacity(0.72)], startPoint: .top, endPoint: .bottom)
@@ -172,7 +175,7 @@ private struct SubsHomeRecentCard: View {
     /// 卡片左下角的小号片名 Logo（没有就不画，片名在卡片下面）
     @ViewBuilder
     private var logo: some View {
-        if let raw = card.media.logoUrl, let url = api.image(raw, width: ImageWidth.points(PhoneCardWidth.recentLogo)) {
+        if let raw = card.media.logoUrl, let url = api.image(raw, width: ImageWidth.points(cards.recentLogo)) {
             LazyImage(url: url) { state in
                 Group {
                     if let image = state.image {
@@ -183,7 +186,7 @@ private struct SubsHomeRecentCard: View {
                 }
                 .perfImage(url, state)
             }
-            .frame(maxWidth: PhoneCardWidth.recentLogo, maxHeight: 34, alignment: .bottomLeading)
+            .frame(maxWidth: cards.recentLogo, maxHeight: 34, alignment: .bottomLeading)
         }
     }
 }
@@ -196,6 +199,7 @@ private struct SubsHomeRecentCard: View {
 /// 没有更新的日子照样占位但点不了——一周的节奏本身就是信息。议程是一列竖排：左列大号时刻、
 /// 中间剧照、右边片名与集号，和上下两排横滑行形状不同，页面有呼吸。
 struct SubsHomeSchedule: View {
+    @Environment(\.cardMetrics) private var cards
     let days: [SubsHomeScheduleDay]
     /// nil = 默认选中第一个有安排的日子
     @State private var selected: Int?
@@ -227,7 +231,7 @@ struct SubsHomeSchedule: View {
                 chip(day, on: day.daysAhead == current?.daysAhead)
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
     }
 
     private func chip(_ day: SubsHomeScheduleDay, on: Bool) -> some View {
@@ -297,7 +301,7 @@ struct SubsHomeSchedule: View {
             .padding(.vertical, 4)
             .background(Color.white.opacity(0.045), in: .rect(cornerRadius: 22, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Color.white.opacity(0.07)))
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .id(day.daysAhead)
             .transition(.opacity.combined(with: .offset(y: 8)))
         }
@@ -384,13 +388,14 @@ private struct SubsHomeAgendaRow: View {
 /// 超出时末尾放一张「查看全部」卡，与标题「›」一样压栈到完整海报墙（`AppRoute.subscriptionWall`），
 /// 墙上是同一份排好的结果，顺序不变。
 struct SubsHomeShelfRow: View {
+    @Environment(\.cardMetrics) private var cards
     let title: String
     let kind: String
     let shelf: SubsHomeShelf
     @Environment(Router.self) private var router
 
     /// 与发现页、媒体库横滑行同宽：一屏两张半，第三张露出一截提示还能滑
-    static let cardWidth: CGFloat = 126
+    private var cardWidth: CGFloat { cards.discoverPoster }
     /// 横滑最多几张（约七屏）；其余在海报墙里
     static let limit = 20
 
@@ -407,26 +412,26 @@ struct SubsHomeShelfRow: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 12) {
                     ForEach(active) { item in
-                        SubsHomePosterCard(item: item).frame(width: Self.cardWidth)
+                        SubsHomePosterCard(item: item).frame(width: cardWidth)
                     }
                     if !resting.isEmpty {
                         if !active.isEmpty {
-                            SubsHomeRestingDivider(label: shelf.restingLabel, height: Self.cardWidth * 1.5)
+                            SubsHomeRestingDivider(label: shelf.restingLabel, height: cardWidth * 1.5)
                         }
                         ForEach(resting) { item in
-                            SubsHomePosterCard(item: item).frame(width: Self.cardWidth)
+                            SubsHomePosterCard(item: item).frame(width: cardWidth)
                         }
                     }
                     if hidden > 0 {
                         SubsHomeSeeAllCard(total: shelf.all.count) {
                             router.push(.subscriptionWall(kind: kind))
                         }
-                        .frame(width: Self.cardWidth)
+                        .frame(width: cardWidth)
                     }
                 }
                 .scrollTargetLayout()
             }
-            .contentMargins(.horizontal, Theme.pagePadding, for: .scrollContent)
+            .contentMargins(.horizontal, cards.edge, for: .scrollContent)
             .scrollTargetBehavior(.viewAligned)
             .scrollClipDisabled()
         }

@@ -8,6 +8,7 @@ import SwiftUI
 /// 不能用「列表第一张」推断（策略升级前刮的条目、锁定的条目都会对不上）。
 /// 已锁定时给「恢复自动选图」（`file_path: null` = 解锁）。
 struct ArtworkPickerSheet: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     let mediaItemId: Int
     /// 选定 / 恢复后回调：调用方重拉详情呈现新图
@@ -45,7 +46,7 @@ struct ArtworkPickerSheet: View {
 
                     content
                 }
-                .padding(Theme.pagePadding)
+                .padding(cards.edge)
             }
             .navigationTitle("更换图片")
             .navigationBarTitleDisplayMode(.inline)

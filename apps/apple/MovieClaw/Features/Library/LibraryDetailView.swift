@@ -15,6 +15,7 @@ import SwiftUI
 /// 「回到上次位置」三种形态共用一条记录（都按作品计）；挂后台 30 分钟以上再回来算重新进入，重新询问。
 /// 排序偏好全站共用一个键（在哪个库选了「按评分」，换个库还是按评分），同 Web。
 struct LibraryDetailView: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     /// 进来时落在哪个视图（Web `?view=collections`）
     var initialView: WallView = .items
@@ -361,7 +362,7 @@ struct LibraryDetailView: View {
                 banner(notice, color: Theme.danger)
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 4)
     }
 
@@ -458,7 +459,7 @@ struct LibraryDetailView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 64)
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
     }
 
     // MARK: 墙
@@ -479,7 +480,7 @@ struct LibraryDetailView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .padding(.top, 64)
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
         } else {
             if !photoWall { filterControls }
             VStack(alignment: .leading, spacing: 0) {
@@ -521,7 +522,7 @@ struct LibraryDetailView: View {
                 onShowAllCollections: { view = .collections }
             )
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 16)
     }
 
@@ -555,18 +556,18 @@ struct LibraryDetailView: View {
 
     private func sectionTitle(_ text: String) -> some View {
         Text(text).font(.headline).foregroundStyle(.white.opacity(0.85))
-            .padding(.horizontal, Theme.pagePadding).padding(.bottom, 12)
+            .padding(.horizontal, cards.edge).padding(.bottom, 12)
     }
 
     private func grid(_ items: [API.LibraryItemView], wide: Bool, showRating: Bool) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: wide ? 160 : 140), spacing: 12, alignment: .top)], alignment: .leading, spacing: 20) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: cards.wallMinimum + (wide ? 20 : 0)), spacing: cards.spacing, alignment: .top)], alignment: .leading, spacing: 20) {
             ForEach(items) { item in
                 LibraryInventoryCell(item: item, libraryId: libraryId, frameAspect: wide ? 16 / 9 : Theme.posterAspect,
                                      showRating: showRating, working: workingLabel(item))
             }
         }
         .scrollTargetLayout()
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .accessibilityIdentifier("poster-wall")
     }
 
@@ -585,14 +586,14 @@ struct LibraryDetailView: View {
                         .buttonStyle(.glass)
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12, alignment: .top)], alignment: .leading, spacing: 20) {
+            .padding(.horizontal, cards.edge)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: cards.wallMinimum + 20), spacing: cards.spacing, alignment: .top)], alignment: .leading, spacing: 20) {
                 ForEach(provisional) { item in
                     LibraryInventoryCell(item: item, libraryId: libraryId, frameAspect: 16 / 9,
                                          working: probing && item.probePendingCount > 0 ? "正在读取规格" : nil)
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
         }
         .padding(.top, 32)
     }
