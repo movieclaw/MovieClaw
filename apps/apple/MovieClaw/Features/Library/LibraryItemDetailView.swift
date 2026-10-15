@@ -453,8 +453,8 @@ struct LibraryItemDetailView: View {
                             .animation(.easeInOut(duration: 0.5), value: edgeTint?.description)
                     }
                     .stretchesOnPull()
-                    // 延伸到侧边栏底下，侧边栏四周不露出纯色底（见 PadBackdropExtension）
-                    .backgroundExtensionEffect()
+                    // 剧照铺到侧边栏底下，侧边栏四周不露出纯色底（见 PadBackdropUnderSidebar）
+                    .ignoresSafeArea(.container, edges: .horizontal)
                     .accessibilityHidden(true)
             }
         }

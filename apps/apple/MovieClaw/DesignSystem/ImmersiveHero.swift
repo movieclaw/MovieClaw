@@ -152,7 +152,7 @@ struct ImmersiveHeroBackdrop: View {
             .frame(height: height)
             .stretchesOnPull()
             .stretchesOnEdgeOverscroll(first: isFirst, last: isLast)
-            .modifier(PadBackdropExtension())
+            .modifier(PadBackdropUnderSidebar())
             .frame(maxHeight: .infinity, alignment: .bottom)
             .onChange(of: active, initial: true) { old, isActive in
                 // 页签切走再切回时，initial 这一次会随页面重新出现再调一遍（新旧值相同）。
@@ -471,15 +471,17 @@ struct ImmersiveHeroFadeCarousel<Slide: View>: View {
     }
 }
 
-/// iPad 宽窗口：剧照镜像、模糊后延伸到侧边栏底下（系统的 `backgroundExtensionEffect`，同 iPad 上的 Apple TV / 音乐）。
-/// 剧照只占内容区（见 ImmersiveHeroBleed），浮动的侧边栏四周会露出背后的页面：不延伸的话那里是一块纯色，
-/// 和剧照左边沿拼出一个直角（真机反馈）。只给剧照层加，文字不延伸；手机上不加。
-struct PadBackdropExtension: ViewModifier {
+/// iPad 宽窗口：剧照层画到侧边栏底下（铺满整屏宽），文字仍只排在内容区。
+/// 侧边栏是液态玻璃，自己会把下面的画面模糊——剧照直接铺过去就行，不用系统的 `backgroundExtensionEffect`
+/// （那个要在内容移动时每帧重新取样、镜像、模糊，Mac 版实测滚动时占掉大半主线程）。
+/// 不铺的话浮动侧边栏四周露出一块纯色，和剧照左边沿拼出一个直角（真机反馈）。
+/// 剧照宽度因此固定为整屏，展开 / 收起侧边栏时剧照不动，只有文字跟着内容区走。手机上不加
+struct PadBackdropUnderSidebar: ViewModifier {
     @Environment(\.cardMetrics) private var cards
 
     func body(content: Content) -> some View {
         if cards.isWide {
-            content.backgroundExtensionEffect()
+            content.ignoresSafeArea(.container, edges: .horizontal)
         } else {
             content
         }
