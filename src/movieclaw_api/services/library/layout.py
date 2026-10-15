@@ -44,9 +44,8 @@ VIDEO_EXTS = {
 # ffprobe 探测对它天然无意义（规格列留空）。
 STRM_EXT = ".strm"
 
-# 库扫描/实时监控/整理的接纳范围 = 视频 + strm 占位。**下载入库链
-# （监听导入 ingest）刻意不收 strm**：那里的 ffprobe 完整性门禁
-# （挡残缺文件）对 strm 必然失败，会陷入"探测失败自动重试"的死循环。
+# 库扫描/实时监控/整理/监听导入的接纳范围 = 视频 + strm 占位。监听导入
+# 对 strm 不跑 ffprobe 完整性门禁（必然失败），改为校验内容能解析出播放源。
 SCAN_VIDEO_EXTS = VIDEO_EXTS | {STRM_EXT}
 
 # 图片库的入账对象（docs/design/library-photo-kind.md 2.1）。只收浏览器能直接

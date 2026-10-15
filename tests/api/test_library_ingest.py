@@ -4669,3 +4669,149 @@ async def test_staged_files_feed_the_ingest_staged_slot(db, tmp_path, monkeypatc
     assert all(Path(f["path"]).is_relative_to(staging) and Path(f["path"]).exists() for f in files)
     assert job.input_data["media"]["title"] == "上云剧集"
     assert job.input_data["rule"]["target_path"] == str(staging)
+
+
+# ---------------------------------------------------------------------------
+# strm：监听导入与视频同样识别、改名、落库；不探网盘，门禁改为内容能解析出播放源
+# ---------------------------------------------------------------------------
+
+
+def _no_probe(path):
+    raise AssertionError(f"strm 不该被 ffprobe 探测：{path}")
+
+
+@pytest.mark.asyncio
+async def test_strm_movie_imports_without_probing(db, tmp_path, monkeypatch):
+    """strm 电影：改名硬链进库、内容不变、台账容器记 strm 规格留空（首播时现探）。"""
+    root, watch = tmp_path / "movies", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    item = await _make_item(db, kind=MediaKind.MOVIE, title="某电影", year=2020)
+    _stub_identify(monkeypatch, item)
+    monkeypatch.setattr(ingest_mod, "probe_media", _no_probe)
+    monkeypatch.setattr(ingest_mod, "ffprobe_available", lambda: True)
+
+    entry = watch / "Some.Movie.2020.2160p"
+    entry.mkdir()
+    src = entry / "Some.Movie.2020.2160p.strm"
+    src.write_text("https://pan.example.com/d/Some.Movie.2020.2160p.mkv\n")
+
+    await _sweep_twice(db, library_id, watch)
+
+    target = root / "某电影 (2020)" / "某电影 (2020).strm"
+    assert target.stat().st_ino == src.stat().st_ino
+    assert target.read_text() == "https://pan.example.com/d/Some.Movie.2020.2160p.mkv\n"
+    async with db.session() as session:
+        files = list((await session.execute(select(LibraryFile))).scalars().all())
+        record = (await session.execute(select(IngestEntry))).scalar_one()
+    assert [(f.file_path, f.container, f.video_codec) for f in files] == [
+        (str(target), "strm", None)
+    ]
+    assert record.status == IngestStatus.IMPORTED
+
+
+@pytest.mark.asyncio
+async def test_strm_season_pack_imports_each_episode(db, tmp_path, monkeypatch):
+    """strm 季包（本地挂载路径写法）：逐集落 Season 目录。"""
+    root, watch, mount = tmp_path / "tv", tmp_path / "watch", tmp_path / "cd2"
+    watch.mkdir()
+    mount.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.TV, root=root)
+    item = await _make_item(db, kind=MediaKind.TV, title="测试剧集", year=2024)
+    _stub_identify(monkeypatch, item)
+    monkeypatch.setattr(ingest_mod, "probe_media", _no_probe)
+    monkeypatch.setattr(ingest_mod, "ffprobe_available", lambda: True)
+    _stub_unit(monkeypatch, lambda file: (1, int(file.stem.removeprefix("ep"))))
+
+    entry = watch / "测试剧集 S01"
+    entry.mkdir()
+    for n in (1, 2):
+        (mount / f"ep{n}.mkv").write_bytes(b"cloud")
+        (entry / f"ep{n}.strm").write_text(str(mount / f"ep{n}.mkv"))
+
+    await _sweep_twice(db, library_id, watch, strategy="copy")
+
+    season_dir = root / "测试剧集 (2024)" / "Season 01"
+    for n in (1, 2):
+        landed = season_dir / f"测试剧集 (2024) - S01E0{n}.strm"
+        assert landed.read_text() == str(mount / f"ep{n}.mkv")
+    async with db.session() as session:
+        record = (await session.execute(select(IngestEntry))).scalar_one()
+    assert record.status == IngestStatus.IMPORTED
+    assert record.imported_count == 2
+
+
+@pytest.mark.asyncio
+async def test_unusable_strm_fails_with_reason_and_stays(db, tmp_path, monkeypatch):
+    """strm 内容解析不出播放源（挂载没上线、写坏）：记 failed 带原因、不搬运，文件变化后重试。"""
+    root, watch = tmp_path / "movies", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    item = await _make_item(db, kind=MediaKind.MOVIE, title="某电影", year=2020)
+    _stub_identify(monkeypatch, item)
+    monkeypatch.setattr(ingest_mod, "probe_media", _no_probe)
+
+    entry = watch / "某电影 (2020)"
+    entry.mkdir()
+    (entry / "movie.strm").write_text("/cd2/offline/movie.mkv\n")
+
+    await _sweep_twice(db, library_id, watch)
+
+    assert not (root / "某电影 (2020)").exists()
+    async with db.session() as session:
+        record = (await session.execute(select(IngestEntry))).scalar_one()
+    assert record.status == IngestStatus.FAILED
+    assert "找不到 strm 指向的本地文件" in (record.message or "")
+
+
+def test_same_length_strm_with_different_link_is_not_same_payload(tmp_path):
+    """strm 定长地址（115 pickcode）尺寸相同不代表同一内容：不能被当作「已在库」静默跳过。"""
+    a, b, c = tmp_path / "a.strm", tmp_path / "b.strm", tmp_path / "c.strm"
+    a.write_text("http://p115:8000?pickcode=aaaaaaaa")
+    b.write_text("http://p115:8000?pickcode=bbbbbbbb")
+    c.write_text("http://p115:8000?pickcode=aaaaaaaa")
+    assert not ingest_mod._same_payload(a, b)
+    assert ingest_mod._same_payload(a, c)
+
+
+@pytest.mark.asyncio
+async def test_legacy_skipped_strm_entry_retries_once_after_upgrade(db, tmp_path, monkeypatch):
+    """旧版不认 strm，只有 strm 的条目被记成「没有视频文件，已跳过」：文件没变（指纹相同）
+    升级后也要补偿重跑一次；真没有视频的条目照旧不重跑。"""
+    root, watch = tmp_path / "movies", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    item = await _make_item(db, kind=MediaKind.MOVIE, title="某电影", year=2020)
+    _stub_identify(monkeypatch, item)
+    monkeypatch.setattr(ingest_mod, "probe_media", _no_probe)
+
+    strm_entry, empty_entry = watch / "某电影 (2020)", watch / "只有图片"
+    strm_entry.mkdir()
+    empty_entry.mkdir()
+    (strm_entry / "movie.strm").write_text("https://pan.example.com/a.mkv")
+    (empty_entry / "poster.jpg").write_bytes(b"jpg")
+    async with db.session() as session:
+        for entry in (strm_entry, empty_entry):
+            session.add(
+                IngestEntry(
+                    library_id=library_id,
+                    entry_path=str(entry),
+                    fingerprint=ingest_mod._snapshot(entry).fingerprint,
+                    status=IngestStatus.SKIPPED,
+                    message="条目中没有视频文件，已跳过",
+                    attempted_at=utcnow() - timedelta(days=1),
+                )
+            )
+        await session.commit()
+
+    await _sweep_twice(db, library_id, watch)
+
+    assert (root / "某电影 (2020)" / "某电影 (2020).strm").is_file()
+    async with db.session() as session:
+        records = {
+            Path(r.entry_path).name: r
+            for r in (await session.execute(select(IngestEntry))).scalars()
+        }
+    assert records["某电影 (2020)"].status == IngestStatus.IMPORTED
+    assert records["只有图片"].status == IngestStatus.SKIPPED
+    assert records["只有图片"].attempted_at < utcnow().replace(tzinfo=None) - timedelta(hours=1)

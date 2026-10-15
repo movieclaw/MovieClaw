@@ -138,6 +138,8 @@ from movieclaw_api.services.library.config import (
 from movieclaw_api.services.library.fsops import rename_no_replace
 from movieclaw_api.services.library.layout import (
     IN_PROGRESS_MARKERS,
+    SCAN_VIDEO_EXTS,
+    STRM_EXT,
     VIDEO_EXTS,
     is_disc_dir,
 )
@@ -185,6 +187,7 @@ from movieclaw_enrich import enrich
 from movieclaw_enrich.inference import model_release_tag
 from movieclaw_matcher import DISC_SOURCE, QualitySnapshot, RuleSetSpec, build_snapshot
 from movieclaw_media.models import MediaKind
+from movieclaw_playback.streaming import StrmError, parse_strm
 from movieclaw_scheduler.registry import register_task
 
 logger = logging.getLogger("movieclaw_api.library_ingest")
@@ -244,6 +247,10 @@ _PARSER_GAP_MARKERS = ("解析不出集号，未入库", "解析不出季号，�
 # 按作品分组）补偿重跑一次；新逻辑同一场景改写成另一句话（见 _ingest_entry），
 # 补偿跑过一次后自然不再命中，不会每轮巡检反复重跑
 _LEGACY_LARGEST_ONLY_MARKER = "已取最大文件为正片，忽略其余"
+
+# 旧版监听导入不认 strm，只有 strm 的条目结论写着下面这句。升级后这类记录补偿重跑一次；
+# 重跑后结论换成别的话，不会每轮巡检反复命中
+_NO_VIDEO_MARKER = "条目中没有视频文件，已跳过"
 
 # 文件名含这些标记的视频不入库（与入库管线同口径）
 _IGNORE_MARKERS = ("sample",)
@@ -388,6 +395,20 @@ def _legacy_collection_retry(rule: ImportWatch, record: IngestEntry | None) -> b
     return rule.target_path is None or not record.imported_count
 
 
+def _is_strm(file: Path) -> bool:
+    return file.suffix.lower() == STRM_EXT
+
+
+def _strm_skipped_retry(record: IngestEntry | None, snap: _EntrySnapshot) -> bool:
+    """旧版因不认 strm 而跳过的条目，升级后能否补偿重跑（指纹没变，不补偿就永远停在跳过）。"""
+    return bool(
+        record is not None
+        and record.status == IngestStatus.SKIPPED
+        and _NO_VIDEO_MARKER in (record.message or "")
+        and any(_is_strm(video) for video in snap.videos)
+    )
+
+
 @dataclass
 class _EntrySnapshot:
     """条目的一次快照：指纹 + 完成检测所需的观察结果。"""
@@ -439,7 +460,7 @@ def _snapshot(entry: Path) -> _EntrySnapshot:
             return
         if (
             not inside_disc
-            and Path(lower).suffix in VIDEO_EXTS
+            and Path(lower).suffix in SCAN_VIDEO_EXTS
             and not any(m in lower for m in _IGNORE_MARKERS)
         ):
             videos.append(file)
@@ -1319,6 +1340,7 @@ async def _process_entry(
             and record.status == IngestStatus.SKIPPED
             and "原盘目录（BDMV/VIDEO_TS）暂不支持自动入库" in (record.message or "")
         )
+        strm_retry = _strm_skipped_retry(record, snap)
         if latest_job is not None and latest_job.status in {
             JobStatus.CANCELLED,
             JobStatus.FAILED,
@@ -1356,6 +1378,7 @@ async def _process_entry(
                 record.status != IngestStatus.FAILED
                 and not parser_retry
                 and not disc_retry
+                and not strm_retry
                 and not await _redelivered_since(
                     session, record, [b.info_hash for b in matches if b.info_hash]
                 )
@@ -1436,6 +1459,24 @@ async def _process_entry(
 # ---------------------------------------------------------------------------
 # 单条目入库
 # ---------------------------------------------------------------------------
+
+
+def _probe_for_ingest(file: Path):
+    """入库时探规格。strm 不探：它指向网盘，逐个请求直链会触发风控（与扫描同策略），
+    规格在第一次播放或后台预探时补上（docs/design/strm-playback.md §2）。"""
+    return None if _is_strm(file) else probe_media(file)
+
+
+def _strm_problem(file: Path) -> str | None:
+    """strm 的完整性门禁（代替 ffprobe 门禁）：内容解析不出播放源时返回原因——
+    还没写完、写坏了、指向的挂载没上线。不是 strm 返回 None。"""
+    if not _is_strm(file):
+        return None
+    try:
+        parse_strm(file)
+    except StrmError as exc:
+        return str(exc)
+    return None
 
 
 async def _ingest_entry(
@@ -1680,7 +1721,7 @@ async def _ingest_entry(
             )
     else:
         if not snap.videos:
-            return await conclude(IngestStatus.SKIPPED, "条目中没有视频文件，已跳过")
+            return await conclude(IngestStatus.SKIPPED, _NO_VIDEO_MARKER)
         main = max(snap.videos, key=lambda f: f.stat().st_size)
     if job_context is not None:
         await job_context.update_progress(
@@ -1691,8 +1732,12 @@ async def _ingest_entry(
             phase_count=4,
             details={"entry_name": entry.name, "rule_id": rule.id},
         )
-    spec = await asyncio.to_thread(probe_media, main)
-    if spec is None and ffprobe_available():
+    spec = await asyncio.to_thread(_probe_for_ingest, main)
+    if strm_problem := await asyncio.to_thread(_strm_problem, main):
+        return await conclude(
+            IngestStatus.FAILED, f"「{main.name}」用不了：{strm_problem}；文件变化后自动重试"
+        )
+    if spec is None and ffprobe_available() and not _is_strm(main):
         return await conclude(
             IngestStatus.FAILED,
             f"主视频「{main.name}」探测失败——可能尚未下载完成或已损坏，文件变化后自动重试",
@@ -2155,7 +2200,7 @@ async def _ingest_entry(
         # 探测提前到命名之前：分辨率等文件属性是命名模板的可用占位符
         # （{resolution}/{media_source}/{release_group}），拿不到值的话
         # 用户配了这些占位符只会渲染成空——探测本身是纯读取，前移无副作用
-        file_spec = spec if file == main else await asyncio.to_thread(probe_media, file)
+        file_spec = spec if file == main else await asyncio.to_thread(_probe_for_ingest, file)
         # 来源戳也提到命名之前：站点是 {site} 占位符的取值
         stamp_site, stamp_torrent = provenance(
             file, None if kind is MediaKind.MOVIE else (season, episode)
@@ -2198,7 +2243,11 @@ async def _ingest_entry(
             )
         # 门禁逐文件生效：暂停的季包可能前几集完整、后几集残缺，主文件
         # 探测通过不代表每个文件都完整
-        if file_spec is None and ffprobe_available():
+        if strm_problem := await asyncio.to_thread(_strm_problem, file):
+            notes.append(f"「{file.name}」用不了：{strm_problem}；未入库，文件变化后自动重试")
+            env_error = True
+            continue
+        if file_spec is None and ffprobe_available() and not _is_strm(file):
             notes.append(f"「{file.name}」探测失败（可能不完整），未入库；文件变化后自动重试")
             env_error = True
             continue
@@ -2521,7 +2570,7 @@ async def _ingest_raw_drop(
             ),
         )
     if not snap.videos:
-        return None, 0, (IngestStatus.SKIPPED, "条目中没有视频文件，已跳过")
+        return None, 0, (IngestStatus.SKIPPED, _NO_VIDEO_MARKER)
     root = library.primary_root if library is not None else dest_root
     if not root:
         return (
@@ -2549,8 +2598,17 @@ async def _ingest_raw_drop(
             await asyncio.sleep(2)
     # 主视频先做完整性门禁（与影视库同一口径：探测失败多半是还没下完）
     main = max(snap.videos, key=lambda f: f.stat().st_size)
-    spec = await asyncio.to_thread(probe_media, main)
-    if spec is None and ffprobe_available():
+    spec = await asyncio.to_thread(_probe_for_ingest, main)
+    if strm_problem := await asyncio.to_thread(_strm_problem, main):
+        return (
+            None,
+            0,
+            (
+                IngestStatus.FAILED,
+                f"「{main.name}」用不了：{strm_problem}；文件变化后自动重试",
+            ),
+        )
+    if spec is None and ffprobe_available() and not _is_strm(main):
         return (
             None,
             0,
@@ -2663,7 +2721,7 @@ async def _ingest_raw_drop(
     for src_file, final in transferred:
         if src_file not in video_set:
             continue
-        file_spec = spec if src_file == main else await asyncio.to_thread(probe_media, final)
+        file_spec = spec if src_file == main else await asyncio.to_thread(_probe_for_ingest, final)
         identity = await asyncio.to_thread(
             build_local_identity,
             library_id=library.id,
@@ -3000,7 +3058,7 @@ async def _identify_feature_files(
         size = video.stat().st_size
         if size < main_size * _FEATURE_PROBE_SIZE_RATIO:
             continue
-        video_spec = await asyncio.to_thread(probe_media, video)
+        video_spec = await asyncio.to_thread(_probe_for_ingest, video)
         duration = video_spec.duration_seconds if video_spec else None
         if duration:
             if duration >= _FEATURE_MIN_SECONDS:
@@ -3157,11 +3215,16 @@ async def _ingest_collection(
 
 
 def _same_payload(a: Path, b: Path) -> bool:
-    """两个路径是否同一内容：同一 inode（硬链过）或尺寸相同（复制过）。"""
+    """两个路径是否同一内容：同一 inode（硬链过）或尺寸相同（复制过）。
+
+    strm 只有一行地址，尺寸相同而内容不同很常见（115 pickcode 一类地址定长），按内容比。
+    """
     try:
         if os.path.samefile(a, b):
             return True
-        return a.stat().st_size == b.stat().st_size
+        if a.stat().st_size != b.stat().st_size:
+            return False
+        return not _is_strm(a) or a.read_bytes() == b.read_bytes()
     except OSError:
         return False
 
@@ -3976,6 +4039,7 @@ async def _execute_ingest_job(
                 record.status in {IngestStatus.IMPORTED, IngestStatus.SKIPPED}
                 and not parser_retry
                 and not disc_retry
+                and not _strm_skipped_retry(record, snap)
                 and not await _redelivered_since(session, record, matched_hashes)
             ):
                 return {
