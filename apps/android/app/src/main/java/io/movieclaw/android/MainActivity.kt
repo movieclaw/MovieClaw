@@ -30,6 +30,10 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var deepLinkBus: DeepLinkBus
 
+    /** 调试包的直达参数（实验台用；正式包不认） */
+    @Inject
+    lateinit var debugLaunch: io.movieclaw.android.core.playback.DebugLaunch
+
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 拒绝则仅无通知,播放不受影响 */ }
 
@@ -41,7 +45,7 @@ class MainActivity : ComponentActivity() {
         )
         requestNotificationPermissionIfNeeded()
         deepLinkBus.parse(intent?.dataString)?.let(deepLinkBus::publish)
-        handleNotificationTab(intent)
+        if (!debugLaunch.handle(intent)) handleNotificationTab(intent)
         setContent {
             MovieClawTheme {
                 MovieClawRoot()
@@ -53,7 +57,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         deepLinkBus.parse(intent.dataString)?.let(deepLinkBus::publish)
-        handleNotificationTab(intent)
+        if (!debugLaunch.handle(intent)) handleNotificationTab(intent)
     }
 
     /** 通知点按落点：有具体条目就投路由（AppNav 消费），否则退到底栏页（见 core/notify） */

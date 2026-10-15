@@ -57,7 +57,10 @@ function noPhantomProgress(fromS, toS) {
     if (last.pos > bufferedAtCut + 1500) {
       return `断流期间播放头走到 ${Math.round(last.pos / 1000)} 秒，超过断流时的缓冲末尾 ${Math.round(bufferedAtCut / 1000)} 秒`;
     }
-    return last.ph === "Playing" && last.playing ? "断流、缓冲见底了还报「在播」" : null;
+    // 只有缓冲真的见底了才要求不报「在播」：码率低的片子断流前已经在路上的数据能撑过整个窗口（手机的缓冲预算比电视大），
+    // 那时接着放是对的
+    const drained = last.pos >= bufferedAtCut - 2000;
+    return drained && last.ph === "Playing" && last.playing ? "断流、缓冲见底了还报「在播」" : null;
   };
 }
 

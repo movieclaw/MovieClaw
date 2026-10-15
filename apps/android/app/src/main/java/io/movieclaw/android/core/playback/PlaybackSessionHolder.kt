@@ -78,6 +78,9 @@ class PlaybackSessionHolder @Inject constructor(
         product = ClientIdentity.PHONE_PRODUCT,
     )
 
+    /** 实验室场景名（调试包的 mc_lab，见 DebugLaunch）：这些播放的记录打上标签，统计默认排除 */
+    var labScenario: String = ""
+
     /** 成员播放归属启动它的账号；访客播放不绑定成员身份 */
     private var memberIdentity: TokenVault.Identity? = null
     private var opening: Job? = null
@@ -189,6 +192,7 @@ class PlaybackSessionHolder @Inject constructor(
             ),
             // 调试包每秒往 logcat（PlaybackProbe）打一行状态：端到端验证与故障注入实验台读它
             probe = BuildConfig.DEBUG,
+            lab = labScenario,
             // 能力申报与电视一致（不报 is_mobile）：服务端会把「移动端 + 原生 HLS」当成 iOS 系统播放器，
             // 把 5.1 音轨固定转成 AAC 双声道、限制转码画质——Exo 用不着这些限制
             host = PlaybackHost(playInBackground = true, ownsMediaSession = false),

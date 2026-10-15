@@ -124,6 +124,10 @@ apps/android/
    视觉以截图对照（发现页 hero、详情页轨道行、播放页控制层与两个覆盖层、活动页、我的页）。
 2. **单元 / 协议**：`./gradlew :app:testDebugUnitTest`（含 MockWebServer 的接口契约测试：筛选参数名、
    轨标题、身份隔离等）与 `./gradlew :app:lintDebug`。
-3. **CI**：`.github/workflows/android-stability.yml` 对 `main` 与 `android` 分支、`apps/android/**` 与
+3. **端到端（故障注入实验台）**：调试包认一组直达参数（`core/playback/DebugLaunch.kt`，与 TV 版同一套：
+   `mc_server / mc_user / mc_pass / mc_route=/play/<条目>[/sXXeYY][?t=秒] / mc_lab`，播放中 `mc_seek_ms / mc_audio /
+   mc_subtitle`），`scripts/perf/androidtv_faultlab` 加 `ATV_FAULTLAB_PKG=io.movieclaw.android` 就能驱动手机包
+   （判定读引擎每秒打的 `PlaybackProbe` 行；按方向键的场景只对电视有意义）。
+4. **CI**：`.github/workflows/android-stability.yml` 对 `main` 与 `android` 分支、`apps/android/**` 与
    `apps/android-core/**` 的改动先编 FFmpeg 音频库，再跑上面两项 + `assembleDebug`，并用临时证书走一遍正式打包校验。
-4. 详细的稳定性整改记录（统一引擎之前的双内核时期）见 [../android/stability-validation.md](../android/stability-validation.md)。
+5. 详细的稳定性整改记录（统一引擎之前的双内核时期）见 [../android/stability-validation.md](../android/stability-validation.md)。
