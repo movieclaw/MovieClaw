@@ -2,7 +2,7 @@
 # 导出 OpenAPI 基线 spec，一次写两处消费方。
 #
 # 两个消费方必须同版（否则模型看到的服务目录和 CLI 能跑的命令对不上）：
-#   src/movieclaw_api/data/spec.json     服务端运行期读它渲染 Agent 工具描述
+#   src/movieclaw_api/data/spec.json     服务端运行期读它渲染 Agent 服务目录
 #   cli/internal/spec/data/spec.json     Go CLI 构建期 //go:embed 进二进制
 #
 # 两份文件都是构建产物，不入 git（见 .gitignore）：镜像、发版脚本、CI 在

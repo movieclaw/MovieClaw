@@ -64,26 +64,32 @@ COMPACT_PROMPT = """\
 _SOURCE_ROOT = Path(__file__).resolve().parents[1]
 
 
-def build_system_prompt(extra_environment: str | None = None) -> str:
+def build_system_prompt(extra_environment: str | None = None, *, workspace: bool = True) -> str:
     """正文 + 运行时环境段。
 
     环境段目前有日期与源码位置；未来接入真实工具后，把站点清单、
     下载器清单等动态事实追加到 extra_environment 传入。
+
+    ``workspace``：本次运行是否带 bash/read 工作区工具。源码位置是给这两个
+    工具看的，没有它们时不写，免得模型去找一个不存在的工具。
     """
     lines = [
         SYSTEM_PROMPT,
         "# 环境",
         f"- 当前日期：{datetime.now().strftime('%Y-%m-%d')}",
-        f"- 本产品（MovieClaw）的后端源码就在 {_SOURCE_ROOT}，可用 bash/read 工具查阅。"
-        "遇到复杂或疑难问题（工具结果解释不了、行为与预期不符、疑似 bug）时，"
-        "可以主动查阅源码分析根因。但注意：向用户解释结论时，要把代码细节翻译成"
-        "用户能理解的功能逻辑，不要出现函数名、报错堆栈这类只有程序员才懂的术语。",
     ]
+    if workspace:
+        lines.append(
+            f"- 本产品（MovieClaw）的后端源码就在 {_SOURCE_ROOT}，可用 bash/read 工具查阅。"
+            "遇到复杂或疑难问题（工具结果解释不了、行为与预期不符、疑似 bug）时，"
+            "可以主动查阅源码分析根因。但注意：向用户解释结论时，要把代码细节翻译成"
+            "用户能理解的功能逻辑，不要出现函数名、报错堆栈这类只有程序员才懂的术语。"
+        )
     # 应用内更新的 overlay 生效时（Docker 部署，见 docs/design/in-app-update.md）：
     # _SOURCE_ROOT 因从 __file__ 反推已自动指向 overlay 内的新代码，但镜像里
     # 还留着旧的基线源码——必须明确告知模型别去读那份，否则它用 bash 探索
     # 文件系统时撞见 /app/src 会误把旧代码当成正在运行的实现。
-    if os.environ.get("MOVIECLAW_CODE_SOURCE") == "overlay":
+    if workspace and os.environ.get("MOVIECLAW_CODE_SOURCE") == "overlay":
         overlay_version = os.environ.get("MOVIECLAW_OVERLAY_VERSION", "")
         lines.append(
             f"- 当前运行的是应用内更新版本{f' v{overlay_version}' if overlay_version else ''}，"

@@ -1,7 +1,8 @@
 """mclaw 工具的一级服务目录渲染（docs/design/agent-cli-integration.md §2）。
 
-目录进工具 description，让模型「知道去哪个域找」；二级以下坚决不进
-（--help 现查）。数据源是构建期导出的 spec——同仓构建保证与真实命令面同版；
+目录渲染成系统提示词末尾的 <mclaw_service> 段，让模型「知道去哪个域找」；工具
+description 只讲工具本身怎么调。二级以下坚决不进（--help 现查）。数据源是构建期
+导出的 spec——同仓构建保证与真实命令面同版；
 每域的一行说明在 _DOMAIN_LINES 手工润色，守护测试保证与 spec 的域集合严格同步。
 
 域集合走 services.spec_catalog（读 spec.json），**不依赖 CLI 包**：那是个客户端，
@@ -22,79 +23,96 @@ logger = logging.getLogger("movieclaw_api.mclaw_tool")
 # 虽然“看得到命令”，却未必会在正确的任务上选择它。新增域忘了补会被守护测试
 # 拦下，运行期仍回落 DOMAIN_HELP 的短标签，避免残缺部署直接阻断 Agent。
 _DOMAIN_LINES = {
-    "app": "app      应用设置与维护（设置外部访问地址、重启；检查/升级/回退应用，更新 NER "
+    "app": "应用设置与维护（设置外部访问地址、重启；检查/升级/回退应用，更新 NER "
     "模型并查看进度/兼容性）",
-    "appearance": "appearance 首页背景与图库（查看、上传、下载、切换和删除背景图）",
-    "auth": "auth     个人信息与 CLI 访问（查看身份，修改头像/昵称/密码，创建/列出/吊销 API 令牌）",
-    "channels": "channels 消息推送与 AI 对话入口（微信、Telegram、Discord 配对/解绑，飞书群机器人"
+    "appearance": "首页背景与图库（查看、上传、下载、切换和删除背景图）",
+    "auth": "个人信息与 CLI 访问（查看身份，修改头像/昵称/密码，创建/列出/吊销 API 令牌）",
+    "channels": "消息推送与 AI 对话入口（微信、Telegram、Discord 配对/解绑，飞书群机器人"
     "粘贴 Webhook 即绑即用；配置事件推送并测试；绑定后可发消息搜片、订阅、查进度）",
-    "collection": "collection 媒体库合集（把一组筛选条件存下来：可自动收录以后新入库的片，"
+    "collection": "媒体库合集（把一组筛选条件存下来：可自动收录以后新入库的片，"
     "也可固定成一份名单；成员与海报墙同一份口径，Jellyfin 客户端里同样看得到）",
-    "discover": "discover 发现电影/剧集（来自 TMDB、豆瓣的实时热点、热映/待上映/在播、热门、"
+    "discover": "发现电影/剧集（来自 TMDB、豆瓣的实时热点、热映/待上映/在播、热门、"
     "高分、口碑及地区/类型片单；list-collections 列片单，browse-collection 浏览片单，"
     "get-title-details 看资料/演职员/剧照/相关推荐）",
-    "dl": "dl       qBittorrent/Transmission 下载器与投递（接入/验证/启停/设默认实例，配置"
+    "dl": "qBittorrent/Transmission 下载器与投递（接入/验证/启停/设默认实例，配置"
     "保存路径与路径映射，预演落点并提交种子；tasks 汇总所有下载器里正在跑的任务及其对应的"
     "影片/集与订阅——「我的剧下到哪了」看这里，torrent replace 给卡住的下载换源、"
     "torrent delete 删任务）",
-    "extension": "extension Chromium 浏览器扩展 Cookie 同步（管理同步令牌/支持站点，把页面中的"
+    "extension": "Chromium 浏览器扩展 Cookie 同步（管理同步令牌/支持站点，把页面中的"
     " httpOnly 站点 Cookie 安全同步到服务端）",
-    "health": "health   API 存活检查（通常优先用顶级 status 查看更完整的部署状态）",
-    "jobs": "jobs     后台作业（按来源/状态/类型查询，查看事件与执行器健康，等待/取消/重试；"
+    "health": "API 存活检查（通常优先用顶级 status 查看更完整的部署状态）",
+    "jobs": "后台作业（按来源/状态/类型查询，查看事件与执行器健康，等待/取消/重试；"
     "订阅的在途下载进度看 subscriptions list-active-downloads）",
-    "library": "library  本地电影/剧集媒体库（建库与默认路由，扫描和规范命名入库；查看库存"
+    "library": "本地电影/剧集媒体库（建库与默认路由，扫描和规范命名入库；查看库存"
     "条目与物理文件，处理待识别/错识别/缺失内容，并管理元数据、图片、字幕和跨库转移；"
     "list 默认只列当前身份可浏览的库（与网页首页一致），用户明确要看全部可管理的库时"
     "加 --scope all；organize-files 按 scrape 里配的命名模板把存量文件批量改名归位，"
     "可反复执行；items share 把一部影片生成公开链接发给没有账号的人看，有效期最长 30 天、"
     "可加密码、随时撤回）",
-    "llm": "llm      AI 模型供应商（接入 OpenAI、阿里云百炼或任意 OpenAI 兼容服务，选择模型"
+    "llm": "AI 模型供应商（接入 OpenAI、阿里云百炼或任意 OpenAI 兼容服务，选择模型"
     "并验证连通性，供 AI 对话等智能能力使用）",
-    "net": "net      网络与代理（配置全局/指定服务代理及镜像地址，立即生效；按 TMDB/豆瓣/"
+    "net": "网络与代理（配置全局/指定服务代理及镜像地址，立即生效；按 TMDB/豆瓣/"
     "GitHub/PT 站点等服务测试连通性）",
-    "notices": "notices  系统待处理事项（查看按严重程度排序的活跃问题，或忽略指定提示）",
-    "people": "people   本地媒体库影人档案（按 TMDB 人物 ID 查看资料及已入库参演作品）",
-    "playback": "playback 观看活动（activity 看此刻谁在看什么、用哪台设备、速度多快，"
+    "notices": "系统待处理事项（查看按严重程度排序的活跃问题，或忽略指定提示）",
+    "people": "本地媒体库影人档案（按 TMDB 人物 ID 查看资料及已入库参演作品）",
+    "playback": "观看活动（activity 看此刻谁在看什么、用哪台设备、速度多快，"
     "history 翻每场播放的流水，stats watch 汇总一段时间的观看时长/场次/看完率/时段分布；"
     "activity end 掐断某台设备本次播放，device revoke 注销设备让它重新登录）",
-    "rules": "rules    订阅过滤规则组（管理分辨率、编码、HDR、字幕/音轨、免费/H&R、做种数、"
+    "rules": "订阅过滤规则组（管理分辨率、编码、HDR、字幕/音轨、免费/H&R、做种数、"
     "体积和制作组等条件及默认规则组）",
-    "scrape": "scrape   刮削与整理配置（元数据语言优先级与缺失回落、海报/背景按语言优先级"
+    "scrape": "刮削与整理配置（元数据语言优先级与缺失回落、海报/背景按语言优先级"
     "选图、分级地区与图片质量档位、目录与文件名的命名模板、写入媒体目录的 NFO/图片开关；"
     "set 只更新给出的字段。改动只影响之后的刮削与整理：要让存量条目的元数据和图片跟上，"
     "执行 library metadata refresh；要让存量文件名和目录跟上，执行 library organize-files）",
-    "search": "search   统一搜索（titles 搜 TMDB/豆瓣影视条目，torrents 跨 PT 站点搜种子并可把"
+    "search": "统一搜索（titles 搜 TMDB/豆瓣影视条目，torrents 跨 PT 站点搜种子并可把"
     "结果行号交给 download，library 按片名/拼音/人物搜已入库内容；另可管理搜索预设和历史结果）",
-    "session": "session  用户与智能体的会话管理（发起新对话或继续已有对话，按指定用户消息"
+    "session": "用户与智能体的会话管理（发起新对话或继续已有对话，按指定用户消息"
     "重新提问，读取并分析完整 message/compaction 轨迹；也可重命名、压缩上下文、跟随或"
     "停止处理，以及删除会话）",
-    "shares": "shares   影片分享链接（列出目前分享出去的影片：链接、有没有密码、什么时候到期、"
+    "shares": "影片分享链接（列出目前分享出去的影片：链接、有没有密码、什么时候到期、"
     "被打开过多少次；也可按 id 撤回。给单部影片生成链接在 library items share）",
-    "site": "site     PT 资源站点（查看支持目录/鉴权要求，配置、验证、启停站点，查看本地种子"
+    "site": "PT 资源站点（查看支持目录/鉴权要求，配置、验证、启停站点，查看本地种子"
     "缓存统计；Cookie 可由 extension 同步）",
-    "subscriptions": "subscriptions  电影/剧集订阅与自动追更（持续追踪新资源，按规则自动搜索、"
+    "subscriptions": "电影/剧集订阅与自动追更（持续追踪新资源，按规则自动搜索、"
     "下载并整理入库；create 消费 discover 返回的 title_ref，还可调整选季/自动续订、立即搜索缺失"
     "资源、下载人工选中的种子、设置追踪状态、查看活动/在途下载及检查自动化链路）",
-    "transcode": "transcode  远程硬件转码 Worker（配置远程转码开关、地址与产物上限，"
+    "transcode": "远程硬件转码 Worker（配置远程转码开关、地址与产物上限，"
     "查看 Worker 状态）",
-    "ui": "ui       Web 界面质感与显示偏好（读取或整体保存各页面的布局、显示和样式设置）",
-    "watch": "watch    监听导入（监控已完成且稳定的下载，自动识别、标准命名并转移到目标媒体库；"
+    "ui": "Web 界面质感与显示偏好（读取或整体保存各页面的布局、显示和样式设置）",
+    "watch": "监听导入（监控已完成且稳定的下载，自动识别、标准命名并转移到目标媒体库；"
     "查看并认领、忽略或恢复异常条目）",
-    "webhook": "webhook  事件 Webhook（把播放、收藏等事件以 JSON 推送到外部端点；配置 HMAC "
+    "webhook": "事件 Webhook（把播放、收藏等事件以 JSON 推送到外部端点；配置 HMAC "
     "签名，测试投递、查记录并轮换密钥）",
 }
 
 # 不属于生成域、但必须让模型知道的顶级捷径
-_TOP_LEVEL_LINES = [
-    "download 下载：把上次 search 的结果行号（或明确的站点+链接）投递到下载器，"
+_TOP_LEVEL_LINES = {
+    "download": "把上次 search 的结果行号（或明确的站点+链接）投递到下载器，"
     "可指定媒体库/保存目录",
-    "status   部署总览：服务健康、当前身份、客户端/服务端版本与命令目录同步状态",
-    "activity 现在有什么事：需要处理与进行中的任务数、有几个人在看；"
+    "status": "部署总览：服务健康、当前身份、客户端/服务端版本与命令目录同步状态",
+    "activity": "现在有什么事：需要处理与进行中的任务数、有几个人在看；"
     "口径与网页活动页一致（下载与它触发的入库算一件事）",
     # 插件接口是运行期装上的，构建期的 spec 里没有：不写这一行，模型就不知道装好的插件能调
-    "plugins  已装插件提供的能力（如插件加的查天气、查外部服务）：装了带接口的插件才有，"
+    "plugins": "已装插件提供的能力（如插件加的查天气、查外部服务）：装了带接口的插件才有，"
     '有哪些先 --help 现查，如 args="plugins --help"',
-]
+}
+
+# 服务目录前面的使用指引：业务链路与删除确认是 Agent 的行为规则，跟服务目录
+# 放在一起；工具怎么调（输出格式、--help、--yes、超时）留在工具 description。
+_GUIDE = """\
+mclaw 工具能操作的服务（一级目录）。按用户意图选服务，参数细节用 --help 现查，\
+如 args="subscriptions --help"。
+
+## 常用链路
+- search titles 找片/找剧 → subscriptions create 订阅
+- search torrents 搜 PT 种子 → download 投递
+- search library 查已有库存；discover 浏览榜单；library 管理已入库内容
+- 订阅会持续追踪，出现符合规则的新资源后自动搜索、下载和整理入库
+
+## 删除确认
+- library items delete 会删除磁盘上的媒体文件：必须先用只读命令查清将删除的具体条目、\
+向用户复述并取得本轮明确同意后才能执行；用户泛泛说「清理/整理」不构成删除文件的同意。
+- 其余 ⚠ 命令（删配置、清记录）在用户任务明确要求时可直接 --yes。"""
 
 # 不进目录的域：
 # - fs：与 logs 同理，对 Agent 是 bash 的弱化重复——Agent 与服务端同容器，
@@ -118,30 +136,28 @@ def spec_domains() -> set[str]:
 
 
 def domain_description(domain: str) -> str:
-    """某个域的一行说明（去掉行首的域名与对齐空格）。
+    """某个域的一行说明。
 
     给 MCP 折叠模式的工具描述复用（movieclaw_mcp/tools.py）：那边需要同样的
     「这个服务是干什么的」，共用这一份就不会出现两套会各自漂移的文案。
     未登记的域（logs / members 这类只对人类管理员开放的）返回空串，调用方回落。
     """
-    _, _, rest = _DOMAIN_LINES.get(domain, "").partition(" ")
-    return rest.strip()
+    return _DOMAIN_LINES.get(domain, "")
 
 
 @lru_cache(maxsize=1)
-def render_service_map() -> str:
-    """渲染一级服务目录（进程内缓存；spec 是构建期产物，运行期不变）。
+def render_service_block() -> str:
+    """渲染系统提示词末尾的 <mclaw_service> 段（进程内缓存；spec 是构建期产物，运行期不变）。
 
     spec 读不到时 spec_catalog 会抛 SpecCatalogUnavailable（带可读结论的
     AppException），这里不再包一层——裸的 "internal server error" 会让自部署
     用户完全无从判断该重新部署还是该改配置。
     """
-    domains = sorted(spec_domains())
-    lines = [
-        '可用服务（按用户意图选一级目录；参数细节用 --help 现查，如 args="subscriptions --help"）：'
-    ]
-    for domain in domains:
-        lines.append("- " + _DOMAIN_LINES.get(domain, domain))
-    for extra in _TOP_LEVEL_LINES:
-        lines.append("- " + extra)
+    lines = ["<mclaw_service>", _GUIDE, "", "## 服务"]
+    for domain in sorted(spec_domains()):
+        description = _DOMAIN_LINES.get(domain)
+        lines.append(f"- {domain}：{description}" if description else f"- {domain}")
+    lines += ["", "## 顶级命令"]
+    lines += [f"- {name}：{description}" for name, description in _TOP_LEVEL_LINES.items()]
+    lines.append("</mclaw_service>")
     return "\n".join(lines)

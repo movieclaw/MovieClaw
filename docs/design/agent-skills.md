@@ -150,10 +150,9 @@ read 的那一刻现读，改技能即时生效。
 无需写显式判断——
 
 - Web 会话（`get_agent_tools`）恒含 read，`_agent_system_prompt` 注入即可；
-- IM/微信通道是受限工具集（仅 mclaw、无 read），且走 runner 的默认
-  `build_system_prompt()`（不经 `_agent_system_prompt`），**天然不含清单**，
-  一行代码都不用动。在 `_agent_system_prompt` 的 docstring 里写明这条依赖：
-  若未来 IM 要接技能，必须同时给 read 工具。
+- IM 通道与网页同一套工具和提示词（2026-10-16 起），同样带清单。提示词由
+  `agent_toolkit.agent_system_prompt(tools)` 按挂上的工具推导：只有含 read 的
+  工具集才写清单（插件的 mclaw / none 档没有 read，天然不含）。
 
 retry 与续聊复用 `_launch_user_message` → 同一组装函数，自动生效。
 

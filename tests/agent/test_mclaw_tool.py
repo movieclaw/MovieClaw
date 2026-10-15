@@ -12,11 +12,11 @@ from pathlib import Path
 import pytest
 
 from movieclaw_agent.tools.bash import make_bash_tool
-from movieclaw_agent.tools.mclaw import build_description, make_mclaw_tool
+from movieclaw_agent.tools.mclaw import DESCRIPTION, make_mclaw_tool
 
 
 def _tool(tmp_path: Path, env: dict[str, str] | None = None):
-    return make_mclaw_tool(tmp_path, env or {}, "可用服务：\n- subscriptions 订阅")
+    return make_mclaw_tool(tmp_path, env or {})
 
 
 def test_recursive_session_actions_are_hard_blocked(tmp_path: Path) -> None:
@@ -108,15 +108,13 @@ def test_token_only_reaches_mclaw_tool_not_bash(tmp_path: Path) -> None:
     assert "127.0.0.1:9" in result
 
 
-def test_description_contains_service_map_and_protocol() -> None:
-    desc = build_description("可用服务：\n- subscriptions 订阅")
-    assert "可用服务" in desc and "subscriptions 订阅" in desc
-    assert "--help" in desc and "--yes" in desc
-    assert "bash" in desc  # 排他性引导：不要经 bash 调用
-    assert "discover 浏览榜单" in desc
-    assert "search titles 找片/找剧" in desc
-    assert "search library 查已有库存" in desc
-    assert "session 只用于管理" not in desc
+def test_description_is_only_about_calling_the_tool() -> None:
+    """服务目录与业务规则在系统提示词的 <mclaw_service>；工具描述只讲怎么调。"""
+    assert "--help" in DESCRIPTION and "--yes" in DESCRIPTION
+    assert "bash" in DESCRIPTION  # 排他性引导：不要经 bash 调用
+    assert "<mclaw_service>" in DESCRIPTION  # 指向服务目录
+    for moved in ("subscriptions", "search titles", "library items delete", "可用服务（"):
+        assert moved not in DESCRIPTION
 
 
 def test_args_description_contains_representative_discovery_example(tmp_path: Path) -> None:

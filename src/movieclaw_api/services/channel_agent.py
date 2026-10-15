@@ -1,7 +1,8 @@
 """IM 通道的 AI 助手对接（所有通道共用一份，docs/design/plugin-channels.md §4）。
 
-安全红线：IM 是远程入口，即使有白名单也只给**受限工具集**——只挂 mclaw 产品操作工具，不开
-bash / read / write / edit 工作区工具，拿不到宿主机 shell。
+能力与网页会话完全一致：同一份系统提示词、同一套工具（services/agent_toolkit），技能调用
+同样展开。唯一不带的是卡片绘制工具——IM 里画不出卡片。远程入口的权限收口留给权限机制，
+不在这里另拼一份受限的 Agent。
 
 会话持久化：通道里的对话与网页「最近会话」共用同一套 AI 会话（agent_session 索引 + JSONL 转录）。
 每个账号持有一个「当前会话」，首条消息时创建、``/reset`` 后换新；历史从转录重建，重启不丢。
@@ -11,26 +12,21 @@ bash / read / write / edit 工作区工具，拿不到宿主机 shell。
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from movieclaw_agent import AgentRunner, AgentStartParams
+from movieclaw_agent import AgentRunner, AgentStartParams, discover_skills, expand_skill_invocations
 from movieclaw_agent.events import AgentEvent
-from movieclaw_agent.tools import make_mclaw_tool
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import NotFoundException
-from movieclaw_api.services import auth as auth_service
 from movieclaw_api.services.agent_session_recorder import AgentSessionRecorder
 from movieclaw_api.services.agent_sessions import get_agent_session_store
+from movieclaw_api.services.agent_toolkit import agent_system_prompt, profile_tools
 from movieclaw_api.services.im_attachments import prepare_agent_input
 from movieclaw_api.services.llm_config import acquire_llm_router
-from movieclaw_api.services.mclaw_tool import render_service_map
-from movieclaw_api.services.web_search_config import (
-    attach_web_search_tool,
-    load_web_search_provider,
-)
 from movieclaw_channel.pusher import StepReplyPusher
 from movieclaw_db.engine import get_database
 from movieclaw_db.repositories.agent_session_repo import AgentSessionRepository
@@ -39,8 +35,6 @@ from movieclaw_sdk.channels import Account, ChannelDriver, InboundMessage
 
 logger = logging.getLogger("movieclaw_api.channel_agent")
 
-#: 通道侧 AI 助手的步数上限：IM 对话不该跑出超长循环
-MAX_STEPS = 40
 #: 收到消息后的即时回执（先让用户知道已收到，再慢慢生成）
 ACK_TEXT = "思考中💭"
 
@@ -70,22 +64,6 @@ async def ensure_agent_session(driver: ChannelDriver, account: Account, msg: Inb
         return header.session_id
 
 
-async def _restricted_tools(session_id: str, channel_id: str):
-    settings = get_settings()
-    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in channel_id)
-    workdir = Path(settings.agent_workspace_dir).resolve() / safe
-    workdir.mkdir(parents=True, exist_ok=True)
-    token = await auth_service.issue_agent_token(session_id)
-    cli_env = {
-        "MOVIECLAW_SERVER": f"http://127.0.0.1:{settings.port}",
-        "MOVIECLAW_TOKEN": token,
-    }
-    tools = [make_mclaw_tool(workdir, cli_env, render_service_map())]
-    # 网页搜索是只读的外部查询，没有宿主机 shell，受限通道也可以用。
-    # 没配置时 load 返回 None，工具集与现在完全一样。
-    return attach_web_search_tool(tools, await load_web_search_provider())
-
-
 async def run_agent(
     driver: ChannelDriver,
     account: Account,
@@ -106,6 +84,13 @@ async def run_agent(
     history = store.build_history(session_id)
     recorder = AgentSessionRecorder(store, session_id, entry_count=len(history), source="channel")
 
+    # 显式技能调用（/skill:名字）与网页同样展开为技能正文（docs/design/agent-skills.md §9）
+    msg = dataclasses.replace(
+        msg,
+        text=expand_skill_invocations(
+            msg.text, discover_skills(Path(get_settings().agent_skills_dir).resolve())
+        ),
+    )
     # 图片入库 + 提醒回执 + 请求水合
     prepared = await prepare_agent_input(
         llm_router=llm_router, session_id=session_id, msg=msg, history=history, emit=emit
@@ -115,10 +100,10 @@ async def run_agent(
         return
     await recorder.record_user_message(prepared.user_content)
 
+    tools = await profile_tools("full", session_id, None)
     runner = AgentRunner(
         llm_router,
-        tools=await _restricted_tools(session_id, account.channel_id),
-        max_steps=MAX_STEPS,
+        tools=tools,
         on_message=recorder.on_message,
         on_compaction=recorder.on_compaction,
     )
@@ -132,7 +117,11 @@ async def run_agent(
     last_event: AgentEvent | None = None
     try:
         async for ev in runner.start(
-            AgentStartParams(input=prepared.input_for_run, history=prepared.history_for_run),
+            AgentStartParams(
+                input=prepared.input_for_run,
+                history=prepared.history_for_run,
+                system_prompt=await agent_system_prompt(tools),
+            ),
             run_id=run_id,
         ):
             last_event = ev

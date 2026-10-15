@@ -1,4 +1,4 @@
-"""mclaw 工具在 API 层的装配测试：服务目录同步、描述快照、递归服务端硬闸。"""
+"""mclaw 工具在 API 层的装配测试：服务目录同步、描述与服务目录快照、递归服务端硬闸。"""
 
 from __future__ import annotations
 
@@ -7,18 +7,31 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from movieclaw_agent.tools.mclaw import build_description
+from movieclaw_agent.tools.mclaw import DESCRIPTION
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services.auth import reset_auth_state
 from movieclaw_api.services.mclaw_tool import (
     _DOMAIN_LINES,
-    render_service_map,
+    render_service_block,
     spec_domains,
 )
 from movieclaw_api.settings.store import reset_setting_store
 from movieclaw_db.crypto import reset_secret_box
 
 _SNAPSHOT = Path(__file__).parent / "mclaw_tool_description_snapshot.txt"
+_SERVICE_SNAPSHOT = Path(__file__).parent / "mclaw_service_block_snapshot.txt"
+
+
+def _entries() -> dict[str, str]:
+    """服务目录里「## 服务」与「## 顶级命令」两节的条目：名字 → 整行。"""
+    entries: dict[str, str] = {}
+    section = ""
+    for line in render_service_block().splitlines():
+        if line.startswith("## "):
+            section = line
+        elif section in ("## 服务", "## 顶级命令") and line.startswith("- "):
+            entries[line[2:].partition("：")[0]] = line
+    return entries
 
 
 def test_service_map_covers_every_spec_domain() -> None:
@@ -30,11 +43,9 @@ def test_service_map_covers_every_spec_domain() -> None:
     missing = spec_domains() - set(_DOMAIN_LINES)
     assert not missing, f"以下开放域缺少人工功能介绍：{missing}"
 
-    rendered = render_service_map()
+    entries = _entries()
     for domain in spec_domains():
-        assert any(line.lstrip("- ").startswith(domain) for line in rendered.splitlines()), (
-            f"服务目录缺少域：{domain}"
-        )
+        assert domain in entries, f"服务目录缺少域：{domain}"
 
 
 def test_curated_lines_have_no_orphans() -> None:
@@ -45,9 +56,8 @@ def test_curated_lines_have_no_orphans() -> None:
 
 def test_service_map_distinguishes_browsing_from_unified_search() -> None:
     """关键语义守卫：discover 负责浏览，search 统一承接三类搜索目标。"""
-    lines = render_service_map().splitlines()
-    discover = next(line for line in lines if line.startswith("- discover "))
-    search = next(line for line in lines if line.startswith("- search "))
+    discover = _entries()["discover"]
+    search = _entries()["search"]
 
     for keyword in ("电影", "剧集", "TMDB", "豆瓣", "热门", "高分"):
         assert keyword in discover
@@ -57,11 +67,7 @@ def test_service_map_distinguishes_browsing_from_unified_search() -> None:
 
 def test_service_map_reflects_frontend_product_language() -> None:
     """前端核心承诺必须进入能力地图，避免 Agent 只看到后台技术对象名。"""
-    lines = {
-        line.lstrip("- ").split(maxsplit=1)[0]: line
-        for line in render_service_map().splitlines()
-        if line.startswith("- ")
-    }
+    lines = _entries()
 
     for keyword in ("实时热点", "热映", "在播", "热门", "高分", "口碑"):
         assert keyword in lines["discover"]
@@ -75,11 +81,9 @@ def test_service_map_reflects_frontend_product_language() -> None:
 
 def test_session_domain_is_exposed_without_agent_domain() -> None:
     """Agent 分类已移除；模型直接看到一级 session 会话管理能力。"""
-    rendered = render_service_map()
-    assert not any(line.lstrip("- ").startswith("agent ") for line in rendered.splitlines()), (
-        "目录不应残留旧 agent 域"
-    )
-    session = next(line for line in rendered.splitlines() if line.startswith("- session "))
+    entries = _entries()
+    assert "agent" not in entries, "目录不应残留旧 agent 域"
+    session = entries["session"]
     for keyword in (
         "用户与智能体",
         "发起新对话",
@@ -96,16 +100,21 @@ def test_session_domain_is_exposed_without_agent_domain() -> None:
         assert protocol_word not in session
 
 
-def test_full_description_matches_snapshot() -> None:
-    """工具描述是模型行为的一部分：任何改动必须显式过快照评审。"""
-    actual = build_description(render_service_map())
-    if not _SNAPSHOT.exists():
-        _SNAPSHOT.write_text(actual, encoding="utf-8")
-    # 快照文件按仓库文本规范保留末尾换行；工具 description 本身不需要该换行。
+@pytest.mark.parametrize(
+    ("snapshot", "actual"),
+    [(_SNAPSHOT, lambda: DESCRIPTION), (_SERVICE_SNAPSHOT, render_service_block)],
+    ids=["tool-description", "mclaw-service-block"],
+)
+def test_text_matches_snapshot(snapshot: Path, actual) -> None:
+    """工具描述与服务目录是模型行为的一部分：任何改动必须显式过快照评审。"""
+    text = actual()
+    if not snapshot.exists():
+        snapshot.write_text(text + "\n", encoding="utf-8")
+    # 快照文件按仓库文本规范保留末尾换行；文本本身不需要该换行。
     # 只规范化一个 EOF 换行，其余字符仍逐字比较。
-    expected = _SNAPSHOT.read_text(encoding="utf-8").removesuffix("\n")
-    assert actual == expected, (
-        f"mclaw 工具描述与快照不一致。确认属预期变更后删除快照文件重新生成：\n  rm {_SNAPSHOT}"
+    expected = snapshot.read_text(encoding="utf-8").removesuffix("\n")
+    assert text == expected, (
+        f"{snapshot.name} 与快照不一致。确认属预期变更后删除快照文件重新生成：\n  rm {snapshot}"
     )
 
 
@@ -188,7 +197,5 @@ def test_agent_token_cannot_stop_its_own_session(client: TestClient) -> None:
 
 def test_service_map_points_to_installed_plugin_commands() -> None:
     """插件接口运行期才挂上、不在构建期 spec 里；目录必须告诉模型去哪找，否则装好的插件它调不到。"""
-    plugins = next(
-        line for line in render_service_map().splitlines() if line.startswith("- plugins ")
-    )
+    plugins = _entries()["plugins"]
     assert "plugins --help" in plugins

@@ -13,14 +13,11 @@ from movieclaw_agent import (
     AgentRunner,
     AgentStartParams,
     AgentTool,
-    build_skills_fragment,
-    build_system_prompt,
     compact,
     compact_skill_blocks,
     discover_skills,
     expand_skill_invocations,
 )
-from movieclaw_agent.tools import builtin_tools, make_mclaw_tool, make_media_ui_tool
 from movieclaw_api.api.deps import require_login
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import (
@@ -44,7 +41,6 @@ from movieclaw_api.schemas.agent import (
     SkillView,
 )
 from movieclaw_api.schemas.response import ApiResponse, ok
-from movieclaw_api.services import auth as auth_service
 from movieclaw_api.services.agent_attachments import (
     MAX_IMAGE_BYTES,
     compose_user_content,
@@ -62,14 +58,14 @@ from movieclaw_api.services.agent_sessions import (
     latest_user_model,
     latest_user_thinking_level,
 )
+from movieclaw_api.services.agent_toolkit import (
+    ToolProfile,
+    agent_system_prompt,
+    get_agent_tools,
+    profile_tools,
+)
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.llm_config import acquire_llm_router
-from movieclaw_api.services.mclaw_tool import render_service_map
-from movieclaw_api.services.web_search_config import (
-    attach_web_search_tool,
-    load_web_search_provider,
-)
-from movieclaw_api.settings import AppServerSetting, get_setting_store
 from movieclaw_db.engine import get_session
 from movieclaw_db.repositories.agent_session_repo import (
     AgentSessionRepository,
@@ -114,134 +110,6 @@ async def list_skills() -> ApiResponse[list[SkillView]]:
             for s in sorted(skills, key=lambda s: s.name)
         ]
     )
-
-
-def get_agent_tools(cli_env: dict[str, str], *, generative_ui: bool = False) -> list[AgentTool]:
-    """Agent 的工具集：内置基础工具 + mclaw 产品操作工具 [+ 卡片绘制工具]。
-
-    bash/read/write/edit 是纯工作区工具，**不携带**产品授权；mclaw 工具
-    单独构建，令牌只注入它的子进程（每次运行的令牌不同，因此每次运行都
-    重新构建工具集）。服务目录渲染自 CLI 内置 spec，与命令面严格同版。
-
-    ``generative_ui`` 是卡片绘制工具（show_media_cards）的开关，**默认关**：
-    它的效果完全依赖前端拦截 tool_call 后绘制卡片，只有网页会话有这层界面。
-    IM/微信通道看不到卡片，带上它只会让模型白调一次、用户收到一句「已展示
-    卡片」却什么都没有——所以由调用方按所在通道显式打开，新接入的通道不会
-    因为忘记关而误带（docs/design/agent-generative-ui.md §2）。
-    """
-    workdir = Path(get_settings().agent_workspace_dir).resolve()
-    workdir.mkdir(parents=True, exist_ok=True)
-    tools = [
-        *builtin_tools(workdir),
-        make_mclaw_tool(workdir, cli_env, render_service_map()),
-    ]
-    if generative_ui:
-        tools.append(make_media_ui_tool())
-    return tools
-
-
-# 前端页面路由表：模型拼可点击链接的唯一依据（(路径模式, 一行说明)）。
-# 与 apps/web/app/(app) 的真实页面结构由守护测试保持同步（见
-# tests/api/test_agent.py 的 test_page_routes_match_web_app_pages）——
-# 前端加页面、改路径时测试会拦下，这张表不会悄悄过期。
-_PAGE_ROUTES: list[tuple[str, str]] = [
-    ("/", "首页"),
-    ("/search", "站点资源搜索页"),
-    ("/discover/{movie|tv}", "发现页（电影/剧集的榜单与分类浏览）"),
-    (
-        "/discover/{movie|tv}/collections/{tmdb|douban}/{片单ID}",
-        "完整影视片单（片单引用来自 discover list-collections）",
-    ),
-    ("/discover/movie/top250", "豆瓣电影 Top250 榜单"),
-    ("/discover/movie/high-score", "豆瓣高分电影榜单"),
-    ("/discover/people/{TMDB 影人ID}", "发现页影人详情与完整作品列表"),
-    ("/media/{movie|tv}/{TMDB ID}", "影片/剧集详情页"),
-    ("/media/douban/{豆瓣ID}", "豆瓣词条详情页"),
-    ("/subscriptions", "订阅列表"),
-    ("/subscriptions/wall/{类型}", "订阅海报墙：tv 全部剧集订阅、movie 全部电影订阅"),
-    ("/subscriptions/{订阅ID}", "订阅详情（ID 来自 subscriptions list/get）"),
-    ("/library", "媒体库总览（浏览入口：接下来继续、我的收藏、各库最近添加；行可自定义）"),
-    ("/library/favorites", "我的收藏（当前账号收藏的全部作品，与 Jellyfin 客户端里点的心同一份）"),
-    ("/library/customize", "自定义媒体库首页（行的顺序、显隐、排序与名字；每个成员各存一份）"),
-    (
-        "/library/kind/{movie|tv|video}",
-        "按类型的跨库墙：全部电影 / 全部剧集 / 全部其他视频"
-        "（同类型的库合成一面墙，同一部片只出现一次）",
-    ),
-    ("/library/manage", "媒体库管理（建库、扫描、整理、排序、可见范围；仅管理员）"),
-    ("/library/collections", "全部合集总览（含跨库合集；合集 ID 来自 collection list）"),
-    (
-        "/library/c/{合集ID}",
-        "合集详情（不限某个库；库内合集也可从这里打开）",
-    ),
-    ("/library/{库ID}", "某个媒体库的内容（库 ID 来自 library list）"),
-    (
-        "/library/{库ID}/c/{合集ID}",
-        "库内合集详情：收录规则与成员作品（合集 ID 来自 collection list）",
-    ),
-    (
-        "/library/{库ID}/item/{条目ID}",
-        "库内条目详情（条目 ID 来自 library items list）",
-    ),
-    ("/activity", "活动页（观看：实时播放/下载；任务：后台作业与下载任务）"),
-    ("/new", "AI 新任务直达页（Netflix 顶栏「＋ 新任务」入口；与首页共用内容）"),
-    ("/sessions/{会话ID}", "AI 会话详情（ID 来自 session list/start）"),
-    ("/people/{影人ID}", "影人档案（ID 来自 people 域）"),
-    ("/my", "「我的」页（用户信息、快捷入口、AI 会话与账号操作；Netflix 移动端底栏页签）"),
-    ("/settings", "设置页"),
-]
-
-
-async def _agent_system_prompt() -> str:
-    """组装本次运行的系统提示词：通用正文 + 部署环境事实 + 技能清单。
-
-    日志目录是 API 层的配置（LOG_DIR），按 prompts.build_system_prompt 的
-    设计走 extra_environment 传入——mclaw 已对 Agent 隐藏 logs 域（见
-    services/mclaw_tool 的 _EXCLUDED_DOMAINS），排查问题靠这里给出的
-    路径用 bash 直接检索。
-
-    外部访问地址来自「设置 → 应用设置」（保存即生效），因此每次运行时
-    现读设置存储，不做缓存；未配置时整块不输出——没有前缀，路由表也
-    拼不出有效链接，避免模型给用户无效地址。
-
-    技能清单同样每次运行现扫（docs/design/agent-skills.md）：改技能无需
-    重启，下一轮生效。清单指令依赖 read 工具加载正文，因此只应出现在
-    含 read 的工具集里——本函数只服务 Web 会话（get_agent_tools 恒含
-    read）；IM/微信通道是无 read 的受限工具集且走 runner 默认提示词，
-    天然不含清单。若未来 IM 要接技能，必须同时给 read 工具。
-    """
-    log_dir = Path(get_settings().log_dir).resolve()
-    lines = [
-        f"- 运行日志目录：{log_dir}，按天一个文件（movieclaw-YYYY-MM-DD.log）。"
-        "排查问题时用 bash 的 grep/tail 直接检索日志。"
-    ]
-    external_url = (await get_setting_store().get(AppServerSetting)).external_url
-    if external_url:
-        routes = "\n".join(f"  {pattern}  {desc}" for pattern, desc in _PAGE_ROUTES)
-        lines.append(
-            f"- 本应用的外部访问地址：{external_url}。提到订阅、影片、库内条目等页面时，"
-            "尽量附上可点击的 Markdown 链接：以外部访问地址为前缀，路径按下表拼接。"
-            f"只拼表内路径，不要用容器内地址拼链接。\n{routes}"
-        )
-    prompt = build_system_prompt("\n".join(lines))
-    user_skills_dir = Path(get_settings().agent_skills_dir).resolve()
-    fragment = build_skills_fragment(discover_skills(user_skills_dir), user_skills_dir)
-    return prompt if fragment is None else f"{prompt}\n\n{fragment}"
-
-
-async def _cli_env(session_id: str) -> dict[str, str]:
-    """构造工作区里 mclaw CLI 的自动授权环境（docs/design/cli.md §6.2）。
-
-    令牌按运行签发、短时效、无状态签名（改密轮换密钥即全体失效）；
-    服务器地址走容器内回环直连。Agent 在工作区内执行 `mclaw ...` 即可
-    直接操作本产品，全程零登录零交互。
-    """
-    settings = get_settings()
-    token = await auth_service.issue_agent_token(session_id)
-    return {
-        "MOVIECLAW_SERVER": f"http://127.0.0.1:{settings.port}",
-        "MOVIECLAW_TOKEN": token,
-    }
 
 
 async def _accept_user_message(
@@ -337,33 +205,6 @@ async def _accept_user_message(
     )
 
 
-#: 工具档位：web = 网页会话（含卡片绘制）；full = bash / 文件 / mclaw；mclaw = 只有服务操作
-#: （与 IM 通道同一套受限工具）；none = 不带工具
-ToolProfile = Literal["web", "full", "mclaw", "none"]
-
-
-async def _profile_tools(
-    profile: ToolProfile, session_id: str, owner: str | None
-) -> list[AgentTool]:
-    """按档位构建工具集。令牌按会话签发，所以要在会话建好之后现建。
-
-    网页搜索配好了才挂上；``none`` 档明确不要工具，连搜索也不给。
-    """
-    if profile == "none":
-        return []
-    if profile == "mclaw":
-        from movieclaw_api.services.channel_agent import _restricted_tools
-
-        # 受限工具集的工作目录按来源隔开（插件各用各的）
-        return await _restricted_tools(session_id, owner or "web")
-    cli_env = await _cli_env(session_id)
-    web_search = await load_web_search_provider()
-    if profile == "web":
-        return attach_web_search_tool(get_agent_tools(cli_env, generative_ui=True), web_search)
-    # full：插件驱动的会话没有网页界面，卡片画不出来（docs/design/agent-generative-ui.md §2）
-    return attach_web_search_tool(get_agent_tools(cli_env), web_search)
-
-
 def _resolve_model_choice(requested: str, inherited: str | None) -> str | None:
     """模型选择的三态：空串沿用会话最近一条 user 消息的引用；``default`` 显式
     清回默认模型（None）；其余原样作为路由引用（裸 id 或「实例名/模型id」）。"""
@@ -398,12 +239,10 @@ async def _launch_user_message(
     悬空引用，落盘失败最多留下可回收的孤儿文件。
     """
     actual_tools = (
-        tools if tools is not None else await _profile_tools(tool_profile, session_id, owner)
+        tools if tools is not None else await profile_tools(tool_profile, session_id, owner)
     )
-    # 技能清单要靠 read 工具加载正文：只有带 read 的档位（web / full）用含清单的提示词
-    actual_system_prompt = system_prompt or (
-        await _agent_system_prompt() if tool_profile in ("web", "full") else build_system_prompt()
-    )
+    # 提示词按实际挂上的工具推导（技能清单、源码与日志只给带 read 的工具集）
+    actual_system_prompt = system_prompt or await agent_system_prompt(actual_tools)
     if instructions:
         actual_system_prompt = f"{actual_system_prompt}\n\n{instructions}"
     # 显式技能调用：把 /skill:名字 占位符展开为技能正文块（docs/design/
@@ -823,7 +662,9 @@ async def compact_session_context(
     _, entries = store.read(session_id)
     model = latest_user_model(entries) or ""
 
-    messages = [ChatMessage(role="system", content=await _agent_system_prompt()), *history]
+    # 手动压缩不跑工具，提示词只需与网页会话同口径；空环境建工具不签发令牌
+    system_prompt = await agent_system_prompt(get_agent_tools({}))
+    messages = [ChatMessage(role="system", content=system_prompt), *history]
     # 手动压缩不经过 runner，历史里的图片引用必须在这里水合——否则视觉模型
     # 写摘要时只能看到协议层的降级占位，看不到图（设计 §6 的第二个调用点）。
     try:
@@ -913,11 +754,8 @@ async def retry_session_message(
 
     # 供应商校验和运行所需上下文在删除轨迹前准备完成；下面才进入不可逆阶段。
     llm_router = await acquire_llm_router(session)
-    system_prompt = await _agent_system_prompt()
-    tools = attach_web_search_tool(
-        get_agent_tools(await _cli_env(session_id), generative_ui=True),
-        await load_web_search_provider(),
-    )
+    tools = await profile_tools("web", session_id, None)
+    system_prompt = await agent_system_prompt(tools)
 
     store.discard_from_user_message(session_id, payload.message_id)
     # 重试路径同款兜底：截断后若仍残留未配对的工具调用（上次异常停机遗留），

@@ -275,7 +275,7 @@ async def db(tmp_path, monkeypatch):
 
 
 async def test_tool_is_registered_only_after_the_provider_is_saved(db, monkeypatch):
-    from movieclaw_api.api.routes.agent import _profile_tools, get_agent_tools
+    from movieclaw_api.services.agent_toolkit import get_agent_tools, profile_tools
     from movieclaw_api.services.web_search_config import (
         clear_web_search,
         load_web_search_provider,
@@ -289,22 +289,20 @@ async def test_tool_is_registered_only_after_the_provider_is_saved(db, monkeypat
     assert await load_web_search_provider() is None
     bare = get_agent_tools({})
     assert "web_search" not in {tool.name for tool in bare}
-    none_tools = await _profile_tools("none", "s", None)
+    none_tools = await profile_tools("none", "s", None)
     assert none_tools == []
 
     await save_web_search(provider="tavily", api_key=_KEY)
     provider = await load_web_search_provider()
     assert provider is not None and provider.id == "tavily"
-    web_tools = await _profile_tools("web", "s", None)
+    web_tools = await profile_tools("web", "s", None)
     names = {tool.name for tool in web_tools}
     assert "web_search" in names
     from movieclaw_agent.tools.media_ui import TOOL_NAME as media_ui_tool
 
     assert media_ui_tool in names
 
-    from movieclaw_api.services.channel_agent import _restricted_tools
-
-    restricted = await _restricted_tools("s", "telegram")
+    restricted = await profile_tools("mclaw", "s", "plugin-x")
     names = {tool.name for tool in restricted}
     assert "web_search" in names
     assert "bash" not in names
@@ -312,7 +310,7 @@ async def test_tool_is_registered_only_after_the_provider_is_saved(db, monkeypat
 
     await clear_web_search()
     assert await load_web_search_provider() is None
-    cleared = await _profile_tools("full", "s", None)
+    cleared = await profile_tools("full", "s", None)
     assert "web_search" not in {tool.name for tool in cleared}
 
 
@@ -320,7 +318,7 @@ async def test_unreadable_config_drops_the_tool_without_breaking_the_turn(
     db, tmp_path, monkeypatch
 ):
     """存的供应商后来不支持了：本轮只是没有搜索，其他工具照常装配。"""
-    from movieclaw_api.api.routes.agent import _profile_tools
+    from movieclaw_api.services.agent_toolkit import profile_tools
     from movieclaw_api.services.web_search_config import load_web_search_provider, save_web_search
     from movieclaw_api.settings.store import init_setting_store
 
@@ -339,6 +337,6 @@ async def test_unreadable_config_drops_the_tool_without_breaking_the_turn(
     init_setting_store()
 
     assert await load_web_search_provider() is None
-    names = {tool.name for tool in await _profile_tools("web", "s", None)}
+    names = {tool.name for tool in await profile_tools("web", "s", None)}
     assert "web_search" not in names
     assert "bash" in names

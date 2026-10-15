@@ -57,7 +57,7 @@ async def apply(ctx):
 - **进程内**：内核条目 `agent.invoke` 提供 `AGENT`，`scoped(ctx)` 给 `AgentClient` 门面，底下直接是 `PluginAgent`。
 - **进程外**：宿主网关导出服务 `agent`（`plugin-ipc-http.md` 的通用调用），`events` 是流式方法（ndjson），
   SDK 侧同一个 `AgentClient` 门面套在生成的代理上。没有长轮询，也没有专门的协议。
-- **工具档位**（`tool_profile`）：`none` 不带工具；`mclaw` 只有服务操作（与 IM 通道同一套受限工具，工作目录按插件隔开）；
+- **工具档位**（`tool_profile`）：`none` 不带工具；`mclaw` 只有服务操作（工作目录按插件隔开）；
   `full` 是 bash / 文件 / mclaw（不含网页才有的卡片绘制）。技能清单依赖 read 工具，所以只有 `full` 用网页的提示词，
   其余用基础提示词。步数上限：none / mclaw 40，full 200。
 

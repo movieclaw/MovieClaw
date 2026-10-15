@@ -12,7 +12,7 @@ import pytest
 from movieclaw_agent.tools.web_search import TOOL_NAME, make_web_search_tool
 from movieclaw_agent.web_search import WebSearchError, WebSearchHit
 from movieclaw_api.api.routes import agent as agent_routes
-from movieclaw_api.services import channel_agent
+from movieclaw_api.services import agent_toolkit, channel_agent
 from movieclaw_api.services.web_search_config import attach_web_search_tool
 
 _KEY = "super-secret-token-9876"
@@ -56,11 +56,11 @@ def _no_pace(monkeypatch):
 
 def test_builtin_agent_tools_omit_web_search_until_a_provider_is_attached(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_WORKSPACE_DIR", str(tmp_path))
-    agent_routes.get_settings.cache_clear()
+    agent_toolkit.get_settings.cache_clear()
     try:
-        base = agent_routes.get_agent_tools({})
+        base = agent_toolkit.get_agent_tools({})
     finally:
-        agent_routes.get_settings.cache_clear()
+        agent_toolkit.get_settings.cache_clear()
     assert TOOL_NAME not in {tool.name for tool in base}
     attached = attach_web_search_tool(base, _Fake())
     assert TOOL_NAME in {tool.name for tool in attached}
@@ -87,11 +87,12 @@ def test_tool_description_is_general_web_search_not_media_only():
 
 
 def test_web_and_im_paths_load_the_provider_and_none_profile_does_not():
-    profile = inspect.getsource(agent_routes._profile_tools)
+    profile = inspect.getsource(agent_toolkit.profile_tools)
     assert profile.index('profile == "none"') < profile.index("load_web_search_provider")
-    assert "load_web_search_provider" in inspect.getsource(agent_routes.retry_session_message)
-    assert "load_web_search_provider" in inspect.getsource(channel_agent._restricted_tools)
-    assert "make_web_search_tool" not in inspect.getsource(agent_routes.get_agent_tools)
+    # 网页重问与 IM 都经 profile_tools 装配，搜索随档位一起挂上
+    assert "profile_tools(" in inspect.getsource(agent_routes.retry_session_message)
+    assert "profile_tools(" in inspect.getsource(channel_agent.run_agent)
+    assert "make_web_search_tool" not in inspect.getsource(agent_toolkit.get_agent_tools)
 
 
 async def test_tool_formats_a_citation_and_clamps_the_result_count():

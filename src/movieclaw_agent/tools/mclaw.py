@@ -2,7 +2,8 @@
 
 设计（docs/design/agent-cli-integration.md）：
 - 独立工具而非 bash 捎带——模型在「选工具」层直接看见产品操作入口，
-  description 携带一级服务目录（由 API 层从 spec 渲染后传入，防漂移）；
+  description 只讲工具怎么调，一级服务目录由 API 层从 spec 渲染进系统提示词的
+  <mclaw_service> 段（防漂移）；
 - 参数面最小：args 单字符串 + 可选 timeout。mclaw 自身就是完整的参数体系
   （--help 齐全、错误带 hint），工具层不重复建模；
 - shlex 解析后以 argv 直接执行，不经 shell——无管道/变量展开，注入面为零；
@@ -68,45 +69,23 @@ _BLOCKED = {
     "logout": "授权已自动配置，不需要也不允许执行 login/logout（会破坏凭证状态）。",
 }
 
-_PROTOCOL = """\
-movieclaw 的官方命令行工具。用于从 TMDB 和豆瓣发现实时热点、最新、热映/在播、热门和\
-高分电影/剧集，搜索并下载 PT 资源，持续订阅追更并自动整理入库，管理本地媒体库；也可\
-查看任务进度，以及配置资源站点、下载器、规则、消息渠道、AI 模型、网络和应用更新。查询\
-或变更 movieclaw 产品状态都用本工具完成（不要通过 bash 调用，bash 环境没有授权）。授权\
-已自动配置，永远不需要 login。
+DESCRIPTION = """\
+movieclaw 的官方命令行工具。查询或变更 movieclaw 产品状态都用本工具（bash 环境没有授权，\
+不要在 bash 里调 mclaw）。授权已自动配置，永远不需要 login。可用服务见系统提示词里的 \
+<mclaw_service>。
 
-{service_map}
-
-使用协议：
-- 常用链路：search titles 找片/找剧 → subscriptions create 订阅；search torrents 搜 PT 种子 → \
-download 投递；search library 查已有库存，discover 浏览榜单，library 管理已入库内容；\
-订阅会持续追踪，并在出现符合规则的新资源后自动搜索、下载和整理入库。
 - 输出即数据：stdout 是 JSON（默认），stderr 是过程提示与错误原因。
 - 参数拿不准就先 --help（域级与命令级都有，含示例），不要凭记忆猜参数或取值。
 - 列表默认有条数上限、长字段有截断；下结论前确认数据没有被截断（--limit 可调）。
-- 带 ⚠ 的命令需要 --yes 确认。其中 library items delete 会删除磁盘上的媒体文件：\
-必须先用只读命令查清将删除的具体条目、向用户复述并取得本轮明确同意后才能执行；\
-用户泛泛说「清理/整理」不构成删除文件的同意。其余 ⚠ 命令（删配置、清记录）在用户\
-任务明确要求时可直接 --yes。
+- 带 ⚠ 的命令需要加 --yes 才会执行。
 - 扫描/整理/元数据刷新默认阻塞等待完成；预计超过 4 分钟的任务用 --no-wait 启动后\
 轮询进度，或调大本工具的 timeout 参数。"""
 
 
-def build_description(service_map: str) -> str:
-    """组装完整工具描述：静态使用协议 + 动态一级服务目录。"""
-    return _PROTOCOL.format(service_map=service_map.strip())
-
-
-def make_mclaw_tool(
-    workdir: Path,
-    extra_env: dict[str, str],
-    service_map: str,
-) -> AgentTool:
+def make_mclaw_tool(workdir: Path, extra_env: dict[str, str]) -> AgentTool:
     """构建 mclaw 工具。
 
-    extra_env：MOVIECLAW_SERVER / MOVIECLAW_TOKEN——只进本工具的子进程；
-    service_map：一级服务目录文本，由调用方从 spec 渲染（见
-    movieclaw_api.services.mclaw_tool），保证与真实命令面同版。
+    extra_env：MOVIECLAW_SERVER / MOVIECLAW_TOKEN——只进本工具的子进程。
     """
 
     async def handler(args: dict) -> str:
@@ -180,7 +159,7 @@ def make_mclaw_tool(
     return AgentTool(
         definition=ToolDefinition(
             name="mclaw",
-            description=build_description(service_map),
+            description=DESCRIPTION,
             parameters={
                 "type": "object",
                 "properties": {

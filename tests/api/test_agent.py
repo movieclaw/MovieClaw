@@ -364,19 +364,37 @@ def test_stop_session_ends_with_cancelled_event(client, monkeypatch) -> None:
 
 def test_system_prompt_external_url_injection(client) -> None:
     """外部访问地址注入系统提示词环境段：未配置不出现，配置后原文出现。"""
-    from movieclaw_api.api.routes.agent import _agent_system_prompt
+    from movieclaw_api.services.agent_toolkit import agent_system_prompt, get_agent_tools
 
-    prompt = asyncio.run(_agent_system_prompt())
-    assert "外部访问地址" not in prompt
+    tools = get_agent_tools({})
+    prompt = asyncio.run(agent_system_prompt(tools))
+    assert "本应用的外部访问地址" not in prompt
 
     saved = client.put(
         "/api/v1/app/config",
         json={"port": 0, "external_url": "http://192.168.1.10:3000/"},
     )
     assert saved.status_code == 200
-    prompt = asyncio.run(_agent_system_prompt())
+    prompt = asyncio.run(agent_system_prompt(tools))
     # 保存时规范化掉了尾部斜杠
     assert "外部访问地址：http://192.168.1.10:3000。" in prompt
+
+
+def test_system_prompt_sections_follow_mounted_tools(client) -> None:
+    """提示词从实际挂上的工具推导：没有 bash/read 不写源码、日志与技能，没有 mclaw 不写服务目录。"""
+    from movieclaw_api.services.agent_toolkit import agent_system_prompt, get_agent_tools
+
+    tools = get_agent_tools({})
+    full = asyncio.run(agent_system_prompt(tools))
+    mclaw_only = asyncio.run(agent_system_prompt([t for t in tools if t.name == "mclaw"]))
+    bare = asyncio.run(agent_system_prompt([]))
+
+    for section in ("后端源码", "运行日志目录", "# 技能"):
+        assert section in full
+        assert section not in mclaw_only
+        assert section not in bare
+    assert full.endswith("</mclaw_service>") and mclaw_only.endswith("</mclaw_service>")
+    assert "<mclaw_service>" not in bare
 
 
 def test_page_routes_match_web_app_pages() -> None:
@@ -385,7 +403,7 @@ def test_page_routes_match_web_app_pages() -> None:
     归一化规则：路由表的 {参数} 与 Next.js 的 [参数] 目录都归一为 *，
     只比较路径形状，参数叫什么名字不影响同步判断。
     """
-    from movieclaw_api.api.routes.agent import _PAGE_ROUTES
+    from movieclaw_api.services.agent_toolkit import PAGE_ROUTES
 
     web_app = Path(__file__).resolve().parents[2] / "apps" / "web" / "app" / "(app)"
     assert web_app.is_dir(), f"前端页面目录不存在：{web_app}"
@@ -407,7 +425,7 @@ def test_page_routes_match_web_app_pages() -> None:
             "*" if seg.startswith("{") else seg for seg in pattern.strip("/").split("/")
         )
 
-    declared = {normalize(pattern) for pattern, _ in _PAGE_ROUTES}
+    declared = {normalize(pattern) for pattern, _ in PAGE_ROUTES}
 
     # /settings 子分区（及分区里的详情页，如插件详情 /settings/plugins/<id>）由 /settings 兜底，
     # 不逐项写进提示词路由表；
@@ -420,5 +438,5 @@ def test_page_routes_match_web_app_pages() -> None:
     unhandled = fs_routes - declared - exempt
     assert not unhandled, (
         f"前端新增了路由表未覆盖的页面：{sorted(unhandled)}——"
-        "要么补进 _PAGE_ROUTES 告知模型，要么加入本测试的豁免清单"
+        "要么补进 PAGE_ROUTES 告知模型，要么加入本测试的豁免清单"
     )
