@@ -196,7 +196,8 @@ struct AgentConversationView: View {
         .scrollDismissesKeyboard(.interactively)
         // 只让输入框自身呈现玻璃；系统底部渐隐会在悬浮宠物周围形成黑色遮罩。
         .scrollEdgeEffectHidden(true, for: .bottom)
-        .onChange(of: conversation.turns) {
+        // 比行不比轮：思考增量不上屏（处理过程隐藏），不该每 80ms 跟着发一次滚动请求
+        .onChange(of: conversation.rows) {
             if scroll.followsLatest { scrollToLatest(proxy) }
         }
         .onChange(of: latestRequest) { scrollToLatest(proxy) }

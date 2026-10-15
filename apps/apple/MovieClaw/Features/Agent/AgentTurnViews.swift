@@ -114,7 +114,8 @@ struct AgentTypingBubble: View {
     private static let stagger = 0.18
 
     var body: some View {
-        TimelineView(.animation) { context in
+        // 30 帧足够画出 1.2 秒一周的小幅波动；默认逐帧会让 ProMotion 屏在思考、调工具的几分钟里一直按 120Hz 重绘
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             HStack(spacing: 6) {
                 ForEach(0..<3, id: \.self) { i in
@@ -509,18 +510,19 @@ struct AgentStreamingCursor: View {
     }
 }
 
-/// 进行中文案的呼吸效果
+/// 进行中文案的呼吸效果。用 PhaseAnimator 循环：原先 onAppear 里起一个 repeatForever，懒加载行滚出再滚回时
+/// 状态已是「暗」、再赋值不算变化，动画不会重新开始
 struct AgentPulse: ViewModifier {
     let active: Bool
-    @State private var dim = false
 
     func body(content: Content) -> some View {
-        content
-            .opacity(active && dim ? 0.45 : 1)
-            .onAppear { if active { withAnimation(.easeInOut(duration: 0.9).repeatForever()) { dim = true } } }
-            .onChange(of: active) { _, now in
-                if now { withAnimation(.easeInOut(duration: 0.9).repeatForever()) { dim = true } } else { withAnimation(.default) { dim = false } }
-            }
+        if active {
+            content.phaseAnimator([false, true]) { view, dim in
+                view.opacity(dim ? 0.45 : 1)
+            } animation: { _ in .easeInOut(duration: 0.9) }
+        } else {
+            content
+        }
     }
 }
 

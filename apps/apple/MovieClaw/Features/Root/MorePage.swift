@@ -450,15 +450,14 @@ enum MorePageSection: String {
 
 /// 运行中会话的提示点：信息蓝 + 呼吸（Web `bg-[var(--info)] animate-pulse`）
 private struct MoreRunningDot: View {
-    @State private var dim = false
-
     var body: some View {
+        // PhaseAnimator 循环（同 AgentPulse）：列表行滚出再滚回不会停在半透明
         Circle()
             .fill(Theme.info)
             .frame(width: 7, height: 7)
-            .opacity(dim ? 0.35 : 1)
-            .animation(.easeInOut(duration: 1).repeatForever(autoreverses: true), value: dim)
-            .onAppear { dim = true }
+            .phaseAnimator([false, true]) { dot, dim in
+                dot.opacity(dim ? 0.35 : 1)
+            } animation: { _ in .easeInOut(duration: 1) }
             .accessibilityLabel("运行中")
     }
 }
