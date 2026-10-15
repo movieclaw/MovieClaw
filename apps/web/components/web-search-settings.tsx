@@ -1,26 +1,31 @@
 "use client";
 
 /**
- * 「AI 设定」里的搜索能力接入。
+ * 「AI 设定」里的网页搜索接入。
  *
- * 选一家供应商、粘贴 Key、测试连接，通过之后才能保存。没通过的密钥不会写入服务器。
- * 设置页目前没有语言包（界面文案是中文），这里与同一页的其他分区保持一致。
- * 密钥不回显：输入框留空表示不修改已保存的 Key。
+ * 按设置页规范（docs/design/settings-ui.md）：小节里一行状态，行尾「接入」/「编辑」+「⋯」菜单
+ * （重新测试连接、关闭网页搜索）；供应商和密钥在右侧抽屉里一起提交。
+ * 提交即「验证并保存」：服务端先用这把 Key 搜索一次，通过才落库，失败不动已保存的配置。
+ * 密钥不回显，只显示末四位。设置页没有语言包，文案与同页其他小节一样用中文。
  */
 
 import { useEffect, useState } from "react";
 
 import { ErrorBanner } from "@/components/cloud-push-ui";
 import { useConfirm, useToast } from "@/components/feedback";
+import { CheckIcon, GlobeIcon, OpenIcon } from "@/components/icons";
 import {
   SETTINGS_BUTTON_CLASS,
   SETTINGS_INPUT_CLASS,
   SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsDrawer,
+  SettingsList,
+  SettingsMoreMenu,
+  SettingsRow,
   SettingsSection,
 } from "@/components/settings-ui";
 import {
   type WebSearchConfig,
-  type WebSearchProviderOption,
   clearWebSearchConfig,
   getWebSearchConfig,
   saveWebSearchConfig,
@@ -31,243 +36,326 @@ export function WebSearchSettings() {
   const toast = useToast();
   const confirm = useConfirm();
   const [config, setConfig] = useState<WebSearchConfig | null>(null);
-  const [provider, setProvider] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [verifiedToken, setVerifiedToken] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"save" | "test" | "clear" | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   function load() {
-    setError(null);
+    setLoadError(null);
     getWebSearchConfig()
-      .then((next) => {
-        setConfig(next);
-        setProvider(next.provider ?? "");
-      })
-      .catch((e) => setError((e as Error).message));
+      .then(setConfig)
+      .catch((e) => setLoadError((e as Error).message));
   }
 
   useEffect(load, []);
 
-  const selected = config?.providers.find((item) => item.id === provider) ?? null;
-  const switching = config?.configured === true && provider !== (config.provider ?? "");
-  const token = formToken(provider, apiKey, config);
-  const canSave = token != null && token === verifiedToken;
-  // 表单就是已保存的样子（同一家、没填新 Key）时没有要保存的东西，不提示先测试
-  const unchanged = token != null && token === `${config?.provider ?? ""}\nsaved`;
+  const current =
+    config?.providers.find((item) => item.id === config.provider) ?? null;
 
-  async function save() {
-    if (!provider) {
-      setError("请先选择搜索供应商");
-      return;
-    }
-    if (!apiKey.trim() && (switching || !config?.configured)) {
-      setError("请粘贴 API Key");
-      return;
-    }
-    setBusy("save");
-    setError(null);
-    setNotice(null);
+  async function retest() {
+    setBusy(true);
     try {
-      const next = await saveWebSearchConfig(provider, apiKey);
-      setConfig(next);
-      setProvider(next.provider ?? "");
-      setApiKey("");
-      setVerifiedToken(null);
-      toast.success("网页搜索已验证并保存");
+      const result = await testWebSearchConfig(config?.provider ?? "", "");
+      toast.success(result.message);
     } catch (e) {
-      setError((e as Error).message);
+      toast.error((e as Error).message);
     } finally {
-      setBusy(null);
-    }
-  }
-
-  async function test() {
-    if (!provider) {
-      setError("请先选择搜索供应商");
-      return;
-    }
-    if (!apiKey.trim() && (switching || !config?.configured)) {
-      setError("请先粘贴 API Key");
-      return;
-    }
-    setBusy("test");
-    setError(null);
-    setNotice(null);
-    try {
-      const tested = formToken(provider, apiKey, config);
-      const result = await testWebSearchConfig(provider, apiKey);
-      setNotice(result.message);
-      setVerifiedToken(tested);
-    } catch (e) {
-      setVerifiedToken(null);
-      setError((e as Error).message);
-    } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
 
   async function clear() {
     const accepted = await confirm({
       title: "关闭网页搜索？",
-      description: "已保存的 API Key 会从这台服务器删除。智能体将不再上网搜索，直到你重新接入。",
-      confirmLabel: "清除",
+      description:
+        "已保存的 API Key 会从这台服务器删除。智能体将不再上网搜索，直到你重新接入。",
+      confirmLabel: "关闭",
       tone: "danger",
     });
     if (!accepted) return;
-    setBusy("clear");
-    setError(null);
-    setNotice(null);
+    setBusy(true);
     try {
-      const next = await clearWebSearchConfig();
-      setConfig(next);
-      setProvider("");
-      setApiKey("");
-      setVerifiedToken(null);
+      setConfig(await clearWebSearchConfig());
       toast.success("已关闭网页搜索");
     } catch (e) {
-      setError((e as Error).message);
+      toast.error((e as Error).message);
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
 
   return (
     <SettingsSection
-      title="搜索能力接入"
-      description="选一家搜索服务并填入 API Key。先测试连接，通过后才能保存；没通过的密钥不会写入服务器。不配置就不会提供这个工具，对话和现在一样。"
+      title="网页搜索"
+      description="接入一家搜索服务后，智能体能上网查最新信息。不接入就没有这个工具，对话和现在一样。"
     >
-      {config == null && error ? (
+      {config == null && loadError ? (
         <div className="css-glass space-y-3 !rounded-xl p-5 max-sm:p-4">
-          <ErrorBanner>{error}</ErrorBanner>
-          <button type="button" onClick={load} className={SETTINGS_BUTTON_CLASS}>
+          <ErrorBanner>{loadError}</ErrorBanner>
+          <button
+            type="button"
+            onClick={load}
+            className={SETTINGS_BUTTON_CLASS}
+          >
             重试
           </button>
         </div>
       ) : config == null ? (
-        <div className="h-[104px] animate-pulse rounded-xl bg-white/[0.04]" />
+        <div className="h-[72px] animate-pulse rounded-xl bg-white/[0.04]" />
       ) : (
-        <div className="css-glass space-y-4 !rounded-xl p-5 max-sm:p-4">
-          {error && <ErrorBanner>{error}</ErrorBanner>}
-          <label className="block">
-            <span className="mb-1.5 block text-ui font-medium text-[var(--text)]">供应商</span>
-            <select
-              aria-label="搜索供应商"
-              value={provider}
-              disabled={busy != null}
-              onChange={(e) => {
-                setProvider(e.target.value);
-                setNotice(null);
-                setError(null);
-              }}
-              className={`${SETTINGS_INPUT_CLASS} w-full`}
+        <SettingsList>
+          {config.configured && current ? (
+            <SettingsRow
+              leading={<RowIcon />}
+              label={
+                <span className="flex items-center gap-2">
+                  {current.label}
+                  <span className="flex items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--ok)_12%,transparent)] px-2 py-0.5 text-caption font-medium text-[var(--ok)]">
+                    <span className="size-1.5 rounded-full bg-current" />
+                    已接入
+                  </span>
+                </span>
+              }
+              description={
+                config.key_hint ? `密钥末四位 ${config.key_hint}` : "密钥已保存"
+              }
             >
-              <option value="">请选择…</option>
-              {config.providers.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {selected && <ProviderNote option={selected} />}
-          <label className="block">
-            <span className="mb-1.5 block text-ui font-medium text-[var(--text)]">API Key</span>
-            <input
-              aria-label="搜索 API Key"
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              value={apiKey}
-              disabled={busy != null}
-              placeholder={placeholderFor(config, switching)}
-              onChange={(e) => {
-                setApiKey(e.target.value);
-                setNotice(null);
-                setError(null);
-              }}
-              className={`${SETTINGS_INPUT_CLASS} w-full font-mono`}
-            />
-          </label>
-          <p className="text-caption leading-5 text-[var(--text-faint)]">
-            {statusLine(config, selected)}
-            {token != null && !canSave && !unchanged ? " 请先测试连接，通过后才能保存。" : ""}
-          </p>
-          {notice && <p className="text-sub leading-5 text-[var(--ok)]">{notice}</p>}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              disabled={busy != null}
-              onClick={() => void test()}
-              className={SETTINGS_BUTTON_CLASS}
-            >
-              {busy === "test" ? "测试中…" : "测试连接"}
-            </button>
-            <button
-              type="button"
-              disabled={busy != null || !canSave}
-              onClick={() => void save()}
-              className={SETTINGS_PRIMARY_BUTTON_CLASS}
-            >
-              {busy === "save" ? "保存中…" : "保存"}
-            </button>
-            {config.configured && (
               <button
                 type="button"
-                disabled={busy != null}
-                onClick={() => void clear()}
-                className="h-8 px-2 text-sub text-[var(--text-faint)] hover:text-[var(--danger)] disabled:opacity-40"
+                disabled={busy}
+                onClick={() => setEditing(true)}
+                className={SETTINGS_BUTTON_CLASS}
               >
-                {busy === "clear" ? "清除中…" : "清除"}
+                编辑
               </button>
-            )}
-          </div>
-        </div>
+              <SettingsMoreMenu
+                label="网页搜索的更多操作"
+                disabled={busy}
+                items={[
+                  { label: "重新测试连接", onSelect: () => void retest() },
+                  {
+                    label: "关闭网页搜索",
+                    onSelect: () => void clear(),
+                    danger: true,
+                  },
+                ]}
+              />
+            </SettingsRow>
+          ) : (
+            <SettingsRow
+              leading={<RowIcon />}
+              label="未接入"
+              description="支持 Tavily、Exa、Brave Search，需要一个 API Key。"
+            >
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className={SETTINGS_BUTTON_CLASS}
+              >
+                接入
+              </button>
+            </SettingsRow>
+          )}
+        </SettingsList>
+      )}
+      {editing && config && (
+        <WebSearchDrawer
+          config={config}
+          onClose={() => setEditing(false)}
+          onSaved={(next) => {
+            setConfig(next);
+            setEditing(false);
+            const label = next.providers.find(
+              (item) => item.id === next.provider,
+            )?.label;
+            toast.success(label ? `网页搜索已接入 ${label}` : "网页搜索已接入");
+          }}
+        />
       )}
     </SettingsSection>
   );
 }
 
-function ProviderNote({ option }: { option: WebSearchProviderOption }) {
+function RowIcon() {
   return (
-    <p className="text-caption leading-5 text-[var(--text-muted)]">
-      {option.note}
-      <span className="mx-1.5">·</span>
-      <a
-        href={option.signup_url}
-        target="_blank"
-        rel="noreferrer"
-        className="text-[var(--accent)] hover:underline"
-      >
-        申请 {option.label} API Key
-      </a>
-    </p>
+    <span className="icon-chip size-9 shrink-0 !rounded-xl">
+      <GlobeIcon className="size-[18px]" />
+    </span>
   );
 }
 
-/** 一次成功的测试只对这一组供应商和密钥有效。空密钥且供应商未变时，测的是已保存的那把。 */
-function formToken(provider: string, apiKey: string, config: WebSearchConfig | null): string | null {
-  if (!provider) return null;
-  const trimmed = apiKey.trim();
-  if (trimmed) return `${provider}\n${trimmed}`;
-  if (config?.configured && provider === (config.provider ?? "")) return `${provider}\nsaved`;
-  return null;
-}
+/** 选搜索服务 + 填 Key，一次「验证并保存」。 */
+function WebSearchDrawer({
+  config,
+  onClose,
+  onSaved,
+}: {
+  config: WebSearchConfig;
+  onClose: () => void;
+  onSaved: (next: WebSearchConfig) => void;
+}) {
+  const [provider, setProvider] = useState(
+    config.provider ?? config.providers[0]?.id ?? "",
+  );
+  const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-function placeholderFor(config: WebSearchConfig, switching: boolean): string {
-  if (switching) return "更换供应商时请粘贴新的 API Key";
-  if (config.configured && config.key_hint) return `已保存，留空表示不修改（末四位 ${config.key_hint}）`;
-  if (config.configured) return "已保存，留空表示不修改";
-  return "粘贴 API Key";
-}
+  const selected =
+    config.providers.find((item) => item.id === provider) ?? null;
+  const keepsSaved = config.configured && provider === config.provider;
+  // 不论换不换服务都要一把 Key：同一家不填新 Key 等于什么都没改
+  const canSubmit = !!provider && apiKey.trim() !== "";
 
-function statusLine(config: WebSearchConfig, selected: WebSearchProviderOption | null): string {
-  if (!config.configured || !selected || selected.id !== config.provider) {
-    return "密钥只存在这台服务器上，保存之后界面和接口都不再显示完整密钥。";
+  async function submit() {
+    if (!canSubmit) return;
+    setBusy(true);
+    setError(null);
+    try {
+      onSaved(await saveWebSearchConfig(provider, apiKey));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
   }
-  if (config.key_hint) {
-    return `已接入 ${selected.label}，密钥末四位 ${config.key_hint}。`;
-  }
-  return `已接入 ${selected.label}。`;
+
+  return (
+    <SettingsDrawer
+      open
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title={config.configured ? "编辑网页搜索" : "接入网页搜索"}
+      description="选一家搜索服务并填入它的 API Key。"
+      hint="保存前会先用这把 Key 搜索一次，通过才保存。"
+      actions={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className={SETTINGS_BUTTON_CLASS}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={busy || !canSubmit}
+            className={SETTINGS_PRIMARY_BUTTON_CLASS}
+          >
+            {busy ? "验证中…" : "验证并保存"}
+          </button>
+        </>
+      }
+    >
+      <form
+        className="space-y-6"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        {error && <ErrorBanner>{error}</ErrorBanner>}
+
+        <fieldset>
+          <legend className="mb-2 text-sub font-medium text-[var(--text-muted)]">
+            搜索服务
+          </legend>
+          <div
+            role="radiogroup"
+            aria-label="搜索服务"
+            className="css-glass divide-y divide-[var(--line)] !rounded-xl"
+          >
+            {config.providers.map((item) => {
+              const active = item.id === provider;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  disabled={busy}
+                  onClick={() => {
+                    setProvider(item.id);
+                    setError(null);
+                  }}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-white/[0.03] disabled:opacity-60"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-body font-medium text-[var(--text)]">
+                      {item.label}
+                    </span>
+                    <span className="mt-0.5 block text-caption leading-5 text-[var(--text-faint)]">
+                      {item.note}
+                    </span>
+                  </span>
+                  <CheckIcon
+                    className={`size-4 shrink-0 text-[var(--accent)] ${active ? "" : "invisible"}`}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+
+        <div>
+          <label
+            htmlFor="web-search-key"
+            className="mb-2 block text-sub font-medium text-[var(--text-muted)]"
+          >
+            API Key
+          </label>
+          <div className="relative">
+            <input
+              id="web-search-key"
+              type={showKey ? "text" : "password"}
+              autoComplete="off"
+              spellCheck={false}
+              value={apiKey}
+              disabled={busy}
+              placeholder={
+                keepsSaved && config.key_hint
+                  ? `填入新的 Key 才会更换（当前末四位 ${config.key_hint}）`
+                  : "粘贴 API Key"
+              }
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                setError(null);
+              }}
+              className={`${SETTINGS_INPUT_CLASS} w-full py-2 pr-16 font-mono`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey((v) => !v)}
+              aria-label={showKey ? "隐藏 API Key" : "显示 API Key"}
+              className="absolute inset-y-0 right-1 my-auto h-7 rounded-md px-2.5 text-sub font-medium text-[var(--text-muted)] hover:bg-white/[0.06] hover:text-[var(--text)]"
+            >
+              {showKey ? "隐藏" : "显示"}
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-caption leading-5 text-[var(--text-faint)]">
+            <span>
+              {config.configured && !keepsSaved
+                ? "更换搜索服务需要它自己的 Key。"
+                : "密钥只存在这台服务器上，保存后不再显示完整内容。"}
+            </span>
+            {selected && (
+              <a
+                href={selected.signup_url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-[var(--accent)] hover:underline"
+              >
+                申请 {selected.label} API Key
+                <OpenIcon className="size-3.5" />
+              </a>
+            )}
+          </div>
+        </div>
+      </form>
+    </SettingsDrawer>
+  );
 }

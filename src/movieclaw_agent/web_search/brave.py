@@ -18,7 +18,7 @@ class BraveProvider(SearchProvider):
     id = "brave"
     label = "Brave Search"
     signup_url = "https://brave.com/search/api/"
-    note = "返回标题、链接和摘要"
+    note = "独立索引的通用网页搜索"
     probe_url = _URL
 
     async def search(

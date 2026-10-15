@@ -142,6 +142,9 @@ async def _probe_key(provider_id: str, key: str) -> dict:
                 service="web_search",
                 hint="到「设置 → 网络」为「网页搜索」打开代理后再试",
             ) from None
+        if exc.kind == "auth":
+            # 默认文案是写给智能体的（叫它去设置页核对）；这里人就在设置页上
+            raise BadRequestException("API Key 无效或没有权限，请核对后重新粘贴。") from None
         raise BadRequestException(str(exc)) from None
     title = hits[0].title if hits else ""
     message = "连接成功" if not title else f"连接成功，示例结果：{title}"

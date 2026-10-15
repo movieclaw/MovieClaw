@@ -1,4 +1,4 @@
-"""智能体网页搜索（「设置 → AI 设定 → 搜索能力接入」）。
+"""智能体网页搜索（「设置 → AI 设定 → 网页搜索」）。
 
 空配置 = 不启用：运行时不注册 web_search 工具，对话行为与没这个功能时一样。
 API Key 经 ``secret_fields`` 加密落库，接口只回末四位。
@@ -15,7 +15,7 @@ WEB_SEARCH_NAMESPACE = "agent.web_search"
 
 @register_setting(
     namespace=WEB_SEARCH_NAMESPACE,
-    title="搜索能力接入",
+    title="网页搜索",
     secret_fields=["api_key"],
 )
 class WebSearchSetting(SettingSchema):

@@ -15,7 +15,7 @@ class ExaProvider(SearchProvider):
     id = "exa"
     label = "Exa"
     signup_url = "https://exa.ai"
-    note = "返回标题、链接和摘要"
+    note = "按语义检索，适合找相关文章和资料"
     probe_url = _URL
 
     async def search(

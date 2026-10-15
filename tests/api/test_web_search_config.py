@@ -197,6 +197,8 @@ def test_rejected_key_is_explained_without_saving(client, monkeypatch):
     )
     assert response.status_code == 400
     assert "API Key 无效" in response.json()["message"]
+    # 人就在设置页上，不再叫人「到设置 → AI 设定里核对」
+    assert "设置 →" not in response.json()["message"]
     assert _KEY not in response.text
     assert http.get("/api/v1/llm/web-search").json()["data"]["configured"] is False
 

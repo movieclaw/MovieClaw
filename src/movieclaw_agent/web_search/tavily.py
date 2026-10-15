@@ -15,7 +15,7 @@ class TavilyProvider(SearchProvider):
     id = "tavily"
     label = "Tavily"
     signup_url = "https://tavily.com"
-    note = "返回标题、链接和摘要"
+    note = "专为 AI 智能体设计的搜索，结果自带摘要"
     probe_url = _URL
 
     async def search(
