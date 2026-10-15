@@ -7,8 +7,9 @@ import UIKit
 struct AgentCompanionTests {
     @Test func companionDoesNotReserveComposerSpace() {
         func size(companion: AgentCompanionState?) -> CGSize {
-            let composer = AgentComposer(draft: .constant(AgentDraft()), companion: companion, onSubmit: {})
-            let host = UIHostingController(rootView: composer)
+            let composer = AgentComposer(draft: .constant(AgentDraft()), onSubmit: {}).agentCompanionAnchor()
+            let page = companion.map { AnyView(composer.agentCompanion($0, attentive: false)) } ?? AnyView(composer)
+            let host = UIHostingController(rootView: page)
             return host.sizeThatFits(in: CGSize(width: 390, height: 1000))
         }
         let plain = size(companion: nil)

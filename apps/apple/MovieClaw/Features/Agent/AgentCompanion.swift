@@ -28,6 +28,39 @@ nonisolated enum AgentCompanionState: Int, CaseIterable {
     var frameDuration: Duration { .milliseconds(self == .working ? 300 : 160) }
 }
 
+/// 小幕趴在输入框右上角：输入框用 `agentCompanionAnchor()` 标出位置，页面在整页最上层用 `agentCompanion` 画。
+///
+/// 不能画进输入框所在的底部栏（safeAreaBar）里：栏里多一个独立的可点控件，iOS 26 会在它周围单独生成底部压暗遮罩，
+/// 从会话页返回「我的」时转场收尾才拆掉这块遮罩、再淡入「我的」页自己的压暗，底部列表的白字会闪一下
+/// （2026-10-15 真机 iOS 26.6 逐项对照查实：小幕改 SwiftUI 绘制、挪进输入框内都照闪，挪出底部栏就不闪）
+struct AgentComposerAnchorKey: PreferenceKey {
+    static let defaultValue: Anchor<CGRect>? = nil
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
+    }
+}
+
+extension View {
+    /// 标出小幕要趴的输入框
+    func agentCompanionAnchor() -> some View {
+        anchorPreference(key: AgentComposerAnchorKey.self, value: .bounds) { $0 }
+    }
+
+    /// 在整页最上层画小幕，位置跟着标出的输入框：右边对齐，身体露出输入框上沿、爪子压住上沿 10pt
+    func agentCompanion(_ activity: AgentCompanionState, attentive: Bool) -> some View {
+        overlayPreferenceValue(AgentComposerAnchorKey.self) { anchor in
+            if let anchor {
+                GeometryReader { proxy in
+                    let composer = proxy[anchor]
+                    AgentCompanion(activity: activity, attentive: attentive)
+                        .frame(width: 90, height: 72)
+                        .position(x: composer.maxX - 45, y: composer.minY - 26)
+                }
+            }
+        }
+    }
+}
+
 struct AgentCompanion: View {
     let activity: AgentCompanionState
     let attentive: Bool

@@ -42,6 +42,8 @@ struct AgentConversationView: View {
     /// 跟着页面一起建会把页面跳转推迟这么久。首帧先放等高占位，跳转画面出去后马上建——此时正在等轨迹，
     /// 主线程空着（真机上跳转排版约 30ms、轨迹网络 70～100ms），这笔一次性开销被网络等待吸收
     @State private var composerReady = false
+    /// 正在输入（小幕抬头倾听）
+    @State private var composerAttentive = false
     /// 上次量到的输入区高度，占位按它留空，换成真输入框时底部不跳（初值取 iPhone Air 实测的单行输入区高度）
     private static var composerHeight: CGFloat = 126
     private static let bottomID = "agent-transcript-bottom"
@@ -148,6 +150,9 @@ struct AgentConversationView: View {
                 }
             }
         }
+        .agentCompanion(.resolve(turn: conversation.turns.last, busy: conversation.running,
+                                 unavailable: llmConfigured == false || !conversation.loaded),
+                        attentive: composerAttentive)
     }
 
     // MARK: 消息列
@@ -268,8 +273,7 @@ struct AgentConversationView: View {
                 disabled: locked || !conversation.loaded || (retrying && retryTarget != nil),
                 // 改写模式不开图片入口：retry 沿用原消息的图，新加的图无处安放，藏起入口比静默丢弃诚实
                 imageUpload: retryTarget == nil,
-                companion: .resolve(turn: turns.last, busy: conversation.running,
-                                    unavailable: locked || !conversation.loaded),
+                onAttentionChange: { composerAttentive = $0 },
                 modelOptions: modelOptions,
                 modelValue: displayedModel,
                 onModelChange: { ref in
@@ -286,6 +290,7 @@ struct AgentConversationView: View {
                 onSubmit: submit,
                 onStop: stop
             )
+            .agentCompanionAnchor()
             if locked { AgentLLMSetupNotice() }
         }
         .padding(.horizontal, 12)

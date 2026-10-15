@@ -59,8 +59,8 @@ struct AgentComposer: View {
     var autoFocus = false
     /// 快捷入口可折叠；会话页不传，始终使用完整布局。输入框与按钮在两种布局间保持身份。
     var expansion: Binding<Bool>?
-    /// 仅完整 Agent 会话显示小幕。
-    var companion: AgentCompanionState?
+    /// 正在输入（有焦点且有内容）变化时通知页面：小幕据此抬头倾听（小幕由页面画，见 agentCompanion）
+    var onAttentionChange: ((Bool) -> Void)?
     var modelOptions: [API.LlmModelOptionView] = []
     var modelValue: String?
     var onModelChange: (String?) -> Void = { _ in }
@@ -130,13 +130,7 @@ struct AgentComposer: View {
                 expansion?.wrappedValue = false
             }
         }
-        .overlay(alignment: .topTrailing) {
-            if let companion {
-                AgentCompanion(activity: companion, attentive: focused && !draft.isEmpty)
-                    .frame(width: 90, height: 72)
-                    .offset(y: -62)
-            }
-        }
+        .onChange(of: focused && !draft.isEmpty) { _, attentive in onAttentionChange?(attentive) }
         .onAppear { if autoFocus, !disabled { focused = true } }
         .task(id: openingPlusMenu) {
             guard openingPlusMenu else { return }

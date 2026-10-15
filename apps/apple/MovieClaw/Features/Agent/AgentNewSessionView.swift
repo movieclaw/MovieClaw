@@ -19,6 +19,8 @@ struct AgentNewSessionView: View {
     @State private var creating = false
     @State private var error: String?
     @State private var askingConsent = false
+    /// 正在输入（小幕抬头倾听）
+    @State private var composerAttentive = false
 
     var body: some View {
         let locked = llmConfigured == false
@@ -33,7 +35,7 @@ struct AgentNewSessionView: View {
                         busy: creating,
                         disabled: locked,
                         autoFocus: !locked,
-                        companion: error != nil ? .failed : creating ? .working : .idle,
+                        onAttentionChange: { composerAttentive = $0 },
                         modelOptions: modelOptions,
                         modelValue: choice.model,
                         // 换模型后旧档位可能不在新菜单里，清回默认
@@ -42,6 +44,7 @@ struct AgentNewSessionView: View {
                         onThinkingChange: { update(AgentComposerPrefs(model: choice.model, thinking: $0)) },
                         onSubmit: submit
                     )
+                    .agentCompanionAnchor()
                     if locked { AgentLLMSetupNotice() }
                     if let error {
                         Text("创建会话失败：\(error)")
@@ -58,6 +61,7 @@ struct AgentNewSessionView: View {
                 .padding(.top, 8)
                 .modifier(AgentComposerBottomGap())
             }
+            .agentCompanion(error != nil ? .failed : creating ? .working : .idle, attentive: composerAttentive)
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("新会话")
             .navigationBarTitleDisplayMode(.inline)
