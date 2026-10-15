@@ -92,6 +92,10 @@ class ClientCapability:
     disc_image: bool = False
     #: 全解码播放器能经目录取流接口读原盘目录：多剪辑原盘给档 0 目录直推，NAS 不起 ffmpeg
     disc_folder: bool = False
+    #: 能按服务端给的剪辑清单播放蓝光主片（Android 的统一引擎）：服务端选主片、给出各剪辑的
+    #: 取流地址与入口点表，播放器只做 m2ts 解复用与拼接——不在本机解析光盘结构
+    #: （disc-clip-play.md）。原盘目录与蓝光镜像都适用，DVD 不适用
+    bluray_clips: bool = False
     #: 播放器能在本机切换内封音轨（ExoPlayer）：直出原文件时它自己选中计划里的那条，
     #: 不必为了「放的不是默认轨」重封装。浏览器的 <video> 只放默认轨，不能申报
     local_tracks: bool = False

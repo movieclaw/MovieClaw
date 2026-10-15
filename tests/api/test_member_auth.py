@@ -646,6 +646,9 @@ _MEMBER_ALLOWLIST = {
     # 原盘目录直推（disc-direct-play.md）：只凭签名 token，与原文件直出同属公开取流区
     ("GET", "/api/v1/playback/files/{file_id}/disc"),
     ("GET", "/api/v1/playback/files/{file_id}/disc/{relative_path}"),
+    # 蓝光剪辑清单（disc-clip-play.md）：同属公开取流区，只凭签名 token
+    ("GET", "/api/v1/playback/files/{file_id}/bluray"),
+    ("GET", "/api/v1/playback/files/{file_id}/bluray/{index}"),
     ("GET", "/api/v1/playback/files/{file_id}/subtitles"),
     # 预切片段（reels.md §8）：同原文件直出，只凭签名 token（按文件签发）
     ("GET", "/api/v1/reels/clips/{file_id}/{start_ms}.mp4"),

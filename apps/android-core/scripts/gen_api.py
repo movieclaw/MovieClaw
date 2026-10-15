@@ -88,6 +88,7 @@ ENDPOINTS = [
     "GET /playback/items/{media_item_id}",
     "GET /playback/items/{media_item_id}/episodes",
     "GET /playback/files/{file_id}/trickplay",
+    "GET /playback/files/{file_id}/bluray",
     "POST /playback/client-log",
     "POST /playback/metrics",
     # 首页 / 详情大图区的预告片段

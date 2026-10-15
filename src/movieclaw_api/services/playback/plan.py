@@ -121,9 +121,11 @@ async def decide_for_files(
             disc = await asyncio.to_thread(iso_disc_source, file.file_path)
         disc_clips = len(disc.clips) if disc is not None else 0
         disc_playlist = disc.playlist_name if disc is not None else None
+        # 原盘目录只有蓝光（disc_source_for_file 不认 DVD 目录），镜像按读出的盘内结构
+        disc_format = (disc.image or "bluray") if disc is not None else None
         context = (contexts or {}).get(file.id or 0)
         profile = media_profile_from_file(
-            file, disc_clips=disc_clips, disc_playlist=disc_playlist,
+            file, disc_clips=disc_clips, disc_playlist=disc_playlist, disc_format=disc_format,
             context=context, preferred_audio=preferred_audio,
         )
         interval = None
@@ -134,6 +136,7 @@ async def decide_for_files(
                 keyframe_interval_s=interval,
                 disc_clips=disc_clips,
                 disc_playlist=disc_playlist,
+                disc_format=disc_format,
                 context=context,
                 preferred_audio=preferred_audio,
             )
@@ -348,6 +351,7 @@ def capability_from_request(payload) -> ClientCapability:  # noqa: ANN001
         universal=payload.universal,
         disc_image=payload.disc_image,
         disc_folder=payload.disc_folder,
+        bluray_clips=payload.bluray_clips,
         local_tracks=payload.local_tracks,
         dolby_vision_profiles=frozenset(payload.dolby_vision_profiles),
         dolby_vision_base_layer_profiles=frozenset(payload.dolby_vision_base_layer_profiles),

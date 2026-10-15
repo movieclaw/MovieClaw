@@ -2048,6 +2048,64 @@ def test_disc_with_upper_case_stream_names_is_served(client, tmp_path):
     assert response.status_code == 200 and response.content == b"M2TS" * 64
 
 
+_BLURAY_CLIPS = {**CAPABILITY, "local_tracks": True, "bluray_clips": True}
+
+
+def test_bluray_clip_player_gets_the_clip_manifest_and_clip_bytes(client, tmp_path):
+    """按剪辑清单播放的播放器（Android 统一引擎）：会话给档 0、交付方式 clips，清单里是服务端
+    选的主片——各段的取流地址、IN/OUT、CLPI 入口点表——与各轨的编号；剪辑按 Range 出原字节，
+    不建会话、不起 ffmpeg（disc-clip-play.md）。"""
+    file_id = client.portal.call(partial(_seed_disc, tmp_path))
+    data = start_session(client, file_id, capability=_BLURAY_CLIPS)
+    assert data["decision"]["tier"] == 0 and data["decision"]["disc"] == "clips"
+    assert data["decision"]["disc_playlist"] == "00001.mpls"
+    token = data["stream_url"].split("token=", 1)[1]
+
+    # 引擎的读取器不带登录凭据，只凭签名 token
+    client.cookies.clear()
+    manifest = client.get(f"{_PB}/files/{file_id}/bluray?token={token}")
+    assert manifest.status_code == 200, manifest.text
+    body = manifest.json()["data"]
+    assert body["playlist"] == "00001.mpls"
+    assert [(c["in_time"], c["out_time"]) for c in body["clips"]] == [(0, 45_000 * 300)] * 2
+    first = body["clips"][0]
+    assert len(first["entry_pts"]) == len(first["entry_spn"]) == 75
+    # EP_map 的 PTS 丢了低 8 位（约 5.7 毫秒），关键帧照样落在它之后
+    assert first["entry_pts"][0] == 0 and 0 <= 45_000 * 4 - first["entry_pts"][1] < 256
+    assert body["audio"] == [
+        {"ref": "embedded:0", "pid": None, "codec": "aac", "language": None, "channels": 2}
+    ]
+    part = client.get(first["url"], headers={"Range": "bytes=0-3"})
+    assert part.status_code == 206 and part.content == b"M2TS"
+    assert client.get(f"{_PB}/files/{file_id}/bluray/2?token={token}").status_code == 404
+    assert client.get(f"{_PB}/files/{file_id}/bluray?token=forged").status_code == 404
+
+
+def test_bluray_image_clips_are_served_from_their_extents_in_the_image(client, tmp_path):
+    """蓝光镜像：清单与原盘目录同一形态，剪辑由服务端把镜像上的区间拼成独立文件供出。"""
+    from tests.api.test_iso_source import _bluray_image
+
+    image, first, second = _bluray_image(metadata=False)
+    file_id = seed(client, tmp_path, container="iso", data=image)
+    data = start_session(client, file_id, capability=_BLURAY_CLIPS)
+    assert data["decision"]["tier"] == 0 and data["decision"]["disc"] == "clips"
+    token = data["stream_url"].split("token=", 1)[1]
+    body = client.get(f"{_PB}/files/{file_id}/bluray?token={token}").json()["data"]
+    assert body["playlist"] == "00800.mpls"
+    for clip, payload in zip(body["clips"], (first, second), strict=True):
+        whole = client.get(clip["url"])
+        assert whole.status_code == 200 and whole.content == payload
+    tail = client.get(body["clips"][0]["url"], headers={"Range": f"bytes={len(first) - 4}-"})
+    assert tail.status_code == 206 and tail.content == first[-4:]
+
+
+def test_dvd_folder_has_no_bluray_clip_manifest(client, tmp_path):
+    file_id = client.portal.call(partial(_seed_dvd_folder, tmp_path))
+    data = start_session(client, file_id, capability=_DISC_NATIVE)
+    token = data["stream_url"].split("token=", 1)[1]
+    assert client.get(f"{_PB}/files/{file_id}/bluray?token={token}").status_code == 404
+
+
 async def _seed_dvd_folder(tmp_path: Path) -> int:
     """落一个最小的 DVD 目录：菜单与一个标题集的信息文件、两段节目流，外加一个不该直推的文件。"""
     n = next(_seed_counter)

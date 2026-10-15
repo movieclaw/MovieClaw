@@ -29,8 +29,10 @@ from movieclaw_api.services.library.bluray import (
     MPLS_CLOCK_HZ,
     ClpiParseError,
     MplsPlaylist,
+    clpi_path_for_stream,
     disc_playlist_stale,
     parse_clpi_keyframes,
+    read_clpi_entry_points,
     read_clpi_keyframes,
     read_main_playlist,
 )
@@ -182,6 +184,19 @@ class DiscSource:
         except ClpiParseError as exc:
             logger.warning("镜像里的 CLPI 关键帧表解析失败：%s（%s）", clip.clip_id, exc)
             return None
+
+    def clip_entry_points(self, clip: DiscClip) -> list[tuple[int, int]] | None:
+        """这段剪辑 CLPI 的入口点表（PTS 45 kHz, 源包号），供播放器按字节定位
+        （disc-clip-play.md）；CLPI 缺失或读不出返回 None。"""
+        if self.clpi is not None:
+            data = self.clpi.get(clip.clip_id)
+        else:
+            path = clpi_path_for_stream(clip.path)
+            try:
+                data = path.read_bytes() if path is not None else None
+            except OSError:
+                data = None
+        return read_clpi_entry_points(data) if data else None
 
     def keyframe_interval_s(self) -> float | None:
         """平均关键帧间隔（秒）——决策引擎判断能否 remux 的输入（web-player.md §3.5）。"""

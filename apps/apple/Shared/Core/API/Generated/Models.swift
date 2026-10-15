@@ -1117,6 +1117,7 @@ nonisolated extension API {
         var universal: Bool?
         var discImage: Bool?
         var discFolder: Bool?
+        var blurayClips: Bool?
         var localTracks: Bool?
         var dolbyVisionProfiles: [Int]?
         var dolbyVisionBaseLayerProfiles: [Int]?
@@ -1132,6 +1133,7 @@ nonisolated extension API {
             case universal
             case discImage = "disc_image"
             case discFolder = "disc_folder"
+            case blurayClips = "bluray_clips"
             case localTracks = "local_tracks"
             case dolbyVisionProfiles = "dolby_vision_profiles"
             case dolbyVisionBaseLayerProfiles = "dolby_vision_base_layer_profiles"
@@ -7760,6 +7762,55 @@ nonisolated extension API {
             case endedAt = "ended_at"
             case detail
             case logTail = "log_tail"
+        }
+    }
+
+    /// 主播放列表的一段剪辑：取流地址、在剪辑里播哪一截、入口点表。
+    struct PlaybackBlurayClipView: Codable, Hashable, Sendable {
+        var url: String
+        var inTime: Int
+        var outTime: Int
+        var entryPts: [Int]
+        var entrySpn: [Int]
+
+        enum CodingKeys: String, CodingKey {
+            case url
+            case inTime = "in_time"
+            case outTime = "out_time"
+            case entryPts = "entry_pts"
+            case entrySpn = "entry_spn"
+        }
+    }
+
+    /// 蓝光主片里的一路音轨 / 字幕（disc-clip-play.md §3）。
+    struct PlaybackBlurayStreamView: Codable, Hashable, Sendable {
+        var ref: String
+        var pid: Int?
+        var codec: String?
+        var language: String?
+        var channels: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case ref
+            case pid
+            case codec
+            case language
+            case channels
+        }
+    }
+
+    /// 蓝光主片的剪辑清单（disc-clip-play.md）：服务端选主片、解析结构，播放器只解复用与拼接。
+    struct PlaybackBlurayView: Codable, Hashable, Sendable {
+        var playlist: String
+        var clips: [API.PlaybackBlurayClipView]
+        var audio: [API.PlaybackBlurayStreamView]
+        var subtitles: [API.PlaybackBlurayStreamView]
+
+        enum CodingKeys: String, CodingKey {
+            case playlist
+            case clips
+            case audio
+            case subtitles
         }
     }
 

@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import json
 import logging
@@ -112,9 +113,19 @@ def probe_media(path: str | Path, *, input_args: Sequence[str] = ()) -> MediaSpe
     ``input_args`` 放在输入前（探测网盘直链时的协议白名单与断线续读，见
     ``streaming.strm_input_args``）。
     """
-    global _missing_warned
     if Path(path).suffix.lower() in IMAGE_EXTS:
         return probe_image(path)
+    if Path(path).suffix.lower() == ".iso":
+        return _probe_disc_image(path)
+    payload = _ffprobe(path, input_args)
+    if payload is None:
+        return None
+    return _parse_probe(payload, include_mpegts_pids=Path(path).suffix.lower() == ".m2ts")
+
+
+def _ffprobe(target: str | Path, input_args: Sequence[str] = ()) -> dict | None:
+    """跑一次 ffprobe（流、容器、章节），返回它的 JSON；缺失 / 超时 / 失败返回 None。"""
+    global _missing_warned
     try:
         proc = subprocess.run(
             [
@@ -129,7 +140,7 @@ def probe_media(path: str | Path, *, input_args: Sequence[str] = ()) -> MediaSpe
                 # 容器头里，与流信息同一次读取，零额外 IO
                 "-show_chapters",
                 *input_args,
-                str(path),
+                str(target),
             ],
             capture_output=True,
             timeout=_PROBE_TIMEOUT,
@@ -143,37 +154,60 @@ def probe_media(path: str | Path, *, input_args: Sequence[str] = ()) -> MediaSpe
             )
         return None
     except subprocess.TimeoutExpired:
-        logger.warning("ffprobe 探测超时（%s 秒）：%s", _PROBE_TIMEOUT, path)
+        logger.warning("ffprobe 探测超时（%s 秒）：%s", _PROBE_TIMEOUT, target)
         return None
     if proc.returncode != 0:
         logger.warning(
-            "ffprobe 探测失败：%s（%s）", path, proc.stderr.decode(errors="replace")[:200]
+            "ffprobe 探测失败：%s（%s）", target, proc.stderr.decode(errors="replace")[:200]
         )
         return None
     try:
-        payload = json.loads(proc.stdout)
+        return json.loads(proc.stdout)
     except json.JSONDecodeError:
         return None
-    spec = _parse_probe(payload, include_mpegts_pids=Path(path).suffix.lower() == ".m2ts")
-    if Path(path).suffix.lower() == ".iso":
-        spec = _with_disc_image_duration(spec, path)
-    return spec
 
 
-def _with_disc_image_duration(spec: MediaSpec, path: str | Path) -> MediaSpec:
-    """光盘镜像的片长换成盘内正片的时长（蓝光主播放列表 / DVD 正片节目链）。
+def _probe_disc_image(path: str | Path) -> MediaSpec | None:
+    """光盘镜像的规格取盘内正片，不取整个镜像。
 
-    ffprobe 对整个镜像估的片长常常离谱（NAS 实测一集 DVD 记成 4 秒、一部蓝光多出一小时），
-    「继续观看」的进度、片长显示都按台账算。读不出盘内结构就保留 ffprobe 的值。
+    ffprobe 读整个镜像只是碰巧嗅探到盘内字节：蓝光镜像多半一路流都认不出（NAS 上 46 个蓝光镜像
+    视频编码全空，播放决策没法判断能不能直推）。蓝光镜像改探主片第一段剪辑在镜像里的字节
+    （``subfile`` 协议），带上 PID 与 CLPI 里的语言——按剪辑直推的播放器靠它们对轨
+    （disc-clip-play.md）。片长换成盘内正片的时长（蓝光主播放列表 / DVD 正片节目链）：ffprobe 对
+    整个镜像估的片长常常离谱，NAS 实测一集 DVD 记成 4 秒、一部蓝光多出一小时。
+    剪辑探不出（或不是蓝光镜像）才退回探整个镜像。
     """
-    # 延迟导入：播放源模块依赖面大，探测模块保持轻量
+    # 延迟导入：播放源模块依赖面大，探测模块保持轻量；bluray 模块反过来依赖本模块
+    from movieclaw_api.services.library.bluray import (
+        ClpiParseError,
+        enrich_spec_with_clpi,
+        parse_clpi_languages,
+    )
     from movieclaw_api.services.playback.iso_source import iso_disc_source
 
+    spec = None
     source = iso_disc_source(path)
-    if source is None or source.duration_s <= 0:
+    first = source.clips[0] if source is not None and source.clips else None
+    if source is not None and source.image == "bluray" and first is not None and first.byte_ranges:
+        start, end = first.byte_ranges[0]
+        inner = _ffprobe(
+            f"subfile,,start,{start},end,{end},,:{path}",
+            ("-protocol_whitelist", "file,subfile"),
+        )
+        if inner is not None:
+            clip_spec = _parse_probe(inner, include_mpegts_pids=True)
+            clpi = (source.clpi or {}).get(first.clip_id)
+            if clpi:
+                with contextlib.suppress(ClpiParseError):
+                    clip_spec = enrich_spec_with_clpi(clip_spec, parse_clpi_languages(clpi))
+            if clip_spec.video_codec:
+                spec = clip_spec
+    if spec is None:
+        payload = _ffprobe(path)
+        spec = _parse_probe(payload) if payload is not None else None
+    if spec is None or source is None or source.duration_s <= 0:
         return spec
     return replace(spec, duration_seconds=round(source.duration_s))
-
 
 
 @dataclass(frozen=True)

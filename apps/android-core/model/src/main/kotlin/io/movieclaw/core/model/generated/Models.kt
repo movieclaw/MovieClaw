@@ -166,6 +166,7 @@ data class ClientCapabilityIn(
     @SerialName("universal") val universal: Boolean? = null,
     @SerialName("disc_image") val discImage: Boolean? = null,
     @SerialName("disc_folder") val discFolder: Boolean? = null,
+    @SerialName("bluray_clips") val blurayClips: Boolean? = null,
     @SerialName("local_tracks") val localTracks: Boolean? = null,
     @SerialName("dolby_vision_profiles") val dolbyVisionProfiles: List<Long>? = null,
     @SerialName("dolby_vision_base_layer_profiles") val dolbyVisionBaseLayerProfiles: List<Long>? = null,
@@ -1658,6 +1659,41 @@ data class PersonView(
      * 库内作品，主演在前、同档按剧组主次顺序与年份倒序（见 PersonRepository）
      */
     @SerialName("credits") val credits: List<PersonCreditView> = emptyList(),
+)
+
+/**
+ * 主播放列表的一段剪辑：取流地址、在剪辑里播哪一截、入口点表。
+ */
+@Serializable
+data class PlaybackBlurayClipView(
+    @SerialName("url") val url: String = "",
+    @SerialName("in_time") val inTime: Long = 0,
+    @SerialName("out_time") val outTime: Long = 0,
+    @SerialName("entry_pts") val entryPts: List<Long> = emptyList(),
+    @SerialName("entry_spn") val entrySpn: List<Long> = emptyList(),
+)
+
+/**
+ * 蓝光主片里的一路音轨 / 字幕（disc-clip-play.md §3）。
+ */
+@Serializable
+data class PlaybackBlurayStreamView(
+    @SerialName("ref") val ref: String = "",
+    @SerialName("pid") val pid: Long? = null,
+    @SerialName("codec") val codec: String? = null,
+    @SerialName("language") val language: String? = null,
+    @SerialName("channels") val channels: Long? = null,
+)
+
+/**
+ * 蓝光主片的剪辑清单（disc-clip-play.md）：服务端选主片、解析结构，播放器只解复用与拼接。
+ */
+@Serializable
+data class PlaybackBlurayView(
+    @SerialName("playlist") val playlist: String = "",
+    @SerialName("clips") val clips: List<PlaybackBlurayClipView> = emptyList(),
+    @SerialName("audio") val audio: List<PlaybackBlurayStreamView> = emptyList(),
+    @SerialName("subtitles") val subtitles: List<PlaybackBlurayStreamView> = emptyList(),
 )
 
 /**

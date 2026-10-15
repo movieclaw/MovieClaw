@@ -1977,6 +1977,14 @@ nonisolated extension APIClient {
         return try await send("GET", "/playback/favorites/gallery", query: query)
     }
 
+    /// 蓝光主片的剪辑清单（按剪辑直推）
+    /// `GET /playback/files/{file_id}/bluray`
+    func playbackFileBluray(fileId: Int, token: String) async throws -> API.PlaybackBlurayView {
+        var query: [URLQueryItem] = []
+        query.append(URLQueryItem(name: "token", value: "\(token)"))
+        return try await send("GET", "/playback/files/\(fileId)/bluray", query: query)
+    }
+
     /// 原盘目录清单（目录直推）
     /// `GET /playback/files/{file_id}/disc`
     func playbackFileDiscList(fileId: Int, token: String) async throws -> API.PlaybackDiscListingView {
@@ -3035,6 +3043,7 @@ nonisolated extension APIClient {
 // - GET /api/v1/members/{member_id}/avatar（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/offline/exports/{export_id}/content（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/offline/files/{file_id}/content（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/playback/files/{file_id}/bluray/{index}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/playback/files/{file_id}/disc/{relative_path}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/playback/files/{file_id}/fonts/{name}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/playback/files/{file_id}/stream（无响应模型：文件流/SSE 等，需手写）

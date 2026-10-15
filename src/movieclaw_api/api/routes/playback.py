@@ -39,6 +39,9 @@ from movieclaw_api.schemas.playback import (
     MediaActivityView,
     PlaybackArtifactUploadView,
     PlaybackAttemptView,
+    PlaybackBlurayClipView,
+    PlaybackBlurayStreamView,
+    PlaybackBlurayView,
     PlaybackChapterMarkView,
     PlaybackClientLogPayload,
     PlaybackDecideRequest,
@@ -176,6 +179,7 @@ from movieclaw_playback.keyframes import read_keyframe_index, schedule_backgroun
 from movieclaw_playback.streaming import (
     ClientDisconnected,
     DisconnectAwareFileResponse,
+    FileWindowResponse,
     RemoteRelayResponse,
     StrmError,
     StrmLink,
@@ -2071,8 +2075,12 @@ def _metered_file_response(
     *,
     byte_patches=None,
     size_bytes: int | None = None,
+    windows: tuple[tuple[int, int], ...] | None = None,
 ) -> Response:
-    """按 Range 出一个磁盘文件，并登记到设备流与活动页（原文件直出与原盘目录直推共用）。"""
+    """按 Range 出一个磁盘文件，并登记到设备流与活动页（原文件直出与原盘目录直推共用）。
+
+    ``windows`` 给了就只出文件里的这几截、首尾相接当一个文件（光盘镜像里的蓝光剪辑）。
+    """
     # 播放体验打点的取流计时（playback-qoe.md §5.3）：令牌里带播放编号才计
     probe = qoe.serve_probe(grant.attempt_id)
     stream = _register_play_stream(
@@ -2082,13 +2090,18 @@ def _metered_file_response(
         name=path.name,
         size_bytes=size_bytes if size_bytes is not None else (file.size_bytes or 0),
     )
+    response_class = DisconnectAwareFileResponse
+    extra = {}
+    if windows is not None:
+        response_class, extra = FileWindowResponse, {"windows": windows}
     if stream is None:
-        return DisconnectAwareFileResponse(
-            path, media_type=media_type, byte_patches=byte_patches, probe=probe
+        return response_class(
+            path, media_type=media_type, byte_patches=byte_patches, probe=probe, **extra
         )
     session_stopped, byte_sink, on_close = stream
-    return DisconnectAwareFileResponse(
+    return response_class(
         path,
+        **extra,
         media_type=media_type,
         session_stopped=session_stopped,
         byte_sink=byte_sink,
@@ -2217,8 +2230,13 @@ def _disc_tree(disc_dir: PathLib) -> dict[str, tuple[str, PathLib, int]]:
     return found
 
 
-async def _disc_file_owner(file_id: int, token: str, session: AsyncSession):
-    """目录直推两个接口共用的校验：token、拒绝窗口、台账行（只认原盘目录）。"""
+async def _disc_file_owner(
+    file_id: int,
+    token: str,
+    session: AsyncSession,
+    containers: frozenset[str] = _DISC_FOLDER_CONTAINERS,
+):
+    """目录直推、剪辑清单几个接口共用的校验：token、拒绝窗口、台账行（只认 ``containers``）。"""
     grant = await verify_stream_token(token, file_id=file_id)
     if grant is None:
         raise NotFoundException("播放地址无效或已过期")
@@ -2229,7 +2247,7 @@ async def _disc_file_owner(file_id: int, token: str, session: AsyncSession):
         raise NotFoundException("文件不存在")
     # 与原文件直出同理：读完台账立刻还连接，往下只用已读出的列
     await session.close()
-    if (file.container or "") not in _DISC_FOLDER_CONTAINERS:
+    if (file.container or "") not in containers:
         raise NotFoundException("不是原盘目录（蓝光 BDMV / DVD VIDEO_TS），没有可直推的目录清单")
     return grant, file
 
@@ -2296,6 +2314,109 @@ async def stream_disc_file(
         else "application/octet-stream"
     )
     return _metered_file_response(request, grant, file, path, media_type, size_bytes=size)
+
+
+_BLURAY_CONTAINERS = frozenset({"bluray", "iso"})
+
+
+async def _bluray_source(file_id: int, token: str, session: AsyncSession):
+    """剪辑清单两个接口共用：校验之后解析蓝光主片（原盘目录或蓝光镜像，结果有缓存）。"""
+    grant, file = await _disc_file_owner(file_id, token, session, _BLURAY_CONTAINERS)
+    disc = await asyncio.to_thread(transcode_disc_source, file)
+    if disc is None or disc.image == "dvd" or not disc.clips:
+        raise NotFoundException("读不出这张原盘的蓝光主片（MPLS / UDF 结构缺失或损坏）")
+    return grant, file, disc
+
+
+def _bluray_streams(raw_streams: list | None) -> list[PlaybackBlurayStreamView]:
+    return [
+        PlaybackBlurayStreamView(
+            ref=f"embedded:{index}",
+            pid=raw.get("pid") if isinstance(raw.get("pid"), int) else None,
+            codec=raw.get("codec") or None,
+            language=raw.get("language") or None,
+            channels=raw.get("channels") if isinstance(raw.get("channels"), int) else None,
+        )
+        for index, raw in enumerate(raw_streams or [])
+        if isinstance(raw, dict)
+    ]
+
+
+@stream_router.get(
+    "/files/{file_id}/bluray",
+    response_model=ApiResponse[PlaybackBlurayView],
+    summary="蓝光主片的剪辑清单（按剪辑直推）",
+    operation_id="playback.file.bluray",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def get_bluray_clips(
+    file_id: Annotated[int, Path(ge=1)],
+    token: Annotated[str, Query(min_length=1)],
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[PlaybackBlurayView]:
+    """服务端选好的主片：每段剪辑的取流地址、IN/OUT 与入口点表，以及各轨的 PID 与语言
+    （disc-clip-play.md）。播放器只做 m2ts 解复用与拼接，光盘结构不在本机解析；
+    服务端只读 MPLS / CLPI（镜像里的读一次缓存），不起任何进程。"""
+    _grant, file, disc = await _bluray_source(file_id, token, session)
+    clips = []
+    for index, clip in enumerate(disc.clips):
+        points = await asyncio.to_thread(disc.clip_entry_points, clip)
+        if not points:
+            raise NotFoundException("原盘剪辑信息（CLPI）读不出，播放器没法定位")
+        clips.append(
+            PlaybackBlurayClipView(
+                url=f"/api/v1/playback/files/{file_id}/bluray/{index}?token={token}",
+                in_time=clip.in_time,
+                out_time=clip.out_time,
+                entry_pts=[pts for pts, _ in points],
+                entry_spn=[spn for _, spn in points],
+            )
+        )
+    return ok(
+        PlaybackBlurayView(
+            playlist=disc.playlist_name,
+            clips=clips,
+            audio=_bluray_streams(file.audio_streams),
+            subtitles=_bluray_streams(file.subtitle_streams),
+        )
+    )
+
+
+@stream_router.get(
+    "/files/{file_id}/bluray/{index}",
+    summary="蓝光主片的一段剪辑（按 Range）",
+    operation_id="playback.file.bluray.clip",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def stream_bluray_clip(
+    file_id: Annotated[int, Path(ge=1)],
+    index: Annotated[int, Path(ge=0)],
+    request: Request,
+    token: Annotated[str, Query(min_length=1)],
+    session: AsyncSession = Depends(get_session),
+):
+    """剪辑清单里第 ``index`` 段的原字节（m2ts）。镜像里的剪辑把镜像上的几截拼成一个文件供出；
+    取流照常记到设备流与活动页。"""
+    grant, file, disc = await _bluray_source(file_id, token, session)
+    if index >= len(disc.clips):
+        raise NotFoundException("原盘剪辑不存在")
+    clip = disc.clips[index]
+    if clip.byte_ranges is None and not clip.path.is_file():
+        raise NotFoundException("原盘剪辑文件不存在")
+    size = (
+        sum(end - start for start, end in clip.byte_ranges)
+        if clip.byte_ranges is not None
+        else clip.path.stat().st_size
+    )
+    return _metered_file_response(
+        request,
+        grant,
+        file,
+        clip.path,
+        container_mime_type("m2ts"),
+        size_bytes=size,
+        windows=clip.byte_ranges,
+    )
 
 
 async def _extract_subtitle_until_disconnect(request: Request, file: LibraryFile, index: int):

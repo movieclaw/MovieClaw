@@ -314,6 +314,14 @@ class McApi(private val transport: ApiTransport) {
         return transport.send("GET", "/playback/files/${fileId}/trickplay", query, null, serializer<TrickplayView>(), enveloped = true)
     }
 
+    /** 蓝光主片的剪辑清单（按剪辑直推）（`GET /playback/files/{file_id}/bluray`） */
+    suspend fun playbackFileBluray(fileId: Long, token: String): PlaybackBlurayView {
+        val query = buildList<Pair<String, String>> {
+            add("token" to token.toString())
+        }
+        return transport.send("GET", "/playback/files/${fileId}/bluray", query, null, serializer<PlaybackBlurayView>(), enveloped = true)
+    }
+
     /** 播放器客户端日志（`POST /playback/client-log`） */
     suspend fun playbackClientLog(body: PlaybackClientLogPayload): JsonObject {
         val query = emptyList<Pair<String, String>>()

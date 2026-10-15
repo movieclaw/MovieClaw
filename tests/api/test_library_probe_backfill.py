@@ -293,6 +293,34 @@ async def test_reprobed_rows_do_not_come_back(db, tmp_path, monkeypatch) -> None
     assert calls == []
 
 
+async def test_disc_images_without_a_video_codec_are_reprobed_once(
+    db, tmp_path, monkeypatch
+) -> None:
+    """光盘镜像早先按整个镜像探，蓝光镜像多半什么都没认出（视频编码为空，播放决策判断不了能不能
+    直推）：改探盘内正片后，手动扫描把这些行捞回来重探一次，探出编码后不再进队列。"""
+    _with_ffprobe(monkeypatch)
+    library_id = await _build(db, tmp_path)
+    await scan_library(library_id)
+    async with db.session() as session:
+        for row in (await session.execute(select(LibraryFile))).scalars().all():
+            row.container = "iso"
+            row.video_codec = None
+            row.audio_streams = []
+            session.add(row)
+        await session.commit()
+
+    calls: list[str] = []
+    _with_ffprobe(monkeypatch, calls)
+    summary = await scan_library(library_id)
+    assert summary.probed == 3 and len(calls) == 3
+    rows = await _rows(db)
+    assert all(r.video_codec == "hevc" and r.audio_streams for r in rows)
+
+    calls.clear()
+    assert (await scan_library(library_id)).probed == 0
+    assert calls == []
+
+
 async def test_files_without_color_tags_are_not_reprobed_forever(
     db, tmp_path, monkeypatch
 ) -> None:

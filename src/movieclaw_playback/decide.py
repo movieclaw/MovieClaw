@@ -154,6 +154,9 @@ class MediaProfile:
     #: 原盘主播放列表的文件名（如 ``00800.mpls``）：目录直推时随计划下发，播放器按名字
     #: 选同一部主片——服务端的诱饵判定与台账时长同一口径
     disc_playlist: str | None = None
+    #: 原盘的种类："bluray"（原盘目录或蓝光镜像）/ "dvd"（DVD 镜像）；非原盘、或镜像读不出为 None。
+    #: 能按剪辑清单播放的播放器只接蓝光（disc-clip-play.md）
+    disc_format: str | None = None
     #: DVD 目录（VIDEO_TS 文件夹）：没有单个文件可直连，服务端也不解析它的结构；
     #: 能读目录的播放器按目录直推，自己读 IFO 选正片、拼接 VOB（disc-direct-play.md §2.7）
     dvd_folder: bool = False
@@ -500,7 +503,19 @@ def decide_playback(
         audio_tracks=media.audio_tracks,
         reason=reason,
         degraded_from=degraded_from,
+        **(
+            {"disc": "clips", "disc_playlist": media.disc_playlist}
+            if tier is PlaybackTier.DIRECT_PLAY and _plays_bluray_clips(media, capability)
+            else {}
+        ),
     )
+
+
+def _plays_bluray_clips(media: MediaProfile, capability: ClientCapability) -> bool:
+    """蓝光主片交给播放器按剪辑清单直推（disc-clip-play.md）：服务端选主片、给各剪辑的
+    取流地址与入口点表，播放器只解复用与拼接，NAS 不起 ffmpeg。编码能不能直通照常判定，
+    解不了的（VC-1、播放器没有的音频编码）仍走换封装 / 转码。"""
+    return capability.bluray_clips and media.disc_format == "bluray" and media.disc_clips >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -821,7 +836,11 @@ def _resolve_tier(
         container = (media.container or "").lower()
         # 播放器申报能直接解封装的容器（原生播放器的 mkv / ts / webm……）同样直连；
         # 能在本机切轨的播放器不用为「选中的不是默认轨」重封装
-        direct = container in DIRECT_PLAY_CONTAINERS or container in capability.containers
+        direct = (
+            container in DIRECT_PLAY_CONTAINERS
+            or container in capability.containers
+            or _plays_bluray_clips(media, capability)
+        )
         if direct and (not audio.needs_remap or capability.local_tracks):
             tier = PlaybackTier.DIRECT_PLAY
         elif audio.needs_remap:

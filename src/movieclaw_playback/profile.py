@@ -33,6 +33,7 @@ def media_profile_from_file(
     keyframe_interval_s: float | None = None,
     disc_clips: int = 0,
     disc_playlist: str | None = None,
+    disc_format: str | None = None,
     context: TrackContext | None = None,
     preferred_audio: str | None = None,
 ) -> MediaProfile:
@@ -41,7 +42,8 @@ def media_profile_from_file(
     ``keyframe_interval_s`` 由调用方从关键帧索引算出（§3.5）；未就绪时传 None，
     决策引擎会保守地不走 remux——档 1/2 的分片只能切在源片已有的 IDR 上，
     索引未知就赌不起。``disc_clips`` 是原盘主播放列表的段数（非原盘为 0），
-    由调用方从播放源解析器取——本模块不碰磁盘；``disc_playlist`` 是它的文件名。
+    由调用方从播放源解析器取——本模块不碰磁盘；``disc_playlist`` 是它的文件名，``disc_format``
+    是原盘种类（"bluray" / "dvd"）。
 
     ``context`` 是默认轨策略的上下文（库语言、原始语言，见 track_policy），``preferred_audio`` 是
     这次要放的音轨（用户点选 / 记忆）——默认字幕要看放的是哪种语言的音轨。不给上下文时按旧规则。
@@ -64,6 +66,7 @@ def media_profile_from_file(
         is_strm=is_strm(file.file_path),
         disc_clips=disc_clips,
         disc_playlist=disc_playlist,
+        disc_format=disc_format,
         dvd_folder=(file.container or "") == "dvd",
     )
 

@@ -3325,7 +3325,9 @@ async def _probe_backfill(
       ``frame_rate`` / ``color_space`` 与 Dolby Vision 识别后，早于那一版入库的行
       永远拿不到这几项，播放链读台账，DV P5 也就永远不做色调映射（issue #331）；
     - BDMV 另以流 JSON 内的 CLPI 版本戳判断：已有数组但未读过 CLPI 的旧行
-      也进入一次补探。
+      也进入一次补探；
+    - 光盘镜像没有视频编码的：早先按整个镜像探，蓝光镜像多半什么都没认出，现在改探盘内正片
+      （media_probe._probe_disc_image），重探一次就有了。
 
     版本落后的行**只进手动扫描的全量补探**，不进下面的限量自愈：自愈每轮每库
     只有十个名额，是给"瞬时失败几个周期内收敛"用的；把整库的陈旧行灌进去，
@@ -3348,6 +3350,7 @@ async def _probe_backfill(
                     or_(
                         LibraryFile.audio_streams.is_(None),  # type: ignore[union-attr]
                         LibraryFile.container == "bluray",
+                        LibraryFile.container == "iso",
                         # 限量自愈模式下这一条会在下面被过滤掉，见函数文档
                         LibraryFile.probe_version.is_(None),  # type: ignore[union-attr]
                         LibraryFile.probe_version < PROBE_SCHEMA_VERSION,  # type: ignore[operator]
@@ -3367,6 +3370,7 @@ async def _probe_backfill(
         for row in rows
         if row.audio_streams is None
         or (row.probe_version or 0) < PROBE_SCHEMA_VERSION
+        or (row.container == "iso" and row.video_codec is None)
         or (
             row.container == "bluray"
             and (

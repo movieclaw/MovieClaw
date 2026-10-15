@@ -1503,6 +1503,44 @@ def test_declared_container_skips_keyframe_probe():
     assert not needs_keyframe_probe(media(keyframe_interval_s=None), EXOPLAYER, WITH_GPU)
 
 
+BLURAY_EXO = ClientCapability(
+    **{
+        **vars(EXOPLAYER),
+        "audio": (AudioSupport("aac"), AudioSupport("ac3"), AudioSupport("truehd")),
+        "bluray_clips": True,
+    }
+)
+BLURAY_TRUEHD = AudioTrack(ref="embedded:0", codec="truehd", channels=6, is_default=True)
+
+
+@pytest.mark.parametrize("container", ["bluray", "iso"])
+def test_bluray_clip_player_direct_plays_the_main_title(container):
+    """能按剪辑清单播放的播放器（Android 统一引擎）：蓝光原盘目录与蓝光镜像都给档 0、交付方式
+    clips，带上服务端选的主播放列表——NAS 不起 ffmpeg（disc-clip-play.md）。"""
+    disc = media(
+        container=container, disc_clips=3, disc_playlist="00800.mpls", disc_format="bluray",
+        audio_tracks=(BLURAY_TRUEHD,),
+    )
+    decision = decide_playback(disc, BLURAY_EXO, WITH_GPU)
+    assert decision.tier is PlaybackTier.DIRECT_PLAY
+    assert decision.disc == "clips" and decision.disc_playlist == "00800.mpls"
+
+
+def test_bluray_clips_still_check_codecs_and_leave_dvd_and_old_players_alone():
+    """剪辑清单只替换「怎么供字节」：解不了的编码照旧换封装 / 转码；DVD 镜像不走它；
+    没申报的播放器维持服务端换封装。"""
+    bluray = media(
+        container="bluray", disc_clips=2, disc_format="bluray", audio_tracks=(BLURAY_TRUEHD,)
+    )
+    vc1 = decide_playback(media(**{**vars(bluray), "video_codec": "vc1"}), BLURAY_EXO, WITH_GPU)
+    assert vc1.tier is PlaybackTier.HARDWARE_TRANSCODE and vc1.disc is None
+    dvd = media(container="iso", video_codec="mpeg2video", disc_clips=1, disc_format="dvd")
+    assert decide_playback(dvd, BLURAY_EXO, WITH_GPU).disc is None
+    old = ClientCapability(**{**vars(BLURAY_EXO), "bluray_clips": False})
+    remuxed = decide_playback(bluray, old, WITH_GPU)
+    assert remuxed.tier is not PlaybackTier.DIRECT_PLAY and remuxed.disc is None
+
+
 def test_hdr_without_free_hardware_says_busy_when_the_remote_transcoder_is_full():
     """远程转码器在线但名额占满：不说「未检测到硬件」（会把人支去查一台好好的转码器），
     说正忙、稍候或停掉别的转码。"""

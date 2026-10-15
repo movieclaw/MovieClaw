@@ -96,6 +96,9 @@ var knownNonGenerated = []string{
 	// 原盘目录直推（disc-direct-play.md）：目录清单与盘内文件的 Range 取流，只给播放引擎用
 	"playback.file.disc.list",
 	"playback.file.disc.file",
+	// 蓝光剪辑清单（disc-clip-play.md）：Android 统一引擎按剪辑取字节，只给播放引擎用
+	"playback.file.bluray",
+	"playback.file.bluray.clip",
 	"playback.file.subtitle",
 	"playback.file.fonts",
 	"playback.file.font",

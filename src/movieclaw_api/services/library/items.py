@@ -3073,11 +3073,14 @@ async def backfill_streams(
         # 新增帧率/色彩空间后，历史行两列同时为空时允许整库扫描补探一次。
         # 正常视频至少能取得其中一项，避免个别元数据缺失的文件每轮重复 ffprobe。
         needs_visual_details = row.frame_rate is None and row.color_space is None
+        # 光盘镜像早先按整个镜像探，蓝光镜像多半没认出视频：改探盘内正片后重探一次
+        needs_image = row.container == "iso" and row.video_codec is None
         if (
             row.audio_streams is not None
             and not needs_clpi
             and not needs_disc
             and not needs_visual_details
+            and not needs_image
         ) or row.state != FileState.IN_PLACE:
             if not await keep_going():
                 break

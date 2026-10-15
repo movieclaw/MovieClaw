@@ -294,6 +294,9 @@ _PUBLIC_ALLOWLIST = {
     # 只凭查询参数里的签名 token，引擎的读取器不带登录凭据
     ("GET", "/api/v1/playback/files/{file_id}/disc"),
     ("GET", "/api/v1/playback/files/{file_id}/disc/{relative_path}"),
+    # 蓝光剪辑清单（disc-clip-play.md）：Android 统一引擎的读取器同样只凭签名 token
+    ("GET", "/api/v1/playback/files/{file_id}/bluray"),
+    ("GET", "/api/v1/playback/files/{file_id}/bluray/{index}"),
     ("GET", "/api/v1/playback/files/{file_id}/subtitles"),
     # 预切片段（reels.md §8）：系统播放器按 Range 取，同原文件直出只凭签名 token
     ("GET", "/api/v1/reels/clips/{file_id}/{start_ms}.mp4"),
