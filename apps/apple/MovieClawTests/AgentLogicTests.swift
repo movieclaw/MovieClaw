@@ -294,6 +294,15 @@ struct AgentLogicTests {
         #expect(stoppedRows.last?.spacing == 6)
     }
 
+    @Test func shortConversationsLayOutTheWholeTranscript() {
+        // 只数提问与正文；处理过程不上屏，不算
+        let answer = String(repeating: "答", count: 3_000)
+        let bash = AgentProcessItem.tool(AgentToolCall(id: "t", name: "bash", label: String(repeating: "x", count: 50_000)))
+        #expect(AgentTranscriptLayout.prefersEagerLayout([turn("a", [.process([bash]), .text(answer)]), turn("b", [.text(answer)])]))
+        #expect(!AgentTranscriptLayout.prefersEagerLayout((0 ..< 3).map { turn("\($0)", [.text(answer)]) }))
+        #expect(AgentTranscriptLayout.prefersEagerLayout([]))
+    }
+
     @Test func transcriptViewportMeasuresTheReadableAreaBetweenBars() {
         // iPhone Air 实测：visibleRect 盖住整屏 912pt，顶栏 122、输入区 127 在它里面
         let insets = EdgeInsets(top: 122, leading: 0, bottom: 127, trailing: 0)

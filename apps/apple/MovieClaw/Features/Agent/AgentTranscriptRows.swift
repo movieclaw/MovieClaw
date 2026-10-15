@@ -81,6 +81,21 @@ enum AgentTranscriptLayout {
     /// 正文不超过这么多字就整段一个行（一个完整气泡）；超过才按块拆行保懒加载——
     /// 长回答整块排版会冻住主线程（见文件头），普通回答一屏左右，整块排版无感
     static let wholeBubbleMaxChars = 1500
+    /// 整个会话的提问 + 正文不超过这么多字，消息列就不用懒加载、整列按真实高度排版。
+    /// 懒加载只能估算屏幕外行的高度，短会话行少、高矮悬殊（一行时间 20pt、一整段回答上千 pt），估算会离谱：
+    /// 真机实测 4 行的会话报告内容高 2400、实际约 1570，滚动位置按错的高度贴底，进来要等下一次排版才拉回
+    static let eagerLayoutMaxChars = 8000
+
+    static func prefersEagerLayout(_ turns: [AgentTurn]) -> Bool {
+        var total = 0
+        for turn in turns {
+            total += turn.input.count
+            for case let .text(text) in turn.segments { total += text.count }
+            if total > eagerLayoutMaxChars { return false }
+        }
+        return true
+    }
+
     /// 是否显示处理过程胶囊（思维链 + 工具调用）。2026-10-12 用户要求先隐藏、代码保留，改回 true 即恢复；
     /// 工具产出的媒体卡片不受影响
     nonisolated static let showsProcess = false

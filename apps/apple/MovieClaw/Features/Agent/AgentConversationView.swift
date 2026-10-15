@@ -35,6 +35,8 @@ struct AgentConversationView: View {
     @State private var askingConsent = false
     @State private var latestRequest = 0
     @State private var scroll = AgentTranscriptScroll()
+    /// 消息列是否整列排版（见 AgentTranscriptLayout.prefersEagerLayout）：进页面时定一次，流式变长也不中途换容器
+    @State private var eagerLayout: Bool?
     @State private var kickoff = AgentLoadKickoff()
     /// 输入框晚一拍建：App 这次运行里第一次建输入框很重（模拟器实测 120～280ms，同一次运行里再建只要约 10ms），
     /// 跟着页面一起建会把页面跳转推迟这么久。首帧先放等高占位，跳转画面出去后马上建——此时正在等轨迹，
@@ -152,9 +154,10 @@ struct AgentConversationView: View {
 
     private func transcript(proxy: ScrollViewProxy) -> some View {
         let running = conversation.running
+        let eager = eagerLayout ?? AgentTranscriptLayout.prefersEagerLayout(conversation.turns)
         return ScrollView {
-            // 段落级的行（见 AgentTranscriptRows）：进页面只构建、排版最底下一屏，长会话不再整轮卡住
-            LazyVStack(alignment: .leading, spacing: 0) {
+            // 段落级的行（见 AgentTranscriptRows）：长会话懒加载，进页面只构建、排版最底下一屏，不再整轮卡住
+            AgentTranscriptStack(eager: eager) {
                 ForEach(conversation.rows) { row in
                     // 运行中不给改写入口：服务端会拒绝替换正在写轨迹的会话
                     AgentTranscriptRowView(
@@ -174,9 +177,9 @@ struct AgentConversationView: View {
                 }
                 Color.clear.frame(height: 16).id(Self.bottomID)
             }
-            .scrollTargetLayout()
             .padding(.top, 16)
         }
+        .onAppear { if eagerLayout == nil { eagerLayout = eager } }
         .accessibilityIdentifier("agent-transcript")
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         .defaultScrollAnchor(scroll.followsLatest ? .bottom : nil, for: .sizeChanges)
@@ -437,6 +440,20 @@ struct AgentConversationView: View {
                 // 停止失败时 Agent 可能仍在执行，不在客户端伪造终态；真实终态仍会经事件流落到界面
                 feedback.error("停止失败，请稍后重试：\(error.localizedDescription)")
             }
+        }
+    }
+}
+
+/// 消息列的容器：短会话整列排版，长会话懒加载
+private struct AgentTranscriptStack<Content: View>: View {
+    let eager: Bool
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        if eager {
+            VStack(alignment: .leading, spacing: 0) { content }.scrollTargetLayout()
+        } else {
+            LazyVStack(alignment: .leading, spacing: 0) { content }.scrollTargetLayout()
         }
     }
 }
