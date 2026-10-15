@@ -1,5 +1,6 @@
 package io.movieclaw.core.playback
 
+import io.movieclaw.core.model.generated.PlaybackBlurayView
 import io.movieclaw.core.model.generated.PlaybackClientLogPayload
 import io.movieclaw.core.model.generated.PlaybackItemView
 import io.movieclaw.core.model.generated.PlaybackMetricPayload
@@ -30,6 +31,9 @@ interface PlaybackBackend {
     /** 进度条缩略图索引；访客没有这个接口，返回 null */
     suspend fun trickplay(fileId: Long, token: String): TrickplayView?
 
+    /** 蓝光主片的剪辑清单（disc-clip-play.md）；凭取流 token，成员与访客同一个接口 */
+    suspend fun bluray(fileId: Long, token: String): PlaybackBlurayView
+
     /**
      * 播放质量记录与客户端日志只记在成员名下。访客播放不攒记录：本机的待发队列是按设备的，
      * 访客的记录排进去之后会被下一次成员播放用成员身份发出去，算到别人头上。
@@ -54,6 +58,7 @@ class MemberBackend(private val api: McApi) : PlaybackBackend {
     override suspend fun enableSoftwareTranscode(): Boolean =
         api.playbackPolicySet(PlaybackPolicyPayload(softwareTranscodeEnabled = true)).softwareTranscodeEnabled
     override suspend fun trickplay(fileId: Long, token: String): TrickplayView = api.playbackFileTrickplay(fileId, token)
+    override suspend fun bluray(fileId: Long, token: String): PlaybackBlurayView = api.playbackFileBluray(fileId, token)
     override val reportsMetrics: Boolean get() = true
     override suspend fun reportMetric(payload: PlaybackMetricPayload) {
         api.playbackMetricReport(payload)
@@ -77,6 +82,7 @@ class ShareBackend(private val api: McApi, private val slug: String) : PlaybackB
     override suspend fun progress(body: PlaybackProgressRequest) = api.sharePlaybackProgress(slug, body)
     override suspend fun enableSoftwareTranscode(): Boolean? = null
     override suspend fun trickplay(fileId: Long, token: String): TrickplayView? = null
+    override suspend fun bluray(fileId: Long, token: String): PlaybackBlurayView = api.playbackFileBluray(fileId, token)
     override val reportsMetrics: Boolean get() = false
     override suspend fun reportMetric(payload: PlaybackMetricPayload) = Unit
     override suspend fun clientLog(payload: PlaybackClientLogPayload) = Unit

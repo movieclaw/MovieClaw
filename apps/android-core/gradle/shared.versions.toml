@@ -30,3 +30,4 @@ ass-media = { module = "io.github.peerless2012:ass-media", version = "0.5.1" }
 androidx-annotation = { module = "androidx.annotation:annotation", version = "1.9.1" }
 checker-qual = { module = "org.checkerframework:checker-qual", version = "3.49.3" }
 junit = { module = "junit:junit", version.ref = "junit" }
+robolectric = { module = "org.robolectric:robolectric", version = "4.16" }

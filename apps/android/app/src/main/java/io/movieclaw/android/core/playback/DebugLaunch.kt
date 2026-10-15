@@ -16,10 +16,11 @@ import kotlinx.coroutines.launch
  * 调试包的直达参数（与 TV 版 `LaunchArgs` 同一套；故障注入实验台 scripts/perf/androidtv_faultlab 用它驱动手机包）。
  * 正式包一概不认。
  *
- *   adb shell am start -n io.movieclaw.android/.MainActivity \
+ *   adb shell am start -f 0x20000000 -n io.movieclaw.android/.MainActivity \
  *     --es mc_server http://10.0.2.2:8830 --es mc_user admin --es mc_pass xxx \
  *     --es mc_route '/play/17/s01e01?t=60' [--es mc_lab 场景名]
  *
+ * `-f 0x20000000`（SINGLE_TOP）不能省：MainActivity 是 standard 启动模式，不带它参数到不了已在前台的实例。
  * 播放中再发：`--el mc_seek_ms <文件时间毫秒>`、`--es mc_audio embedded:1`、`--es mc_subtitle embedded:0|off`。
  * `mc_route` 只认 `/play/` 开头的值，其余仍按通知路由处理（见 MainActivity）。
  */

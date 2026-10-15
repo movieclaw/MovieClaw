@@ -35,6 +35,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException
 import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.session.MediaSession
+import io.movieclaw.core.model.generated.PlaybackBlurayView
 import io.movieclaw.core.model.generated.PlaybackClientLogPayload
 import io.movieclaw.core.model.generated.PlaybackDecisionView
 import io.movieclaw.core.model.generated.PlaybackMetricPayload
@@ -47,6 +48,7 @@ import io.movieclaw.core.network.ClientIdentity
 import io.movieclaw.core.network.ImageUrls
 import io.movieclaw.core.network.ServerAddress
 import io.movieclaw.core.network.UnreachableException
+import io.movieclaw.core.playback.disc.BluRaySource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -215,6 +217,8 @@ class PlaybackController(
     /** 装载过媒体（对应 Apple 端 engine != nil）；换集时清掉 */
     private var mediaLoaded = false
     private var playsOriginalFile = false
+    /** 放的是蓝光剪辑清单（disc-clip-play.md）：Exo 读到的轨 id 已改写成服务端的编号，按 id 对应 embedded:N */
+    private var playsBlurayClips = false
     private var originMs = 0L
     /** 本机本单元解不了原文件：改走服务端流（只有「解不了」才设，网络问题从不设） */
     private var nativeFailed = false
@@ -511,7 +515,8 @@ class PlaybackController(
             mediaItemId = unit.mediaItemId,
             seasonNumber = unit.season,
             episodeNumber = unit.episode,
-            capability = capability.probe(),
+            // 正片播放器能按剪辑清单放蓝光原盘（disc-clip-play.md）；刷片的片段播放器不能，所以不放进 CapabilityProbe
+            capability = capability.probe().copy(blurayClips = true),
             failedTiers = tiers.toList().takeIf { it.isNotEmpty() },
             audioTrack = requestedAudio,
             // Exo 直连时自己画内封 / 外挂字幕，不需要服务端烧录：默认显式传 off，挡住记忆轨触发的烧录
@@ -554,7 +559,29 @@ class PlaybackController(
             opened.sessionId?.let { sid -> scope.launch { runCatching { backend.stopSession(sid) } } }
             return
         }
-        handleSession(opened, startMs)
+        val bluray = if (opened.decision.disc == "clips" && opened.decision.tier == 0L) {
+            // 蓝光原盘按剪辑清单直推：取不到清单（老服务端、盘读不出）就改走服务端流
+            val fileId = opened.decision.fileId
+            val token = tokenIn(opened.streamUrl)
+            val view = try {
+                if (fileId != null && token != null) backend.bluray(fileId, token) else null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "取蓝光剪辑清单失败", e)
+                null
+            }
+            if (myAttempt != attempt || closed) return
+            if (view == null || view.clips.isEmpty()) {
+                opened.sessionId?.let { sid -> scope.launch { runCatching { backend.stopSession(sid) } } }
+                nativeFallback("取不到蓝光原盘的剪辑清单")
+                return
+            }
+            view
+        } else {
+            null
+        }
+        handleSession(opened, startMs, bluray)
     }
 
     private fun isTransient(e: Exception): Boolean = when (e) {
@@ -563,7 +590,7 @@ class PlaybackController(
         else -> e is java.io.IOException
     }
 
-    private fun handleSession(opened: PlaybackSessionView, requestedStartMs: Long?) {
+    private fun handleSession(opened: PlaybackSessionView, requestedStartMs: Long?, bluray: PlaybackBlurayView? = null) {
         val decision = opened.decision
         when (decision.outcome) {
             "consent" -> {
@@ -616,6 +643,7 @@ class PlaybackController(
         } ?: return fail("服务端没有给出播放地址", null)
 
         playsOriginalFile = original
+        playsBlurayClips = original && bluray != null
         originMs = if (original || opened.timeline == "file") 0 else opened.startMs
         record?.let { r ->
             r.mark("session_ready")
@@ -688,8 +716,22 @@ class PlaybackController(
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
             .build()
         engineFacts.reset()
-        EngineLog.add("player", "装载 ${if (original) "原文件" else "服务端流"} 档 ${decision.tier} 起点 ${position / 1000}s")
-        exo.setMediaItem(item, (position - originMs).coerceAtLeast(0))
+        val discSource = if (playsBlurayClips && bluray != null) {
+            BluRaySource.build(bluray, item, dataSource) { path -> server.resolve(path)?.toString() }
+                ?: return fail("蓝光原盘的剪辑地址无效", null)
+        } else {
+            null
+        }
+        EngineLog.add(
+            "player",
+            "装载 ${if (discSource != null) "蓝光剪辑 ${bluray?.clips?.size} 段" else if (original) "原文件" else "服务端流"} " +
+                "档 ${decision.tier} 起点 ${position / 1000}s",
+        )
+        if (discSource != null) {
+            exo.setMediaSource(discSource, (position - originMs).coerceAtLeast(0))
+        } else {
+            exo.setMediaItem(item, (position - originMs).coerceAtLeast(0))
+        }
         exo.playWhenReady = s.wantsPlay
         exo.prepare()
         mediaLoaded = true
@@ -1068,7 +1110,7 @@ class PlaybackController(
         // 起播音轨：服务端挑的轨交给 Exo（只做一次）
         pendingInitialAudio?.let { index ->
             pendingInitialAudio = null
-            audioGroups(tracks).getOrNull(index)?.takeIf { !it.isSelected && it.isSupported(true) }?.let { group ->
+            embeddedGroup(audioGroups(tracks), index)?.takeIf { !it.isSelected && it.isSupported(true) }?.let { group ->
                 exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
                     .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0)).build()
             }
@@ -1080,6 +1122,13 @@ class PlaybackController(
     private fun audioGroups(tracks: Tracks = exo.currentTracks) =
         ContainerTrackOrder.sorted(tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }) { it.getTrackFormat(0).id }
 
+    /** 服务端的 embedded:N 在 Exo 里的分组：一般按容器顺序的位置；蓝光剪辑按改写过的轨 id（有读不出的轨也不错位） */
+    private fun embeddedGroup(groups: List<Tracks.Group>, index: Int): Tracks.Group? =
+        if (playsBlurayClips) groups.firstOrNull { it.getTrackFormat(0).id == index.toString() } ?: groups.getOrNull(index) else groups.getOrNull(index)
+
+    private fun embeddedIndexIn(groups: List<Tracks.Group>, group: Tracks.Group): Int =
+        (if (playsBlurayClips) group.getTrackFormat(0).id?.toIntOrNull() else null) ?: groups.indexOf(group)
+
     /** 内封字幕轨（不含旁挂的外挂轨），按容器顺序：第 N 条对应 embedded:N */
     private fun embeddedTextGroups(tracks: Tracks = exo.currentTracks) = ContainerTrackOrder.sorted(
         tracks.groups.filter { group -> group.type == C.TRACK_TYPE_TEXT && group.getTrackFormat(0).id?.contains(EXTERNAL) != true },
@@ -1088,7 +1137,7 @@ class PlaybackController(
     private fun textGroupFor(option: SubtitleOption, tracks: Tracks = exo.currentTracks): Tracks.Group? {
         val index = option.embeddedIndex
         return if (index != null) {
-            embeddedTextGroups(tracks).getOrNull(index)
+            embeddedGroup(embeddedTextGroups(tracks), index)
         } else {
             tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_TEXT && it.getTrackFormat(0).id?.contains(option.ref) == true }
         }
@@ -1126,7 +1175,8 @@ class PlaybackController(
             if (options.isNotEmpty()) set { copy(audioOptions = options) }
         }
         if (s.currentAudio == null) {
-            val active = audioGroups(tracks).indexOfFirst { it.isSelected }
+            val groups = audioGroups(tracks)
+            val active = groups.firstOrNull { it.isSelected }?.let { embeddedIndexIn(groups, it) } ?: -1
             if (active >= 0) set { copy(currentAudio = "embedded:$active") }
         }
     }
@@ -1268,7 +1318,7 @@ class PlaybackController(
         }
         requestedAudio = ref
         val index = embeddedIndexOf(ref)
-        val group = if (playsOriginalFile && index != null) audioGroups().getOrNull(index) else null
+        val group = if (playsOriginalFile && index != null) embeddedGroup(audioGroups(), index) else null
         if (group != null && group.isSupported(true)) {
             exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
                 .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0)).build()

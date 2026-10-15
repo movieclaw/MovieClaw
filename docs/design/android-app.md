@@ -11,7 +11,7 @@
 |---|---|---|
 | 技术栈 | Kotlin + Jetpack Compose（Material 3），minSdk 26 / target 36（compileSdk 37），只出 `arm64-v8a` | 与 iOS 同样走全原生：播放要硬解、画中画、后台保活（MediaSessionService），网页做不到或做不好 |
 | 范围 | 手机端网页的全部功能原生重写（不内嵌网页） | 用户决定 |
-| 播放 | 与 TV 版**共用一个引擎**（`apps/android-core`，2026-10 由原 TV 版引擎统一，同 iOS 的 `Shared/`）：Exo + FFmpeg 音频软解 + libass；本机如实申报能力，放不了的走服务端流（换封装 / 转码），失败按兜底阶梯重连 / 改走服务端流 / 逐级降档 | 原手机双内核（Exo + mpv）两套行为难维护；统一后手机与 TV 的兜底、能力探测、看门狗、诊断一致。光盘镜像由服务端读盘换封装，VC-1 等冷门编码交服务端转码 |
+| 播放 | 与 TV 版**共用一个引擎**（`apps/android-core`，2026-10 由原 TV 版引擎统一，同 iOS 的 `Shared/`）：Exo + FFmpeg 音频软解 + libass；本机如实申报能力，放不了的走服务端流（换封装 / 转码），失败按兜底阶梯重连 / 改走服务端流 / 逐级降档 | 原手机双内核（Exo + mpv）两套行为难维护；统一后手机与 TV 的兜底、能力探测、看门狗、诊断一致。蓝光原盘与蓝光镜像按服务端的剪辑清单直推（disc-clip-play.md），DVD、VC-1 等冷门编码交服务端 |
 | 认证 | 设备令牌（`POST /auth/device/login` 用账号密码换），存 **AndroidKeyStore** 加密的凭据库 | 与 iOS 同一套：这台手机是「我的设备」里的一台，可单独注销；多账号（多服务器）都在本机 |
 | 接口层 | 手写 Retrofit 接口 + kotlinx.serialization（SnakeCase、`ignoreUnknownKeys`） | 安卓侧只用得到其中一部分；字段可空、未知字段忽略，对服务端新旧版本宽容（例：字幕轨 `title` 缺失时回落语言码） |
 | 工程 | Gradle（Kotlin DSL）+ Hilt/KSP + Media3 + Coil 3 | 一以贯之的官方栈，CI 上 `testDebugUnitTest / assembleDebug / lintDebug` |
@@ -103,7 +103,7 @@ apps/android/
 |---|---|
 | 直连时内封字幕不能调时间轴 | Exo 解出的内封字幕时机由引擎定（字幕外观里会说明）；外挂字幕调了时间轴改由叠层取服务端 VTT 来画，照常可调；服务端流的字幕照常可调 |
 | 正片不挂片源字节缓存、MKV 精简索引注入 | 刷片仍有字节缓存与预取 |
-| 本机读 ISO、VC-1 等冷门编码软解 | 交服务端换封装 / 转码（要服务端能转，占服务端资源） |
+| 本机读 DVD、VC-1 等冷门编码软解 | 交服务端换封装 / 转码（要服务端能转，占服务端资源）；蓝光原盘与蓝光 ISO 已改按剪辑清单直推（[disc-clip-play.md](disc-clip-play.md)） |
 | 起播分段计时日志（PlaybackStartupTrace） | 改看引擎播放记录的 startup marks |
 
 ## 5. 与 iOS / 网页的已知差异（逐条如实列）

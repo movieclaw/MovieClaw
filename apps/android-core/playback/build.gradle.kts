@@ -11,6 +11,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    // 原盘读取器的单测要真的跑 Exo 的 TS 解析器（用到 SparseArray 等 Android 类），跑在 Robolectric 上
+    testOptions.unitTests.all {
+        it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+    }
 }
 
 dependencies {
@@ -27,4 +31,5 @@ dependencies {
     testImplementation(shared.junit)
     testImplementation(shared.okhttp.mockwebserver)
     testImplementation(shared.kotlinx.coroutines.test)
+    testImplementation(shared.robolectric)
 }
