@@ -125,7 +125,7 @@ struct OfflineStorageSections: View {
                 } header: {
                     Text("其他账号")
                 } footer: {
-                    Text("这台 iPhone 上其他账号的下载，重新登录那个账号就能看。")
+                    Text("这台 \(ClientPlatform.deviceName) 上其他账号的下载，重新登录那个账号就能看。")
                 }
             }
             // 容量放最后：这一页先管下载，剩余空间是参考（空间不够时选档面板会直接提示）
@@ -204,7 +204,7 @@ struct OfflineStorageSections: View {
         switch target {
         case let .items(ids): ids.count == 1 ? "删除「\(store.items[ids[0]]?.title ?? "")」的下载？" : "删除 \(ids.count) 部的下载？"
         case .watched: "删除 \(watchedUnits.count) 个已看完的下载？"
-        case let .owner(owner): "删除「\(owner.username)」在这台 iPhone 上的全部下载？"
+        case let .owner(owner): "删除「\(owner.username)」在这台 \(ClientPlatform.deviceName) 上的全部下载？"
         }
     }
 
@@ -419,7 +419,7 @@ private struct ConfirmDelete: ViewModifier {
         content.confirmationDialog(title, isPresented: isPresented, titleVisibility: .visible) {
             Button(action, role: .destructive, action: perform)
         } message: {
-            Text("只删 iPhone 上的副本，观看进度会保留。")
+            Text("只删 \(ClientPlatform.deviceName) 上的副本，观看进度会保留。")
         }
     }
 }

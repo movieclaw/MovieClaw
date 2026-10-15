@@ -83,7 +83,7 @@ struct DeviceCleanupPopover: View {
         .padding(20)
         .frame(idealWidth: 340)
         .presentationCompactAdaptation(.popover)
-        .presentationDetents([.large])
+        .adaptiveDetents([.large])
         .interactiveDismissDisabled(busy)
         .alert("清理这 \(items.count) 台设备？", isPresented: $confirming) {
             Button("取消", role: .cancel) { }

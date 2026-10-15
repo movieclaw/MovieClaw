@@ -116,14 +116,53 @@ struct CardMetrics: Equatable, Sendable {
     var spacing: CGFloat
     /// 页面左右边距（手机 16，同 `Theme.pagePadding`；宽窗口同 Mac 版 32）
     var edge: CGFloat
+    /// 是不是 iPad 宽窗口那套（详情页的 Mac 式大图区、列表限宽等也按它分支）
+    var isWide = false
+    /// 内容区宽（点，已扣掉侧边栏等安全区）；0 = 还没量到。宽窗口按它把海报排成整列，见 `fitted(contentWidth:)`
+    var contentWidth: CGFloat = 0
 
     static let phone = CardMetrics(homePoster: 124, discoverPoster: 126, upNext: 200, libraryCover: 230, genreTile: 196,
                                    recent: 264, recentLogo: 118, cast: 96, episode: 200, wallMinimum: 140, spacing: 12, edge: 16)
+    /// 宽窗口海报的目标宽（同 Mac 版 `MacMetrics.posterWidth`）：实际宽按内容区排成整列后在它上下浮动
+    static let widePosterTarget: CGFloat = 168
     static let wide = CardMetrics(homePoster: 168, discoverPoster: 168, upNext: 296, libraryCover: 296, genreTile: 196,
-                                  recent: 296, recentLogo: 140, cast: 128, episode: 296, wallMinimum: 150, spacing: 18, edge: 32)
+                                  recent: 296, recentLogo: 140, cast: 128, episode: 296, wallMinimum: 150, spacing: 18, edge: 32,
+                                  isWide: true)
 
-    /// 是不是宽窗口那套（详情页的 Mac 式大图区、列表限宽等也按它分支）
-    var isWide: Bool { self == .wide }
+    /// 宽窗口：按内容区宽把海报排成整列，首页横排海报、相似推荐、发现 / 订阅的海报行都用这一列的宽——
+    /// 同一个窗口宽度下首页和海报墙的海报一样大，展开 / 收起侧边栏时一起变（真机反馈：首页 168、海报墙 157，看着不一致）
+    func fitted(contentWidth width: CGFloat) -> CardMetrics {
+        guard isWide, width > 0 else { return self }
+        var metrics = self
+        metrics.contentWidth = width
+        let poster = metrics.columnWidth(target: Self.widePosterTarget)
+        metrics.homePoster = poster
+        metrics.discoverPoster = poster
+        return metrics
+    }
+
+    /// 排海报的可用宽（内容区减两侧页边距）
+    private var rowWidth: CGFloat { contentWidth - edge * 2 }
+
+    /// 按目标宽排成整列时的列数：取最接近目标宽的那个整数
+    private func columnCount(target: CGFloat) -> Int {
+        max(1, Int(((rowWidth + spacing) / (target + spacing)).rounded()))
+    }
+
+    private func columnWidth(target: CGFloat) -> CGFloat {
+        let count = CGFloat(columnCount(target: target))
+        return ((rowWidth - (count - 1) * spacing) / count).rounded(.down)
+    }
+
+    /// 海报墙的列。宽窗口按内容区排成整列（列宽与首页横排海报一致）；手机照旧 `adaptive(minimum:)`。
+    /// `extra`：比海报宽一档的墙（剧照墙 +20、类型剧照墙 +60）
+    func wallColumns(extra: CGFloat = 0) -> [GridItem] {
+        if isWide, contentWidth > 0 {
+            let count = columnCount(target: Self.widePosterTarget + extra)
+            return Array(repeating: GridItem(.flexible(), spacing: spacing, alignment: .top), count: count)
+        }
+        return [GridItem(.adaptive(minimum: wallMinimum + extra), spacing: spacing, alignment: .top)]
+    }
 
     /// 某个窗口该用哪套：只有 iPad 的常规宽度用 `wide`。iPhone Pro Max 横屏也是常规宽度，但仍按手机排
     /// （2026-10-15 定：宽版式只给 iPad，iPhone 横屏多是看片，不改它）

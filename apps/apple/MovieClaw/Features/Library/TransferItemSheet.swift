@@ -75,7 +75,7 @@ struct TransferItemSheet: View {
                 }
             }
         }
-        .presentationDetents([.large])
+        .adaptiveDetents([.large])
         .interactiveDismissDisabled(busy)
         .task { await loadCandidates() }
         .task(id: targetId) { await loadPreview() }

@@ -131,12 +131,12 @@ struct LibraryItemDetailView: View {
         }
         .sheet(item: Binding(mcGet: { downloadingMovie.map(MoviePick.init) }, set: { downloadingMovie = $0?.id })) { target in
             OfflineProfileSheet(fileId: target.id, title: detail?.title ?? "")
-                .presentationDetents([.medium, .large])
+                .adaptiveDetents([.medium, .large])
         }
         .sheet(isPresented: $downloadingSeries) {
             if let detail {
                 OfflineProfileSheet(title: detail.title) { try await downloadChoices(detail) }
-                    .presentationDetents([.medium, .large])
+                    .adaptiveDetents([.medium, .large])
             }
         }
         .task { await reload() }
@@ -594,7 +594,7 @@ struct LibraryItemDetailView: View {
             }
             seriesCollectionRows(detail)
             if goneOnServer {
-                Text("服务器上已没有这个条目，下面是 iPhone 上的副本，仍可播放与删除。")
+                Text("服务器上已没有这个条目，下面是 \(ClientPlatform.deviceName) 上的副本，仍可播放与删除。")
                     .font(.footnote).foregroundStyle(Theme.warning)
                     .padding(.top, 4)
             }
@@ -1612,7 +1612,7 @@ struct SeasonEpisodesSection: View {
         .task(id: "\(currentSeason)|\(detail.fileCount)|\(reachability.isOffline)") { await load(reset: true) }
         .sheet(item: $pickFile) { target in
             OfflineProfileSheet(fileId: target.id, title: target.title)
-                .presentationDetents([.medium, .large])
+                .adaptiveDetents([.medium, .large])
         }
         .onChange(of: refreshKey) { Task { await load(reset: false) } }
         // 作容器：标识不盖掉里面季选择、段胶囊、「全部 N 集」各自的标识
@@ -1972,7 +1972,7 @@ private struct EpisodeGridSheet: View {
                 }
             }
         }
-        .presentationDetents([.fraction(0.72), .large])
+        .adaptiveDetents([.fraction(0.72), .large])
         .presentationDragIndicator(.visible)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("episode-grid")

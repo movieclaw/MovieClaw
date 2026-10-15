@@ -29,16 +29,28 @@ nonisolated enum ClientPlatform {
     static let osName = "iOS"
     #endif
 
-    /// 给用户看的文案里怎么称呼这个 App：「Mac 版 App」「Apple TV 版 App」「iPhone 版 App」
+    /// 给用户看的文案里怎么称呼这个 App：「Mac 版 App」「Apple TV 版 App」「iPhone 版 App」「iPad 版 App」
     static var appName: String {
         #if os(tvOS)
         "Apple TV 版 App"
         #elseif os(macOS)
         "Mac 版 App"
         #else
-        "iPhone 版 App"
+        "\(deviceName) 版 App"
         #endif
     }
+
+    /// 这台设备的名字，用在「下载到 iPad」「iPhone 上的副本」这类文案里（iPhone 与 iPad 是同一个包）。
+    /// 按机型标识判断（APIClient.machineModel，模拟器取它模拟的机型），不读 UIDevice：这里不限主线程
+    static let deviceName: String = {
+        #if os(tvOS)
+        "Apple TV"
+        #elseif os(macOS)
+        "Mac"
+        #else
+        APIClient.machineModel.hasPrefix("iPad") ? "iPad" : "iPhone"
+        #endif
+    }()
 
     /// 给用户看的文案里怎么称呼这台设备：「手机没有联网」「Apple TV 存储空间不足」「电脑没有联网」
     static var deviceNoun: String {

@@ -295,7 +295,7 @@ struct CollectionDetailView: View {
                 .font(.subheadline).foregroundStyle(Theme.textMuted)
                 .frame(maxWidth: .infinity).padding(.top, 64)
         } else {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: cards.wallMinimum), spacing: cards.spacing, alignment: .top)], alignment: .leading, spacing: 20) {
+            LazyVGrid(columns: cards.wallColumns(), alignment: .leading, spacing: 20) {
                 ForEach(cells(missing: pager.hasMore ? [] : missing)) { cell in
                     switch cell {
                     case let .item(item):
@@ -576,7 +576,7 @@ private struct CollectionRulesSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .adaptiveDetents([.medium, .large])
         .accessibilityIdentifier("collection-rules-sheet")
     }
 }

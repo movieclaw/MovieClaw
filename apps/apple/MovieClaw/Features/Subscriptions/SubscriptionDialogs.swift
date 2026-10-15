@@ -540,7 +540,7 @@ struct SubscriptionManageSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .adaptiveDetents([.medium, .large])
         .accessibilityIdentifier("manage-sheet")
     }
 

@@ -169,7 +169,7 @@ struct FavoritesView: View {
                 await pager.loadPrevious()
                 if let anchor, let proxy = scrollProxy { proxy.scrollTo(anchor, anchor: .top) }
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: cards.wallMinimum), spacing: cards.spacing, alignment: .top)], alignment: .leading, spacing: 20) {
+            LazyVGrid(columns: cards.wallColumns(), alignment: .leading, spacing: 20) {
                 ForEach(items) { item in
                     // 与单库墙同一个格子（Web favorites-view → PosterWall → InventoryCell），每格落回自己所属的库；
                     // 整面墙钉死 2:3（同 Web FAVORITES_FRAME_ASPECT），收藏层级不上墙

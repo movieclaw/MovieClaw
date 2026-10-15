@@ -311,7 +311,7 @@ struct LibraryPosterGrid<Item: Identifiable, Cell: View>: View {
     @ViewBuilder let cell: (Item) -> Cell
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: cards.wallMinimum + (wide ? 20 : 0)), spacing: cards.spacing, alignment: .top)], alignment: .leading, spacing: 20) {
+        LazyVGrid(columns: cards.wallColumns(extra: wide ? 20 : 0), alignment: .leading, spacing: 20) {
             ForEach(items) { item in
                 cell(item)
             }

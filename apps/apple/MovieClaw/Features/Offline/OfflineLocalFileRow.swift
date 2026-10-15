@@ -47,15 +47,15 @@ struct OfflineLocalFileRow: View {
                         if canChangeProfile {
                             Button("改下其他画质", systemImage: "arrow.triangle.2.circlepath") { picking = true }
                         }
-                        Button("从 iPhone 删除", systemImage: "trash", role: .destructive) { confirmDelete = true }
+                        Button("从 \(ClientPlatform.deviceName) 删除", systemImage: "trash", role: .destructive) { confirmDelete = true }
                     }
                     localTag
                     Button { confirmDelete = true } label: { Image(systemName: "trash").font(.footnote) }
                         .foregroundStyle(Theme.textFaint)
-                        .accessibilityLabel("从 iPhone 删除")
+                        .accessibilityLabel("从 \(ClientPlatform.deviceName) 删除")
                         .accessibilityIdentifier("local-file-delete-\(fileId)")
                         // 确认气泡从这个按钮弹出
-                        .confirmationDialog("删除 iPhone 上的这份副本？", isPresented: $confirmDelete, titleVisibility: .visible) {
+                        .confirmationDialog("删除 \(ClientPlatform.deviceName) 上的这份副本？", isPresented: $confirmDelete, titleVisibility: .visible) {
                             Button("删除（释放 \(Formatters.bytes(Int(unit.receivedBytes)))）", role: .destructive) {
                                 OfflineDownloader.shared.delete(fileId: fileId)
                             }
@@ -70,7 +70,7 @@ struct OfflineLocalFileRow: View {
             }
             .sheet(isPresented: $picking) {
                 OfflineProfileSheet(fileId: fileId, title: title)
-                    .presentationDetents([.medium, .large])
+                    .adaptiveDetents([.medium, .large])
             }
         }
     }
@@ -94,7 +94,7 @@ struct OfflineLocalFileRow: View {
         let iso = unit.completedAt.map { $0.ISO8601Format() }
         let downloaded = iso.map { "\(Formatters.dateTime($0)) · \(libraryFromNow($0))" } ?? "—"
         return Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
-            row("保存位置", "本机（iPhone · MovieClaw 下载）")
+            row("保存位置", "本机（\(ClientPlatform.deviceName) · MovieClaw 下载）")
             row("下载时间", downloaded)
             row("来源", original ? "从服务器下载 · 原画" : "服务器转码 · \(unit.profileLabel)")
             row("文件尺寸", libraryBytes(Int(unit.receivedBytes)))

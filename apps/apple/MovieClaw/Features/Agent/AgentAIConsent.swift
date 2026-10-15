@@ -65,7 +65,7 @@ struct AgentAIConsentSheet: View {
             .padding(.top, 12)
             .padding(.bottom, 12)
         }
-        .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+        .adaptiveDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
         .presentationDragIndicator(.visible)
     }
 

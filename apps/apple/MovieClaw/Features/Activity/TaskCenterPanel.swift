@@ -616,7 +616,7 @@ struct DeleteDownloadTaskSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .adaptiveDetents([.medium, .large])
         .interactiveDismissDisabled(busy)
     }
 }

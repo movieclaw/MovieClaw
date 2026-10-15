@@ -85,7 +85,7 @@ struct AccountSwitcherSheet: View {
         }
         .task { refreshAll() }
         // 半屏抽屉（长按头像页签弹出，同 Instagram）：账号一般就几个，半屏放得下；多了可以上拉到全屏
-        .presentationDetents([.medium, .large])
+        .adaptiveDetents([.medium, .large])
     }
 
     /// 要列出的服务器：有账号的，外加当前服务器（快照还没取回来时也要占个位转圈）；当前服务器排第一

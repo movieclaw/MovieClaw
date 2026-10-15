@@ -165,7 +165,7 @@ struct LibraryCollectionsGrid: View {
                     Text(title).font(.subheadline.weight(.medium)).foregroundStyle(Theme.textFaint)
                         .padding(.horizontal, cards.edge)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: cards.wallMinimum), spacing: cards.spacing, alignment: .top)], alignment: .leading, spacing: 20) {
+                LazyVGrid(columns: cards.wallColumns(), alignment: .leading, spacing: 20) {
                     ForEach(items, id: \.id) { collection in
                         NavigationLink(value: AppRoute.collection(libraryId: libraryId ?? collection.libraryId, collectionId: collection.id)) {
                             CollectionCell(collection: collection)

@@ -64,7 +64,7 @@ struct SubscriptionWallView: View {
                         .foregroundStyle(Theme.textFaint)
                 }
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: cards.wallMinimum), spacing: cards.spacing, alignment: .top)],
+                    columns: cards.wallColumns(),
                     alignment: .leading,
                     spacing: 20
                 ) {

@@ -649,7 +649,7 @@ struct DownloadConfirmSheet: View {
         .fixedSize(horizontal: false, vertical: true)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         .frame(maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.height(contentHeight)])
+        .adaptiveDetents([.height(contentHeight)])
         .task {
             guard target.kind == "smart", let identity = request.identity else { return }
             preflighting = true

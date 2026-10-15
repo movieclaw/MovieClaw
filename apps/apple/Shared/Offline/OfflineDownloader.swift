@@ -104,9 +104,9 @@ final class OfflineDownloader {
 
         var errorDescription: String? {
             switch self {
-            case .unsupported: "这台服务器还不支持下载到 iPhone，请先把服务器升级到最新版本"
+            case .unsupported: "这台服务器还不支持下载到 \(ClientPlatform.deviceName)，请先把服务器升级到最新版本"
             case let .noSpace(needed, available, estimated):
-                "iPhone 空间不足：需要 \(estimated ? "≈ " : "")\(ByteCountFormatter.string(fromByteCount: needed, countStyle: .file))（含预留 2 GB），只剩 \(ByteCountFormatter.string(fromByteCount: available, countStyle: .file))"
+                "\(ClientPlatform.deviceName) 空间不足：需要 \(estimated ? "≈ " : "")\(ByteCountFormatter.string(fromByteCount: needed, countStyle: .file))（含预留 2 GB），只剩 \(ByteCountFormatter.string(fromByteCount: available, countStyle: .file))"
             case let .unavailable(reason): reason
             }
         }
@@ -481,7 +481,7 @@ final class OfflineDownloader {
 
     func failedTransport(tag: OfflineTaskTag, error: URLError?, noSpace: Bool) {
         if noSpace {
-            failTag(tag, "iPhone 空间不足，清理一些空间后点「重试」", retryable: false)
+            failTag(tag, "\(ClientPlatform.deviceName) 空间不足，清理一些空间后点「重试」", retryable: false)
         } else {
             failTag(tag, error.map { APIClient.networkMessage($0) } ?? "下载中断", retryable: true)
         }

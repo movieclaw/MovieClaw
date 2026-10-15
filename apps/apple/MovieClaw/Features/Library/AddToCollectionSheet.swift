@@ -77,7 +77,7 @@ struct AddToCollectionSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
             }
         }
-        .presentationDetents([.medium, .large])
+        .adaptiveDetents([.medium, .large])
         .interactiveDismissDisabled(busy)
         .task { await load() }
     }

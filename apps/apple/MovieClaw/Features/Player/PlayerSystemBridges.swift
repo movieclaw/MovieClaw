@@ -73,13 +73,20 @@ enum OrientationLock {
 /// 界面方向：播放器的「横屏」键与退出时的归还
 @MainActor
 enum PlayerOrientation {
+    /// App 能不能自己转屏：只有手机能。iPadOS 26 的窗口可以自由缩放，系统不接受 App 改方向
+    /// （`requestGeometryUpdate` 静默无效），iPad 上方向完全跟随设备——不锁方向、不显示横屏键，
+    /// 返回键也不再是「退出横屏」（真机反馈：iPad 横屏点返回只想转回竖屏，退不出播放器）
+    static var appControlsRotation: Bool { UIDevice.current.userInterfaceIdiom == .phone }
+
     /// 横屏键：锁到横屏（左右都允许，跟随手机横放的方向）；再按锁回竖屏
     static func request(landscape: Bool) {
+        guard appControlsRotation else { return }
         apply(mask: landscape ? .landscape : .portrait, prefer: landscape ? .landscapeRight : .portrait)
     }
 
     /// 离开播放器：回竖屏并解除锁定，其它页面恢复跟随手机方向
     static func release() {
+        guard appControlsRotation else { return }
         apply(mask: .portrait, prefer: .portrait)
         OrientationLock.mask = .allButUpsideDown
         updateSupported()

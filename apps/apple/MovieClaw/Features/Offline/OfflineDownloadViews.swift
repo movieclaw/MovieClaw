@@ -66,11 +66,11 @@ struct OfflineDownloadControl: View {
                 downloader.delete(fileId: unit.fileId)
             }
         } message: {
-            Text("只删 iPhone 上的副本，观看进度会保留。")
+            Text("只删 \(ClientPlatform.deviceName) 上的副本，观看进度会保留。")
         }
         .sheet(item: Binding(mcGet: { picking.map(PickTarget.init) }, set: { picking = $0?.id })) { target in
             OfflineProfileSheet(fileId: target.id, title: title)
-                .presentationDetents([.medium, .large])
+                .adaptiveDetents([.medium, .large])
         }
     }
 }
@@ -279,7 +279,7 @@ struct OfflineProfileSheet: View {
         NavigationStack {
             Group {
                 if let scopes, scopes.isEmpty {
-                    ContentUnavailableView("都已下载", systemImage: "checkmark.circle", description: Text("这部剧能下的集都已在 iPhone 上"))
+                    ContentUnavailableView("都已下载", systemImage: "checkmark.circle", description: Text("这部剧能下的集都已在 \(ClientPlatform.deviceName) 上"))
                 } else if let scopes {
                     content(scopes)
                 } else if let error {
@@ -288,7 +288,7 @@ struct OfflineProfileSheet: View {
                     ProgressView("正在读取可下载的集").frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .navigationTitle("下载到 iPhone")
+            .navigationTitle("下载到 \(ClientPlatform.deviceName)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
@@ -408,11 +408,11 @@ struct OfflineProfileSheet: View {
                 Text("画质")
             } footer: {
                 if let free, needed(first, files) > free {
-                    Text("空间不够：需要 \(Self.isEstimate(selected(first), files) ? "≈ " : "")\(Formatters.bytes(Int(needed(first, files))))（含预留 2 GB），iPhone 只剩 \(Formatters.bytes(Int(free)))。换个小一点的画质，或先清理空间。")
+                    Text("空间不够：需要 \(Self.isEstimate(selected(first), files) ? "≈ " : "")\(Formatters.bytes(Int(needed(first, files))))（含预留 2 GB），\(ClientPlatform.deviceName) 只剩 \(Formatters.bytes(Int(free)))。换个小一点的画质，或先清理空间。")
                         .foregroundStyle(Theme.danger)
                 } else {
                     let network = OfflineSettings.allowCellular ? "会使用蜂窝网络下载" : "只在 Wi-Fi 下下载，可在「我的 → 下载」里改"
-                    Text(free.map { "iPhone 剩余 \(Formatters.bytes(Int($0))) · \(network)" } ?? network)
+                    Text(free.map { "\(ClientPlatform.deviceName) 剩余 \(Formatters.bytes(Int($0))) · \(network)" } ?? network)
                 }
             }
         }
@@ -581,7 +581,7 @@ enum OfflineDownloadCleanup {
     static func askOnLogoutEverywhere(feedback: Feedback) async {
         let owners = await Task.detached { OfflineOwners.scan() }.value
         guard !owners.isEmpty else { return }
-        guard await feedback.confirm("同时删除这台 iPhone 上的全部下载？",
+        guard await feedback.confirm("同时删除这台 \(ClientPlatform.deviceName) 上的全部下载？",
                                      message: "共用设备交还前建议删除。不删的话，重新登录对应账号还能接着看。",
                                      confirmTitle: "全部删除", cancelTitle: "保留", destructive: true) else { return }
         for item in OfflineStore.shared.items.keys { OfflineDownloader.shared.deleteItem(item) }
@@ -601,7 +601,7 @@ struct OfflineDeleteMenuButton: View {
             Button("删除下载", systemImage: "trash", role: .destructive) {
                 Task {
                     let size = Formatters.bytes(Int(store.bytes(ofItem: itemId)))
-                    guard await feedback.confirm("删除「\(title)」的下载？", message: "释放 \(size)，只删 iPhone 上的副本，观看进度会保留。",
+                    guard await feedback.confirm("删除「\(title)」的下载？", message: "释放 \(size)，只删 \(ClientPlatform.deviceName) 上的副本，观看进度会保留。",
                                                  confirmTitle: "删除下载", destructive: true) else { return }
                     OfflineDownloader.shared.deleteItem(itemId)
                 }

@@ -564,7 +564,7 @@ private struct AddRowSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .adaptiveDetents([.medium, .large])
     }
 
     private func choice(title: String, icon: String, detail: String?, done: Bool = false, action: @escaping () -> Void) -> some View {

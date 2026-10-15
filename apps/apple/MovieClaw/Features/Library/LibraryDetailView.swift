@@ -505,7 +505,8 @@ struct LibraryDetailView: View {
                 }
             }
             .padding(.top, 16)
-            .padding(.trailing, effectiveSort == "title" && !galleryOn && !index.isEmpty ? 14 : 0)
+            // 给右侧 A–Z 条让位；iPad 宽窗口页边距 32 已经装得下它，不再让（让了海报就比首页横排的窄一截）
+            .padding(.trailing, !cards.isWide && effectiveSort == "title" && !galleryOn && !index.isEmpty ? 14 : 0)
         }
     }
 
@@ -560,7 +561,7 @@ struct LibraryDetailView: View {
     }
 
     private func grid(_ items: [API.LibraryItemView], wide: Bool, showRating: Bool) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: cards.wallMinimum + (wide ? 20 : 0)), spacing: cards.spacing, alignment: .top)], alignment: .leading, spacing: 20) {
+        LazyVGrid(columns: cards.wallColumns(extra: wide ? 20 : 0), alignment: .leading, spacing: 20) {
             ForEach(items) { item in
                 LibraryInventoryCell(item: item, libraryId: libraryId, frameAspect: wide ? 16 / 9 : Theme.posterAspect,
                                      showRating: showRating, working: workingLabel(item))
@@ -587,7 +588,7 @@ struct LibraryDetailView: View {
                 }
             }
             .padding(.horizontal, cards.edge)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: cards.wallMinimum + 20), spacing: cards.spacing, alignment: .top)], alignment: .leading, spacing: 20) {
+            LazyVGrid(columns: cards.wallColumns(extra: 20), alignment: .leading, spacing: 20) {
                 ForEach(provisional) { item in
                     LibraryInventoryCell(item: item, libraryId: libraryId, frameAspect: 16 / 9,
                                          working: probing && item.probePendingCount > 0 ? "正在读取规格" : nil)

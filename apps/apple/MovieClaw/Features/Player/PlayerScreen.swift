@@ -691,7 +691,7 @@ private struct PlayerContent: View {
     /// 片段模式的「退出全屏」：先转回竖屏、转好了再关播放器回到刷片（刷片页从这里接着放这一段）。
     /// 直接关的话，转屏与收起两段动画叠在一起，中间会露出横着排的信息流
     private func exitClip(landscape: Bool) {
-        guard landscape else {
+        guard landscape, PlayerOrientation.appControlsRotation else {
             exit()
             return
         }
@@ -710,11 +710,12 @@ private struct PlayerContent: View {
         exit()
     }
 
-    /// 横屏时左上角是「退出横屏」，竖屏时才是「退出播放」（同 Web 的后退语义）；片段模式是「退出全屏」
+    /// 手机横屏时左上角是「退出横屏」，竖屏时才是「退出播放」（同 Web 的后退语义）；片段模式是「退出全屏」；
+    /// iPad 方向跟随设备，永远是「退出播放」
     private func back(landscape: Bool) {
         if controller.clip != nil {
             exitClip(landscape: landscape)
-        } else if landscape {
+        } else if landscape, PlayerOrientation.appControlsRotation {
             PlayerOrientation.request(landscape: false)
         } else {
             exit()

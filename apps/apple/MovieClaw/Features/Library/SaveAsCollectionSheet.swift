@@ -81,7 +81,7 @@ struct SaveAsCollectionSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .adaptiveDetents([.medium, .large])
         // 命中数与取值的中文名都来自 facet：与筛选条上是同一份口径，
         // 这里写「命中 42 部」而墙上是 39 部这种事不可能发生
         .task(id: filter) {

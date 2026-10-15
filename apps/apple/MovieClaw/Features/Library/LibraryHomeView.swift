@@ -200,7 +200,7 @@ struct LibraryHomeView: View {
                         .foregroundStyle(Color(red: 0.99, green: 0.9, blue: 0.54))
                     // 断网时不自动切离线（网慢不误判），给一个按钮由用户决定（docs/design/offline-download.md §2.4）
                     if !offline.downloadedItemIds.isEmpty {
-                        Button("看 iPhone 上的 \(offline.downloadedItemIds.count) 部") { reachability.enterOffline() }
+                        Button("看 \(ClientPlatform.deviceName) 上的 \(offline.downloadedItemIds.count) 部") { reachability.enterOffline() }
                             .font(.footnote.weight(.semibold))
                             .buttonStyle(.glass)
                             .accessibilityIdentifier("enter-offline")
@@ -809,7 +809,7 @@ private struct ClearLibraryHistorySheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
             }
         }
-        .presentationDetents([.medium])
+        .adaptiveDetents([.medium])
         .onAppear { libraryId = libraryId ?? libraries.first?.id }
     }
 

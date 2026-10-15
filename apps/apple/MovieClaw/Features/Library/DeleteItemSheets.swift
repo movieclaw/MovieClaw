@@ -55,7 +55,7 @@ struct DeleteItemSheet: View {
                 }
             }
         }
-        .presentationDetents([.large])
+        .adaptiveDetents([.large])
         .interactiveDismissDisabled(busy || result != nil)
         .task { await load() }
         .task {
@@ -192,7 +192,7 @@ struct DeleteFileSheet: View {
                 }
             }
         }
-        .presentationDetents([.large])
+        .adaptiveDetents([.large])
         .interactiveDismissDisabled(busy || result != nil)
         .task { await load() }
         .task {

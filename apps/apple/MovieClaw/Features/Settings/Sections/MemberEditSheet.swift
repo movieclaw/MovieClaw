@@ -102,7 +102,7 @@ struct MemberEditSheet: View {
                 Button("放弃修改", role: .destructive) { dismiss() }
             }
         }
-        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [section.compactHeight, .large])
+        .adaptiveDetents(typeSize.isAccessibilitySize ? [.large] : [section.compactHeight, .large])
         .presentationDragIndicator(.visible)
         .presentationContentInteraction(.resizes)
         .interactiveDismissDisabled(busy || draft != member)

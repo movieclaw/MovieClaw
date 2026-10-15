@@ -59,7 +59,7 @@ extension PhotoWallView {
             .task(id: InfoRequest(open: infoOpen, itemId: current?.mediaItemId)) { await loadDetail() }
             .sheet(item: $shareFile) { file in
                 OriginalShareSheet(url: file.url)
-                    .presentationDetents([.medium, .large])
+                    .adaptiveDetents([.medium, .large])
                     .ignoresSafeArea()
             }
         }

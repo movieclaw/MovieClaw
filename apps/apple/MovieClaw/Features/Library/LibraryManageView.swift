@@ -616,7 +616,7 @@ struct ManageReorderSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .adaptiveDetents([.medium, .large])
         .presentationBackground(.regularMaterial)
         .onAppear { draft = libraries }
     }

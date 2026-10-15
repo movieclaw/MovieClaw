@@ -15,7 +15,7 @@ struct OfflineBanner: View {
                 .foregroundStyle(Theme.warning)
             VStack(alignment: .leading, spacing: 2) {
                 Text("离线浏览").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
-                Text("显示 iPhone 上已下载的 \(store.downloadedItemIds.count) 部")
+                Text("显示 \(ClientPlatform.deviceName) 上已下载的 \(store.downloadedItemIds.count) 部")
                     .font(.caption).foregroundStyle(Theme.textMuted)
             }
             Spacer(minLength: 8)
@@ -43,7 +43,7 @@ struct OfflinePlaceholder: View {
         ContentUnavailableView {
             Label(title, systemImage: "wifi.slash")
         } description: {
-            Text("这里需要连接服务器。iPhone 上已下载的影片在「媒体库」里，可以照常播放。")
+            Text("这里需要连接服务器。\(ClientPlatform.deviceName) 上已下载的影片在「媒体库」里，可以照常播放。")
         } actions: {
             Button("去媒体库") { router.selectTab(.library) }
                 .buttonStyle(.glassProminent)
@@ -100,7 +100,7 @@ struct OfflinePosterCell: View {
                 OfflineDownloader.shared.deleteItem(item.mediaItemId)
             }
         } message: {
-            Text("只删 iPhone 上的副本，观看进度会保留。")
+            Text("只删 \(ClientPlatform.deviceName) 上的副本，观看进度会保留。")
         }
         .accessibilityIdentifier("offline-item-\(item.mediaItemId)")
     }
@@ -117,7 +117,7 @@ struct OfflineLibraryHomeView: View {
         VStack(alignment: .leading, spacing: 0) {
             OfflineBanner().padding(.top, 12)
             if items.isEmpty {
-                EmptyState(systemImage: "arrow.down.circle", title: "iPhone 上还没有下载",
+                EmptyState(systemImage: "arrow.down.circle", title: "\(ClientPlatform.deviceName) 上还没有下载",
                            message: "连上服务器后，在影片详情页点「下载」，没网的时候也能看。")
                     .padding(.top, 40)
             } else {
@@ -251,7 +251,7 @@ struct OfflineLibraryWall: View {
             VStack(alignment: .leading, spacing: 16) {
                 OfflineBanner().padding(.top, 8)
                 if sorted.isEmpty {
-                    EmptyState(systemImage: "arrow.down.circle", title: "这个库在 iPhone 上没有下载")
+                    EmptyState(systemImage: "arrow.down.circle", title: "这个库在 \(ClientPlatform.deviceName) 上没有下载")
                         .padding(.top, 40)
                 } else {
                     LibraryPosterGrid(items: sorted) { item in
@@ -499,7 +499,7 @@ struct OfflineMinimalDetail: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.title).font(.title3.weight(.semibold))
                             if let year = item.year { Text(String(year)).foregroundStyle(Theme.textMuted) }
-                            Text("iPhone 上的副本").font(.caption).foregroundStyle(Theme.textFaint)
+                            Text("\(ClientPlatform.deviceName) 上的副本").font(.caption).foregroundStyle(Theme.textFaint)
                         }
                     }
                 }

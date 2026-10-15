@@ -135,7 +135,7 @@ struct SubsFittedDetents: ViewModifier {
                     fit()
                 }
             }
-            .presentationDetents([fitDetent, .large], selection: $detent)
+            .adaptiveDetents([fitDetent, .large], selection: $detent)
     }
 
     private func fit() {

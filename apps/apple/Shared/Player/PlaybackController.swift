@@ -798,7 +798,7 @@ final class PlaybackController {
                                      isAi: $0.isAi, title: $0.title, isForced: $0.isForced)
             },
             degradedFrom: nil, disc: nil, discPlaylist: nil, costHint: nil, canSelfEnable: nil,
-            settingNamespace: nil, settingKey: nil, reason: "播放 iPhone 上的副本", suggestion: nil
+            settingNamespace: nil, settingKey: nil, reason: "播放 \(ClientPlatform.deviceName) 上的副本", suggestion: nil
         )
         let session = API.PlaybackSessionView(
             decision: decision, sessionId: nil, streamUrl: file.absoluteString, progressiveSegments: false,
@@ -1183,7 +1183,7 @@ final class PlaybackController {
             }
             localUnit = nil
             if ServerReachability.shared.isOffline {
-                fail("iPhone 上的这份副本放不了", suggestion: "文件可能已损坏。连上服务器后删除并重新下载。（\(reason)）", category: "decode")
+                fail("\(ClientPlatform.deviceName) 上的这份副本放不了", suggestion: "文件可能已损坏。连上服务器后删除并重新下载。（\(reason)）", category: "decode")
                 return
             }
             request(startMs: positionMs, phase: .degrading)

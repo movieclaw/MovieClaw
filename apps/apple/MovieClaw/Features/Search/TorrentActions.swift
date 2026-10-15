@@ -249,7 +249,7 @@ struct TorrentActionsSheet: View {
             }
         }
         .padding(20)
-        .presentationDetents([.medium])
+        .adaptiveDetents([.medium])
         .presentationDragIndicator(.visible)
         .discoverContainer("torrent-actions")
     }

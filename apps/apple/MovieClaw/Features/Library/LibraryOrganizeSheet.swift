@@ -48,7 +48,7 @@ struct LibraryOrganizeSheet: View {
                     }
                 }
         }
-        .presentationDetents([.large])
+        .adaptiveDetents([.large])
         .task { await open() }
     }
 

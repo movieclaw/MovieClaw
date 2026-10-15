@@ -528,6 +528,8 @@ struct TabRoot<Root: View>: View {
     @Environment(Router.self) private var router
     /// 窗口宽度：常规宽度（iPad 宽窗口）用放大一档的卡片（`CardMetrics.wide`，同 Mac 版）
     @Environment(\.horizontalSizeClass) private var sizeClass
+    /// 内容区宽（已扣掉侧边栏）：宽窗口按它把海报排成整列（见 CardMetrics.fitted）
+    @State private var contentWidth: CGFloat = 0
 
     var body: some View {
         NavigationStack(path: router.path(for: item)) {
@@ -538,7 +540,8 @@ struct TabRoot<Root: View>: View {
                 }
         }
         .environment(\.perfPage, item.mainTab.rawValue)
-        .environment(\.cardMetrics, .forWindow(regular: sizeClass == .regular))
+        .environment(\.cardMetrics, CardMetrics.forWindow(regular: sizeClass == .regular).fitted(contentWidth: contentWidth))
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
     }
 }
 

@@ -56,7 +56,7 @@ struct ArtworkPickerSheet: View {
                 }
             }
         }
-        .presentationDetents([.large])
+        .adaptiveDetents([.large])
         .interactiveDismissDisabled(applying != nil)
         .task { await load() }
     }

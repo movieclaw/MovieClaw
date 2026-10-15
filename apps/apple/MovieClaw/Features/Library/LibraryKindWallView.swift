@@ -112,7 +112,7 @@ struct LibraryKindWallView: View {
             // 其他视频是 16:9 抓帧，走宽列；影视按 2:3 钉死框比例——跨库的一面墙里偶有没刮到海报的本地条目，
             // 钉死后每格等高、片名落在一条线上（同 Web）
             let wide = kind == "video"
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: cards.wallMinimum + (wide ? 60 : 0)), spacing: cards.spacing, alignment: .top)], alignment: .leading, spacing: 20) {
+            LazyVGrid(columns: cards.wallColumns(extra: wide ? 60 : 0), alignment: .leading, spacing: 20) {
                 ForEach(items) { item in
                     LibraryInventoryCell(item: item, libraryId: item.libraryId ?? 0, frameAspect: wide ? 16 / 9 : Theme.posterAspect,
                                          showRating: effectiveSort == "rating")

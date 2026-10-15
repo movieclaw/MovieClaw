@@ -428,7 +428,7 @@ struct DismissJobSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .adaptiveDetents([.medium, .large])
         .interactiveDismissDisabled(busy)
     }
 }

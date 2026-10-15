@@ -54,7 +54,7 @@ struct PlayerTopBar: View {
                 // 返回箭头笔画细，用大一号的符号尺度，与胶囊里的图标视觉上一样重（系统返回键也是这样）
                 GlassIconButton(
                     systemImage: "chevron.backward",
-                    label: controller.clip != nil ? "退出全屏" : (landscape ? "退出横屏" : "退出播放"),
+                    label: controller.clip != nil ? "退出全屏" : (landscape && PlayerOrientation.appControlsRotation ? "退出横屏" : "退出播放"),
                     identifier: "player-close", scale: .large, action: onBack
                 )
                 VStack(alignment: .leading, spacing: 2) {
@@ -268,11 +268,14 @@ struct PlayerBottomBar: View {
                         .accessibilityIdentifier("player-watch-full")
                     }
                     // 片段模式只有横屏这一种样子：转回竖屏就是退出全屏、回到刷片
-                    let rotateLabel = controller.clip != nil ? "退出全屏" : (landscape ? "退出横屏" : "横屏")
-                    GlassIconButton(
-                        systemImage: landscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
-                        label: rotateLabel, identifier: "player-\(rotateLabel)", action: onToggleLandscape
-                    )
+                    // iPad 方向跟随设备，没有横屏键（片段模式的「退出全屏」照留）
+                    if PlayerOrientation.appControlsRotation || controller.clip != nil {
+                        let rotateLabel = controller.clip != nil ? "退出全屏" : (landscape ? "退出横屏" : "横屏")
+                        GlassIconButton(
+                            systemImage: landscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
+                            label: rotateLabel, identifier: "player-\(rotateLabel)", action: onToggleLandscape
+                        )
+                    }
                 }
             }
             // 拖进度时让出这一行：预览缩略图正好浮在这里，按钮留着只会和它叠成一团

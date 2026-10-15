@@ -264,6 +264,7 @@ struct DiscoverHero: View {
     @Binding var index: Int
 
     @Environment(\.api) private var api
+    @Environment(\.cardMetrics) private var cards
     /// 指示器当前胶囊的填充进度 0...1
     @State private var fill: CGFloat = 0
     /// 左右安全区：轮播铺满整屏宽（横屏不让出灵动岛那侧），文字与指示器要自己躲开
@@ -275,26 +276,17 @@ struct DiscoverHero: View {
     private var fade: Double { Double(max(0, min(1, 1 - scrollOffset / 260))) }
 
     var body: some View {
-        TabView(selection: $index) {
-            // 按条目认页（同订阅首页）：先画快照、再换成新数据时，同一下标换了一张图，
-            // 按下标认会把上一张没走完的推近状态带到新图上
-            ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
-                DiscoverHeroSlide(item: item, active: i == index, isFirst: i == 0, isLast: i == items.count - 1,
-                                  scrollOffset: scrollOffset, fade: fade, sideInsets: sideInsets)
-                    .tag(i)
-            }
-        }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        // 横屏时剧照也铺满整屏宽：不铺的话两侧安全区（灵动岛、圆角那一截）露出页面底色
-        .ignoresSafeArea(.container, edges: .horizontal)
-        .onGeometryChange(for: EdgeInsets.self, of: \.safeAreaInsets) { sideInsets = $0 }
+        pages
+        // 手机横屏剧照铺满整屏宽，iPad 宽窗口只占内容区（见 ImmersiveHeroBleed）
+        .modifier(ImmersiveHeroBleed(fullWidth: !cards.isWide))
+        .onGeometryChange(for: EdgeInsets.self, of: \.safeAreaInsets) { sideInsets = cards.isWide ? EdgeInsets() : $0 }
         // 向屏幕顶边之外多占一截给下拉拉伸用（分页 TabView 会裁掉页外内容，见 ImmersiveHeroBackdrop），布局高度仍是 height
         .frame(height: DiscoverHero.height + ImmersiveHeroBackdrop.pullReserve)
         .padding(.top, -ImmersiveHeroBackdrop.pullReserve)
         .overlay(alignment: .bottomTrailing) {
             if items.count > 1 {
                 ImmersiveHeroIndicator(count: items.count, index: $index, fill: fill) { "切换到《\(items[$0].title)》" }
-                    .padding(.trailing, 20 + sideInsets.trailing)
+                    .padding(.trailing, max(20, cards.edge) + sideInsets.trailing)
                     .padding(.bottom, 16)
                     .opacity(fade)
             }
@@ -308,6 +300,30 @@ struct DiscoverHero: View {
             }
         }
         .accessibilityIdentifier("discover-hero")
+    }
+
+    /// 手机：分页滑动；iPad 宽窗口：交叉淡入（见 ImmersiveHeroFadeCarousel）
+    @ViewBuilder
+    private var pages: some View {
+        if cards.isWide {
+            ImmersiveHeroFadeCarousel(count: items.count, index: $index) { i in
+                slide(i).id(items[i].id)
+            }
+        } else {
+            TabView(selection: $index) {
+                // 按条目认页（同订阅首页）：先画快照、再换成新数据时，同一下标换了一张图，
+                // 按下标认会把上一张没走完的推近状态带到新图上
+                ForEach(Array(items.enumerated()), id: \.element.id) { i, _ in
+                    slide(i).tag(i)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+        }
+    }
+
+    private func slide(_ i: Int) -> some View {
+        DiscoverHeroSlide(item: items[i], active: i == index, isFirst: i == 0, isLast: i == items.count - 1,
+                          scrollOffset: scrollOffset, fade: fade, sideInsets: sideInsets)
     }
 }
 
@@ -343,6 +359,7 @@ struct DiscoverHeroSlide: View {
     @Environment(\.api) private var api
     @Environment(\.permissions) private var permissions
     @Environment(Router.self) private var router
+    @Environment(\.cardMetrics) private var cards
 
     var body: some View {
         let sub = SubscriptionIndex.shared.subscription(for: item)
@@ -385,7 +402,8 @@ struct DiscoverHeroSlide: View {
                     .accessibilityIdentifier("hero-subscribe")
                 }
             }
-            .padding(.horizontal, 16)
+            // 与下面各行同一条左边线（手机 16，iPad 宽窗口 32）
+            .padding(.horizontal, cards.edge)
             .padding(.bottom, 28)
             .padding(.trailing, 60)
             .padding(.leading, sideInsets.leading)
