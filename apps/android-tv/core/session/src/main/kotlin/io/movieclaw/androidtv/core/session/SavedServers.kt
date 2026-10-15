@@ -1,7 +1,7 @@
 package io.movieclaw.androidtv.core.session
 
-import io.movieclaw.androidtv.core.model.generated.SessionView
-import io.movieclaw.androidtv.core.network.ServerAddress
+import io.movieclaw.core.model.generated.SessionView
+import io.movieclaw.core.network.ServerAddress
 import kotlinx.serialization.Serializable
 
 /** 本机登录过的一个账号的快照（谁在看页的头像、昵称）。同 Apple 端 `API.AccountView`。 */

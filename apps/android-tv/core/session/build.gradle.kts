@@ -16,6 +16,6 @@ android {
 
 dependencies {
     api(project(":core:network"))
-    implementation(libs.kotlinx.coroutines.android)
-    testImplementation(libs.junit)
+    implementation(shared.kotlinx.coroutines.android)
+    testImplementation(shared.junit)
 }

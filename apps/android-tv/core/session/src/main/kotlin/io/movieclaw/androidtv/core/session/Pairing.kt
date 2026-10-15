@@ -1,13 +1,13 @@
 package io.movieclaw.androidtv.core.session
 
-import io.movieclaw.androidtv.core.model.generated.DeviceAuthorizeRequest
-import io.movieclaw.androidtv.core.model.generated.DeviceAuthorizeView
-import io.movieclaw.androidtv.core.model.generated.DeviceTokenRequest
-import io.movieclaw.androidtv.core.model.generated.DeviceTokenView
-import io.movieclaw.androidtv.core.network.ApiException
-import io.movieclaw.androidtv.core.network.ServerAddress
-import io.movieclaw.androidtv.core.network.UnreachableException
-import io.movieclaw.androidtv.core.network.generated.McApi
+import io.movieclaw.core.model.generated.DeviceAuthorizeRequest
+import io.movieclaw.core.model.generated.DeviceAuthorizeView
+import io.movieclaw.core.model.generated.DeviceTokenRequest
+import io.movieclaw.core.model.generated.DeviceTokenView
+import io.movieclaw.core.network.ApiException
+import io.movieclaw.core.network.ServerAddress
+import io.movieclaw.core.network.UnreachableException
+import io.movieclaw.core.network.generated.McApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 

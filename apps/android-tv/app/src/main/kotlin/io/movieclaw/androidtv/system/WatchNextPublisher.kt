@@ -6,9 +6,9 @@ import android.net.Uri
 import android.util.Log
 import androidx.tvprovider.media.tv.TvContractCompat
 import androidx.tvprovider.media.tv.WatchNextProgram
-import io.movieclaw.androidtv.core.model.generated.UpNextItemView
-import io.movieclaw.androidtv.core.network.ImageUrls
-import io.movieclaw.androidtv.core.network.ServerAddress
+import io.movieclaw.core.model.generated.UpNextItemView
+import io.movieclaw.core.network.ImageUrls
+import io.movieclaw.core.network.ServerAddress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient

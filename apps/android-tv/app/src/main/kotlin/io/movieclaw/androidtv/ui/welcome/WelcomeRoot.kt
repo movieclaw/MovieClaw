@@ -33,7 +33,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.LocalGraph
-import io.movieclaw.androidtv.core.network.ServerAddress
+import io.movieclaw.core.network.ServerAddress
 import io.movieclaw.androidtv.core.session.AppModel
 import io.movieclaw.androidtv.core.session.NeedsPasswordException
 import io.movieclaw.androidtv.core.session.SavedAccount

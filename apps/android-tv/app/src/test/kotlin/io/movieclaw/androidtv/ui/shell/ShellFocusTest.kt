@@ -4,9 +4,9 @@ import android.app.Application
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
-import io.movieclaw.androidtv.core.model.generated.LibraryView
-import io.movieclaw.androidtv.core.model.generated.UpNextItemView
-import io.movieclaw.androidtv.core.model.generated.UpNextView
+import io.movieclaw.core.model.generated.LibraryView
+import io.movieclaw.core.model.generated.UpNextItemView
+import io.movieclaw.core.model.generated.UpNextView
 import io.movieclaw.androidtv.ui.LaunchArgs
 import io.movieclaw.androidtv.ui.TV_QUALIFIERS
 import io.movieclaw.androidtv.ui.focusedText

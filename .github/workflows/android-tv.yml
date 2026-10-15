@@ -1,6 +1,7 @@
 name: Android TV
 
-# Android TV 客户端（apps/android-tv，docs/design/androidtv-app.md）。与手机版完全独立，单独一条流水线。
+# Android TV 客户端（apps/android-tv，docs/design/androidtv-app.md）。单独一条流水线；播放引擎、接口与模型在
+# apps/android-core（TV 与手机共用），改动它也跑这里。
 on:
   pull_request:
     branches: [main]
@@ -8,6 +9,7 @@ on:
     branches: [main]
     paths:
       - 'apps/android-tv/**'
+      - 'apps/android-core/**'
       - 'src/movieclaw_api/schemas/**'
       - 'src/movieclaw_api/api/routes/**'
       - '.github/workflows/android-tv.yml'
@@ -32,11 +34,12 @@ jobs:
           filters: |
             app:
               - 'apps/android-tv/**'
+              - 'apps/android-core/**'
               - '.github/workflows/android-tv.yml'
             api:
-              - 'apps/android-tv/scripts/**'
-              - 'apps/android-tv/core/model/src/main/kotlin/**/generated/**'
-              - 'apps/android-tv/core/network/src/main/kotlin/**/generated/**'
+              - 'apps/android-core/scripts/**'
+              - 'apps/android-core/model/src/main/kotlin/**/generated/**'
+              - 'apps/android-core/network/src/main/kotlin/**/generated/**'
               - 'src/movieclaw_api/schemas/**'
               - 'src/movieclaw_api/api/routes/**'
               - '.github/workflows/android-tv.yml'
@@ -55,7 +58,7 @@ jobs:
           cache: pip
       - run: pip install -e .
       - name: 生成的 Kotlin 接口与后端一致
-        run: python apps/android-tv/scripts/gen_api.py --check
+        run: python apps/android-core/scripts/gen_api.py --check
 
   build:
     needs: changes
@@ -72,7 +75,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       # FFmpeg 音频软解库（LGPL-2.1 共享库，产物不入库，§4.3）：没有它 App 照常能编，只是 release 包里缺软解
       - name: FFmpeg 音频解码库
-        working-directory: apps/android-tv
+        working-directory: apps/android-core
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.3.13750724" "cmake;3.22.1" > /dev/null
           NDK="$ANDROID_HOME/ndk/27.3.13750724" bash native/ffmpeg/build.sh
@@ -88,6 +91,7 @@ jobs:
           name: android-tv-results
           path: |
             apps/android-tv/**/build/reports/tests/
+            apps/android-core/**/build/reports/tests/
             apps/android-tv/app/build/reports/lint-results-debug.*
             apps/android-tv/app/build/outputs/apk/debug/
 

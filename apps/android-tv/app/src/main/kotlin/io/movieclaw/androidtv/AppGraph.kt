@@ -7,10 +7,10 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import io.movieclaw.androidtv.core.model.generated.SessionView
-import io.movieclaw.androidtv.core.network.ClientIdentity
-import io.movieclaw.androidtv.core.network.ServerAddress
-import io.movieclaw.androidtv.core.network.generated.McApi
+import io.movieclaw.core.model.generated.SessionView
+import io.movieclaw.core.network.ClientIdentity
+import io.movieclaw.core.network.ServerAddress
+import io.movieclaw.core.network.generated.McApi
 import io.movieclaw.androidtv.core.session.AppModel
 import io.movieclaw.androidtv.core.session.LocalStore
 import kotlinx.coroutines.CoroutineScope

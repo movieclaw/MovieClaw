@@ -103,7 +103,7 @@ Android TV（`apps/android-tv`，[设计](androidtv-app.md)）是与手机版完
   arm64-v8a 与 armeabi-v7a（电视盒子仍有大量 32 位机器），`arch` 记 `arm`，`abis` 列出两种架构；
   最低 Android 6.0（API 23）。打包脚本校验两种架构的 FFmpeg 音频解码与 libass 库都在。
 - **作业**：`android-release` 的 `android-tv-apk`，tag 为 `androidtv-vX.Y.Z`。安装
-  NDK / CMake 现编 FFmpeg（`native/ffmpeg/build.sh`，LGPL 共享库），再 `assembleRelease`。
+  NDK / CMake 现编 FFmpeg（`apps/android-core/native/ffmpeg/build.sh`，LGPL 共享库），再 `assembleRelease`。
 
 本地打包（同样的四个签名环境变量；首次会编 FFmpeg，`NDK` 默认 `$ANDROID_HOME/ndk/27.3.13750724`）：
 

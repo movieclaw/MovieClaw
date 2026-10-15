@@ -25,7 +25,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.LocalGraph
-import io.movieclaw.androidtv.core.network.ServerAddress
+import io.movieclaw.core.network.ServerAddress
 import io.movieclaw.androidtv.core.session.ServerDiscovery
 import io.movieclaw.androidtv.ui.components.McIcons
 import io.movieclaw.androidtv.ui.theme.McColors

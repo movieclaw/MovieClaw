@@ -1,7 +1,7 @@
 package io.movieclaw.androidtv.ui.home
 
-import io.movieclaw.androidtv.core.network.ApiTransport
-import io.movieclaw.androidtv.core.network.generated.McApi
+import io.movieclaw.core.network.ApiTransport
+import io.movieclaw.core.network.generated.McApi
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonElement

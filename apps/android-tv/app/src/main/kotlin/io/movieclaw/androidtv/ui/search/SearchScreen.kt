@@ -58,8 +58,8 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.LocalSession
-import io.movieclaw.androidtv.core.model.generated.LibrarySearchHit
-import io.movieclaw.androidtv.core.model.generated.LibrarySearchPerson
+import io.movieclaw.core.model.generated.LibrarySearchHit
+import io.movieclaw.core.model.generated.LibrarySearchPerson
 import io.movieclaw.androidtv.core.session.SearchResults
 import io.movieclaw.androidtv.ui.components.Avatar
 import io.movieclaw.androidtv.ui.components.CaptionMode

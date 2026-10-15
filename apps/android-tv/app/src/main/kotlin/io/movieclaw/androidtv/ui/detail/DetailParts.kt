@@ -38,7 +38,7 @@ import androidx.tv.material3.Glow
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import io.movieclaw.androidtv.ui.components.Text
-import io.movieclaw.androidtv.core.model.generated.EpisodeView
+import io.movieclaw.core.model.generated.EpisodeView
 import io.movieclaw.androidtv.ui.components.initials
 import io.movieclaw.androidtv.ui.components.CardBadge
 import io.movieclaw.androidtv.ui.components.FocusCard

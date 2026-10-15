@@ -2,7 +2,7 @@ package io.movieclaw.androidtv.core.session
 
 import android.content.Context
 import android.net.ConnectivityManager
-import io.movieclaw.androidtv.core.network.ServerAddress
+import io.movieclaw.core.network.ServerAddress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll

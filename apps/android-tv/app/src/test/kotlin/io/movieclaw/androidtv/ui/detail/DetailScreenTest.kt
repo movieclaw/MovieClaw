@@ -11,8 +11,8 @@ import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.Dp
-import io.movieclaw.androidtv.core.model.generated.LibraryItemDetailView
-import io.movieclaw.androidtv.core.model.generated.SeasonEpisodesView
+import io.movieclaw.core.model.generated.LibraryItemDetailView
+import io.movieclaw.core.model.generated.SeasonEpisodesView
 import io.movieclaw.androidtv.ui.TV_QUALIFIERS
 import io.movieclaw.androidtv.ui.episodes
 import io.movieclaw.androidtv.ui.focusedText

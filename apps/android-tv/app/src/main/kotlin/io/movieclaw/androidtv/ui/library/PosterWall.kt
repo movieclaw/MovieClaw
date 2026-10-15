@@ -44,9 +44,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import io.movieclaw.androidtv.ui.components.Text
-import io.movieclaw.androidtv.core.model.generated.FavoriteItemView
-import io.movieclaw.androidtv.core.model.generated.LibraryItemView
-import io.movieclaw.androidtv.core.network.generated.McApi
+import io.movieclaw.core.model.generated.FavoriteItemView
+import io.movieclaw.core.model.generated.LibraryItemView
+import io.movieclaw.core.network.generated.McApi
 import io.movieclaw.androidtv.ui.components.CaptionMode
 import io.movieclaw.androidtv.ui.components.McIcons
 import io.movieclaw.androidtv.ui.components.PosterCard

@@ -13,7 +13,7 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
-import io.movieclaw.androidtv.core.model.generated.EpisodeView
+import io.movieclaw.core.model.generated.EpisodeView
 import io.movieclaw.androidtv.ui.TV_QUALIFIERS
 import io.movieclaw.androidtv.ui.savePreview
 import io.movieclaw.androidtv.ui.setTvContent

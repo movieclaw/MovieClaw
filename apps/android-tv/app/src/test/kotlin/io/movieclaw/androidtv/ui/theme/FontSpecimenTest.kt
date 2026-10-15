@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.text.font.FontWeight
-import io.movieclaw.androidtv.core.model.generated.EpisodeView
+import io.movieclaw.core.model.generated.EpisodeView
 import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.ui.components.tvWeight
 import io.movieclaw.androidtv.ui.detail.EpisodeCard

@@ -1,6 +1,6 @@
 package io.movieclaw.androidtv.ui.detail
 
-import io.movieclaw.androidtv.core.model.generated.EpisodeView
+import io.movieclaw.core.model.generated.EpisodeView
 
 /** 长剧集分段选集的一段（docs/design/long-season-episode-ranges.md）：按集号每 50 集一段，段名用段内实际首末集号 */
 data class EpisodeRange(val index: Int, val first: Long, val last: Long) {

@@ -1,9 +1,9 @@
 package io.movieclaw.androidtv.core.session
 
 import android.content.Context
-import io.movieclaw.androidtv.core.model.McJson
-import io.movieclaw.androidtv.core.model.generated.SessionView
-import io.movieclaw.androidtv.core.network.ServerAddress
+import io.movieclaw.core.model.McJson
+import io.movieclaw.core.model.generated.SessionView
+import io.movieclaw.core.network.ServerAddress
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import java.util.UUID

@@ -53,25 +53,26 @@
 
 ### 3.1 目录
 
-独立的 Gradle 工程，按「核心 / 功能」分模块，核心模块不依赖任何界面：
+独立的 Gradle 工程，按「核心 / 功能」分模块，核心模块不依赖任何界面。播放引擎、接口与模型与安卓手机版共用，
+源码在 `apps/android-core`（iOS 的 `Shared/` 同理），两个工程的 settings 按路径把它们挂成 `:core:*`：
 
 ```
+apps/android-core/          TV 与手机共用（依赖版本：gradle/shared.versions.toml，以 `shared` 引用）
+  model/        接口数据模型（纯 Kotlin，可空带默认值；生成物在 generated/）
+  network/      OkHttp 客户端、信封解包、错误中文化、User-Agent、令牌注入；生成的 McApi
+  playback/     会话协议、能力探测、Exo 编排、进度 / 心跳上报、跳过段、选轨、看门狗与兜底阶梯
+  ffmpeg/       Media3 decoder_ffmpeg 音频扩展（§4.3）
+  native/ffmpeg/  LGPL FFmpeg 音频扩展的编译脚本（产物不入库）
+  scripts/gen_api.py  接口生成器（白名单）
 apps/android-tv/
-  settings.gradle.kts / build.gradle.kts / gradle/libs.versions.toml（依赖版本唯一来源）
+  settings.gradle.kts / build.gradle.kts / gradle/libs.versions.toml（TV 自己的依赖版本）
   version.properties
-  core/
-    model/        接口数据模型（纯 Kotlin，可空带默认值）
-    network/      OkHttp 客户端、信封解包、错误中文化、User-Agent、令牌注入
-    session/      服务器发现、登录 / 配对状态机、账号库（KeyStore 加密）、权限
-    playback/     会话协议、能力探测、引擎抽象（Player 接口）、进度 / 心跳上报、跳过段、选轨
-  feature/
-    onboarding/ home/ library/ detail/ search/ player/ accounts/ about/
-  app/            Application、MainActivity、导航壳、AppGraph
-  native/ffmpeg/  LGPL FFmpeg 音频扩展的编译脚本（产物不入库，§4.3）
-  tests/          端到端（遥控器按键驱动）
+  core/session/ 服务器发现、登录 / 配对状态机、账号库（KeyStore 加密）、权限
+  app/          Application、MainActivity、导航壳、AppGraph、各页面
+  tests/        端到端（遥控器按键驱动）
 ```
 
-模块边界的目的：播放与会话逻辑可以单测、可以换引擎，以后若要做安卓手机界面，`core/*` 原样共用。
+模块边界的目的：播放与会话逻辑可以单测、可以换引擎，手机界面与 TV 界面共用同一套 `core/*`。
 
 ### 3.2 约定
 

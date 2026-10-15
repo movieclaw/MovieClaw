@@ -1,9 +1,9 @@
 package io.movieclaw.androidtv.ui.detail
 
-import io.movieclaw.androidtv.core.model.generated.EpisodeView
-import io.movieclaw.androidtv.core.model.generated.LibraryItemDetailView
-import io.movieclaw.androidtv.core.model.generated.PersonCreditView
-import io.movieclaw.androidtv.core.model.generated.PersonView
+import io.movieclaw.core.model.generated.EpisodeView
+import io.movieclaw.core.model.generated.LibraryItemDetailView
+import io.movieclaw.core.model.generated.PersonCreditView
+import io.movieclaw.core.model.generated.PersonView
 import io.movieclaw.androidtv.ui.stage.StageBadge
 import io.movieclaw.androidtv.ui.theme.Formatters
 import kotlin.math.roundToLong

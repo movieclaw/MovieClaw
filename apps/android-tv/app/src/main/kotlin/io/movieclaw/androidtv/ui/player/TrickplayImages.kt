@@ -6,8 +6,8 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import io.movieclaw.androidtv.core.model.generated.TrickplayView
-import io.movieclaw.androidtv.core.playback.TrickplayMath
+import io.movieclaw.core.model.generated.TrickplayView
+import io.movieclaw.core.playback.TrickplayMath
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

@@ -46,7 +46,7 @@ import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.BuildConfig
 import io.movieclaw.androidtv.LocalGraph
 import io.movieclaw.androidtv.LocalSession
-import io.movieclaw.androidtv.core.network.ServerAddress
+import io.movieclaw.core.network.ServerAddress
 import io.movieclaw.androidtv.core.session.NeedsPasswordException
 import io.movieclaw.androidtv.core.session.SavedAccount
 import io.movieclaw.androidtv.ui.components.McIcons

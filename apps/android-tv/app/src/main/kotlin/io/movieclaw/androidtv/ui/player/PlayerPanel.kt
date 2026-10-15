@@ -48,11 +48,11 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Surface
 import io.movieclaw.androidtv.ui.components.Text
-import io.movieclaw.androidtv.core.playback.PlaybackController
-import io.movieclaw.androidtv.core.playback.PlayerState
-import io.movieclaw.androidtv.core.playback.QualityOption
-import io.movieclaw.androidtv.core.playback.SubtitleSections
-import io.movieclaw.androidtv.core.playback.TrackText
+import io.movieclaw.core.playback.PlaybackController
+import io.movieclaw.core.playback.PlayerState
+import io.movieclaw.core.playback.QualityOption
+import io.movieclaw.core.playback.SubtitleSections
+import io.movieclaw.core.playback.TrackText
 import io.movieclaw.androidtv.ui.components.McIcons
 import io.movieclaw.androidtv.ui.theme.McColors
 import io.movieclaw.androidtv.ui.theme.McType

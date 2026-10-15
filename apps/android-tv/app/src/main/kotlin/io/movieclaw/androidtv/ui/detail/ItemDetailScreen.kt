@@ -58,9 +58,9 @@ import androidx.compose.ui.unit.Constraints
 import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.LocalGraph
 import io.movieclaw.androidtv.LocalSession
-import io.movieclaw.androidtv.core.model.generated.CollectionSeriesView
-import io.movieclaw.androidtv.core.model.generated.LibraryItemDetailView
-import io.movieclaw.androidtv.core.model.generated.LibraryItemView
+import io.movieclaw.core.model.generated.CollectionSeriesView
+import io.movieclaw.core.model.generated.LibraryItemDetailView
+import io.movieclaw.core.model.generated.LibraryItemView
 import io.movieclaw.androidtv.ui.components.McIcons
 import io.movieclaw.androidtv.ui.components.PosterCard
 import io.movieclaw.androidtv.ui.components.Shelf

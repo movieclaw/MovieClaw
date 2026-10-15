@@ -4,7 +4,7 @@ package io.movieclaw.androidtv.ui.accounts
  * 随包分发的一个开源组件（Apple 端 Shared/About/OpenSourceComponent.swift）：名称、许可、源码地址、
  * 随包许可全文的文件名（app/src/main/assets/licenses/<licenseFile>.txt）。
  *
- * 清单按 Android 版实际打进安装包的依赖写（gradle/libs.versions.toml、core/ffmpeg）；加了组件要同步补上。
+ * 清单按 Android 版实际打进安装包的依赖写（gradle/libs.versions.toml、apps/android-core/ffmpeg）；加了组件要同步补上。
  */
 data class OpenSourceComponent(
     val name: String,
@@ -37,7 +37,7 @@ data class OpenSourceComponent(
             OpenSourceComponent(
                 "FFmpeg 6.0.1（音频解码）",
                 "GNU LGPL 2.1 或更新版本",
-                "https://ffmpeg.org/releases/ffmpeg-6.0.1.tar.xz；编译脚本 apps/android-tv/native/ffmpeg/build.sh（https://github.com/movieclaw/movieclaw）",
+                "https://ffmpeg.org/releases/ffmpeg-6.0.1.tar.xz；编译脚本 apps/android-core/native/ffmpeg/build.sh（https://github.com/movieclaw/movieclaw）",
                 listOf("LGPL-2.1"),
             ),
         )

@@ -1,7 +1,7 @@
 package io.movieclaw.androidtv
 
 import android.app.Application
-import io.movieclaw.androidtv.core.playback.PlaybackReportStore
+import io.movieclaw.core.playback.PlaybackReportStore
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader

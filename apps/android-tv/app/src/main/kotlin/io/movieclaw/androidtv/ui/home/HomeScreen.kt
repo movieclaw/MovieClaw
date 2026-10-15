@@ -52,7 +52,7 @@ import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Icon
 import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.LocalSession
-import io.movieclaw.androidtv.core.model.generated.UpNextItemView
+import io.movieclaw.core.model.generated.UpNextItemView
 import io.movieclaw.androidtv.ui.components.CaptionMode
 import io.movieclaw.androidtv.ui.components.LandscapeCard
 import io.movieclaw.androidtv.ui.components.McIcons
@@ -450,8 +450,8 @@ fun upNextBand(item: UpNextItemView): String? {
 private fun HomeRow(
     row: HomeRows.Row,
     store: HomeStore,
-    browsable: List<io.movieclaw.androidtv.core.model.generated.LibraryView>,
-    pinnedCollections: List<io.movieclaw.androidtv.core.model.generated.CollectionView>,
+    browsable: List<io.movieclaw.core.model.generated.LibraryView>,
+    pinnedCollections: List<io.movieclaw.core.model.generated.CollectionView>,
     onRowFocus: (Boolean) -> Unit,
 ) {
     val router = LocalRouter.current

@@ -14,11 +14,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
-import io.movieclaw.androidtv.core.model.generated.EpisodeView
-import io.movieclaw.androidtv.core.model.generated.PlaybackItemView
-import io.movieclaw.androidtv.core.playback.Phase
-import io.movieclaw.androidtv.core.playback.PlaybackUnit
-import io.movieclaw.androidtv.core.playback.PlayerState
+import io.movieclaw.core.model.generated.EpisodeView
+import io.movieclaw.core.model.generated.PlaybackItemView
+import io.movieclaw.core.playback.Phase
+import io.movieclaw.core.playback.PlaybackUnit
+import io.movieclaw.core.playback.PlayerState
 import io.movieclaw.androidtv.ui.TV_QUALIFIERS
 import io.movieclaw.androidtv.ui.episodes
 import io.movieclaw.androidtv.ui.focusedText

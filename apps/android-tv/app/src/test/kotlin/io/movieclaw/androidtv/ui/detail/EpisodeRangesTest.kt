@@ -1,6 +1,6 @@
 package io.movieclaw.androidtv.ui.detail
 
-import io.movieclaw.androidtv.core.model.generated.EpisodeView
+import io.movieclaw.core.model.generated.EpisodeView
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue

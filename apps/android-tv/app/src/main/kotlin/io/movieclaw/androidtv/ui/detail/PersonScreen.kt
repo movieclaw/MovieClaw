@@ -36,10 +36,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.LocalSession
-import io.movieclaw.androidtv.core.model.generated.PersonCreditView
-import io.movieclaw.androidtv.core.model.generated.PersonView
-import io.movieclaw.androidtv.core.network.ApiException
-import io.movieclaw.androidtv.core.network.generated.McApi
+import io.movieclaw.core.model.generated.PersonCreditView
+import io.movieclaw.core.model.generated.PersonView
+import io.movieclaw.core.network.ApiException
+import io.movieclaw.core.network.generated.McApi
 import io.movieclaw.androidtv.ui.components.Avatar
 import io.movieclaw.androidtv.ui.components.CaptionMode
 import io.movieclaw.androidtv.ui.components.McIcons

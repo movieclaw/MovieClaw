@@ -9,9 +9,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
 import io.movieclaw.androidtv.AppGraph
-import io.movieclaw.androidtv.core.model.generated.LibraryView
-import io.movieclaw.androidtv.core.model.generated.UpNextItemView
-import io.movieclaw.androidtv.core.model.generated.UpNextView
+import io.movieclaw.core.model.generated.LibraryView
+import io.movieclaw.core.model.generated.UpNextItemView
+import io.movieclaw.core.model.generated.UpNextView
 import io.movieclaw.androidtv.ui.LaunchArgs
 import io.movieclaw.androidtv.ui.TV_QUALIFIERS
 import io.movieclaw.androidtv.ui.TvEnv

@@ -29,8 +29,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import io.movieclaw.androidtv.ui.components.Text
-import io.movieclaw.androidtv.core.playback.PlayerFormat
-import io.movieclaw.androidtv.core.playback.PlayerState
+import io.movieclaw.core.playback.PlayerFormat
+import io.movieclaw.core.playback.PlayerState
 import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt
 

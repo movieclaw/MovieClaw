@@ -1,6 +1,6 @@
 package io.movieclaw.androidtv.core.session
 
-import io.movieclaw.androidtv.core.model.generated.LibrarySearchHit
+import io.movieclaw.core.model.generated.LibrarySearchHit
 
 /** 搜索页（TVSearchView）的纯逻辑：翻页合并、卡片下的说明 */
 object SearchResults {

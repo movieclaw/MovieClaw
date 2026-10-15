@@ -35,7 +35,7 @@ class Product(NamedTuple):
 PRODUCTS = (
     Product("服务器", "v", "pyproject.toml", (
         ".", *(f":(exclude){p}" for p in (
-            "apps/android", "apps/android-tv", APPLE, "apps/desktop", "macos",
+            "apps/android", "apps/android-tv", "apps/android-core", APPLE, "apps/desktop", "macos",
             "docs", "ml", ".claude", ".github",
         )),
     )),
@@ -59,7 +59,8 @@ PRODUCTS = (
     )),
     Product("Android", "android-v", "apps/android/version.properties", ("apps/android",)),
     Product(
-        "Android TV", "androidtv-v", "apps/android-tv/version.properties", ("apps/android-tv",)
+        "Android TV", "androidtv-v", "apps/android-tv/version.properties",
+        ("apps/android-tv", "apps/android-core"),
     ),
     Product("Windows", "windows-v", "apps/desktop/src-tauri/Cargo.toml", ("apps/desktop",)),
 )

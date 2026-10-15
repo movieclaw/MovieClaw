@@ -15,11 +15,11 @@ import io.movieclaw.androidtv.AccountSession
 import io.movieclaw.androidtv.AppGraph
 import io.movieclaw.androidtv.LocalGraph
 import io.movieclaw.androidtv.LocalSession
-import io.movieclaw.androidtv.core.model.generated.EpisodeView
-import io.movieclaw.androidtv.core.model.generated.SessionView
-import io.movieclaw.androidtv.core.network.ApiTransport
-import io.movieclaw.androidtv.core.network.ServerAddress
-import io.movieclaw.androidtv.core.network.generated.McApi
+import io.movieclaw.core.model.generated.EpisodeView
+import io.movieclaw.core.model.generated.SessionView
+import io.movieclaw.core.network.ApiTransport
+import io.movieclaw.core.network.ServerAddress
+import io.movieclaw.core.network.generated.McApi
 import io.movieclaw.androidtv.ui.components.LocalServer
 import io.movieclaw.androidtv.ui.theme.McTheme
 import okhttp3.HttpUrl.Companion.toHttpUrl

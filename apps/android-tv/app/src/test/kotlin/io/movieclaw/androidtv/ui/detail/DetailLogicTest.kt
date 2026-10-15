@@ -1,14 +1,14 @@
 package io.movieclaw.androidtv.ui.detail
 
-import io.movieclaw.androidtv.core.model.generated.ActorView
-import io.movieclaw.androidtv.core.model.generated.AudioStreamView
-import io.movieclaw.androidtv.core.model.generated.DirectorView
-import io.movieclaw.androidtv.core.model.generated.EpisodeView
-import io.movieclaw.androidtv.core.model.generated.LibraryFileView
-import io.movieclaw.androidtv.core.model.generated.LibraryItemDetailView
-import io.movieclaw.androidtv.core.model.generated.LocalMetaView
-import io.movieclaw.androidtv.core.model.generated.PersonCreditView
-import io.movieclaw.androidtv.core.model.generated.PersonView
+import io.movieclaw.core.model.generated.ActorView
+import io.movieclaw.core.model.generated.AudioStreamView
+import io.movieclaw.core.model.generated.DirectorView
+import io.movieclaw.core.model.generated.EpisodeView
+import io.movieclaw.core.model.generated.LibraryFileView
+import io.movieclaw.core.model.generated.LibraryItemDetailView
+import io.movieclaw.core.model.generated.LocalMetaView
+import io.movieclaw.core.model.generated.PersonCreditView
+import io.movieclaw.core.model.generated.PersonView
 import io.movieclaw.androidtv.ui.stage.StageBadge
 import io.movieclaw.androidtv.ui.stage.episodeLine
 import io.movieclaw.androidtv.ui.stage.episodeTitle
