@@ -12,6 +12,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.settings.store import reset_setting_store
+from movieclaw_db.crypto import reset_secret_box
 
 
 @pytest.fixture
@@ -21,8 +23,14 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("SITE_CONFIGS_DIR", str(tmp_path / "site-configs"))
     monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    # 配置存储是进程级单例：不换新会沿用同进程前面测试的配置（如 Webhook 地址），
+    # 诊断里平白多出消费者
+    reset_setting_store()
+    reset_secret_box()
     yield tmp_path
     get_settings.cache_clear()
+    reset_setting_store()
+    reset_secret_box()
 
 
 def make_admin_client() -> tuple[object, TestClient]:

@@ -52,8 +52,12 @@ class _RecordingProtocol(BaseLlmProtocol):
 
 @pytest.fixture
 def world(tmp_path, monkeypatch):
+    from movieclaw_api.services import durable_events, llm_config
     from movieclaw_api.services.agent_attachments import reset_agent_attachment_store
     from movieclaw_api.services.agent_sessions import reset_agent_session_store
+    from movieclaw_api.settings.store import reset_setting_store
+    from movieclaw_db.crypto import reset_secret_box
+    from movieclaw_llm import LlmRouter
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'parity.db'}")
     monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
@@ -63,8 +67,14 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_WORKSPACE_DIR", str(tmp_path / "agent-workspace"))
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
     get_settings.cache_clear()
+    # 进程级单例全部换新：配置存储、密钥、可靠事件名单、会话存储，以及大模型路由
+    # （配置指纹相同就复用已建好的客户端，不换的话会沿用前面测试的假协议）
+    reset_setting_store()
+    reset_secret_box()
+    durable_events.reset_state()
     reset_agent_session_store()
     reset_agent_attachment_store()
+    monkeypatch.setattr(llm_config, "_runtime_router", LlmRouter())
     (tmp_path / "plugins").mkdir()
     shutil.copy(EXAMPLE / "ntfy_channel.py", tmp_path / "plugins" / "ntfy_channel.py")
     (tmp_path / "plugins.yaml").write_text(
@@ -84,6 +94,8 @@ def world(tmp_path, monkeypatch):
     for name in [m for m in sys.modules if m == PACKAGE or m.startswith(PACKAGE + ".")]:
         del sys.modules[name]
     get_settings.cache_clear()
+    reset_setting_store()
+    reset_secret_box()
     reset_agent_session_store()
     reset_agent_attachment_store()
 
