@@ -138,6 +138,7 @@ from movieclaw_api.services.playback.signing import (
     issue_stream_token,
     verify_stream_token,
 )
+from movieclaw_api.services.playback.strm_direct import mounted_redirect
 from movieclaw_api.services.playback.track_context import files_with_contexts
 from movieclaw_api.services.playback_activity import (
     end_playback,
@@ -2033,7 +2034,9 @@ async def stream_library_file(
                 # 播放器自己取不了，服务端按 Range 原样转发
                 return _metered_relay_response(request, grant, file, source)
             return RedirectResponse(target, status_code=302)
-        # 指向挂载目录里的文件：往下与本地文件同样直出
+        # 指向挂载目录里的文件：插件给了网盘直链就 302 过去，否则往下与本地文件同样直出
+        if target := await mounted_redirect(file.id, source, request.headers.get("user-agent")):
+            return RedirectResponse(target, status_code=302)
         path = source
         container = local_strm_container(file.container, path)
     media_type = container_mime_type(container)

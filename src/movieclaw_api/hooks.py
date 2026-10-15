@@ -179,6 +179,26 @@ class Veto(_Frozen):
     reason: str
 
 
+# ---------------------------------------------------------------------- 播放
+class MountedFile(_Frozen):
+    """strm 指向服务器上的本地文件（多为网盘挂载），播放器正要来取。"""
+
+    file_id: int
+    path: str
+    """strm 指向的真实文件（已展开软链），例如 ``/cd2/CloudDrive/115/电影/a.mkv``。"""
+    user_agent: str | None = None
+    """播放器的 User-Agent：115 一类直链与它绑定，取直链时要带上。"""
+
+
+class DirectLink(_Frozen):
+    url: str
+    """播放器能直连的 http(s) 地址。也可以是内网的 302 服务（alist ``/d/…``）：系统会带着
+    播放器的 User-Agent 替它跟跳转，落到外网地址再交给播放器；落不到就当没给。"""
+    ttl_s: int = 60
+    """这条地址可以复用多久（秒）。系统按（文件, 播放器 UA）缓存，最长 1 小时；
+    应短于直链本身的有效期。"""
+
+
 SEARCH_KEYWORDS = _hook(
     "subscription.search.keywords",
     Mode.WATERFALL,
@@ -213,6 +233,15 @@ TORRENT_BEFORE_DELETE = _hook(
     TorrentDeletion,
     Veto,
     "删种前否决：例如 H&R 未达标不许删（否决后删除返回 409）",
+)
+
+STRM_DIRECT_LINK = _hook(
+    "playback.strm.direct-link",
+    Mode.BAIL,
+    MountedFile,
+    DirectLink,
+    "网盘挂载直链：strm 指向服务器挂载目录里的文件时，给播放器换一个能直连的网盘地址"
+    "（302 过去，视频流量不经服务器）；不认领返回 None。只读查询可以，但要快",
 )
 
 #: 关键词上限：每个关键词都是一次全站搜索

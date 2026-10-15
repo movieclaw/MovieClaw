@@ -3900,6 +3900,55 @@
     "stability": "experimental",
     "version": "1.0"
   },
+  "playback.strm.direct-link": {
+    "doc": "网盘挂载直链：strm 指向服务器挂载目录里的文件时，给播放器换一个能直连的网盘地址（302 过去，视频流量不经服务器）；不认领返回 None。只读查询可以，但要快",
+    "durable": false,
+    "kind": "event",
+    "mode": "bail",
+    "payload": {
+      "properties": {
+        "file_id": {
+          "type": "integer"
+        },
+        "path": {
+          "type": "string"
+        },
+        "user_agent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "file_id",
+        "path"
+      ],
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "ttl_s": {
+          "default": 60,
+          "type": "integer"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "stability": "experimental",
+    "version": "1.0"
+  },
   "plugin-callbacks": {
     "doc": "插件回调端点：外部平台能直接调进来的地址，请求原样交给插件（plugin-callbacks.md §4）",
     "kind": "service",

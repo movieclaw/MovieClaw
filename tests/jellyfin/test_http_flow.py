@@ -829,6 +829,52 @@ def test_local_path_strm_is_presented_and_served_as_a_local_file(
     assert all(not s["Path"].endswith(".strm") for s in info["MediaSources"])
 
 
+def test_mount_file_claimed_by_a_plugin_is_redirected_to_its_direct_link(
+    client: TestClient, seeded: dict, media_root: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """插件经 ``playback.strm.direct-link`` 认领挂载文件：取流与下载都 302 到它给的网盘直链，
+    带着播放器自己的 UA 去问（strm-playback.md §10）。"""
+    from movieclaw_api import hooks
+    from movieclaw_api.services.playback import strm_direct
+
+    target = tmp_path / "CloudNAS" / "115" / "电影" / "盗梦空间.2010.1080p.mkv"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"x" * 64)
+    strm = media_root / "Inception (2010)" / "Inception.2010.1080p.strm"
+    strm.write_text(f"{target}\n")
+    asked: list = []
+
+    async def bail(_event, payload):
+        asked.append(payload)
+        return hooks.DirectLink(url="https://cdn.example.com/inception.mkv")
+
+    strm_direct._cache.clear()
+    monkeypatch.setattr(hooks, "active", lambda event: event is hooks.STRM_DIRECT_LINK)
+    monkeypatch.setattr(hooks, "bail", bail)
+    token = jf_login(client)
+    guid = item_guid(seeded["movie"])
+    info = client.post(f"/Items/{guid}/PlaybackInfo", params={"ApiKey": token}).json()
+    local = next(s for s in info["MediaSources"] if s["Path"].endswith(".strm"))
+    params = {"ApiKey": token, "static": "true", "mediaSourceId": local["Id"]}
+    resp = client.get(
+        f"/Videos/{guid}/stream",
+        params=params,
+        headers={"User-Agent": "Infuse/8"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "https://cdn.example.com/inception.mkv"
+    assert asked[0].path == str(target.resolve()) and asked[0].user_agent == "Infuse/8"
+    download = client.get(
+        f"/Items/{guid}/Download",
+        params={"ApiKey": token, "mediaSourceId": local["Id"]},
+        headers={"User-Agent": "Infuse/8"},
+        follow_redirects=False,
+    )
+    assert download.status_code == 302
+    strm_direct._cache.clear()
+
+
 def test_lan_302_service_strm_sends_the_player_to_the_cloud_cdn(
     client: TestClient, seeded: dict, media_root: Path
 ) -> None:

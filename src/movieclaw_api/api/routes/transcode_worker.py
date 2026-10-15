@@ -63,6 +63,7 @@ from movieclaw_api.services.playback.session import (
     TranscodeSession,
     get_session_manager,
 )
+from movieclaw_api.services.playback.strm_direct import mounted_redirect
 from movieclaw_api.services.playback.worker_config import (
     ensure_worker_limit,
     save_worker_limit,
@@ -572,6 +573,9 @@ async def transcode_source(
                     range_header=request.headers.get("range"),
                     upstream_headers=source.headers,
                 )
+            return RedirectResponse(target, status_code=302)
+        # 指向 NAS 挂载目录里的文件：插件给了网盘直链，Worker 也直接从网盘取
+        if target := await mounted_redirect(file.id, source, request.headers.get("user-agent")):
             return RedirectResponse(target, status_code=302)
         path = source
     elif file.is_disc():

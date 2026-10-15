@@ -72,6 +72,7 @@ from movieclaw_api.services.playback.session import (
     get_session_manager,
 )
 from movieclaw_api.services.playback.signing import issue_stream_token, verify_stream_token
+from movieclaw_api.services.playback.strm_direct import mounted_redirect
 from movieclaw_api.services.playback.strm_probe import ensure_strm_spec
 from movieclaw_api.services.playback.track_context import files_with_contexts, track_context
 from movieclaw_api.settings import PlaybackPolicySetting
@@ -708,7 +709,9 @@ async def video_stream(
                 )
             # 302 直链：HEAD 同样 302、不塞 body；重定向目标自己支持 Range
             return RedirectResponse(target, status_code=302)
-        # 指向挂载目录里的文件：往下与本地文件同样直出
+        # 指向挂载目录里的文件：插件给了网盘直链就 302 过去，否则往下与本地文件同样直出
+        if target := await mounted_redirect(f.id, source, request.headers.get("user-agent")):
+            return RedirectResponse(target, status_code=302)
         path = source
         file_container = local_strm_container(f.container, path)
 
@@ -851,7 +854,10 @@ async def download_item(
                     upstream_headers=source.headers,
                 )
             return RedirectResponse(target, status_code=302)
-        path = source  # 指向挂载目录里的文件：按本地文件下载
+        # 指向挂载目录里的文件：插件给了网盘直链就 302 过去，否则按本地文件下载
+        if target := await mounted_redirect(f.id, source, request.headers.get("user-agent")):
+            return RedirectResponse(target, status_code=302)
+        path = source
     if f.is_disc() or not path.is_file():
         # 原盘是目录，没有"一个文件"可下（CanDownload 已恒 false，这里是兜底）
         raise not_found()
