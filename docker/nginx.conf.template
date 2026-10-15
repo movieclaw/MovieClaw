@@ -11,6 +11,7 @@
 # 路由规则必须与 apps/web/next.config.ts 的 rewrites 保持一致（那里仍然保留
 # 同样的规则：裸机开发不经 nginx，Next 直接反代）：
 #   - /api/v1/*                       → 后端
+#   - /mcp/<slug>（MCP 协议端点）      → 后端
 #   - Jellyfin 命名空间（大小写不敏感）  → 后端
 #   - /Sessions 只放行根路径与 Capabilities/Playing 子树：控制台自己有
 #     /sessions/[id] 页面，整段通配会把页面劫持到后端
@@ -138,6 +139,13 @@ http {
             proxy_send_timeout 3600s;
         }
         location ~* ^/api/v1(/|$) {
+            error_page 502 503 504 @api_starting;
+            proxy_pass http://movieclaw_api;
+        }
+        # MCP 协议端点（POST /mcp/<slug>，Bearer 鉴权）：设置页给 AI 客户端
+        # 复制的地址就是本前门的 origin（routes/mcp.py 用 base_url 拼
+        # /mcp/<slug>），不转发的话落到 Next 404 HTML，AI 客户端整个连不上
+        location ~* ^/mcp(/|$) {
             error_page 502 503 504 @api_starting;
             proxy_pass http://movieclaw_api;
         }

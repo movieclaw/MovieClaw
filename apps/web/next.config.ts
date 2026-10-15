@@ -134,6 +134,13 @@ const nextConfig: NextConfig = {
         source: `${apiBaseUrl}/:path*`,
         destination: `${proxyTarget}${apiBaseUrl}/:path*`,
       },
+      // MCP 协议端点挂后端根路径 /mcp/<slug>：Docker 部署由容器内 nginx 放行，
+      // 裸机开发不经 nginx，由这里反代——两边路由清单保持一致
+      // （docker/nginx.conf.template）
+      {
+        source: "/mcp/:path*",
+        destination: `${proxyTarget}/mcp/:path*`,
+      },
       ...jellyfinRewrites,
     ];
   },
