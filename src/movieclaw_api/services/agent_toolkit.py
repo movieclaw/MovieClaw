@@ -15,12 +15,15 @@ from movieclaw_agent import AgentTool, build_skills_fragment, build_system_promp
 from movieclaw_agent.tools import builtin_tools, make_mclaw_tool, make_media_ui_tool
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services import auth as auth_service
+from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.mclaw_tool import render_service_block
 from movieclaw_api.services.web_search_config import (
     attach_web_search_tool,
     load_web_search_provider,
 )
 from movieclaw_api.settings import AppServerSetting, get_setting_store
+from movieclaw_db.engine import get_database
+from movieclaw_db.models.member import Member
 
 #: 工具档位：web = 网页会话与 IM 通道（bash / 文件 / mclaw，网页另加卡片绘制）；
 #: full = 同 web 但不带卡片；mclaw = 只有服务操作；none = 不带工具。
@@ -87,7 +90,28 @@ async def profile_tools(
     return attach_web_search_tool(get_agent_tools(cli_env), web_search)
 
 
-async def agent_system_prompt(tools: Sequence[AgentTool]) -> str:
+def speaker_member_id(identity: Principal) -> int | None:
+    """这一轮是谁在说话（0=超管）。只有真人登录的超管 / 成员才有；Agent、MCP 等程序主体为 None。"""
+    if identity.kind == "admin":
+        return 0
+    if identity.kind == "member":
+        return identity.member_id
+    return None
+
+
+async def _nickname(member_id: int) -> str:
+    """成员 id → 昵称（0=超管）；没设昵称回退用户名，与网页右上角显示一致。"""
+    if member_id == 0:
+        admin = await auth_service.get_admin_account()
+        return admin.nickname or admin.username
+    async with get_database().session() as session:
+        member = await session.get(Member, member_id)
+    return (member.nickname or member.username) if member is not None else ""
+
+
+async def agent_system_prompt(
+    tools: Sequence[AgentTool], *, speaker: int | None = None
+) -> str:
     """组装本次运行的系统提示词：通用正文 + 部署环境事实 + 技能清单 + 服务目录。
 
     各段按挂上的工具取舍（bash/read/write/edit 同进同出，以 read 为准）：
@@ -99,12 +123,16 @@ async def agent_system_prompt(tools: Sequence[AgentTool]) -> str:
     - 外部访问地址来自「设置 → 应用设置」（保存即生效），每次运行时现读设置
       存储，不做缓存；未配置时不输出。
     - 带 mclaw 时末尾接 <mclaw_service> 服务目录。
+    - ``speaker`` 是这一轮说话人的成员 id（0=超管，见 ``speaker_member_id``），
+      给了就写上他的昵称；插件驱动等没有真人在说话的会话不给。
 
     技能清单每次运行现扫：改技能无需重启，下一轮生效。
     """
     names = {tool.name for tool in tools}
     workspace = "read" in names
     lines = []
+    if speaker is not None and (nickname := await _nickname(speaker)):
+        lines.append(f"- 当前用户的昵称：{nickname}")
     if workspace:
         log_dir = Path(get_settings().log_dir).resolve()
         lines.append(

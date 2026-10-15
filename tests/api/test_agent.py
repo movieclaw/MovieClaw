@@ -379,6 +379,34 @@ def test_system_prompt_external_url_injection(client) -> None:
     assert "外部访问地址：http://192.168.1.10:3000。" in prompt
 
 
+def test_system_prompt_names_the_speaker(client) -> None:
+    """环境段写上这一轮说话人的昵称：超管、成员各用各的；程序主体（Agent / MCP）不写。"""
+    from movieclaw_api.services.agent_toolkit import (
+        agent_system_prompt,
+        get_agent_tools,
+        speaker_member_id,
+    )
+    from movieclaw_api.services.auth import Principal
+
+    client.post("/api/v1/auth/bootstrap", json={"username": "admin", "password": "s3cret-pass"})
+    assert client.put("/api/v1/auth/profile", json={"nickname": "小鹏"}).status_code == 200
+    created = client.post(
+        "/api/v1/members",
+        json={"username": "kid01", "password": "password123", "nickname": "小美"},
+    )
+    assert created.status_code in (200, 201), created.text
+    member_id = created.json()["data"]["id"]
+
+    tools = get_agent_tools({})
+    assert "- 当前用户的昵称：小鹏" in asyncio.run(agent_system_prompt(tools, speaker=0))
+    assert "- 当前用户的昵称：小美" in asyncio.run(agent_system_prompt(tools, speaker=member_id))
+    assert "当前用户的昵称" not in asyncio.run(agent_system_prompt(tools))
+
+    assert speaker_member_id(Principal(kind="admin", name="tester")) == 0
+    assert speaker_member_id(Principal(kind="agent", name="agent:s")) is None
+    assert speaker_member_id(Principal(kind="mcp", name="mcp:1")) is None
+
+
 def test_system_prompt_sections_follow_mounted_tools(client) -> None:
     """提示词从实际挂上的工具推导：没有 bash/read 不写源码、日志与技能，没有 mclaw 不写服务目录。"""
     from movieclaw_api.services.agent_toolkit import agent_system_prompt, get_agent_tools

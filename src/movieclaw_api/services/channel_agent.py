@@ -17,6 +17,7 @@ import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from movieclaw_agent import AgentRunner, AgentStartParams, discover_skills, expand_skill_invocations
 from movieclaw_agent.events import AgentEvent
@@ -32,6 +33,9 @@ from movieclaw_db.engine import get_database
 from movieclaw_db.repositories.agent_session_repo import AgentSessionRepository
 from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
 from movieclaw_sdk.channels import Account, ChannelDriver, InboundMessage
+
+if TYPE_CHECKING:
+    from movieclaw_api.services.channel_hub import HostAccount
 
 logger = logging.getLogger("movieclaw_api.channel_agent")
 
@@ -66,7 +70,7 @@ async def ensure_agent_session(driver: ChannelDriver, account: Account, msg: Inb
 
 async def run_agent(
     driver: ChannelDriver,
-    account: Account,
+    account: HostAccount,
     msg: InboundMessage,
     emit: Callable[[str], Awaitable[None]],
 ) -> None:
@@ -120,7 +124,8 @@ async def run_agent(
             AgentStartParams(
                 input=prepared.input_for_run,
                 history=prepared.history_for_run,
-                system_prompt=await agent_system_prompt(tools),
+                # 通道账号绑定在某个成员名下（0=超管），对面说话的就是他
+                system_prompt=await agent_system_prompt(tools, speaker=account.member_id),
             ),
             run_id=run_id,
         ):

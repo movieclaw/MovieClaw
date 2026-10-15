@@ -92,6 +92,8 @@ def test_im_channel_runs_the_same_agent_as_the_web(world, ntfy) -> None:
     fake, server = ntfy
     with make_client() as client:
         client.put("/api/v1/app/config", json={"port": 0, "external_url": "http://nas.local:3000"})
+        client.post("/api/v1/auth/bootstrap", json={"username": "admin", "password": "s3cret-pass"})
+        client.put("/api/v1/auth/profile", json={"nickname": "小鹏"})
         created = client.post(
             "/api/v1/llm/providers",
             json={
@@ -126,7 +128,13 @@ def test_im_channel_runs_the_same_agent_as_the_web(world, ntfy) -> None:
     (web_prompt, web_tools), (im_prompt, im_tools) = _CALLS
     assert im_prompt == web_prompt
     # 两边都是完整提示词：源码与日志、页面链接、技能清单、服务目录收尾
-    sections = ("后端源码", "运行日志目录", "本应用的外部访问地址：http://nas.local:3000", "# 技能")
+    sections = (
+        "后端源码",
+        "运行日志目录",
+        "本应用的外部访问地址：http://nas.local:3000",
+        "当前用户的昵称：小鹏",
+        "# 技能",
+    )
     for section in sections:
         assert section in im_prompt
     assert im_prompt.endswith("</mclaw_service>")

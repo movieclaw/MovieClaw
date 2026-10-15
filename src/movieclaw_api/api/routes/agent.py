@@ -63,6 +63,7 @@ from movieclaw_api.services.agent_toolkit import (
     agent_system_prompt,
     get_agent_tools,
     profile_tools,
+    speaker_member_id,
 )
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.llm_config import acquire_llm_router
@@ -202,6 +203,8 @@ async def _accept_user_message(
         tool_profile=tool_profile,
         instructions=instructions,
         max_steps=max_steps,
+        # 插件驱动的会话没有真人在说话，不写昵称
+        speaker=None if owner else speaker_member_id(identity),
     )
 
 
@@ -231,6 +234,7 @@ async def _launch_user_message(
     tool_profile: ToolProfile = "web",
     instructions: str | None = None,
     max_steps: int | None = None,
+    speaker: int | None = None,
 ) -> ApiResponse[SessionMessageAcceptedView]:
     """在已校验的会话链尾追加用户消息并启动后台处理。
 
@@ -242,7 +246,9 @@ async def _launch_user_message(
         tools if tools is not None else await profile_tools(tool_profile, session_id, owner)
     )
     # 提示词按实际挂上的工具推导（技能清单、源码与日志只给带 read 的工具集）
-    actual_system_prompt = system_prompt or await agent_system_prompt(actual_tools)
+    actual_system_prompt = system_prompt or await agent_system_prompt(
+        actual_tools, speaker=speaker
+    )
     if instructions:
         actual_system_prompt = f"{actual_system_prompt}\n\n{instructions}"
     # 显式技能调用：把 /skill:名字 占位符展开为技能正文块（docs/design/
@@ -663,7 +669,9 @@ async def compact_session_context(
     model = latest_user_model(entries) or ""
 
     # 手动压缩不跑工具，提示词只需与网页会话同口径；空环境建工具不签发令牌
-    system_prompt = await agent_system_prompt(get_agent_tools({}))
+    system_prompt = await agent_system_prompt(
+        get_agent_tools({}), speaker=speaker_member_id(identity)
+    )
     messages = [ChatMessage(role="system", content=system_prompt), *history]
     # 手动压缩不经过 runner，历史里的图片引用必须在这里水合——否则视觉模型
     # 写摘要时只能看到协议层的降级占位，看不到图（设计 §6 的第二个调用点）。
@@ -755,7 +763,7 @@ async def retry_session_message(
     # 供应商校验和运行所需上下文在删除轨迹前准备完成；下面才进入不可逆阶段。
     llm_router = await acquire_llm_router(session)
     tools = await profile_tools("web", session_id, None)
-    system_prompt = await agent_system_prompt(tools)
+    system_prompt = await agent_system_prompt(tools, speaker=speaker_member_id(identity))
 
     store.discard_from_user_message(session_id, payload.message_id)
     # 重试路径同款兜底：截断后若仍残留未配对的工具调用（上次异常停机遗留），
