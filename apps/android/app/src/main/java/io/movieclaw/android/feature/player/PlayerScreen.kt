@@ -280,6 +280,10 @@ private fun PlayingSurface(
     val target = active.target.copy(seasonNumber = state.unit.season.toInt(), episodeNumber = state.unit.episode.toInt())
     val series = state.unit.isEpisode
 
+    // 调了字幕时间轴：外挂文本字幕改由叠层按偏移画（Exo 解出的字幕时机挪不动）
+    val timingAdjusted = subStyle.offsetSeconds != 0f
+    LaunchedEffect(controller, timingAdjusted) { controller.setSubtitleTimingAdjusted(timingAdjusted) }
+
     // 后台（锁屏、切走）：手机接着放，引擎只停掉看门狗；回到前台探一次会话还在不在
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { controller.setBackgrounded(true) }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { controller.setBackgrounded(false) }
@@ -818,6 +822,9 @@ private fun PlayingSurface(
                                         style = subStyle,
                                         onChange = onSubStyle,
                                         subtitleActive = state.selectedSubtitle != null,
+                                        // 直连时内封字幕由引擎解出，时机挪不动（外挂字幕调了时间轴会改由叠层画，可以调）
+                                        timingFixed = state.engineSubtitles &&
+                                            state.selectedSubtitle?.startsWith("embedded:") == true,
                                     )
                                 },
                             )
@@ -1375,6 +1382,8 @@ private fun SubtitleStyleEditor(
     onChange: ((io.movieclaw.android.core.playback.SubtitleStyle) -> io.movieclaw.android.core.playback.SubtitleStyle) -> Unit,
     /** 当前有没有字幕在放：没有时这几行调了看不见效果，得说一句 */
     subtitleActive: Boolean,
+    /** 当前字幕的时机由播放器定（直连时的内封轨）：时间轴这一行调了不生效，得说一句 */
+    timingFixed: Boolean = false,
 ) {
     Column(Modifier.width(268.dp).padding(horizontal = 12.dp, vertical = 4.dp)) {
         if (!subtitleActive) {
@@ -1391,6 +1400,14 @@ private fun SubtitleStyleEditor(
             onMinus = { onChange { it.copy(offsetSeconds = io.movieclaw.android.core.playback.SubtitleStyle.clampOffset(it.offsetSeconds - io.movieclaw.android.core.playback.SubtitleStyle.OFFSET_STEP)) } },
             onPlus = { onChange { it.copy(offsetSeconds = io.movieclaw.android.core.playback.SubtitleStyle.clampOffset(it.offsetSeconds + io.movieclaw.android.core.playback.SubtitleStyle.OFFSET_STEP)) } },
         )
+        if (timingFixed) {
+            Text(
+                "这条内封字幕由播放器直接解出，时间轴调整对它不生效",
+                style = McType.caption2,
+                color = io.movieclaw.android.core.designsystem.TextFaint,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
         SubStepRow(
             label = "字号",
             value = String.format(java.util.Locale.US, "%.1f", style.fontPercent),

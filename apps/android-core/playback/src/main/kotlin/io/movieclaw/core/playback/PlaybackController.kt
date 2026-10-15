@@ -229,6 +229,8 @@ class PlaybackController(
     // ---- 选择 ----
 
     private var subtitleTouched = false
+    /** 用户调了字幕时间轴（手机字幕外观里的偏移不为 0）：外挂文本字幕改由叠层按偏移画 */
+    private var subtitleTimingAdjusted = false
     /** 进播放器前就选好的字幕（[PlaybackTarget.subtitleTrack]）：第一个单元的会话到了之后按用户选择落下 */
     private var preselectedSubtitle: String? = null
     private var rememberedSubtitle: String? = null
@@ -1281,13 +1283,24 @@ class PlaybackController(
 
     private val burnedSubtitle: String? get() = session?.decision?.video?.burnSubtitle
 
-    /** Exo 自己画得了这条轨：直连原文件时的内封轨（Exo 读得到的）与文本外挂轨 */
+    /**
+     * Exo 自己画得了这条轨：直连原文件时的内封轨（Exo 读得到的）与文本外挂轨。
+     * 调了时间轴时外挂轨交给叠层：Exo 解出的字幕时机由引擎定、挪不动，叠层取服务端转好的 VTT 能按偏移画
+     * （外挂文件小，取得快；内封轨改走服务端要通读整个容器，不这么做）。
+     */
     private fun exoRenders(option: SubtitleOption?): Boolean {
         if (option == null || !playsOriginalFile || burnedSubtitle != null) return false
-        if (option.ref.startsWith(EXTERNAL)) return option.kind != "pgs"
+        if (option.ref.startsWith(EXTERNAL)) return option.kind != "pgs" && !subtitleTimingAdjusted
         if (option.embeddedIndex == null) return false
         // 轨还没读到时先按能画算（读到后 applySubtitle 再核对一次）
         return !tracksKnown || textGroupFor(option) != null
+    }
+
+    /** 字幕时间轴是否调过（偏移不为 0）；变了就重新决定当前字幕交给谁画 */
+    fun setSubtitleTimingAdjusted(adjusted: Boolean) {
+        if (subtitleTimingAdjusted == adjusted) return
+        subtitleTimingAdjusted = adjusted
+        if (mediaLoaded) applySubtitle()
     }
 
     fun selectSubtitle(ref: String?) {
