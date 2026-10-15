@@ -528,13 +528,14 @@ struct DiscoverRowSkeleton: View {
                 .foregroundStyle(Theme.text)
                 .padding(.horizontal, cards.edge)
             HStack(spacing: cards.spacing) {
-                ForEach(0 ..< 4, id: \.self) { _ in
+                // 张数按宽度定：iPad 横屏一行放得下 6～7 张，写死 4 张右边会空一截（真机反馈）
+                ForEach(0 ..< cards.skeletonRowCount(cardWidth: cardWidth ?? cards.discoverPoster), id: \.self) { _ in
                     DiscoverSkeletonBlock(cornerRadius: Theme.posterRadius)
                         .frame(width: cardWidth ?? cards.discoverPoster, height: (cardWidth ?? cards.discoverPoster) * 1.5)
                 }
             }
             .padding(.horizontal, cards.edge)
-            // minWidth: 0 不能省：4 张占位共 572pt，宽过手机屏。只写 maxWidth 时外框会沿用
+            // minWidth: 0 不能省：手机上 4 张占位共 572pt，宽过手机屏。只写 maxWidth 时外框会沿用
             // 子视图的 572，把整页 VStack 撑宽、居中后左右各溢出一截（首启时整页像被拉宽，
             // 等行数据到了才弹回）；两端都给才会老实取屏宽，多出的占位靠 clipped 裁掉
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)

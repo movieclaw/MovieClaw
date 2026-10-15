@@ -84,7 +84,7 @@ struct DiscoverCollectionView: View {
                         .padding(.top, 40)
                 } else {
                     LazyVGrid(columns: DiscoverGrid.wideColumns, spacing: 28) {
-                        ForEach(0 ..< 12, id: \.self) { _ in
+                        ForEach(0 ..< cards.skeletonGridCount(phone: 12), id: \.self) { _ in
                             DiscoverSkeletonBlock(cornerRadius: Theme.posterRadius).aspectRatio(2 / 3, contentMode: .fit)
                         }
                     }

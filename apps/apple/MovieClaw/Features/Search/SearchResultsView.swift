@@ -308,7 +308,7 @@ struct MediaSearchResultsView: View {
             }
             if items == nil, error == nil {
                 LazyVGrid(columns: DiscoverGrid.wideColumns, spacing: 28) {
-                    ForEach(0 ..< 6, id: \.self) { _ in
+                    ForEach(0 ..< cards.skeletonGridCount(phone: 6), id: \.self) { _ in
                         DiscoverSkeletonBlock(cornerRadius: Theme.posterRadius).aspectRatio(2 / 3, contentMode: .fit)
                     }
                 }
@@ -388,7 +388,7 @@ struct LibrarySearchResultsView: View {
             LazyVStack(alignment: .leading, spacing: 24) {
                 if model.hits == nil, model.error == nil {
                     LazyVGrid(columns: DiscoverGrid.wideColumns, spacing: 28) {
-                        ForEach(0 ..< 6, id: \.self) { _ in
+                        ForEach(0 ..< cards.skeletonGridCount(phone: 6), id: \.self) { _ in
                             DiscoverSkeletonBlock(cornerRadius: Theme.posterRadius).aspectRatio(2 / 3, contentMode: .fit)
                         }
                     }

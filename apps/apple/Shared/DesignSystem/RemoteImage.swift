@@ -154,6 +154,17 @@ struct CardMetrics: Equatable, Sendable {
         return ((rowWidth - (count - 1) * spacing) / count).rounded(.down)
     }
 
+    /// 横排骨架行要几张占位才铺满一行：宽窗口按内容区宽多算一张（多出的被裁掉）；手机 4 张（已宽过屏幕）
+    func skeletonRowCount(cardWidth: CGFloat) -> Int {
+        guard isWide, contentWidth > 0 else { return 4 }
+        return Int((rowWidth / (cardWidth + spacing)).rounded(.up)) + 1
+    }
+
+    /// 网格骨架的格数：宽窗口一行能放 5～7 格，手机那套 6 / 9 / 12 格会剩半行，统一给 18 格（约三整行，铺满首屏）
+    func skeletonGridCount(phone: Int) -> Int {
+        isWide ? 18 : phone
+    }
+
     /// 海报墙的列。宽窗口按内容区排成整列（列宽与首页横排海报一致）；手机照旧 `adaptive(minimum:)`。
     /// `extra`：比海报宽一档的墙（剧照墙 +20、类型剧照墙 +60）
     func wallColumns(extra: CGFloat = 0) -> [GridItem] {

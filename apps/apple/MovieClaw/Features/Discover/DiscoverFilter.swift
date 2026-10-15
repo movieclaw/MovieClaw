@@ -304,7 +304,7 @@ struct DiscoverFilteredGrid: View {
                 }
                 if loading, items.isEmpty {
                     LazyVGrid(columns: DiscoverGrid.wideColumns, spacing: 28) {
-                        ForEach(0 ..< 9, id: \.self) { _ in
+                        ForEach(0 ..< cards.skeletonGridCount(phone: 9), id: \.self) { _ in
                             DiscoverSkeletonBlock(cornerRadius: Theme.posterRadius).aspectRatio(2 / 3, contentMode: .fit)
                         }
                     }
