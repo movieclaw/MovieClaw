@@ -2287,7 +2287,8 @@ async def test_remote_disc_session_reads_ffconcat_and_follows_worker_caps(manage
         "/poster?token=source-grant"
     )
     assert args[args.index("-vf") + 1].startswith(
-        "scale_vt=w=trunc(iw*1080/ih/2)*2:h=1080:format=p010le,tonemap_videotoolbox="
+        "scale_vt=w=trunc(iw*1080/ih/2)*2:h=1080:format=p010le,"
+        "setparams=colorspace=bt2020nc,tonemap_videotoolbox="
     )
     assert "-pix_fmt" not in args
     assert await manager.stop(session.id) is True

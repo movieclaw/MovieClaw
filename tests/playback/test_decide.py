@@ -1623,3 +1623,93 @@ def test_unknown_profile_and_old_clients_keep_transcoding():
     assert decide_playback(dv(None, None), DV_TV, WITH_GPU).tier is transcode
     old_client = _replace(EXOPLAYER, hdr_passthrough=True)
     assert decide_playback(dv(8, True), old_client, WITH_GPU).tier is transcode
+
+
+# ---------------------------------------------------------------------------
+# 杜比视界记录与画面不符（P5 RPU 注进 HDR10 基础层，media_probe._dv_record_contradicted）：
+# 探测认定为 HDR10，原文件里的记录还在——照记录解就是整片偏色
+# ---------------------------------------------------------------------------
+
+#: 老版本 App 的自研引擎申报（PlayerCapability.native，没有核对记录的能力）
+APP_ENGINE = ClientCapability(
+    video=(VideoSupport("h264"), VideoSupport("hevc")),
+    audio=(AudioSupport("aac"), AudioSupport("ac3"), AudioSupport("eac3")),
+    containers=frozenset({"mp4", "hls-fmp4", "mkv", "ts"}),
+    hdr_passthrough=True,
+    universal=True,
+    disc_image=True,
+    disc_folder=True,
+)
+APP_ENGINE_AUDITING = _replace(APP_ENGINE, dolby_vision_record_audit=True)
+
+
+def mislabeled_dv(**kwargs):
+    base = {
+        "video_codec": "hevc",
+        "resolution": "2160p",
+        "hdr": "HDR10",
+        "dv_profile": 5,
+        "dv_bl_compatible": False,
+        "color_space": "BT.2020",
+        "audio_tracks": (AudioTrack(ref="embedded:0", codec="eac3", channels=6, is_default=True),),
+    }
+    base.update(kwargs)
+    return media(**base)
+
+
+def test_mislabeled_dolby_vision_is_recognised_only_with_a_record_and_another_label():
+    assert mislabeled_dv().dolby_vision_ignored
+    assert not dv(5, False).dolby_vision_ignored
+    # 早期探测的行 hdr 为空：杜比视界状态未知，不算
+    assert not mislabeled_dv(hdr=None).dolby_vision_ignored
+    assert not media(hdr="HDR10").dolby_vision_ignored
+
+
+def test_engine_that_audits_the_record_still_plays_the_original_file():
+    decision = decide_playback(mislabeled_dv(), APP_ENGINE_AUDITING, WITH_GPU)
+    assert decision.tier is PlaybackTier.DIRECT_PLAY
+
+
+def test_old_app_engine_gets_a_remux_that_carries_only_the_base_layer():
+    """老版本 App 照记录按 P5 还原：不给原文件，换封装的流不带记录（hvc1）"""
+    decision = decide_playback(mislabeled_dv(), APP_ENGINE, WITH_GPU)
+    assert decision.tier is PlaybackTier.REMUX, decision.reason
+    assert decision.video.action == "copy"
+    assert decision.video.dolby_vision is None
+    assert "杜比视界记录与画面不符" in decision.reason
+    assert needs_keyframe_probe(mislabeled_dv(), APP_ENGINE, WITH_GPU)
+
+
+def test_exoplayer_with_a_dolby_vision_decoder_does_not_read_the_original_record():
+    """ExoPlayer 认 MKV 的杜比视界记录，设备有 P5 解码器就照记录解 → 只给换封装"""
+    decision = decide_playback(mislabeled_dv(audio_tracks=(AAC_51,)), DV_TV, WITH_GPU)
+    assert decision.tier is PlaybackTier.REMUX, decision.reason
+    assert decision.video.dolby_vision is None
+
+
+def test_mislabeled_dolby_vision_transcodes_without_the_rpu():
+    decision = decide_playback(mislabeled_dv(), SDR_TV, WITH_GPU)
+    assert decision.tier is PlaybackTier.HARDWARE_TRANSCODE
+    assert decision.video.tone_map is True
+    assert decision.video.dolby_vision == "ignore"
+
+
+def test_profile_5_transcode_must_apply_the_rpu():
+    decision = decide_playback(dv(5, False), HDR10_TV, WITH_GPU)
+    assert decision.video.dolby_vision == "apply"
+    # profile 未知按 P5 保守算；P8 的基础层就是 HDR10，交给滤镜默认
+    assert decide_playback(dv(None, None), DV_TV, WITH_GPU).video.dolby_vision == "apply"
+    assert decide_playback(dv(8, True), SDR_TV, WITH_GPU).video.dolby_vision is None
+
+
+def test_remux_for_a_dolby_vision_decoder_keeps_the_record():
+    """音轨要转码时视频照样 copy，但换封装要保住杜比视界记录，否则 P5 被当 HDR10 解"""
+    profile = _replace(dv(5, False), audio_tracks=(DTS_51,))
+    decision = decide_playback(profile, DV_TV, WITH_GPU)
+    assert decision.tier is PlaybackTier.AUDIO_TRANSCODE, decision.reason
+    assert decision.video.dolby_vision == "keep"
+    # 原文件直出带着记录，不用标
+    assert decide_playback(dv(5, False), DV_TV, WITH_GPU).video.dolby_vision is None
+    # 设备解不了杜比视界、只放基础层的不保留记录
+    p8 = _replace(dv(8, True), audio_tracks=(DTS_51,))
+    assert decide_playback(p8, HDR10_TV, WITH_GPU).video.dolby_vision is None

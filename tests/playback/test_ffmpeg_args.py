@@ -1111,8 +1111,10 @@ def test_mac_keeps_4k_hdr_disc_entirely_on_the_gpu():
     assert pair(argv, "-hwaccel_output_format") == "videotoolbox_vld"
     # 缩放时转 10-bit：tonemap_videotoolbox 只收 10-bit（8-bit HLG 实测报错）。
     # 宽度必须是表达式：scale_vt 到 ffmpeg 8.0 才认 -2，7.1 的机器上整条命令失败
+    # 映射前先把矩阵标成 BT.2020 NCL：Metal 版遇到别的矩阵直接断言崩溃（见下面的 gbr 用例）
     assert pair(argv, "-vf") == (
-        f"scale_vt=w=trunc(iw*1080/ih/2)*2:h=1080:format=p010le,{VIDEOTOOLBOX_TONEMAP}"
+        "scale_vt=w=trunc(iw*1080/ih/2)*2:h=1080:format=p010le,"
+        f"setparams=colorspace=bt2020nc,{VIDEOTOOLBOX_TONEMAP}"
     )
     # 硬件帧已是 8-bit NV12：再要 yuv420p 会插一个接不上硬件帧的软件转换
     assert "-pix_fmt" not in argv
@@ -1266,3 +1268,79 @@ def test_hevc_plan_without_a_hevc_encoder_stays_h264(backend):
     assert pair(argv, "-c:v") in {"libx264", "h264_vaapi"}
     assert pair(argv, "-tag:v") == "avc1"
     assert pair(argv, "-maxrate") == "6M"  # 码率也按 H.264 给
+
+
+# ---------------------------------------------------------------------------
+# 杜比视界元数据的处理（VideoPlan.dolby_vision）
+# ---------------------------------------------------------------------------
+
+
+def _hdr_transcode(dolby_vision: str | None, **video_kw) -> PlaybackPlan:
+    return plan(
+        PlaybackTier.HARDWARE_TRANSCODE,
+        video=VideoPlan(
+            action="transcode",
+            codec="h264",
+            height=1080,
+            source_bit_depth=10,
+            source_codec="hevc",
+            tone_map=True,
+            dolby_vision=dolby_vision,
+            **video_kw,
+        ),
+    )
+
+
+def test_mislabeled_dolby_vision_tonemaps_without_the_rpu():
+    """记录不可信、只认基础层：每条认 RPU 的映射链都要关掉 apply_dovi，否则整片发绿"""
+    software = pair(argv_of(_hdr_transcode("ignore")), "-vf")
+    assert software and software.startswith("tonemapx=") and ":apply_dovi=0" in software
+    gpu = pair(
+        argv_of(_hdr_transcode("ignore"), hw_backend="videotoolbox", worker_caps=MAC_CAPS), "-vf"
+    )
+    assert gpu and f"{VIDEOTOOLBOX_TONEMAP}:apply_dovi=0" in gpu
+    burn = argv_of(_hdr_transcode("ignore", burn_subtitle="embedded:2"))
+    assert ":apply_dovi=0" in burn[burn.index("-filter_complex") + 1]
+    # VAAPI 的映射本来就不认 RPU，也没有这个开关
+    vaapi = pair(argv_of(_hdr_transcode("ignore"), hw_backend="vaapi"), "-vf")
+    assert vaapi and vaapi.startswith("tonemap_vaapi") and "apply_dovi" not in vaapi
+
+
+def test_mislabeled_dolby_vision_on_nvidia_tonemaps_without_the_rpu(probed_nvenc_tonemap):
+    vf = pair(argv_of(_hdr_transcode("ignore"), hw_backend="nvenc"), "-vf")
+    assert vf and f"{NVENC_TONEMAP}:apply_dovi=0" in vf
+
+
+def test_profile_5_keeps_the_rpu_on_the_metal_gpu_chain():
+    """吃 RPU 的那条不看矩阵，不加 setparams"""
+    gpu = pair(
+        argv_of(_hdr_transcode("apply"), hw_backend="videotoolbox", worker_caps=MAC_CAPS), "-vf"
+    )
+    assert gpu and gpu.endswith(VIDEOTOOLBOX_TONEMAP)
+    assert "setparams" not in gpu
+
+
+def test_metal_tonemap_never_sees_a_non_ycbcr_matrix():
+    """《航拍中国》TS 的 HDR10 把矩阵写成 gbr：tonemap_videotoolbox 断言崩溃（ffmpeg 退出码 6）。
+    映射前一律标成 BT.2020 NCL——HDR10 / HLG 按规范就是它，写对了的片是空操作"""
+    for dolby_vision in (None, "ignore"):
+        vf = pair(
+            argv_of(_hdr_transcode(dolby_vision), hw_backend="videotoolbox", worker_caps=MAC_CAPS),
+            "-vf",
+        )
+        assert vf and "setparams=colorspace=bt2020nc,tonemap_videotoolbox=" in vf
+
+
+def test_remux_for_a_dolby_vision_decoder_keeps_the_record():
+    """hvc1 下 ffmpeg 不写 dvcC，换封装后记录就丢了；dvh1 + strict unofficial 才保得住"""
+    keep = argv_of(
+        plan(
+            PlaybackTier.AUDIO_TRANSCODE,
+            video=VideoPlan(action="copy", codec="hevc", dolby_vision="keep"),
+        )
+    )
+    assert pair(keep, "-tag:v") == "dvh1"
+    assert pair(keep, "-strict") == "unofficial"
+    plain = argv_of(plan(PlaybackTier.REMUX, video=VideoPlan(action="copy", codec="hevc")))
+    assert pair(plain, "-tag:v") == "hvc1"
+    assert "-strict" not in plain

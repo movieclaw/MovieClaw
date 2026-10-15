@@ -227,6 +227,16 @@ class VideoColor:
     dv_backward_compatible: bool = False
 
     @property
+    def dv_ignored(self) -> bool:
+        """带着杜比视界记录、却认定为普通 HDR 的片（记录与码流矛盾，见
+        ``_dv_record_contradicted``）。
+
+        为真时 RPU 元数据不能用：``tonemapx`` 默认 ``apply_dovi`` 会拿 P5 的 IPT 还原去算 YCbCr，
+        整片发绿（《驯龙高手》HDR10 段注入 P5 RPU 实测），抓帧必须显式关掉。
+        """
+        return dolby_vision_ignored(self.hdr, self.dv_profile)
+
+    @property
     def needs_tonemap(self) -> bool:
         """抓帧要不要做色调映射。
 
@@ -244,7 +254,20 @@ class VideoColor:
         为真时**没有 tonemapx 就抓不出能看的图**——退回不映射的链子只会稳定
         产出一张绿图。调用方据此选择宁可不出图。
         """
-        return self.dv_profile is not None and not self.dv_backward_compatible
+        return (
+            self.dv_profile is not None
+            and not self.dv_backward_compatible
+            and not self.dv_ignored
+        )
+
+
+def dolby_vision_ignored(hdr: str | None, dv_profile: int | None) -> bool:
+    """有杜比视界记录、``hdr`` 却已定为别的 HDR 格式：记录不可信，一律按基础层处理。
+
+    只有探测认定「记录与码流矛盾」时才会出现这种组合（``_hdr_label``）。``hdr`` 为空的
+    是更早版本探测的行、杜比视界状态未知，不算——别把真杜比视界错当基础层。
+    """
+    return dv_profile is not None and hdr is not None and hdr != "Dolby Vision"
 
 
 def probe_video_color(path: str | Path) -> VideoColor | None:
@@ -904,9 +927,10 @@ def _hdr_label(video: dict) -> str | None:
         if isinstance(item, dict)
     }
     codec_tag = str(video.get("codec_tag_string") or "").lower()
-    if codec_tag in {"dvh1", "dvhe"} or any(
-        "dovi" in value or "dolby vision" in value for value in side_data_types
-    ):
+    if (
+        codec_tag in {"dvh1", "dvhe"}
+        or any("dovi" in value or "dolby vision" in value for value in side_data_types)
+    ) and not _dv_record_contradicted(video):
         return "Dolby Vision"
     if any(
         "hdr10+" in value or "smpte2094-40" in value or "smpte 2094-40" in value
@@ -919,6 +943,23 @@ def _hdr_label(video: dict) -> str | None:
     if transfer == "arib-std-b67":
         return "HLG"
     return None
+
+
+def _dv_record_contradicted(video: dict) -> bool:
+    """杜比视界记录说基础层是 IPT（兼容 ID 0：P5、AV1 P10.0），码流 VUI 却声明了 YCbCr HDR 基础层。
+
+    IPT-PQ-c2 没有 VUI 码点，真 P5 的矩阵与传输特性一律不写（NAS 375 个 P5 全是空）。写了
+    BT.2020 YCbCr + PQ/HLG 的，实测是发布组把流媒体版的 P5 RPU 原样注进另一版 HDR10 / HDR10+
+    基础层、没转成 8.1（「DV HDR10+ Hybrid」）：照记录按 P5 还原，YCbCr 被当 IPT 算，整片偏绿
+    或偏紫。基础层本身是对的，所以这类片认定为它的基础层格式（HDR10 / HDR10+ / HLG），各条
+    播放路径都只放基础层。App 的自研引擎在本机做同样的核对（引擎补丁 P62）。
+    """
+    profile, compatible = _dv_info(video)
+    if profile is None or compatible:
+        return False
+    matrix = str(video.get("color_space") or "").lower()
+    transfer = str(video.get("color_transfer") or "").lower()
+    return matrix in {"bt2020nc", "bt2020c"} and transfer in {"smpte2084", "arib-std-b67"}
 
 
 def _dv_info(video: dict) -> tuple[int | None, bool]:

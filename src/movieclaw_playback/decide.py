@@ -166,6 +166,17 @@ class MediaProfile:
         """由归一化分辨率标签反推高度；标签缺失或不认识返回 None。"""
         return _RESOLUTION_HEIGHT.get(self.resolution or "")
 
+    @property
+    def dolby_vision_ignored(self) -> bool:
+        """带杜比视界记录、却按基础层认定的片（记录写 P5、码流标着 BT.2020 YCbCr HDR，
+        见 media_probe._dv_record_contradicted）。
+
+        原文件里那份记录还在：自己读原文件的播放器（ExoPlayer 认 MKV 的杜比视界记录、老版本
+        自研引擎）照记录按 P5 还原 YCbCr，整片偏绿或偏紫。服务端换封装出来的流不带记录
+        （封装恒打 hvc1），只剩基础层——所以这种片不给原文件直出，除非播放器申报自己会核对。
+        """
+        return self.dv_profile is not None and self.hdr is not None and self.hdr != "Dolby Vision"
+
 
 @dataclass(frozen=True)
 class PlaybackPolicy:
@@ -223,6 +234,14 @@ class VideoPlan:
     #: 放在计划里而不是命令装配的参数上：它和高度一样是「对这部片做了什么」
     #: 的一部分，诊断面板要显示、转码缓存的指纹要包含。
     bitrate_cap_bps: int | None = None
+    #: 杜比视界元数据怎么处理（None = 不是杜比视界，或按滤镜默认）：
+    #: - ``"apply"``：转码，基础层是 IPT（P5 那一类），色调映射必须吃 RPU 才出得了对的颜色——
+    #:   VAAPI / QSV 的硬件映射不认 RPU，选执行后端时优先交给认 RPU 的（Mac 转码器）；
+    #: - ``"ignore"``：转码，记录不可信、只认基础层（``MediaProfile.dolby_vision_ignored``），
+    #:   色调映射显式关掉 ``apply_dovi``，否则 P5 的还原套在 YCbCr 上整片发绿；
+    #: - ``"keep"``：换封装给能原生解杜比视界的播放器，封装打 dvh1 保住记录——打 hvc1 会把
+    #:   记录丢掉，P5 的 IPT 基础层被当 HDR10 解，同样发绿发紫。
+    dolby_vision: str | None = None
 
 
 @dataclass(frozen=True)
@@ -435,7 +454,7 @@ def decide_playback(
                 "按播放列表拼接后原样封装为 HLS，不转码"
             ),
         )
-    if capability.universal:
+    if _takes_universal_shortcut(media, capability):
         # 全解码播放器在本机切音轨：计划里带上用户点选 / 记住的那条，客户端据此选轨
         chosen = next((t for t in media.audio_tracks if t.ref == preferred_audio), None)
         return PlaybackPlan(
@@ -497,6 +516,7 @@ def decide_playback(
             policy,
             max_height,
             burn_subtitle=burn_track.ref if burn_track is not None else None,
+            capability=capability,
         ),
         audio=_build_audio_plan(media, audio_verdict, tier),
         subtitles=subtitles,
@@ -550,6 +570,18 @@ class _AudioVerdict:
     #: 我们选的那条根本到不了用户耳朵里，所以这种情况必须至少走 remux，
     #: 让 ffmpeg 把选中的轨 `-map` 出来。
     needs_remap: bool = False
+
+
+def _takes_universal_shortcut(media: MediaProfile, capability: ClientCapability) -> bool:
+    """全解码播放器直接给原文件、不逐项判定。
+
+    例外是杜比视界记录不可信的片：播放器会照原文件里的记录按 P5 还原，画面整片偏色。
+    申报了自己核对记录的（App 新版自研引擎，引擎补丁 P62）照常直出；其余（老版本 App）
+    走下面的逐项判定——它申报的编码与容器清单足够让判定落到「换封装」，那条流只剩基础层。
+    """
+    if not capability.universal:
+        return False
+    return not media.dolby_vision_ignored or capability.dolby_vision_record_audit
 
 
 def _no_hardware(policy: PlaybackPolicy) -> str:
@@ -841,7 +873,11 @@ def _resolve_tier(
             or container in capability.containers
             or _plays_bluray_clips(media, capability)
         )
-        if direct and (not audio.needs_remap or capability.local_tracks):
+        if direct and media.dolby_vision_ignored and not capability.dolby_vision_record_audit:
+            # 原文件里的杜比视界记录与画面不符，播放器照记录解会整片偏色；换封装的流不带记录
+            tier = PlaybackTier.REMUX
+            reason += "；片里的杜比视界记录与画面不符，已重封装为只含 HDR10 基础层的流"
+        elif direct and (not audio.needs_remap or capability.local_tracks):
             tier = PlaybackTier.DIRECT_PLAY
         elif audio.needs_remap:
             # 直出档整份文件交给 <video>，浏览器只会放容器里的默认轨——我们
@@ -1080,7 +1116,7 @@ def needs_keyframe_probe(
     时，调用方才启动有存储开销的 ffprobe。这个预判不会把未经探测的结果交给
     用户，最终的 ``decide_playback`` 仍会执行原有的保守门槛。
     """
-    if _unprobed_strm(media) or capability.universal:
+    if _unprobed_strm(media) or _takes_universal_shortcut(media, capability):
         return False
 
     video_verdict = _judge_video(media, capability, policy, max_height)
@@ -1115,11 +1151,22 @@ def _build_video_plan(
     policy: PlaybackPolicy,
     max_height: int | None = None,
     burn_subtitle: str | None = None,
+    capability: ClientCapability | None = None,
 ) -> VideoPlan:
     if tier <= PlaybackTier.AUDIO_TRANSCODE:
         # copy 也要记录流经的编码：下游装 ffmpeg 命令时据此决定要不要打
         # ``-tag:v hvc1``——HEVC 进 fMP4 不打这个标签，Safari 是静默黑屏。
-        return VideoPlan(action="copy", codec=(media.video_codec or None))
+        keeps_dolby_vision = (
+            tier is not PlaybackTier.DIRECT_PLAY
+            and capability is not None
+            and media.hdr == "Dolby Vision"
+            and media.dv_profile in capability.dolby_vision_profiles
+        )
+        return VideoPlan(
+            action="copy",
+            codec=(media.video_codec or None),
+            dolby_vision="keep" if keeps_dolby_vision else None,
+        )
     # 三个上限取最小：源高度、管理员配置、用户画质选择
     candidates = [media.height or policy.max_transcode_height, policy.max_transcode_height]
     if max_height is not None:
@@ -1135,7 +1182,21 @@ def _build_video_plan(
         tone_map=bool(media.hdr),
         source_color=_transcode_source_color(media),
         burn_subtitle=burn_subtitle,
+        dolby_vision=_transcode_dolby_vision(media),
     )
+
+
+def _transcode_dolby_vision(media: MediaProfile) -> str | None:
+    """转码时杜比视界元数据的处理（``VideoPlan.dolby_vision``）。
+
+    基础层不能直接解读（P5；profile 未知也按这类保守算）的必须吃 RPU；记录不可信的必须不吃；
+    P7 / P8 的基础层本身就是 HDR10，吃不吃都对，交给滤镜默认。
+    """
+    if media.dolby_vision_ignored:
+        return "ignore"
+    if media.hdr == "Dolby Vision" and not media.dv_bl_compatible:
+        return "apply"
+    return None
 
 
 def _transcode_source_color(media: MediaProfile) -> str | None:

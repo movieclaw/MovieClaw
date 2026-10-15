@@ -388,6 +388,10 @@ class ClientCapabilityIn(BaseModel):
     #: 解不了杜比视界时能退回基础层播放的 profile（Android TV 的 ExoPlayer 对 P8 改用 HEVC
     #: 解码器）：基础层兼容且屏幕能直出 HDR 时直通
     dolby_vision_base_layer_profiles: list[int] = []
+    #: 直出原文件时自己核对杜比视界记录与码流（App 的自研引擎，引擎补丁 P62）。记录写 P5、
+    #: 码流却标着 BT.2020 YCbCr HDR 的片（发布组把 P5 元数据注进 HDR10 画面），不申报的
+    #: 客户端改走换封装、只拿 HDR10 基础层；老客户端不带 = 不核对
+    dolby_vision_record_audit: bool = False
 
 
 class PlaybackDecideRequest(BaseModel):

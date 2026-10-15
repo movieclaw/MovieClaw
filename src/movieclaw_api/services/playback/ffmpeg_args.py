@@ -395,6 +395,29 @@ HW_BACKENDS: dict[str, HwBackend] = {
 #: 后端名 → 经硬件自检确认可用的原生 tone-map 滤镜。见 ``NVENC_TONEMAP``。
 _PROBED_TONEMAP: dict[str, str] = {}
 
+#: 认杜比视界 RPU、带 ``apply_dovi`` 开关的色调映射滤镜（jellyfin-ffmpeg）。VAAPI 的
+#: ``tonemap_vaapi`` 与 QSV 的 ``vpp_qsv`` 不认 RPU：P5 的 IPT 基础层喂给它们，出来整片发紫
+_DOVI_AWARE_TONEMAPS = frozenset(
+    {"tonemapx", "tonemap_videotoolbox", "tonemap_cuda", "tonemap_opencl"}
+)
+
+
+def _tonemap_step(expr: str, plan: PlaybackPlan) -> str:
+    """色调映射这一步按计划里的杜比视界处理补参数（``VideoPlan.dolby_vision``）。
+
+    - ``ignore``：记录不可信、只认基础层，关掉 ``apply_dovi``——P5 的还原套在 YCbCr 基础层上
+      整片发绿（《驯龙高手》HDR10 段注入 P5 RPU，软件与 Metal 两条链实测都是）；
+    - Metal 版只认 BT.2020 NCL / BT.709 矩阵（帧上没有 RPU 时），别的直接断言崩溃、ffmpeg 退出码 6：
+      《航拍中国》TS 把 HDR10 的矩阵写成了 gbr（RGB）。HDR10 / HLG 的矩阵按规范就是 BT.2020 NCL，
+      先改正标签；写对了的片是空操作。要吃 RPU 的不动：那条走 RPU，不看矩阵。
+    """
+    name = expr.split("=", 1)[0]
+    if plan.video.dolby_vision == "ignore" and name in _DOVI_AWARE_TONEMAPS:
+        expr += ":apply_dovi=0"
+    if name == "tonemap_videotoolbox" and plan.video.dolby_vision != "apply":
+        expr = "setparams=colorspace=bt2020nc," + expr
+    return expr
+
 
 def register_native_tonemap(backend: str, filter_expr: str | None) -> None:
     """自检确认某后端的原生 tone-map 滤镜可用（或不再可用）。
@@ -406,6 +429,13 @@ def register_native_tonemap(backend: str, filter_expr: str | None) -> None:
         _PROBED_TONEMAP[backend] = filter_expr
     else:
         _PROBED_TONEMAP.pop(backend, None)
+
+
+def tonemap_reads_dolby_vision(backend_name: str) -> bool:
+    """该后端的原生色调映射认不认杜比视界 RPU。VAAPI / QSV 不认：P5 的 IPT 基础层出来整片发紫。"""
+    backend = HW_BACKENDS.get(backend_name)
+    expr = native_tonemap_filter(backend) if backend is not None else None
+    return (expr or "").split("=", 1)[0] in _DOVI_AWARE_TONEMAPS
 
 
 def native_tonemap_filter(backend: HwBackend) -> str | None:
@@ -727,7 +757,11 @@ def _burn_filter_graph(plan: PlaybackPlan, subtitle_index: int) -> str:
     ``effective_hw_backend``。
     """
     # HDR 走 tone-map，非 709 的 SDR 走色彩空间转换；两者互斥，都落到 BT.709。
-    color_pre = _SOFTWARE_TONEMAP if plan.video.tone_map else _color_convert_filter(plan)
+    color_pre = (
+        _tonemap_step(_SOFTWARE_TONEMAP, plan)
+        if plan.video.tone_map
+        else _color_convert_filter(plan)
+    )
     base = f"[0:v:0]{color_pre}[tm];[tm]" if color_pre else "[0:v:0]"
     graph = f"{base}[0:s:{subtitle_index}]overlay"
     if plan.video.height:
@@ -783,7 +817,13 @@ def _video_args(
         # 黑屏**——没有 error 事件、没有日志，只有一个不动的黑框（§7-①）。
         # 实测：不加这行 ffmpeg 输出的 codec tag 就是 hev1。
         if (plan.video.codec or "").lower() in {"hevc", "h265"}:
-            args += ["-tag:v", "hvc1"]
+            if plan.video.dolby_vision == "keep":
+                # 给能原生解杜比视界的播放器：打 dvh1 才会写出 dvcC 记录（hvc1 下 ffmpeg 不写，
+                # 换封装后记录就丢了，P5 的 IPT 基础层被当 HDR10 解、整片发绿发紫）。MP4 封装写杜比
+                # 视界记录要 ``-strict unofficial``（jellyfin-ffmpeg 7.1 实测）
+                args += ["-tag:v", "dvh1", "-strict", "unofficial"]
+            else:
+                args += ["-tag:v", "hvc1"]
         return args
 
     # 烧录时滤镜已在 filter_complex 图里（-vf 与 filter_complex 互斥）
@@ -917,7 +957,7 @@ def _videotoolbox_gpu_chain(plan: PlaybackPlan) -> str:
     height = plan.video.height
     size = f"w=trunc(iw*{height}/ih/2)*2:h={height}:" if height else ""
     if plan.video.tone_map:
-        return f"scale_vt={size}format=p010le,{VIDEOTOOLBOX_TONEMAP}"
+        return f"scale_vt={size}format=p010le,{_tonemap_step(VIDEOTOOLBOX_TONEMAP, plan)}"
     chain = f"scale_vt={size}format=nv12"
     if _outputs_bt709(plan):
         chain += ",setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709"
@@ -941,7 +981,7 @@ def _filter_chain(
             if backend is not None and not software_filters
             else None
         )
-        parts.append(native or _SOFTWARE_TONEMAP)
+        parts.append(_tonemap_step(native or _SOFTWARE_TONEMAP, plan))
     else:
         # 非 HDR 的非 709 源同样要显式转换，scale 不会替我们做
         convert = _color_convert_filter(plan)

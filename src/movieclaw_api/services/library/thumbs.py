@@ -83,6 +83,9 @@ _FFMPEG_TIMEOUT = 90  # 秒；网络挂载上抓帧要读几十 MB，给足余�
 # (62,62,52) 发绿，换 tonemapx 后 (54,55,57) 肤色与衣物颜色全部恢复正常，而
 # 显式 `apply_dovi=0` 则绿得更狠 (48,76,44)，坐实 RPU 确实被用上了。
 TONEMAP_FILTER = "tonemapx=tonemap=bt2390:desat=0:p=bt709:t=bt709:m=bt709:format=yuv420p"
+# 杜比视界记录与码流矛盾的片（P5 RPU 注进 HDR10 基础层，见 media_probe._dv_record_contradicted）：
+# 基础层是 YCbCr，RPU 套上去反而整片发绿，必须关掉
+TONEMAP_FILTER_IGNORING_DV = TONEMAP_FILTER + ":apply_dovi=0"
 
 # 抓帧闸：主图与章节场景图共用，扫描期间最多两路 ffmpeg 同时解码，
 # 不把 CPU 打满、也不让网络挂载被并发读打散
@@ -391,7 +394,8 @@ def build_filter_chains(
     - **需要 DV 元数据的 HDR（P5 那一类）**：**只给映射链，不给降级链**。
       基础层是 IPT-PQ-c2，退回不映射不是「差一点」，是稳定产出一张肤色发绿、
       头发发紫的图——那看起来像片源坏了。宁可不出图，让前端显示集号占位；
-    - **其余 HDR**（HDR10 / HLG / 向后兼容的 DV）：映射链优先，``tonemapx``
+    - **其余 HDR**（HDR10 / HLG / 向后兼容的 DV / 记录不可信、只认基础层的 DV）：映射链优先，
+      ``tonemapx``
       不可用时（源码/裸机部署可能不是 jellyfin-ffmpeg）退回不映射，画面偏灰
       但内容可辨。
     """
@@ -408,7 +412,7 @@ def build_filter_chains(
         "bwdif=mode=send_frame:deint=interlaced",
         thumbnail,
         scale,
-        TONEMAP_FILTER,
+        TONEMAP_FILTER_IGNORING_DV if color.dv_ignored else TONEMAP_FILTER,
         *tail,
     ]
     if color.needs_dv_metadata:

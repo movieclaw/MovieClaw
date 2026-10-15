@@ -216,3 +216,67 @@ def test_chapter_and_thumb_share_the_same_color_decision():
         assert len(thumb) == len(chapter), color
         for a, b in zip(thumb, chapter, strict=True):
             assert [f for f in a if "tonemapx" in f] == [f for f in b if "tonemapx" in f], color
+
+
+# ---------------------------------------------------------------------------
+# 杜比视界记录与码流矛盾：P5 RPU 注进 HDR10 基础层（「DV HDR10+ Hybrid」）
+# ---------------------------------------------------------------------------
+
+
+def _video_with(record_profile, compat, *, matrix=None, transfer=None, primaries=None):
+    video = {
+        "codec_type": "video",
+        "codec_name": "hevc",
+        "width": 3840,
+        "height": 2160,
+        "side_data_list": [
+            {
+                "side_data_type": "DOVI configuration record",
+                "dv_profile": record_profile,
+                "dv_bl_signal_compatibility_id": compat,
+            }
+        ],
+    }
+    tags = {"color_space": matrix, "color_transfer": transfer, "color_primaries": primaries}
+    video.update({key: value for key, value in tags.items() if value})
+    return video
+
+
+def test_profile_5_record_over_a_ycbcr_hdr_vui_is_its_base_layer():
+    """记录写 P5、VUI 写 BT.2020 YCbCr PQ：基础层是 YCbCr，认定为 HDR10，记录原样留在台账"""
+    from movieclaw_api.services.media_probe import _parse_probe
+
+    hybrid = _video_with(5, 0, matrix="bt2020nc", transfer="smpte2084", primaries="bt2020")
+    spec = _parse_probe({"format": {"duration": "60"}, "streams": [hybrid]})
+    assert spec.hdr == "HDR10"
+    assert (spec.dv_profile, spec.dv_bl_compatible) == (5, False)
+    hlg = _video_with(5, 0, matrix="bt2020nc", transfer="arib-std-b67")
+    assert _parse_probe({"format": {}, "streams": [hlg]}).hdr == "HLG"
+
+
+def test_genuine_profile_5_and_compatible_profiles_stay_dolby_vision():
+    from movieclaw_api.services.media_probe import _parse_probe
+
+    genuine = _video_with(5, 0)  # IPT 没有 VUI 码点，真 P5 什么都不写
+    assert _parse_probe({"format": {}, "streams": [genuine]}).hdr == "Dolby Vision"
+    p81 = _video_with(8, 1, matrix="bt2020nc", transfer="smpte2084")
+    assert _parse_probe({"format": {}, "streams": [p81]}).hdr == "Dolby Vision"
+    # 只标了原色、没标 YCbCr 矩阵与 HDR 传输：不足以推翻记录
+    primaries_only = _video_with(5, 0, primaries="bt2020")
+    assert _parse_probe({"format": {}, "streams": [primaries_only]}).hdr == "Dolby Vision"
+
+
+def test_mislabeled_dolby_vision_frames_tonemap_without_the_rpu():
+    """记录不可信的片：RPU 套在 YCbCr 上整片发绿，抓帧关掉 apply_dovi；
+    它的基础层能直接看，给降级链"""
+    from movieclaw_api.services.library.thumbs import TONEMAP_FILTER_IGNORING_DV
+
+    color = VideoColor(hdr="HDR10", dv_profile=5, dv_backward_compatible=False)
+    assert color.dv_ignored and not color.needs_dv_metadata
+    result = chains(color)
+    assert len(result) == 2
+    assert TONEMAP_FILTER_IGNORING_DV in result[0]
+    assert TONEMAP_FILTER not in result[0]
+    # 真 P5 照旧吃 RPU
+    genuine = VideoColor(hdr="Dolby Vision", dv_profile=5)
+    assert not genuine.dv_ignored and TONEMAP_FILTER in chains(genuine)[0]

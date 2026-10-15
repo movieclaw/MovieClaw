@@ -70,7 +70,10 @@ enum PlayerCapability {
             nativeHls: false,
             universal: true,
             discImage: true,
-            discFolder: true
+            discFolder: true,
+            // 记录写 P5、码流标着 BT.2020 的杜比视界片，引擎自己核对后只放基础层（引擎补丁 P62）：
+            // 不申报的话服务端为了不让我们照记录解，会改给换封装的服务端流
+            dolbyVisionRecordAudit: true
         )
     }
 

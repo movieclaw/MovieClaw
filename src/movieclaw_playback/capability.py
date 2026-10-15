@@ -104,6 +104,10 @@ class ClientCapability:
     #: 解不了杜比视界时能退回基础层播放的 profile（ExoPlayer 对 P8 改用 HEVC 解码器解基础层）：
     #: 基础层兼容、屏幕能直出 HDR 时直通。浏览器解码行为不一，不申报
     dolby_vision_base_layer_profiles: frozenset[int] = field(default_factory=frozenset)
+    #: 播放器直出原文件时自己核对杜比视界记录与码流（App 的自研引擎，引擎补丁 P62）：记录写 P5、
+    #: 码流却标着 BT.2020 YCbCr HDR 的片照常给原文件，它自己只放基础层。不申报的不给原文件直出
+    #: （``MediaProfile.dolby_vision_ignored``）
+    dolby_vision_record_audit: bool = False
 
     @property
     def uses_native_hls_player(self) -> bool:

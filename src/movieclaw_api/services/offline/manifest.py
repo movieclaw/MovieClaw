@@ -31,8 +31,9 @@ from movieclaw_db.models import LibraryFile
 from movieclaw_playback import state as playback_state
 from movieclaw_playback.decide import PlaybackPlan
 
-#: App 的自研引擎：全解码、自己读原文件（与 App 开会话时申报的同一个意思）
-_UNIVERSAL = ClientCapabilityIn(universal=True)
+#: App 的自研引擎：全解码、自己读原文件（与 App 开会话时申报的同一个意思）。清单只拿决策里的
+#: 音轨与字幕列表，杜比视界记录的核对照样交给引擎，别让它把决策顶到换封装
+_UNIVERSAL = ClientCapabilityIn(universal=True, dolby_vision_record_audit=True)
 
 
 def _source_height(file: LibraryFile) -> int | None:

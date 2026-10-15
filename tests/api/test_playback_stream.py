@@ -324,6 +324,28 @@ def test_execution_backend_uses_remote_when_local_backend_is_incompatible():
     ) == ("videotoolbox", True)
 
 
+def test_profile_5_transcode_prefers_a_transcoder_whose_tonemap_reads_the_rpu():
+    """P5 的 IPT 基础层要吃 RPU：VAAPI 的映射不认、出来整片发紫，Mac 转码器在线就交给它；
+    不在线时照旧用本机（与原来相同）。不是 P5 的不受影响"""
+    def p5(dolby_vision):
+        return PlaybackPlan(
+            tier=PlaybackTier.HARDWARE_TRANSCODE,
+            file_id=1,
+            container="hls-fmp4",
+            video=VideoPlan(
+                action="transcode", codec="h264", height=1080, tone_map=True,
+                source_codec="hevc", source_bit_depth=10, dolby_vision=dolby_vision,
+            ),
+            audio=AudioPlan(action="copy"),
+        )
+
+    select = routes_playback.playback_plan.select_execution_backend
+    both = dict(available=("vaapi", "videotoolbox"), local_backends=("vaapi",))
+    assert select(p5("apply"), **both, remote_video_available=True) == ("videotoolbox", True)
+    assert select(p5("apply"), **both, remote_video_available=False) == ("vaapi", False)
+    assert select(p5(None), **both, remote_video_available=True) == ("vaapi", False)
+
+
 # ---------------------------------------------------------------------------
 # 档 0：原文件直出
 # ---------------------------------------------------------------------------
@@ -1113,6 +1135,44 @@ def test_stored_dolby_vision_files_get_their_profile_backfilled(client, tmp_path
             return [(row.dv_profile, row.dv_bl_compatible) for row in rows]
 
     assert client.portal.call(profiles) == [(5, False), (None, None), (None, None)]
+
+
+def test_mislabeled_dolby_vision_rows_are_reclassified_to_their_base_layer(
+    client, tmp_path, monkeypatch
+):
+    """入库时按杜比视界记了账、记录却与码流矛盾的旧行：启动后改按基础层记账。
+    候选只有「不兼容基础层却有色彩标注」的行——真 P5 的色彩标注为空，一个都不读"""
+    from movieclaw_api.services.library import dolby_vision_backfill as backfill
+    from movieclaw_api.services.media_probe import VideoColor
+
+    async def mark(file_id, **values):
+        async with get_database().session() as session:
+            row = await session.get(LibraryFile, file_id)
+            for key, value in values.items():
+                setattr(row, key, value)
+            await session.commit()
+
+    hybrid = seed(client, tmp_path, codec="hevc", hdr="Dolby Vision")
+    genuine = seed(client, tmp_path, codec="hevc", hdr="Dolby Vision")
+    p5 = {"dv_profile": 5, "dv_bl_compatible": False}
+    client.portal.call(partial(mark, hybrid, **p5, color_space="BT.2020"))
+    client.portal.call(partial(mark, genuine, **p5, color_space=None))
+    probed: list[str] = []
+
+    def fake_color(path, *, fallback_hdr=None):
+        probed.append(str(path))
+        return VideoColor(hdr="HDR10", dv_profile=5, dv_backward_compatible=False)
+
+    monkeypatch.setattr(backfill, "video_color_for", fake_color)
+    assert client.portal.call(backfill.backfill_dolby_vision_profiles) == 1
+    assert len(probed) == 1  # 真 P5 不读
+
+    async def labels():
+        async with get_database().session() as session:
+            rows = [await session.get(LibraryFile, i) for i in (hybrid, genuine)]
+            return [(row.hdr, row.dv_profile) for row in rows]
+
+    assert client.portal.call(labels) == [("HDR10", 5), ("Dolby Vision", 5)]
 
 
 def test_tv_app_starting_another_file_frees_its_stale_session(client, tmp_path, monkeypatch):

@@ -205,6 +205,7 @@ public final class AetherPlayback {
         AetherEngine.persistsSourceByteCache = true               // P42
         AetherEngine.sourceByteCacheKeepsSpareRuns = true         // P50
         AetherEngine.sourceByteCacheTrimKeepsMetadata = true      // P51
+        AetherEngine.presentsBaseLayerOfContradictedProfile5 = true // P62
         // P32 的后台写盘引擎默认已开；这里不碰，它的 setter 会提前建出共享缓存
     }()
 
@@ -231,6 +232,7 @@ public final class AetherPlayback {
             "persistsSourceByteCache": "\(AetherEngine.persistsSourceByteCache)",
             "sourceByteCacheKeepsSpareRuns": "\(AetherEngine.sourceByteCacheKeepsSpareRuns)",
             "sourceByteCacheTrimKeepsMetadata": "\(AetherEngine.sourceByteCacheTrimKeepsMetadata)",
+            "presentsBaseLayerOfContradictedProfile5": "\(AetherEngine.presentsBaseLayerOfContradictedProfile5)",
         ]
     }
 

@@ -352,6 +352,15 @@ class PlaybackPlan(BaseModel):
 **DV profile**。`dv_profile` 必须单独分支——P5 用 IPTPQc2 色彩空间，当成普通
 HDR10 处理会输出**绿紫画面**（见 §7-④）。
 
+**记录与码流矛盾的 DV**（2026-10-15）。反过来的坑：发布组把流媒体版的 P5 RPU 原样注进
+另一版的 HDR10 / HDR10+ 基础层、没转成 8.1（文件名常带「DV HDR10+ Hybrid」），容器记录
+写 P5，码流 VUI 却声明 BT.2020 YCbCr PQ。照记录按 P5 还原，YCbCr 被当 IPT 算，同样整片
+偏绿或偏紫。真 P5 不写 VUI（NAS 375 个 P5 全是空），所以探测把「记录 P5 + VUI 声明 YCbCr
+HDR」认定为基础层格式（`hdr="HDR10"`，记录原样留在 `dv_profile`），各条路径只放基础层：
+转码与抓帧关掉 `apply_dovi`；会读原文件记录的播放器（ExoPlayer、老版本 App）不给原文件、
+改给换封装（封装打 hvc1，记录不进流）；App 新版自研引擎申报 `dolby_vision_record_audit`，
+照常拿原文件，自己核对后放基础层（引擎补丁 P62）。
+
 **多候选择优**。同一条目常有 1080p / 2160p 两个版本
 （[disc-version-layout.md](disc-version-layout.md)）。决策接口的形状必须是
 **候选集合 → 最优计划**，而不是单文件判档：优先选能落在低档位的版本

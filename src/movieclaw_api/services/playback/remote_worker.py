@@ -786,6 +786,7 @@ class RemoteWorkerRegistry:
             v.codec,
             v.action,
             v.bitrate_cap_bps,
+            v.dolby_vision,
             plan.container,
             plan.audio,
         )
