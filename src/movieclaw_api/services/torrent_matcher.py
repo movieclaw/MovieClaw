@@ -22,6 +22,7 @@ from sqlmodel import select
 from movieclaw_api.services.subscription import (
     MATCH_BATCH_SIZE,
     evaluate_and_dispatch,
+    evaluate_release_forecasts,
     refresh_release_forecasts,
     try_replacement_candidates,
 )
@@ -68,6 +69,8 @@ async def process_new_torrents(*, full_forecast_refresh: bool = False) -> None:
                 if full_forecast_refresh or before is None:
                     # 兜底任务，或水位刚初始化（首跑/记录损坏）不知道哪些是新种：全量重算
                     await refresh_release_forecasts(session)
+                    # 预测机制的实验打分随兜底任务每小时跑一次，不进同步热路径
+                    await evaluate_release_forecasts(session)
                 elif after != before:
                     await refresh_release_forecasts(session, new_since_id=before)
     except Exception:  # noqa: BLE001 -- 背景匹配失败只记日志，等下一轮
