@@ -72,9 +72,9 @@ python3 scripts/release-status.py --ref origin/main
 
 1. **改版本号 + 写 changelog**（`docs/changelog/<tag>.md`，第四节），同一个 PR 合入 main。
    Android 的 `versionName` 与 `versionCode` 一起递增；Windows 的 Cargo.toml 与 package.json 一起改。
-   **合入前做一次独立核对**：每个要发的产品另起一个子代理，给它上一版 tag、本版代码、
-   `changelog-guide.md`、写好的说明和盘点表，按指南第五节「发版前独立核对」的清单对照代码检查。
-   核对结果（含「待真机复核」的项）写进发版 PR 描述；发现的缺陷要么修好，要么写进已知问题。
+   **合入前核对说明**：按指南第五节「发版前核对说明」逐条对照代码。只核说明的事实，不在发版阶段
+   找代码缺陷（缺陷在开发阶段、合并 PR 前解决）；默认自查，只有单个产品改动很大时才另起一个子代理。
+   「待真机复核」的项写进发版 PR 描述。
 2. **推 tag**：`git fetch origin main && git tag <tag> origin/main && git push origin <tag>`，构建的就是
    tag 所在的提交（可以是 main 上任意一个已合入的提交）。
    推不了 tag 的环境（远程会话的 git 凭证只能推分支）走点火通道
