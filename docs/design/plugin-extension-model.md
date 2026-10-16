@@ -109,6 +109,9 @@ async def plugin(ctx: Context[Config]) -> None:
 
 ### 2.2 订阅下载完成后先传网盘，再入库
 
+> 2026-10-17：MovieClaw 自己的网盘副本改为媒体库原生的存储层，不走本节的「暂存 → 上传 → 写 `.strm` 回库」，见
+> [cloud-storage.md](cloud-storage.md)。`ingest.staged` 槽位保留给其他「整理后交给外部流转」的场景。
+
 **现状：**
 
 - 订阅只负责把种子交给下载器；文件进媒体库靠入库任务 `library.ingest`（`services/library/ingest.py:4425`）。
