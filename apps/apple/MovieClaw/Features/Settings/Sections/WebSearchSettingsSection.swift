@@ -13,10 +13,14 @@ struct WebSearchSettingsSection: View {
     @State private var config: API.WebSearchConfigView?
     @State private var error: String?
     @State private var editing = false
+    /// 服务器早于 0.39.0、没有网页搜索接口：整节不显示，免得给一个点了也没用的「重试」
+    @State private var unsupported = false
 
     var body: some View {
         Group {
-            if let config {
+            if unsupported {
+                EmptyView()
+            } else if let config {
                 statusSection(config)
             } else if let error {
                 SettingsFormSection {
@@ -90,6 +94,8 @@ struct WebSearchSettingsSection: View {
             config = try await api.llmWebSearchShow()
             error = nil
         } catch is CancellationError {
+        } catch let failure as APIError where failure.status == 404 {
+            unsupported = true
         } catch {
             self.error = error.localizedDescription
         }
