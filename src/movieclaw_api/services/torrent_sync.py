@@ -254,6 +254,15 @@ async def _plan_sync(
             )
 
             forecast_due = forecast_due_at is not None and now >= forecast_due_at
+            if forecast_due and not normal_due:
+                # 区分「预测提前」与常规到期，事后能从日志还原每一次额外访问的来由
+                logger.info(
+                    "站点 %s 因追新预测提前同步（常规同步还差 %d 分钟）",
+                    cred.site_id,
+                    int((cursor.next_sync_at - now).total_seconds() // 60)
+                    if cursor.next_sync_at is not None
+                    else 0,
+                )
             if normal_due or forecast_due:
                 due.append(cred)
             else:
