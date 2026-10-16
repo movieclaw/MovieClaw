@@ -8,15 +8,16 @@ Blu-ray discs now play straight from the disc on your TV, with all their audio t
 
 #### Blu-ray, as on the disc
 
-Blu-ray folders and ISOs used to be converted by the server, which kept only part of the audio and dropped image subtitles. With Server 0.39.0 they play straight from the disc: switch between all audio tracks, hear TrueHD and DTS-HD MA losslessly, and turn on PGS subtitles. Just press play.
+Blu-ray folders and ISOs used to be converted by the server: one audio track at a time with a pause to switch, no lossless TrueHD, and image subtitles only when the server burned them into the picture. With Server 0.39.0 they play straight from the disc: switch between all audio tracks instantly, hear TrueHD and DTS-HD MA losslessly, and turn on PGS subtitles. Just press play.
 
-- On older servers, Blu-ray still plays through the server as before.
-- DVDs and VC-1 discs still play through the server.
+- Blu-ray ISOs already in the library need one manual scan on the server first (library page ⋯ → Scan library).
+- On older servers, Blu-ray still plays through the server as before. DVDs and VC-1 discs always do.
 
 ### Fixed
 
 - Choosing an audio or subtitle track sometimes played a different one, for example English when you picked Mandarin.
 - A film could start with the wrong audio track while the menu showed the right one ticked.
+- With Server 0.39.0, some films marked Dolby Vision but carrying an HDR10 picture (often "DV HDR10+ Hybrid" releases) should no longer look green or purple on Dolby Vision TVs.
 
 Full changes: [androidtv-v0.2.2 → androidtv-v0.3.0](https://github.com/movieclaw/MovieClaw/compare/androidtv-v0.2.2...androidtv-v0.3.0).
 
@@ -34,14 +35,15 @@ Full changes: [androidtv-v0.2.2 → androidtv-v0.3.0](https://github.com/moviecl
 
 #### 蓝光原盘，和盘里一样
 
-以前蓝光目录和蓝光 ISO 要由服务器转换，只留下部分音轨，图形字幕也没了。搭配服务器 0.39.0，现在直接读盘播放：所有音轨都能切换，TrueHD、DTS-HD MA 无损播放，PGS 字幕也能打开。直接点播放就行。
+以前蓝光目录和蓝光 ISO 要由服务器转换：一次只带一条音轨，换轨要等重新转换，TrueHD 等无损音轨保不住，图形字幕只能由服务器压进画面。搭配服务器 0.39.0，现在直接读盘播放：所有音轨随时切换，TrueHD、DTS-HD MA 无损播放，PGS 字幕也能打开。直接点播放就行。
 
-- 旧服务器上，蓝光照旧经服务器播放。
-- DVD 和 VC-1 编码的原盘仍经服务器播放。
+- 已入库的蓝光 ISO 要先在服务器的库页「⋯ → 扫描库」扫一次。
+- 旧服务器上，蓝光照旧经服务器播放；DVD 和 VC-1 编码的原盘始终经服务器播放。
 
 ### 修好了
 
 - 选音轨或字幕时，有时放出来的是另一条（比如选了国语却是英语）的问题已修复。
 - 起播时放错音轨、菜单却勾着正确那条的问题已修复。
+- 搭配服务器 0.39.0，部分标着杜比视界、实际是 HDR10 画面的片子（常见于「DV HDR10+ Hybrid」版本），在杜比视界电视上应该不会再偏绿或偏紫。
 
 完整改动：[androidtv-v0.2.2 → androidtv-v0.3.0](https://github.com/movieclaw/MovieClaw/compare/androidtv-v0.2.2...androidtv-v0.3.0)。

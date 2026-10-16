@@ -1541,6 +1541,42 @@ def test_bluray_clips_still_check_codecs_and_leave_dvd_and_old_players_alone():
     assert remuxed.tier is not PlaybackTier.DIRECT_PLAY and remuxed.disc is None
 
 
+BLURAY_LPCM = AudioTrack(ref="embedded:0", codec="pcm_bluray", channels=6, is_default=True)
+
+
+def test_bluray_clips_skip_vc1_even_when_the_player_decodes_it():
+    """有 VC-1 硬解的盒子：剪辑解复用器读不了 VC-1，直推只有声音——仍交给服务端。"""
+    vc1_video = (*BLURAY_EXO.video, VideoSupport("vc1"))
+    vc1_box = ClientCapability(**{**vars(BLURAY_EXO), "video": vc1_video})
+    disc = media(
+        container="bluray", video_codec="vc1", disc_clips=2, disc_format="bluray",
+        audio_tracks=(BLURAY_TRUEHD,),
+    )
+    decision = decide_playback(disc, vc1_box, WITH_GPU)
+    assert decision.disc is None
+
+
+def test_bluray_lpcm_plays_only_through_clips():
+    """LPCM 只有剪辑解复用器读得了：剪辑直推时直通；其余档（不认剪辑的播放器、烧录 PGS）
+    一律转音频——原样复制进 fMP4 封不进去。"""
+    disc = media(
+        container="bluray", disc_clips=2, disc_format="bluray", audio_tracks=(BLURAY_LPCM,),
+        subtitle_tracks=(
+            SubtitleTrack(ref="embedded:1", codec="hdmv_pgs_subtitle", language="chi"),
+        ),
+    )
+    clips = decide_playback(disc, BLURAY_EXO, WITH_GPU)
+    assert clips.tier is PlaybackTier.DIRECT_PLAY and clips.disc == "clips"
+    assert clips.audio.action == "copy" and clips.audio.codec == "pcm_bluray"
+
+    old = ClientCapability(**{**vars(BLURAY_EXO), "bluray_clips": False})
+    remuxed = decide_playback(disc, old, WITH_GPU)
+    assert remuxed.disc is None and remuxed.audio.action == "transcode"
+
+    burned = decide_playback(disc, BLURAY_EXO, WITH_GPU, preferred_subtitle="embedded:1")
+    assert burned.disc is None and burned.audio.action == "transcode"
+
+
 def test_hdr_without_free_hardware_says_busy_when_the_remote_transcoder_is_full():
     """远程转码器在线但名额占满：不说「未检测到硬件」（会把人支去查一台好好的转码器），
     说正忙、稍候或停掉别的转码。"""

@@ -130,8 +130,8 @@ class CapabilityProbe(
             AudioCodec("eac3", MimeTypes.AUDIO_E_AC3, C.ENCODING_E_AC3),
             AudioCodec("dts", MimeTypes.AUDIO_DTS, C.ENCODING_DTS),
             AudioCodec("truehd", MimeTypes.AUDIO_TRUEHD, C.ENCODING_DOLBY_TRUEHD),
-            // 蓝光 LPCM：剪辑清单直推时由 disc.BdLpcmReader 转成普通 PCM（disc-clip-play.md）
-            AudioCodec("pcm_bluray", MimeTypes.AUDIO_RAW, null),
+            // 蓝光 LPCM（pcm_bluray）不申报：只有剪辑清单直推读得了（disc.BdLpcmReader），服务端在
+            // 判定为剪辑直推时自己补上；申报了，旧服务器会在换封装档把它原样复制进 fMP4，起播失败
         )
     }
 }

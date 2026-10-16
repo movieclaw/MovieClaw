@@ -93,6 +93,7 @@ struct WebSearchSettingsSection: View {
         do {
             config = try await api.llmWebSearchShow()
             error = nil
+            unsupported = false
         } catch is CancellationError {
         } catch let failure as APIError where failure.status == 404 {
             unsupported = true

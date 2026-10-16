@@ -26,10 +26,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import IntEnum
 
-from movieclaw_playback.capability import ClientCapability
+from movieclaw_playback.capability import AudioSupport, ClientCapability
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -472,7 +472,6 @@ def decide_playback(
 
     # 3–5. 视频、HDR、音频三项判定，各自算出「能不能 copy」。
     video_verdict = _judge_video(media, capability, policy, max_height)
-    audio_verdict = _judge_audio(media, capability, preferred_audio)
 
     # 用户显式选中内封 PGS → 烧录：视频不再允许 copy（硬边界 1 唯一例外）。
     # blocked（如 HDR 无 GPU）原样保留——烧录也救不了放不出来的画面。
@@ -482,6 +481,10 @@ def decide_playback(
             can_copy=False,
             reason="已选中 PGS 图形字幕，按你的选择转码并把字幕压制进画面",
         )
+    # 音轨放在视频之后判：剪辑直推能不能成，要看视频最终能不能 copy
+    audio_verdict = _judge_audio(
+        media, _clip_audio_capability(media, capability, video_verdict), preferred_audio
+    )
 
     # 6–7. 综合定档。
     tier, container, reason, degraded_from = _resolve_tier(
@@ -535,7 +538,36 @@ def _plays_bluray_clips(media: MediaProfile, capability: ClientCapability) -> bo
     """蓝光主片交给播放器按剪辑清单直推（disc-clip-play.md）：服务端选主片、给各剪辑的
     取流地址与入口点表，播放器只解复用与拼接，NAS 不起 ffmpeg。编码能不能直通照常判定，
     解不了的（VC-1、播放器没有的音频编码）仍走换封装 / 转码。"""
-    return capability.bluray_clips and media.disc_format == "bluray" and media.disc_clips >= 1
+    return (
+        capability.bluray_clips
+        and media.disc_format == "bluray"
+        and media.disc_clips >= 1
+        # 播放器的剪辑解复用器没有 VC-1 读取器：放过去只有声音，播放器也不会报错退回
+        and (media.video_codec or "").lower() in _CLIP_VIDEO_CODECS
+    )
+
+
+#: 剪辑直推时播放器能解复用的视频编码（disc-clip-play.md）
+_CLIP_VIDEO_CODECS = frozenset({"h264", "hevc", "mpeg2video"})
+
+
+def _clip_audio_capability(
+    media: MediaProfile, capability: ClientCapability, video: _VideoVerdict
+) -> ClientCapability:
+    """剪辑直推时补上蓝光 LPCM（pcm_bluray）的直通能力。
+
+    LPCM 只有剪辑解复用器读得了（播放器的 BdLpcmReader），换封装进 fMP4 根本封不进去。
+    所以播放器不在能力里申报它——申报了，换封装和转码档也会把它当成可直通的轨原样复制，
+    一律失败；而旧服务器不认剪辑清单，只会走那些档。这里只在这次确定能按剪辑直推
+    （视频能 copy、不因杜比视界记录被改走换封装）时补上。
+    """
+    if not (video.can_copy and _plays_bluray_clips(media, capability)):
+        return capability
+    if media.dolby_vision_ignored and not capability.dolby_vision_record_audit:
+        return capability
+    if capability.audio_support("pcm_bluray") is not None:
+        return capability
+    return replace(capability, audio=(*capability.audio, AudioSupport("pcm_bluray")))
 
 
 # ---------------------------------------------------------------------------
@@ -1120,13 +1152,15 @@ def needs_keyframe_probe(
         return False
 
     video_verdict = _judge_video(media, capability, policy, max_height)
-    audio_verdict = _judge_audio(media, capability, preferred_audio)
     burn_track = _burn_target(media, preferred_subtitle)
     if burn_track is not None and video_verdict.blocked is None:
         video_verdict = _VideoVerdict(
             can_copy=False,
             reason="已选中 PGS 图形字幕，按你的选择转码并把字幕压制进画面",
         )
+    audio_verdict = _judge_audio(
+        media, _clip_audio_capability(media, capability, video_verdict), preferred_audio
+    )
 
     tier, _, _, _ = _resolve_tier(
         media,
