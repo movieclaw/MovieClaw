@@ -13,18 +13,18 @@
   - typealias X = String → type X = string（MediaKind 等字符串枚举）
   - Void 返回      →  Promise<void>（走 client 的 *Void 方法，不解析 data）
 
-用法：python3 tools/gen_api_arkts.py（在 apps/HermonyOS 目录执行）
+用法：python3 tools/gen_api_arkts.py（在 apps/harmonyos 目录执行）
 """
 
 import os
 import re
 
-HERMONYOS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REPO_ROOT = os.path.dirname(os.path.dirname(HERMONYOS))
+HARMONYOS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(HARMONYOS_DIR))
 MODELS_SWIFT = os.path.join(REPO_ROOT, 'apps/apple/Shared/Core/API/Generated/Models.swift')
 ENDPOINTS_SWIFT = os.path.join(REPO_ROOT, 'apps/apple/Shared/Core/API/Generated/Endpoints.swift')
-MODELS_OUT = os.path.join(HERMONYOS, 'entry/src/main/ets/api/Models.ets')
-ENDPOINTS_OUT = os.path.join(HERMONYOS, 'entry/src/main/ets/api/Endpoints.ets')
+MODELS_OUT = os.path.join(HARMONYOS_DIR, 'entry/src/main/ets/api/Models.ets')
+ENDPOINTS_OUT = os.path.join(HARMONYOS_DIR, 'entry/src/main/ets/api/Endpoints.ets')
 
 # Swift 基础类型 → ArkTS
 BASE_TYPES = {
@@ -50,7 +50,7 @@ def convert_type(swift_type):
         dm = re.match(r'^String:\s*(.*)$', inner, re.DOTALL)
         if dm:
             base, _ = convert_type(dm.group(1))
-            base = 'Record<string, %s>' % base
+            base = f'Record<string, {base}>'
         else:
             base, _ = convert_type(inner)
             base = base + '[]'
@@ -118,11 +118,11 @@ def parse_models(src):
                 ts, opt = convert_type(stype)
                 if fdoc:
                     for dline in fdoc.split('\n'):
-                        body.append('  /// %s' % dline)
+                        body.append(f'  /// {dline}')
                 if opt:
-                    body.append('  %s?: %s | null' % (wire, ts))
+                    body.append(f'  {wire}?: {ts} | null')
                 else:
-                    body.append('  %s: %s' % (wire, ts))
+                    body.append(f'  {wire}: {ts}')
             items.append(('\n'.join(doc), name, 'struct', '\n'.join(body)))
             i = j + 1
             continue
@@ -140,26 +140,27 @@ def gen_models_ets(items):
     for doc, name, kind, body in items:
         if doc:
             for dline in doc.split('\n'):
-                out.append('/** %s */' % dline.strip())
+                out.append(f'/** {dline.strip()} */')
         if kind == 'typealias':
-            out.append('export type %s = %s;' % (name, body))
+            out.append(f'export type {name} = {body};')
         else:
-            out.append('export interface %s {' % name)
+            out.append(f'export interface {name} {{')
             out.append(body)
             out.append('}')
         out.append('')
     return '\n'.join(out)
 
 
-QUERY_SCALAR_RE = re.compile(r'if let (\w+) \{ query\.append\(URLQueryItem\(name: "([^"]+)", value: "\\\((\w+)\)"\)\) \}')
-QUERY_ARRAY_RE = re.compile(r'for value in (\w+) \?\? \[\] \{ query\.append\(URLQueryItem\(name: "([^"]+)", value: "\\\((\w+)\)"\)\) \}')
+_QUERY_APPEND = r'query\.append\(URLQueryItem\(name: "([^"]+)", value: "\\\((\w+)\)"\)\)'
+QUERY_SCALAR_RE = re.compile(r'if let (\w+) \{ ' + _QUERY_APPEND + r' \}')
+QUERY_ARRAY_RE = re.compile(r'for value in (\w+) \?\? \[\] \{ ' + _QUERY_APPEND + r' \}')
 #: 必填数组查询参数（不带 `?? []` 兜底，如 uiLibraryShowcase 的 ids）。
 #: 不单独认领的话会被 QUERY_REQUIRED_RE 误吃，生成 `value: value` 的坏代码。
-QUERY_ARRAY_REQUIRED_RE = re.compile(r'for value in (\w+) \{ query\.append\(URLQueryItem\(name: "([^"]+)", value: "\\\((\w+)\)"\)\) \}')
+QUERY_ARRAY_REQUIRED_RE = re.compile(r'for value in (\w+) \{ ' + _QUERY_APPEND + r' \}')
 #: 无条件的 query.append —— iOS 里必填查询参数是这么写的（可选参数才包 if let）。
 #: 漏掉这一种的话，所有必填查询参数都会被静默丢掉（如 playbackMarksGet 的 media_item_id、
 #: searchLibraryItems 的 keyword、libraryItemsListEpisodes 的 season_number）。
-QUERY_REQUIRED_RE = re.compile(r'query\.append\(URLQueryItem\(name: "([^"]+)", value: "\\\((\w+)\)"\)\)')
+QUERY_REQUIRED_RE = re.compile(_QUERY_APPEND)
 
 
 def split_params(s):
@@ -246,7 +247,7 @@ def parse_endpoints(src):
             for p in split_params(params_src):
                 pm = re.match(r'^(\w+):\s*(.+?)\s*(?:=\s*nil)?$', p.strip())
                 if not pm:
-                    raise SystemExit('无法解析参数: %r (func %s)' % (p, name))
+                    raise SystemExit(f'无法解析参数: {p!r} (func {name})')
                 stype = pm.group(2).strip()
                 params.append((pm.group(1), stype, stype.endswith('?')))
         is_void = ret_swift.strip() == 'Void'
@@ -271,15 +272,20 @@ def collect_referenced_types(endpoints):
 
 def gen_endpoints_ets(endpoints, model_names):
     out = []
-    out.append('// 由 tools/gen_api_arkts.py 从 MovieClaw iOS 端 Endpoints.swift 自动转译，勿手改。')
+    out.append(
+        '// 由 tools/gen_api_arkts.py 从 MovieClaw iOS 端 Endpoints.swift 自动转译，勿手改。'
+    )
     out.append('// 源文件：MovieClaw/apps/apple/MovieClaw/Core/API/Generated/Endpoints.swift')
     out.append('// 方法名、路径、查询参数与 iOS 端逐字一致；路径相对 /api/v1。')
     out.append('import { ApiClient, ApiQuery, QueryPair } from \'./ApiClient\';')
     out.append('import { JsonValue } from \'./JsonValue\';')
-    refs = [t for t in collect_referenced_types(endpoints) if t in model_names and t != 'JSONValue']
+    refs = [
+        t for t in collect_referenced_types(endpoints)
+        if t in model_names and t != 'JSONValue'
+    ]
     out.append('import {')
     for r in refs:
-        out.append('  %s,' % r)
+        out.append(f'  {r},')
     out.append("} from './Models';")
     out.append('')
     out.append('/// MovieClaw 全量业务接口（对应 iOS 端 `extension APIClient` 的生成方法）。')
@@ -289,71 +295,82 @@ def gen_endpoints_ets(endpoints, model_names):
     out.append('  constructor(client: ApiClient) {')
     out.append('    this.client = client;')
     out.append('  }')
-    for doc, name, params, ret_swift, http_method, path, query_parts, body_expr, is_void, is_raw in endpoints:
+    for endpoint in endpoints:
+        (doc, name, params, ret_swift, http_method, path,
+         query_parts, body_expr, is_void, is_raw) = endpoint
         out.append('')
         if doc:
             for dline in doc.split('\n'):
-                out.append('  /** %s */' % dline.strip())
+                out.append(f'  /** {dline.strip()} */')
         sig = []
         for pname, stype, opt in params:
             ts, _ = convert_type(stype)
-            sig.append('%s?: %s' % (pname, ts) if opt else '%s: %s' % (pname, ts))
+            sig.append(f'{pname}?: {ts}' if opt else f'{pname}: {ts}')
         if is_void:
             ret_ts = 'void'
         else:
             base, opt = convert_type(ret_swift)
             ret_ts = base + (' | null' if opt else '')
-        out.append('  %s(%s): Promise<%s> {' % (name, ', '.join(sig), ret_ts))
+        out.append('  {}({}): Promise<{}> {{'.format(name, ', '.join(sig), ret_ts))
         client_fn = CLIENT_METHOD[http_method]
         if is_void:
             client_fn += 'Void'
         # iOS 的 raw(...) 不拆信封 → 用 rawGet（目前只有 GET 的裸接口，硬断言一下免得静默生成错）
         if is_raw:
             if http_method != 'GET':
-                raise SystemExit('raw() 目前只支持 GET：%s' % name)
+                raise SystemExit(f'raw() 目前只支持 GET：{name}')
             client_fn = 'rawGet'
         # 查询参数收集
         if query_parts:
             out.append('    const pairs: QueryPair[] = [];')
             for wire, pname, kind in query_parts:
                 if kind == 'array':
-                    out.append('    if (%s !== undefined && %s !== null) {' % (pname, pname))
-                    out.append('      for (const item of %s) { pairs.push({ key: \'%s\', value: item }); }' % (pname, wire))
+                    out.append(f'    if ({pname} !== undefined && {pname} !== null) {{')
+                    out.append(
+                        f'      for (const item of {pname}) {{ '
+                        f'pairs.push({{ key: \'{wire}\', value: item }}); }}'
+                    )
                     out.append('    }')
                 elif kind == 'required':
                     # 必填查询参数：直接进查询串，不做存在性判断（与 iOS 的无条件 append 一致）
-                    out.append('    pairs.push({ key: \'%s\', value: %s });' % (wire, pname))
+                    out.append(f'    pairs.push({{ key: \'{wire}\', value: {pname} }});')
                 else:
-                    out.append('    if (%s !== undefined && %s !== null) { pairs.push({ key: \'%s\', value: %s }); }'
-                               % (pname, pname, wire, pname))
+                    out.append(
+                        f'    if ({pname} !== undefined && {pname} !== null) {{ '
+                        f'pairs.push({{ key: \'{wire}\', value: {pname} }}); }}'
+                    )
         # 路径模板（\(x) → ${x}）
         tpl = path
         for pname, _, _ in params:
-            tpl = tpl.replace('\\(%s)' % pname, '${%s}' % pname)
+            tpl = tpl.replace(f'\\({pname})', f'${{{pname}}}')
         if '\\(' in tpl:
-            raise SystemExit('路径插值未替换完整: %s' % tpl)
-        path_lit = '`%s`' % tpl if '${' in tpl else "'%s'" % tpl
+            raise SystemExit(f'路径插值未替换完整: {tpl}')
+        path_lit = f'`{tpl}`' if '${' in tpl else f"'{tpl}'"
         call_path = path_lit + (' + ApiQuery.build(pairs)' if query_parts else '')
         # 调用（GET 无 bodyText；POST/PUT/DELETE/PATCH 必须显式传 null）
         if body_expr:
-            out.append('    const bodyText = (%s === undefined || %s === null) ? null : JSON.stringify(%s);'
-                       % (body_expr, body_expr, body_expr))
+            out.append(
+                f'    const bodyText = ({body_expr} === undefined || {body_expr} === null)'
+                f' ? null : JSON.stringify({body_expr});'
+            )
             if is_void:
-                out.append('    return this.client.%s(%s, bodyText);' % (client_fn, call_path))
+                out.append(f'    return this.client.{client_fn}({call_path}, bodyText);')
             else:
-                out.append('    return this.client.%s<%s>(%s, bodyText);' % (client_fn, ret_ts, call_path))
+                out.append(f'    return this.client.{client_fn}<{ret_ts}>({call_path}, bodyText);')
         else:
             noBodyArg = 'null' if http_method != 'GET' else ''
             if is_void:
                 if http_method == 'GET':
-                    out.append('    return this.client.%s(%s);' % (client_fn, call_path))
+                    out.append(f'    return this.client.{client_fn}({call_path});')
                 else:
-                    out.append('    return this.client.%s(%s, %s);' % (client_fn, call_path, noBodyArg))
+                    out.append(f'    return this.client.{client_fn}({call_path}, {noBodyArg});')
             else:
                 if http_method == 'GET':
-                    out.append('    return this.client.%s<%s>(%s);' % (client_fn, ret_ts, call_path))
+                    out.append(f'    return this.client.{client_fn}<{ret_ts}>({call_path});')
                 else:
-                    out.append('    return this.client.%s<%s>(%s, %s);' % (client_fn, ret_ts, call_path, noBodyArg))
+                    out.append(
+                        f'    return this.client.{client_fn}<{ret_ts}>({call_path}, {noBodyArg});'
+                    )
         out.append('  }')
     out.append('}')
     return '\n'.join(out)
@@ -367,17 +384,17 @@ def main():
     items = parse_models(models_src)
     structs = [x for x in items if x[2] == 'struct']
     aliases = [x for x in items if x[2] == 'typealias']
-    print('模型: %d struct, %d typealias' % (len(structs), len(aliases)))
+    print(f'模型: {len(structs)} struct, {len(aliases)} typealias')
     endpoints = parse_endpoints(endpoints_src)
-    print('端点: %d' % len(endpoints))
+    print(f'端点: {len(endpoints)}')
     model_names = set(x[1] for x in items)
     os.makedirs(os.path.dirname(MODELS_OUT), exist_ok=True)
     with open(MODELS_OUT, 'w', encoding='utf-8') as f:
         f.write(gen_models_ets(items))
     with open(ENDPOINTS_OUT, 'w', encoding='utf-8') as f:
         f.write(gen_endpoints_ets(endpoints, model_names))
-    print('已生成: %s' % MODELS_OUT)
-    print('已生成: %s' % ENDPOINTS_OUT)
+    print(f'已生成: {MODELS_OUT}')
+    print(f'已生成: {ENDPOINTS_OUT}')
 
 
 if __name__ == '__main__':
