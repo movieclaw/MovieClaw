@@ -8,6 +8,14 @@ nonisolated extension APIClient {
         return try await send("POST", "/agent-handoff", body: body)
     }
 
+    /// 客户端最新版本
+    /// `GET /app/clients/{product}/latest`
+    func appClientsLatest(product: String, refresh: Bool? = nil) async throws -> API.ClientReleaseView {
+        var query: [URLQueryItem] = []
+        if let refresh { query.append(URLQueryItem(name: "refresh", value: "\(refresh)")) }
+        return try await send("GET", "/app/clients/\(product)/latest", query: query)
+    }
+
     /// 读取应用设置
     /// `GET /app/config`
     func appShow() async throws -> API.AppConfigView {
@@ -844,6 +852,60 @@ nonisolated extension APIClient {
     /// `POST /downloaders/{downloader_id}/verify`
     func dlVerify(downloaderId: Int) async throws -> API.DownloaderView {
         return try await send("POST", "/downloaders/\(downloaderId)/verify")
+    }
+
+    /// 网盘账号列表
+    /// `GET /drives/accounts`
+    func drivesAccountsList() async throws -> [API.DriveAccountView] {
+        return try await send("GET", "/drives/accounts")
+    }
+
+    /// 用 Cookie 登录网盘（粘贴整页 Cookie）
+    /// `POST /drives/accounts/cookie`
+    func drivesAccountsCookie(body: API.DriveCookiePayload) async throws -> API.DriveLoginView {
+        return try await send("POST", "/drives/accounts/cookie", body: body)
+    }
+
+    /// 移除网盘账号（只删 MovieClaw 里的记录，不动网盘上的文件）
+    /// `DELETE /drives/accounts/{account_id}`
+    func drivesAccountsDelete(accountId: Int) async throws -> [String: API.JSONValue] {
+        return try await send("DELETE", "/drives/accounts/\(accountId)")
+    }
+
+    /// 改网盘账号的名字、速率、每日预算、同时播放数
+    /// `PATCH /drives/accounts/{account_id}`
+    func drivesAccountsUpdate(accountId: Int, body: API.DriveAccountUpdatePayload) async throws -> API.DriveAccountView {
+        return try await send("PATCH", "/drives/accounts/\(accountId)", body: body)
+    }
+
+    /// 刷新网盘账号的昵称与容量
+    /// `POST /drives/accounts/{account_id}/refresh`
+    func drivesAccountsRefresh(accountId: Int) async throws -> API.DriveAccountView {
+        return try await send("POST", "/drives/accounts/\(accountId)/refresh")
+    }
+
+    /// 可用的网盘（有插件提供后端的）
+    /// `GET /drives/backends`
+    func drivesBackendsList() async throws -> [API.DriveBackendView] {
+        return try await send("GET", "/drives/backends")
+    }
+
+    /// 开始扫码登录网盘
+    /// `POST /drives/logins`
+    func drivesLoginsStart(body: API.DriveLoginPayload) async throws -> API.DriveLoginView {
+        return try await send("POST", "/drives/logins", body: body)
+    }
+
+    /// 取消扫码登录
+    /// `DELETE /drives/logins/{login_id}`
+    func drivesLoginsCancel(loginId: String) async throws -> [String: API.JSONValue] {
+        return try await send("DELETE", "/drives/logins/\(loginId)")
+    }
+
+    /// 查询扫码登录状态（前端轮询）
+    /// `GET /drives/logins/{login_id}`
+    func drivesLoginsStatus(loginId: String) async throws -> API.DriveLoginView {
+        return try await send("GET", "/drives/logins/\(loginId)")
     }
 
     /// 推送某站点的 Cookie（保存后异步验证）
@@ -3031,6 +3093,7 @@ nonisolated extension APIClient {
 }
 
 // 未生成的接口（需在对应模块手写）：
+// - GET /api/v1/app/clients/{product}/apk（无响应模型：文件流/SSE 等，需手写）
 // - POST /api/v1/app/plugins/packages（multipart 表单上传，需手写）
 // - POST /api/v1/appearance/backdrops（multipart 表单上传，需手写）
 // - GET /api/v1/appearance/backdrops/{backdrop_id}（无响应模型：文件流/SSE 等，需手写）

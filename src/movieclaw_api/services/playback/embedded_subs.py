@@ -38,7 +38,7 @@ from movieclaw_api.services.media_extract import (
     window_format,
 )
 from movieclaw_db.models import LibraryFile
-from movieclaw_playback.streaming import media_input
+from movieclaw_playback.streaming import is_remote, media_input
 from movieclaw_playback.subtitles import SubtitleRef
 
 logger = logging.getLogger("movieclaw_api.playback.subtitles")
@@ -145,7 +145,7 @@ def extract_embedded_fonts(file: LibraryFile) -> list[str]:
         return sorted(p.name for p in out_dir.iterdir() if p.is_file())
 
     video = Path(file.file_path)
-    if shutil.which("ffmpeg") is None or not video.is_file():
+    if shutil.which("ffmpeg") is None or not (video.is_file() or is_remote(file.file_path)):
         return []
     # 网盘（strm）条目读直链：附件在 Matroska 头部，读的是开头一小段
     source = media_input(file.file_path)

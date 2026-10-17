@@ -2026,6 +2026,10 @@ async def stream_library_file(
     await session.close()
     path = PathLib(file.file_path)
     container = file.container
+    if not file.local_bytes:
+        # 只在网盘上（cloud-storage.md §7.2）：家里转发或 302 到网盘直链。网页播放器按第三方处理
+        # （浏览器跟 302 跨域能不能播还没实测），「自动」下一律转发
+        return await _cloud_stream_response(request, grant, file)
     if is_strm(file.file_path):
         try:
             source = parse_strm(file.file_path)
@@ -2109,6 +2113,27 @@ def _metered_file_response(
         byte_patches=byte_patches,
         probe=probe,
     )
+
+
+async def _cloud_stream_response(request: Request, grant, file: LibraryFile) -> Response:
+    """只在网盘上的文件直出：按取流方式 302 到网盘直链，或由家里转发（同时播放数在这里占）。"""
+    from movieclaw_api.services.drives import sources
+
+    holder = f"play:{grant.device_id or grant.session_id or grant.member_id}:{file.id}"
+    try:
+        target = await sources.stream_target(
+            file.file_path,
+            holder=holder,
+            client_host=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            force_relay=request.query_params.get("relay") == "1",
+        )
+    except Exception as exc:  # noqa: BLE001 -- 网盘的各种失败都换成给用户看的一句话
+        raise ServiceUnavailableException(sources.stream_error(exc)) from exc
+    if target.direct_url is not None:
+        return RedirectResponse(target.direct_url, status_code=302)
+    assert target.relay is not None
+    return _metered_relay_response(request, grant, file, target.relay)
 
 
 def _metered_relay_response(request: Request, grant, file: LibraryFile, link: StrmLink) -> Response:

@@ -35,6 +35,7 @@ from sqlmodel import col, select
 from movieclaw_api.core.config import get_settings
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import LibraryFile
+from movieclaw_playback.streaming import file_stamp
 
 logger = logging.getLogger("movieclaw_api.playback.video_cues")
 
@@ -88,11 +89,7 @@ def _cache_path(file_id: int) -> Path:
 
 def _stamp(file_path: str) -> tuple[int, int] | None:
     """片源的 (大小, 修改时间)：缓存按它判断片子有没有变。"""
-    try:
-        st = os.stat(file_path)
-    except OSError:
-        return None
-    return st.st_size, st.st_mtime_ns
+    return file_stamp(file_path)
 
 
 def _read_record(file_id: int, file_path: str) -> tuple[dict, bytes] | None:

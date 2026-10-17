@@ -1142,6 +1142,44 @@ nonisolated extension API {
         }
     }
 
+    /// Android 手机 / 电视客户端的最新正式版（GitHub Release 附带的包信息 JSON）。
+    /// App 拿 ``build`` 与自己的 versionCode 比较；下载走 ``/app/clients/{product}/apk``，
+    /// 由服务器经「设置 → 网络」里的 GitHub 出口代取（电视、手机常常直连不了 GitHub）。
+    struct ClientReleaseView: Codable, Hashable, Sendable {
+        /// android / androidtv
+        var product: String
+        /// versionName，如 0.4.0
+        var version: String
+        /// versionCode：App 比这个数决定有没有新版
+        var build: Int
+        /// APK 字节数
+        var size: Int
+        /// APK 的 sha256（小写十六进制），下载完 App 自己核对
+        var sha256: String
+        /// 签名证书指纹：与本机安装包不同时覆盖安装会失败
+        var certificateSha256: String?
+        /// 最低 Android API 级别
+        var minimumSdk: Int?
+        /// Release 正文（Markdown）
+        var changelog: String
+        var publishedAt: String?
+        /// GitHub Release 页面
+        var releaseUrl: String
+
+        enum CodingKeys: String, CodingKey {
+            case product
+            case version
+            case build
+            case size
+            case sha256
+            case certificateSha256 = "certificate_sha256"
+            case minimumSdk = "minimum_sdk"
+            case changelog
+            case publishedAt = "published_at"
+            case releaseUrl = "release_url"
+        }
+    }
+
     struct CloudConnectionView: Codable, Hashable, Sendable {
         var instanceId: String
         var instanceName: String
@@ -2979,6 +3017,234 @@ nonisolated extension API {
             case pathsHealthy = "paths_healthy"
             case createdAt = "created_at"
             case updatedAt = "updated_at"
+        }
+    }
+
+    struct DriveAccountUpdatePayload: Codable, Hashable, Sendable {
+        var name: String?
+        var qps: Double?
+        var dailyBudget: Int?
+        var readSlots: Int?
+        /// 回到插件默认值的字段：qps / daily_budget / read_slots
+        var reset: [String]?
+
+        enum CodingKeys: String, CodingKey {
+            case name
+            case qps
+            case dailyBudget = "daily_budget"
+            case readSlots = "read_slots"
+            case reset
+        }
+    }
+
+    struct DriveAccountView: Codable, Hashable, Sendable {
+        var id: Int
+        /// 网盘类型
+        var backend: String
+        /// 网盘名；插件不在时就是类型值
+        var backendTitle: String
+        /// 提供这种网盘的插件在运行
+        var backendAvailable: Bool
+        var accentColor: String
+        var name: String
+        /// scan / cookie
+        var loginMethod: String
+        /// 登录细节（如扫码选的登录端）
+        var loginDetail: String?
+        /// ok / auth_expired / rate_limited / api_broken / disabled
+        var status: String
+        var statusMessage: String?
+        /// 限流的恢复时间
+        var statusUntil: String?
+        /// 生效的请求速率（次 / 秒）
+        var qps: Double
+        /// 生效的每日调用预算
+        var dailyBudget: Int
+        /// 生效的同时播放数
+        var readSlots: Int
+        /// 请求速率是用户改过的
+        var qpsCustom: Bool
+        var dailyBudgetCustom: Bool
+        var readSlotsCustom: Bool
+        /// 今天已用的调用次数
+        var usedToday: Int
+        var vip: String?
+        var quotaTotal: Int?
+        var quotaUsed: Int?
+        var profileAt: String?
+        var createdAt: String
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case backend
+            case backendTitle = "backend_title"
+            case backendAvailable = "backend_available"
+            case accentColor = "accent_color"
+            case name
+            case loginMethod = "login_method"
+            case loginDetail = "login_detail"
+            case status
+            case statusMessage = "status_message"
+            case statusUntil = "status_until"
+            case qps
+            case dailyBudget = "daily_budget"
+            case readSlots = "read_slots"
+            case qpsCustom = "qps_custom"
+            case dailyBudgetCustom = "daily_budget_custom"
+            case readSlotsCustom = "read_slots_custom"
+            case usedToday = "used_today"
+            case vip
+            case quotaTotal = "quota_total"
+            case quotaUsed = "quota_used"
+            case profileAt = "profile_at"
+            case createdAt = "created_at"
+        }
+    }
+
+    /// 一种可用的网盘（有插件提供后端）。
+    struct DriveBackendView: Codable, Hashable, Sendable {
+        var type: String
+        var title: String
+        var description: String
+        /// 图标主题色；空 = 用默认色
+        var accentColor: String
+        var capabilities: API.DriveCapabilitiesView
+        var login: API.DriveLoginSpecView
+
+        enum CodingKeys: String, CodingKey {
+            case type
+            case title
+            case description
+            case accentColor = "accent_color"
+            case capabilities
+            case login
+        }
+    }
+
+    struct DriveCapabilitiesView: Codable, Hashable, Sendable {
+        /// 能写（上传、移动、删除）
+        var writable: Bool
+        /// 秒传用的指纹；空 = 不支持秒传
+        var rapidUploadHashes: [String]
+        var rangeChallenge: Bool
+        /// 列目录时带文件哈希
+        var listHashes: Bool
+        /// 有操作动态（增量感知网盘上的变化）
+        var changeFeed: Bool
+        /// 直链是原画
+        var originalLink: Bool
+        var linkNeedsUa: Bool
+        /// 删除进网盘回收站
+        var recycleBin: Bool
+        var defaultQps: Double
+        var defaultDailyBudget: Int
+        var defaultReadSlots: Int
+
+        enum CodingKeys: String, CodingKey {
+            case writable
+            case rapidUploadHashes = "rapid_upload_hashes"
+            case rangeChallenge = "range_challenge"
+            case listHashes = "list_hashes"
+            case changeFeed = "change_feed"
+            case originalLink = "original_link"
+            case linkNeedsUa = "link_needs_ua"
+            case recycleBin = "recycle_bin"
+            case defaultQps = "default_qps"
+            case defaultDailyBudget = "default_daily_budget"
+            case defaultReadSlots = "default_read_slots"
+        }
+    }
+
+    struct DriveCookiePayload: Codable, Hashable, Sendable {
+        var backend: String
+        /// 整页 Cookie（name=value; name2=value2）
+        var cookie: String
+
+        enum CodingKeys: String, CodingKey {
+            case backend
+            case cookie
+        }
+    }
+
+    struct DriveLoginChoiceView: Codable, Hashable, Sendable {
+        var value: String
+        var label: String
+        var help: String
+
+        enum CodingKeys: String, CodingKey {
+            case value
+            case label
+            case help
+        }
+    }
+
+    struct DriveLoginOptionView: Codable, Hashable, Sendable {
+        var key: String
+        var label: String
+        var `default`: String
+        var help: String
+        var choices: [API.DriveLoginChoiceView]
+
+        enum CodingKeys: String, CodingKey {
+            case key
+            case label
+            case `default`
+            case help
+            case choices
+        }
+    }
+
+    struct DriveLoginPayload: Codable, Hashable, Sendable {
+        var backend: String
+        /// 扫码前选的项
+        var options: [String: String]?
+
+        enum CodingKeys: String, CodingKey {
+            case backend
+            case options
+        }
+    }
+
+    struct DriveLoginSpecView: Codable, Hashable, Sendable {
+        /// 支持扫码登录
+        var scan: Bool
+        /// 支持用浏览器扩展导入或粘贴 Cookie 登录
+        var cookie: Bool
+        var cookieDomains: [String]
+        /// 扫码前要选的项（如登录端）
+        var options: [API.DriveLoginOptionView]
+        var hint: String
+
+        enum CodingKeys: String, CodingKey {
+            case scan
+            case cookie
+            case cookieDomains = "cookie_domains"
+            case options
+            case hint
+        }
+    }
+
+    struct DriveLoginView: Codable, Hashable, Sendable {
+        var loginId: String
+        var backend: String
+        /// pending / scanned / confirmed / expired / failed
+        var status: String
+        var message: String
+        /// 二维码图片（data URL）；没有为空
+        var qrImage: String
+        /// confirmed 时的账号
+        var account: API.DriveAccountView?
+        /// confirmed 时：是新账号（否则是重新登录了已有账号）
+        var created: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case loginId = "login_id"
+            case backend
+            case status
+            case message
+            case qrImage = "qr_image"
+            case account
+            case created
         }
     }
 
@@ -8385,12 +8651,14 @@ nonisolated extension API {
         var trickplayEnabled: Bool?
         var transcodeCacheEnabled: Bool?
         var reelClipsEnabled: Bool?
+        var cloudStreamMode: String?
 
         enum CodingKeys: String, CodingKey {
             case softwareTranscodeEnabled = "software_transcode_enabled"
             case trickplayEnabled = "trickplay_enabled"
             case transcodeCacheEnabled = "transcode_cache_enabled"
             case reelClipsEnabled = "reel_clips_enabled"
+            case cloudStreamMode = "cloud_stream_mode"
         }
     }
 
@@ -8403,6 +8671,7 @@ nonisolated extension API {
         var transcodeCacheEnabled: Bool
         var reelClipsEnabled: Bool?
         var reelClipsProgress: API.ReelClipProgressView?
+        var cloudStreamMode: String?
         var hardwareAvailable: Bool
         var hwBackends: [String]
 
@@ -8412,6 +8681,7 @@ nonisolated extension API {
             case transcodeCacheEnabled = "transcode_cache_enabled"
             case reelClipsEnabled = "reel_clips_enabled"
             case reelClipsProgress = "reel_clips_progress"
+            case cloudStreamMode = "cloud_stream_mode"
             case hardwareAvailable = "hardware_available"
             case hwBackends = "hw_backends"
         }

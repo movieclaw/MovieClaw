@@ -26,6 +26,7 @@ import { McpSection } from "@/components/mcp-section";
 import { MembersSection } from "@/components/members-section";
 import { AiSettingsSection } from "@/components/ai-settings-section";
 import { LlmConfigSection } from "@/components/llm-config-section";
+import { CloudStreamModeSection } from "@/components/cloud-stream-mode-section";
 import { DrivesSection } from "@/components/drives-section";
 import { ImPushSection } from "@/components/im-push-section";
 import { NetworkConfigSection } from "@/components/network-config-section";
@@ -697,6 +698,7 @@ function PlaybackSection() {
           <ReelClipsToggleRow />
         </SettingsList>
       </SettingsSection>
+      <CloudStreamModeSection />
       <RemoteTranscodeSection
         onOpenDevices={() => router.push("/settings/devices" as Route)}
       />

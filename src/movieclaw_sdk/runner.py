@@ -1081,6 +1081,12 @@ class Runner:
                 envelope["value"] = dv.result_dict(result)
             elif method == "account_info":
                 envelope["value"] = dv.info_dict(await backend.account_info(account))
+            elif method == "stat":
+                item = await backend.stat(account, args["remote_id"])
+                envelope["value"] = dv.remote_file_dict(item)
+            elif method == "direct_link":
+                link = await backend.direct_link(account, args["remote_id"], args["user_agent"])
+                envelope["value"] = dv.link_dict(link)
             else:
                 raise ValueError(f"未知的网盘后端方法 {method}")
         except dv.DriveError as exc:

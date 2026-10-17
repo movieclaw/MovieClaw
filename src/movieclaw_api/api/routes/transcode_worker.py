@@ -558,6 +558,27 @@ async def transcode_source(
     """
     file = await _remote_source_file(session_id, token, session)
     path = Path(file.file_path)
+    if not file.local_bytes:
+        # 只在网盘上：一律由 NAS 转发（Worker 多在家里，网盘只见家里一个地址；占一个网盘名额，
+        # 与本机转码同一套，cloud-storage.md §7.3）
+        from movieclaw_api.services.drives import sources
+
+        try:
+            target = await sources.stream_target(
+                file.file_path,
+                holder=f"worker:{session_id}",
+                client_host=request.client.host if request.client else None,
+                user_agent=None,
+                allow_direct=False,
+            )
+        except Exception as exc:  # noqa: BLE001 -- 网盘的各种失败都换成一句原因
+            raise ServiceUnavailableException(sources.stream_error(exc)) from exc
+        assert target.relay is not None
+        return RemoteRelayResponse(
+            target.relay.url,
+            range_header=request.headers.get("range"),
+            upstream_headers=target.relay.headers,
+        )
     if is_strm(file.file_path):
         try:
             source = parse_strm(file.file_path)

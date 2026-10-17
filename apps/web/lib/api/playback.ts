@@ -1074,10 +1074,15 @@ export interface PlaybackPolicy {
   reel_clips_enabled: boolean;
   /** 片段预切进度（开关开着才有） */
   reel_clips_progress: ReelClipProgress | null;
+  /** 在外面播放网盘上的片子（docs/design/cloud-storage.md §7.2）；老服务器没有 */
+  cloud_stream_mode?: CloudStreamMode | null;
   /** 实测结果而非配置项——用户改不了自己有没有显卡 */
   hardware_available: boolean;
   hw_backends: string[];
 }
+
+/** 在外面播放网盘上的片子：自动 / 总是经家里转发 / 总是直连网盘 */
+export type CloudStreamMode = "auto" | "relay" | "direct";
 
 /** 片段预切进度：电影与剧集一共几部、切好了几部；state 为 paused 时是在给播放让路 */
 export interface ReelClipProgress {

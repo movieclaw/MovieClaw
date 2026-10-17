@@ -154,6 +154,28 @@ class AccountInfo:
     quota_used: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class DirectLink:
+    """一个文件的直链。不带请求头：要带头才能访问的直链，302 出去的播放器也不会带。"""
+
+    url: str
+    #: 这条链接能复用多久（秒）；主程序按它缓存，最长一小时
+    expires_in: float = 300.0
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteFile:
+    """网盘上的一个文件（核验、对账、纳管用）。"""
+
+    remote_id: str
+    name: str
+    size: int
+    #: 网盘给的 SHA1（大写十六进制）；不给就是 None
+    sha1: str | None = None
+    #: 所在目录的 id
+    parent_id: str | None = None
+
+
 @dataclass(slots=True)
 class DriveAccount:
     """账号句柄：主程序构造，交给带账号的方法。凭据变了直接给 ``credentials`` 赋新值。"""
@@ -284,11 +306,26 @@ class DriveBackend:
     async def account_info(self, account: DriveAccount) -> AccountInfo:
         raise NotImplementedError
 
+    # ---- 文件
+    async def stat(self, account: DriveAccount, remote_id: str) -> RemoteFile:
+        """一个文件的大小与哈希；不存在抛 ``NotFound``。"""
+        raise NotImplementedError
+
+    async def direct_link(
+        self, account: DriveAccount, remote_id: str, user_agent: str
+    ) -> DirectLink:
+        """取直链。直链按 ``user_agent`` 签发的网盘，必须用它取（播放器跟随跳转时 UA 一致）。
+
+        主程序自己读（转发、转码、抽字幕）时传主程序的 UA，给播放器 302 时传播放器的 UA。
+        对已删除的文件取链容易触发风控：主程序只对已核验、没进回收站的副本取链。
+        """
+        raise NotImplementedError
+
 
 #: 网盘插件往这个注册表贡献后端（贡献 id 随意，按 ``type`` 识别）
 DRIVE_BACKENDS: RegistryKey[DriveBackend] = RegistryKey(
     "drive-backends",
-    version="1.0",
+    version="1.1",  # 1.1：后端实现 stat / direct_link（取流）
     stability=Stability.EXPERIMENTAL,
     schema=DriveBackend,
     doc="网盘存储后端：插件贡献一家网盘的协议实现（登录、文件操作），主程序负责账号、调度与界面",
@@ -417,6 +454,34 @@ def info_from(data: dict[str, Any]) -> AccountInfo:
     )
 
 
+def link_dict(link: DirectLink) -> dict[str, Any]:
+    return {"url": link.url, "expires_in": link.expires_in}
+
+
+def link_from(data: dict[str, Any]) -> DirectLink:
+    return DirectLink(url=str(data["url"]), expires_in=float(data.get("expires_in") or 300.0))
+
+
+def remote_file_dict(item: RemoteFile) -> dict[str, Any]:
+    return {
+        "remote_id": item.remote_id,
+        "name": item.name,
+        "size": item.size,
+        "sha1": item.sha1,
+        "parent_id": item.parent_id,
+    }
+
+
+def remote_file_from(data: dict[str, Any]) -> RemoteFile:
+    return RemoteFile(
+        remote_id=str(data["remote_id"]),
+        name=str(data["name"]),
+        size=int(data["size"]),
+        sha1=data.get("sha1"),
+        parent_id=data.get("parent_id"),
+    )
+
+
 def account_dict(account: DriveAccount) -> dict[str, Any]:
     return {"user_id": account.user_id, "credentials": dict(account.credentials)}
 
@@ -436,6 +501,7 @@ __all__ = [
     "Capabilities",
     "Choice",
     "Conflict",
+    "DirectLink",
     "DriveAccount",
     "DriveBackend",
     "DriveError",
@@ -446,6 +512,7 @@ __all__ = [
     "NotFound",
     "QuotaExceeded",
     "RateLimited",
+    "RemoteFile",
     "RiskControl",
     "Transient",
 ]

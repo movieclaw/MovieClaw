@@ -15,7 +15,11 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.api.deps import require_login, require_video_download_capability
-from movieclaw_api.exceptions import BadRequestException, NotFoundException
+from movieclaw_api.exceptions import (
+    BadRequestException,
+    NotFoundException,
+    ServiceUnavailableException,
+)
 from movieclaw_api.schemas.offline import (
     OfflineExportRequest,
     OfflineExportView,
@@ -163,6 +167,29 @@ async def download_original_file(
         raise NotFoundException("原盘暂不支持下载到设备")
     path = PathLib(file.file_path)
     container = file.container
+    if not file.local_bytes:
+        # 只在网盘上：一律由服务端转发，不 302（后台下载跟跳转会把设备令牌带给网盘）
+        from movieclaw_api.services.drives import sources
+
+        try:
+            target = await sources.stream_target(
+                file.file_path,
+                holder=f"offline:{principal.member_id}:{file.id}",
+                client_host=request.client.host if request.client else None,
+                user_agent=None,
+                allow_direct=False,
+            )
+        except Exception as exc:  # noqa: BLE001 -- 网盘的各种失败都换成一句原因
+            raise ServiceUnavailableException(sources.stream_error(exc)) from exc
+        assert target.relay is not None
+        meter = _register_download(request, principal, file, path.name, file.size_bytes or 0)
+        return RemoteRelayResponse(
+            target.relay.url,
+            range_header=request.headers.get("range"),
+            upstream_headers=target.relay.headers,
+            byte_sink=meter.add,
+            on_close=lambda: activity.unregister_stream(meter),
+        )
     if is_strm(file.file_path):
         try:
             source = parse_strm(file.file_path)

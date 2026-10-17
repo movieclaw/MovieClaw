@@ -55,7 +55,7 @@ from pathlib import Path
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_db.models import LibraryFile
-from movieclaw_playback.streaming import is_strm, media_input, open_strm_range
+from movieclaw_playback.streaming import file_stamp, is_remote, media_input, open_strm_range
 from movieclaw_playback.subtitle_cues import SubtitleTracks, build_subtitle_mkv
 
 logger = logging.getLogger("movieclaw_api.media_extract")
@@ -232,7 +232,7 @@ def _extract_timeout(video: Path) -> float:
     """按体积估算通读上限：下限 EXTRACT_TIMEOUT，封顶 _MAX_EXTRACT_TIMEOUT。
 
     网盘（strm）条目看不出体积（占位文件只有一行地址），直接给封顶值。"""
-    if is_strm(str(video)):
+    if is_remote(str(video)):
         return _MAX_EXTRACT_TIMEOUT
     try:
         size = video.stat().st_size
@@ -265,11 +265,14 @@ def _is_fresh(out_path: Path, video: Path) -> bool:
     抽取要通读整个容器，不能每次点开字幕都重来一遍；而只有视频本体变了
     （洗版、改名归并）才需要重抽。
     """
+    stamp = file_stamp(video)
+    if stamp is None:
+        return False
     try:
         return (
             out_path.is_file()
             and out_path.stat().st_size > 0
-            and out_path.stat().st_mtime_ns > video.stat().st_mtime_ns
+            and out_path.stat().st_mtime_ns > stamp[1]
         )
     except OSError:
         return False  # stat 失败按未缓存处理，走正常抽取
@@ -344,7 +347,7 @@ def _can_extract(spec: _ExtractionSpec) -> bool:
             "或为该影片放置外挂字幕文件（官方 Docker 镜像已内置 ffmpeg）"
         )
         return False
-    return spec.video.is_file()
+    return spec.video.is_file() or is_remote(str(spec.video))
 
 
 def _new_tmp_path(out_path: Path) -> Path:
@@ -506,10 +509,8 @@ async def _shared_extract(
 
 
 def _video_stamp(spec: _ExtractionSpec) -> int | None:
-    try:
-        return spec.video.stat().st_mtime_ns
-    except OSError:
-        return None
+    stamp = file_stamp(spec.video)
+    return None if stamp is None else stamp[1]
 
 
 def extraction_failed(file: LibraryFile, index: int) -> bool:
@@ -763,7 +764,7 @@ async def _run_ffmpeg(pending: list[tuple[int, _ExtractionSpec]], progress_path:
 def _sparse_tracks(video: Path) -> SubtitleTracks | None:
     """（阻塞）按 Cues 读出全部字幕轨的块；不是 MKV、索引不全、读失败都返回 None。"""
     try:
-        if is_strm(str(video)):
+        if is_remote(str(video)):
             reader = open_strm_range(video)
             if reader is None:
                 return None
@@ -951,7 +952,9 @@ def _extract_window(spec: _WindowSpec) -> ExtractedTrack | None:
         return full
     if _is_fresh(spec.out_path, spec.video):
         return ExtractedTrack(path=spec.out_path, format=spec.fmt)
-    if shutil.which("ffmpeg") is None or not spec.video.is_file():
+    if shutil.which("ffmpeg") is None or not (
+        spec.video.is_file() or is_remote(str(spec.video))
+    ):
         return None
     tmp_path = _new_tmp_path(spec.out_path)
     argv = [

@@ -85,7 +85,7 @@ from movieclaw_jellyfin.catalog import (
     media_source_dto,
     subtitle_track_for_index,
 )
-from movieclaw_jellyfin.errors import bad_request_text, forbidden, not_found
+from movieclaw_jellyfin.errors import bad_request_text, forbidden, not_found, unavailable_text
 from movieclaw_jellyfin.ids import (
     EntityKind,
     EntityRef,
@@ -687,6 +687,24 @@ async def video_stream(
 
     path = Path(f.file_path)
     file_container = f.container
+    if not f.local_bytes:
+        # 只在网盘上（cloud-storage.md §7.2）：家里转发或 302 到网盘直链。自家 App 带
+        # X-MovieClaw-Relay-Fallback: 1 声明直连失败会带 relay=1 改走转发，「自动」下才可能直连
+        cloud = await _cloud_target(request, identity, f)
+        if cloud.direct_url is not None:
+            return RedirectResponse(cloud.direct_url, status_code=302)
+        assert cloud.relay is not None
+        session_stopped, byte_sink, on_close = await _register_stream(
+            request, identity, ref, f, name=path.name
+        )
+        return RemoteRelayResponse(
+            cloud.relay.url,
+            range_header=request.headers.get("range"),
+            upstream_headers=cloud.relay.headers,
+            session_stopped=session_stopped,
+            byte_sink=byte_sink,
+            on_close=on_close,
+        )
     if is_strm(f.file_path):
         source = resolve_strm(f.file_path)
         if source is None:
@@ -752,6 +770,23 @@ async def video_stream(
         on_close=on_close,
         byte_patches=byte_patches,
     )
+
+
+async def _cloud_target(request: Request, identity: RequestIdentity, f: LibraryFile):
+    """只在网盘上的文件这次取流怎么走；失败给播放器一句 503 原因。"""
+    from movieclaw_api.services.drives import sources
+
+    try:
+        return await sources.stream_target(
+            f.file_path,
+            holder=f"play:{identity.device.device_id}:{f.id}",
+            client_host=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            relay_fallback=request.headers.get("x-movieclaw-relay-fallback") == "1",
+            force_relay=request.query_params.get("relay") == "1",
+        )
+    except Exception as exc:  # noqa: BLE001 -- 网盘的各种失败都换成给用户看的一句话
+        raise unavailable_text(sources.stream_error(exc)) from exc
 
 
 async def _register_stream(
@@ -840,6 +875,17 @@ async def download_item(
     f = selected[0]
 
     path = Path(f.file_path)
+    if not f.local_bytes:
+        # 只在网盘上：下载与取流同一套取流方式（家里转发或直连网盘）
+        cloud = await _cloud_target(request, identity, f)
+        if cloud.direct_url is not None:
+            return RedirectResponse(cloud.direct_url, status_code=302)
+        assert cloud.relay is not None
+        return RemoteRelayResponse(
+            cloud.relay.url,
+            range_header=request.headers.get("range"),
+            upstream_headers=cloud.relay.headers,
+        )
     if is_strm(f.file_path):
         source = resolve_strm(f.file_path)
         if source is None:

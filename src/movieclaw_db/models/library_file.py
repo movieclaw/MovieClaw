@@ -398,6 +398,20 @@ class LibraryFile(TimestampMixin, table=True):
         description="待回收审计快照：{reason, trigger:{kind,id,label}, note}",
     )
 
+    # -- 字节在哪（docs/design/cloud-storage.md §3.3）----------------------
+    # 「在位」的含义从「文件在本地」放宽为「我们拥有它」：字节可以只在网盘上
+    # （上传后释放了本地，或从网盘纳管、本地从来没有），这时 local_bytes 为假，
+    # 云端副本记在 library_file_replica。file_path 照旧是条目在库里的位置
+    # （旁车文件、目录结构都从它算），只是本地没有这个文件。
+    local_bytes: bool = Field(
+        default=True,
+        sa_column_kwargs={"server_default": "1"},
+        description="本地 file_path 上有没有字节；假 = 只在网盘上",
+    )
+    local_released_at: datetime | None = Field(
+        default=None, description="上传后释放本地字节的时间；纳管来的文件为 NULL"
+    )
+
     def mark_missing(self, since: datetime | None = None) -> None:
         """对账标缺失：只作用于在位行——待回收行的文件去留由清理任务收敛，
         缺失检测不得覆盖待回收状态（复活防线）。"""

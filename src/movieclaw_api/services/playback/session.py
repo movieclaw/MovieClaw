@@ -69,7 +69,14 @@ from movieclaw_events import new_ulid
 from movieclaw_playback import activity
 from movieclaw_playback.decide import PlaybackPlan, PlaybackTier
 from movieclaw_playback.hls_vod import SegmentPlan
-from movieclaw_playback.streaming import StrmError, is_strm, parse_strm, strm_source_input
+from movieclaw_playback.streaming import (
+    StrmError,
+    cloud_link,
+    is_cloud,
+    is_strm,
+    parse_strm,
+    strm_source_input,
+)
 
 logger = logging.getLogger("movieclaw_api.playback.session")
 
@@ -1021,6 +1028,7 @@ class TranscodeSessionManager:
                 # 再由统一降档逻辑决定是否展示 consent 或使用本地软转。
                 await self._spawn_remote(session, remote_base_url or "")
             else:
+                await self._prepare_cloud_source(session)
                 command = self._local_command(
                     session, start_number=head_segment if segment_plan is not None else None
                 )
@@ -1036,12 +1044,39 @@ class TranscodeSessionManager:
             raise
         return session
 
+    async def _prepare_cloud_source(self, session: TranscodeSession) -> None:
+        """只在网盘上的片源：在事件循环上先取好直链（``_local_command`` 是同步的，只读缓存），
+        并占一个网盘名额（转码会话读网盘就是一路播放，会话结束时让出，cloud-storage.md §7.3）。"""
+        if not is_cloud(session.source_path):
+            return
+        from movieclaw_api.services.drives import sources
+        from movieclaw_sdk.drives import DriveError
+
+        item = sources.cloud_file(session.source_path)
+        try:
+            if item is not None:
+                await sources.take_slot(item.account_id, f"transcode:{session.id}", pinned=True)
+            await sources.prefetch(session.source_path)
+        except sources.SlotsFull as exc:
+            session.error = exc.message
+            raise SessionStartError(exc.message) from exc
+        except DriveError as exc:
+            session.error = f"网盘取不到这个文件：{exc.message}"
+            raise SessionStartError(session.error) from exc
+
     def _local_command(self, session: TranscodeSession, *, start_number: int | None):
         """本地 ffmpeg 命令：起播与 seek 重启共用一处装配，输入形态在这里分叉。"""
         # 只在 concat 形态下才传 input_format：普通文件的调用形状保持不变
         extra: dict[str, Any] = {}
         source_path = session.source_path
-        if is_strm(source_path):
+        if is_cloud(source_path):
+            # 只在网盘上的库文件：ffmpeg 读网盘直链（取链与占名额在 _prepare_cloud_source）
+            link = cloud_link(source_path)
+            if link is None:
+                session.error = "网盘直链取不到"
+                raise SessionStartError(session.error)
+            source_path, extra["input_options"] = strm_source_input(link)
+        elif is_strm(source_path):
             # 网盘（strm）条目：ffmpeg 直接读直链（或 strm 指向的挂载文件）。每轮（含 seek
             # 重启）都现读 strm——直链多带时效签名，开播时解析的那条可能已经过期；缓存指纹仍按
             # strm 文件算（cache.py）
@@ -2058,6 +2093,7 @@ class TranscodeSessionManager:
             session.start_ms = int(plan.boundaries[index] * 1000)
             session.state = "spawning"
             session.error = None
+            await self._prepare_cloud_source(session)
             command = self._local_command(session, start_number=index)
             # 旧轮次的清单先并入台账再删：这一轮转出的分片下次回看直接可用；
             # 跨会话台账也顺手刷一遍，进程崩了这一轮的产出也不丢
@@ -2341,6 +2377,12 @@ class TranscodeSessionManager:
         if session is None:
             return False
         self._log_session_summary(session, reason)
+        if is_cloud(session.source_path):
+            from movieclaw_api.services.drives import sources
+
+            item = sources.cloud_file(session.source_path)
+            if item is not None:
+                sources.release_slot(item.account_id, f"transcode:{session.id}")
         # 先置状态再抢重启锁：正在排队等锁的 VOD 分片重启会在临界区入口看到
         # stopped 直接放弃。终止必须与 _maybe_restart_for 互斥——不互斥的话，
         # 一次「杀旧进程 → 拉新进程」的重启可能在本次 killpg **之后**才把新

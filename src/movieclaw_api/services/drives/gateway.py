@@ -56,6 +56,8 @@ TIMEOUTS: dict[str, float] = {
     "cancel_login": 10.0,
     "login_with_cookie": 20.0,
     "account_info": 30.0,
+    "stat": 20.0,
+    "direct_link": 8.0,
 }
 DEFAULT_TIMEOUT = 30.0
 #: 插件没说要等多久时，限流、风控各暂停后台多久（秒）

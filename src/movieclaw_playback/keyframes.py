@@ -42,7 +42,7 @@ from movieclaw_playback.container_index import (
     read_remote_mp4_keyframes,
     verify_all_mp4_keyframes,
 )
-from movieclaw_playback.streaming import STRM_EXT, open_strm_range
+from movieclaw_playback.streaming import STRM_EXT, file_stamp, is_cloud, open_strm_range
 
 logger = logging.getLogger("movieclaw_playback.keyframes")
 
@@ -119,11 +119,10 @@ def read_keyframe_index(path: str | Path, *, allow_ffprobe: bool = True) -> Keyf
     三段采样，也不能为它等一次整片通读。
     """
     path = Path(path)
-    try:
-        stat = path.stat()
-    except OSError:
+    stamp = file_stamp(path)
+    if stamp is None:
         return None
-    key = (str(path), stat.st_mtime_ns, stat.st_size)
+    key = (str(path), stamp[1], stamp[0])
     cached = _index_cache.get(key)
     if cached is not None:
         return cached
@@ -140,7 +139,8 @@ def _read_keyframe_index(
 ) -> KeyframeIndex | None:
     suffix = path.suffix.lower()
     try:
-        if suffix == STRM_EXT:
+        if suffix == STRM_EXT or is_cloud(str(path)):
+            # 网盘：strm 条目与只在网盘上的库文件都按索引稀疏读，不通读
             times = _read_remote_keyframes(path, key)
         elif suffix in {".mkv", ".webm"}:
             times = _read_matroska_cues(path)

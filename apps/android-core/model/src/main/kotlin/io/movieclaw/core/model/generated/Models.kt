@@ -1948,6 +1948,7 @@ data class PlaybackPolicyPayload(
     @SerialName("trickplay_enabled") val trickplayEnabled: Boolean? = null,
     @SerialName("transcode_cache_enabled") val transcodeCacheEnabled: Boolean? = null,
     @SerialName("reel_clips_enabled") val reelClipsEnabled: Boolean? = null,
+    @SerialName("cloud_stream_mode") val cloudStreamMode: String? = null,
 )
 
 /**
@@ -1962,6 +1963,7 @@ data class PlaybackPolicyView(
     @SerialName("transcode_cache_enabled") val transcodeCacheEnabled: Boolean = false,
     @SerialName("reel_clips_enabled") val reelClipsEnabled: Boolean? = null,
     @SerialName("reel_clips_progress") val reelClipsProgress: ReelClipProgressView? = null,
+    @SerialName("cloud_stream_mode") val cloudStreamMode: String? = null,
     @SerialName("hardware_available") val hardwareAvailable: Boolean = false,
     @SerialName("hw_backends") val hwBackends: List<String> = emptyList(),
 )

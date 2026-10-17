@@ -72,3 +72,14 @@ class RemoteDriveBackend(dv.DriveBackend):
 
     async def account_info(self, account: dv.DriveAccount) -> dv.AccountInfo:
         return dv.info_from(await self._call("account_info", {}, account))
+
+    async def stat(self, account: dv.DriveAccount, remote_id: str) -> dv.RemoteFile:
+        return dv.remote_file_from(await self._call("stat", {"remote_id": remote_id}, account))
+
+    async def direct_link(
+        self, account: dv.DriveAccount, remote_id: str, user_agent: str
+    ) -> dv.DirectLink:
+        data = await self._call(
+            "direct_link", {"remote_id": remote_id, "user_agent": user_agent}, account
+        )
+        return dv.link_from(data)

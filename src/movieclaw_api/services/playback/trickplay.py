@@ -37,7 +37,7 @@ from pathlib import Path
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.settings import PlaybackPolicySetting, get_setting_store
 from movieclaw_db.models import LibraryFile
-from movieclaw_playback.streaming import is_strm, open_strm_range
+from movieclaw_playback.streaming import is_remote, open_strm_range
 from movieclaw_playback.subtitle_cues import build_keyframe_mkv
 
 logger = logging.getLogger("movieclaw_api.playback.trickplay")
@@ -158,13 +158,13 @@ def generate(file: LibraryFile) -> TrickplayIndex | None:
         # trickplay）；没有预览不影响播放
         return None
     video = Path(file.file_path)
-    if not video.is_file():
+    if not (video.is_file() or is_remote(file.file_path)):
         return None
 
     out_dir = trickplay_dir(file_id)
     staging = out_dir.with_name(f".{out_dir.name}.{uuid.uuid4().hex}.part")
     staging.mkdir(parents=True, exist_ok=True)
-    if is_strm(file.file_path):
+    if is_remote(file.file_path):
         # 网盘（strm）条目不通读：按 MKV 索引只取每 10 秒最近的一个关键帧，拼成小 MKV
         # 再抽图（一集几 MB 到几十 MB，原来要把整片拉一遍；Jellyfin 对 strm 直接跳过）。
         # 不是 MKV、没有索引就没有预览

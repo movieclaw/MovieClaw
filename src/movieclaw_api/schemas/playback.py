@@ -881,6 +881,9 @@ class PlaybackPolicyView(BaseModel):
     reel_clips_enabled: bool | None = False
     #: 片段预切进度（开关开着才有）：电影与剧集一共几部、切好了几部、队列状态
     reel_clips_progress: ReelClipProgressView | None = None
+    #: 在外面播放网盘上的片子：auto / relay / direct（docs/design/cloud-storage.md §7.2）。
+    #: 可空：老服务器没有这一项，生成的 App 模型把非空字段当必有
+    cloud_stream_mode: Literal["auto", "relay", "direct"] | None = "auto"
     #: 实测结果而非配置项——用户改不了自己有没有显卡。前端据此说明
     #: 「无可用硬件加速，HDR 片源需要软件转码」这类结论。
     hardware_available: bool = False
@@ -896,6 +899,7 @@ class PlaybackPolicyPayload(BaseModel):
     trickplay_enabled: bool | None = None
     transcode_cache_enabled: bool | None = None
     reel_clips_enabled: bool | None = None
+    cloud_stream_mode: Literal["auto", "relay", "direct"] | None = None
 
 
 class PlaybackFontsView(BaseModel):

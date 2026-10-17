@@ -620,13 +620,15 @@
         "account_info": "(self, account: 'DriveAccount') -> 'AccountInfo'",
         "begin_login": "(self, options: 'dict[str, str]') -> 'LoginFlow'",
         "cancel_login": "(self, flow_id: 'str') -> 'None'",
+        "direct_link": "(self, account: 'DriveAccount', remote_id: 'str', user_agent: 'str') -> 'DirectLink'",
         "login_state": "(self, flow_id: 'str') -> 'LoginFlow'",
-        "login_with_cookie": "(self, cookie_header: 'str') -> 'LoginResult'"
+        "login_with_cookie": "(self, cookie_header: 'str') -> 'LoginResult'",
+        "stat": "(self, account: 'DriveAccount', remote_id: 'str') -> 'RemoteFile'"
       }
     },
     "kind": "registry",
     "stability": "experimental",
-    "version": "1.0"
+    "version": "1.1"
   },
   "host-ops": {
     "doc": "宿主操作：插件以自己的身份调用本进程的 OpenAPI 操作（按操作授权）",

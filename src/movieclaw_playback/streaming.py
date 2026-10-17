@@ -539,6 +539,56 @@ def is_strm(file_path: str) -> bool:
     return file_path.lower().endswith(STRM_EXT)
 
 
+# ---- 只在网盘上的库文件（docs/design/cloud-storage.md §7.1）-----------------------
+# 宿主把「这条台账路径的字节只在网盘上」登记进来，读字节的入口（media_input / open_strm_range）
+# 据此把路径换成网盘直链。播放层不认识网盘账号与插件：判定与取链都由宿主给的两个函数完成。
+_cloud_check: Callable[[str], bool] | None = None
+_cloud_resolve: Callable[[str], StrmLink | None] | None = None
+_cloud_stamp: Callable[[str], tuple[int, int] | None] | None = None
+
+
+def bind_cloud(
+    check: Callable[[str], bool] | None,
+    resolve: Callable[[str], StrmLink | None] | None,
+    stamp: Callable[[str], tuple[int, int] | None] | None = None,
+) -> None:
+    global _cloud_check, _cloud_resolve, _cloud_stamp
+    _cloud_check, _cloud_resolve, _cloud_stamp = check, resolve, stamp
+
+
+def file_stamp(file_path: str | Path) -> tuple[int, int] | None:
+    """片源的（大小, 修改时间纳秒），缓存按它判断片子有没有变；取不到返回 None。
+
+    只在网盘上的文件本地 stat 不到，用台账记的大小与修改时间——否则释放本地之后，
+    已经抽好的字幕、转好的分片全部判成过期（cloud-storage.md §14.1）。
+    """
+    path = str(file_path)
+    if _cloud_stamp is not None and is_cloud(path):
+        return _cloud_stamp(path)
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_size, st.st_mtime_ns
+
+
+def is_cloud(file_path: str) -> bool:
+    """这条台账路径的字节只在网盘上（本地没有这个文件）。"""
+    return _cloud_check is not None and _cloud_check(str(file_path))
+
+
+def is_remote(file_path: str) -> bool:
+    """读字节要走网络：strm 条目或只在网盘上的文件。整片通读这类活对它们要换成按索引稀疏读。"""
+    return is_strm(str(file_path)) or is_cloud(file_path)
+
+
+def cloud_link(file_path: str) -> StrmLink | None:
+    """只在网盘上的文件的服务器直链；取不到返回 None。"""
+    if _cloud_resolve is None or not is_cloud(file_path):
+        return None
+    return _cloud_resolve(str(file_path))
+
+
 @dataclass(frozen=True)
 class StrmLink:
     """strm 文件解析出的远程地址与取它要带的请求头。"""
@@ -705,6 +755,9 @@ def media_input(file_path: str) -> tuple[str, list[str]] | None:
     本地文件就是路径本身、没有额外选项；strm 每次起 ffmpeg 都**现读**（直链多带时效
     签名）：远端是直链加网络协议选项，本地路径是它指向的真实文件。strm 用不了返回 None。
     """
+    if is_cloud(file_path):
+        link = cloud_link(file_path)
+        return None if link is None else strm_source_input(link)
     if not is_strm(file_path):
         return file_path, []
     source = resolve_strm(file_path)
@@ -740,8 +793,9 @@ def open_strm_range(file_path: str | Path) -> RemoteRangeFile | LocalRangeFile |
     """按区间读 strm 指向的文件（读索引、抽稀疏关键帧 / 字幕块用）；读不了返回 None。
 
     远端只认 http/https（要 Range）；本地路径打开真实文件。两者接口相同，调用方不用分。
+    只在网盘上的库文件读网盘直链。
     """
-    source = resolve_strm(file_path)
+    source = cloud_link(str(file_path)) if is_cloud(str(file_path)) else resolve_strm(file_path)
     if isinstance(source, Path):
         return LocalRangeFile(source)
     if source is None or urlsplit(source.url).scheme.lower() not in {"http", "https"}:

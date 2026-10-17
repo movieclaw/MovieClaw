@@ -36,6 +36,7 @@ from movieclaw_db.models.library import Library
 from movieclaw_db.models.library_dir_snapshot import LibraryDirSnapshot
 from movieclaw_db.models.library_duplicate_unit import LibraryDuplicateUnit
 from movieclaw_db.models.library_file import FileSource, FileState, LibraryFile
+from movieclaw_db.models.library_file_replica import LibraryFileReplica
 from movieclaw_db.models.llm_provider import LlmProvider
 from movieclaw_db.models.login_device import LoginDevice
 from movieclaw_db.models.manual_download_intent import ManualDownloadIntent
@@ -142,6 +143,7 @@ __all__ = [
     "LibraryDirSnapshot",
     "LibraryDuplicateUnit",
     "LibraryFile",
+    "LibraryFileReplica",
     "LlmProvider",
     "LoginDevice",
     "ManualDownloadIntent",

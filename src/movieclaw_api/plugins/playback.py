@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from movieclaw_api.plugins.keys import REMOTE_WORKERS, SETTING_STORE
+from movieclaw_api.plugins.keys import DB, REMOTE_WORKERS, SETTING_STORE
 from movieclaw_kernel import Context, plugin
 
 logger = logging.getLogger("movieclaw_api.plugins.playback")
@@ -94,3 +94,19 @@ async def transcode(ctx: Context) -> None:
     ctx.effect(get_export_manager().shutdown, label="shutdown-offline-exports")
     # 硬件加速自检放后台：逐个后端真跑一秒编码要几秒，不该拖慢启动，也不能等到首次播放
     ctx.task(_warm_hardware_probe(), name="warm-hwprobe")
+
+
+@plugin("drives.sources", title="网盘片源", inject=(DB,), reloadable=True)
+async def drive_sources(ctx: Context) -> None:
+    """把只在网盘上的库文件接到播放的读字节入口：转码、字幕、关键帧读网盘直链。
+
+    docs/design/cloud-storage.md §7。
+    """
+    from movieclaw_api.services.drives import sources
+
+    sources.bind()
+    ctx.effect(sources.unbind, label="unbind-drive-sources")
+    count = await sources.load_registry()
+    if count:
+        logger.info("已登记 %d 个只在网盘上的库文件", count)
+

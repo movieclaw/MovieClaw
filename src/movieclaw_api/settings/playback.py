@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field
 
 from movieclaw_api.settings.base import SettingSchema, register_setting
@@ -45,6 +47,15 @@ class PlaybackPolicySetting(SettingSchema):
             "是否为影片生成进度条预览缩略图。生成要通读整部影片抽帧（4 倍速"
             "限速下两小时片约 30 分钟），低配设备上会有可感知的 CPU 与磁盘"
             "占用；关闭后不再生成新预览，已生成的照常可用，重新打开即恢复。"
+        ),
+    )
+    cloud_stream_mode: Literal["auto", "relay", "direct"] = Field(
+        default="auto",
+        description=(
+            "在外面播放网盘上的片子（docs/design/cloud-storage.md §7.2）：auto 一般经家里转发，"
+            "只有能在直连失败时改走转发的自家 App、且同一时间只有一处在外面时才直连网盘；"
+            "relay 总是经家里转发（网盘只看到家里一个地址）；direct 总是直连网盘（不占家里上行，"
+            "但多处同时在外面看可能被网盘判为账号共享）。在家里的设备始终经家里转发。"
         ),
     )
     reel_clips_enabled: bool = Field(
