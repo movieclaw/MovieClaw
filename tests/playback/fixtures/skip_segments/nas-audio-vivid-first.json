@@ -1,0 +1,50 @@
+{
+  "programs": [],
+  "stream_groups": [],
+  "streams": [
+    {
+      "duration": "2819.306667",
+      "disposition": {
+        "comment": 0,
+        "visual_impaired": 0
+      },
+      "tags": {
+        "language": "chi"
+      }
+    },
+    {
+      "codec_name": "eac3",
+      "duration": "2819.328000",
+      "disposition": {
+        "comment": 0,
+        "visual_impaired": 0
+      },
+      "tags": {
+        "language": "chi"
+      }
+    },
+    {
+      "codec_name": "eac3",
+      "duration": "2819.264000",
+      "disposition": {
+        "comment": 0,
+        "visual_impaired": 0
+      },
+      "tags": {
+        "language": "chi"
+      }
+    },
+    {
+      "codec_name": "aac",
+      "duration": "2819.285333",
+      "disposition": {
+        "comment": 0,
+        "visual_impaired": 0
+      },
+      "tags": {
+        "language": "chi"
+      }
+    }
+  ],
+  "duration": 2819
+}
