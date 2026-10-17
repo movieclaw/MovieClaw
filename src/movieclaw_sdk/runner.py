@@ -1112,6 +1112,8 @@ class Runner:
             elif method == "finish_upload":
                 item = await backend.finish_upload(account, args["state"])
                 envelope["value"] = dv.remote_file_dict(item)
+            elif method == "delete":
+                await backend.delete(account, list(args["remote_ids"]))
             elif method == "stat":
                 item = await backend.stat(account, args["remote_id"])
                 envelope["value"] = dv.remote_file_dict(item)

@@ -97,10 +97,10 @@ class LibraryCloudRepository:
         )
         return result.scalar_one_or_none()
 
-    async def replica_paths(self, library_id: int) -> dict[tuple[int, str], tuple[str, bool]]:
-        """库里已有副本的文件：(账号, 网盘文件 id) → (台账路径, 本地有没有字节)。
+    async def replica_paths(self) -> dict[tuple[int, str], tuple[str, bool, int]]:
+        """已有副本的文件（全部库）：(账号, 网盘文件 id) → (台账路径, 本地有没有字节, 所在库)。
 
-        纳管时据此认出已经入账的文件（含我们自己传上去、本地还在的）。
+        纳管时据此认出已经入账的文件（含我们自己传上去、本地还在的，以及转移到别的库的）。
         """
         rows = (
             await self._session.execute(
@@ -109,14 +109,13 @@ class LibraryCloudRepository:
                     LibraryFileReplica.remote_id,
                     LibraryFile.file_path,
                     LibraryFile.local_bytes,
-                )
-                .join(LibraryFile, LibraryFile.id == LibraryFileReplica.library_file_id)
-                .where(LibraryFile.library_id == library_id)
+                    LibraryFile.library_id,
+                ).join(LibraryFile, LibraryFile.id == LibraryFileReplica.library_file_id)
             )
         ).all()
         return {
-            (account_id, remote_id): (path, bool(local))
-            for account_id, remote_id, path, local in rows
+            (account_id, remote_id): (path, bool(local), owner)
+            for account_id, remote_id, path, local, owner in rows
         }
 
     async def folder_replicas(self, folder_id: int) -> list[tuple[LibraryFileReplica, LibraryFile]]:
@@ -214,10 +213,18 @@ class LibraryCloudRepository:
         self._session.add(replica)
 
     async def drop_orphan_replicas(self) -> int:
-        """台账行已经不在了的「纳管来的」副本记录（我们上传的留给删除流程处理）。"""
+        """台账行已经不在了的副本记录：纳管来的（只是记账），以及网盘上本来就没有的（丢了、没传成）。
+
+        我们上传、已核验的留着——它们本该经删除流程处理，留下记录方便查。
+        """
         result = await self._session.execute(
             delete(LibraryFileReplica).where(
-                LibraryFileReplica.origin == REPLICA_ORIGIN_IMPORTED,  # type: ignore[arg-type]
+                or_(
+                    LibraryFileReplica.origin == REPLICA_ORIGIN_IMPORTED,  # type: ignore[arg-type]
+                    LibraryFileReplica.state.in_(  # type: ignore[attr-defined]
+                        (REPLICA_LOST, REPLICA_FAILED, REPLICA_UPLOADING)
+                    ),
+                ),
                 LibraryFileReplica.library_file_id.not_in(select(LibraryFile.id)),  # type: ignore[attr-defined]
             )
         )

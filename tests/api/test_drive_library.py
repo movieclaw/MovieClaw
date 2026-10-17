@@ -51,6 +51,7 @@ from movieclaw_sdk.drives import (
     RemoteDir,
     RemoteFile,
     RemoteTree,
+    Transient,
 )
 
 
@@ -63,7 +64,7 @@ class FakeDrive(DriveBackend):
     title = "假网盘"
     capabilities = Capabilities(
         writable=True, list_hashes=True, change_feed=True, default_qps=1000.0,
-        default_daily_budget=100000,
+        default_daily_budget=100000, recycle_bin=True,
     )
     login = Login(cookie_domains=("fake.example",))
 
@@ -101,6 +102,15 @@ class FakeDrive(DriveBackend):
             Change(**{k: v for k, v in e.items() if k != "seq"}) for e in feed if e["seq"] > after
         )
         return ChangePage(cursor=f"c{last}", changes=events)
+
+    async def delete(self, account, remote_ids):
+        state = self._load()
+        if state.get("fail_delete"):
+            raise Transient("网盘忙")
+        state.setdefault("deleted", []).extend(remote_ids)
+        for tree in state["trees"].values():
+            tree["files"] = [f for f in tree["files"] if f["remote_id"] not in remote_ids]
+        self.state.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
 
     async def stat(self, account, remote_id):
         raise NotFound("没有这个文件")
@@ -681,3 +691,138 @@ def test_importing_a_large_tree_lists_once_and_counts_everything(client, tmp_pat
     # 整棵树一次列完（不逐目录往下列）
     assert gateway.usage_today(client.account_id) - calls == 1  # type: ignore[attr-defined]
     assert elapsed < 300, elapsed
+
+
+# ---------------------------------------------------------------------- 删除与回收站（§10）
+
+
+def test_deleting_a_cloud_item_deletes_the_drive_file_first(client, tmp_path):
+    view = _create_library(client, tmp_path)
+    library_id = view["id"]
+    rows = ledger(client, library_id)
+    item_id = rows["f-opp"]["media_item_id"]
+    preview = client.get(f"/api/v1/libraries/{library_id}/items/{item_id}/delete-preview")
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["data"]["cloud"] == {
+        "backend_title": "假网盘",
+        "files": 1,
+        "bytes": 3_000_000_000,
+        "recycle_bin": True,
+    }
+    # 网盘删不掉：整件事不做
+    _edit_state(client, lambda d: d.update(fail_delete=True))
+    failed = client.delete(f"/api/v1/libraries/{library_id}/items/{item_id}")
+    assert "网盘上的文件没删掉" in failed.text
+    assert "f-opp" in ledger(client, library_id)
+    # 好了再删：先删网盘（按文件 id），再清台账
+    _edit_state(client, lambda d: d.update(fail_delete=False))
+    done = client.delete(f"/api/v1/libraries/{library_id}/items/{item_id}")
+    assert done.status_code == 200, done.text
+    state = json.loads(client.state_path.read_text(encoding="utf-8"))  # type: ignore[attr-defined]
+    assert state["deleted"] == ["f-opp"]
+    rows = ledger(client, library_id)
+    assert "f-opp" not in rows and "f-dune" in rows
+
+
+async def _trash_and_restore(file_id: int) -> tuple[str, str, bool]:
+    from movieclaw_api.services.library.recycle import recycle_file, restore_file
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import LibraryFile
+
+    async with get_database().session() as session:
+        row = await session.get(LibraryFile, file_id)
+        outcome = await recycle_file(
+            session, row, reason="test", trigger={"kind": "member"}, note="测试"
+        )
+        await session.commit()
+        trashed = str(row.state)
+        restored = await restore_file(session, row)
+        await session.commit()
+        return outcome, trashed, restored
+
+
+async def _trash_due(file_id: int) -> None:
+    from datetime import timedelta
+
+    from movieclaw_api.services.library.recycle import recycle_file
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import LibraryFile
+    from movieclaw_db.models.base import utcnow
+
+    async with get_database().session() as session:
+        row = await session.get(LibraryFile, file_id)
+        await recycle_file(
+            session,
+            row,
+            reason="test",
+            trigger={"kind": "member"},
+            note="测试",
+            purge_after=utcnow() - timedelta(minutes=1),
+        )
+        await session.commit()
+
+
+def test_recycle_bin_keeps_cloud_files_until_purge_and_guards_bulk_purges(
+    client, tmp_path, monkeypatch
+):
+    from movieclaw_api.services.drives import deletes
+    from movieclaw_api.services.library import recycle
+
+    view = _create_library(client, tmp_path)
+    library_id = view["id"]
+    rows = ledger(client, library_id)
+    # 只在网盘上的文件进回收站：原地待回收（不是「已经没了」删行），恢复直接回到在位
+    outcome, trashed, restored = call(client, _trash_and_restore, rows["f-dune"]["id"])
+    assert (outcome, trashed, restored) == ("kept_in_place", "trashed", True)
+    assert ledger(client, library_id)["f-dune"]["state"] == "in_place"
+
+    # 到期自动清理：一次涉及的网盘文件超过上限就先不删，发通知等确认
+    monkeypatch.setattr(deletes, "GUARD_FILES", 1)
+    for key in ("f-dune", "f-opp"):
+        call(client, _trash_due, rows[key]["id"])
+    call(client, recycle.purge_due_files)
+    state = json.loads(client.state_path.read_text(encoding="utf-8"))  # type: ignore[attr-defined]
+    assert "deleted" not in state
+    assert {ledger(client, library_id)[k]["state"] for k in ("f-dune", "f-opp")} == {"trashed"}
+    notices = client.get("/api/v1/system/notices").json()["data"]
+    assert any("回收站里到期的网盘文件太多" in n["title"] for n in notices)
+    # 在上限之内：先删网盘再删行
+    monkeypatch.setattr(deletes, "GUARD_FILES", 50)
+    call(client, recycle.purge_due_files)
+    state = json.loads(client.state_path.read_text(encoding="utf-8"))  # type: ignore[attr-defined]
+    assert sorted(state["deleted"]) == ["f-dune", "f-opp"]
+    assert set(ledger(client, library_id)) == {"f-noname"}
+
+
+def test_transferring_a_cloud_item_moves_the_row_and_is_not_reimported(client, tmp_path):
+    from movieclaw_api.services.library.scan import scan_library
+
+    view = _create_library(client, tmp_path)
+    library_id = view["id"]
+    other_root = tmp_path / "other"
+    other_root.mkdir()
+    other = client.post(
+        "/api/v1/libraries",
+        json={"name": "另一个电影库", "kind": "movie", "root_paths": [str(other_root)]},
+    ).json()["data"]
+    _wait_idle(client, other["id"])
+    item_id = ledger(client, library_id)["f-opp"]["media_item_id"]
+    started = client.post(
+        f"/api/v1/libraries/{library_id}/items/{item_id}/transfers",
+        json={"target_library_id": other["id"]},
+    )
+    assert started.status_code == 202, started.text
+
+    def moved():
+        return "f-opp" in ledger(client, other["id"])
+
+    deadline = time.monotonic() + 60
+    while not moved():
+        assert time.monotonic() < deadline
+        time.sleep(0.1)
+    # 网盘上的文件留在原处（按文件 id 认），行随迁到新库
+    assert ledger(client, other["id"])["f-opp"]["replica_state"] == "verified"
+    _wait_idle(client, library_id)
+    # 原来的库重新列网盘目录：转移走的不再入一遍账
+    call(client, scan_library, library_id)
+    assert "f-opp" not in ledger(client, library_id)

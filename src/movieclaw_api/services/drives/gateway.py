@@ -64,6 +64,7 @@ TIMEOUTS: dict[str, float] = {
     # 一片最大几十 MB：按上行几 MB/s 估，给足
     "upload_part": 600.0,
     "finish_upload": 120.0,
+    "delete": 60.0,
     "stat": 20.0,
     "direct_link": 8.0,
 }
