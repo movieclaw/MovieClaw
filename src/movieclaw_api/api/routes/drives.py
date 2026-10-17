@@ -334,6 +334,7 @@ async def _login_view(login_id: str) -> DriveLoginView:
         status=item.status,
         message=item.message,
         qr_image=_qrcode_data_url(item.qr or "") if not item.terminal else "",
+        qr_text=(item.qr or "") if not item.terminal else "",
         account=account,
         created=item.created,
     )

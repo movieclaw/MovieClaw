@@ -105,7 +105,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Identifiable {
     case overview, profile
     case members, devices, notifications
     case subscription, sites, downloaders, importWatch = "import-watch"
-    case scrape, playback
+    case scrape, playback, drives
     case appPush = "app-push", imPush = "im-push", webhook, llm, mcp, ai
     case cloud, app, network, logs
 
@@ -124,6 +124,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Identifiable {
         case .importWatch: "自动入库"
         case .scrape: "刮削与整理"
         case .playback: "播放"
+        case .drives: "网盘"
         case .appPush: "App 推送"
         case .imPush: "IM 推送"
         case .webhook: "Webhook"
@@ -150,6 +151,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Identifiable {
         case .importWatch: "监听下载目录，下载完成后自动整理进媒体库"
         case .scrape: "海报、简介、命名与目录整理的全局默认"
         case .playback: "远程转码与播放体验"
+        case .drives: "网盘账号与同时播放数，媒体库可以放在网盘上"
         case .appPush: "官方推送与自建推送中继，各 App 走哪个通道"
         case .imPush: "微信 / Telegram / Discord / 飞书 推送与 AI 对话"
         case .webhook: "向外部服务推送播放、收藏等事件"
@@ -176,6 +178,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Identifiable {
         case .importWatch: "folder.badge.gearshape"
         case .scrape: "photo.on.rectangle"
         case .playback: "play.rectangle"
+        case .drives: "externaldrive.badge.icloud"
         case .appPush: "app.badge"
         case .imPush: "bubble.left.and.bubble.right"
         case .webhook: "paperplane"
@@ -210,7 +213,8 @@ enum SettingsSection: String, CaseIterable, Hashable, Identifiable {
         // 「成员」并进这一组（原先各自单成一组、每组只有一行，2026-09-29 用户要求合并）；成员身份只看得到前两项
         ("账号", [.devices, .notifications, .members]),
         ("资源与下载", [.subscription, .sites, .downloaders, .importWatch]),
-        ("媒体库", [.scrape, .playback]),
+        // 「网盘」只在装了存储插件或已有网盘账号时列出（SettingsIndexView 按 DrivesAvailability 过滤）
+        ("媒体库", [.scrape, .playback, .drives]),
         ("通知与集成", [.appPush, .imPush, .webhook, .llm, .mcp, .ai]),
         // 「MovieClaw Cloud」：整台服务器连到管理员的 MovieClaw 账号（docs/design/cloud-push.md §1）
         ("系统", [.cloud, .app, .network, .logs]),

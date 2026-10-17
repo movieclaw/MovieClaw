@@ -10,6 +10,8 @@ struct SettingsIndexView: View {
     @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 18
     @ScaledMetric(relativeTo: .body) private var iconColumn: CGFloat = 28
     @State private var cardTitleVisible = true
+    /// 网盘分区按扩展点出现：装了存储插件或已有网盘账号（cloud-storage.md §11.7）
+    @State private var drivesVisible = false
     @State private var scrollTopInset: CGFloat = 0
 
     var body: some View {
@@ -19,6 +21,10 @@ struct SettingsIndexView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(removing: cardTitleVisible ? .title : nil)
         .appBackground()
+        .task {
+            guard permissions.isAdmin else { return }
+            drivesVisible = await DrivesAvailability.check(api)
+        }
     }
 
     private var introduction: some View {
@@ -54,7 +60,9 @@ struct SettingsIndexView: View {
                     .listRowInsets(EdgeInsets())
             }
             ForEach(SettingsSection.groups, id: \.title) { group in
-                let items = group.items.filter { $0.availableInApp && (permissions.isAdmin || $0.memberVisible) }
+                let items = group.items.filter {
+                    $0.availableInApp && (permissions.isAdmin || $0.memberVisible) && ($0 != .drives || drivesVisible)
+                }
                 if !items.isEmpty {
                     SettingsFormSection {
                         ForEach(items) { section in

@@ -145,6 +145,10 @@ enum ManageMatchRules {
 /// 服务器目录选择器复用设置模块的 `SettingsBDirectoryPicker`（`GET /fs/browse`，只读）。
 struct ManageRootsEditor: View {
     @Binding var roots: [String]
+    /// 主根在网盘（cloud-storage.md §3.2）：第一个服务器目录只是本地暂存目录
+    var cloudPrimary = false
+    /// 把某个服务器目录设为主根时，顺带取消网盘目录的主根
+    var onLocalPrimary: () -> Void = {}
 
     /// 目录选择器的目标：追加，或原位更改某一项
     private enum PickTarget: Identifiable {
@@ -177,14 +181,24 @@ struct ManageRootsEditor: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("点击更改：从当前路径开始重新选择目录")
-                if index == 0 {
+                if index == 0 && cloudPrimary {
+                    Text("暂存")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.textMuted)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(Color.white.opacity(0.08), in: .capsule)
+                }
+                if index == 0 && !cloudPrimary {
                     Text("主根")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Theme.accent)
                         .padding(.horizontal, 7).padding(.vertical, 2)
                         .background(Theme.accent.opacity(0.15), in: .capsule)
                 } else {
-                    Button("设为主根") { roots = [root] + roots.filter { $0 != root } }
+                    Button("设为主根") {
+                        roots = [root] + roots.filter { $0 != root }
+                        onLocalPrimary()
+                    }
                         .font(.caption)
                         .buttonStyle(.borderless)
                         .foregroundStyle(Theme.textMuted)

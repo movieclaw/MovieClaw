@@ -2071,6 +2071,11 @@ struct LibraryFileRow: View {
                     Button { UIPasteboard.general.string = file.filePath } label: { Label("拷贝路径", systemImage: "doc.on.doc") }
                 }
                 if file.missing { tag("文件缺失", color: Theme.warning) }
+                // 位置标签：只有网盘副本的文件才标（纯本地的保持原样；cloud-storage.md §2）
+                if let cloud = file.cloud {
+                    tag(Self.cloudLabel(cloud), color: cloud.state == "failed" ? Theme.warning : Theme.textMuted)
+                        .accessibilityIdentifier("file-cloud-\(file.id)")
+                }
                 if file.state == "trashed" {
                     tag("待回收", color: Theme.textFaint)
                     if let onRestore { Button("恢复", action: onRestore).font(.caption.weight(.semibold)) }
@@ -2090,6 +2095,17 @@ struct LibraryFileRow: View {
                     .padding(.horizontal, 14).padding(.bottom, 8)
             }
             if expanded { details }
+        }
+    }
+
+    /// 在哪、传到哪一步了（与网页文件区同口径）
+    static func cloudLabel(_ cloud: API.FileCloudView) -> String {
+        let place = cloud.backendTitle
+        switch cloud.state {
+        case "uploading": return "上传到 \(place) 中"
+        case "failed": return "没传上 \(place)"
+        case "lost": return cloud.local ? "本地" : "\(place) 上不见了"
+        default: return cloud.local ? "本地 + \(place)" : place
         }
     }
 

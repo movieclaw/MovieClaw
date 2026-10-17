@@ -82,6 +82,9 @@ final class PlaybackController {
     private var nativeRetries = NativeRetryBudget()
     /// 存储写满后重开：本单元往后都用最小的分片窗口、不开片源字节缓存（`NativeStoragePlan.minimal`）
     private var forceMinimalStorage = false
+    /// 只在网盘上的文件直连网盘失败过：本单元往后取原文件都带 `relay=1` 由家里转发（cloud-storage.md §7.2）。
+    /// 取原文件的地址平时带 `fallback=1`，声明「直连失败会改走转发」，服务端「自动」模式才肯给直链
+    private var cloudRelay = false
     /// 探片源取不取得到用的地址（原文件 / 镜像的取流地址，原盘目录里第一个文件），见 `SourceProbe`
     private var sourceProbeURL: URL?
     /// 正在处理上一次失败（探片源、等片源回来）：这期间引擎再报的失败、看门狗再判的都不再处理，新请求发出时清掉
@@ -459,6 +462,7 @@ final class PlaybackController {
         nativeFailed = false
         nativeRetries.reset()
         forceMinimalStorage = false
+        cloudRelay = false
         sourceProbeURL = nil
         failedTiers = []
         failureCount = 0
@@ -904,7 +908,7 @@ final class PlaybackController {
             activeSessionId = nil
         } else if useNative, !noSingleFile, let token = PlaybackAPI.token(in: session.streamUrl) {
             // 自研引擎直出原文件：服务端为 remux/音频转码起的会话用不上，立刻释放
-            url = scope.streamURL("/api/v1/playback/files/\(fileId)/stream?token=\(token)")
+            url = scope.streamURL("/api/v1/playback/files/\(fileId)/stream?token=\(token)\(cloudRelay ? "&relay=1" : "&fallback=1")")
             original = true
             if let sid = session.sessionId { let scope = self.scope; Task { await scope.stop(sid) } }
             activeSessionId = nil
@@ -1424,6 +1428,15 @@ final class PlaybackController {
             "tier": session.decision.tier.map { .int($0) } ?? .null,
         ])
         let nativeOriginal = engine?.kind == .native && playsOriginalFile
+        if nativeOriginal, sourceProbeURL?.isFileURL == false, !cloudRelay, cause == .network || cause == .sourceMissing {
+            // 取原文件可能被 302 到了网盘直链（只在网盘上的文件，服务端「自动」/「总是直连」模式）：直连不通
+            // （网盘不认这个出口地址、链接失效）先改走家里转发再试一次；本地文件服务端不认 relay=1，等于原地重开
+            cloudRelay = true
+            log("cloud-relay-fallback", ["reason": .string(reason)])
+            record?.event("cloud_relay", "直连网盘失败，改走家里转发：\(reason)")
+            request(startMs: positionMs, phase: .sessionStarting)
+            return
+        }
         let response = FailurePolicy.decide(FailurePolicy.Input(
             engine: engine?.kind ?? .avPlayer,
             cause: cause,

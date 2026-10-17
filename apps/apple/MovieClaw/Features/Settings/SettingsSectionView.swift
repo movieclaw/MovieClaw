@@ -24,6 +24,7 @@ struct SettingsSectionView: View {
         case .overview, .subscription, .sites, .downloaders, .importWatch, .appPush: WebManagedSectionView(section: section)
         case .scrape: ScrapeSettingsView()
         case .playback: PlaybackSettingsView()
+        case .drives: DrivesSettingsView()
         case .imPush: PushSettingsView()
         case .webhook: WebhookSettingsView()
         case .llm: LLMSettingsView()

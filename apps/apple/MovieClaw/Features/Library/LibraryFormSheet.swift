@@ -90,6 +90,8 @@ struct ManageCreateLibraryForm: View {
     @State private var kind: String?
     @State private var name = ""
     @State private var roots: [String] = []
+    @State private var cloud: [ManageCloudRoot] = []
+    @State private var driveAccounts: [API.DriveAccountView] = []
     @State private var regions: [String] = []
     @State private var genres: [Int] = []
     @State private var accessMode = "everyone"
@@ -100,6 +102,8 @@ struct ManageCreateLibraryForm: View {
     @State private var options: ManageRoutingOptions?
 
     private var hasScope: Bool { kind.map(ManageKindCard.isScraped) ?? false }
+    /// 网盘目录只给能播放的库（相册没有取流这回事）
+    private var cloudCapable: Bool { kind != nil && kind != "photo" }
     private var totalSteps: Int { hasScope ? 3 : 2 }
     private var ready: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty && !roots.isEmpty }
     private var scope: (declared: Bool, text: String)? {
@@ -154,6 +158,7 @@ struct ManageCreateLibraryForm: View {
         }
         .presentationBackground(.regularMaterial)
         .task { options = await ManageRoutingOptions.load(api) }
+        .task { driveAccounts = (try? await api.drivesAccountsList()) ?? [] }
     }
 
     /// 步骤条：影视库三步，其他 / 图片库两步
@@ -226,11 +231,21 @@ struct ManageCreateLibraryForm: View {
                     .accessibilityIdentifier("form-name")
             }
             Section {
-                ManageRootsEditor(roots: $roots)
+                ManageRootsEditor(
+                    roots: $roots,
+                    cloudPrimary: cloudCapable && cloud.contains(where: \.isPrimary),
+                    onLocalPrimary: { cloud = cloud.map { var f = $0; f.isPrimary = false; return f } }
+                )
+                if cloudCapable {
+                    ManageCloudRootsEditor(folders: $cloud, accounts: driveAccounts, libraryId: nil, needsLocal: roots.isEmpty)
+                }
             } header: {
                 Text("根目录")
             } footer: {
-                Text("第一个为主根，新内容落在这里")
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("第一个为主根，新内容落在这里")
+                    if cloudCapable { ManageCloudRootsFooter(folders: cloud) }
+                }
             }
             Section("可见范围") {
                 ManageAccessEditor(mode: $accessMode, adminVisible: $adminVisible, memberIds: $memberIds)
@@ -321,7 +336,8 @@ struct ManageCreateLibraryForm: View {
             ) : [],
             autoClearMissing: false,
             scrapeOverrides: [:],
-            realtimeWatch: true
+            realtimeWatch: true,
+            cloudFolders: cloudCapable && !cloud.isEmpty ? cloud.map(\.payload) : nil
         )
         do {
             let saved = try await api.libraryCreate(body: payload)
@@ -377,6 +393,9 @@ private struct ManageEditLibraryBody: View {
 
     @State private var name: String
     @State private var roots: [String]
+    @State private var cloud: [ManageCloudRoot]
+    @State private var keepLocal: Bool
+    @State private var driveAccounts: [API.DriveAccountView] = []
     @State private var realtimeWatch: Bool
     @State private var autoClearMissing: Bool
     @State private var generateThumbnails: Bool
@@ -402,6 +421,8 @@ private struct ManageEditLibraryBody: View {
         let parsed = ManageMatchRules.parse(library.matchRules)
         _name = State(initialValue: library.name)
         _roots = State(initialValue: library.rootPaths)
+        _cloud = State(initialValue: (library.cloudFolders ?? []).map(ManageCloudRoot.init))
+        _keepLocal = State(initialValue: library.keepLocal ?? false)
         _realtimeWatch = State(initialValue: library.realtimeWatch)
         _autoClearMissing = State(initialValue: library.autoClearMissing)
         _generateThumbnails = State(initialValue: library.generateThumbnails)
@@ -418,6 +439,13 @@ private struct ManageEditLibraryBody: View {
     }
 
     private var scraped: Bool { library.capabilities.scraped }
+    /// 老服务器没有 cloud_folders：不显示、也不提交（不传 = 不改动）；相册不能挂网盘目录
+    private var cloudKnown: Bool { library.cloudFolders != nil && library.capabilities.playable }
+    private var removedCloudFiles: Int {
+        (library.cloudFolders ?? [])
+            .filter { f in !cloud.contains { $0.accountId == f.accountId && $0.remoteDirId == f.remoteDirId } }
+            .reduce(0) { $0 + $1.fileCount }
+    }
     /// 图片库：条目只看不播，缩略图从原图缩放而来（不是抓帧），开关文案随之换
     private var playable: Bool { library.capabilities.playable }
     private var ready: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty && !roots.isEmpty }
@@ -453,7 +481,24 @@ private struct ManageEditLibraryBody: View {
                     TextField("名称", text: $name).autocorrectionDisabled().accessibilityIdentifier("form-name")
                 }
                 Text("根目录（第一个为主根，新内容落在这里）").font(.subheadline.weight(.medium)).foregroundStyle(Theme.textMuted)
-                ManageRootsEditor(roots: $roots)
+                ManageRootsEditor(
+                    roots: $roots,
+                    cloudPrimary: cloudKnown && cloud.contains(where: \.isPrimary),
+                    onLocalPrimary: { cloud = cloud.map { var f = $0; f.isPrimary = false; return f } }
+                )
+                if cloudKnown {
+                    ManageCloudRootsEditor(folders: $cloud, accounts: driveAccounts, libraryId: library.id, needsLocal: roots.isEmpty)
+                    ManageCloudRootsFooter(folders: cloud).font(.caption).foregroundStyle(Theme.textFaint)
+                    if cloud.contains(where: \.isPrimary) && library.keepLocal != nil {
+                        Toggle("本地也保留一份", isOn: $keepLocal).accessibilityIdentifier("form-keep-local")
+                        Text(keepLocal ? "传到网盘后本地那份不删，两边都留、当备份。" : "上传核验、本地的派生活做完后，本地那份自动腾空，之后播放读网盘。")
+                            .font(.caption).foregroundStyle(Theme.textFaint)
+                    }
+                    if removedCloudFiles > 0 {
+                        Text("保存后，拿掉的网盘目录里的 \(removedCloudFiles) 个视频会从库里移除（只删记录，网盘上的文件不动；重新挂上会重新识别）。")
+                            .font(.caption).foregroundStyle(Theme.warning)
+                    }
+                }
             }
 
             section(.cover, title: "封面") {
@@ -529,6 +574,7 @@ private struct ManageEditLibraryBody: View {
             }
         }
         .task { options = await ManageRoutingOptions.load(api) }
+        .task { driveAccounts = (try? await api.drivesAccountsList()) ?? [] }
     }
 
     // MARK: 分区
@@ -659,7 +705,9 @@ private struct ManageEditLibraryBody: View {
             ) : [],
             autoClearMissing: autoClearMissing,
             scrapeOverrides: scraped ? scrapeOverrides : [:],
-            realtimeWatch: realtimeWatch
+            realtimeWatch: realtimeWatch,
+            keepLocal: library.keepLocal != nil ? keepLocal : nil,
+            cloudFolders: cloudKnown ? cloud.map(\.payload) : nil
         )
         do {
             let saved = try await api.libraryUpdate(libraryId: library.id, body: payload)

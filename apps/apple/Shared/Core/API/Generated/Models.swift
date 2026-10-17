@@ -3388,6 +3388,8 @@ nonisolated extension API {
         var message: String
         /// 二维码图片（data URL）；没有为空
         var qrImage: String
+        /// 二维码的内容（App 自己画二维码用）；没有为空
+        var qrText: String
         /// confirmed 时的账号
         var account: API.DriveAccountView?
         /// confirmed 时：是新账号（否则是重新登录了已有账号）
@@ -3399,6 +3401,7 @@ nonisolated extension API {
             case status
             case message
             case qrImage = "qr_image"
+            case qrText = "qr_text"
             case account
             case created
         }

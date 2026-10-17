@@ -108,6 +108,7 @@ class DriveLoginView(BaseModel):
     status: str = Field(description="pending / scanned / confirmed / expired / failed")
     message: str
     qr_image: str = Field(description="二维码图片（data URL）；没有为空")
+    qr_text: str = Field(default="", description="二维码的内容（App 自己画二维码用）；没有为空")
     account: DriveAccountView | None = Field(description="confirmed 时的账号")
     created: bool = Field(description="confirmed 时：是新账号（否则是重新登录了已有账号）")
 

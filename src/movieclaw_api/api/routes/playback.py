@@ -2133,6 +2133,7 @@ async def _cloud_stream_response(request: Request, grant, file: LibraryFile) -> 
             holder=holder,
             client_host=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent"),
+            relay_fallback=sources.declares_fallback(request.headers, request.query_params),
             force_relay=request.query_params.get("relay") == "1",
         )
     except Exception as exc:  # noqa: BLE001 -- 网盘的各种失败都换成给用户看的一句话
