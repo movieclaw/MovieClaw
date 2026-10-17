@@ -225,6 +225,41 @@ class ChangePage:
     has_more: bool = False
 
 
+#: 指纹里「文件头」的长度（115 秒传的 preid）
+HEAD_BYTES = 128 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class Fingerprint:
+    """宿主一次顺序读算好的本地文件指纹（哈希都是大写十六进制）。"""
+
+    size: int
+    sha1: str
+    md5: str
+    #: 前 ``HEAD_BYTES`` 字节的 SHA1
+    head_sha1: str
+
+
+@dataclass(frozen=True, slots=True)
+class UploadStep:
+    """``begin_upload`` 的结论，三选一：
+
+    - ``file``：文件已经在网盘上了（秒传命中，或续传时发现早就传完）；
+    - ``need_range``：网盘要校验一段字节（115 的二次校验）。宿主读出 ``(offset, length)`` 这段，带着
+      ``state`` 与 ``range_data`` 再调一次 ``begin_upload``；
+    - 都没有：要真传。宿主按 ``part_size`` 切片，从第 ``next_part`` 片起逐片调 ``upload_part``，
+      最后 ``finish_upload``。最后一片可以小于 ``part_size``；``part_size`` 不小于文件大小就是
+      整个文件一片。
+    """
+
+    file: RemoteFile | None = None
+    need_range: tuple[int, int] | None = None
+    part_size: int = 0
+    next_part: int = 0
+    #: 插件的续传状态（能转成 JSON）。宿主原样保存、原样交回，重启后据此续传
+    state: dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass(slots=True)
 class DriveAccount:
     """账号句柄：主程序构造，交给带账号的方法。凭据变了直接给 ``credentials`` 赋新值。"""
@@ -375,6 +410,44 @@ class DriveBackend:
         """
         raise NotImplementedError
 
+    # ---- 上传
+    async def ensure_dir(self, account: DriveAccount, parent_id: str, path: str) -> str:
+        """在 ``parent_id`` 下逐级找或建 ``path``（``/`` 分隔），返回最里层的目录 id。
+
+        ``path`` 为空串时返回 ``parent_id`` 本身。同名目录已存在就直接用。
+        """
+        raise NotImplementedError
+
+    async def begin_upload(
+        self,
+        account: DriveAccount,
+        dir_id: str,
+        name: str,
+        fingerprint: Fingerprint,
+        state: dict[str, Any] | None,
+        range_data: bytes | None,
+    ) -> UploadStep:
+        """开始（或续上）一次上传：先试秒传，不中就交回真传的切片方式与续传状态。
+
+        ``state`` 不为空表示续传（宿主重启后交回上次的状态）：核对网盘那边的进度，交回从第几片
+        接着传。``range_data`` 是上一步 ``need_range`` 要的那段字节。同名文件已存在时按内容判断：
+        同大小同哈希就当传完了（返回 ``file``），否则抛 ``Conflict``。
+        """
+        raise NotImplementedError
+
+    async def upload_part(
+        self, account: DriveAccount, state: dict[str, Any], index: int, data: bytes
+    ) -> dict[str, Any]:
+        """传第 ``index`` 片（从 0 起），返回新的续传状态。
+
+        网络错误不要自己重试，抛 ``Transient``。
+        """
+        raise NotImplementedError
+
+    async def finish_upload(self, account: DriveAccount, state: dict[str, Any]) -> RemoteFile:
+        """全部分片传完：合并并返回网盘上的文件（之后宿主还会 ``stat`` 核验大小与哈希）。"""
+        raise NotImplementedError
+
     # ---- 文件
     async def stat(self, account: DriveAccount, remote_id: str) -> RemoteFile:
         """一个文件的大小与哈希；不存在抛 ``NotFound``。"""
@@ -394,8 +467,9 @@ class DriveBackend:
 #: 网盘插件往这个注册表贡献后端（贡献 id 随意，按 ``type`` 识别）
 DRIVE_BACKENDS: RegistryKey[DriveBackend] = RegistryKey(
     "drive-backends",
-    # 1.1：stat / direct_link（取流）；1.2：list_dir / list_tree / changes（纳管）
-    version="1.2",
+    # 1.1：stat / direct_link（取流）；1.2：list_dir / list_tree / changes（纳管）；
+    # 1.3：ensure_dir / begin_upload / upload_part / finish_upload（上传）
+    version="1.3",
     stability=Stability.EXPERIMENTAL,
     schema=DriveBackend,
     doc="网盘存储后端：插件贡献一家网盘的协议实现（登录、文件操作），主程序负责账号、调度与界面",
@@ -586,6 +660,40 @@ def tree_from(data: dict[str, Any]) -> RemoteTree:
     )
 
 
+def fingerprint_dict(fp: Fingerprint) -> dict[str, Any]:
+    return {"size": fp.size, "sha1": fp.sha1, "md5": fp.md5, "head_sha1": fp.head_sha1}
+
+
+def fingerprint_from(data: dict[str, Any]) -> Fingerprint:
+    return Fingerprint(
+        size=int(data["size"]),
+        sha1=str(data["sha1"]),
+        md5=str(data["md5"]),
+        head_sha1=str(data["head_sha1"]),
+    )
+
+
+def upload_step_dict(step: UploadStep) -> dict[str, Any]:
+    return {
+        "file": remote_file_dict(step.file) if step.file is not None else None,
+        "need_range": list(step.need_range) if step.need_range is not None else None,
+        "part_size": step.part_size,
+        "next_part": step.next_part,
+        "state": step.state,
+    }
+
+
+def upload_step_from(data: dict[str, Any]) -> UploadStep:
+    need = data.get("need_range")
+    return UploadStep(
+        file=remote_file_from(data["file"]) if data.get("file") else None,
+        need_range=(int(need[0]), int(need[1])) if need else None,
+        part_size=int(data.get("part_size") or 0),
+        next_part=int(data.get("next_part") or 0),
+        state=dict(data.get("state") or {}),
+    )
+
+
 def change_page_dict(page: ChangePage) -> dict[str, Any]:
     return {
         "cursor": page.cursor,
@@ -645,6 +753,7 @@ __all__ = [
     "DriveAccount",
     "DriveBackend",
     "DriveError",
+    "Fingerprint",
     "Login",
     "LoginFlow",
     "LoginOption",
@@ -657,4 +766,5 @@ __all__ = [
     "RemoteTree",
     "RiskControl",
     "Transient",
+    "UploadStep",
 ]

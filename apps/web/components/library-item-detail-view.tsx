@@ -42,6 +42,7 @@ import { ReidentifyDialog } from "@/components/reidentify-dialog";
 import { ShareDialog } from "@/components/share-dialog";
 import { Tooltip } from "@/components/tooltip";
 import {
+  type FileCloudCopy,
   type ItemDeleteResult,
   type LibraryChapter,
   type LibraryEpisode,
@@ -2425,6 +2426,15 @@ function FileSection({
 }
 
 /** 待回收行的倒计时文案：直读 purge_after，展示精度与清理周期无关。 */
+/** 文件位置标签：在哪、传到哪一步了（cloud-storage.md §2「界面一律陈述事实」） */
+function cloudLocationLabel(cloud: FileCloudCopy): string {
+  const where = cloud.backend_title;
+  if (cloud.state === "uploading") return `上传到 ${where} 中`;
+  if (cloud.state === "failed") return `没传上 ${where}`;
+  if (cloud.state === "lost") return cloud.local ? "本地" : `${where} 上不见了`;
+  return cloud.local ? `本地 + ${where}` : where;
+}
+
 function purgeCountdown(purgeAfter: string | null): string {
   if (!purgeAfter) return "不自动清理";
   const ms = new Date(purgeAfter).getTime() - Date.now();
@@ -2497,9 +2507,16 @@ function FileRow({
         </button>
         {/* 位置标签：只有网盘副本的文件才标（纯本地的保持原样） */}
         {file.cloud && (
-          <span className="flex shrink-0 items-center gap-1 rounded border border-white/15 px-1.5 py-px text-micro text-[var(--text-muted)]">
+          <span
+            title={file.cloud.state === "failed" ? (file.cloud.error ?? undefined) : undefined}
+            className={`flex shrink-0 items-center gap-1 rounded border px-1.5 py-px text-micro ${
+              file.cloud.state === "failed"
+                ? "border-[var(--warn)]/30 text-[var(--warn)]/80"
+                : "border-white/15 text-[var(--text-muted)]"
+            }`}
+          >
             <CloudDriveIcon className="size-3" />
-            {file.cloud.local ? `本地 + ${file.cloud.backend_title}` : file.cloud.backend_title}
+            {cloudLocationLabel(file.cloud)}
           </span>
         )}
         {file.missing && (

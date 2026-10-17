@@ -314,3 +314,47 @@ test("扫描中压过排队的章节作业（扫描先跑，章节排在它后�
   );
   assert.equal(s.kind, "scan");
 });
+
+test("上传到网盘：排队、进行中带秒传数、需要处理", () => {
+  const folders = [{ is_primary: true, backend_title: "115 网盘" }];
+  const upload = (over = {}) => ({
+    job_id: "j1",
+    status: "running",
+    processed: 0,
+    total: 0,
+    rapid: 0,
+    failed: 0,
+    percent: null,
+    message: "",
+    ...over,
+  });
+  const queued = libraryStatus(
+    lib({ cloud_folders: folders, cloud_upload: upload({ status: "queued" }) }),
+    ctx,
+  );
+  assert.equal(queued.kind, "upload");
+  assert.equal(queued.title, "等待上传到 115 网盘");
+  assert.equal(queued.percent, null);
+
+  const running = libraryStatus(
+    lib({
+      cloud_folders: folders,
+      cloud_upload: upload({ processed: 30, total: 120, rapid: 28, message: "上传「沙丘2.mkv」" }),
+    }),
+    ctx,
+  );
+  assert.equal(running.title, "上传到 115 网盘 30 / 120");
+  assert.equal(running.detail, "上传「沙丘2.mkv」 · 秒传 28");
+  assert.equal(running.percent, 25);
+
+  const blocked = libraryStatus(
+    lib({
+      cloud_folders: folders,
+      cloud_upload: upload({ status: "blocked", message: "网盘「影视仓库」需要重新登录" }),
+    }),
+    ctx,
+  );
+  assert.equal(blocked.tone, "pending");
+  assert.equal(blocked.title, "上传到 115 网盘 暂停");
+  assert.ok(libraryIsBusy(lib({ cloud_upload: upload() })));
+});

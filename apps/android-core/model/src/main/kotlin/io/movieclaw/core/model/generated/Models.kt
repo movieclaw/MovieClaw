@@ -283,6 +283,42 @@ data class CloudFolderView(
 )
 
 /**
+ * 主根在网盘的库正在往网盘传的进度（docs/design/cloud-storage.md §5）。
+ */
+@Serializable
+data class CloudUploadView(
+    @SerialName("job_id") val jobId: String = "",
+    /**
+     * 任务状态：queued / running / retry_wait / blocked …
+     */
+    @SerialName("status") val status: String = "",
+    /**
+     * 已传完的文件数
+     */
+    @SerialName("processed") val processed: Long = 0,
+    /**
+     * 这一轮要传的文件数（含已传完的）
+     */
+    @SerialName("total") val total: Long = 0,
+    /**
+     * 其中秒传的个数
+     */
+    @SerialName("rapid") val rapid: Long = 0,
+    /**
+     * 没传成的个数
+     */
+    @SerialName("failed") val failed: Long = 0,
+    /**
+     * 当前文件的进度（%）
+     */
+    @SerialName("percent") val percent: Double? = null,
+    /**
+     * 当前在做什么（一句话）
+     */
+    @SerialName("message") val message: String = "",
+)
+
+/**
  * 合集卡片的一张封面图。
  * 合集自己没有图，封面就是成员的海报。由服务端在列合集时一并给出——否则
  * 客户端要为每个合集再请求一次成员才画得出卡片，一屏合集就是一屏请求。
@@ -733,9 +769,13 @@ data class FileCloudView(
      */
     @SerialName("origin") val origin: String = "",
     /**
-     * uploading / verified / lost / deleting
+     * uploading / verified / lost / deleting / failed
      */
     @SerialName("state") val state: String = "",
+    /**
+     * 上次上传没成的原因
+     */
+    @SerialName("error") val error: String? = null,
 )
 
 /**
@@ -1595,6 +1635,10 @@ data class LibraryView(
      * 整库生成章节的作业状态（排队/进行中）；没在生成为 null
      */
     @SerialName("chapter_job") val chapterJob: ChapterJobView? = null,
+    /**
+     * 正在上传到网盘的进度；没在传为 null
+     */
+    @SerialName("cloud_upload") val cloudUpload: CloudUploadView? = null,
     /**
      * 网盘根目录（管理员端恒为数组，成员端为 null）；有主根在网盘的，root_paths 第一项是本地暂存目录
      */

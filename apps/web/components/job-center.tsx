@@ -44,6 +44,7 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   "library.organize": "整理媒体库文件",
   "library.transfer": "转移媒体库条目",
   "library.ingest": "自动整理入库",
+  "drive.upload": "上传到网盘",
 };
 
 /** 任务类型的显示名：内置类型用本地文案，插件任务用服务端给的名字，都没有显示原始类型 */

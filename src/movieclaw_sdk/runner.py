@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import contextlib
 import contextvars
 import dataclasses
@@ -1089,6 +1090,28 @@ class Runner:
             elif method == "changes":
                 page = await backend.changes(account, args.get("cursor"))
                 envelope["value"] = dv.change_page_dict(page)
+            elif method == "ensure_dir":
+                envelope["value"] = await backend.ensure_dir(
+                    account, args["parent_id"], args["path"]
+                )
+            elif method == "begin_upload":
+                range_data = args.get("range_data")
+                step = await backend.begin_upload(
+                    account,
+                    args["dir_id"],
+                    args["name"],
+                    dv.fingerprint_from(args["fingerprint"]),
+                    args.get("state"),
+                    base64.b64decode(range_data) if range_data is not None else None,
+                )
+                envelope["value"] = dv.upload_step_dict(step)
+            elif method == "upload_part":
+                envelope["value"] = await backend.upload_part(
+                    account, args["state"], args["index"], base64.b64decode(args["data"])
+                )
+            elif method == "finish_upload":
+                item = await backend.finish_upload(account, args["state"])
+                envelope["value"] = dv.remote_file_dict(item)
             elif method == "stat":
                 item = await backend.stat(account, args["remote_id"])
                 envelope["value"] = dv.remote_file_dict(item)

@@ -20,6 +20,7 @@ export type LibraryStatusKind =
   | "organize"
   | "refresh"
   | "chapters"
+  | "upload"
   | "importing"
   | "missing"
   | "unidentified"
@@ -67,7 +68,7 @@ function lastScanDetail(library: MediaLibrary, ctx: LibraryStatusContext): strin
 
 /**
  * 一行库的状态归类。优先级自上而下取第一个命中（§2.2 状态表）：
- * 扫描 → 整理 → 刷新元数据 → 生成章节 → 入库中 → 有缺失 → 有待识别 → 空闲。
+ * 扫描 → 整理 → 刷新元数据 → 生成章节 → 上传到网盘 → 入库中 → 有缺失 → 有待识别 → 空闲。
  * 前三种长任务互斥（共用一把库级锁），所以先后顺序只是兜底；生成章节是
  * 低优先级后台作业，常排在它们后面，排在第四位正好表达"等前面的跑完"。
  */
@@ -127,6 +128,35 @@ export function libraryStatus(library: MediaLibrary, ctx: LibraryStatusContext):
           ? `${chapters.processed} / ${chapters.total}${chapters.failed > 0 ? ` · ${chapters.failed} 个失败` : ""}`
           : "正在统计待处理的文件数",
       percent,
+    };
+  }
+  const upload = library.cloud_upload;
+  if (upload) {
+    // 主根在网盘的库往网盘传（cloud-storage.md §5）：长任务，进度写在这一格，不弹窗打扰
+    const target =
+      (library.cloud_folders ?? []).find((f) => f.is_primary)?.backend_title ?? "网盘";
+    if (upload.status === "blocked") {
+      return {
+        tone: "pending",
+        kind: "upload",
+        title: `上传到 ${target} 暂停`,
+        detail: upload.message,
+        percent: null,
+      };
+    }
+    const waiting = upload.status === "queued" || upload.total === 0;
+    return {
+      tone: "busy",
+      kind: "upload",
+      title: waiting
+        ? `等待上传到 ${target}`
+        : `上传到 ${target} ${upload.processed} / ${upload.total}`,
+      detail: waiting
+        ? "等前面的任务跑完再开始"
+        : [upload.message, upload.rapid > 0 ? `秒传 ${upload.rapid}` : ""]
+            .filter(Boolean)
+            .join(" · "),
+      percent: waiting ? null : percentOf(upload.processed, upload.total),
     };
   }
   const deferred = library.last_scan?.deferred ?? 0;
@@ -192,7 +222,8 @@ export function libraryIsBusy(library: MediaLibrary): boolean {
     library.scanning ||
     library.organizing ||
     Boolean(library.metadata_refresh?.refreshing) ||
-    library.chapter_job !== null
+    library.chapter_job !== null ||
+    Boolean(library.cloud_upload)
   );
 }
 

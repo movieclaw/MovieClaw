@@ -666,6 +666,7 @@ const ACTIVE_JOB_ACTIONS: Record<string, string> = {
   "library.organize": "正在整理文件",
   "library.transfer": "正在转移文件",
   "library.ingest": "正在入库",
+  "drive.upload": "正在上传到网盘",
 };
 
 const COMPLETED_JOB_ACTIONS: Record<string, string> = {
@@ -680,6 +681,7 @@ const COMPLETED_JOB_ACTIONS: Record<string, string> = {
   "library.organize": "文件整理",
   "library.transfer": "文件转移",
   "library.ingest": "入库",
+  "drive.upload": "网盘上传",
 };
 
 function jobDetailString(job: JobView, key: string): string | null {

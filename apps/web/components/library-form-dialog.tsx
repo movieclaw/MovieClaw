@@ -250,6 +250,13 @@ function CloudRootRows({
   /** 还没有服务器目录：主根得是一个服务器目录 */
   needsLocal: boolean;
 }) {
+  const setPrimary = (target: CloudRootDraft) =>
+    onChange(
+      drafts.map((x) => ({
+        ...x,
+        is_primary: x.account_id === target.account_id && x.remote_dir_id === target.remote_dir_id,
+      })),
+    );
   const titles = new Set(options.accounts.map((a) => a.backend_title));
   const addLabel = titles.size === 1 ? `${[...titles][0]}目录` : "网盘目录";
   if (drafts.length === 0 && options.accounts.length === 0 && !options.hasBackends) return null;
@@ -258,7 +265,7 @@ function CloudRootRows({
       {drafts.map((d) => (
         <div
           key={`${d.account_id}:${d.remote_dir_id}`}
-          className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2"
+          className="group flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2"
         >
           <CloudDriveIcon className="size-4 shrink-0 text-[var(--accent)]/80" />
           <span className="min-w-0 flex-1 truncate text-ui text-[var(--text)]">
@@ -273,6 +280,29 @@ function CloudRootRows({
           <span className="shrink-0 rounded-full bg-white/[0.08] px-2 py-0.5 text-micro font-medium text-[var(--text-muted)]">
             {d.backend_title}
           </span>
+          {d.is_primary ? (
+            <Tooltip
+              content={
+                <>
+                  <strong>主根在网盘：</strong>新下载的片子入库后先放在本地暂存目录、立即能看，后台上传到这个目录（多数秒传），传完核验。
+                </>
+              }
+            >
+              <span className="shrink-0 cursor-default rounded-full bg-[var(--accent)]/15 px-2 py-0.5 text-micro font-semibold text-[var(--accent)]">
+                主根
+              </span>
+            </Tooltip>
+          ) : (
+            <Tooltip content="新内容改存到这个网盘目录：入库后上传到这里，本地目录只做暂存。">
+              <button
+                type="button"
+                onClick={() => setPrimary(d)}
+                className="touch-reveal shrink-0 rounded-full px-2 py-0.5 text-micro font-medium text-[var(--text-faint)] opacity-0 transition-opacity hover:bg-white/10 hover:text-white group-hover:opacity-100"
+              >
+                设为主根
+              </button>
+            </Tooltip>
+          )}
           <button
             type="button"
             aria-label={`移除 ${d.display_path}`}
@@ -311,13 +341,23 @@ function CloudRootRows({
       )}
       {drafts.length > 0 && needsLocal && (
         <p className="px-1 text-caption leading-5 text-[var(--warn)]">
-          还需要一个服务器目录当主根：新下载的片子、海报与字幕放在这里。
+          {drafts.some((d) => d.is_primary)
+            ? "还需要一个服务器目录当本地暂存目录：新片上传前放在这里，海报与字幕也放这里。"
+            : "还需要一个服务器目录当主根：新下载的片子、海报与字幕放在这里。"}
+        </p>
+      )}
+      {drafts.some((d) => d.is_primary) && (
+        <p className="flex items-start gap-2 rounded-xl border border-[var(--info)]/20 bg-[var(--info)]/[0.07] px-3 py-2.5 text-caption leading-5 text-[var(--text-muted)]">
+          <CloudDriveIcon className="mt-0.5 size-3.5 shrink-0 text-[var(--info)]" />
+          <span>
+            <strong className="font-medium text-[var(--text)]">主根在网盘：</strong>
+            新下载的片子入库后立即能看，后台上传到网盘（多数秒传），传完核验；本地已有的文件从新到旧逐个上传，外网有人在看片时上传自动让路。
+          </span>
         </p>
       )}
       {drafts.length > 0 && (
         <p className="px-1 text-caption leading-5 text-[var(--text-faint)]">
-          网盘目录里已有的片子会按文件名识别加进库里，不下载、不改动网盘上的文件；之后在网盘里新增、移动、
-          删除的片子会自动跟上。
+          网盘目录里已有的片子会按文件名识别加进库里，不下载、不改动网盘上的文件；之后在网盘里新增、移动、删除的片子会自动跟上。
         </p>
       )}
     </>
@@ -330,6 +370,8 @@ function RootsEditor({
   onChange,
   onPick,
   cloud,
+  cloudPrimary = false,
+  onLocalPrimary,
 }: {
   roots: string[];
   onChange: (next: string[]) => void;
@@ -337,6 +379,10 @@ function RootsEditor({
   onPick: (target: "add" | number) => void;
   /** 网盘根目录（没有网盘能力的库类型不传） */
   cloud?: React.ReactNode;
+  /** 主根在网盘：第一个服务器目录只是本地暂存目录 */
+  cloudPrimary?: boolean;
+  /** 把某个服务器目录设为主根时，顺带取消网盘目录的主根 */
+  onLocalPrimary?: () => void;
 }) {
   return (
     <div className="space-y-1.5">
@@ -365,7 +411,14 @@ function RootsEditor({
               {"‎" + root + "‎"}
             </button>
           </Tooltip>
-          {i === 0 ? (
+          {i === 0 && cloudPrimary && (
+            <Tooltip content="本地暂存目录：新片上传到网盘前先放在这里（硬链接入库不占额外空间），海报与字幕也放这里。">
+              <span className="shrink-0 cursor-default rounded-full bg-white/[0.08] px-2 py-0.5 text-micro font-semibold text-[var(--text-muted)]">
+                暂存
+              </span>
+            </Tooltip>
+          )}
+          {i === 0 && !cloudPrimary ? (
             <Tooltip
               content={
                 <>
@@ -383,7 +436,10 @@ function RootsEditor({
             <Tooltip content="把该路径设为新内容的落盘位置（移到列表第一位）。已有文件不会被移动。">
               <button
                 type="button"
-                onClick={() => onChange([root, ...roots.filter((r) => r !== root)])}
+                onClick={() => {
+                  onChange([root, ...roots.filter((r) => r !== root)]);
+                  onLocalPrimary?.();
+                }}
                 className="touch-reveal shrink-0 rounded-full px-2 py-0.5 text-micro font-medium text-[var(--text-faint)] opacity-0 transition-opacity hover:bg-white/10 hover:text-white group-hover:opacity-100"
               >
                 设为主根
@@ -843,6 +899,8 @@ function CreateLibraryDialog({
                   roots={roots}
                   onChange={setRoots}
                   onPick={setPickerTarget}
+                  cloudPrimary={cloudCapable && cloud.some((c) => c.is_primary)}
+                  onLocalPrimary={() => setCloud(cloud.map((c) => ({ ...c, is_primary: false })))}
                   cloud={
                     cloudCapable && (
                       <CloudRootRows
@@ -1517,6 +1575,8 @@ function EditLibraryDialog({
               roots={roots}
               onChange={setRoots}
               onPick={setPickerTarget}
+              cloudPrimary={cloudKnown && playable && cloud.some((c) => c.is_primary)}
+              onLocalPrimary={() => setCloud(cloud.map((c) => ({ ...c, is_primary: false })))}
               cloud={
                 cloudKnown &&
                 playable && (
@@ -1532,8 +1592,7 @@ function EditLibraryDialog({
             />
             {removedCloudFiles > 0 && (
               <p className="mt-2 rounded-lg border border-[var(--warn)]/30 bg-[var(--warn)]/[0.07] px-3 py-2 text-caption leading-5 text-[var(--text-muted)]">
-                保存后，拿掉的网盘目录里的 {removedCloudFiles.toLocaleString()} 个视频会从库里移除（只删记录，
-                网盘上的文件不动；重新挂上会重新识别）。
+                保存后，拿掉的网盘目录里的 {removedCloudFiles.toLocaleString()} 个视频会从库里移除（只删记录，网盘上的文件不动；重新挂上会重新识别）。
               </p>
             )}
           </div>

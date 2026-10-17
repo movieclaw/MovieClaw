@@ -37,6 +37,7 @@ from movieclaw_db.models.library_cloud_folder import LibraryCloudFolder
 from movieclaw_db.models.library_dir_snapshot import LibraryDirSnapshot
 from movieclaw_db.models.library_duplicate_unit import LibraryDuplicateUnit
 from movieclaw_db.models.library_file import FileSource, FileState, LibraryFile
+from movieclaw_db.models.library_file_fingerprint import LibraryFileFingerprint
 from movieclaw_db.models.library_file_replica import LibraryFileReplica
 from movieclaw_db.models.llm_provider import LlmProvider
 from movieclaw_db.models.login_device import LoginDevice
@@ -145,6 +146,7 @@ __all__ = [
     "LibraryDuplicateUnit",
     "LibraryFile",
     "LibraryCloudFolder",
+    "LibraryFileFingerprint",
     "LibraryFileReplica",
     "LlmProvider",
     "LoginDevice",

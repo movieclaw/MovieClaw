@@ -59,6 +59,11 @@ TIMEOUTS: dict[str, float] = {
     "list_dir": 30.0,
     "list_tree": 120.0,
     "changes": 30.0,
+    "ensure_dir": 30.0,
+    "begin_upload": 60.0,
+    # 一片最大几十 MB：按上行几 MB/s 估，给足
+    "upload_part": 600.0,
+    "finish_upload": 120.0,
     "stat": 20.0,
     "direct_link": 8.0,
 }

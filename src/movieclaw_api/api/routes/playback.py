@@ -73,6 +73,7 @@ from movieclaw_api.schemas.playback import (
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services import login_devices, media_scrape
 from movieclaw_api.services.auth import Principal
+from movieclaw_api.services.drives import uplink
 from movieclaw_api.services.library import chapters as chapters_mod
 from movieclaw_api.services.library import skip_segments
 from movieclaw_api.services.library.access import (
@@ -1895,6 +1896,7 @@ async def get_session_segment(
         raise NotFoundException("会话不存在或已结束")
     if grant.device_id and activity.device_ended(grant.device_id):
         raise NotFoundException("播放已被管理员结束")
+    uplink.note(request.client.host if request.client else None)
     session.touch()
     meter = await _session_activity_meter(session, grant, request)
     target = session.directory / name
@@ -2011,6 +2013,7 @@ async def stream_library_file(
     grant = await verify_stream_token(token, file_id=file_id)
     if grant is None:
         raise NotFoundException("播放地址无效或已过期")
+    uplink.note(request.client.host if request.client else None)
     if grant.device_id and activity.device_ended(grant.device_id):
         # 拒绝窗口内不再供流：直出播放器每次缓冲续拉都是新的 Range 连接，
         # 只掐当前连接挡不住它

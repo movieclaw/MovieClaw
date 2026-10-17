@@ -619,19 +619,23 @@
       "methods": {
         "account_info": "(self, account: 'DriveAccount') -> 'AccountInfo'",
         "begin_login": "(self, options: 'dict[str, str]') -> 'LoginFlow'",
+        "begin_upload": "(self, account: 'DriveAccount', dir_id: 'str', name: 'str', fingerprint: 'Fingerprint', state: 'dict[str, Any] | None', range_data: 'bytes | None') -> 'UploadStep'",
         "cancel_login": "(self, flow_id: 'str') -> 'None'",
         "changes": "(self, account: 'DriveAccount', cursor: 'str | None') -> 'ChangePage'",
         "direct_link": "(self, account: 'DriveAccount', remote_id: 'str', user_agent: 'str') -> 'DirectLink'",
+        "ensure_dir": "(self, account: 'DriveAccount', parent_id: 'str', path: 'str') -> 'str'",
+        "finish_upload": "(self, account: 'DriveAccount', state: 'dict[str, Any]') -> 'RemoteFile'",
         "list_dir": "(self, account: 'DriveAccount', dir_id: 'str') -> 'list[RemoteDir]'",
         "list_tree": "(self, account: 'DriveAccount', dir_id: 'str') -> 'RemoteTree'",
         "login_state": "(self, flow_id: 'str') -> 'LoginFlow'",
         "login_with_cookie": "(self, cookie_header: 'str') -> 'LoginResult'",
-        "stat": "(self, account: 'DriveAccount', remote_id: 'str') -> 'RemoteFile'"
+        "stat": "(self, account: 'DriveAccount', remote_id: 'str') -> 'RemoteFile'",
+        "upload_part": "(self, account: 'DriveAccount', state: 'dict[str, Any]', index: 'int', data: 'bytes') -> 'dict[str, Any]'"
       }
     },
     "kind": "registry",
     "stability": "experimental",
-    "version": "1.2"
+    "version": "1.3"
   },
   "host-ops": {
     "doc": "宿主操作：插件以自己的身份调用本进程的 OpenAPI 操作（按操作授权）",

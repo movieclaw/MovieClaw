@@ -1398,6 +1398,36 @@ nonisolated extension API {
         }
     }
 
+    /// 主根在网盘的库正在往网盘传的进度（docs/design/cloud-storage.md §5）。
+    struct CloudUploadView: Codable, Hashable, Sendable {
+        var jobId: String
+        /// 任务状态：queued / running / retry_wait / blocked …
+        var status: String
+        /// 已传完的文件数
+        var processed: Int
+        /// 这一轮要传的文件数（含已传完的）
+        var total: Int
+        /// 其中秒传的个数
+        var rapid: Int
+        /// 没传成的个数
+        var failed: Int
+        /// 当前文件的进度（%）
+        var percent: Double?
+        /// 当前在做什么（一句话）
+        var message: String
+
+        enum CodingKeys: String, CodingKey {
+            case jobId = "job_id"
+            case status
+            case processed
+            case total
+            case rapid
+            case failed
+            case percent
+            case message
+        }
+    }
+
     /// 合集卡片的一张封面图。
     /// 合集自己没有图，封面就是成员的海报。由服务端在列合集时一并给出——否则
     /// 客户端要为每个合集再请求一次成员才画得出卡片，一屏合集就是一屏请求。
@@ -4051,8 +4081,10 @@ nonisolated extension API {
         var local: Bool
         /// imported（纳管来的）/ uploaded（我们传的）
         var origin: String
-        /// uploading / verified / lost / deleting
+        /// uploading / verified / lost / deleting / failed
         var state: String
+        /// 上次上传没成的原因
+        var error: String?
 
         enum CodingKeys: String, CodingKey {
             case backendTitle = "backend_title"
@@ -4061,6 +4093,7 @@ nonisolated extension API {
             case local
             case origin
             case state
+            case error
         }
     }
 
@@ -6080,6 +6113,8 @@ nonisolated extension API {
         var metadataRefresh: API.MetadataRefreshView?
         /// 整库生成章节的作业状态（排队/进行中）；没在生成为 null
         var chapterJob: API.ChapterJobView?
+        /// 正在上传到网盘的进度；没在传为 null
+        var cloudUpload: API.CloudUploadView?
         /// 网盘根目录（管理员端恒为数组，成员端为 null）；有主根在网盘的，root_paths 第一项是本地暂存目录
         var cloudFolders: [API.CloudFolderView]?
         var createdAt: String
@@ -6118,6 +6153,7 @@ nonisolated extension API {
             case lastOrganize = "last_organize"
             case metadataRefresh = "metadata_refresh"
             case chapterJob = "chapter_job"
+            case cloudUpload = "cloud_upload"
             case cloudFolders = "cloud_folders"
             case createdAt = "created_at"
             case updatedAt = "updated_at"

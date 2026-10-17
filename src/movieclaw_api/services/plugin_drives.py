@@ -7,12 +7,13 @@
 
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 from movieclaw_sdk import drives as dv
 
-#: 插件进程这一层的上限（秒）；宿主调用包装另有按方法的超时，先到先算
-CALL_TIMEOUT = 120.0
+#: 插件进程这一层的上限（秒）；宿主调用包装另有按方法的超时，先到先算（传一片最久）
+CALL_TIMEOUT = 600.0
 
 
 class RemoteDriveBackend(dv.DriveBackend):
@@ -82,6 +83,36 @@ class RemoteDriveBackend(dv.DriveBackend):
 
     async def changes(self, account: dv.DriveAccount, cursor: str | None) -> dv.ChangePage:
         return dv.change_page_from(await self._call("changes", {"cursor": cursor}, account))
+
+    async def ensure_dir(self, account: dv.DriveAccount, parent_id: str, path: str) -> str:
+        return str(await self._call("ensure_dir", {"parent_id": parent_id, "path": path}, account))
+
+    async def begin_upload(
+        self,
+        account: dv.DriveAccount,
+        dir_id: str,
+        name: str,
+        fingerprint: dv.Fingerprint,
+        state: dict[str, Any] | None,
+        range_data: bytes | None,
+    ) -> dv.UploadStep:
+        args = {
+            "dir_id": dir_id,
+            "name": name,
+            "fingerprint": dv.fingerprint_dict(fingerprint),
+            "state": state,
+            "range_data": base64.b64encode(range_data).decode() if range_data is not None else None,
+        }
+        return dv.upload_step_from(await self._call("begin_upload", args, account))
+
+    async def upload_part(
+        self, account: dv.DriveAccount, state: dict[str, Any], index: int, data: bytes
+    ) -> dict[str, Any]:
+        args = {"state": state, "index": index, "data": base64.b64encode(data).decode()}
+        return dict(await self._call("upload_part", args, account) or {})
+
+    async def finish_upload(self, account: dv.DriveAccount, state: dict[str, Any]) -> dv.RemoteFile:
+        return dv.remote_file_from(await self._call("finish_upload", {"state": state}, account))
 
     async def stat(self, account: dv.DriveAccount, remote_id: str) -> dv.RemoteFile:
         return dv.remote_file_from(await self._call("stat", {"remote_id": remote_id}, account))

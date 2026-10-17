@@ -41,6 +41,7 @@ from movieclaw_api.schemas.library import (
     CloudFolderPayload,
     CloudFolderReportView,
     CloudFolderView,
+    CloudUploadView,
     ConsolidateRootsPayload,
     ConsolidateRootsPreviewView,
     DeleteFollowUpView,
@@ -118,6 +119,7 @@ from movieclaw_api.schemas.library_search import LibrarySearchView
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services import jobs, media_scrape
 from movieclaw_api.services.auth import Principal
+from movieclaw_api.services.drives import uploads as drive_uploads
 from movieclaw_api.services.library import acquisition, source_annotation
 from movieclaw_api.services.library import chapters as chapters_mod
 from movieclaw_api.services.library import claim as library_claim
@@ -510,6 +512,47 @@ async def _cloud_folder_views(
     return views
 
 
+_ACTIVE_UPLOAD_STATUSES = {"queued", "running", "retry_wait", "blocked", "cancelling"}
+
+
+def _cloud_upload_view(job: Job | None) -> CloudUploadView | None:
+    """库最近一个上传任务的进度；跑完 / 失败 / 取消的不带出。"""
+    if job is None or str(job.status) not in _ACTIVE_UPLOAD_STATUSES:
+        return None
+    progress = job.progress or {}
+    details = progress.get("details") or {}
+    return CloudUploadView(
+        job_id=job.id,
+        status=str(job.status),
+        processed=int(progress.get("current") or 0),
+        total=int(progress.get("total") or 0),
+        rapid=int(details.get("rapid") or 0),
+        failed=int(details.get("failed") or 0),
+        percent=progress.get("percent"),
+        message=str(progress.get("message") or ""),
+    )
+
+
+async def _cloud_upload_views(
+    session: AsyncSession, library_ids: list[int]
+) -> dict[int, CloudUploadView]:
+    from movieclaw_api.services.drives.uploads import JOB_TYPE
+
+    found = await jobs.list_jobs_by_resource(
+        session,
+        resource_type="library",
+        resource_ids=library_ids,
+        job_type=JOB_TYPE,
+        limit_per_resource=1,
+    )
+    views = {}
+    for library_id in library_ids:
+        view = _cloud_upload_view(next(iter(found.get(str(library_id), [])), None))
+        if view is not None:
+            views[library_id] = view
+    return views
+
+
 def _folder_specs(payload: list[CloudFolderPayload]) -> list[library_cloud.FolderSpec]:
     return [
         library_cloud.FolderSpec(
@@ -847,6 +890,7 @@ async def list_libraries(
         limit_per_resource=1,
     )
     cloud_folders = await _cloud_folder_views(session, library_ids) if principal.is_admin else {}
+    uploads = await _cloud_upload_views(session, library_ids) if principal.is_admin else {}
     views = [
         LibraryView.from_model(
             r,
@@ -863,6 +907,7 @@ async def list_libraries(
             member_ids=members_by_library.get(r.id or -1, []),
             viewer_access=r.id in visible,
             cloud_folders=cloud_folders.get(r.id or -1, []) if principal.is_admin else None,
+            cloud_upload=uploads.get(r.id or -1),
         )
         for r in rows
     ]
@@ -1200,6 +1245,11 @@ async def get_library(
             if principal.is_admin
             else None
         ),
+        cloud_upload=(
+            (await _cloud_upload_views(session, [library_id])).get(library_id)
+            if principal.is_admin
+            else None
+        ),
     )
     if not principal.is_admin:
         # 成员不暴露服务器目录结构（与列表接口同一口径）
@@ -1260,6 +1310,9 @@ async def create_library(
     if folder_specs:
         await library_cloud.apply_folders(session, row, folder_specs)
     await enqueue_scan_job(session, row.id, row.name, origin=_job_origin(client_name))
+    if any(spec.is_primary for spec in folder_specs):
+        # 主根在网盘：根路径下已有的本地文件开始往网盘传（新入库的会随入库事件再排）
+        await drive_uploads.enqueue(row.id, origin=_job_origin(client_name))
     return ok(
         LibraryView.from_model(
             row,
@@ -1442,6 +1495,9 @@ async def update_library(
     folder_change: library_cloud.FolderChange | None = None
     if folder_specs is not None:
         folder_change = await library_cloud.apply_folders(session, row, folder_specs)
+        if any(spec.is_primary for spec in folder_specs):
+            # 主根换到（或仍在）网盘：还没传上去的本地文件排进上传（同库已有任务就复用）
+            await drive_uploads.enqueue(library_id, origin=_job_origin(client_name))
         if folder_change.removed:
             # 拿掉的网盘目录只删了台账：没有文件了的条目清掉，库存统计刷新
             await LibraryRepository(session).refresh_stats([library_id])
@@ -2693,6 +2749,7 @@ async def _attach_cloud_views(
             local=bool(local.get(view.id, True)),
             origin=replica.origin,
             state=replica.state,
+            error=replica.error,
         )
 
 

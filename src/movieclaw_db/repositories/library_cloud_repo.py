@@ -2,16 +2,20 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import delete
+from sqlalchemy import and_, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_db.models.base import utcnow
 from movieclaw_db.models.library_cloud_folder import LibraryCloudFolder
 from movieclaw_db.models.library_file import LibraryFile
+from movieclaw_db.models.library_file_fingerprint import LibraryFileFingerprint
 from movieclaw_db.models.library_file_replica import (
+    REPLICA_FAILED,
     REPLICA_LOST,
     REPLICA_ORIGIN_IMPORTED,
+    REPLICA_ORIGIN_UPLOADED,
+    REPLICA_UPLOADING,
     REPLICA_VERIFIED,
     LibraryFileReplica,
 )
@@ -93,20 +97,27 @@ class LibraryCloudRepository:
         )
         return result.scalar_one_or_none()
 
-    async def replica_paths(self, library_id: int) -> dict[tuple[int, str], str]:
-        """库里已有副本的文件：(账号, 网盘文件 id) → 台账路径（纳管时认出已经入账的文件）。"""
+    async def replica_paths(self, library_id: int) -> dict[tuple[int, str], tuple[str, bool]]:
+        """库里已有副本的文件：(账号, 网盘文件 id) → (台账路径, 本地有没有字节)。
+
+        纳管时据此认出已经入账的文件（含我们自己传上去、本地还在的）。
+        """
         rows = (
             await self._session.execute(
                 select(
                     LibraryFileReplica.account_id,
                     LibraryFileReplica.remote_id,
                     LibraryFile.file_path,
+                    LibraryFile.local_bytes,
                 )
                 .join(LibraryFile, LibraryFile.id == LibraryFileReplica.library_file_id)
                 .where(LibraryFile.library_id == library_id)
             )
         ).all()
-        return {(account_id, remote_id): path for account_id, remote_id, path in rows}
+        return {
+            (account_id, remote_id): (path, bool(local))
+            for account_id, remote_id, path, local in rows
+        }
 
     async def folder_replicas(self, folder_id: int) -> list[tuple[LibraryFileReplica, LibraryFile]]:
         rows = (
@@ -211,6 +222,156 @@ class LibraryCloudRepository:
             )
         )
         return result.rowcount or 0
+
+    # -- 上传 --------------------------------------------------------------
+
+    async def primary_folders(self) -> list[LibraryCloudFolder]:
+        """主根在网盘的库的那个文件夹（新内容上传到这里）。"""
+        result = await self._session.execute(
+            select(LibraryCloudFolder).where(LibraryCloudFolder.is_primary.is_(True))  # type: ignore[attr-defined]
+        )
+        return list(result.scalars().all())
+
+    async def primary_folder(self, library_id: int) -> LibraryCloudFolder | None:
+        result = await self._session.execute(
+            select(LibraryCloudFolder).where(
+                LibraryCloudFolder.library_id == library_id,
+                LibraryCloudFolder.is_primary.is_(True),  # type: ignore[attr-defined]
+            )
+        )
+        return result.scalars().first()
+
+    async def upload_candidates(
+        self, library_id: int, *, retry_failed_before: datetime, limit: int | None = None
+    ) -> list[LibraryFile]:
+        """该上传的本地文件，新入库的在前。
+
+        在位、本地有字节、不是原盘 / 镜像 / strm，且还没有网盘副本（或副本还在传、或上次失败已过了
+        重试间隔）。
+        """
+        statement = (
+            select(LibraryFile)
+            .join(
+                LibraryFileReplica,
+                LibraryFileReplica.library_file_id == LibraryFile.id,
+                isouter=True,
+            )
+            .where(
+                LibraryFile.library_id == library_id,
+                LibraryFile.in_place(),
+                LibraryFile.local_bytes.is_(True),  # type: ignore[attr-defined]
+                LibraryFile.ignored_at.is_(None),  # type: ignore[union-attr]
+                or_(
+                    LibraryFile.container.is_(None),  # type: ignore[union-attr]
+                    LibraryFile.container.not_in(("bluray", "dvd", "iso", "strm")),  # type: ignore[union-attr]
+                ),
+                or_(
+                    LibraryFileReplica.id.is_(None),  # type: ignore[union-attr]
+                    LibraryFileReplica.state == REPLICA_UPLOADING,
+                    # 传上去的副本在网盘上没了，本地还在：重新传（§9）
+                    LibraryFileReplica.state == REPLICA_LOST,
+                    and_(
+                        LibraryFileReplica.state == REPLICA_FAILED,
+                        LibraryFileReplica.updated_at < retry_failed_before,
+                    ),
+                ),
+            )
+            .order_by(LibraryFile.created_at.desc(), LibraryFile.id.desc())  # type: ignore[union-attr]
+        )
+        if limit is not None:
+            statement = statement.limit(limit)
+        return list((await self._session.execute(statement)).scalars().all())
+
+    async def start_upload(
+        self, file: LibraryFile, *, account_id: int, folder_id: int
+    ) -> LibraryFileReplica:
+        """记下「正在上传」（文件区据此显示上传中）。"""
+        now = utcnow()
+        replica = await self.replica_of(file.id)  # type: ignore[arg-type]
+        if replica is None:
+            replica = LibraryFileReplica(
+                library_file_id=file.id,  # type: ignore[arg-type]
+                account_id=account_id,
+                remote_id="",
+                origin=REPLICA_ORIGIN_UPLOADED,
+                state=REPLICA_UPLOADING,
+            )
+        replica.account_id = account_id
+        replica.folder_id = folder_id
+        replica.origin = REPLICA_ORIGIN_UPLOADED
+        replica.state = REPLICA_UPLOADING
+        replica.error = None
+        replica.updated_at = now
+        self._session.add(replica)
+        await self._session.commit()
+        return replica
+
+    async def finish_upload(
+        self,
+        file_id: int,
+        *,
+        remote_id: str,
+        remote_path: str,
+        size_bytes: int,
+        sha1: str | None,
+    ) -> None:
+        """上传并核验过了：副本已核验。"""
+        now = utcnow()
+        replica = await self.replica_of(file_id)
+        if replica is None:
+            return
+        replica.remote_id = remote_id
+        replica.remote_path = remote_path
+        replica.size_bytes = size_bytes
+        replica.sha1 = sha1
+        replica.state = REPLICA_VERIFIED
+        replica.error = None
+        replica.verified_at = now
+        replica.checked_at = now
+        replica.updated_at = now
+        self._session.add(replica)
+        await self._session.commit()
+
+    async def fail_upload(self, file_id: int, error: str) -> None:
+        replica = await self.replica_of(file_id)
+        if replica is None or replica.state == REPLICA_VERIFIED:
+            return
+        replica.state = REPLICA_FAILED
+        replica.error = error
+        replica.updated_at = utcnow()
+        self._session.add(replica)
+        await self._session.commit()
+
+    # -- 指纹 --------------------------------------------------------------
+
+    async def fingerprint_of(self, file_id: int) -> LibraryFileFingerprint | None:
+        result = await self._session.execute(
+            select(LibraryFileFingerprint).where(LibraryFileFingerprint.library_file_id == file_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def save_fingerprint(
+        self,
+        file_id: int,
+        *,
+        size_bytes: int,
+        file_mtime_ns: int | None,
+        sha1: str,
+        md5: str,
+        head_sha1: str,
+    ) -> None:
+        row = await self.fingerprint_of(file_id) or LibraryFileFingerprint(
+            library_file_id=file_id, size_bytes=size_bytes, sha1=sha1
+        )
+        row.size_bytes = size_bytes
+        row.file_mtime_ns = file_mtime_ns
+        row.sha1 = sha1
+        row.md5 = md5
+        row.head_sha1 = head_sha1
+        row.computed_at = utcnow()
+        row.updated_at = utcnow()
+        self._session.add(row)
+        await self._session.commit()
 
     async def commit(self) -> None:
         await self._session.commit()

@@ -678,6 +678,10 @@ async def video_stream(
         # 管理员刚在活动页结束了这台设备的播放：拒绝窗口内不再供流，否则
         # 播放器换条 Range 连接就续上了。设备重新上报开始播放即解除。
         raise bad_request_text("播放已被管理员结束")
+    # 外网取流：后台的网盘上传先让路（cloud-storage.md §5.3）
+    from movieclaw_api.services.drives import uplink
+
+    uplink.note(request.client.host if request.client else None)
 
     files = await _files_for_ref(ref, identity.device.member_id)
     selected = _select_source(files, request.query_params.get("mediaSourceId"), item_id)

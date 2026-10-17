@@ -95,8 +95,7 @@ export function CloudImportReport({
           </section>
         ))}
         <p className="rounded-xl border border-[var(--info)]/20 bg-[var(--info)]/[0.07] px-3.5 py-3 text-caption leading-relaxed text-[var(--text-muted)]">
-          规格（分辨率、HDR、音轨）在后台慢慢补齐，不影响现在播放；没补到的在起播时当场读取。之后在网盘里新增、移动、
-          删除的片子会自动跟上，每周还会整体复查一次；想马上同步就点「扫描库」。
+          规格（分辨率、HDR、音轨）在后台慢慢补齐，不影响现在播放；没补到的在起播时当场读取。之后在网盘里新增、移动、删除的片子会自动跟上，每周还会整体复查一次；想马上同步就点「扫描库」。
         </p>
       </div>
       <div className="flex justify-end border-t border-white/[0.06] px-6 py-4 max-md:px-5">

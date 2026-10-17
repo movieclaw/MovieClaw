@@ -137,6 +137,8 @@ export interface MediaLibrary {
   chapter_job: ChapterJobProgress | null;
   /** 网盘根目录（管理员端恒为数组，成员端 null；老服务器没有这个字段） */
   cloud_folders?: LibraryCloudFolder[] | null;
+  /** 正在上传到网盘的进度；没在传为 null */
+  cloud_upload?: CloudUpload | null;
   created_at: string;
   updated_at: string;
 }
@@ -1496,8 +1498,24 @@ export interface FileCloudCopy {
   local: boolean;
   /** imported（纳管来的）/ uploaded（我们传的） */
   origin: string;
-  /** uploading / verified / lost / deleting */
+  /** uploading / verified / lost / deleting / failed */
   state: string;
+  /** 上次上传没成的原因 */
+  error?: string | null;
+}
+
+/** 主根在网盘的库正在往网盘传的进度 */
+export interface CloudUpload {
+  job_id: string;
+  /** queued / running / retry_wait / blocked / cancelling */
+  status: string;
+  processed: number;
+  total: number;
+  rapid: number;
+  failed: number;
+  /** 当前文件的进度（%） */
+  percent: number | null;
+  message: string;
 }
 
 /**

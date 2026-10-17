@@ -339,6 +339,19 @@ class CloudFolderView(BaseModel):
     report: CloudFolderReportView | None = None
 
 
+class CloudUploadView(BaseModel):
+    """主根在网盘的库正在往网盘传的进度（docs/design/cloud-storage.md §5）。"""
+
+    job_id: str
+    status: str = Field(description="任务状态：queued / running / retry_wait / blocked …")
+    processed: int = Field(description="已传完的文件数")
+    total: int = Field(description="这一轮要传的文件数（含已传完的）")
+    rapid: int = Field(default=0, description="其中秒传的个数")
+    failed: int = Field(default=0, description="没传成的个数")
+    percent: float | None = Field(default=None, description="当前文件的进度（%）")
+    message: str = Field(default="", description="当前在做什么（一句话）")
+
+
 class LibraryView(BaseModel):
     id: int
     name: str
@@ -412,6 +425,9 @@ class LibraryView(BaseModel):
     chapter_job: ChapterJobView | None = Field(
         default=None, description="整库生成章节的作业状态（排队/进行中）；没在生成为 null"
     )
+    cloud_upload: CloudUploadView | None = Field(
+        default=None, description="正在上传到网盘的进度；没在传为 null"
+    )
     cloud_folders: list[CloudFolderView] | None = Field(
         default=None,
         description=(
@@ -446,6 +462,7 @@ class LibraryView(BaseModel):
         member_ids: list[int] | None = None,
         viewer_access: bool = True,
         cloud_folders: list[CloudFolderView] | None = None,
+        cloud_upload: CloudUploadView | None = None,
     ) -> LibraryView:
         from movieclaw_api.services.library.cover import has_custom_cover
         from movieclaw_api.services.library.mounts import library_on_network_mount
@@ -492,6 +509,7 @@ class LibraryView(BaseModel):
             metadata_refresh=metadata_refresh,
             chapter_job=chapter_job,
             cloud_folders=list(cloud_folders) if cloud_folders is not None else None,
+            cloud_upload=cloud_upload,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -993,7 +1011,8 @@ class FileCloudView(BaseModel):
     remote_path: str | None = Field(description="网盘上的路径（展示用；成员端为 null）")
     local: bool = Field(description="本地也有字节")
     origin: str = Field(description="imported（纳管来的）/ uploaded（我们传的）")
-    state: str = Field(description="uploading / verified / lost / deleting")
+    state: str = Field(description="uploading / verified / lost / deleting / failed")
+    error: str | None = Field(default=None, description="上次上传没成的原因")
 
 
 class LibraryFileView(BaseModel):

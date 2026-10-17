@@ -31,7 +31,7 @@ from movieclaw_db.models.base import utcnow
 from movieclaw_db.models.library import Library
 from movieclaw_db.models.library_cloud_folder import LibraryCloudFolder
 from movieclaw_db.models.library_file import FileState, LibraryFile
-from movieclaw_db.models.library_file_replica import REPLICA_LOST
+from movieclaw_db.models.library_file_replica import REPLICA_LOST, REPLICA_VERIFIED
 from movieclaw_db.models.scheduled_task import TriggerType
 from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
 from movieclaw_db.repositories.library_file_repo import LibraryFileRepository
@@ -158,7 +158,10 @@ async def collect(
                 continue
             listing.videos += 1
             listing.remote_ids.add(remote.remote_id)
-            path = known_paths.get((folder.account_id, remote.remote_id)) or str(base / rel)
+            known = known_paths.get((folder.account_id, remote.remote_id))
+            if known is not None and known[1]:
+                continue  # 我们传上去、本地还在的文件：归本地扫描管
+            path = known[0] if known is not None else str(base / rel)
             if path in cloud.entries:
                 continue  # 同一个文件被两个嵌套的文件夹列到：先到先得
             remote_path = posixpath.join(folder.display_path, rel)
@@ -229,17 +232,22 @@ async def finish(
             continue
         identified = pending = 0
         for replica, row in await repo.folder_replicas(listing.folder_id):
-            if row.local_bytes:
-                continue  # 本地回来了的行归本地扫描管
+            if replica.state not in (REPLICA_VERIFIED, REPLICA_LOST):
+                continue  # 还在传、传失败的：网盘上本来就可能没有
             if replica.remote_id not in listing.remote_ids:
                 if cancelled:
                     continue
                 if replica.state != REPLICA_LOST:
                     await repo.mark_lost(replica, at=now)
-                if row.state == FileState.IN_PLACE:
+                # 本地还在的只丢了副本（上传巡检会重新传）；只在网盘上的就是缺失了
+                if row.state == FileState.IN_PLACE and not row.local_bytes:
                     await files.mark_missing(row.id, since=now)  # type: ignore[arg-type]
                     marked += 1
                 continue
+            if row.local_bytes and replica.state == REPLICA_LOST:
+                await repo.mark_checked(
+                    replica, remote_path=None, size_bytes=None, sha1=None, at=now
+                )
             if row.state == FileState.MISSING or row.ignored_at is not None:
                 continue
             if row.media_item_id is not None and row.unidentified_code is None:

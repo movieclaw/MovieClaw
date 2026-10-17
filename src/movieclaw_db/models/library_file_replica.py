@@ -16,6 +16,8 @@ REPLICA_UPLOADING = "uploading"
 REPLICA_VERIFIED = "verified"
 REPLICA_LOST = "lost"
 REPLICA_DELETING = "deleting"
+#: 上传没成（原因在 ``error``）；过一段时间整理任务会再试
+REPLICA_FAILED = "failed"
 
 
 class LibraryFileReplica(TimestampMixin, table=True):
@@ -50,4 +52,8 @@ class LibraryFileReplica(TimestampMixin, table=True):
     )
     sha1: str | None = Field(default=None, description="网盘报的 SHA1（大写十六进制）")
     verified_at: datetime | None = Field(default=None, description="核验时间")
+    # 上传没成的原因（给用户看）；为空表示没出过错。出错的过一段时间再试
+    error: str | None = Field(
+        default=None, sa_column=Column(Text, nullable=True), description="上次上传失败的原因"
+    )
     checked_at: datetime | None = Field(default=None, description="最近一次对账时间")

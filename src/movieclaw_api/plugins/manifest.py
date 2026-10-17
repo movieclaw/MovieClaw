@@ -161,6 +161,7 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         library.skip_segments_recovery,
         playback.remote_workers,
         playback.drive_sources,
+        playback.drive_uploads,
         playback.transcode,
     )
 )
