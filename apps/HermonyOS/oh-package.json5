@@ -1,6 +1,6 @@
 {
   "modelVersion": "6.1.1",
-  "description": "Please describe the basic information.",
+  "description": "MovieClaw HarmonyOS client",
   "dependencies": {
   },
   "devDependencies": {
