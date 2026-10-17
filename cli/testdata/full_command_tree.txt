@@ -163,6 +163,9 @@ drives logins
 drives logins cancel
 drives logins start
 drives logins status
+drives settings
+drives settings get
+drives settings update
 extension
 extension cookies
 extension cookies push

@@ -2277,6 +2277,10 @@ class TranscodeSessionManager:
             produced += 1
         return produced
 
+    def files_in_use(self) -> set[int]:
+        """正在被转码会话（含离线导出驱动的会话）读的库文件 id。"""
+        return {s.file_id for s in self._sessions.values()}
+
     def get(self, session_id: str, *, member_id: int | None = None) -> TranscodeSession | None:
         """取会话。``member_id`` 非空时校验归属——会话是私人资源。"""
         session = self._sessions.get(session_id)

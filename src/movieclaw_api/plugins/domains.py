@@ -41,6 +41,10 @@ async def downloads(ctx: Context) -> None:
     ctx.contribute(
         LIBRARY_DELETE_PARTICIPANTS, remove_source.PARTICIPANT_ID, remove_source.PARTICIPANT
     )
+    # 网盘库腾空了本地：做完使命的下载任务删掉，空间才真正回来（cloud-storage.md §6.3）
+    from movieclaw_sdk.events import LIBRARY_FILE_LOCAL_RELEASED
+
+    ctx.on(LIBRARY_FILE_LOCAL_RELEASED, remove_source.after_local_released, id="local-released")
 
 
 @plugin("boost", title="自动刷分享率", inject=(SITE_ACCESS,), disableable=True, reloadable=True)

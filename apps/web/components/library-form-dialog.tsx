@@ -284,7 +284,7 @@ function CloudRootRows({
             <Tooltip
               content={
                 <>
-                  <strong>主根在网盘：</strong>新下载的片子入库后先放在本地暂存目录、立即能看，后台上传到这个目录（多数秒传），传完核验。
+                  <strong>主根在网盘：</strong>新下载的片子入库后先放在本地暂存目录、立即能看，后台上传到这个目录（多数秒传），传完核验后本地腾空。
                 </>
               }
             >
@@ -351,7 +351,7 @@ function CloudRootRows({
           <CloudDriveIcon className="mt-0.5 size-3.5 shrink-0 text-[var(--info)]" />
           <span>
             <strong className="font-medium text-[var(--text)]">主根在网盘：</strong>
-            新下载的片子入库后立即能看，后台上传到网盘（多数秒传），传完核验；本地已有的文件从新到旧逐个上传，外网有人在看片时上传自动让路。
+            新下载的片子入库后立即能看，后台上传到网盘（多数秒传），传完核验后本地自动腾空；本地已有的文件从新到旧逐个上传、逐个腾空，外网有人在看片时上传自动让路。
           </span>
         </p>
       )}
@@ -1468,6 +1468,7 @@ function EditLibraryDialog({
   const [cloud, setCloud] = useState<CloudRootDraft[]>(cloudDraftsOf(library.cloud_folders));
   const [drivePicker, setDrivePicker] = useState(false);
   const driveOptions = useDriveRootOptions(cloudKnown && playable);
+  const [keepLocal, setKeepLocal] = useState(library.keep_local ?? false);
   const removedCloudFiles = (library.cloud_folders ?? [])
     .filter((f) => !cloud.some((c) => c.account_id === f.account_id && c.remote_dir_id === f.remote_dir_id))
     .reduce((sum, f) => sum + f.file_count, 0);
@@ -1527,6 +1528,7 @@ function EditLibraryDialog({
       admin_visible: adminVisible,
       member_ids: memberIds,
       ...(cloudKnown && playable ? { cloud_folders: cloudPayload(cloud) } : {}),
+      ...(library.keep_local !== undefined ? { keep_local: keepLocal } : {}),
     };
     void updateLibrary(library.id, payload)
       .then(onSaved)
@@ -1590,6 +1592,16 @@ function EditLibraryDialog({
                 )
               }
             />
+            {cloudKnown && playable && cloud.some((c) => c.is_primary) && library.keep_local !== undefined && (
+              <div className="mt-2">
+                <SwitchRow
+                  title="本地也保留一份"
+                  checked={keepLocal}
+                  onChange={setKeepLocal}
+                  detail="开着：传到网盘后本地那份不删，两边都留、当备份（不腾空间）。关着：上传核验、本地的派生活（规格、片头片尾等）做完后，本地那份自动腾空，之后播放读网盘。"
+                />
+              </div>
+            )}
             {removedCloudFiles > 0 && (
               <p className="mt-2 rounded-lg border border-[var(--warn)]/30 bg-[var(--warn)]/[0.07] px-3 py-2 text-caption leading-5 text-[var(--text-muted)]">
                 保存后，拿掉的网盘目录里的 {removedCloudFiles.toLocaleString()} 个视频会从库里移除（只删记录，网盘上的文件不动；重新挂上会重新识别）。

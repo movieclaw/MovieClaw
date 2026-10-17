@@ -691,6 +691,10 @@ async def video_stream(
 
     path = Path(f.file_path)
     file_container = f.container
+    if f.local_bytes and f.id is not None:
+        from movieclaw_api.services.drives import release
+
+        release.note_read(f.id)
     if not f.local_bytes:
         # 只在网盘上（cloud-storage.md §7.2）：家里转发或 302 到网盘直链。自家 App 带
         # X-MovieClaw-Relay-Fallback: 1 声明直连失败会带 relay=1 改走转发，「自动」下才可能直连

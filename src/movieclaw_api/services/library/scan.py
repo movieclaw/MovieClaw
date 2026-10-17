@@ -1544,6 +1544,18 @@ async def _scan(
             path_str = str(file)
             existing = known.get(path_str)
             cloud_entry = cloud.entries.get(path_str) if cloud is not None else None
+            if existing is not None and not existing.local_bytes and cloud_entry is None:
+                # 腾空过本地的文件本地又有了（拷回来、重新下载到原位）：字节回到本地
+                # （cloud-storage.md §6），之后播放读本地
+                from movieclaw_api.services.drives import sources
+
+                existing.local_bytes = True
+                existing.local_released_at = None
+                existing.updated_at = utcnow()
+                session.add(existing)
+                await session.commit()
+                assert existing.id is not None
+                await sources.refresh_file(existing.id)
             # 用户忽略过的文件秒过：花絮/预告/自录内容在 TMDB 本就没有条目，
             # 重走识别链只会再次失败、再次回到清单。忽略是**永久**承诺，
             # 「已忽略」清单里可一键恢复（消失又回来的顺手清 missing 标记，

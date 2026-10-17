@@ -38,6 +38,7 @@ from movieclaw_sdk.events.download import (
 )
 from movieclaw_sdk.events.library import (
     LIBRARY_FILE_DELETED,
+    LIBRARY_FILE_LOCAL_RELEASED,
     LIBRARY_FILE_PURGED,
     LIBRARY_FILE_RESTORED,
     LIBRARY_FILE_TRASHED,
@@ -59,6 +60,7 @@ from movieclaw_sdk.events.library import (
     ItemsArrived,
     ItemViewed,
     LibraryDeleted,
+    LocalReleased,
 )
 from movieclaw_sdk.events.playback import (
     PLAYBACK_COMPLETED,
@@ -128,6 +130,7 @@ __all__ = [
     "ItemsArrived",
     "LibraryDeleted",
     "ItemMoved",
+    "LIBRARY_FILE_LOCAL_RELEASED",
     "LIBRARY_FILES_ADDED",
     "LIBRARY_ITEM_FAVORITED",
     "LIBRARY_ITEM_UNFAVORITED",
@@ -140,6 +143,7 @@ __all__ = [
     "PLAYBACK_STOPPED",
     "AddedFile",
     "FilesAdded",
+    "LocalReleased",
     "ItemFavorite",
     "ItemViewed",
     "Playback",

@@ -29,6 +29,8 @@ from movieclaw_api.schemas.drives import (
     DriveLoginPayload,
     DriveLoginSpecView,
     DriveLoginView,
+    DriveSettingsPayload,
+    DriveSettingsView,
 )
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.drives import accounts, gateway
@@ -123,6 +125,40 @@ def account_view(row: DriveAccount) -> DriveAccountView:
 )
 async def list_backends() -> ApiResponse[list[DriveBackendView]]:
     return ok([_backend_view(item) for item in backends().values()])
+
+
+@router.get(
+    "/settings",
+    response_model=ApiResponse[DriveSettingsView],
+    summary="网盘的全局选项",
+    operation_id="drives.settings.get",
+)
+async def get_settings_view() -> ApiResponse[DriveSettingsView]:
+    from movieclaw_api.settings import DriveReleaseSetting, get_setting_store
+
+    current = await get_setting_store().get(DriveReleaseSetting)
+    return ok(DriveSettingsView(remove_download_tasks=current.remove_download_tasks))
+
+
+@router.put(
+    "/settings",
+    response_model=ApiResponse[DriveSettingsView],
+    summary="改网盘的全局选项",
+    operation_id="drives.settings.update",
+)
+async def update_settings_view(payload: DriveSettingsPayload) -> ApiResponse[DriveSettingsView]:
+    from movieclaw_api.settings import DriveReleaseSetting, get_setting_store
+
+    store = get_setting_store()
+    current = await store.get(DriveReleaseSetting)
+    if payload.remove_download_tasks is not None:
+        current = current.model_copy(
+            update={"remove_download_tasks": payload.remove_download_tasks}
+        )
+        await store.set(current)
+    return ok(
+        DriveSettingsView(remove_download_tasks=current.remove_download_tasks), message="已保存"
+    )
 
 
 @router.get(

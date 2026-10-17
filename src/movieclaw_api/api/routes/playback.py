@@ -73,6 +73,7 @@ from movieclaw_api.schemas.playback import (
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services import login_devices, media_scrape
 from movieclaw_api.services.auth import Principal
+from movieclaw_api.services.drives import release as drive_release
 from movieclaw_api.services.drives import uplink
 from movieclaw_api.services.library import chapters as chapters_mod
 from movieclaw_api.services.library import skip_segments
@@ -2029,6 +2030,9 @@ async def stream_library_file(
     await session.close()
     path = PathLib(file.file_path)
     container = file.container
+    if file.local_bytes:
+        # 有人在读本地字节：网盘库的腾空本地先等这路播放停了（cloud-storage.md §6.1）
+        drive_release.note_read(file_id)
     if not file.local_bytes:
         # 只在网盘上（cloud-storage.md §7.2）：家里转发或 302 到网盘直链。网页播放器按第三方处理
         # （浏览器跟 302 跨域能不能播还没实测），「自动」下一律转发

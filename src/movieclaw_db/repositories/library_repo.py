@@ -285,6 +285,7 @@ class LibraryRepository:
         auto_series_collections: bool | None = None,
         access_mode: str | None = None,
         admin_visible: bool | None = None,
+        keep_local: bool | None = None,
     ) -> Library | None:
         """更新名称/根路径/收藏范围（kind 创建后不可改）；不存在返回 None。
 
@@ -303,6 +304,8 @@ class LibraryRepository:
             row.auto_clear_missing = auto_clear_missing
         if realtime_watch is not None:
             row.realtime_watch = realtime_watch
+        if keep_local is not None:
+            row.keep_local = keep_local
         if generate_thumbnails is not None:
             row.generate_thumbnails = generate_thumbnails
         if extract_chapter_images is not None:

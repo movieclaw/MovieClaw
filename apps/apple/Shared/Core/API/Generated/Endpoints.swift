@@ -917,6 +917,18 @@ nonisolated extension APIClient {
         return try await send("GET", "/drives/logins/\(loginId)")
     }
 
+    /// 网盘的全局选项
+    /// `GET /drives/settings`
+    func drivesSettingsGet() async throws -> API.DriveSettingsView {
+        return try await send("GET", "/drives/settings")
+    }
+
+    /// 改网盘的全局选项
+    /// `PUT /drives/settings`
+    func drivesSettingsUpdate(body: API.DriveSettingsPayload) async throws -> API.DriveSettingsView {
+        return try await send("PUT", "/drives/settings", body: body)
+    }
+
     /// 推送某站点的 Cookie（保存后异步验证）
     /// `POST /extension/cookies`
     func extensionCookiesPush(body: API.CookiePushRequest) async throws -> API.CookieSyncResult {

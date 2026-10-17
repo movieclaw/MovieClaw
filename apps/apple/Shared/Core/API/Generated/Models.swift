@@ -3385,6 +3385,25 @@ nonisolated extension API {
         }
     }
 
+    struct DriveSettingsPayload: Codable, Hashable, Sendable {
+        /// 不传表示不改动
+        var removeDownloadTasks: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case removeDownloadTasks = "remove_download_tasks"
+        }
+    }
+
+    /// 网盘的全局选项。
+    struct DriveSettingsView: Codable, Hashable, Sendable {
+        /// 本地腾空后删除对应的下载任务（H&R、非 MovieClaw 投递的种子保留）
+        var removeDownloadTasks: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case removeDownloadTasks = "remove_download_tasks"
+        }
+    }
+
     /// 一个多文件单元里的一个文件。
     struct DuplicateFileView: Codable, Hashable, Sendable {
         var id: Int
@@ -5827,6 +5846,8 @@ nonisolated extension API {
         var scrapeOverrides: [String: API.JSONValue]?
         /// 是否启用实时文件监控（关闭后该库不建 watchdog 监听，靠定期对账与手动扫描发现新文件——SMB/NFS 网络挂载建议关闭）；不传表示不改动，新建时默认开启
         var realtimeWatch: Bool?
+        /// 主根在网盘时本地也保留一份（两边都留、当备份，上传后不腾空本地）；不传表示不改动，新建时默认关闭
+        var keepLocal: Bool?
         /// 网盘根目录（整体覆盖式）：挂上即纳管——目录里已有的视频按文件名识别入库，不下载、不改动网盘上的文件；拿掉只删台账，不动网盘。不传表示不改动
         var cloudFolders: [API.CloudFolderPayload]?
 
@@ -5847,6 +5868,7 @@ nonisolated extension API {
             case autoClearMissing = "auto_clear_missing"
             case scrapeOverrides = "scrape_overrides"
             case realtimeWatch = "realtime_watch"
+            case keepLocal = "keep_local"
             case cloudFolders = "cloud_folders"
         }
     }
@@ -6090,6 +6112,8 @@ nonisolated extension API {
         var autoClearMissing: Bool
         /// 是否启用实时文件监控
         var realtimeWatch: Bool
+        /// 主根在网盘时本地也保留一份（上传后不腾空本地）
+        var keepLocal: Bool?
         /// 任一根路径落在网络挂载（NFS/SMB/fuse）上。这种库实时监控收不到远端变更，新文件靠定期对账发现——界面据此把话说清楚，而不是让开关看起来有效
         var networkMount: Bool
         /// 封面是用户上传的自定义图（而非自动拼贴）。前端据此决定「恢复自动拼贴」按钮的形态，以及空库要不要照样出图
@@ -6141,6 +6165,7 @@ nonisolated extension API {
             case matchRules = "match_rules"
             case autoClearMissing = "auto_clear_missing"
             case realtimeWatch = "realtime_watch"
+            case keepLocal = "keep_local"
             case networkMount = "network_mount"
             case customCover = "custom_cover"
             case scrapeOverrides = "scrape_overrides"

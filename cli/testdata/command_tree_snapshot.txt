@@ -110,6 +110,8 @@ drives backends list
 drives logins cancel
 drives logins start
 drives logins status
+drives settings get
+drives settings update
 extension cookies push
 extension ping
 extension sites list

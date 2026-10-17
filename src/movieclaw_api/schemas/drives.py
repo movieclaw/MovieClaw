@@ -124,3 +124,15 @@ class DriveDirView(BaseModel):
         default=None, description="这个目录（或它的上层、下层）已经挂在哪个媒体库上"
     )
     library_name: str | None = None
+
+
+class DriveSettingsView(BaseModel):
+    """网盘的全局选项。"""
+
+    remove_download_tasks: bool = Field(
+        description="本地腾空后删除对应的下载任务（H&R、非 MovieClaw 投递的种子保留）"
+    )
+
+
+class DriveSettingsPayload(BaseModel):
+    remove_download_tasks: bool | None = Field(default=None, description="不传表示不改动")

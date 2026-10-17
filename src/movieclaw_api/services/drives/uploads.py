@@ -450,6 +450,12 @@ async def run_upload_job(
         try:
             await uploader.upload(file, checkpoint)
             uploader.done += 1
+            # 传完核验了：闸门都过就当场腾空本地（过不了的由腾空巡检稍后再试）
+            from movieclaw_api.services.drives import release
+
+            reason = await release.try_release(file.id)
+            if reason is not None:
+                logger.debug("「%s」先不腾空本地：%s", PurePath(file.file_path).name, reason)
         except LocalChanged as exc:
             skipped.add(file.id)
             uploader.failed += 1

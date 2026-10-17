@@ -1482,6 +1482,7 @@ async def update_library(
         match_rules=payload.match_rules,
         auto_clear_missing=payload.auto_clear_missing,
         realtime_watch=payload.realtime_watch,
+        keep_local=payload.keep_local,
         scrape_overrides=payload.scrape_overrides,
         generate_thumbnails=payload.generate_thumbnails,
         extract_chapter_images=payload.extract_chapter_images,

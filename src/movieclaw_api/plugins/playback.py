@@ -113,14 +113,15 @@ async def drive_sources(ctx: Context) -> None:
 
 @plugin("drives.uploads", title="网盘上传", inject=(DB,), reloadable=True)
 async def drive_uploads(ctx: Context) -> None:
-    """主根在网盘的库：新入库的本地文件传到网盘并核验（docs/design/cloud-storage.md §5）。"""
-    from movieclaw_api.services.drives import uploads
+    """主根在网盘的库：新入库的本地文件传到网盘并核验，核验后腾空本地
+    （docs/design/cloud-storage.md §5、§6）。"""
+    from movieclaw_api.services.drives import release, uploads
     from movieclaw_api.services.jobs import contribute_job_handlers
     from movieclaw_scheduler import contribute_tasks
     from movieclaw_sdk.events import LIBRARY_FILES_ADDED, FilesAdded
 
     contribute_job_handlers(ctx, uploads)
-    contribute_tasks(ctx, uploads)
+    contribute_tasks(ctx, uploads, release)
 
     async def on_added(added: FilesAdded) -> None:
         await uploads.enqueue(added.library_id)

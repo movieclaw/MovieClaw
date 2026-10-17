@@ -17,7 +17,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import type { Route } from "next";
 import Link from "next/link";
 
-import { ErrorBanner, LINK_CLASS, StatusPill } from "@/components/cloud-push-ui";
+import { ErrorBanner, LINK_CLASS, StatusPill, Toggle } from "@/components/cloud-push-ui";
 import { DriveLoginDialog } from "@/components/drive-login-dialog";
 import { useConfirm, usePrompt, useToast } from "@/components/feedback";
 import { CloudDriveIcon, PlusIcon } from "@/components/icons";
@@ -26,18 +26,23 @@ import {
   SETTINGS_INPUT_CLASS,
   SETTINGS_PRIMARY_BUTTON_CLASS,
   SettingsEmpty,
+  SettingsList,
   SettingsMoreMenu,
+  SettingsRow,
   SettingsSection,
 } from "@/components/settings-ui";
 import {
   type DriveAccount,
   type DriveAccountUpdate,
   type DriveBackend,
+  type DriveSettings,
   deleteDriveAccount,
+  getDriveSettings,
   listDriveAccounts,
   listDriveBackends,
   refreshDriveAccount,
   updateDriveAccount,
+  updateDriveSettings,
 } from "@/lib/api/drives";
 import type { Tone } from "@/lib/cloud-push-display";
 import { formatBytes } from "@/lib/format";
@@ -162,6 +167,8 @@ export function DrivesSection() {
           </div>
         )}
       </SettingsSection>
+
+      {!loading && accounts.length > 0 && <AfterReleaseSection />}
 
       {login && (
         <DriveLoginDialog
@@ -563,5 +570,49 @@ function AdvancedLimits({
       </div>
       <p className="text-[var(--text-faint)]">移除账号只删 MovieClaw 里的记录，不动网盘上的任何文件。</p>
     </div>
+  );
+}
+
+/** 文件传到网盘、本地腾空之后的事（cloud-storage.md §6.3）：点选即存、失败回滚。 */
+function AfterReleaseSection() {
+  const toast = useToast();
+  const [settings, setSettings] = useState<DriveSettings | null>(null);
+
+  useEffect(() => {
+    void getDriveSettings()
+      .then(setSettings)
+      .catch(() => {
+        /* 老服务器没有这个接口：不显示 */
+      });
+  }, []);
+
+  if (settings == null) return null;
+
+  async function change(next: boolean) {
+    const previous = settings;
+    setSettings({ ...settings!, remove_download_tasks: next });
+    try {
+      setSettings(await updateDriveSettings({ remove_download_tasks: next }));
+    } catch (e) {
+      setSettings(previous);
+      toast.error((e as Error).message);
+    }
+  }
+
+  return (
+    <SettingsSection title="上传到网盘之后">
+      <SettingsList>
+        <SettingsRow
+          label="本地腾空后删除下载任务"
+          description="主根在网盘的库，文件传上去、本地腾空后，把下载器里对应的任务连同下载目录里的数据一起删掉，空间才真正回来（硬链接入库时尤其如此）。有 H&R 考核的、不是 MovieClaw 投递的、还供着库里别的本地文件的种子都保留。"
+        >
+          <Toggle
+            checked={settings.remove_download_tasks}
+            label="本地腾空后删除下载任务"
+            onChange={(next) => void change(next)}
+          />
+        </SettingsRow>
+      </SettingsList>
+    </SettingsSection>
   );
 }

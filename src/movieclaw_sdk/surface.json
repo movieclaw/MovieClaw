@@ -901,6 +901,38 @@
     "stability": "experimental",
     "version": "2.0"
   },
+  "library.file.local-released": {
+    "doc": "库文件的本地副本已腾空（已在网盘上）",
+    "durable": true,
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "properties": {
+        "bytes": {
+          "type": "integer"
+        },
+        "file_id": {
+          "type": "integer"
+        },
+        "hardlinked": {
+          "type": "boolean"
+        },
+        "library_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "library_id",
+        "file_id",
+        "bytes",
+        "hardlinked"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
   "library.file.purged": {
     "doc": "回收站里的文件被彻底清除",
     "durable": true,

@@ -103,6 +103,11 @@ class Library(TimestampMixin, table=True):
     realtime_watch: bool = Field(
         default=True, description="是否启用实时文件监控（关闭后靠定期对账与手动扫描）"
     )
+    # 主根在网盘的库：本地也保留一份（docs/design/cloud-storage.md §3.2、§6）。默认**关**——
+    # 上传核验后本地腾空；开着就两边都留、当备份，不释放
+    keep_local: bool = Field(
+        default=False, description="主根在网盘时本地也保留一份（上传后不腾空本地）"
+    )
     # 抓帧开关（docs/design/library-other-kind.md 4.4）：本地来源条目的主图、
     # 以及剧集库里 TMDB 没有剧照的分集（media_scrape._grab_missing_stills）。
     # 关掉后只用目录里已有的图或占位——敏感内容库的第一道闸，也是云盘挂载
