@@ -379,6 +379,28 @@ class PluginNotificationView(BaseModel):
     default: bool
 
 
+class DependencyView(BaseModel):
+    name: str
+    version: str
+    size: int | None = Field(description="这台服务器要下载的轮子大小（字节）；没有适用的轮子时为空")
+    native: bool = Field(description="含本机代码（不是纯 Python）：更难审查，单独标出")
+    available: bool = Field(description="有适用于这台服务器平台的轮子；没有则安装会失败")
+    change: str | None = Field(description="相比已安装版本：added 新增 / changed 换版本 / 空 不变")
+    previous_version: str | None = Field(description="已安装版本里的版本")
+
+
+class PackageDependenciesView(BaseModel):
+    lock_digest: str = Field(description="锁文件内容哈希：批准时原样交回表示同意这一份依赖")
+    packages: list[DependencyView]
+    total_size: int = Field(description="这台服务器上要下载的总字节数（已知的部分）")
+    native: list[str] = Field(description="含本机代码的包")
+    unavailable: list[str] = Field(description="没有适用于这台服务器平台的轮子的包")
+    removed: list[str] = Field(description="相比已安装版本移除的包")
+    index: str = Field(description="下载用的包索引地址")
+    index_label: str
+    needs_consent: bool = Field(description="锁文件与已批准的不同（或首次安装）：批准时须带上哈希")
+
+
 class PackageRequestView(BaseModel):
     id: str
     title: str
@@ -411,6 +433,9 @@ class PackageRequestView(BaseModel):
     installed_version: str | None
     replaces_builtin: bool = Field(
         default=False, description="与随带的内置插件同 id：安装即替换它，卸载后随带版本回来"
+    )
+    dependencies: PackageDependenciesView | None = Field(
+        default=None, description="要下载安装的第三方包（清单 [dependencies]）；没有则为空"
     )
 
 
@@ -451,6 +476,11 @@ class PackageApprove(BaseModel):
     )
     allow_member_notifications: bool = Field(
         default=False, description="插件会给普通成员发通知时，须显式确认"
+    )
+    dependencies: str | None = Field(
+        default=None,
+        description="同意安装的第三方依赖：填待批准包的 dependencies.lock_digest；"
+        "锁文件与已安装版本相同时不用填",
     )
 
 
@@ -526,6 +556,7 @@ async def approve_package(
             allow_inline=body.allow_inline,
             paths=body.paths,
             allow_member_notifications=body.allow_member_notifications,
+            dependencies=body.dependencies,
         )
     except LookupError as exc:
         raise NotFoundException(str(exc)) from exc

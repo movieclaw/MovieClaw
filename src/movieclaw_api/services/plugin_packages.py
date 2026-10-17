@@ -106,7 +106,9 @@ def operation_details(patterns: list[str]) -> list[dict[str, Any]]:
     return details
 
 
-def _view(manifest: pkg.Manifest, current: pkg.Installed | None) -> dict[str, Any]:
+def _view(manifest: pkg.Manifest, current: pkg.Installed | None, lock: Any) -> dict[str, Any]:
+    from movieclaw_api.services import plugin_deps
+
     plugin = manifest.plugin
     approved = set(current.operations) if current else set()
     approved_paths = [dict(p) for p in current.paths] if current else []
@@ -129,7 +131,15 @@ def _view(manifest: pkg.Manifest, current: pkg.Installed | None) -> dict[str, An
         "requires": manifest.requires,
         "installed_version": current.version if current else None,
         "replaces_builtin": _replaces_builtin(plugin.id),
+        "dependencies": plugin_deps.view(lock, current.dependencies if current else None),
     }
+
+
+def _pending_lock(manifest: pkg.Manifest, path: Any) -> Any:
+    try:
+        return pkg.read_lock(manifest, path)
+    except pkg.PackageError:  # 上传时校验过；主程序升级后与新自带的包重名，批准时再报
+        return None
 
 
 def _event_view(manifest: pkg.Manifest) -> dict[str, Any]:
@@ -226,8 +236,8 @@ class PackageManager:
                 }
             )
         waiting = [
-            _view(manifest, packages.get(manifest.plugin.id))
-            for manifest, _path in pkg.pending(self._settings)
+            _view(manifest, packages.get(manifest.plugin.id), _pending_lock(manifest, path))
+            for manifest, path in pkg.pending(self._settings)
         ]
         return {"installed": rows, "pending": waiting}
 
@@ -235,6 +245,7 @@ class PackageManager:
     async def upload(self, data: bytes) -> dict[str, Any]:
         """校验并放进待批准区；同一条目已有待批准的包会被替换。"""
         manifest, archive = pkg.read_archive(data)
+        lock = pkg.read_lock(manifest, archive)
         packages = pkg.installed(self._settings)
         current = packages.get(manifest.plugin.id)
         if current is None and pkg.is_legacy_id(manifest.plugin.id):
@@ -253,7 +264,7 @@ class PackageManager:
             target = pkg.pending_dir(self._settings, manifest.plugin.id, manifest.plugin.version)
             await asyncio.to_thread(pkg.extract, archive, target)
         logger.info("插件包 %s v%s 已上传，等待批准", manifest.plugin.id, manifest.plugin.version)
-        return _view(manifest, current)
+        return _view(manifest, current, lock)
 
     async def discard(self, entry_id: str) -> None:
         async with self._lock:
@@ -273,8 +284,13 @@ class PackageManager:
         allow_inline: bool,
         paths: list[dict[str, str]] | None = None,
         allow_member_notifications: bool = False,
+        dependencies: str | None = None,
     ) -> dict[str, Any]:
-        """用户批准：安装并当场挂载；激活失败自动回滚。返回挂载结果。"""
+        """用户批准：安装并当场挂载；激活失败自动回滚。返回挂载结果。
+
+        ``dependencies`` 是用户同意的依赖锁文件哈希：锁文件比已安装版本的变了（或首次安装）
+        就必须给，且须与包里的一致。
+        """
         async with self._lock:
             path = pkg.pending_dir(self._settings, entry_id, version)
             match = [m for m, p in pkg.pending(self._settings) if p == path]
@@ -301,6 +317,9 @@ class PackageManager:
                 )
             if manifest.notifies_members and not allow_member_notifications:
                 raise pkg.PackageError("这个插件会给普通成员发通知，须单独确认")
+            lock = pkg.read_lock(manifest, path)
+            current = pkg.installed(self._settings).get(entry_id)
+            _check_dependency_consent(lock, current, dependencies)
             # 重新检查一遍：上传之后内置插件 / 本地插件 / 契约可能变了
             pkg.check_compat(
                 manifest,
@@ -327,6 +346,7 @@ class PackageManager:
                 notifications=[dict(n) for n in manifest.notifications],
                 sensitive=list(manifest.permissions.events),
                 members_allowed=manifest.notifies_members,
+                dependencies=pkg.lock_record(manifest, lock),
                 previous=current.snapshot() if current else None,
                 bad=[v for v in (current.bad if current else []) if v != version],
                 installed_at=pkg.now(),
@@ -518,6 +538,32 @@ class PackageManager:
         for task in list(self._watches.values()):
             task.cancel()
         await asyncio.gather(*self._watches.values(), return_exceptions=True)
+
+
+def _check_dependency_consent(lock: Any, current: pkg.Installed | None, given: str | None) -> None:
+    from movieclaw_api.services import plugin_deps
+
+    found = plugin_deps.view(lock, current.dependencies if current else None)
+    if found is None or not found["needs_consent"] or given == lock.digest:
+        return
+    changes = ""
+    if current is not None and current.dependencies:
+        added = [f"{r['name']} {r['version']}" for r in found["packages"] if r["change"] == "added"]
+        changed = [
+            f"{r['name']} {r['previous_version']} → {r['version']}"
+            for r in found["packages"]
+            if r["change"] == "changed"
+        ]
+        parts = [
+            f"{label}：{'、'.join(items)}"
+            for label, items in (("新增", added), ("换版本", changed), ("移除", found["removed"]))
+            if items
+        ]
+        changes = f"依赖有变化（{'；'.join(parts)}）。"
+    raise pkg.PackageError(
+        f"{changes}{plugin_deps.summary(found)}。这些包在插件自己的进程里运行，权限与插件相同；"
+        f"同意请在批准时带上锁文件哈希 dependencies = {lock.digest}"
+    )
 
 
 async def _notice(entry_id: str, title: str, message: str) -> None:

@@ -337,6 +337,17 @@ def check_compat(manifest: Manifest, *, reserved: set[str], operations: set[str]
             raise PackageError(f"宿主操作 {pattern} 不存在")
 
 
+def lock_record(manifest: Manifest, lock: Any) -> dict[str, Any] | None:
+    """安装记录里的依赖授权：锁文件路径、内容哈希、包与版本（升级时据此列出增删改）。"""
+    if lock is None or manifest.dependencies is None:
+        return None
+    return {
+        "lock": manifest.dependencies.lock,
+        "digest": lock.digest,
+        "packages": [{"name": p.name, "version": p.version} for p in lock.packages],
+    }
+
+
 # ---------------------------------------------------------------------- 状态
 @dataclass
 class Installed:
@@ -360,6 +371,9 @@ class Installed:
     """批准订阅的敏感事件（清单 ``[permissions] events``）。"""
     members_allowed: bool = False
     """用户批准了通知到普通成员。"""
+    dependencies: dict[str, Any] | None = None
+    """批准的第三方依赖（plugin-dependencies.md §2）：``{lock, digest, packages}``。
+    授权按锁文件内容哈希认，升级时锁文件没变就不再问。"""
     previous: dict[str, Any] | None = None
     """上一版的安装记录（version、title、entry、runtime、operations），回滚用。"""
     bad: list[str] = field(default_factory=list)
@@ -380,6 +394,7 @@ class Installed:
             "notifications": [dict(n) for n in self.notifications],
             "sensitive": list(self.sensitive),
             "members_allowed": self.members_allowed,
+            "dependencies": self.dependencies,
         }
 
 

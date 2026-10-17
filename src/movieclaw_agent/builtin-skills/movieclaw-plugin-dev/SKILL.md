@@ -156,6 +156,9 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 10. **正式安装**（用户要长期使用时）：清单里定好正式 `version`，然后
     `plugin pack plugins/<id>` → `app plugins packages upload --file <生成的 .mcplugin>` →
     `app plugins packages approve <id> --version <版本> --operations-json '<与清单一致>' --paths-json '<与清单一致>' --yes`。
+    带第三方依赖（清单 `[dependencies]`）的：上传结果的 `dependencies` 列出要下载的包、大小、是否含本机代码；
+    `needs_consent` 为真时**先把这份清单原样告诉用户、得到同意**，再加 `--dependencies <dependencies.lock_digest>` 批准。
+    锁文件没变的升级不用再加。
 11. **卸载**：`app plugins packages uninstall <id> --yes`（默认保留插件数据；用户要求清数据才加 `--purge-data`，它只删 `plugin_data` 里该 id 的行，不删设置文件和私有目录）。卸载后再查一次 `app plugins list`，确认条目已消失；替换内置插件的包卸载后内置版本自动回来。
     回到上一版：`app plugins packages rollback <id> --yes`。
 12. **停用 / 官方插件**：插件包与官方插件（随应用提供的，如通道、下载器、网盘规格预探）都能临时停用：

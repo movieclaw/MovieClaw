@@ -1720,6 +1720,31 @@ nonisolated extension API {
         }
     }
 
+    struct DependencyView: Codable, Hashable, Sendable {
+        var name: String
+        var version: String
+        /// 这台服务器要下载的轮子大小（字节）；没有适用的轮子时为空
+        var size: Int?
+        /// 含本机代码（不是纯 Python）：更难审查，单独标出
+        var native: Bool
+        /// 有适用于这台服务器平台的轮子；没有则安装会失败
+        var available: Bool
+        /// 相比已安装版本：added 新增 / changed 换版本 / 空 不变
+        var change: String?
+        /// 已安装版本里的版本
+        var previousVersion: String?
+
+        enum CodingKeys: String, CodingKey {
+            case name
+            case version
+            case size
+            case native
+            case available
+            case change
+            case previousVersion = "previous_version"
+        }
+    }
+
     /// 「这不是独立作品」：摘掉身份锚并忽略，不动磁盘。
     /// 花絮/预告/片段被高置信错挂到别的影片时用它——用户要表达的不是"改挂
     /// 到条目 Y"，而是"它根本不该是个条目"。可在「已忽略」里恢复。
@@ -7316,6 +7341,8 @@ nonisolated extension API {
         var paths: [[String: String]]?
         /// 插件会给普通成员发通知时，须显式确认
         var allowMemberNotifications: Bool?
+        /// 同意安装的第三方依赖：填待批准包的 dependencies.lock_digest；锁文件与已安装版本相同时不用填
+        var dependencies: String?
 
         enum CodingKeys: String, CodingKey {
             case version
@@ -7323,6 +7350,38 @@ nonisolated extension API {
             case allowInline = "allow_inline"
             case paths
             case allowMemberNotifications = "allow_member_notifications"
+            case dependencies
+        }
+    }
+
+    struct PackageDependenciesView: Codable, Hashable, Sendable {
+        /// 锁文件内容哈希：批准时原样交回表示同意这一份依赖
+        var lockDigest: String
+        var packages: [API.DependencyView]
+        /// 这台服务器上要下载的总字节数（已知的部分）
+        var totalSize: Int
+        /// 含本机代码的包
+        var native: [String]
+        /// 没有适用于这台服务器平台的轮子的包
+        var unavailable: [String]
+        /// 相比已安装版本移除的包
+        var removed: [String]
+        /// 下载用的包索引地址
+        var index: String
+        var indexLabel: String
+        /// 锁文件与已批准的不同（或首次安装）：批准时须带上哈希
+        var needsConsent: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case lockDigest = "lock_digest"
+            case packages
+            case totalSize = "total_size"
+            case native
+            case unavailable
+            case removed
+            case index
+            case indexLabel = "index_label"
+            case needsConsent = "needs_consent"
         }
     }
 
@@ -7358,6 +7417,8 @@ nonisolated extension API {
         var installedVersion: String?
         /// 与随带的内置插件同 id：安装即替换它，卸载后随带版本回来
         var replacesBuiltin: Bool
+        /// 要下载安装的第三方包（清单 [dependencies]）；没有则为空
+        var dependencies: API.PackageDependenciesView?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -7379,6 +7440,7 @@ nonisolated extension API {
             case requires
             case installedVersion = "installed_version"
             case replacesBuiltin = "replaces_builtin"
+            case dependencies
         }
     }
 

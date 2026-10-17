@@ -22,6 +22,7 @@ import {
   uninstallPackage,
   uploadPackage,
   type InstalledPackage,
+  type PackageDependencies,
   type PackageRequest,
   type PluginInfo,
 } from "@/lib/api/plugins";
@@ -439,6 +440,9 @@ function ReviewDrawer({
             )}
           </dd>
         </div>
+        {item.dependencies && (
+          <DependenciesSection dependencies={item.dependencies} upgrade={upgrade} />
+        )}
         {(item.callbacks?.length ?? 0) > 0 && (
           <div>
             <dt className="mb-1.5 font-medium text-[var(--text)]">开放的回调地址</dt>
@@ -536,5 +540,63 @@ function ReviewDrawer({
         )}
       </dl>
     </SettingsDrawer>
+  );
+}
+
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function DependenciesSection({
+  dependencies,
+  upgrade,
+}: {
+  dependencies: PackageDependencies;
+  upgrade: boolean;
+}) {
+  const changed = upgrade && dependencies.needs_consent;
+  const count = dependencies.packages.length;
+  const badge = "rounded-full bg-[var(--warn)]/15 px-1.5 text-caption text-[var(--warn)]";
+  return (
+    <div>
+      <dt className="mb-1.5 font-medium text-[var(--text)]">
+        {upgrade && !dependencies.needs_consent
+          ? `第三方包（${count} 个，与当前版本相同）`
+          : `需要下载并安装 ${count} 个第三方包（共 ${formatSize(dependencies.total_size)}，来自 ${dependencies.index_label}）`}
+      </dt>
+      <dd className="space-y-1.5">
+        <p className="text-[var(--text-muted)]">
+          这些包在插件自己的进程里运行，权限与插件相同。含本机代码的包更难审查，单独标出。
+        </p>
+        <ul className="space-y-1">
+          {dependencies.packages.map((dep) => (
+            <li key={dep.name} className="flex flex-wrap items-baseline gap-x-2 text-[var(--text)]">
+              <span>
+                {dep.name} <span className="text-[var(--text-muted)]">{dep.version}</span>
+              </span>
+              {dep.native && <span className="text-caption text-[var(--warn)]">含本机代码</span>}
+              {dep.size !== null && (
+                <span className="text-caption text-[var(--text-faint)]">{formatSize(dep.size)}</span>
+              )}
+              {!dep.available && (
+                <span className="text-caption text-[var(--danger)]">
+                  没有适用于这台服务器的版本，装不上
+                </span>
+              )}
+              {changed && dep.change === "added" && <span className={badge}>新增</span>}
+              {changed && dep.change === "changed" && (
+                <span className={badge}>原 {dep.previous_version}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+        {changed && dependencies.removed.length > 0 && (
+          <p className="text-caption text-[var(--text-muted)]">
+            不再需要：{dependencies.removed.join("、")}
+          </p>
+        )}
+      </dd>
+    </div>
   );
 }
