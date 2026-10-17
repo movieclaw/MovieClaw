@@ -139,6 +139,8 @@ export interface MediaLibrary {
   cloud_folders?: LibraryCloudFolder[] | null;
   /** 正在上传到网盘的进度；没在传为 null */
   cloud_upload?: CloudUpload | null;
+  /** 主根在网盘时本地也保留一份（上传后不腾空本地）；老服务器没有这个字段 */
+  keep_local?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -463,6 +465,8 @@ export interface LibraryPayload {
   scrape_overrides?: Record<string, unknown>;
   /** 网盘根目录（整体覆盖）：挂上即纳管，拿掉只删台账不动网盘；不传=不改动 */
   cloud_folders?: CloudFolderPayload[];
+  /** 主根在网盘时本地也保留一份；不传=不改动（新建时默认关） */
+  keep_local?: boolean;
 }
 
 /** 收藏范围的可选项（后端唯一真相源：类型 chips 与区域预设）。 */

@@ -140,6 +140,13 @@ class LibraryPayload(BaseModel):
             "不传表示不改动，新建时默认开启"
         ),
     )
+    keep_local: bool | None = Field(
+        default=None,
+        description=(
+            "主根在网盘时本地也保留一份（两边都留、当备份，上传后不腾空本地）；"
+            "不传表示不改动，新建时默认关闭"
+        ),
+    )
     cloud_folders: list[CloudFolderPayload] | None = Field(
         default=None,
         description=(
@@ -393,6 +400,10 @@ class LibraryView(BaseModel):
         default=False, description="扫描后自动清理已确认丢失的库存记录"
     )
     realtime_watch: bool = Field(default=True, description="是否启用实时文件监控")
+    # 可空：老服务器没有这个字段，客户端生成器会把带默认值的字段当成必有
+    keep_local: bool | None = Field(
+        default=None, description="主根在网盘时本地也保留一份（上传后不腾空本地）"
+    )
     network_mount: bool = Field(
         default=False,
         description=(
@@ -489,6 +500,7 @@ class LibraryView(BaseModel):
             match_rules=list(row.match_rules),
             auto_clear_missing=row.auto_clear_missing,
             realtime_watch=row.realtime_watch,
+            keep_local=row.keep_local,
             network_mount=library_on_network_mount(list(row.root_paths)),
             custom_cover=has_custom_cover(row.id),  # type: ignore[arg-type]  # 落库后必有主键
             scrape_overrides=dict(row.scrape_overrides or {}),

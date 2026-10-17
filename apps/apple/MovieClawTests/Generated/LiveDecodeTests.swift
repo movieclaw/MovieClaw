@@ -93,6 +93,9 @@ struct LiveDecodeTests {
     @Test func drivesBackendsList() async throws {
         try await LiveServer.check { try await $0.drivesBackendsList() }
     }
+    @Test func drivesSettingsGet() async throws {
+        try await LiveServer.check { try await $0.drivesSettingsGet() }
+    }
     @Test func extensionPing() async throws {
         try await LiveServer.check { try await $0.extensionPing() }
     }

@@ -269,3 +269,75 @@ async def run_remove_source(context: jobs.JobContext, input_data: dict[str, Any]
         await session.commit()
     message = "；".join(parts) or "没有需要删除的下载任务"
     return {"message": message, "removed": removed, "kept": kept}
+
+
+# ---------------------------------------------------------------------- 网盘库腾空本地之后
+
+
+async def after_local_released(released: Any) -> None:
+    """库文件传到网盘、本地腾空了：来源种子不再供着任何本地库文件时删掉下载任务
+    （docs/design/cloud-storage.md §6.3）。
+
+    保留的：设置里关了、不是 MovieClaw 投递的、有 H&R 考核的、下载器配置没了的、还供着库里别的
+    本地文件的。硬链接入库时这一步才让空间真正回来。删不掉发系统通知。
+    """
+    from movieclaw_api.services.download_tasks import delete_download_task
+    from movieclaw_api.services.system_notice import upsert_notice
+    from movieclaw_api.settings import DriveReleaseSetting, get_setting_store
+
+    policy = await get_setting_store().get(DriveReleaseSetting)
+    if not policy.remove_download_tasks:
+        return
+    db = get_database()
+    async with db.session() as session:
+        torrents = await torrents_for_files(session, [released.file_id])
+        still_local: set[int] = set()
+        others = {i for t in torrents for i in t.other_file_ids}
+        if others:
+            still_local = set(
+                (
+                    await session.execute(
+                        select(LibraryFile.id).where(
+                            LibraryFile.id.in_(others),  # type: ignore[union-attr]
+                            LibraryFile.local_bytes.is_(True),  # type: ignore[attr-defined]
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+    failures: list[str] = []
+    for torrent in torrents:
+        if (
+            torrent.downloader_id is None
+            or torrent.owned_by_movieclaw is False
+            or torrent.hit_and_run
+            or still_local.intersection(torrent.other_file_ids)
+        ):
+            continue
+        try:
+            async with db.session() as session:
+                await delete_download_task(
+                    session,
+                    downloader_id=torrent.downloader_id,
+                    info_hash=torrent.info_hash,
+                    delete_files=True,
+                )
+            logger.info("网盘库腾空本地后删除下载任务：%s", _name(torrent))
+        except AppException as exc:
+            failures.append(f"「{_name(torrent)}」：{exc.message}")
+        except Exception as exc:  # noqa: BLE001 -- 单项异常不中断其余
+            failures.append(f"「{_name(torrent)}」：{exc}")
+            logger.warning("腾空后删种异常 hash=%s", torrent.info_hash, exc_info=True)
+    if failures:
+        async with db.session() as session:
+            await upsert_notice(
+                session,
+                dedupe_key=f"{NOTICE_PREFIX}released:{released.file_id}",
+                severity=NoticeSeverity.WARNING,
+                source="downloads",
+                title="文件已传到网盘，但下载任务没删掉",
+                message="；".join(failures)
+                + "。可以在下载器里手动删除，或关掉「设置 → 网盘」里的自动删除",
+                payload={"action_href": "/downloads"},
+            )

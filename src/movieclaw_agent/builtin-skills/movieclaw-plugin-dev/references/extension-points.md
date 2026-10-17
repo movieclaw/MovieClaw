@@ -33,6 +33,7 @@ tests 守着：契约有增删时本文必须同步）。都是实验级；清�
 | `download.imported` | 手动下载的内容全部入库 | 通知点下载的人 | |
 | `library.ingest.completed` | 下载条目整理入库完成（载荷 `imported_names` 是整理前的原始文件名：按命名模板改名后 TC、CAM 这类发布标记通常就没了，按发布名判断的看它） | 入库后通知、同步到别处、记账 | |
 | `library.files.added` | 媒体库新入账了文件（扫描一轮发一次，下载入库每个条目一次） | 新文件来了就处理（预探、生成东西） | 示例 `$SRC/movieclaw_plugins/strm_prefetch/` |
+| `library.file.local-released` | 主根在网盘的库里一个文件传上去并核验后，本地那份腾空了（带腾出的字节数、是否硬链接） | 跟着清理本地派生的东西、统计腾出的空间 | 主程序的下载模块据此删做完使命的下载任务 |
 | `library.items.arrived` | 媒体库有新片（不管谁下载、怎么入库；攒几分钟一批） | 新片提醒、同步片单 | |
 | `library.item.deleted` | 一部作品在某个库里的文件全部删除 | 删片联动：删订阅、删种子 | 示例 `delete_cascade.py`；种子按 `files[].id` 调 `dl.file-sources.list` 查 |
 | `library.file.deleted` | 部分文件被删（删了几集） | 同上，部分删除 | 同上 |

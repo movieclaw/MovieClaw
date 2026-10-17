@@ -31,6 +31,7 @@ from movieclaw_api.settings.base import (
     register_setting,
 )
 from movieclaw_api.settings.cloud import CloudSetting, PushChannelsSetting
+from movieclaw_api.settings.drives import DriveReleaseSetting
 from movieclaw_api.settings.llm import LlmDefaultsSetting
 from movieclaw_api.settings.mcp import McpEndpoint, McpEndpointsSetting
 from movieclaw_api.settings.metadata import (
@@ -114,6 +115,7 @@ __all__ = [
     "MAX_REMOTE_TRANSCODE_ARTIFACT_BYTES",
     # MovieClaw Cloud 与 App 推送通道
     "CloudSetting",
+    "DriveReleaseSetting",
     "PushChannelsSetting",
     "BUILTIN_EGRESS_SERVICES",
     # AI 设定（各用途默认模型、网页搜索）

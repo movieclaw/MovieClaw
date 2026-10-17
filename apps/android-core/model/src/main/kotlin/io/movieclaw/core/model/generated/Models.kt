@@ -1591,6 +1591,10 @@ data class LibraryView(
      */
     @SerialName("realtime_watch") val realtimeWatch: Boolean = false,
     /**
+     * 主根在网盘时本地也保留一份（上传后不腾空本地）
+     */
+    @SerialName("keep_local") val keepLocal: Boolean? = null,
+    /**
      * 任一根路径落在网络挂载（NFS/SMB/fuse）上。这种库实时监控收不到远端变更，新文件靠定期对账发现——界面据此把话说清楚，而不是让开关看起来有效
      */
     @SerialName("network_mount") val networkMount: Boolean = false,

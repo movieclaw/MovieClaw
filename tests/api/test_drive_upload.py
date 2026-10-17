@@ -566,3 +566,184 @@ def test_recheck_keeps_uploaded_local_rows_and_reuploads_lost_ones(client, tmp_p
     assert isinstance(outcome, dict) and outcome["uploaded"] == 1
     rows = replicas(client, library_id)
     assert rows["a.mkv"]["state"] == "verified" and rows["a.mkv"]["remote_id"] != gone
+
+
+# ---------------------------------------------------------------------- 腾空本地（§6）
+
+
+async def _set_probed(file_id: int, **extra) -> None:
+    """测试用的字节不是真视频，规格探不出来：直接写上规格（规格闸门）。"""
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import LibraryFile
+
+    async with get_database().session() as session:
+        row = await session.get(LibraryFile, file_id)
+        row.probe_version = 99
+        row.audio_streams = []
+        row.video_codec = "h264"
+        for key, value in extra.items():
+            setattr(row, key, value)
+        session.add(row)
+        await session.commit()
+
+
+async def _set_library(library_id: int, **values) -> None:
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import Library
+
+    async with get_database().session() as session:
+        row = await session.get(Library, library_id)
+        for key, value in values.items():
+            setattr(row, key, value)
+        session.add(row)
+        await session.commit()
+
+
+def _uploaded(client: TestClient, tmp_path: Path, monkeypatch, files: dict[str, bytes]) -> int:
+    _pause_auto_uploads(client, monkeypatch)
+    library_id = _library(client, tmp_path, files)
+    _wait(lambda: len(replicas(client, library_id)) == len(files))
+    _wait(lambda: not client.get(f"/api/v1/libraries/{library_id}").json()["data"]["scanning"])
+    _progress, outcome = call(client, _run_job, library_id)
+    assert isinstance(outcome, dict) and outcome["uploaded"] == len(files), outcome
+    return library_id
+
+
+def test_release_waits_for_gates_then_frees_local_bytes(client, tmp_path, monkeypatch):
+    from movieclaw_api.services.drives import release, sources
+
+    data = _blob(10, 2 * PART)
+    library_id = _uploaded(client, tmp_path, monkeypatch, {"电影/a.mkv": data})
+    row = replicas(client, library_id)["a.mkv"]
+    local = tmp_path / "staging" / "电影" / "a.mkv"
+    # 规格还没探出来（字节不是真视频）：上传后没有当场腾空
+    assert local.exists() and row["local_bytes"] is True
+    assert call(client, release.try_release, row["id"]) == "规格还没探出来"
+
+    call(client, _set_probed, row["id"])
+    # 有人在直出看这个本地文件：先不动
+    release.note_read(row["id"])
+    assert call(client, release.try_release, row["id"]) == "有人正在读这个文件"
+    release._reads.clear()
+    # 开着「本地也保留一份」：不腾空
+    call(client, _set_library, library_id, keep_local=True)
+    assert "保留" in call(client, release.try_release, row["id"])
+    call(client, _set_library, library_id, keep_local=False)
+
+    assert call(client, release.try_release, row["id"]) is None
+    rows = replicas(client, library_id)
+    assert rows["a.mkv"]["local_bytes"] is False and not local.exists()
+    # 之后读网盘：登记进了读字节入口
+    assert sources.cloud_file(str(local)) is not None
+    # 实时监控 / 对账看到本地没了：不标缺失
+    from movieclaw_api.services.library.scan import scan_library
+
+    summary = call(client, scan_library, library_id, backfill_existing_specs=False)
+    assert summary.marked_missing == 0
+    assert replicas(client, library_id)["a.mkv"]["local_bytes"] is False
+
+    # 用户把文件拷回原位：字节回到本地，播放读本地
+    local.write_bytes(data)
+    call(client, scan_library, library_id, backfill_existing_specs=False)
+    assert replicas(client, library_id)["a.mkv"]["local_bytes"] is True
+    assert sources.cloud_file(str(local)) is None
+
+
+def test_release_rechecks_local_and_remote_and_times_out_gates(client, tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    from movieclaw_api.services.drives import release
+
+    library_id = _uploaded(
+        client, tmp_path, monkeypatch, {"a.mkv": _blob(11, PART), "b.mkv": _blob(12, PART)}
+    )
+    rows = replicas(client, library_id)
+    a, b = rows["a.mkv"], rows["b.mkv"]
+    # a：本地在指纹之后被改过
+    call(client, _set_probed, a["id"])
+    with (tmp_path / "staging" / "a.mkv").open("ab") as fh:
+        fh.write(b"!")
+    assert call(client, release.try_release, a["id"]) == "本地文件在指纹之后变过"
+    # b：网盘上那份没了
+    call(client, _set_probed, b["id"])
+    edit_drive(client, lambda d: d["files"].pop(b["remote_id"]))
+    assert call(client, release.try_release, b["id"]).startswith("网盘那份核对不了")
+    assert (tmp_path / "staging" / "b.mkv").exists()
+
+    # 派生活等太久：副本核验满 24 小时照常腾空（没做完的以后远程补）
+    c_lib = library_id
+    edit_drive(client, lambda d: None)
+
+    async def age(file_id: int) -> None:
+        from movieclaw_db.engine import get_database
+        from movieclaw_db.models import LibraryFile
+        from movieclaw_db.models.base import utcnow
+        from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
+
+        async with get_database().session() as session:
+            replica = await LibraryCloudRepository(session).replica_of(file_id)
+            replica.verified_at = utcnow() - release.GATE_TIMEOUT - timedelta(minutes=1)
+            session.add(replica)
+            row = await session.get(LibraryFile, file_id)
+            row.probe_version = None
+            session.add(row)
+            await session.commit()
+
+    (tmp_path / "staging" / "c.mkv").write_bytes(_blob(13, PART))
+    from movieclaw_api.services.library.scan import scan_library
+
+    call(client, scan_library, c_lib, backfill_existing_specs=False)
+    _progress, outcome = call(client, _run_job, c_lib)
+    c = replicas(client, c_lib)["c.mkv"]
+    assert c["state"] == "verified"
+    call(client, age, c["id"])
+    assert call(client, release.try_release, c["id"]) is None
+    assert not (tmp_path / "staging" / "c.mkv").exists()
+
+
+def test_download_tasks_are_removed_after_release_unless_kept(client, monkeypatch):
+    from movieclaw_api.services import download_tasks, remove_source
+    from movieclaw_api.services.download_sources import FileTorrent
+    from movieclaw_sdk.events import LocalReleased
+
+    def torrent(name: str, **over) -> FileTorrent:
+        values = {
+            "info_hash": name,
+            "downloader_id": 1,
+            "downloader_name": "qb",
+            "title": name,
+            "source": "subscription",
+            "owned_by_movieclaw": True,
+            "hit_and_run": False,
+        }
+        values.update(over)
+        return FileTorrent(**values)
+
+    torrents = [
+        torrent("plain"),
+        torrent("hnr", hit_and_run=True),
+        torrent("foreign", owned_by_movieclaw=False),
+        torrent("pack", other_file_ids=(424242,)),  # 还供着的文件不在库里了（视为已腾空）
+    ]
+
+    async def fake_torrents(_session, _ids):
+        return torrents
+
+    deleted: list[str] = []
+
+    async def fake_delete(_session, *, downloader_id, info_hash, delete_files):
+        assert delete_files is True
+        deleted.append(info_hash)
+
+    monkeypatch.setattr(remove_source, "torrents_for_files", fake_torrents)
+    monkeypatch.setattr(download_tasks, "delete_download_task", fake_delete)
+    event = LocalReleased(library_id=1, file_id=1, bytes=10, hardlinked=True)
+    call(client, remove_source.after_local_released, event)
+    assert deleted == ["plain", "pack"]
+
+    # 设置里关掉：一个都不删
+    deleted.clear()
+    saved = client.put("/api/v1/drives/settings", json={"remove_download_tasks": False})
+    assert saved.status_code == 200 and saved.json()["data"] == {"remove_download_tasks": False}
+    call(client, remove_source.after_local_released, event)
+    assert deleted == []

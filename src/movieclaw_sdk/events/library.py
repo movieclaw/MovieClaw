@@ -125,6 +125,23 @@ LIBRARY_FILES_ADDED = define(
     group="媒体库",
     version="2.0",
 )
+class LocalReleased(Frozen):
+    """库文件已传到网盘并核验，本地那份腾空了（docs/design/cloud-storage.md §6.2）。"""
+
+    library_id: int
+    file_id: int
+    bytes: int
+    """腾出的字节数（硬链接入库时空间要等另一份也删了才回来）。"""
+    hardlinked: bool
+    """删之前这份数据在别处还有硬链接（多半是下载目录里还在做种的那份）。"""
+
+
+LIBRARY_FILE_LOCAL_RELEASED = define(
+    "library.file.local-released",
+    LocalReleased,
+    title="库文件的本地副本已腾空（已在网盘上）",
+    group="媒体库",
+)
 LIBRARY_ITEM_FAVORITED = define(
     "library.item.favorited",
     ItemFavorite,

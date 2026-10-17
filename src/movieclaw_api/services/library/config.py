@@ -402,6 +402,7 @@ class LibraryConfigService:
         access_mode: str | None = None,
         admin_visible: bool | None = None,
         member_ids: list[int] | None = None,
+        keep_local: bool | None = None,
     ) -> Library:
         """更新名称/根路径/收藏范围/可见范围。kind 创建后不可改（订阅按类型挂库）。
 
@@ -439,6 +440,7 @@ class LibraryConfigService:
             auto_series_collections=auto_series_collections,
             access_mode=mode,
             admin_visible=admin_visible,
+            keep_local=keep_local,
         )
         assert updated is not None  # get() 已确认存在
         # 开关切换也走同一次后台差量重建：关掉的库拆监听、打开的库建监听

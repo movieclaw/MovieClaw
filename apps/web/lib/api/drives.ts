@@ -184,3 +184,20 @@ export const listDriveDirs = (accountId: number, parentId = "", path = "") =>
       `/drives/accounts/${accountId}/dirs?${new URLSearchParams({ parent_id: parentId, path })}`,
     ),
   );
+
+/** 网盘的全局选项 */
+export interface DriveSettings {
+  /** 本地腾空后删除对应的下载任务（H&R、非 MovieClaw 投递的种子保留） */
+  remove_download_tasks: boolean;
+}
+
+export const getDriveSettings = () =>
+  unwrap(request<ApiEnvelope<DriveSettings>>("/drives/settings"));
+
+export const updateDriveSettings = (payload: Partial<DriveSettings>) =>
+  unwrap(
+    request<ApiEnvelope<DriveSettings>>("/drives/settings", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  );
