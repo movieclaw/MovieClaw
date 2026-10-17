@@ -1060,6 +1060,14 @@ def refresh_release_forecasts_soon(media_item_ids: set[int]) -> None:
     task.add_done_callback(_refresh_tasks.discard)
 
 
+def _candidate_observed_at(wanted: WantedItem) -> datetime | None:
+    """智能等待里首次观测到候选的时刻；没有候选（或非智能订阅）时为 None。"""
+    state = wanted.selection_state
+    if not isinstance(state, dict):
+        return None
+    return _parse_utc_text(state.get("first_observed_at"))
+
+
 def _forecast_site_probes(
     wanted: WantedItem, *, site_ids: set[str], now: datetime
 ) -> dict[str, list[datetime]]:
@@ -1067,6 +1075,9 @@ def _forecast_site_probes(
 
     探测点按站点窗口现算：当前启用站点里排名第一的走完整计划（窗前/窗内/窗后），
     第二名只在窗口中后段补两次。窗后追踪也结束后，快照不再产生访问。
+
+    已经观测到候选（智能等待中，工单仍是 wanted）时降为首选站每小时一次：资源已经
+    到手，密集探测只剩「等更好的版本」这点价值，交给每小时一次与常规同步即可。
     """
     forecast = wanted.release_forecast
     if not isinstance(forecast, dict):
@@ -1080,6 +1091,7 @@ def _forecast_site_probes(
     if not isinstance(confidence, str) or not isinstance(sites, list):
         return {}
 
+    observed_at = _candidate_observed_at(wanted)
     result: dict[str, list[datetime]] = {}
     eligible_sites = [
         site
@@ -1092,7 +1104,12 @@ def _forecast_site_probes(
         predicted_at = _parse_utc_text(site.get("predicted_at"))
         if start is None or end is None or predicted_at is None:
             continue
-        if rank == 0:
+        if observed_at is not None:
+            if rank > 0:
+                continue
+            last = max(end + _SPARSE_PROBE_STEP * _TAIL_HOURS, observed_at)
+            probes = _dense_points(observed_at + _SPARSE_PROBE_STEP, last, _SPARSE_PROBE_STEP)
+        elif rank == 0:
             probes = _primary_probes(
                 start=start, end=end, predicted_at=predicted_at, confidence=confidence
             )
