@@ -52,6 +52,7 @@ private struct MacPlayerHost: View {
         }
         .ignoresSafeArea()
         .background(MacWindowReader { window.attach($0) })
+        .preference(key: MacWindowMinimumKey.self, value: window.minimumSize)
         .environment(\.colorScheme, .dark)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("mac-player")
@@ -294,23 +295,30 @@ private struct MacPlayerContent: View {
                     skip: { seek(by: $0, flashes: false) }, toggleFullScreen: toggleFullScreen
                 )
                 .overlay(alignment: .bottomTrailing) {
-                    panelView(maxHeight: max(160, min(380, size.height - 260)))
+                    // 面板从胶囊右上角往左上长：宽不超出窗口左边，高不顶出窗口（小窗口里列表自己滚）
+                    panelView(maxWidth: (size.width + panelWidth(size)) / 2 - 12,
+                              maxHeight: max(min(160, size.height - 190), min(380, size.height - 260)))
                         .offset(y: -(MacPlayerMetrics.panelHeight + 10))
                 }
-                .frame(width: max(360, min(size.width - MacPlayerMetrics.panelSideInset * 2, MacPlayerMetrics.panelMaxWidth)))
+                .frame(width: panelWidth(size))
                 .padding(.bottom, MacPlayerMetrics.panelBottom)
             }
         }
     }
 
+    /// 控制胶囊的宽：两侧留窗口宽的 5%（至多 48），最宽 720
+    private func panelWidth(_ size: CGSize) -> CGFloat {
+        max(0, min(size.width - min(MacPlayerMetrics.panelSideInset, size.width * 0.05) * 2, MacPlayerMetrics.panelMaxWidth))
+    }
+
     @ViewBuilder
-    private func panelView(maxHeight: CGFloat) -> some View {
+    private func panelView(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
         switch panel {
         case .tracks:
-            MacTracksPanel(controller: controller, maxHeight: maxHeight) { panel = nil }
+            MacTracksPanel(controller: controller, maxWidth: maxWidth, maxHeight: maxHeight) { panel = nil }
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottomTrailing)))
         case .quality:
-            MacQualityPanel(controller: controller) { panel = nil }
+            MacQualityPanel(controller: controller, maxHeight: maxHeight) { panel = nil }
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottomTrailing)))
         case nil:
             EmptyView()

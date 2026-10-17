@@ -16,6 +16,8 @@ enum MacPlayerPanelKind: Hashable {
 /// 每行还能放一行小字（格式、外挂 / 内封、AI 翻译）
 struct MacTracksPanel: View {
     let controller: PlaybackController
+    /// 小窗口里两栏一起收窄，面板不超出窗口
+    let maxWidth: CGFloat
     let maxHeight: CGFloat
     let close: () -> Void
 
@@ -54,7 +56,12 @@ struct MacTracksPanel: View {
             .frame(maxHeight: maxHeight)
             .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 286)
+        .frame(width: columnWidth)
+    }
+
+    private var columnWidth: CGFloat {
+        let columns: CGFloat = controller.audioOptions.isEmpty ? 1 : 2
+        return max(140, min(286, (maxWidth - (columns - 1)) / columns))
     }
 
     @ViewBuilder
@@ -101,6 +108,7 @@ struct MacTracksPanel: View {
 /// 画质面板：自动 / 1080p / 720p / 480p，每档一行说明。访客分享不出这个面板（服务端按分享的设定给流）
 struct MacQualityPanel: View {
     let controller: PlaybackController
+    let maxHeight: CGFloat
     let close: () -> Void
 
     var body: some View {
@@ -109,17 +117,23 @@ struct MacQualityPanel: View {
                 .font(.system(size: 13, weight: .bold))
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
-            VStack(alignment: .leading, spacing: 1) {
-                ForEach(QualityOption.all) { item in
-                    MacPanelRow(id: "mac-panel-quality-\(item.label)", title: item.label, detail: item.hint,
-                                active: controller.quality == item.maxHeight) {
-                        controller.selectQuality(item.maxHeight)
-                        close()
+            // 小窗口里放不下四档时可滚动
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(QualityOption.all) { item in
+                        MacPanelRow(id: "mac-panel-quality-\(item.label)", title: item.label, detail: item.hint,
+                                    active: controller.quality == item.maxHeight) {
+                            controller.selectQuality(item.maxHeight)
+                            close()
+                        }
                     }
                 }
+                .padding(.horizontal, 6)
+                .padding(.bottom, 8)
             }
-            .padding(.horizontal, 6)
-            .padding(.bottom, 8)
+            .scrollIndicators(.automatic)
+            .frame(maxHeight: maxHeight)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .frame(width: 250)
         .macPlayerPanel()

@@ -5,7 +5,7 @@ import SwiftUI
 // - 底部居中一块两行的液态玻璃面板（排法同 Infuse / QuickTime / IINA 的浮动控制栏）：
 //   上行左边音量（滑条常驻）、正中「上一集 · 后退 10 秒 · 播放 / 暂停 · 前进 10 秒 · 下一集」（上一集 / 下一集只在剧集出现）、
 //   右边音频与字幕、画质、全屏；下行「已播 — 整条进度条（胶囊滑块常驻）— 剩余」。
-//   宽 min(窗口宽 − 96, 720)、高 100、距底 24；材质是标准玻璃（暗画面上略亮、边缘有高光与折射，同 Infuse），
+//   宽 min(窗口宽 − 两侧各 min(48, 窗口宽 5%), 720)（窄窗口里上行依次收起音量滑条、前进后退 10 秒）、高 100、距底 24；材质是标准玻璃（暗画面上略亮、边缘有高光与折射，同 Infuse），
 //   下面垫一层淡的黑色渐变托字。图标大而实，播放键最大。
 // 开关类按钮的状态不只靠颜色（吸取 Apple Music 胶囊的教训）：字幕开着用实心气泡，关着用空心。
 
@@ -15,7 +15,7 @@ enum MacPlayerMetrics {
     static let panelMaxWidth: CGFloat = 720
     static let panelBottom: CGFloat = 24
     static let panelCorner: CGFloat = 22
-    /// 面板两侧至少留的窗口边距（合计 96）
+    /// 面板两侧留的窗口边距上限（窄窗口按窗口宽的 5%）
     static let panelSideInset: CGFloat = 48
     /// 面板顶边距窗口底边：字幕要抬到它上面
     static var chromeHeight: CGFloat { panelBottom + panelHeight + 12 }
@@ -157,44 +157,30 @@ struct MacPlayerTransport: View {
         let duration = controller.timelineDurationMs ?? 0
         let position = controller.timelineMs(fromFileMs: scrubMs ?? controller.positionMs)
         VStack(spacing: 0) {
-            // 上行：两侧等宽，播放键永远在正中
-            HStack(spacing: 0) {
-                MacVolumeControl(volume: volume)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                HStack(spacing: 22) {
-                    if controller.unit.isEpisode {
-                        MacPlayerIconButton(symbol: "backward.end.fill", size: 17, help: "上一集（⌘←）", id: "mac-player-previous") {
-                            controller.playPrevious()
-                        }
-                        .disabled(controller.previousEpisode == nil)
-                    }
-                    MacPlayerIconButton(symbol: "gobackward.10", size: 21, help: "后退 10 秒（←）", id: "mac-player-back10") { skip(-10) }
-                    MacPlayerIconButton(symbol: playSymbol, size: 30, diameter: 48,
-                                        help: controller.paused ? "播放（空格）" : "暂停（空格）",
-                                        id: "mac-player-play", action: togglePlay)
-                        .accessibilityLabel(controller.paused ? "播放" : "暂停")
-                    MacPlayerIconButton(symbol: "goforward.10", size: 21, help: "前进 10 秒（→）", id: "mac-player-fwd10") { skip(10) }
-                    if controller.unit.isEpisode {
-                        MacPlayerIconButton(symbol: "forward.end.fill", size: 17, help: "下一集（⌘→）", id: "mac-player-next") {
-                            controller.noteUserActivity()
-                            controller.playNext()
-                        }
-                        .disabled(controller.nextEpisode == nil)
-                    }
+            // 上行：两侧等宽，播放键永远在正中。窗口窄到放不下时依次收起音量滑条、前进后退 10 秒（键盘照样能用），
+            // 两侧不再强求等宽
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 0) {
+                    MacVolumeControl(volume: volume)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    centerButtons(skips: true)
+                    trailingButtons
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
-                HStack(spacing: 6) {
-                    MacPlayerIconButton(symbol: controller.selectedSubtitle == nil ? "captions.bubble" : "captions.bubble.fill",
-                                        size: 18, help: "字幕与音轨", id: "mac-player-tracks", active: panel == .tracks) {
-                        panel = panel == .tracks ? nil : .tracks
-                    }
-                    if controller.scope.shareSlug == nil {
-                        qualityButton
-                    }
-                    MacPlayerIconButton(symbol: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                                        size: 17, help: isFullScreen ? "退出全屏（F）" : "全屏（F）", id: "mac-player-fullscreen",
-                                        action: toggleFullScreen)
+                HStack(spacing: 8) {
+                    MacVolumeControl(volume: volume, showsSlider: false)
+                    Spacer(minLength: 0)
+                    centerButtons(skips: true)
+                    Spacer(minLength: 0)
+                    trailingButtons
                 }
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                HStack(spacing: 8) {
+                    MacVolumeControl(volume: volume, showsSlider: false)
+                    Spacer(minLength: 0)
+                    centerButtons(skips: false)
+                    Spacer(minLength: 0)
+                    trailingButtons
+                }
             }
             .frame(height: 54)
 
@@ -229,6 +215,51 @@ struct MacPlayerTransport: View {
         .glassEffect(.regular, in: .rect(cornerRadius: MacPlayerMetrics.panelCorner))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("mac-player-transport")
+    }
+
+    /// 正中：上一集 · 后退 10 秒 · 播放 / 暂停 · 前进 10 秒 · 下一集
+    private func centerButtons(skips: Bool) -> some View {
+        HStack(spacing: 22) {
+            if controller.unit.isEpisode {
+                MacPlayerIconButton(symbol: "backward.end.fill", size: 17, help: "上一集（⌘←）", id: "mac-player-previous") {
+                    controller.playPrevious()
+                }
+                .disabled(controller.previousEpisode == nil)
+            }
+            if skips {
+                MacPlayerIconButton(symbol: "gobackward.10", size: 21, help: "后退 10 秒（←）", id: "mac-player-back10") { skip(-10) }
+            }
+            MacPlayerIconButton(symbol: playSymbol, size: 30, diameter: 48,
+                                help: controller.paused ? "播放（空格）" : "暂停（空格）",
+                                id: "mac-player-play", action: togglePlay)
+                .accessibilityLabel(controller.paused ? "播放" : "暂停")
+            if skips {
+                MacPlayerIconButton(symbol: "goforward.10", size: 21, help: "前进 10 秒（→）", id: "mac-player-fwd10") { skip(10) }
+            }
+            if controller.unit.isEpisode {
+                MacPlayerIconButton(symbol: "forward.end.fill", size: 17, help: "下一集（⌘→）", id: "mac-player-next") {
+                    controller.noteUserActivity()
+                    controller.playNext()
+                }
+                .disabled(controller.nextEpisode == nil)
+            }
+        }
+    }
+
+    /// 右边：音频与字幕、画质、全屏
+    private var trailingButtons: some View {
+        HStack(spacing: 6) {
+            MacPlayerIconButton(symbol: controller.selectedSubtitle == nil ? "captions.bubble" : "captions.bubble.fill",
+                                size: 18, help: "字幕与音轨", id: "mac-player-tracks", active: panel == .tracks) {
+                panel = panel == .tracks ? nil : .tracks
+            }
+            if controller.scope.shareSlug == nil {
+                qualityButton
+            }
+            MacPlayerIconButton(symbol: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                                size: 17, help: isFullScreen ? "退出全屏（F）" : "全屏（F）", id: "mac-player-fullscreen",
+                                action: toggleFullScreen)
+        }
     }
 
     private var playSymbol: String {
@@ -315,6 +346,8 @@ struct MacPlayerButtonStyle: ButtonStyle {
 /// 音量：喇叭图标（点一下静音）+ 常驻滑条（白色胶囊滑块，同 Infuse）
 struct MacVolumeControl: View {
     @Bindable var volume: MacPlayerVolume
+    /// 窄窗口里收起滑条，只留喇叭（音量照样能用 ↑ ↓ 调）
+    var showsSlider = true
 
     private static let sliderWidth: CGFloat = 100
 
@@ -323,7 +356,7 @@ struct MacVolumeControl: View {
             MacPlayerIconButton(symbol: volume.symbol, size: 17, help: volume.muted ? "取消静音（M）" : "静音（M）",
                                 id: "mac-player-mute") { volume.toggleMute() }
                 .accessibilityValue(volume.muted ? "已静音" : "\(Int(volume.level * 100))%")
-            slider
+            if showsSlider { slider }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("mac-player-volume")

@@ -60,7 +60,11 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
 
 /// 按 `AppModel.phase` 切换顶层界面：欢迎（连接、登录、选人）或主界面。
 struct MacRootView: View {
+    /// 主界面的窗口最小尺寸；播放时由播放器换成按画面比例算的小尺寸（`MacWindowMinimumKey`）
+    static let minimumSize = CGSize(width: 960, height: 600)
+
     @Environment(AppModel.self) private var model
+    @State private var playerMinimum: CGSize?
 
     var body: some View {
         Group {
@@ -78,7 +82,8 @@ struct MacRootView: View {
                 MacMainView(accountKey: "\(model.server?.origin.absoluteString ?? "")#\(session.username)")
             }
         }
-        .frame(minWidth: 960, minHeight: 600)
+        .onPreferenceChange(MacWindowMinimumKey.self) { playerMinimum = $0 }
+        .frame(minWidth: (playerMinimum ?? Self.minimumSize).width, minHeight: (playerMinimum ?? Self.minimumSize).height)
         .background(Theme.background)
         .animation(.default, value: model.phase)
         .task {
