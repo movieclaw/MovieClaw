@@ -1,0 +1,9 @@
+/node_modules
+/oh_modules
+/.preview
+/build
+/.cxx
+/.test
+
+# hvigorfile.ts 在 debug 构建时从 HermonyOS/.env 生成，内含调试凭据，不入库
+/src/main/ets/common/DevConfig.ets
