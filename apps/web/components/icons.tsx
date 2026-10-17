@@ -478,6 +478,15 @@ export const CloudIcon = (p: IconProps) => (
   </Base>
 );
 
+/** 网盘：媒体库放在网盘上（与 MovieClaw Cloud 的云区分：云下面一块盘） */
+export const CloudDriveIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M16.5 12H9a5 5 0 1 1 4.8-6.4h1.2a3.2 3.2 0 1 1 1.5 6.4Z" />
+    <rect x="4" y="15" width="16" height="5" rx="1.5" />
+    <path d="M7.5 17.5h.01" />
+  </Base>
+);
+
 export const GlobeIcon = (p: IconProps) => (
   <Base {...p}>
     <circle cx="12" cy="12" r="9" />

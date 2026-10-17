@@ -26,6 +26,7 @@ import { McpSection } from "@/components/mcp-section";
 import { MembersSection } from "@/components/members-section";
 import { AiSettingsSection } from "@/components/ai-settings-section";
 import { LlmConfigSection } from "@/components/llm-config-section";
+import { DrivesSection } from "@/components/drives-section";
 import { ImPushSection } from "@/components/im-push-section";
 import { NetworkConfigSection } from "@/components/network-config-section";
 import { NotificationsSection } from "@/components/notifications-section";
@@ -69,6 +70,7 @@ import { normalizeThemeId, THEMES } from "@/lib/themes";
 import { useSession } from "@/lib/session";
 import { applyNavOrder, mergeNavOrder, sameNavOrder } from "@/lib/sidebar-nav";
 import { settingsSectionGroupsFor, settingsSections } from "@/lib/mock-data";
+import { useActiveExtensionPoints } from "@/lib/use-extension-points";
 import { useTheme, useUiPrefs } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useResolvedTheme } from "@/themes/registry";
@@ -88,7 +90,8 @@ export function SettingsSidebar({ active, onSelect, onBack }: SettingsSidebarPro
   const { backdrop } = useBackdrop();
   // 成员只看到「账号」组（个人信息/设备/通知/外观）；管理分区后端一律 403，前端不给入口
   const { session } = useSession();
-  const sectionGroups = settingsSectionGroupsFor(session.role);
+  const extensionPoints = useActiveExtensionPoints(session.role === "admin");
+  const sectionGroups = settingsSectionGroupsFor(session.role, extensionPoints);
   // 与工作台侧栏共用同一份用户偏好（透明度/明暗）；外观分区拖动滑杆时，
   // 这块面板就是实时预览的对象。
   const { prefs } = useUiPrefs();
@@ -172,7 +175,7 @@ export function SettingsPanel({ active, item }: SettingsPanelProps) {
   // 银玻璃无分区菜单，居中即全宽居中（mx-auto px-6）。分区菜单固定 300px 宽
   // （见 app-shell 的设置分支），列不与菜单重叠
   const isNf = useTheme().structural;
-  const allowed = settingsSectionGroupsFor(session.role).flatMap((g) => g.items);
+  const allowed = settingsSectionGroupsFor(session.role, "all").flatMap((g) => g.items);
   const section =
     allowed.find((s) => s.id === active) ?? allowed[0] ?? settingsSections[0];
   const Icon = section.icon;
@@ -252,6 +255,8 @@ export function SettingsPanel({ active, item }: SettingsPanelProps) {
           <ScrapeSettingsSection />
         ) : section.id === "playback" ? (
           <PlaybackSection />
+        ) : section.id === "drives" ? (
+          <DrivesSection />
         ) : section.id === "llm" ? (
           <LlmConfigSection />
         ) : section.id === "ai" ? (

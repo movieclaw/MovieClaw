@@ -1,0 +1,165 @@
+import { request } from "@/lib/http";
+
+/** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
+interface ApiEnvelope<T> {
+  success: boolean;
+  code: string;
+  message: string;
+  data: T;
+}
+
+async function unwrap<T>(promise: Promise<ApiEnvelope<T>>): Promise<T> {
+  return (await promise).data;
+}
+
+// ---------------------------------------------------------------------------
+// 网盘（见 api/routes/drives.py；网盘来自存储插件，设置页按插件声明的登录方式通用渲染）
+// docs/design/cloud-storage.md §11
+// ---------------------------------------------------------------------------
+
+export interface DriveLoginChoice {
+  value: string;
+  label: string;
+  /** 选项的补充说明（如「会与浏览器互踢」） */
+  help: string;
+}
+
+export interface DriveLoginOption {
+  key: string;
+  label: string;
+  default: string;
+  help: string;
+  choices: DriveLoginChoice[];
+}
+
+/** 一种可用的网盘（有插件提供后端）。 */
+export interface DriveBackend {
+  type: string;
+  title: string;
+  description: string;
+  /** 图标主题色；空 = 默认色 */
+  accent_color: string;
+  capabilities: {
+    writable: boolean;
+    rapid_upload_hashes: string[];
+    list_hashes: boolean;
+    change_feed: boolean;
+    original_link: boolean;
+    recycle_bin: boolean;
+    default_qps: number;
+    default_daily_budget: number;
+    default_read_slots: number;
+  };
+  login: {
+    scan: boolean;
+    /** 支持用浏览器扩展导入 / 粘贴 Cookie */
+    cookie: boolean;
+    cookie_domains: string[];
+    options: DriveLoginOption[];
+    hint: string;
+  };
+}
+
+export type DriveAccountStatus = "ok" | "auth_expired" | "rate_limited" | "api_broken" | "disabled";
+
+export interface DriveAccount {
+  id: number;
+  backend: string;
+  /** 网盘名；插件不在时就是类型值 */
+  backend_title: string;
+  /** 提供这种网盘的插件在运行 */
+  backend_available: boolean;
+  accent_color: string;
+  name: string;
+  login_method: "scan" | "cookie";
+  /** 登录细节（如扫码选的登录端、「网页端」） */
+  login_detail: string | null;
+  status: DriveAccountStatus;
+  status_message: string | null;
+  /** 限流的恢复时间 */
+  status_until: string | null;
+  /** 生效值（用户没改过就是插件默认值） */
+  qps: number;
+  daily_budget: number;
+  read_slots: number;
+  qps_custom: boolean;
+  daily_budget_custom: boolean;
+  read_slots_custom: boolean;
+  /** 今天已用的接口调用次数 */
+  used_today: number;
+  vip: string | null;
+  quota_total: number | null;
+  quota_used: number | null;
+  profile_at: string | null;
+  created_at: string;
+}
+
+export type DriveLoginStatus = "pending" | "scanned" | "confirmed" | "expired" | "failed";
+
+export interface DriveLogin {
+  login_id: string;
+  backend: string;
+  status: DriveLoginStatus;
+  message: string;
+  /** 二维码图片（data URL）；结束后为空 */
+  qr_image: string;
+  account: DriveAccount | null;
+  /** confirmed 时：新账号（否则是重新登录了已有账号） */
+  created: boolean;
+}
+
+export const listDriveBackends = () =>
+  unwrap(request<ApiEnvelope<DriveBackend[]>>("/drives/backends"));
+
+export const listDriveAccounts = () =>
+  unwrap(request<ApiEnvelope<DriveAccount[]>>("/drives/accounts"));
+
+export const startDriveLogin = (backend: string, options: Record<string, string>) =>
+  unwrap(
+    request<ApiEnvelope<DriveLogin>>("/drives/logins", {
+      method: "POST",
+      body: JSON.stringify({ backend, options }),
+    }),
+  );
+
+export const getDriveLogin = (loginId: string) =>
+  unwrap(request<ApiEnvelope<DriveLogin>>(`/drives/logins/${encodeURIComponent(loginId)}`));
+
+export const cancelDriveLogin = (loginId: string) =>
+  unwrap(
+    request<ApiEnvelope<{ cancelled: boolean }>>(
+      `/drives/logins/${encodeURIComponent(loginId)}`,
+      { method: "DELETE" },
+    ),
+  );
+
+export const importDriveCookie = (backend: string, cookie: string) =>
+  unwrap(
+    request<ApiEnvelope<DriveLogin>>("/drives/accounts/cookie", {
+      method: "POST",
+      body: JSON.stringify({ backend, cookie }),
+    }),
+  );
+
+export interface DriveAccountUpdate {
+  name?: string;
+  qps?: number;
+  daily_budget?: number;
+  read_slots?: number;
+  /** 回到插件默认值的字段 */
+  reset?: ("qps" | "daily_budget" | "read_slots")[];
+}
+
+export const updateDriveAccount = (id: number, payload: DriveAccountUpdate) =>
+  unwrap(
+    request<ApiEnvelope<DriveAccount>>(`/drives/accounts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  );
+
+export const refreshDriveAccount = (id: number) =>
+  unwrap(request<ApiEnvelope<DriveAccount>>(`/drives/accounts/${id}/refresh`, { method: "POST" }));
+
+export const deleteDriveAccount = (id: number) =>
+  unwrap(request<ApiEnvelope<{ removed: boolean }>>(`/drives/accounts/${id}`, { method: "DELETE" }));

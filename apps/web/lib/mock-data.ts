@@ -10,6 +10,7 @@ import {
   BookmarkIcon,
   ChatBubblesIcon,
   CloudIcon,
+  CloudDriveIcon,
   SparklesIcon,
   LaptopPhoneIcon,
   DownloadCircleIcon,
@@ -111,7 +112,15 @@ export interface SettingsSection {
   label: string;
   description: string;
   icon: Icon;
+  /**
+   * 依赖的扩展点：只有这个扩展点有插件登记（或已有它的数据）时才在侧栏出现
+   * （docs/design/cloud-storage.md §11.7）。插件驱动的分区都用这个条件，网盘是第一个。
+   */
+  requires?: ExtensionPoint;
 }
+
+/** 设置分区可以依赖的扩展点（值与后端注册表名一致） */
+export type ExtensionPoint = "drive-backends";
 
 /** 设置分区的分组：侧栏按组渲染小节标题，组内顺序即展示顺序 */
 export interface SettingsSectionGroup {
@@ -191,6 +200,13 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
     items: [
       { id: "scrape", label: "刮削与整理", description: "海报、简介、命名与目录整理的全局默认", icon: PhotosStackIcon },
       { id: "playback", label: "播放", description: "远程转码与播放体验", icon: PlayRectangleIcon },
+      {
+        id: "drives",
+        label: "网盘",
+        description: "网盘账号：媒体库可以放在网盘上",
+        icon: CloudDriveIcon,
+        requires: "drive-backends",
+      },
     ],
   },
   {
@@ -251,11 +267,23 @@ const MEMBER_SECTION_IDS = new Set(["profile", "devices", "notifications", "appe
  * 按角色过滤设置分区分组：管理员全量；成员只剩「账号」组的个人分区
  * （个人信息、自己的设备、通知、外观；概览呈现的是全局配置健康，属管理员视角，成员不可见）。
  * 这只是界面裁剪——安全边界在后端的 require_admin / 守护测试。
+ *
+ * ``active`` 是当前有登记的扩展点：依赖扩展点的分区只在扩展点有登记时出现；传 ``"all"`` 不按扩展点
+ * 过滤（直接打开分区地址时照常进得去，不因为还没查完扩展点就跳走）。
  */
 export function settingsSectionGroupsFor(
   role: "admin" | "member",
+  active: ReadonlySet<ExtensionPoint> | "all" = new Set(),
 ): SettingsSectionGroup[] {
-  if (role === "admin") return settingsSectionGroups;
+  if (role === "admin") {
+    if (active === "all") return settingsSectionGroups;
+    return settingsSectionGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((s) => s.requires == null || active.has(s.requires)),
+      }))
+      .filter((group) => group.items.length > 0);
+  }
   return settingsSectionGroups
     .map((group) => ({
       ...group,

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { ChevronRightIcon } from "@/components/icons";
 import { settingsSectionGroupsFor } from "@/lib/mock-data";
+import { useActiveExtensionPoints } from "@/lib/use-extension-points";
 import { useSession } from "@/lib/session";
 import { useTheme } from "@/lib/ui-prefs";
 
@@ -29,7 +30,8 @@ export function SettingsIndex() {
   // 银玻璃不再单列「个人信息」：入口统一为「我的」页的头像卡（同原生 App 的设置目录），
   // /settings/profile 深链照常可用；Netflix 的「我的」页没有头像卡入口，保留这一行
   const isNetflix = useTheme().structural;
-  const groups = settingsSectionGroupsFor(session.role)
+  const extensionPoints = useActiveExtensionPoints(session.role === "admin");
+  const groups = settingsSectionGroupsFor(session.role, extensionPoints)
     .map((group) =>
       isNetflix ? group : { ...group, items: group.items.filter((s) => s.id !== "profile") },
     )
