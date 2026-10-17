@@ -251,6 +251,9 @@ async def dispatch(
         except Exception as exc:  # noqa: BLE001 -- 投递失败退回调度通道重试
             reason = f"{type(exc).__name__}: {exc}"
             if intent is not None:
+                from movieclaw_api.services.subscription.file_selection import (
+                    UnsatisfiableSelection,
+                )
                 from movieclaw_api.services.subscription.smart_submission import (
                     SubmissionRejected,
                     reject_intent,
@@ -259,6 +262,58 @@ async def dispatch(
                 if isinstance(exc, SubmissionRejected):
                     await reject_intent(session, intent, all_targets, reason)
                     return False
+                if isinstance(exc, UnsatisfiableSelection):
+                    # 文件清单的结论不会因重试改变：给满足不了的单元一个终态
+                    from movieclaw_api.services.subscription.core import (
+                        recompute_subscription_status,
+                    )
+                    from movieclaw_api.services.subscription.smart_submission import (
+                        settle_unsatisfiable,
+                    )
+
+                    released = await settle_unsatisfiable(session, intent, all_targets, exc)
+                    if released:
+                        await repo.add_activity(
+                            SubscriptionActivity(
+                                subscription_id=subscription.id,
+                                wanted_item_id=released[0].id,
+                                type=ActivityType.DISPATCH_FAILED,
+                                message=(
+                                    f"{units_text(released)}无法从「{candidate.title}」获取：{exc}；"
+                                    "已改为寻找其他资源，不再用这份资源补这些集"
+                                ),
+                                payload={
+                                    "site_id": candidate.site_id,
+                                    "torrent_id": candidate.torrent_id,
+                                    "source": source,
+                                },
+                            )
+                        )
+                    await session.commit()
+                    await recompute_subscription_status(session, subscription, item)
+                    await session.commit()
+                    logger.warning(
+                        "智能投递 #%s 无法满足 %s：%s",
+                        intent.id,
+                        units_text(released) if released else "（无）",
+                        exc,
+                    )
+                    return False
+                from movieclaw_api.services.subscription.smart_submission import (
+                    SMART_RECOVER_BASE_DELAY,
+                    SMART_RECOVER_MAX_DELAY,
+                )
+
+                payload = dict(intent.submission or {})
+                failures = int(payload.get("recover_failures", 0)) + 1
+                retry_after = min(
+                    SMART_RECOVER_BASE_DELAY * 2 ** (failures - 1), SMART_RECOVER_MAX_DELAY
+                )
+                intent.submission = {
+                    **payload,
+                    "recover_failures": failures,
+                    "retry_at": (utcnow() + retry_after).isoformat(),
+                }
                 intent.updated_at = utcnow()
                 intent.cleanup_note = f"提交待恢复：{reason}"
                 for row in all_targets:
@@ -271,7 +326,13 @@ async def dispatch(
                         ),
                     }
                 await session.commit()
-                logger.warning("智能投递待对账 #%s：%s", intent.id, reason)
+                logger.warning(
+                    "智能投递待对账 #%s（第 %d 次，%d 分钟后重试）：%s",
+                    intent.id,
+                    failures,
+                    int(retry_after.total_seconds() // 60),
+                    reason,
+                )
                 return False
             await _rollback_claim(session, claimed, retry_delay=DISPATCH_RETRY_DELAY)
             await repo.add_activity(

@@ -99,6 +99,7 @@ nonisolated struct SmartSelection {
         case "manual_requested": return ("选择中", "已请求立即下载，正在核验当前候选")
         case "manual_candidate_unavailable": return ("选择中", "指定候选已不可用，正在重新选择")
         case "reconciling": return ("待核对", "正在核对提交结果，系统会恢复同一任务")
+        case "candidate_rejected": return ("寻找中", "所选资源无法提供这一集，已改为寻找其他资源")
         case "submitting": return ("提交中", "正在提交所选资源")
         case "deadline_fallback": return ("选择中", "等待上限已到，正在选择当前合格版本")
         case "published_window_elapsed": return ("选择中", "资源已发布一段时间，正在选择当前合格版本")

@@ -31,6 +31,7 @@ struct SmartSubscriptionTests {
         #expect(SmartSelection(try wanted(state: ["reason": "no_candidate"])) == nil)
         #expect(SmartSelection(try wanted(state: ["reason": "observing"])) == nil)
         #expect(SmartSelection(try wanted(state: ["reason": "reconciling"]))?.presentation.label == "待核对")
+        #expect(SmartSelection(try wanted(state: ["candidate_key": "site/1", "reason": "candidate_rejected"]))?.presentation.label == "寻找中")
         #expect(SmartSelection(try wanted(state: ["reason": "submitting"]))?.presentation.label == "提交中")
         #expect(SmartSelection(try wanted(state: ["reason": "manual_candidate_unavailable"]))?.presentation.label == "选择中")
     }

@@ -444,6 +444,25 @@ async def test_declared_total_pack_covers_placeholders(db) -> None:
         assert all(w.status == WantedStatus.GRABBED for w in wanted.values())
 
 
+@pytest.mark.parametrize(
+    "attrs",
+    [
+        {"seasons": [1], "complete": True, "episodes_total": 4},
+        {"complete": True, "episodes_total": 4},
+    ],
+)
+async def test_declared_total_caps_pack_coverage(db, attrs) -> None:
+    """「全 N 集」也是上限：全 4 集的包不能满足 E05/E06（真实现场：全 8 集
+    的同名剧整季包被展开到 13 集纪录片订阅的 E09～E13，智能投递对账空转）。"""
+    async with db.session() as session:
+        sub = await _service(session).create(MediaKind.TV, 640, selected_seasons=[1])
+        pack = await _torrent(session, "pack4", "Death Row Is Coming S01 全4集 1080p WEB-DL", attrs)
+        await evaluate_and_dispatch(session, [pack], source="被动匹配")
+        wanted = await _wanted(session, sub.id)
+        assert all(wanted[(1, n)].status == WantedStatus.GRABBED for n in range(1, 5))
+        assert all(wanted[(1, n)].status == WantedStatus.WANTED for n in (5, 6))
+
+
 async def test_undeclared_season_pack_leaves_placeholders(db) -> None:
     """没写总集数的整季包：说不清有没有第 7 集以后，只满足 TMDB 已录的集。"""
     async with db.session() as session:

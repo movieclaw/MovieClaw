@@ -613,6 +613,12 @@ def covered_units(
         total = match.declared_total
         return w.air_date is None and total is not None and 0 < w.episode_number <= total
 
+    def _beyond_declared(w: WantedItem) -> bool:
+        # 「全 N 集」也是上限：包里不可能有第 N+1 集。真实教训：全 8 集的同名剧
+        # 整季包被展开到 13 集的纪录片订阅上，E09~E13 永远选不到文件、对账空转
+        total = match.declared_total
+        return total is not None and total > 0 and w.episode_number > total
+
     if match.is_complete_series:
         # 全集包不承诺特别篇（season 0 的具体集）：市面上的"全集/合集"几乎
         # 从不收录 SP/短剧集，赌它包含的代价是工单挂上一个永远等不来的种子
@@ -625,6 +631,7 @@ def covered_units(
             w
             for w in open_units.values()
             if not (w.season_number == 0 and w.episode_number > 0)
+            and not (single_season and _beyond_declared(w))
             and (
                 _airable(w, require_dated=True)
                 or (single_season and w.season_number != 0 and _declared(w))
@@ -642,6 +649,7 @@ def covered_units(
             for (season, _), w in open_units.items()
             if season in match.pack_seasons
             and w not in result
+            and not (single_pack and _beyond_declared(w))
             and (_airable(w, require_dated=True) or (single_pack and _declared(w)))
         )
     return result

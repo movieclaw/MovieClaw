@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from pydantic import TypeAdapter
 from sqlalchemy import update
@@ -48,6 +48,9 @@ async def recover_submissions(session, *, now=None):
         payload = intent.submission
         if not payload:
             continue
+        retry_at = payload.get("retry_at")
+        if retry_at and datetime.fromisoformat(retry_at) > now:
+            continue  # 上次恢复失败，退避中
         subscription = await session.get(Subscription, intent.subscription_id)
         if subscription is None:
             continue

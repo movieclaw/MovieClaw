@@ -466,6 +466,11 @@ test("智能等待、用户延期与提交核对在原分集行表达", () => {
   row.selection_state.reason = "reconciling";
   row.selection_state.candidate_key = null;
   assert.equal(smartWantedPresentation(row).label, "待核对");
+  Object.assign(row.selection_state, { reason: "candidate_rejected", candidate_key: "a/1" });
+  assert.deepEqual(
+    [smartWantedPresentation(row).label, smartWantedPresentation(row).note],
+    ["寻找中", "所选资源无法提供这一集，已改为寻找其他资源"],
+  );
 });
 
 

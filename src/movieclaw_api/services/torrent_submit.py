@@ -322,6 +322,10 @@ async def submit_torrent(
                 known_seasons=known_seasons,
             )
     except Exception as exc:
+        from movieclaw_api.services.subscription.file_selection import UnsatisfiableSelection
+
+        if isinstance(exc, UnsatisfiableSelection):
+            raise  # 文件清单的确定结论，调用方要据此收窄投递，不能当网络故障
         raise UpstreamServiceException(f"提交到下载器「{row.name}」失败：{exc}") from exc
     finally:
         await downloader.close()

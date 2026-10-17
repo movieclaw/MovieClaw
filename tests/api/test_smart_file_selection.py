@@ -2,7 +2,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from movieclaw_api.services.subscription.file_selection import plan_strict_file_selection
+from movieclaw_api.services.subscription.file_selection import (
+    UnsatisfiableSelection,
+    plan_strict_file_selection,
+)
 from movieclaw_api.services.torrent_submit import apply_strict_file_selection
 from movieclaw_downloader.models import SubmitResult, TorrentFile, TorrentStatus
 
@@ -120,3 +123,32 @@ def test_explicit_filename_release_separator_and_unknown_season():
     assert plan_strict_file_selection(["S01E16-UBWEB.mkv"], {(1, 16)}).keep_indices == [0]
     with pytest.raises(ValueError):
         plan_strict_file_selection(["EP16.mkv"], {(1, 16)}, known_seasons=[1, 2])
+
+
+# NAS 现场（智能投递 #219）：13 集纪录片订阅被投到全 8 集的同名剧整季包
+STAIRCASE = [
+    "The.Staircase.S01.2160p.Max.WEB-DL.DDP.5.1.Atmos.DoVi.HDR.H.265-CHDWEB/"
+    f"The.Staircase.S01E{n:02}.{title}.2160p.Max.WEB-DL.DDP.5.1.Atmos.DoVi.HDR.H.265-CHDWEB.mkv"
+    for n, title in enumerate(
+        [
+            "911",
+            "Chiroptera",
+            "The.Great.Dissembler",
+            "Common.Sense",
+            "The.Beating.Heart",
+            "Red.in.Tooth.and.Claw",
+            "Seek.and.Ye.Shall",
+            "Zlaticka.pro.kazdeho",
+        ],
+        start=1,
+    )
+]
+
+
+def test_missing_episodes_are_a_definite_verdict_naming_the_units():
+    with pytest.raises(UnsatisfiableSelection) as exc:
+        plan_strict_file_selection(STAIRCASE, {(1, n) for n in range(1, 14)}, known_seasons=[1])
+    assert exc.value.units == {(1, n) for n in range(9, 14)}
+    assert "S01E09" in str(exc.value) and "S01E13" in str(exc.value)
+    plan = plan_strict_file_selection(STAIRCASE, {(1, n) for n in range(1, 9)}, known_seasons=[1])
+    assert plan.keep_indices == list(range(8))

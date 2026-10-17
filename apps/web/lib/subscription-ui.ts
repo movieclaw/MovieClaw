@@ -407,6 +407,7 @@ export function smartWantedPresentation(row: WantedItem): { label: string; color
     manual_requested: ["选择中", "已请求立即下载，正在核验当前候选"],
     manual_candidate_unavailable: ["选择中", "指定候选已不可用，正在重新选择"],
     reconciling: ["待核对", "正在核对提交结果，系统会恢复同一任务"],
+    candidate_rejected: ["寻找中", "所选资源无法提供这一集，已改为寻找其他资源"],
     submitting: ["提交中", "正在提交所选资源"],
     deadline_fallback: ["选择中", "等待上限已到，正在选择当前合格版本"],
     published_window_elapsed: ["选择中", "资源已发布一段时间，正在选择当前合格版本"],

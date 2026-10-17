@@ -30,6 +30,22 @@ from movieclaw_api.services.library.layout import VIDEO_EXTS
 from movieclaw_api.services.library.units import resolve_units
 
 
+class UnsatisfiableSelection(ValueError):
+    """种子文件清单证明这份发布满足不了 ``units``。
+
+    结论只取决于文件清单，重放同一意图永远得到同样的结果——调用方必须给
+    这些单元一个终态（退回重找并记负面记忆），不能当作网络故障无限重试。
+    """
+
+    def __init__(self, message: str, units: Collection[tuple[int, int]]) -> None:
+        super().__init__(message)
+        self.units = frozenset(units)
+
+
+def _unit_labels(units: Collection[tuple[int, int]]) -> str:
+    return "、".join(f"S{season:02d}E{episode:02d}" for season, episode in sorted(units))
+
+
 @dataclass(frozen=True)
 class FileSelectionPlan:
     """一次选择性下载的文件取舍结论（索引对应文件清单的下标）。"""
@@ -156,13 +172,19 @@ def plan_strict_file_selection(
         )
         multiple = len(re.findall(r"S\d+E\d+|\d+x\d+", path.stem, re.I)) > 1
         if combined or multiple or key is None or key[1] <= 0:
-            raise ValueError(f"无法安全选择文件：{path.name} 的季集范围不明确或不可拆分")
+            raise UnsatisfiableSelection(
+                f"无法安全选择文件：{path.name} 的季集范围不明确或不可拆分", needed_units
+            )
         if key in needed_units:
             if key in found:
-                raise ValueError(f"同一集存在多个视频文件，需确认版本：{path.name}")
+                raise UnsatisfiableSelection(
+                    f"同一集存在多个视频文件，需确认版本：{path.name}", {key}
+                )
             selected.append(index)
             found.add(key)
-    if not needed_units or found != needed_units:
-        missing = sorted(needed_units - found)
-        raise ValueError(f"种子文件未能完整对应所需集数：{missing}；不会改为全量下载")
+    if not needed_units:
+        raise ValueError("没有需要选择的集")
+    if found != needed_units:
+        missing = needed_units - found
+        raise UnsatisfiableSelection(f"种子文件里没有 {_unit_labels(missing)}", missing)
     return FileSelectionPlan(selected, [i for i in range(len(paths)) if i not in selected], 0)

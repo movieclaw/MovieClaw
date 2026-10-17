@@ -1,5 +1,6 @@
 """智能投递的数据库意图。网络失败只能重放同一意图。"""
 
+from datetime import timedelta
 from uuid import uuid4
 
 from pydantic import TypeAdapter
@@ -19,6 +20,11 @@ from movieclaw_db.models import (
 )
 from movieclaw_matcher import TorrentCandidate
 from movieclaw_matcher.smart import series_key
+
+# 恢复失败的退避：1 分钟起翻倍，封顶 1 小时。下载器离线等真故障仍会自愈，
+# 但不会每 30 秒刷一次日志
+SMART_RECOVER_BASE_DELAY = timedelta(minutes=1)
+SMART_RECOVER_MAX_DELAY = timedelta(hours=1)
 
 
 class SubmissionRejected(Exception):
@@ -320,3 +326,58 @@ async def reject_intent(session, intent, targets, reason):
             row.grabbed_at = None
             row.next_selection_at = utcnow()
     await session.commit()
+
+
+async def settle_unsatisfiable(session, intent, targets, exc):
+    """文件清单证明本发布满足不了部分单元：收窄意图，不再无限重放。
+
+    满足不了的单元退回重找，并在意图上记负面记忆（``content_missing``），
+    选种不会再拿这份发布补它们；其余仍在途的单元保留在意图里，下一轮恢复
+    只为它们选文件。没有剩余在途单元时意图失败——下载器里的任务原样保留。
+    返回被退回的工单。
+    """
+    payload = dict(intent.submission or {})
+    unusable = set(exc.units)
+    released = [r for r in targets if (r.season_number, r.episode_number) in unusable]
+    now = utcnow()
+    for row in released:
+        row.selection_state = {
+            **(row.selection_state or {}),
+            "reason": "candidate_rejected",
+            "choice_explanation": f"{exc}；已改为寻找其他资源",
+        }
+        if row.id in payload["wanted_ids"] and row.status == WantedStatus.GRABBED:
+            row.status = WantedStatus.WANTED
+            row.grabbed_at = None
+            row.next_selection_at = now
+    memory = dict(intent.content_missing or {})
+    units = {tuple(u) for u in memory.get("units", [])} | unusable
+    sources = {tuple(s) for s in memory.get("sources", [])} | {(intent.site_id, intent.torrent_id)}
+    intent.content_missing = {
+        "units": [list(u) for u in sorted(units)],
+        "sources": [list(s) for s in sorted(sources)],
+    }
+    released_ids = {r.id for r in released}
+    # 已入库或已退出范围的单元不必再为它选文件
+    pending = {
+        r.id
+        for r in targets
+        if r.id not in released_ids
+        and r.in_scope
+        and (r.status == WantedStatus.GRABBED or r.id in payload["upgrade_ids"])
+    }
+    payload["wanted_ids"] = [i for i in payload["wanted_ids"] if i in pending]
+    payload["upgrade_ids"] = [i for i in payload["upgrade_ids"] if i in pending]
+    remaining = [[r.season_number, r.episode_number] for r in targets if r.id in pending]
+    intent.units = remaining
+    if payload.get("select_units") is not None:
+        payload["select_units"] = remaining
+    if remaining:
+        intent.cleanup_note = f"{exc}；这些集已退回重找，其余集继续提交"
+    else:
+        intent.status = DownloadAttemptStatus.FAILED
+        payload["stage"] = "rejected"
+        intent.cleanup_note = f"{exc}；已退回重找，下载器中的任务保留未删除"
+    intent.submission = payload
+    intent.updated_at = now
+    return released
