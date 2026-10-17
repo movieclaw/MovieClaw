@@ -1503,6 +1503,71 @@ def test_declared_container_skips_keyframe_probe():
     assert not needs_keyframe_probe(media(keyframe_interval_s=None), EXOPLAYER, WITH_GPU)
 
 
+#: Android 的真实申报：TrueHD 也在里面（ExoPlayer 能解或直通功放），声道上限一律报 8
+ANDROID_TRUEHD = ClientCapability(
+    **{
+        **vars(EXOPLAYER),
+        "audio": tuple(AudioSupport(c, 8) for c in ("aac", "ac3", "eac3", "dts", "truehd")),
+    }
+)
+DV_TRUEHD = media(
+    video_codec="hevc", hdr="Dolby Vision", dv_profile=8, dv_bl_compatible=True,
+    color_space="BT.2020", bit_depth=10,
+    audio_tracks=(AudioTrack(ref="embedded:0", codec="truehd", channels=8, language="eng",
+                             is_default=True),),
+)
+
+
+def test_declared_truehd_direct_plays_the_original_file():
+    """申报了 TrueHD 的播放器直连原文件时照旧原样放 TrueHD（#884 的修复不碰档 0）。"""
+    sdr = media(video_codec="hevc", audio_tracks=DV_TRUEHD.audio_tracks)
+    decision = decide_playback(sdr, ANDROID_TRUEHD, WITH_GPU)
+    assert decision.tier is PlaybackTier.DIRECT_PLAY
+    assert decision.audio.action == "copy" and decision.audio.codec == "truehd"
+
+
+def test_declared_truehd_is_not_copied_into_hls_segments():
+    """#884：杜比视界片在不支持的电视上要转码，申报了 TrueHD 也不能原样复制——档 1 起输出是
+    fMP4，TrueHD 封不进（ffmpeg 写头报「Experimental feature」退出码 88）。转 E-AC-3，
+    7.1 降到 5.1（ffmpeg 的 eac3 编码器最多 6 声道），交给 -ac 折叠、不走立体声降混。"""
+    decision = decide_playback(DV_TRUEHD, ANDROID_TRUEHD, WITH_GPU)
+    assert decision.tier is PlaybackTier.HARDWARE_TRANSCODE
+    assert decision.audio.action == "transcode"
+    assert (decision.audio.codec, decision.audio.channels) == ("eac3", 6)
+    assert decision.audio.downmix is False
+    assert "封装不进 HLS 分片" in decision.reason
+
+    # 换封装档同理：视频照旧 copy，音频转码
+    remux = decide_playback(media(container="m2ts", audio_tracks=DV_TRUEHD.audio_tracks),
+                            ANDROID_TRUEHD, WITH_GPU)
+    assert remux.tier is PlaybackTier.AUDIO_TRANSCODE
+    assert remux.audio.action == "transcode" and remux.audio.codec == "eac3"
+    assert needs_keyframe_probe(
+        media(container="m2ts", audio_tracks=DV_TRUEHD.audio_tracks, keyframe_interval_s=None),
+        ANDROID_TRUEHD, WITH_GPU,
+    )
+
+
+def test_truehd_switches_to_its_ac3_core_before_transcoding():
+    """同语言有能封进 fMP4 的轨（蓝光 TrueHD 拆出的 AC-3 核心）：换轨直通优于转码；
+    用户自己点选了 TrueHD 就转它，不替他换轨。"""
+    core = AudioTrack(ref="embedded:1", codec="ac3", channels=6, language="eng")
+    profile = media(**{**vars(DV_TRUEHD), "audio_tracks": (*DV_TRUEHD.audio_tracks, core)})
+    decision = decide_playback(profile, ANDROID_TRUEHD, WITH_GPU)
+    assert decision.audio.action == "copy" and decision.audio.track_ref == "embedded:1"
+
+    picked = decide_playback(profile, ANDROID_TRUEHD, WITH_GPU, preferred_audio="embedded:0")
+    assert picked.audio.action == "transcode" and picked.audio.track_ref == "embedded:0"
+
+
+def test_eac3_never_asks_for_more_than_six_channels():
+    """播放器申报能解 8 声道 E-AC-3，编码器却只到 5.1：7.1 源只转到 6 声道。"""
+    decision = decide_playback(
+        media(video_codec="hevc", audio_tracks=(TRUEHD_71,)), SAFARI_MAC, WITH_GPU
+    )
+    assert (decision.audio.codec, decision.audio.channels) == ("eac3", 6)
+
+
 BLURAY_EXO = ClientCapability(
     **{
         **vars(EXOPLAYER),

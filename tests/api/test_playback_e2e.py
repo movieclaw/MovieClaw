@@ -254,6 +254,58 @@ def test_hevc_source_transcodes_and_is_decodable(client, tmp_path):
     assert any(s["codec_name"] == "h264" for s in probe_streams(assembled))
 
 
+def test_declared_truehd_is_transcoded_not_copied_into_segments(client, tmp_path):
+    """#884：Android 申报能解 TrueHD，片子却要转码——TrueHD 原样复制进 fMP4 时 ffmpeg 写头报
+    「Experimental feature」退出、一个分片都出不来。真实链路上走一遍：分片要出来、音轨是
+    E-AC-3。"""
+    from movieclaw_api.settings import PlaybackPolicySetting
+    from movieclaw_api.settings.store import get_setting_store
+
+    async def _enable_software():
+        await get_setting_store().set(PlaybackPolicySetting(software_transcode_enabled=True))
+
+    client.portal.call(_enable_software)
+
+    root = tmp_path / "m"
+    root.mkdir(parents=True)
+    path = root / "truehd.mkv"
+    _run([
+        "ffmpeg", "-v", "error",
+        "-f", "lavfi", "-i", f"testsrc2=size=320x240:rate=25:duration={DURATION}",
+        "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=48000:duration={DURATION}",
+        "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=none",
+        "-g", "50", "-keyint_min", "50",
+        "-c:a", "truehd", "-strict", "-2", "-ac", "6", "-shortest", "-y", str(path),
+    ])
+
+    async def _seed_truehd() -> int:
+        file_id = await _seed(path, codec="hevc", container="mkv")
+        async with get_database().session() as session:
+            row = await session.get(LibraryFile, file_id)
+            row.audio_streams = [{"codec": "truehd", "channels": 6, "default": True}]
+            await session.commit()
+        return file_id
+
+    file_id = client.portal.call(_seed_truehd)
+    # 解不了 HEVC 的 Android 设备：容器 mkv 能直连，但视频要转码
+    android = {
+        "video": [{"codec": "h264"}],
+        "audio": [{"codec": c, "max_channels": 8} for c in ("aac", "ac3", "eac3", "truehd")],
+        "containers": ["mp4", "mkv", "hls-fmp4"],
+        "local_tracks": True,
+    }
+    resp = client.post(f"{_PB}/sessions", json={"file_id": file_id, "capability": android})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["decision"]["tier"] == 4, data["decision"]
+
+    wait_for_segments(client, data, count=1)
+    streams = probe_streams(fetch_whole_stream(client, data, tmp_path))
+    assert any(s["codec_name"] == "h264" for s in streams)
+    audio = [s for s in streams if s["codec_type"] == "audio"]
+    assert [(s["codec_name"], s["channels"]) for s in audio] == [("eac3", 6)]
+
+
 def test_hevc_without_consent_asks_instead_of_transcoding(client, tmp_path):
     """软件转码默认关闭：先问，不偷偷吃满 CPU（§3.6）。"""
     path = make_media(tmp_path / "m", "ask", codec="hevc", container="mkv")

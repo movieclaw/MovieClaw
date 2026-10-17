@@ -482,13 +482,9 @@ def decide_playback(
             reason="已选中 PGS 图形字幕，按你的选择转码并把字幕压制进画面",
         )
     # 音轨放在视频之后判：剪辑直推能不能成，要看视频最终能不能 copy
-    audio_verdict = _judge_audio(
-        media, _clip_audio_capability(media, capability, video_verdict), preferred_audio
-    )
-
-    # 6–7. 综合定档。
-    tier, container, reason, degraded_from = _resolve_tier(
-        media, video_verdict, audio_verdict, policy, failed_tiers, capability=capability
+    # 6–7. 综合定档（音轨能不能 copy 还取决于落在哪一档，见 _judge_audio_and_tier）。
+    audio_verdict, (tier, container, reason, degraded_from) = _judge_audio_and_tier(
+        media, video_verdict, capability, policy, failed_tiers, preferred_audio
     )
     if isinstance(tier, PlaybackRejected):
         return tier
@@ -568,6 +564,65 @@ def _clip_audio_capability(
     if capability.audio_support("pcm_bluray") is not None:
         return capability
     return replace(capability, audio=(*capability.audio, AudioSupport("pcm_bluray")))
+
+
+def _judge_audio_and_tier(
+    media: MediaProfile,
+    video_verdict: _VideoVerdict,
+    capability: ClientCapability,
+    policy: PlaybackPolicy,
+    failed_tiers: frozenset[PlaybackTier],
+    preferred_audio: str | None,
+    *,
+    enforce_keyframe_gate: bool = True,
+) -> tuple[_AudioVerdict, tuple[PlaybackTier | PlaybackRejected, str, str, PlaybackTier | None]]:
+    """判音轨并定档。
+
+    播放器申报能解的音频编码只对档 0（原文件直出）作数：档 1 起输出一律是 HLS fMP4，
+    原样 copy 的轨还得封得进 MP4。TrueHD 封不进（mov 封装器写头报「Experimental
+    feature」，#884：Android 申报了 TrueHD，杜比视界片转码整条失败），所以没落在档 0
+    时，按「能封进 fMP4 的编码」重判一次——换同语言能封装的轨（蓝光 TrueHD 的 AC-3
+    核心）或转码。重判只会让音轨从 copy 变成转码，档位不会因此回到档 0。
+    """
+    audio_capability = _clip_audio_capability(media, capability, video_verdict)
+    audio = _judge_audio(media, audio_capability, preferred_audio)
+    resolved = _resolve_tier(
+        media,
+        video_verdict,
+        audio,
+        policy,
+        failed_tiers,
+        capability=capability,
+        enforce_keyframe_gate=enforce_keyframe_gate,
+    )
+    if (
+        resolved[0] is PlaybackTier.DIRECT_PLAY
+        or isinstance(resolved[0], PlaybackRejected)
+        or not audio.can_copy
+        or audio.track is None
+        or (audio.track.codec or "").lower() in FMP4_COPY_AUDIO_CODECS
+    ):
+        return audio, resolved
+    fmp4_capability = replace(
+        audio_capability,
+        audio=tuple(a for a in audio_capability.audio if a.codec in FMP4_COPY_AUDIO_CODECS),
+    )
+    audio = _judge_audio(media, fmp4_capability, preferred_audio)
+    if not audio.can_copy:
+        label = _track_label(audio.track) if audio.track else "未知"
+        audio = replace(
+            audio,
+            reason=f"音轨 {label} 封装不进 HLS 分片，已转为 {(audio.target_codec or '').upper()}",
+        )
+    return audio, _resolve_tier(
+        media,
+        video_verdict,
+        audio,
+        policy,
+        failed_tiers,
+        capability=capability,
+        enforce_keyframe_gate=enforce_keyframe_gate,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -839,7 +894,9 @@ def _transcode_audio(
     else:
         eac3 = capability.audio_support("eac3")
         if eac3 is not None and source_channels > 2:
-            target_codec, max_channels = "eac3", eac3.max_channels
+            # 申报的是播放器能解几声道，编码却是 ffmpeg 的 eac3 编码器做：它最多 5.1，
+            # 7.1 布局直接拒绝（Android 申报 8 声道，7.1 的 TrueHD 转过来就挂）
+            target_codec, max_channels = "eac3", min(eac3.max_channels, _EAC3_MAX_CHANNELS)
         else:
             aac = capability.audio_support("aac")
             target_codec = "aac"
@@ -852,7 +909,8 @@ def _transcode_audio(
         reason=reason,
         target_codec=target_codec,
         target_channels=target_channels,
-        downmix=target_channels < source_channels,
+        # downmix 是「降混成立体声」（滤镜只有立体声那一套）；7.1 → 5.1 交给 -ac 由重采样器折叠
+        downmix=target_channels < source_channels and target_channels <= 2,
     )
 
 
@@ -1158,17 +1216,13 @@ def needs_keyframe_probe(
             can_copy=False,
             reason="已选中 PGS 图形字幕，按你的选择转码并把字幕压制进画面",
         )
-    audio_verdict = _judge_audio(
-        media, _clip_audio_capability(media, capability, video_verdict), preferred_audio
-    )
-
-    tier, _, _, _ = _resolve_tier(
+    _, (tier, _, _, _) = _judge_audio_and_tier(
         media,
         video_verdict,
-        audio_verdict,
+        capability,
         policy,
         failed_tiers,
-        capability=capability,
+        preferred_audio,
         enforce_keyframe_gate=False,
     )
     return tier in (PlaybackTier.REMUX, PlaybackTier.AUDIO_TRANSCODE)
