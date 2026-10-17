@@ -253,7 +253,8 @@ def test_scan_login_creates_one_account_per_user(client) -> None:
     assert account["quota_total"] == 100 and account["vip"] == "VIP"
     row, creds = _raw_row(client, account["id"])
     assert creds == {"token": "t1", "device": "mini"}
-    assert "t1" not in row.credentials and row.credentials.startswith("enc::"), "凭据加密落库"
+    # 密文是 base64，碰巧含「t1」两个字符不算泄露：看明文 JSON 片段
+    assert '"token"' not in row.credentials and row.credentials.startswith("enc::"), "凭据加密落库"
 
     # 用户改了名字；同一网盘用户再扫一次码：更新原账号，不新建、不改名
     renamed = client.patch(f"/api/v1/drives/accounts/{account['id']}", json={"name": "影视仓库"})
