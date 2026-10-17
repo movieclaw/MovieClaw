@@ -66,6 +66,11 @@ async def registries(ctx: Context) -> None:
     from movieclaw_downloader.registry import DOWNLOADER_ADAPTERS, bind_adapters
 
     ctx.effect(bind_adapters(ctx.registry(DOWNLOADER_ADAPTERS)), label="unbind-downloader-adapters")
+    # 网盘存储后端（cloud-storage.md §11）：每家网盘由插件登记一个后端
+    from movieclaw_api.services.drives.registry import bind_backends
+    from movieclaw_sdk.drives import DRIVE_BACKENDS
+
+    ctx.effect(bind_backends(ctx.registry(DRIVE_BACKENDS)), label="unbind-drive-backends")
     # 删除参与方（library-boundary.md §3）：删除弹窗的附加选项与勾选后的后续任务
     ctx.effect(
         delete_participants.bind_participants(

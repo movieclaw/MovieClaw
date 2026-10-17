@@ -612,6 +612,22 @@
     "stability": "experimental",
     "version": "1.0"
   },
+  "drive-backends": {
+    "doc": "网盘存储后端：插件贡献一家网盘的协议实现（登录、文件操作），主程序负责账号、调度与界面",
+    "item": {
+      "class": "DriveBackend",
+      "methods": {
+        "account_info": "(self, account: 'DriveAccount') -> 'AccountInfo'",
+        "begin_login": "(self, options: 'dict[str, str]') -> 'LoginFlow'",
+        "cancel_login": "(self, flow_id: 'str') -> 'None'",
+        "login_state": "(self, flow_id: 'str') -> 'LoginFlow'",
+        "login_with_cookie": "(self, cookie_header: 'str') -> 'LoginResult'"
+      }
+    },
+    "kind": "registry",
+    "stability": "experimental",
+    "version": "1.0"
+  },
   "host-ops": {
     "doc": "宿主操作：插件以自己的身份调用本进程的 OpenAPI 操作（按操作授权）",
     "kind": "service",

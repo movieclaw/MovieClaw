@@ -343,6 +343,11 @@ def _contribution(registry: str, item: Any) -> tuple[dict[str, Any], Any]:
             "connection": connection_schema(item),
             "help": item.help,
         }, item
+    if registry == "drive-backends":
+        from movieclaw_sdk.drives import backend_spec
+
+        # 后端留在本进程：宿主登记一个代理，登录与文件操作经协议调回来（cloud-storage.md §11.6）
+        return backend_spec(item), item
     if registry == "im-channels":
         from movieclaw_sdk.channels import driver_spec
 
@@ -590,6 +595,7 @@ class RemoteContext:
         self._channels: dict[str, Any] = {}
         self._participants: dict[str, Any] = {}
         self._downloaders: dict[str, Any] = {}
+        self._drives: dict[str, Any] = {}
         #: 按（登记 id, 连接配置）缓存的适配器实例：复用登录态与连接，close 时丢掉
         self._downloader_instances: dict[tuple[str, str], Any] = {}
         self._callbacks: dict[str, Callable[..., Any]] = {}
@@ -665,6 +671,8 @@ class RemoteContext:
             self._participants[id] = local
         if key.name == "downloader-adapters":
             self._downloaders[id] = local
+        if key.name == "drive-backends":
+            self._drives[id] = local
         self._runner.declare(
             "contributions",
             {
@@ -930,6 +938,7 @@ class Runner:
             "callback": self._handle_callback,
             "delete-preview": self._handle_delete_preview,
             "downloader": self._handle_downloader,
+            "drive": self._handle_drive,
         }.get(message.get("kind") or "")
         if handler is not None:
             return await handler(message)
@@ -1043,6 +1052,47 @@ class Runner:
         except Exception as exc:  # noqa: BLE001 -- 未知错误原样报给宿主
             reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
         return reply
+
+    async def _handle_drive(self, message: dict[str, Any]) -> None:
+        """宿主调网盘后端的一个方法（cloud-storage.md §11.6）。
+
+        结果一律装在信封里返回：网盘错误（限流要带等待秒数）与换了的凭据（出错时也可能已经刷新过令牌）
+        都要原样带回宿主，不走通用的失败通道。
+        """
+        from movieclaw_sdk import drives as dv
+
+        payload = message["payload"]
+        method = payload["method"]
+        args = payload.get("args") or {}
+        account = dv.account_from(payload["account"]) if payload.get("account") else None
+        before = dict(account.credentials) if account is not None else None
+        envelope: dict[str, Any] = {}
+        try:
+            assert self.ctx is not None
+            backend = self.ctx._drives[message["listener"]]
+            if method == "begin_login":
+                envelope["value"] = dv.flow_dict(await backend.begin_login(args["options"]))
+            elif method == "login_state":
+                envelope["value"] = dv.flow_dict(await backend.login_state(args["flow_id"]))
+            elif method == "cancel_login":
+                await backend.cancel_login(args["flow_id"])
+            elif method == "login_with_cookie":
+                result = await backend.login_with_cookie(args["cookie_header"])
+                envelope["value"] = dv.result_dict(result)
+            elif method == "account_info":
+                envelope["value"] = dv.info_dict(await backend.account_info(account))
+            else:
+                raise ValueError(f"未知的网盘后端方法 {method}")
+        except dv.DriveError as exc:
+            envelope["error"] = dv.error_dict(exc)
+        except ValueError as exc:
+            envelope["error"] = {"kind": "ValueError", "message": str(exc)}
+        except Exception as exc:  # noqa: BLE001 -- 未知错误按临时错误报给宿主
+            traceback.print_exc()
+            envelope["error"] = {"kind": "Transient", "message": f"{type(exc).__name__}: {exc}"}
+        if account is not None and account.credentials != before:
+            envelope["credentials"] = dict(account.credentials)
+        return {"ok": True, "result": envelope}
 
     async def _handle_callback(self, message: dict[str, Any]) -> None:
         """宿主转来一次回调请求（plugin-callbacks.md §4.3）。"""

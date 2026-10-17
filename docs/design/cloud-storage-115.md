@@ -3,7 +3,7 @@
 > 状态：设计稿（2026-10-17），待实施。内核侧见 [cloud-storage.md](cloud-storage.md)，本文只写「怎么跟 115 说话」。
 > 插件代码放插件仓库 [movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins) 的 `plugins/cloud-115/`，
 > 不进主仓库（主程序只做通用能力，主仓库用测试内的假后端验证契约）。
-> 依赖内核新契约 `storage-backends`，插件仓库 CI 要等含该契约的版本发布、`MOVIECLAW_REF` 升上去才能绿。
+> 依赖内核新契约 `drive-backends`，插件仓库 CI 要等含该契约的版本发布、`MOVIECLAW_REF` 升上去才能绿。
 >
 > **用户决策（2026-10-17）：先走 Cookie 登录**（扫码选登录端 + 浏览器扩展导入），不等开放平台应用资质；
 > 开放平台登录以后作为同一个 `115` 后端的第二种登录方式补上。
@@ -14,7 +14,7 @@
 
 ## 0. 定位
 
-实现内核契约 `StorageBackend`（cloud-storage.md §11）。插件只负责协议：登录、列目录与操作动态（纳管）、秒传、分片续传上传、
+实现内核契约 `DriveBackend`（cloud-storage.md §11）。插件只负责协议：登录、列目录与操作动态（纳管）、秒传、分片续传上传、
 核验、取直链、移动改名删除、容量。账号存储、凭据加密、限速与配额、重试、任务、选源、释放、删除护栏都在宿主。
 
 选 115 做第一个：网盘玩家里占比最高；秒传按 SHA1，正好用上宿主一次读盘算出的指纹。第二个后端（123 云盘，
@@ -57,7 +57,7 @@ StorageCapabilities(
 - 「网页端」会和浏览器里的 115 互踢；
 - CloudDrive2、OpenList、MoviePilot 等工具如果用了同一个端，也会互踢——说明里写清楚「请选一个别的工具没用的端」。
 
-流程（`login_start` / `login_poll` / `login_complete`）：
+流程（`begin_login` / `login_state` / `cancel_login`）：
 
 1. `GET qrcodeapi.115.com/api/1.0/{端}/1.0/token/` 取二维码（`uid`、`time`、`sign`），宿主在设置页渲染；
 2. 轮询 `GET qrcodeapi.115.com/get/status/`：未扫、已扫待确认、已确认、已取消、已过期；

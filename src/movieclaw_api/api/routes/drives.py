@@ -1,0 +1,280 @@
+"""网盘接口（docs/design/cloud-storage.md §11）。
+
+网盘是插件：可用的网盘来自注册表 ``drive-backends``，设置页按每个后端声明的登录方式通用渲染。
+
+- 扫码登录：``POST /drives/logins`` 带网盘与扫码前选的项开始，轮询
+  ``GET /drives/logins/{id}`` 拿二维码与状态；扫完码宿主在后台就把账号建好（前端不轮询也行）；
+- Cookie 登录：浏览器扩展推送走 ``/extension/cookies``（按插件声明的域名分发到这里的服务），
+  手动粘贴走 ``POST /drives/accounts/cookie``；
+- 同一网盘用户只有一个账号，重新登录更新原账号。
+
+提供网盘的插件不在时账号照常列出（``backend_available=false``），登录给出明确提示，不报 500。
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+from movieclaw_api.api.routes.channels import _qrcode_data_url
+from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
+from movieclaw_api.schemas.drives import (
+    DriveAccountUpdatePayload,
+    DriveAccountView,
+    DriveBackendView,
+    DriveCapabilitiesView,
+    DriveCookiePayload,
+    DriveLoginChoiceView,
+    DriveLoginOptionView,
+    DriveLoginPayload,
+    DriveLoginSpecView,
+    DriveLoginView,
+)
+from movieclaw_api.schemas.response import ApiResponse, ok
+from movieclaw_api.services.drives import accounts, gateway
+from movieclaw_api.services.drives.registry import BackendUnavailable, backends
+from movieclaw_db.engine import get_database
+from movieclaw_db.models.drive_account import DriveAccount
+from movieclaw_db.repositories.drive_account_repo import DriveAccountRepository
+from movieclaw_sdk import drives as dv
+
+router = APIRouter(prefix="/drives", tags=["drives"])
+
+
+def _backend_view(item: dv.DriveBackend) -> DriveBackendView:
+    caps = item.capabilities
+    login = item.login
+    return DriveBackendView(
+        type=item.type,
+        title=item.title,
+        description=item.description,
+        accent_color=item.accent_color,
+        capabilities=DriveCapabilitiesView(
+            writable=caps.writable,
+            rapid_upload_hashes=list(caps.rapid_upload_hashes),
+            range_challenge=caps.range_challenge,
+            list_hashes=caps.list_hashes,
+            change_feed=caps.change_feed,
+            original_link=caps.original_link,
+            link_needs_ua=caps.link_needs_ua,
+            recycle_bin=caps.recycle_bin,
+            default_qps=caps.default_qps,
+            default_daily_budget=caps.default_daily_budget,
+            default_read_slots=caps.default_read_slots,
+        ),
+        login=DriveLoginSpecView(
+            scan=login.scan,
+            cookie=bool(login.cookie_domains),
+            cookie_domains=list(login.cookie_domains),
+            hint=login.hint,
+            options=[
+                DriveLoginOptionView(
+                    key=o.key,
+                    label=o.label,
+                    default=o.default,
+                    help=o.help,
+                    choices=[
+                        DriveLoginChoiceView(value=c.value, label=c.label, help=c.help)
+                        for c in o.choices
+                    ],
+                )
+                for o in login.options
+            ],
+        ),
+    )
+
+
+def account_view(row: DriveAccount) -> DriveAccountView:
+    backend = backends().get(row.backend)
+    qps, budget, slots = gateway.effective(row, backend)
+    assert row.id is not None
+    return DriveAccountView(
+        id=row.id,
+        backend=row.backend,
+        backend_title=backend.title if backend is not None else row.backend,
+        backend_available=backend is not None,
+        accent_color=backend.accent_color if backend is not None else "",
+        name=row.name,
+        login_method=row.login_method,
+        login_detail=row.login_detail,
+        status=row.status,
+        status_message=row.status_message,
+        status_until=row.status_until,
+        qps=qps,
+        daily_budget=budget,
+        read_slots=slots,
+        qps_custom=row.qps is not None,
+        daily_budget_custom=row.daily_budget is not None,
+        read_slots_custom=row.read_slots is not None,
+        used_today=gateway.usage_today(row.id),
+        vip=row.vip,
+        quota_total=row.quota_total,
+        quota_used=row.quota_used,
+        profile_at=row.profile_at,
+        created_at=row.created_at,
+    )
+
+
+@router.get(
+    "/backends",
+    response_model=ApiResponse[list[DriveBackendView]],
+    summary="可用的网盘（有插件提供后端的）",
+    operation_id="drives.backends.list",
+)
+async def list_backends() -> ApiResponse[list[DriveBackendView]]:
+    return ok([_backend_view(item) for item in backends().values()])
+
+
+@router.get(
+    "/accounts",
+    response_model=ApiResponse[list[DriveAccountView]],
+    summary="网盘账号列表",
+    operation_id="drives.accounts.list",
+)
+async def list_accounts() -> ApiResponse[list[DriveAccountView]]:
+    async with get_database().session() as session:
+        rows = await DriveAccountRepository(session).list_all()
+    return ok([account_view(row) for row in rows])
+
+
+@router.patch(
+    "/accounts/{account_id}",
+    response_model=ApiResponse[DriveAccountView],
+    summary="改网盘账号的名字、速率、每日预算、同时播放数",
+    operation_id="drives.accounts.update",
+)
+async def update_account(
+    account_id: int, payload: DriveAccountUpdatePayload
+) -> ApiResponse[DriveAccountView]:
+    try:
+        row = await accounts.update_settings(
+            account_id,
+            name=payload.name,
+            qps=payload.qps,
+            daily_budget=payload.daily_budget,
+            read_slots=payload.read_slots,
+            reset=frozenset(payload.reset),
+        )
+    except LookupError as exc:
+        raise NotFoundException(str(exc)) from exc
+    except ValueError as exc:
+        raise BadRequestException(str(exc)) from exc
+    return ok(account_view(row), message="已保存")
+
+
+@router.delete(
+    "/accounts/{account_id}",
+    response_model=ApiResponse[dict],
+    summary="移除网盘账号（只删 MovieClaw 里的记录，不动网盘上的文件）",
+    operation_id="drives.accounts.delete",
+    openapi_extra={"x-cli-dangerous": "confirm"},
+)
+async def delete_account(account_id: int) -> ApiResponse[dict]:
+    if not await accounts.delete_account(account_id):
+        raise NotFoundException("网盘账号不存在")
+    return ok({"removed": True}, message="已移除")
+
+
+@router.post(
+    "/accounts/{account_id}/refresh",
+    response_model=ApiResponse[DriveAccountView],
+    summary="刷新网盘账号的昵称与容量",
+    operation_id="drives.accounts.refresh",
+)
+async def refresh_account(account_id: int) -> ApiResponse[DriveAccountView]:
+    try:
+        row = await accounts.refresh_profile(account_id)
+    except BackendUnavailable as exc:
+        raise ConflictException(str(exc)) from exc
+    except dv.NotFound as exc:
+        raise NotFoundException(exc.message) from exc
+    except dv.DriveError as exc:
+        raise BadRequestException(exc.message) from exc
+    return ok(account_view(row))
+
+
+@router.post(
+    "/accounts/cookie",
+    response_model=ApiResponse[DriveLoginView],
+    status_code=201,
+    summary="用 Cookie 登录网盘（粘贴整页 Cookie）",
+    operation_id="drives.accounts.cookie",
+)
+async def import_cookie(payload: DriveCookiePayload) -> ApiResponse[DriveLoginView]:
+    try:
+        row, created = await accounts.import_cookie(payload.backend, payload.cookie)
+    except BackendUnavailable as exc:
+        raise ConflictException(str(exc)) from exc
+    except ValueError as exc:
+        raise BadRequestException(str(exc)) from exc
+    view = DriveLoginView(
+        login_id="",
+        backend=payload.backend,
+        status="confirmed",
+        message=f"已添加：{row.name}" if created else f"已重新登录：{row.name}",
+        qr_image="",
+        account=account_view(row),
+        created=created,
+    )
+    return ok(view, message=view.message)
+
+
+async def _login_view(login_id: str) -> DriveLoginView:
+    item = accounts.login_session(login_id)
+    if item is None:
+        raise NotFoundException("登录不存在或已过期，请重新扫码")
+    account = None
+    if item.status == "confirmed" and item.account_id is not None:
+        async with get_database().session() as session:
+            row = await DriveAccountRepository(session).get(item.account_id)
+        if row is not None:
+            account = account_view(row)
+    return DriveLoginView(
+        login_id=item.login_id,
+        backend=item.backend,
+        status=item.status,
+        message=item.message,
+        qr_image=_qrcode_data_url(item.qr or "") if not item.terminal else "",
+        account=account,
+        created=item.created,
+    )
+
+
+@router.post(
+    "/logins",
+    response_model=ApiResponse[DriveLoginView],
+    status_code=201,
+    summary="开始扫码登录网盘",
+    operation_id="drives.logins.start",
+)
+async def start_login(payload: DriveLoginPayload) -> ApiResponse[DriveLoginView]:
+    try:
+        item = await accounts.begin_login(payload.backend, payload.options)
+    except BackendUnavailable as exc:
+        raise ConflictException(str(exc)) from exc
+    except ValueError as exc:
+        raise BadRequestException(str(exc)) from exc
+    except dv.DriveError as exc:
+        raise BadRequestException(f"发起扫码失败：{exc.message}") from exc
+    return ok(await _login_view(item.login_id), message="请用手机扫码")
+
+
+@router.get(
+    "/logins/{login_id}",
+    response_model=ApiResponse[DriveLoginView],
+    summary="查询扫码登录状态（前端轮询）",
+    operation_id="drives.logins.status",
+)
+async def get_login(login_id: str) -> ApiResponse[DriveLoginView]:
+    return ok(await _login_view(login_id))
+
+
+@router.delete(
+    "/logins/{login_id}",
+    response_model=ApiResponse[dict],
+    summary="取消扫码登录",
+    operation_id="drives.logins.cancel",
+    openapi_extra={"x-cli-dangerous": "confirm"},
+)
+async def cancel_login(login_id: str) -> ApiResponse[dict]:
+    await accounts.cancel_login(login_id)
+    return ok({"cancelled": True})

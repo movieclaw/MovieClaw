@@ -17,6 +17,7 @@ from movieclaw_kernel import RegistryKey, ServiceKey, Stability
 from movieclaw_sdk.agent import AGENT as AGENT
 from movieclaw_sdk.callbacks import PLUGIN_CALLBACKS as PLUGIN_CALLBACKS
 from movieclaw_sdk.channels import IM_CHANNELS as IM_CHANNELS
+from movieclaw_sdk.drives import DRIVE_BACKENDS as DRIVE_BACKENDS
 from movieclaw_sdk.ops import HOST_OPS as HOST_OPS
 
 DB: ServiceKey[Any] = ServiceKey("db", doc="数据库引擎（迁移完成后提供）")

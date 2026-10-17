@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.api.deps import require_admin, require_sync_token
 from movieclaw_api.core.config import get_settings
-from movieclaw_api.exceptions import NotFoundException
+from movieclaw_api.exceptions import BadRequestException, NotFoundException
 from movieclaw_api.schemas.extension import (
     CookiePushRequest,
     CookieSyncResult,
@@ -81,7 +81,39 @@ async def list_cookie_sites(
                 usable=bool(cred and cred.enabled and cred.status == ConfigStatus.ACTIVE),
             )
         )
+    views.extend(await _drive_sites())
     return ok(views)
+
+
+async def _drive_sites() -> list[ExtensionSiteView]:
+    """网盘插件声明要接收 Cookie 的域名也列进来：扩展按这张表判断当前网页能不能同步
+    （cloud-storage.md §11.5）。已有用 Cookie 登录的账号就算「已配置」。"""
+    from movieclaw_api.services.drives.registry import backends
+    from movieclaw_api.services.site_catalog import registrable_domain
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models.drive_account import DRIVE_STATUS_OK
+    from movieclaw_db.repositories.drive_account_repo import DriveAccountRepository
+
+    available = backends()
+    if not available:
+        return []
+    async with get_database().session() as session:
+        rows = await DriveAccountRepository(session).list_all()
+    views: list[ExtensionSiteView] = []
+    for backend in available.values():
+        cookie_rows = [r for r in rows if r.backend == backend.type and r.login_method == "cookie"]
+        for domain in dict.fromkeys(registrable_domain(d) for d in backend.login.cookie_domains):
+            views.append(
+                ExtensionSiteView(
+                    site_id=f"drive:{backend.type}",
+                    display_name=backend.title,
+                    domain=domain,
+                    configured=bool(cookie_rows),
+                    status=ConfigStatus.ACTIVE if cookie_rows else None,
+                    usable=any(r.status == DRIVE_STATUS_OK for r in cookie_rows),
+                )
+            )
+    return views
 
 
 @router.post(
@@ -113,6 +145,10 @@ async def push_cookies(
     catalog = SiteCatalogService()
     site = catalog.find_by_domain(payload.domain)
     if site is None:
+        # 不是资源站点：看是不是网盘插件声明要接收的域名（cloud-storage.md §11.5）
+        drive = await _push_drive_cookie(payload, cookie_count)
+        if drive is not None:
+            return drive
         logger.warning("扩展推送的域名未匹配到受支持站点：域名=%s", payload.domain)
         raise NotFoundException(f"该域名未匹配到任何受支持的站点：{payload.domain}")
 
@@ -140,6 +176,42 @@ async def push_cookies(
         CookieSyncResult.from_model(row, display_name=site.display_name, domain=payload.domain),
         message="已接收 Cookie，正在验证",
     )
+
+
+async def _push_drive_cookie(
+    payload: CookiePushRequest, cookie_count: int
+) -> ApiResponse[CookieSyncResult] | None:
+    """推来的是网盘的 Cookie：交给声明了这个域名的存储插件校验，建账号或更新同一用户的账号。
+
+    网盘登录当场校验完（不像站点那样后台验证），结果按扩展认得的站点结果返回：扩展代码不用改，
+    弹窗显示「已同步到 115 网盘 · 昵称」。
+    """
+    from movieclaw_api.services.drives import accounts
+    from movieclaw_api.services.drives.registry import BackendUnavailable, backend_for_domain
+
+    backend = backend_for_domain(payload.domain)
+    if backend is None:
+        return None
+    logger.info(
+        "收到扩展 Cookie 推送：域名=%s → 网盘=%s，共 %d 条 Cookie，开始校验",
+        payload.domain,
+        backend.type,
+        cookie_count,
+    )
+    try:
+        row, created = await accounts.import_cookie(backend.type, payload.cookie)
+    except BackendUnavailable as exc:
+        raise NotFoundException(str(exc)) from exc
+    except ValueError as exc:
+        raise BadRequestException(str(exc)) from exc
+    result = CookieSyncResult(
+        site_id=f"drive:{row.id}",
+        display_name=f"{backend.title} · {row.name}",
+        domain=payload.domain,
+        status=ConfigStatus.ACTIVE,
+        usable=True,
+    )
+    return ok(result, message="已添加为网盘账号" if created else "已更新网盘账号的登录")
 
 
 # ===========================================================================

@@ -789,6 +789,11 @@ def _contribution(session: Session, contribution: dict[str, Any]) -> tuple[Any, 
             job_type=item["job_type"],
             applies_to=frozenset(item.get("applies_to") or ("item", "file")),
         )
+    if registry == "drive-backends":
+        from movieclaw_api.services.plugin_drives import RemoteDriveBackend
+        from movieclaw_sdk.drives import DRIVE_BACKENDS
+
+        return DRIVE_BACKENDS, RemoteDriveBackend(session, cid, item)
     if registry == "downloader-adapters":
         from movieclaw_api.services.plugin_downloaders import RemoteDownloader
         from movieclaw_downloader.registry import DOWNLOADER_ADAPTERS, DownloaderAdapter

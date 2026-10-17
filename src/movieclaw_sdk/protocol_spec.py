@@ -198,6 +198,7 @@ def control() -> dict[str, Any]:
                                     "callback",
                                     "channel",
                                     "downloader",
+                                    "drive",
                                     "delete-preview",
                                 ],
                             },
