@@ -38,6 +38,7 @@ StorageCapabilities(
     original_link=True,                 # 直链是原画，不是转码流
     link_needs_ua=True,                 # 直链按取链时的 User-Agent 签发
     single_conn_limit_bytes=None,       # 【待实测】VIP / 非 VIP 单连接是否限速
+    read_concurrency=2,                 # 服务器读字节的并发连接上限（LitePan 用 2），【待实测】
     recycle_bin=True,                   # 删除进 115 回收站
     max_file_bytes=None,                # 【待实测】单文件上限
     default_qps=1.2,                    # 宿主限速默认值，用户可改（§8）
