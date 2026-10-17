@@ -23,12 +23,10 @@ MD5 秒传）用来验证契约没有被 115 的形状绑死，另起一份文�
 **两种登录方式、一套文件操作**：插件内部把「登录方式」做成可替换的一层（`Session`），秒传、上传、取直链按登录方式
 各有一套请求实现；目录、核验、删除、指纹、续传状态、错误分类、能力声明共用。账号凭据里记着登录方式。
 
-**实现依赖**：Cookie 方式的上传初始化与取直链都要做 115 自己的加密 / 签名（ECDH、RSA 变体、`userkey` 签名）。插件包的
-依赖只能随包携带纯 Python（`vendor/`，plugin-phase3.md §2），不能装带 C 扩展的包。p115client 本体依赖近 40 个包（含
-`yarl` 等 C 扩展），**不整包依赖**；只用它的加密子包 p115cipher（MIT，纯 Python 轮子）放进 `vendor/`，HTTP 用宿主自带的
-`httpx`，非对称加密用宿主自带的 `cryptography`（插件子进程用宿主的解释器，这两个包都在）。【待验证】p115cipher 不装
-`full` 附加依赖（pycryptodome、ecdsa、lz4）时是否够用；不够就用 `cryptography` 重写用到的那几个函数（保留 MIT 版权声明）。
-接口路径与参数参考 p115client 的实现，按 115 的改版跟进。
+**实现依赖**：Cookie 方式的上传初始化与取直链都要做 115 自己的加密 / 签名（ECDH、RSA 变体、`userkey` 签名）。插件声明依赖
+`p115cipher[full]`（MIT；pycryptodome、ecdsa、lz4 都有 x86_64 与 aarch64 的预编译轮子），安装时经管理员授权由主程序下载
+（[plugin-dependencies.md](plugin-dependencies.md)）。HTTP 用主程序自带的 `httpx`。**不整包依赖 p115client**：它的依赖近 40 个，
+安装慢、出问题的面大，插件只需要它的加密部分；接口路径与参数参考 p115client 的实现，按 115 的改版跟进。
 
 ## 1. 能力声明
 
