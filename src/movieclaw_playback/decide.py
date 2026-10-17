@@ -1177,7 +1177,8 @@ def _capped_audio_plan(
             track_ref=track.ref,
             codec="eac3",
             channels=min(target_channels, _EAC3_MAX_CHANNELS),
-            downmix=channels > min(target_channels, _EAC3_MAX_CHANNELS),
+            # 出的仍是多声道：不挂立体声降混（挂了就是把立体声塞进 5.1，中置环绕全哑），交给 -ac
+            downmix=False,
         )
     stereo = min(target_channels, 2)
     return AudioPlan(

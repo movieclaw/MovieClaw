@@ -1334,8 +1334,8 @@ def test_capped_transcode_uses_hardware_and_keeps_lossy_audio():
 
 
 def test_capped_transcode_reencodes_heavy_audio_and_maps_hdr():
-    """TrueHD 7.1 装不下码率上限：转 E-AC-3 并降到 5.1；HDR 源必带 tone-map。
-    点选的音轨优先于默认轨。"""
+    """TrueHD 7.1 装不下码率上限：转 E-AC-3 并降到 5.1（由 -ac 折叠，不走立体声降混——
+    挂了降混就是立体声装进 5.1，中置环绕全哑）；HDR 源必带 tone-map。点选的音轨优先于默认轨。"""
     from movieclaw_playback.decide import plan_capped_transcode
 
     flac_stereo = AudioTrack(ref="embedded:2", codec="flac", channels=2)
@@ -1345,7 +1345,7 @@ def test_capped_transcode_reencodes_heavy_audio_and_maps_hdr():
     assert decision.video.tone_map is True
     assert decision.audio.action == "transcode"
     assert decision.audio.codec == "eac3" and decision.audio.channels == 6
-    assert decision.audio.downmix is True
+    assert decision.audio.downmix is False
     assert "E-AC3" not in decision.reason and "EAC3" in decision.reason
 
     chosen = plan_capped_transcode(profile, WITH_GPU, preferred_audio="embedded:2")
