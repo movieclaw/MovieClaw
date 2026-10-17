@@ -58,6 +58,7 @@ from movieclaw_api.schemas.library import (
     RelaxSuggestionView,
     derive_air_status,
 )
+from movieclaw_api.services.drives import deletes as drive_deletes
 from movieclaw_api.services.library.access import ContentLimit
 from movieclaw_api.services.library.artwork import (
     ART_EXTS,
@@ -3323,8 +3324,8 @@ async def delete_item_files(
 
     for row in files:
         path = Path(row.file_path)
-        if row.state == FileState.MISSING:
-            continue  # 无磁盘实体，最后统一清账
+        if row.state == FileState.MISSING or _virtual_cloud_row(row):
+            continue  # 无磁盘实体（缺失、纳管来的只在网盘上的文件），最后统一清账
         if row.state == FileState.TRASHED:
             # 待回收行按单文件清理：moved 形态的路径在 .movieclaw-trash 里，
             # 绝不能让回收站目录被当作条目目录整删（会卷走其他条目的回收文件）
@@ -3369,10 +3370,17 @@ async def delete_item_files(
             deleted_row_ids.add(row_id)
             result.freed_bytes += by_id[row_id].size_bytes
         for row in files:
-            if row.state == FileState.MISSING:
+            if row.state == FileState.MISSING or _virtual_cloud_row(row):
                 assert row.id is not None
                 deleted_row_ids.add(row.id)
         result.rows_deleted = len(deleted_row_ids)
+        return result
+
+    # 网盘上的副本先删（cloud-storage.md §10）：没删掉就整件事不做，不留网盘孤儿
+    planned = [row.id for row in files if row.id is not None]
+    cloud_error = await drive_deletes.delete_cloud_copies(planned)
+    if cloud_error is not None:
+        result.errors.append(cloud_error)
         return result
 
     for directory in dirs_to_remove:
@@ -3391,9 +3399,9 @@ async def delete_item_files(
             result.freed_bytes += row.size_bytes
 
     # 缺失行没有磁盘实体，账直接清（待回收行不在此列——它有实体，
-    # 删除失败必须保留行，否则"账没了文件还在"，扫描会重新收编）
+    # 删除失败必须保留行，否则"账没了文件还在"，扫描会重新收编）；纳管来的只在网盘上的行同理
     for row in files:
-        if row.state == FileState.MISSING:
+        if row.state == FileState.MISSING or _virtual_cloud_row(row):
             assert row.id is not None
             deleted_row_ids.add(row.id)
 
@@ -3456,10 +3464,18 @@ async def delete_single_file(
 
     result = DeleteResult()
     assert library.id is not None
-    if dry_run and row.state == FileState.MISSING:
+    no_disk_entity = row.state == FileState.MISSING or _virtual_cloud_row(row)
+    if dry_run and no_disk_entity:
         result.rows_deleted = 1
         return result
-    if row.state == FileState.MISSING:
+    if not dry_run:
+        # 网盘上的副本先删（cloud-storage.md §10）：没删掉就不动台账与本地
+        assert row.id is not None
+        cloud_error = await drive_deletes.delete_cloud_copies([row.id])
+        if cloud_error is not None:
+            result.errors.append(cloud_error)
+            return result
+    if no_disk_entity:
         await session.delete(row)
         result.rows_deleted = 1
         if before_commit is not None:
@@ -3510,6 +3526,13 @@ async def delete_single_file(
             "；".join(result.removed_paths),
         )
     return result
+
+
+def _virtual_cloud_row(row: LibraryFile) -> bool:
+    """纳管来的、只在网盘上的行：台账路径是主根下隐藏目录里的虚拟位置，本地没有这个文件。"""
+    from movieclaw_api.services.library.cloud import CLOUD_DIR_NAME
+
+    return not row.local_bytes and CLOUD_DIR_NAME in Path(row.file_path).parts
 
 
 def _like_prefix(prefix: str) -> str:

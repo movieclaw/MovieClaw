@@ -114,6 +114,9 @@ class RemoteDriveBackend(dv.DriveBackend):
     async def finish_upload(self, account: dv.DriveAccount, state: dict[str, Any]) -> dv.RemoteFile:
         return dv.remote_file_from(await self._call("finish_upload", {"state": state}, account))
 
+    async def delete(self, account: dv.DriveAccount, remote_ids: list[str]) -> None:
+        await self._call("delete", {"remote_ids": list(remote_ids)}, account)
+
     async def stat(self, account: dv.DriveAccount, remote_id: str) -> dv.RemoteFile:
         return dv.remote_file_from(await self._call("stat", {"remote_id": remote_id}, account))
 

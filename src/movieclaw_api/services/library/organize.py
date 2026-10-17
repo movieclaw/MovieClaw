@@ -230,6 +230,10 @@ def _build_plan_sync(
             continue  # 缺失文件不计入总数也不展示——它不在磁盘上，无从整理
         plan.total += 1
         src = Path(row.file_path)
+        if not row.local_bytes:
+            # 只在网盘上（cloud-storage.md §10）：本地没有可改名的文件，网盘上的保持原名与目录
+            plan.skips.append(SkipEntry(row.file_path, "只在网盘上，不整理文件名"))
+            continue
         if item is None or item.source != MediaSource.TMDB:
             # 临时本地身份的文件（识别失败、按文件名展示）没有可靠的作品名可套模板
             plan.skips.append(SkipEntry(row.file_path, "尚未识别身份，请先在「待识别」里认领"))

@@ -2547,7 +2547,7 @@ function FileRow({
             立即清理
           </button>
         )}
-        {file.state !== "trashed" && onDelete && !(file.cloud && !file.cloud.local) && (
+        {file.state !== "trashed" && onDelete && (
           <button
             type="button"
             aria-label="删除此文件"

@@ -1642,6 +1642,15 @@ class DeleteOptionView(BaseModel):
     )
 
 
+class DeleteCloudView(BaseModel):
+    """这次删除会删掉的网盘文件（cloud-storage.md §10）。"""
+
+    backend_title: str = Field(description="网盘名（多个网盘时用顿号连起来）")
+    files: int = Field(description="要删的网盘文件数")
+    bytes: int = Field(description="这些文件的大小")
+    recycle_bin: bool = Field(description="网盘有回收站：删的是进网盘回收站，还能在网盘里还原")
+
+
 class ItemDeletePreviewView(BaseModel):
     """删除前的完整预览：媒体库自己的计划 + 各删除选项。"""
 
@@ -1653,6 +1662,9 @@ class ItemDeletePreviewView(BaseModel):
         )
     )
     options: list[DeleteOptionView] = Field(default_factory=list)
+    cloud: DeleteCloudView | None = Field(
+        default=None, description="也会删掉网盘上的文件；只在本地的为 null"
+    )
 
 
 class UnidentifiedCandidateView(BaseModel):

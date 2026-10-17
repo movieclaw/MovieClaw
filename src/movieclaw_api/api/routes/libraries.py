@@ -44,6 +44,7 @@ from movieclaw_api.schemas.library import (
     CloudUploadView,
     ConsolidateRootsPayload,
     ConsolidateRootsPreviewView,
+    DeleteCloudView,
     DeleteFollowUpView,
     DeleteOptionView,
     DeletePreviewLineView,
@@ -551,6 +552,34 @@ async def _cloud_upload_views(
         if view is not None:
             views[library_id] = view
     return views
+
+
+async def _delete_cloud_view(session: AsyncSession, file_ids: list[int]) -> DeleteCloudView | None:
+    """这次删除会删掉的网盘文件（删除对话框写「将从 115 删除」）。"""
+    from movieclaw_api.services.drives.deletes import needs_remote_call, replicas_of
+    from movieclaw_api.services.drives.registry import backends
+    from movieclaw_db.repositories.drive_account_repo import DriveAccountRepository
+
+    live = [r for r in await replicas_of(file_ids) if needs_remote_call(r)]
+    if not live:
+        return None
+    accounts = {row.id: row for row in await DriveAccountRepository(session).list_all()}
+    available = backends()
+    titles: list[str] = []
+    recycle = True
+    for account_id in {r.account_id for r in live}:
+        account = accounts.get(account_id)
+        backend = available.get(account.backend) if account is not None else None
+        title = backend.title if backend is not None else (account.backend if account else "网盘")
+        if title not in titles:
+            titles.append(title)
+        recycle = recycle and bool(backend is not None and backend.capabilities.recycle_bin)
+    return DeleteCloudView(
+        backend_title="、".join(titles),
+        files=len(live),
+        bytes=sum(r.size_bytes or 0 for r in live),
+        recycle_bin=recycle,
+    )
 
 
 def _folder_specs(payload: list[CloudFolderPayload]) -> list[library_cloud.FolderSpec]:
@@ -3519,6 +3548,7 @@ async def preview_library_delete(
             whole_item=whole,
             plan=_delete_view(plan, dry_run=True),
             linked_bytes=linked,
+            cloud=await _delete_cloud_view(session, [r.id for r in targets if r.id is not None]),
             options=[
                 DeleteOptionView(
                     key=o.key,

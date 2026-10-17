@@ -1798,6 +1798,25 @@ nonisolated extension API {
         }
     }
 
+    /// 这次删除会删掉的网盘文件（cloud-storage.md §10）。
+    struct DeleteCloudView: Codable, Hashable, Sendable {
+        /// 网盘名（多个网盘时用顿号连起来）
+        var backendTitle: String
+        /// 要删的网盘文件数
+        var files: Int
+        /// 这些文件的大小
+        var bytes: Int
+        /// 网盘有回收站：删的是进网盘回收站，还能在网盘里还原
+        var recycleBin: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case backendTitle = "backend_title"
+            case files
+            case bytes
+            case recycleBin = "recycle_bin"
+        }
+    }
+
     /// 一个勾选的删除选项建出的后续任务（docs/design/library-boundary.md §3.4）。
     struct DeleteFollowUpView: Codable, Hashable, Sendable {
         /// 删除选项的键，如 downloads:remove-source
@@ -4930,12 +4949,15 @@ nonisolated extension API {
         /// 要删的文件里与别处是同一份数据（硬链接）的字节数：只删库文件不会释放这部分空间
         var linkedBytes: Int
         var options: [API.DeleteOptionView]
+        /// 也会删掉网盘上的文件；只在本地的为 null
+        var cloud: API.DeleteCloudView?
 
         enum CodingKeys: String, CodingKey {
             case wholeItem = "whole_item"
             case plan
             case linkedBytes = "linked_bytes"
             case options
+            case cloud
         }
     }
 

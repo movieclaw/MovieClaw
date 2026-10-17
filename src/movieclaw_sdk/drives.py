@@ -448,6 +448,15 @@ class DriveBackend:
         """全部分片传完：合并并返回网盘上的文件（之后宿主还会 ``stat`` 核验大小与哈希）。"""
         raise NotImplementedError
 
+    # ---- 删除
+    async def delete(self, account: DriveAccount, remote_ids: list[str]) -> None:
+        """删掉这些文件。网盘有回收站就进回收站（``capabilities.recycle_bin``），不要清回收站。
+
+        主程序只传台账里的文件 id，只在用户确认的删除与回收站清理时调用，一次最多 100 个。
+        已经不在的文件当删成功（不抛 ``NotFound``）。
+        """
+        raise NotImplementedError
+
     # ---- 文件
     async def stat(self, account: DriveAccount, remote_id: str) -> RemoteFile:
         """一个文件的大小与哈希；不存在抛 ``NotFound``。"""
@@ -468,8 +477,8 @@ class DriveBackend:
 DRIVE_BACKENDS: RegistryKey[DriveBackend] = RegistryKey(
     "drive-backends",
     # 1.1：stat / direct_link（取流）；1.2：list_dir / list_tree / changes（纳管）；
-    # 1.3：ensure_dir / begin_upload / upload_part / finish_upload（上传）
-    version="1.3",
+    # 1.3：ensure_dir / begin_upload / upload_part / finish_upload（上传）；1.4：delete
+    version="1.4",
     stability=Stability.EXPERIMENTAL,
     schema=DriveBackend,
     doc="网盘存储后端：插件贡献一家网盘的协议实现（登录、文件操作），主程序负责账号、调度与界面",

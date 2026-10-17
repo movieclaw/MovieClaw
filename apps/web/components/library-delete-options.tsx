@@ -78,6 +78,16 @@ export function DeleteOptions({
   }
   return (
     <>
+      {preview.cloud && (
+        <p className="mt-3 text-sub leading-6 text-white/70">
+          将从 {preview.cloud.backend_title} 删除{" "}
+          <span className="tnum font-semibold">{preview.cloud.files}</span> 个文件（
+          <span className="tnum">{formatBytes(preview.cloud.bytes)}</span>）
+          {preview.cloud.recycle_bin
+            ? `，进入${preview.cloud.backend_title}的回收站，在那里还能还原。`
+            : "，网盘没有回收站，删了就找不回来。"}
+        </p>
+      )}
       {preview.linked_bytes > 0 && (
         <p className="mt-3 text-sub leading-6 text-white/70">
           其中 <span className="tnum font-semibold">{formatBytes(preview.linked_bytes)}</span>{" "}

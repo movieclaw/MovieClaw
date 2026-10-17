@@ -276,11 +276,14 @@ def _build_plan_sync(
 
     for row in files:
         path = Path(row.file_path)
-        if row.state == FileState.MISSING or (
-            row.state == FileState.TRASHED and row.trash_original_path is not None
+        if (
+            row.state == FileState.MISSING
+            or not row.local_bytes
+            or (row.state == FileState.TRASHED and row.trash_original_path is not None)
         ):
-            # 缺失行没有磁盘实体；移入回收站形态的待回收行实体在源库
-            # .movieclaw-trash 里、不跟条目目录走——都只做逻辑随迁。
+            # 缺失行、只在网盘上的行没有磁盘实体（网盘上的文件留在原处，按文件 id 认）；
+            # 移入回收站形态的待回收行实体在源库 .movieclaw-trash 里、不跟条目目录走
+            # ——都只做逻辑随迁。
             # **原地待回收行不在此列**：它的实体就在条目
             # 目录里，必须随目录物理搬运并改写路径，否则搬运后行路径陈旧、
             # 清理任务删行收敛，新库里的无台账文件会被扫描重新收编——
@@ -791,9 +794,7 @@ async def _relocate_item_identity(
         )
 
 
-def _relocated_anchor(
-    rows: list[LibraryFile], target: Library, target_root: Path
-) -> str | None:
+def _relocated_anchor(rows: list[LibraryFile], target: Library, target_root: Path) -> str | None:
     """本地来源条目搬到新位置后应有的身份锚；算不出同一口径的值时 None。"""
     anchor_path = next(
         (Path(row.file_path) for row in rows if target_root in Path(row.file_path).parents),
@@ -822,9 +823,7 @@ async def _refresh_stats_after_transfer(plan: TransferPlan, summary: TransferSum
                 [plan.source_library_id, plan.target_library_id]
             )
     except Exception:  # noqa: BLE001 -- 统计失败不回滚已完成的磁盘搬运
-        logger.exception(
-            "条目 #%s 转移后的媒体库统计刷新失败", plan.media_item_id
-        )
+        logger.exception("条目 #%s 转移后的媒体库统计刷新失败", plan.media_item_id)
         summary.errors.append("媒体库统计刷新失败，将在下次扫描时重试")
 
 

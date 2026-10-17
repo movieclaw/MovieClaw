@@ -118,7 +118,7 @@ async def collect(
     from movieclaw_api.services.library.scan import _stem_episode, classify_cloud_path
 
     assert library.id is not None
-    known_paths = await LibraryCloudRepository(session).replica_paths(library.id)
+    known_paths = await LibraryCloudRepository(session).replica_paths()
     cloud = CloudRound()
     episodes: dict[Path, set[int]] = {}
     for folder in folders:
@@ -159,8 +159,9 @@ async def collect(
             listing.videos += 1
             listing.remote_ids.add(remote.remote_id)
             known = known_paths.get((folder.account_id, remote.remote_id))
-            if known is not None and known[1]:
-                continue  # 我们传上去、本地还在的文件：归本地扫描管
+            if known is not None and (known[1] or known[2] != library.id):
+                # 我们传上去、本地还在的文件归本地扫描管；转移到别的库的，别在这里再入一遍账
+                continue
             path = known[0] if known is not None else str(base / rel)
             if path in cloud.entries:
                 continue  # 同一个文件被两个嵌套的文件夹列到：先到先得

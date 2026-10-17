@@ -1746,6 +1746,17 @@ export interface ItemDeletePreview {
   /** 要删的文件里与别处是同一份数据（硬链接）的字节数：只删库文件不会释放这部分空间 */
   linked_bytes: number;
   options: DeleteOption[];
+  /** 也会删掉网盘上的文件；只在本地的为 null（老服务器没有这个字段） */
+  cloud?: DeleteCloud | null;
+}
+
+/** 这次删除会删掉的网盘文件 */
+export interface DeleteCloud {
+  backend_title: string;
+  files: number;
+  bytes: number;
+  /** 网盘有回收站：删的是进网盘回收站，还能在网盘里还原 */
+  recycle_bin: boolean;
 }
 
 export function getDeletePreview(
