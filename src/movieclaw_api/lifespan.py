@@ -29,7 +29,7 @@ def build_lifespan(settings: Settings):
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from movieclaw_api.plugins import settings_store
-        from movieclaw_api.services import host_ops, plugin_gateway, plugin_switches
+        from movieclaw_api.services import host_ops, plugin_deps, plugin_gateway, plugin_switches
         from movieclaw_api.services.plugin_events import sensitive_reason
 
         # 界面保存的插件设置叠在清单配置上（docs/design/plugin-phase4.md §3）；
@@ -62,12 +62,16 @@ def build_lifespan(settings: Settings):
         bundled = load_bundled_entries(replaced, plugin_switches.removed_ids(settings))
         await kernel.start((*with_bundled(bundled), *local), patches=load_patches(settings))
         await legacy_ids.migrate_rows(settings)
+        if not safe.active:
+            # 依赖没就绪的插件包（主程序换了 Python 版本等）：后台按原锁文件补装，装好再挂载
+            plugin_deps.resume(kernel, settings)
         logger.info("应用启动完成，数据库就绪")
         safe_mode.schedule_settle(settings)
         try:
             yield
         finally:
             safe_mode.cancel_settle()
+            await plugin_deps.stop()
             manager = getattr(app.state, "package_manager", None)
             if manager is not None:
                 await manager.close()

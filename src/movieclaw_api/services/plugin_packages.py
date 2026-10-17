@@ -132,6 +132,7 @@ def _view(manifest: pkg.Manifest, current: pkg.Installed | None, lock: Any) -> d
         "installed_version": current.version if current else None,
         "replaces_builtin": _replaces_builtin(plugin.id),
         "dependencies": plugin_deps.view(lock, current.dependencies if current else None),
+        "dependency_progress": plugin_deps.progress(plugin.id) if lock is not None else None,
     }
 
 
@@ -233,6 +234,7 @@ class PackageManager:
                     "error": fiber.error if fiber else None,
                     "watching": item.id in self._watches,
                     "replaces_builtin": _replaces_builtin(item.id),
+                    "dependencies": _installed_dependencies(item),
                 }
             )
         waiting = [
@@ -326,6 +328,8 @@ class PackageManager:
                 reserved=_reserved(self._kernel, self._settings),
                 operations=_operations(),
             )
+            if lock is not None:
+                await self._install_dependencies(entry_id, path, manifest)
             packages = pkg.installed(self._settings)
             current = packages.get(entry_id)
             target = pkg.version_dir(self._settings, entry_id, version)
@@ -364,6 +368,40 @@ class PackageManager:
             logger.info("插件包 %s v%s 已安装并运行", entry_id, version)
             return {"status": "active", "error": None, **self._status(entry_id)}
 
+    async def _install_dependencies(self, entry_id: str, path: Any, manifest: pkg.Manifest) -> None:
+        """批准后、挂载前装依赖（从待批准目录装：失败时旧版本照常运行，待批准的包留着重试）。"""
+        from movieclaw_api.services import plugin_deps
+
+        assert manifest.dependencies is not None
+        try:
+            await plugin_deps.install(self._settings, entry_id, path, manifest.dependencies.lock)
+        except plugin_deps.DependencyError as exc:
+            raise pkg.PackageError(
+                f"依赖安装失败，插件没有装上：{exc}。插件包仍在待批准区，处理后重新批准即可重试"
+            ) from exc
+
+    async def retry_dependencies(self, entry_id: str) -> dict[str, Any]:
+        """已安装的插件依赖没装好（启动时补装失败）：再装一次，装好就挂载。"""
+        from movieclaw_api.services import plugin_deps
+
+        async with self._lock:
+            record = pkg.installed(self._settings).get(entry_id)
+            if record is None:
+                raise LookupError(f"没有安装插件包 {entry_id}")
+            if not record.dependencies:
+                raise pkg.PackageError(f"{record.title} 没有第三方依赖")
+            try:
+                await plugin_deps.install(
+                    self._settings,
+                    entry_id,
+                    pkg.version_dir(self._settings, entry_id, record.version),
+                    record.dependencies["lock"],
+                )
+            except plugin_deps.DependencyError as exc:
+                raise pkg.PackageError(f"依赖安装失败：{exc}") from exc
+            state, error = await self._activate(record)
+            return {"status": state, "error": error, **self._status(entry_id)}
+
     async def _activate(self, record: pkg.Installed) -> tuple[str, str | None]:
         from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_FILES
         from movieclaw_api.services.plugin_files import parse_grants
@@ -399,7 +437,10 @@ class PackageManager:
         }
 
     def _prune(self, entry_id: str) -> None:
-        """只留当前版与上一版。"""
+        """只留当前版与上一版（依赖目录同样只留它们引用的）。"""
+        from movieclaw_api.services import plugin_deps
+
+        plugin_deps.prune(self._settings, pkg.installed(self._settings))
         record = pkg.installed(self._settings)[entry_id]
         keep = {record.version, (record.previous or {}).get("version")}
         base = pkg.root(self._settings) / entry_id
@@ -483,6 +524,11 @@ class PackageManager:
             packages.pop(entry_id)
             pkg.save(self._settings, packages)
             shutil.rmtree(pkg.root(self._settings) / entry_id, ignore_errors=True)
+            from movieclaw_api.services import plugin_deps, plugin_runtime
+
+            plugin_deps.forget(entry_id)
+            plugin_runtime.dependency_paths.pop(entry_id, None)
+            plugin_deps.prune(self._settings, packages)
             from movieclaw_api.services.plugin_callbacks import get_service
 
             callbacks = get_service()
@@ -538,6 +584,17 @@ class PackageManager:
         for task in list(self._watches.values()):
             task.cancel()
         await asyncio.gather(*self._watches.values(), return_exceptions=True)
+
+
+def _installed_dependencies(record: pkg.Installed) -> dict[str, Any] | None:
+    from movieclaw_api.services import plugin_deps
+
+    if not record.dependencies:
+        return None
+    return {
+        "packages": [f"{p['name']} {p['version']}" for p in record.dependencies["packages"]],
+        "progress": plugin_deps.progress(record.id),
+    }
 
 
 def _check_dependency_consent(lock: Any, current: pkg.Installed | None, given: str | None) -> None:

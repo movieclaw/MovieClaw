@@ -78,6 +78,11 @@ BUILTIN_EGRESS_SERVICES: list[dict[str, str]] = [
         "局域网里的自建中继总是直连",
     },
     {
+        "id": "pypi",
+        "label": "插件依赖下载",
+        "description": "第三方插件要装的 Python 包（默认 pypi.org，可在下方换成清华镜像）",
+    },
+    {
         "id": "github",
         "label": "GitHub 更新",
         "description": "应用内更新的检查与产物下载（api.github.com / github.com），"
@@ -121,4 +126,8 @@ class NetworkEgressSetting(SettingSchema):
     )
     douban_api_base_url: str = Field(
         default="", description="豆瓣接口反代地址覆盖；空 = 环境变量或内置默认"
+    )
+    pypi_index_url: str = Field(
+        default="",
+        description="插件依赖的包索引地址（PEP 503 simple）；空 = PyPI 官方",
     )

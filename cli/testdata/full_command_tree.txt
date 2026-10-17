@@ -26,6 +26,7 @@ app plugins packages
 app plugins packages approve
 app plugins packages discard
 app plugins packages list
+app plugins packages retry-dependencies
 app plugins packages rollback
 app plugins packages uninstall
 app plugins packages upload

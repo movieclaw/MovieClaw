@@ -571,6 +571,7 @@ def entry_for(settings: object, package: Installed) -> Entry:
     declare(package)
     path = version_dir(settings, package.id, package.version)
     try:
+        _bind_dependencies(settings, package)
         if package.runtime == "inline":
             plugin = _inline(path, package)
         else:
@@ -596,8 +597,27 @@ def entry_for(settings: object, package: Installed) -> Entry:
     return Entry(package.id, plugin, source=SOURCE)
 
 
+def _bind_dependencies(settings: object, package: Installed) -> None:
+    from movieclaw_api.services import plugin_deps, plugin_runtime
+
+    plugin_runtime.dependency_paths.pop(package.id, None)
+    if not package.dependencies:
+        return
+    ready = plugin_deps.ready_dir(settings, package.dependencies["digest"])
+    if ready is None:
+        raise PackageError("第三方依赖还没装好（插件页「重试安装依赖」）")
+    plugin_runtime.dependency_paths[package.id] = ready
+
+
 def load_package_entries(settings: object) -> list[Entry]:
-    packages = installed(settings)
+    """已安装的插件包 → 内核条目；依赖还没就绪的跳过，由 ``plugin_deps.resume`` 装好后挂载。"""
+    from movieclaw_api.services import plugin_deps
+
+    packages = {
+        k: p
+        for k, p in installed(settings).items()
+        if not p.dependencies or plugin_deps.ready_dir(settings, p.dependencies["digest"])
+    }
     if not packages:
         return []
     entries = [entry_for(settings, p) for p in packages.values()]

@@ -272,6 +272,16 @@ export function packageDetail(item: InstalledPackage): string {
   if (item.replaces_builtin) parts.push("替换了内置版本，卸载即恢复");
   if (item.operations.length) parts.push(`${item.operations.length} 个宿主操作`);
   if (item.paths.length) parts.push(`${item.paths.length} 个目录授权`);
+  const deps = item.dependencies;
+  if (deps?.progress?.phase === "installing") {
+    parts.push(
+      deps.progress.total
+        ? `正在安装依赖（${deps.progress.done} / ${deps.progress.total}）`
+        : "正在准备依赖",
+    );
+  } else if (deps) {
+    parts.push(`${deps.packages.length} 个第三方包`);
+  }
   if (item.watching) parts.push("刚安装，观察中");
   if (item.bad_versions.length) parts.push(`已拦下的坏版本：${item.bad_versions.join("、")}`);
   return parts.join(" · ");

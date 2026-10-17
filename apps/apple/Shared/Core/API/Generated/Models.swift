@@ -1720,6 +1720,23 @@ nonisolated extension API {
         }
     }
 
+    struct DependencyProgressView: Codable, Hashable, Sendable {
+        /// installing 正在安装依赖 / failed 安装失败（可重试）
+        var phase: String
+        /// 已下载好的包数
+        var done: Int
+        var total: Int
+        /// 失败原因
+        var error: String?
+
+        enum CodingKeys: String, CodingKey {
+            case phase
+            case done
+            case total
+            case error
+        }
+    }
+
     struct DependencyView: Codable, Hashable, Sendable {
         var name: String
         var version: String
@@ -4380,6 +4397,18 @@ nonisolated extension API {
         }
     }
 
+    struct InstalledDependenciesView: Codable, Hashable, Sendable {
+        /// 批准安装的第三方包（名字 版本）
+        var packages: [String]
+        /// 依赖正在安装或安装失败时的进度；就绪时为空
+        var progress: API.DependencyProgressView?
+
+        enum CodingKeys: String, CodingKey {
+            case packages
+            case progress
+        }
+    }
+
     struct InstalledPackageView: Codable, Hashable, Sendable {
         var id: String
         var title: String
@@ -4399,6 +4428,8 @@ nonisolated extension API {
         var watching: Bool
         /// 替换了随带的内置插件；卸载后随带版本回来
         var replacesBuiltin: Bool
+        /// 批准安装的第三方依赖；没有则为空
+        var dependencies: API.InstalledDependenciesView?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -4415,6 +4446,7 @@ nonisolated extension API {
             case error
             case watching
             case replacesBuiltin = "replaces_builtin"
+            case dependencies
         }
     }
 
@@ -6951,6 +6983,8 @@ nonisolated extension API {
         var tmdbImageBaseUrl: String?
         /// 豆瓣接口镜像地址；留空用默认
         var doubanApiBaseUrl: String?
+        /// 插件依赖的包索引地址（如清华镜像 https://pypi.tuna.tsinghua.edu.cn/simple）；空串 = PyPI 官方；不传 = 保持不变
+        var pypiIndexUrl: String?
 
         enum CodingKeys: String, CodingKey {
             case proxyMode = "proxy_mode"
@@ -6959,6 +6993,7 @@ nonisolated extension API {
             case tmdbApiBaseUrl = "tmdb_api_base_url"
             case tmdbImageBaseUrl = "tmdb_image_base_url"
             case doubanApiBaseUrl = "douban_api_base_url"
+            case pypiIndexUrl = "pypi_index_url"
         }
     }
 
@@ -6976,9 +7011,13 @@ nonisolated extension API {
         var tmdbImageBaseUrl: String
         /// 豆瓣接口镜像地址；留空用默认
         var doubanApiBaseUrl: String
+        /// 插件依赖的包索引地址（如清华镜像 https://pypi.tuna.tsinghua.edu.cn/simple）；空串 = PyPI 官方；不传 = 保持不变
+        var pypiIndexUrl: String?
         var services: [API.EgressServiceOption]
-        /// 三个镜像地址的生效默认值（设置为空时的回落）
+        /// 镜像地址的生效默认值（设置为空时的回落）
         var mirrorDefaults: [String: String]
+        /// 插件依赖包索引的常用地址：名称 → 地址
+        var pypiIndexPresets: [String: String]?
         /// 环境变量中探测到的代理地址；env 模式下供用户确认
         var envProxyDetected: String
 
@@ -6989,8 +7028,10 @@ nonisolated extension API {
             case tmdbApiBaseUrl = "tmdb_api_base_url"
             case tmdbImageBaseUrl = "tmdb_image_base_url"
             case doubanApiBaseUrl = "douban_api_base_url"
+            case pypiIndexUrl = "pypi_index_url"
             case services
             case mirrorDefaults = "mirror_defaults"
+            case pypiIndexPresets = "pypi_index_presets"
             case envProxyDetected = "env_proxy_detected"
         }
     }
@@ -7419,6 +7460,8 @@ nonisolated extension API {
         var replacesBuiltin: Bool
         /// 要下载安装的第三方包（清单 [dependencies]）；没有则为空
         var dependencies: API.PackageDependenciesView?
+        /// 批准后正在安装依赖时的进度
+        var dependencyProgress: API.DependencyProgressView?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -7441,6 +7484,7 @@ nonisolated extension API {
             case installedVersion = "installed_version"
             case replacesBuiltin = "replaces_builtin"
             case dependencies
+            case dependencyProgress = "dependency_progress"
         }
     }
 

@@ -30,6 +30,8 @@ export interface NetworkConfigPayload {
   tmdb_api_base_url: string;
   tmdb_image_base_url: string;
   douban_api_base_url: string;
+  /** 插件依赖的包索引地址；空串 = PyPI 官方；不传 = 保持不变（旧服务端没有这个字段） */
+  pypi_index_url?: string | null;
 }
 
 /** 读取响应：配置本体 + 渲染所需的目录与默认值。 */
@@ -39,6 +41,8 @@ export interface NetworkConfigView extends NetworkConfigPayload {
   mirror_defaults: Record<string, string>;
   /** 环境变量中探测到的代理地址；env 模式下供用户确认 */
   env_proxy_detected: string;
+  /** 插件依赖包索引的常用地址：名称 → 地址；旧服务端没有这个字段 */
+  pypi_index_presets?: Record<string, string> | null;
 }
 
 export interface NetworkTestResult {

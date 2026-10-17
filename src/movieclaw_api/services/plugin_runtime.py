@@ -74,6 +74,8 @@ process_entries: set[str] = set()
 config_descriptions: dict[str, dict[str, Any] | None] = {}
 #: 进程外插件的代码位置（目录、模块），校验设置时另起子进程用
 process_specs: dict[str, tuple[Path, str, str | None]] = {}
+#: 插件包的第三方依赖目录（plugin-dependencies.md §4）：运行器把它追加到 ``sys.path`` 最后
+dependency_paths: dict[str, Path] = {}
 
 
 class PluginProcessGone(RuntimeError):
@@ -168,15 +170,17 @@ def _launch(entry_id: str, path: Path, module: str) -> Launch:
 
     env = _child_env()
     settings = iso.isolation()
+    deps = dependency_paths.get(entry_id)
     if not settings.enabled:
-        return Launch(path, env, [])
+        return Launch(path, env, ["--deps", str(deps)] if deps else [])
     src = iso.stage_source(Path(env["PYTHONPATH"]), __version__)
     code = iso.stage_plugin(entry_id, path, module)
     scratch = iso.scratch_dir(entry_id, settings)
     env.update(PYTHONPATH=str(src), HOME=str(scratch), TMPDIR=str(scratch))
+    args = ["--deps", str(iso.stage_dependencies(deps))] if deps else []
     if settings.uid == os.geteuid():
-        return Launch(code, env, [])
-    return Launch(code, env, ["--uid", str(settings.uid), "--gid", str(settings.gid)])
+        return Launch(code, env, args)
+    return Launch(code, env, [*args, "--uid", str(settings.uid), "--gid", str(settings.gid)])
 
 
 class Session:

@@ -43,6 +43,11 @@ class NetworkConfigPayload(BaseModel):
     )
     tmdb_image_base_url: str = Field(default="", description="TMDB 图床镜像地址；留空用默认")
     douban_api_base_url: str = Field(default="", description="豆瓣接口镜像地址；留空用默认")
+    pypi_index_url: str | None = Field(
+        default=None,
+        description="插件依赖的包索引地址（如清华镜像 https://pypi.tuna.tsinghua.edu.cn/simple）；"
+        "空串 = PyPI 官方；不传 = 保持不变",
+    )
 
 
 class NetworkConfigView(NetworkConfigPayload):
@@ -50,7 +55,10 @@ class NetworkConfigView(NetworkConfigPayload):
 
     services: list[EgressServiceOption] = Field(default_factory=list)
     mirror_defaults: dict[str, str] = Field(
-        default_factory=dict, description="三个镜像地址的生效默认值（设置为空时的回落）"
+        default_factory=dict, description="镜像地址的生效默认值（设置为空时的回落）"
+    )
+    pypi_index_presets: dict[str, str] | None = Field(
+        default=None, description="插件依赖包索引的常用地址：名称 → 地址"
     )
     env_proxy_detected: str = Field(
         default="", description="环境变量中探测到的代理地址；env 模式下供用户确认"

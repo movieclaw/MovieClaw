@@ -236,6 +236,14 @@ export interface PackageDependencies {
   needs_consent: boolean;
 }
 
+export interface DependencyProgress {
+  /** installing 正在安装 / failed 安装失败（可重试） */
+  phase: "installing" | "failed";
+  done: number;
+  total: number;
+  error: string | null;
+}
+
 export interface PackageRequest {
   id: string;
   title: string;
@@ -266,6 +274,8 @@ export interface PackageRequest {
   replaces_builtin?: boolean;
   /** 要下载安装的第三方包；没有依赖或旧服务端为空 */
   dependencies?: PackageDependencies | null;
+  /** 批准后正在安装依赖时的进度 */
+  dependency_progress?: DependencyProgress | null;
 }
 
 export interface InstalledPackage {
@@ -287,6 +297,8 @@ export interface InstalledPackage {
   watching: boolean;
   /** 替换了随带的内置插件；旧服务端没有这个字段 */
   replaces_builtin?: boolean;
+  /** 批准安装的第三方依赖；progress 在安装中或安装失败时才有 */
+  dependencies?: { packages: string[]; progress: DependencyProgress | null } | null;
 }
 
 export interface PackagesOverview {
@@ -353,6 +365,16 @@ export async function rollbackPackage(id: string): Promise<PackageResult> {
   return (
     await request<ApiEnvelope<PackageResult>>(
       `/app/plugins/packages/${encodeURIComponent(id)}/rollback`,
+      { method: "POST" },
+    )
+  ).data;
+}
+
+/** 依赖没装好（启动时补装失败）：按已批准的锁文件再装一次，装好即加载 */
+export async function retryPackageDependencies(id: string): Promise<PackageResult> {
+  return (
+    await request<ApiEnvelope<PackageResult>>(
+      `/app/plugins/packages/${encodeURIComponent(id)}/dependencies/retry`,
       { method: "POST" },
     )
   ).data;

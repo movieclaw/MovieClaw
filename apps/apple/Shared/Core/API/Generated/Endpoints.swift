@@ -90,6 +90,12 @@ nonisolated extension APIClient {
         return try await send("POST", "/app/plugins/packages/\(entryId)/approve", body: body)
     }
 
+    /// 重试安装插件包的第三方依赖（按已批准的锁文件，不再询问）；装好即加载
+    /// `POST /app/plugins/packages/{entry_id}/dependencies/retry`
+    func appPluginsPackagesRetryDependencies(entryId: String) async throws -> API.PackageResultView {
+        return try await send("POST", "/app/plugins/packages/\(entryId)/dependencies/retry")
+    }
+
     /// 放弃一个等待批准的插件包
     /// `DELETE /app/plugins/packages/{entry_id}/pending`
     func appPluginsPackagesDiscard(entryId: String) async throws -> Void {

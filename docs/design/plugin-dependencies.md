@@ -1,6 +1,6 @@
 # 插件依赖：安装时按授权下载第三方包——设计
 
-> 状态：设计稿（2026-10-17），待实施。修订 [plugin-phase3.md](plugin-phase3.md) §2 / §9 决策 2「依赖只能随包携带纯 Python、
+> 状态：已实施（2026-10-17，PR 1～3 见 §8）。修订 [plugin-phase3.md](plugin-phase3.md) §2 / §9 决策 2「依赖只能随包携带纯 Python、
 > 安装时不跑 pip」。源起：115 存储后端插件（[cloud-storage-115.md](cloud-storage-115.md)）要用带本机代码的加密库，
 > 纯 Python 随包携带装不下。
 > 关联：[plugin-phase3.md](plugin-phase3.md)（插件包、批准、进程外运行、路径授权）、
@@ -95,3 +95,27 @@ lock = "requirements.lock"     # 包内路径；pip 的 requirements 格式，�
 115 插件可以直接依赖 `p115cipher[full]`（pycryptodome、ecdsa、lz4 都有两种平台的轮子），不用自己重写加密函数。
 仍不整包依赖 p115client：它的依赖近 40 个，安装慢、出问题的面大，插件只需要它的加密部分。这一项不卡存储层内核的开工
 （里程碑一的主程序 PR 用测试内的假后端），但在 115 插件动工前要先合并本文的 PR 1～3。
+
+## 8. 实施记录（2026-10-17）
+
+| PR | 内容 |
+|---|---|
+| #887 | 清单 `[dependencies]`、锁文件校验与生成（`movieclaw_sdk.deps`、`check_plugin.py --lock`）、发版附带 `host-constraints.txt` |
+| #890 | 批准页 / 接口 / 命令行列出依赖；授权按锁文件哈希记录；升级时改锁重问；`plugin dev --allow-dependencies` |
+| #891 | 安装、加载、启动补装、失败与重试、设置 → 网络的包索引地址 |
+
+与 §3 的差别（实现时定）：
+
+- **锁文件格式**：每个包上方用 `#>` 注释行记下它的每个轮子（文件名、字节数、sha256）——批准页的大小、「含本机代码」、
+  是否有本机平台的轮子都从这里读；pip 把它们当注释跳过。
+- **下载由主程序自己做，pip 只离线安装**：按 `#>` 行挑出本机要用的轮子，依次取插件包 `wheels/` → `.cache/<sha256>/` →
+  经统一出口（服务 `pypi`，跟随设置 → 网络的代理开关）从包索引下载并核对哈希，再
+  `pip install --target … --require-hashes --only-binary=:all: --no-deps --no-compile --no-index --find-links … -c host-constraints.txt -r <锁文件>`。
+  这样代理（含 socks5、按服务开关）与主程序其余出网一致，失败原因能分清「网络不通 / 哈希不对 / 没有本机平台的轮子」，
+  进度按包计数，缓存按哈希复用。
+- **批准时装依赖、装好再换版本**：依赖从待批准目录装；失败时不动已安装的版本（旧版本照常运行），待批准的包留着，
+  重新批准即重试。启动时依赖没就绪的（换了 Python 版本、目录被删）不挂载，后台补装后挂载；补装失败在插件页显示原因与
+  「重试安装依赖」（`app.plugins.packages.retry-dependencies`）。
+- 依赖目录名 `<锁文件哈希前 16 位>-<解释器标签>-<平台标签>`（如 `…-cp312-manylinux_2_36_x86_64`）；隔离运行时复制到
+  `/tmp/movieclaw-plugins/deps/` 供非特权用户读取。
+

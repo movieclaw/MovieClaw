@@ -18,6 +18,7 @@ import {
   approvePackage,
   discardPackage,
   listPackages,
+  retryPackageDependencies,
   rollbackPackage,
   uninstallPackage,
   uploadPackage,
@@ -85,6 +86,14 @@ export function PluginPackagesSection({
     const timer = window.setInterval(refresh, 5000);
     return () => window.clearInterval(timer);
   }, [watching, refresh]);
+  // 后台在装依赖（主程序换了 Python 版本等）：进度与装好后的状态要跟着刷新
+  const installing =
+    installed?.some((item) => item.dependencies?.progress?.phase === "installing") ?? false;
+  useEffect(() => {
+    if (!installing) return;
+    const timer = window.setInterval(refresh, 2000);
+    return () => window.clearInterval(timer);
+  }, [installing, refresh]);
 
   const run = useCallback(
     async (action: () => Promise<void>) => {
@@ -136,6 +145,13 @@ export function PluginPackagesSection({
       toast.success(`已回到 v${result.version}`);
     });
   };
+
+  const retryDependencies = (item: InstalledPackage) =>
+    run(async () => {
+      const result = await retryPackageDependencies(item.id);
+      if (result.state === "active") toast.success(`「${item.title}」的依赖已装好，已运行`);
+      else toast.error(`依赖已装好，但插件没能运行：${result.error ?? result.state}`);
+    });
 
   const uninstall = async (item: InstalledPackage) => {
     const result = await confirm({
@@ -224,36 +240,55 @@ export function PluginPackagesSection({
             <p className="px-1 text-sub text-[var(--text-muted)]">还没有安装第三方插件。</p>
           ) : (
             <SettingsList>
-              {installed.map((item) => (
-                <SettingsRow
-                  key={item.id}
-                  label={item.title}
-                  description={packageDetail(item)}
-                  error={item.state === "active" ? null : item.error}
-                  href={pluginHref(item.id)}
-                >
-                  <StatusPill
-                    tone={item.state === "unloaded" ? "neutral" : pluginStateTone(item.state)}
-                    label={item.state === "unloaded" ? "未加载" : pluginStateLabel(item.state)}
-                  />
-                  <SettingsMoreMenu
-                    label={`「${item.title}」的更多操作`}
-                    disabled={busy}
-                    items={[
-                      ...(item.previous_version
-                        ? [
-                            {
-                              label: `回到上一版 v${item.previous_version}`,
-                              onSelect: () => void rollback(item),
-                              warn: true,
-                            },
-                          ]
-                        : []),
-                      { label: "卸载", onSelect: () => void uninstall(item), danger: true },
-                    ]}
-                  />
-                </SettingsRow>
-              ))}
+              {installed.map((item) => {
+                const progress = item.dependencies?.progress ?? null;
+                return (
+                  <SettingsRow
+                    key={item.id}
+                    label={item.title}
+                    description={packageDetail(item)}
+                    error={
+                      progress?.phase === "failed"
+                        ? `依赖安装失败：${progress.error ?? "未知原因"}`
+                        : item.state === "active"
+                          ? null
+                          : item.error
+                    }
+                    href={pluginHref(item.id)}
+                  >
+                    {progress ? (
+                      <StatusPill
+                        tone={progress.phase === "failed" ? "danger" : "neutral"}
+                        label={progress.phase === "failed" ? "依赖没装上" : "正在安装依赖"}
+                      />
+                    ) : (
+                      <StatusPill
+                        tone={item.state === "unloaded" ? "neutral" : pluginStateTone(item.state)}
+                        label={item.state === "unloaded" ? "未加载" : pluginStateLabel(item.state)}
+                      />
+                    )}
+                    <SettingsMoreMenu
+                      label={`「${item.title}」的更多操作`}
+                      disabled={busy}
+                      items={[
+                        ...(progress?.phase === "failed"
+                          ? [{ label: "重试安装依赖", onSelect: () => void retryDependencies(item) }]
+                          : []),
+                        ...(item.previous_version
+                          ? [
+                              {
+                                label: `回到上一版 v${item.previous_version}`,
+                                onSelect: () => void rollback(item),
+                                warn: true,
+                              },
+                            ]
+                          : []),
+                        { label: "卸载", onSelect: () => void uninstall(item), danger: true },
+                      ]}
+                    />
+                  </SettingsRow>
+                );
+              })}
             </SettingsList>
           )}
         </div>
@@ -378,7 +413,7 @@ function ReviewDrawer({
             onClick={() => onApprove(item, allowInline, allowMembers)}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            {busy ? "正在安装…" : "批准并安装"}
+            {busy ? (item.dependencies ? "正在下载安装依赖…" : "正在安装…") : "批准并安装"}
           </button>
         </>
       }

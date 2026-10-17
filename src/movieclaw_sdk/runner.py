@@ -1364,6 +1364,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--listen-fd", type=int, default=None, help="宿主绑定好的路由监听套接字")
     parser.add_argument("--uid", type=int, default=None, help="降权到这个用户（宿主是 root 时）")
     parser.add_argument("--gid", type=int, default=None)
+    parser.add_argument("--deps", default=None, help="插件包的第三方依赖目录（追加到导入路径最后）")
     args = parser.parse_args(argv)
     # 先降权（导入任何插件代码之前），再设「父进程退出即退出」：内核在 uid 变化时会清掉后者
     _drop_privileges(args.uid, args.gid)
@@ -1374,10 +1375,14 @@ def main(argv: list[str] | None = None) -> int:
     sys.stdout = sys.stderr
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(levelname)s %(message)s")
     sys.path.insert(0, args.path)
-    # 插件包随包携带的依赖（docs/design/plugin-phase3.md §2：安装时不跑 pip）
+    # 插件包随包携带的依赖（docs/design/plugin-phase3.md §2）
     vendor = Path(args.path) / "vendor"
     if vendor.is_dir():
         sys.path.insert(1, str(vendor))
+    # 批准安装的第三方依赖（plugin-dependencies.md §4）：直接追加到最后、不经 site.addsitedir，
+    # 包里的 .pth 不执行；主程序自己的包永远优先
+    if args.deps:
+        sys.path.append(args.deps)
     if args.describe:
         return describe(args)
     if args.validate:

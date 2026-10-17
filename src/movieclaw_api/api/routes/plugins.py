@@ -317,6 +317,9 @@ async def exit_safe_mode(request: Request) -> ApiResponse[SafeModeExitView]:
     for entry in (*load_local_entries(settings), *packages.load_package_entries(settings)):
         if kernel.fiber(entry.id) is None:
             mounted[entry.id] = (await kernel.mount(entry)).state.value
+    from movieclaw_api.services import plugin_deps
+
+    plugin_deps.resume(kernel, settings)
     safe_mode.schedule_settle(settings)
     return ok(SafeModeExitView(mounted=mounted), message="已退出安全模式")
 
@@ -401,6 +404,20 @@ class PackageDependenciesView(BaseModel):
     needs_consent: bool = Field(description="锁文件与已批准的不同（或首次安装）：批准时须带上哈希")
 
 
+class DependencyProgressView(BaseModel):
+    phase: str = Field(description="installing 正在安装依赖 / failed 安装失败（可重试）")
+    done: int = Field(description="已下载好的包数")
+    total: int
+    error: str | None = Field(description="失败原因")
+
+
+class InstalledDependenciesView(BaseModel):
+    packages: list[str] = Field(description="批准安装的第三方包（名字 版本）")
+    progress: DependencyProgressView | None = Field(
+        description="依赖正在安装或安装失败时的进度；就绪时为空"
+    )
+
+
 class PackageRequestView(BaseModel):
     id: str
     title: str
@@ -437,6 +454,9 @@ class PackageRequestView(BaseModel):
     dependencies: PackageDependenciesView | None = Field(
         default=None, description="要下载安装的第三方包（清单 [dependencies]）；没有则为空"
     )
+    dependency_progress: DependencyProgressView | None = Field(
+        default=None, description="批准后正在安装依赖时的进度"
+    )
 
 
 class InstalledPackageView(BaseModel):
@@ -455,6 +475,9 @@ class InstalledPackageView(BaseModel):
     watching: bool = Field(description="是否还在安装后的宽限期观察中")
     replaces_builtin: bool = Field(
         default=False, description="替换了随带的内置插件；卸载后随带版本回来"
+    )
+    dependencies: InstalledDependenciesView | None = Field(
+        default=None, description="批准安装的第三方依赖；没有则为空"
     )
 
 
@@ -565,6 +588,26 @@ async def approve_package(
     view = PackageResultView.model_validate(result)
     message = "已安装并运行" if view.status == "active" else f"没能运行，已回滚：{view.error}"
     return ok(view, message=message)
+
+
+@router.post(
+    "/packages/{entry_id}/dependencies/retry",
+    response_model=ApiResponse[PackageResultView],
+    summary="重试安装插件包的第三方依赖（按已批准的锁文件，不再询问）；装好即加载",
+    operation_id="app.plugins.packages.retry-dependencies",
+)
+async def retry_package_dependencies(
+    entry_id: str, request: Request
+) -> ApiResponse[PackageResultView]:
+    from movieclaw_api.plugins.packages import PackageError
+
+    try:
+        result = await _packages(request).retry_dependencies(entry_id)
+    except LookupError as exc:
+        raise NotFoundException(str(exc)) from exc
+    except PackageError as exc:
+        raise BadRequestException(str(exc)) from exc
+    return ok(PackageResultView.model_validate(result), message="依赖已装好")
 
 
 @router.delete(

@@ -380,39 +380,67 @@ def _size(wheel: Wheel) -> str:
     return "?" if wheel.size is None else str(wheel.size)
 
 
+INDEX_ACCEPT = "application/vnd.pypi.simple.v1+json, text/html;q=0.1"
+
+
+@dataclass(frozen=True)
+class IndexFile:
+    filename: str
+    size: int | None
+    sha256: str
+    url: str
+
+
+def index_page_url(index_url: str, name: str) -> str:
+    return f"{index_url.rstrip('/')}/{canonicalize_name(name)}/"
+
+
+def parse_index_page(body: str, content_type: str, page_url: str) -> list[IndexFile]:
+    """包索引的项目页（PEP 691 JSON，或不支持它的镜像的 HTML 页）→ 文件列表（不含撤回的）。"""
+    from urllib.parse import urldefrag, urljoin
+
+    files: list[IndexFile] = []
+    if "json" in content_type:
+        for item in json.loads(body).get("files", []):
+            digest = (item.get("hashes") or {}).get("sha256")
+            if digest and not item.get("yanked"):
+                url = urljoin(page_url, urldefrag(item["url"])[0])
+                files.append(IndexFile(item["filename"], item.get("size"), digest, url))
+        return files
+    for tag, href, filename in re.findall(r'(<a[^>]*href="([^"]+)"[^>]*>)([^<]+)</a>', body):
+        found = re.search(r"#sha256=([0-9a-f]{64})", href)
+        if found and "data-yanked" not in tag:
+            url = urljoin(page_url, urldefrag(href)[0])
+            files.append(IndexFile(filename.strip(), None, found[1], url))
+    return files
+
+
+def version_wheels(files: Iterable[IndexFile], name: str, version: str) -> list[IndexFile]:
+    wheels: list[IndexFile] = []
+    for item in files:
+        if not item.filename.endswith(".whl"):
+            continue
+        try:
+            wheel_name, wheel_version, _b, _t = parse_wheel_filename(item.filename)
+        except InvalidWheelFilename:
+            continue
+        if wheel_name == canonicalize_name(name) and str(wheel_version) == version:
+            wheels.append(item)
+    return sorted(wheels, key=lambda w: w.filename)
+
+
 def _index_wheels(index_url: str, name: str, version: str) -> list[Wheel]:
     """包索引上这个版本的全部轮子。
 
     所有平台、所有 Python 版本都记下：主程序换了 Python 版本后可以按原锁文件重装。
     """
-    request = urllib.request.Request(
-        f"{index_url.rstrip('/')}/{name}/",
-        headers={"Accept": "application/vnd.pypi.simple.v1+json, text/html;q=0.1"},
-    )
+    page = index_page_url(index_url, name)
+    request = urllib.request.Request(page, headers={"Accept": INDEX_ACCEPT})
     with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 -- 作者给的索引地址
         body = response.read().decode("utf-8")
         kind = response.headers.get("Content-Type", "")
-    files: list[tuple[str, int | None, str]] = []
-    if "json" in kind:
-        for item in json.loads(body).get("files", []):
-            digest = (item.get("hashes") or {}).get("sha256")
-            if digest and not item.get("yanked"):
-                files.append((item["filename"], item.get("size"), digest))
-    else:  # 不支持 PEP 691 的镜像：退回 HTML 页（拿不到大小）
-        for href, filename in re.findall(r'<a[^>]*href="([^"]+)"[^>]*>([^<]+)</a>', body):
-            if (found := re.search(r"#sha256=([0-9a-f]{64})", href)) and "data-yanked" not in href:
-                files.append((filename.strip(), None, found[1]))
-    wheels: list[Wheel] = []
-    for filename, size, digest in files:
-        if not filename.endswith(".whl"):
-            continue
-        try:
-            wheel_name, wheel_version, _b, _t = parse_wheel_filename(filename)
-        except InvalidWheelFilename:
-            continue
-        if wheel_name == name and str(wheel_version) == version:
-            wheels.append(Wheel(filename=filename, size=size, sha256=digest))
-    return sorted(wheels, key=lambda w: w.filename)
+    found = version_wheels(parse_index_page(body, kind, response.url or page), name, version)
+    return [Wheel(filename=f.filename, size=f.size, sha256=f.sha256) for f in found]
 
 
 # ---------------------------------------------------------------------- 命令行

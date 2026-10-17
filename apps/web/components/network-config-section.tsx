@@ -8,6 +8,7 @@ import { ChevronDownIcon } from "@/components/icons";
 import {
   SETTINGS_BUTTON_CLASS,
   SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
   SettingsList,
   SettingsRow,
   SettingsSaveStatus,
@@ -87,6 +88,7 @@ export function NetworkConfigSection() {
           tmdb_api_base_url: v.tmdb_api_base_url,
           tmdb_image_base_url: v.tmdb_image_base_url,
           douban_api_base_url: v.douban_api_base_url,
+          pypi_index_url: v.pypi_index_url,
         });
       })
       .catch(() => setFailed(true));
@@ -298,6 +300,59 @@ export function NetworkConfigSection() {
           description="每个已配置的站点独立控制。国内 PT 站直连通常更快，且部分站点风控在意出口 IP——只给确实需要翻墙的站点开代理。"
         >
           <SettingsList>{serviceRows(siteServices)}</SettingsList>
+        </SettingsSection>
+      )}
+
+      {/* —— 插件依赖的包索引（旧服务端没有这一项就不显示）—— */}
+      {view.pypi_index_presets && (
+        <SettingsSection title="插件依赖">
+          <SettingsList>
+            <SettingsRow
+              label="包索引地址"
+              description="第三方插件要用的 Python 包从这里下载；国内直连 PyPI 常不稳，可换清华镜像。"
+              error={mirrorErrors.pypi_index_url || null}
+            >
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {Object.entries(view.pypi_index_presets).map(([name, url]) => {
+                  const current = form.pypi_index_url || view.mirror_defaults.pypi_index_url;
+                  const active = current === url;
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        setMirrorErrors((prev) => ({ ...prev, pypi_index_url: "" }));
+                        const isDefault = url === view.mirror_defaults.pypi_index_url;
+                        commit({ ...form, pypi_index_url: isDefault ? "" : url });
+                      }}
+                      className={active ? SETTINGS_PRIMARY_BUTTON_CLASS : SETTINGS_BUTTON_CLASS}
+                    >
+                      {name}
+                    </button>
+                  );
+                })}
+                <input
+                  key={`pypi:${form.pypi_index_url ?? ""}`}
+                  type="text"
+                  defaultValue={form.pypi_index_url ?? ""}
+                  onBlur={(e) => {
+                    const value = e.target.value.trim();
+                    if (value && !/^https?:\/\//.test(value)) {
+                      setMirrorErrors((prev) => ({ ...prev, pypi_index_url: "需以 http(s):// 开头" }));
+                      return;
+                    }
+                    setMirrorErrors((prev) => ({ ...prev, pypi_index_url: "" }));
+                    if (value !== (form.pypi_index_url ?? "")) commit({ ...form, pypi_index_url: value });
+                  }}
+                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  placeholder={view.mirror_defaults.pypi_index_url ?? ""}
+                  aria-label="插件依赖的包索引地址"
+                  className={URL_INPUT_CLASS}
+                />
+              </div>
+            </SettingsRow>
+          </SettingsList>
         </SettingsSection>
       )}
 
