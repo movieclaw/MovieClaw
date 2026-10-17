@@ -393,6 +393,7 @@ def fill_path_params(path: str) -> str:
         .replace("{channel}", "weixin")
         .replace("{channel_id}", "weixin")
         .replace("{binding_id}", "test-binding")
+        .replace("{login_id}", "test-login")
         .replace("{endpoint_id}", "test-endpoint")
         .replace("{username}", "family")
         .replace("{member_id}", "1")
