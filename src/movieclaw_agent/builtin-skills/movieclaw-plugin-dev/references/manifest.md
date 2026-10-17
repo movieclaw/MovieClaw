@@ -10,7 +10,9 @@ plugins/media-stats/
 ├── movieclaw-plugin.toml      ← 清单（必须在根部）
 ├── media_stats.py             ← 入口模块（或 media_stats/__init__.py 的包）
 ├── media_stats_helpers.py     ← 其他模块随意
-└── vendor/                    ← 依赖（可选）：纯 Python 包原样放进来，运行时自动加进 sys.path
+├── vendor/                    ← 依赖（可选）：纯 Python 包原样放进来，运行时自动加进 sys.path
+├── requirements.in            ← 第三方依赖（可选）：每行一个直接依赖，如 p115cipher[full]
+└── requirements.lock          ← 由它生成的锁文件，清单 [dependencies] lock 指向它
 ```
 
 打包（`mclaw plugin pack`）跳过 `__pycache__`、`.git`、`.venv`、`node_modules`、点开头的目录、`*.pyc`、旧的 `*.mcplugin`、`.DS_Store`；**软链接直接拒绝**。
@@ -41,6 +43,9 @@ paths = [{ path = "staging", mode = "read" }]            # 路径授权，mode =
 network = true                                           # 需要直连外网（仅声明）
 callbacks = ["push"]                                     # 要开放的回调端点名（外部平台调进来的地址，见 recipes 第 14 节）
 events = ["playback.*"]                                  # 要订阅的敏感事件（谁在什么时候看了什么）：用户单独批准
+
+[dependencies]                 # 可选：第三方依赖（只给 runtime = "process"），见下文「第三方依赖」
+lock = "requirements.lock"
 
 [[events]]                     # 插件自己会发的事件（recipes 第 17 节）：名字以插件 id 开头
 name = "media-stats.weekly-report"
@@ -116,3 +121,17 @@ platforms = ["linux/amd64", "linux/arm64"]    # 必填；与服务器平台不�
 
 同一版本不能重复安装：正式发布时每次改动都要升 `version`（开发循环自动处理）。
 网页「设置 → 插件 → 已安装」也能看到并操作这些插件包。
+
+## 第三方依赖（`[dependencies]`）
+
+带本机代码的包（pycryptodome、lz4……）放不进 `vendor/`，在清单里声明锁文件，管理员批准安装时由服务器下载
+（设计：`docs/design/plugin-dependencies.md`）。
+
+1. 把直接依赖写进插件目录的 `requirements.in`（每行一个）；
+2. `python scripts/check_plugin.py plugins/<目录> --lock`：按主程序的 `host-constraints.txt`（最新服务器版本的 Release 附件；
+   也可 `python -m movieclaw_sdk.deps lock <目录> --constraints <文件或网址>`）解析出完整闭包，写成锁文件再检查；
+3. 锁文件规则（服务器上传时同样校验，不合规直接拒）：全部 `==` 钉死、每个包带 `--hash=sha256:`、只接受轮子（没有轮子的包
+   用户机器上不编译）、**不能与主程序已有的包重名**（`httpx`、`cryptography` 等直接用主程序的）、不写环境标记与附加依赖；
+4. 检查结果里「没有 linux/arm64 的轮子」是告警：装到那个平台会失败，换个有两种平台轮子的版本最好。
+
+只有 `runtime = "process"` 的插件能带依赖。依赖目录排在主程序与 `vendor/` 之后加进 `sys.path`，包里的 `.pth` 不会执行。

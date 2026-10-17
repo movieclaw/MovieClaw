@@ -105,7 +105,7 @@ GitHub 自动生成的提交清单（Windows 用一句默认说明），changelo
 - **以发版 PR 的 CI 全绿为准**：改了 `__init__.py` 的版本号会触发全量检查（ruff / pytest / cli / web /
   Worker 加 iOS 编译），无需本地重跑全量——本地 pytest 要先下载 NER 模型，沙箱代理还会误报。
 - **产物**：应用三件套（app-web.tar.gz / app-backend.tar.gz / manifest.json，启用签名时含
-  manifest.json.sig）、mclaw 六平台归档 + checksums.txt、release.json（官网更新日志读它），同时
+  manifest.json.sig）、mclaw 六平台归档 + checksums.txt、host-constraints.txt（镜像自带的 Python 包，插件依赖锁文件按它解析）、release.json（官网更新日志读它），同时
   发布多架构 Docker 镜像（movieclaw/movieclaw：正式版打 vX.Y.Z + runtime-N + latest，预发布只打
   vX.Y.Z-…）。不带任何客户端。
 - **正文**：changelog 原文，末尾由 `scripts/publish-release-body.sh` 自动补「Apps / 客户端」一节——

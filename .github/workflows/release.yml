@@ -208,12 +208,29 @@ jobs:
       tag: ${{ inputs.tag || github.ref_name }}
     secrets: inherit
 
+  # 插件依赖的主程序约束清单（docs/design/plugin-dependencies.md §1）：从刚推送的镜像里导出
+  # 它自带的包与版本。插件打包工具按它解析依赖闭包，与主程序重名的包不进锁文件。
+  host-constraints:
+    needs: docker-image
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      IMAGE: docker.io/${{ vars.DOCKERHUB_USERNAME }}/movieclaw
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: 导出 host-constraints.txt 并上传
+        run: |
+          docker run --rm --platform linux/amd64 --entrypoint /venv/bin/python \
+            "$IMAGE:$RELEASE_TAG" -m movieclaw_sdk.deps constraints > host-constraints.txt
+          grep -q '^httpx==' host-constraints.txt
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber host-constraints.txt
+
   # 终审：产物齐全 + 镜像发布成功后才把 draft Release 转正。
   # 这是发布原子性的落点——转正之前，应用内更新、install-cli.sh 的
   # latest/download、Release 页对用户都不可见，不存在「半成品 Release」。
   # cli 或镜像失败时 Release 停在 draft。修复后重跑本工作流即可，全链路可安全重入。
   publish:
-    needs: [cli, docker-image]
+    needs: [cli, docker-image, host-constraints]
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
@@ -251,7 +268,7 @@ jobs:
             mclaw_cli_linux_amd64.tar.gz mclaw_cli_linux_arm64.tar.gz
             mclaw_cli_darwin_amd64.tar.gz mclaw_cli_darwin_arm64.tar.gz
             mclaw_cli_windows_amd64.zip mclaw_cli_windows_arm64.zip
-            checksums.txt"
+            checksums.txt host-constraints.txt"
           if [ -n "$RELEASE_SIGNING_KEY" ]; then
             required="$required manifest.json.sig"
           fi

@@ -188,7 +188,8 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 - 持久状态存插件数据（`PLUGIN_DATA`），读写文件走文件接口（`PLUGIN_FILES`）并在清单 `paths` 里申请。
 - 连外网走用户的代理设置：`httpx.AsyncClient(transport=movieclaw_sdk.net.http_transport("<服务名>"))`，清单写 `network = true`。
 - 主程序自带的库可以直接 import（如 `httpx`、`websockets`、`pydantic`、`fastapi`、`cryptography`、`parsel`、`pyyaml`）；
-  别的依赖只能随包放进插件目录的 `vendor/`（纯 Python）；安装时不联网、不跑 pip。
+  纯 Python 的依赖随包放进插件目录的 `vendor/`；带本机代码的第三方包写进 `[dependencies]` 锁文件，批准安装时由
+  服务器下载（`references/manifest.md`「第三方依赖」）。
 - 日志用 `ctx.logger`，中文，带上关键 id。
 - 按关键词匹配种子 / 发布名时：英文短词（TC、TS、CAM 这类）必须按**词边界**匹配，
   如 `re.compile(r"(?<![A-Za-z0-9])TC(?![A-Za-z0-9])", re.I)`，否则 `ts` 会命中 Hits、`cam` 会命中 Cameron；

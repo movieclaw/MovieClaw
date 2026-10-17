@@ -157,6 +157,29 @@ def test_check_script_catches_typical_mistakes(tmp_path) -> None:
     assert "没有名为 bad 的 @plugin" in checked.stdout
 
 
+def test_check_script_reports_dependencies_and_missing_platforms(tmp_path) -> None:
+    from tests.unit.test_plugin_deps_lock import LZ4, block, lock
+
+    made = _run(
+        "new_plugin.py", "plugins/deps", "--id", "deps-demo", "--title", "依赖", cwd=tmp_path
+    )
+    assert made.returncode == 0, made.stdout + made.stderr
+    plugin_dir = tmp_path / "plugins" / "deps"
+    manifest = plugin_dir / "movieclaw-plugin.toml"
+    manifest.write_text(
+        manifest.read_text("utf-8") + '\n[dependencies]\nlock = "requirements.lock"\n', "utf-8"
+    )
+    (plugin_dir / "requirements.lock").write_text(lock(block("lz4==4.4.4", LZ4[:1])), "utf-8")
+    checked = _run("check_plugin.py", "plugins/deps", cwd=tmp_path)
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert "第三方依赖：1 个包" in checked.stdout and "含本机代码：lz4" in checked.stdout
+    assert "依赖没有 linux/arm64 的轮子：lz4 4.4.4" in checked.stdout
+
+    (plugin_dir / "requirements.lock").write_text(lock(block("lz4>=4", LZ4)), "utf-8")
+    checked = _run("check_plugin.py", "plugins/deps", cwd=tmp_path)
+    assert checked.returncode == 1 and "lz4 没有钉死版本" in checked.stdout
+
+
 def test_check_script_rejects_a_registry_in_inject(tmp_path) -> None:
     """真实会话里出过的错：把 IM_CHANNELS 写进 inject，插件永远等不到这个「服务」。"""
     made = _run("new_plugin.py", "plugins/chan", "--id", "chan", "--title", "通道", cwd=tmp_path)

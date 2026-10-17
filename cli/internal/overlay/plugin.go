@@ -220,7 +220,8 @@ func newPluginPackCommand() *cobra.Command {
 		Short: "把插件目录打包成 .mcplugin",
 		Long: `把插件目录打包成 .mcplugin（zip），供 mclaw app plugins packages upload 或网页上传。
 
-依赖请放进插件目录的 vendor/（安装时不联网、不跑 pip）；__pycache__、.git、隐藏文件不进包；
+纯 Python 依赖放进插件目录的 vendor/；带本机代码的第三方包写进 [dependencies] 锁文件，
+批准安装时由服务器下载；__pycache__、.git、隐藏文件不进包；
 软链接直接拒绝。清单的完整校验（SDK、契约、宿主操作、路径授权）在上传时由服务器做。
 
 示例：

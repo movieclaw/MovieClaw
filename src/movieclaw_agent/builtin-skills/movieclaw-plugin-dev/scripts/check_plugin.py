@@ -1,6 +1,7 @@
 """安装前检查一个插件目录：用服务器同一套逻辑校验，再真的导入入口模块。
 
     python check_plugin.py plugins/hello-world
+    python check_plugin.py plugins/hello-world --lock   # 先按 requirements.in 生成依赖锁文件再检查
 
 输出 ✓ / ⚠ / ✗。有 ✗ 时退出码为 1，必须修好再安装；⚠ 要逐条判断是否需要处理。
 
@@ -8,7 +9,8 @@
 1. 清单与压缩包：按 ``mclaw plugin pack`` 的规则在内存里打包，交给服务器的 ``read_archive`` 校验；
 2. 兼容与权限：服务器的 ``check_compat``（SDK、契约、宿主操作是否存在、路径授权写法、id 是否被占用）；
 3. 入口模块：在独立子进程里导入，找到名字等于清单 id 的 ``@plugin``，核对 inject / permissions / 用到的契约；
-4. 其他：全部 .py 能编译、危险操作是否逐个列出、inline 运行、包大小。
+4. 其他：全部 .py 能编译、危险操作是否逐个列出、inline 运行、包大小；
+5. 第三方依赖（``[dependencies] lock``）：钉死、哈希、只接受轮子、不与主程序重名，缺哪个平台的轮子。
 """
 
 from __future__ import annotations
@@ -144,6 +146,8 @@ def probe(directory: Path, module: str, entry_id: str) -> dict:
 
 # ---------------------------------------------------------------------- 主流程
 def main(argv: list[str]) -> int:
+    make_lock = "--lock" in argv
+    argv = [a for a in argv if a != "--lock"]
     if len(argv) != 1:
         print(__doc__)
         return 2
@@ -151,6 +155,12 @@ def main(argv: list[str]) -> int:
     if not (directory / MANIFEST).is_file():
         fail(f"{directory} 下没有 {MANIFEST}")
         return 1
+    if make_lock:
+        from movieclaw_sdk import deps
+
+        if deps.main(["lock", str(directory)]) != 0:
+            fail("生成依赖锁文件失败（原因见上）")
+            return 1
 
     from movieclaw_api.plugins.packages import (
         MAX_ARCHIVE_BYTES,
@@ -229,6 +239,8 @@ def main(argv: list[str]) -> int:
         warn("runtime = inline：在主进程里运行，拥有主程序的全部权限；安装须用户单独批准（mclaw 加 --allow-inline）")
     if manifest.permissions.network:
         ok("声明了需要联网（network = true）")
+    if manifest.dependencies is not None:
+        _check_dependencies(directory, manifest)
 
     # 3. 全部 .py 能编译
     bad = False
@@ -317,6 +329,23 @@ def main(argv: list[str]) -> int:
             "否则进程外运行时解析不了"
         )
     return _finish()
+
+
+def _check_dependencies(directory: Path, manifest: object) -> None:
+    """锁文件已由 read_archive 校验过（钉死、哈希、只轮子、与本机主程序重名）；这里补平台覆盖。"""
+    from movieclaw_sdk import deps
+
+    lock = deps.parse_lock((directory / manifest.dependencies.lock).read_text("utf-8"))  # type: ignore[attr-defined]
+    native = [p.name for p in lock.packages if p.native]
+    tags = deps.target_tags("linux/amd64", lock.python or "3.12")
+    total = sum(w.size or 0 for w in (p.pick(tags) for p in lock.packages) if w)
+    ok(
+        f"第三方依赖：{len(lock.packages)} 个包，linux/amd64 上约 {total / 1024 / 1024:.1f} MB"
+        + (f"，含本机代码：{'、'.join(native)}" if native else "，全部是纯 Python")
+        + "（批准安装时会逐个列给用户看）"
+    )
+    for target, lacking in deps.missing_platforms(lock, lock.python or "3.12").items():
+        warn(f"依赖没有 {target} 的轮子：{'、'.join(lacking)}（装到这个平台会失败）")
 
 
 def _any_ops(manifest: object) -> set[str]:

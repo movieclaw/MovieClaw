@@ -61,7 +61,8 @@ network = true                                           # 仅声明，安装页
 - `sdk` 与 `[requires]` 只接受 `^主.次`（`^` 可省略）= 主版本相同、次版本不低于。`>=1.0,<2` 在 `check_compat` 里直接拒绝。
   对照的是 `movieclaw_sdk.SDK_VERSION`（现在是 `1.0`），不是应用版本号。
 - （2026-10-17 修订：允许声明第三方依赖、经授权安装，见 `plugin-dependencies.md`。）
-- **依赖只能随包携带**（`vendor/`，纯 Python，运行时加入 `sys.path`），安装时不跑 pip。打包工具不替作者解包依赖，
+- **依赖只能随包携带**（`vendor/`，纯 Python，运行时加入 `sys.path`），安装时不跑 pip（已被 `plugin-dependencies.md` 修订：
+  锁文件声明的第三方包经批准后下载安装）。打包工具不替作者解包依赖，
   也不校验 wheel 的平台标签；放错要到加载才失败。
 - 包内不许有软链接（一律拒绝）、`..` 或绝对路径。上限：压缩包 50 MB、解压 200 MB、5000 个文件。
 - `network = true` 没有对应的运行时拦截，只出现在批准界面上。连外网要自己走 `movieclaw_sdk.net.http_transport`。
