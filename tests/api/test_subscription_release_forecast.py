@@ -132,6 +132,12 @@ async def _seed_target(
     return wanted, first_publish + timedelta(days=cadence_days)
 
 
+def _site_window(site_id: str, at: datetime) -> dict[str, str]:
+    """窗口收缩成一个时刻的站点条目：窗内只有这一个密集探测点。"""
+    text = at.replace(tzinfo=UTC).isoformat()
+    return {"site_id": site_id, "predicted_at": text, "window_start": text, "window_end": text}
+
+
 @pytest.mark.parametrize("cadence_days", [1, 7])
 async def test_e2_bootstrap_predicts_daily_and_weekly_release(db, cadence_days: int) -> None:
     """一个同季前序样本即可从 E2 启动，日播/周播由实际档期差自然决定。"""
@@ -152,7 +158,14 @@ async def test_e2_bootstrap_predicts_daily_and_weekly_release(db, cadence_days: 
         ) == expected
         assert forecast["basis_units"] == [[1, 1]]
         assert forecast["sites"][0]["site_id"] == "site-a"
-        assert len(forecast["sites"][0]["probe_times"]) == 3
+        assert forecast["algorithm"] == "slot_robust"
+        # 影子预测与主预测并排保存，供事后打分比较
+        assert set(forecast["experiments"]) == {
+            "v1",
+            "robust_any_slot",
+            "slot_last",
+            "slot_earliest",
+        }
 
 
 async def test_selected_episode_forecast_ignores_follow_future(db) -> None:
@@ -168,24 +181,19 @@ async def test_selected_episode_forecast_ignores_follow_future(db) -> None:
 
 
 async def test_displayed_probe_uses_scheduler_courtesy_time(db) -> None:
-    """首页返回的探测点必须与调度器应用 15 分钟礼貌间隔后的时间一致。"""
+    """首页返回的探测点必须与调度器应用 5 分钟礼貌间隔后的时间一致。"""
     async with db.session() as session:
         wanted, _expected = await _seed_target(session, follow_future=False)
         now = utcnow()
-        last_sync_at = now - timedelta(minutes=5)
+        last_sync_at = now - timedelta(minutes=2)
         raw_probe = now + timedelta(minutes=1)
-        expected_probe = last_sync_at + timedelta(minutes=15)
+        expected_probe = last_sync_at + timedelta(minutes=5)
         wanted.release_forecast = {
             "version": 1,
             "target_air_date": wanted.air_date.isoformat(),
             "confidence": "bootstrap",
             "window_end": (now + timedelta(hours=1)).replace(tzinfo=UTC).isoformat(),
-            "sites": [
-                {
-                    "site_id": "site-a",
-                    "probe_times": [raw_probe.replace(tzinfo=UTC).isoformat()],
-                }
-            ],
+            "sites": [_site_window("site-a", raw_probe)],
         }
         session.add_all(
             [
@@ -248,18 +256,8 @@ async def test_prediction_probe_advances_existing_site_sync(db) -> None:
             "confidence": "bootstrap",
             "window_end": (now + timedelta(hours=1)).replace(tzinfo=UTC).isoformat(),
             "sites": [
-                {
-                    "site_id": "site-disabled",
-                    "probe_times": [
-                        (now - timedelta(minutes=2)).replace(tzinfo=UTC).isoformat()
-                    ],
-                },
-                {
-                    "site_id": "site-a",
-                    "probe_times": [
-                        (now - timedelta(minutes=1)).replace(tzinfo=UTC).isoformat()
-                    ],
-                }
+                _site_window("site-disabled", now - timedelta(minutes=2)),
+                _site_window("site-a", now - timedelta(minutes=1)),
             ],
         }
         cursor = SiteSyncCursor(
@@ -281,11 +279,11 @@ async def test_prediction_probe_advances_existing_site_sync(db) -> None:
                 select(SiteSyncCursor).where(SiteSyncCursor.site_id == "site-a")
             )
         ).scalar_one()
-        cursor.last_sync_at = now - timedelta(minutes=5)
+        cursor.last_sync_at = now - timedelta(minutes=2)
         session.add(cursor)
         await session.commit()
     due, _wait = await _plan_sync([site])  # type: ignore[list-item]
-    assert due == []  # 探测点虽已到，但距上次同步不足 15 分钟，先遵守礼貌间隔
+    assert due == []  # 探测点虽已到，但距上次同步不足 5 分钟，先遵守礼貌间隔
 
     async with db.session() as session:
         cursor = (
