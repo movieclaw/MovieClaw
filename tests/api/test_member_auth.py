@@ -798,6 +798,7 @@ _PATH_DUMMIES = {
     "{channel}": "weixin",
     "{channel_id}": "weixin",
     "{binding_id}": "test-binding",
+    "{login_id}": "test-login",
     "{endpoint_id}": "test-endpoint",
     "{member_id}": "1",
     "{job_id}": "job_test",

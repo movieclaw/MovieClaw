@@ -18,8 +18,8 @@ from movieclaw_db.models.domain_event import DomainEvent, EventConsumer, EventDe
 from movieclaw_db.models.download_file_source import DownloadFileSource
 from movieclaw_db.models.download_hint import DownloadHint
 from movieclaw_db.models.download_target_pref import DownloadTargetPref
-from movieclaw_db.models.drive_account import DriveAccount
 from movieclaw_db.models.downloader_client import ClientType, DownloaderClient
+from movieclaw_db.models.drive_account import DriveAccount
 from movieclaw_db.models.import_watch import ImportWatch
 from movieclaw_db.models.ingest_entry import IngestEntry, IngestStatus
 from movieclaw_db.models.jellyfin_device import JellyfinDevice

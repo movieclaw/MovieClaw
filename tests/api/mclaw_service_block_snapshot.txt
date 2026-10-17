@@ -19,6 +19,7 @@ mclaw 工具能操作的服务（一级目录）。按用户意图选服务，�
 - collection：媒体库合集（把一组筛选条件存下来：可自动收录以后新入库的片，也可固定成一份名单；成员与海报墙同一份口径，Jellyfin 客户端里同样看得到）
 - discover：发现电影/剧集（来自 TMDB、豆瓣的实时热点、热映/待上映/在播、热门、高分、口碑及地区/类型片单；list-collections 列片单，browse-collection 浏览片单，get-title-details 看资料/演职员/剧照/相关推荐）
 - dl：qBittorrent/Transmission 下载器与投递（接入/验证/启停/设默认实例，配置保存路径与路径映射，预演落点并提交种子；tasks 汇总所有下载器里正在跑的任务及其对应的影片/集与订阅——「我的剧下到哪了」看这里，torrent replace 给卡住的下载换源、torrent delete 删任务）
+- drives：网盘账号（装了网盘存储插件才有：列出可用网盘与已登录账号，扫码或粘贴 Cookie 登录，改账号名、请求速率、每日调用预算、同时播放数，刷新容量，移除账号——移除只删记录、不动网盘上的文件）
 - extension：Chromium 浏览器扩展 Cookie 同步（管理同步令牌/支持站点，把页面中的 httpOnly 站点 Cookie 安全同步到服务端）
 - health：API 存活检查（通常优先用顶级 status 查看更完整的部署状态）
 - jobs：后台作业（按来源/状态/类型查询，查看事件与执行器健康，等待/取消/重试；订阅的在途下载进度看 subscriptions list-active-downloads）

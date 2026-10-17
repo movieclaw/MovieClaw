@@ -99,6 +99,15 @@ dl torrent replace
 dl types list
 dl update
 dl verify
+drives accounts cookie
+drives accounts delete
+drives accounts list
+drives accounts refresh
+drives accounts update
+drives backends list
+drives logins cancel
+drives logins start
+drives logins status
 extension cookies push
 extension ping
 extension sites list

@@ -41,8 +41,8 @@ from movieclaw_api.api.routes.discover import search_router as title_search_rout
 from movieclaw_api.api.routes.discover import ui_router as discovery_ui_router
 from movieclaw_api.api.routes.download_sources import router as download_sources_router
 from movieclaw_api.api.routes.downloaders import router as downloaders_router
-from movieclaw_api.api.routes.drives import router as drives_router
 from movieclaw_api.api.routes.downloaders import submit_router as download_submit_router
+from movieclaw_api.api.routes.drives import router as drives_router
 from movieclaw_api.api.routes.extension import router as extension_router
 from movieclaw_api.api.routes.features import router as features_router
 from movieclaw_api.api.routes.fs import router as fs_router
