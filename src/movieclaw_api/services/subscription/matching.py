@@ -34,6 +34,7 @@ from movieclaw_api.services.subscription.smart_profiles import read_policy
 from movieclaw_api.services.subscription.twins import ambiguous_verdict, ensure_twins
 from movieclaw_db.models import (
     ActivityType,
+    MediaEpisode,
     MediaItem,
     MediaMetadata,
     MediaSeason,
@@ -231,6 +232,20 @@ async def media_identity(
             select(MediaMetadata.runtime_minutes).where(MediaMetadata.media_item_id == item.id)
         )
     ).scalar_one_or_none()
+    # 已播集：与包种子声明的「全 N 集」对照，识破同名的另一部剧
+    aired_episodes = tuple(
+        (
+            await session.execute(
+                select(MediaEpisode.season_number, MediaEpisode.air_date).where(
+                    MediaEpisode.media_item_id == item.id,
+                    MediaEpisode.season_number != 0,
+                    MediaEpisode.air_date.is_not(None),  # type: ignore[union-attr]
+                )
+            )
+        )
+        .tuples()
+        .all()
+    )
     return MediaIdentity(
         kind=item.kind,
         year=item.year,
@@ -240,6 +255,7 @@ async def media_identity(
         season_numbers=season_numbers,
         season_titles=season_titles,
         runtime_minutes=runtime_minutes,
+        aired_episodes=aired_episodes,
     )
 
 
@@ -541,7 +557,7 @@ def _id_conflict_verdict(match: IdentityMatch) -> RuleVerdict:
         accepted=False,
         reason_code="identity_id_conflict",
         reason_text=(
-            f"站点标注的影片编号与本条目不符（{match.id_conflict}）；"
+            f"站点信息与本条目不符（{match.id_conflict}）；"
             "若确认是站点标错，可在搜索页手动选种投递"
         ),
     )

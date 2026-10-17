@@ -183,3 +183,29 @@ async def test_pack_can_fill_gap_without_claiming_inflight_episode(db):
         )
         assert len(attempts) == 2 and attempts[-1].units == [[1, 2]]
         assert (await _wanted_map(session, sub.id))[(1, 1)].grab_title.endswith(first.title)
+
+
+async def test_same_name_pack_with_far_fewer_episodes_never_enters_smart_pool(db):
+    """智能模式同样拦：声明「全1集」而本季 2 集都已播出，不进候选池、不投递。"""
+    async with db.session() as session:
+        sub = await smart_sub(session, wait_seconds=0)
+        pack = await _insert_torrent(
+            session,
+            "pack1",
+            "Test Show S01 1080p WEB-DL-A",
+            {
+                "media_type": "tv",
+                "seasons": [1],
+                "complete": True,
+                "episodes_total": 1,
+                "resolution": "1080p",
+                "media_source": "WEB-DL",
+                "release_group": "A",
+            },
+        )
+        result = await evaluate_and_dispatch(session, [pack], source="被动匹配")
+        assert result.dispatched_units == 0
+        assert all(w.status == "wanted" for w in (await _wanted_map(session, sub.id)).values())
+        assert (
+            await session.execute(select(SubscriptionDownloadAttempt))
+        ).scalars().first() is None

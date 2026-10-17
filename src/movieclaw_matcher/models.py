@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Collection
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_serializer, model_validator
@@ -462,6 +462,9 @@ class MediaIdentity:
     # 发任何请求就能算出来的反证（docs/design/identity-confidence.md §6）。
     # NULL=未知（冷门片 TMDB 常缺），反证整体跳过
     runtime_minutes: int | None = None
+    # 已定档的正片集 (季号, 播出日期)：与包种子声明的「全 N 集」对照，发布前
+    # 已播出的集数明显更多说明是同名的另一部剧（见 identity._episode_count_conflict）
+    aired_episodes: tuple[tuple[int, date], ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -491,8 +494,9 @@ class IdentityMatch:
     # 让"这次凭什么认的"一路可追溯（docs/design/identity-confidence.md §5.3）
     confidence: str = "title_year"
     matched_alias: str | None = None
-    # 外部 ID 冲突的如实报告：两边都有 imdb/douban 且不相等时，这里是一句
-    # 可直接进活动流水的中文说明；None = 无冲突。
+    # 身份反证的如实报告：两边都有 imdb/douban 且不相等，或包种子声明的总
+    # 集数远少于条目该季发布前已播出的集数时，这里是一句可直接进活动流水的
+    # 中文说明；None = 无冲突。
     #
     # 内核**只报告不裁决**——冲突未必是"我们认错了"，站点的 IMDb 是上传者
     # 手填的，填错真实存在。而误否决的代价是漏配（订阅永远不满足，用户只

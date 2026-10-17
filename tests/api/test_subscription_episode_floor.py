@@ -463,6 +463,40 @@ async def test_declared_total_caps_pack_coverage(db, attrs) -> None:
         assert wanted[(1, 6)].status == WantedStatus.WANTED
 
 
+async def test_same_name_pack_with_far_fewer_episodes_is_rejected(db) -> None:
+    """「全 3 集」的同名包，而本季 6 集早已播完：是另一部剧，不投递并留下原因。
+
+    真实现场：13 集纪录片订阅被「The Staircase S01 全8集」（2022 同名剧）仅凭
+    片名命中，8 集错片入库。
+    """
+    async with db.session() as session:
+        sub = await _service(session).create(MediaKind.TV, 640, selected_seasons=[1])
+        pack = await _torrent(
+            session,
+            "pack3",
+            "Death Row Is Coming S01 1080p WEB-DL",
+            {"seasons": [1], "complete": True, "episodes_total": 3},
+        )
+        await evaluate_and_dispatch(session, [pack], source="被动匹配")
+        wanted = await _wanted(session, sub.id)
+        assert all(w.status == WantedStatus.WANTED for w in wanted.values())
+        rejected = (
+            (
+                await session.execute(
+                    select(SubscriptionActivity).where(
+                        SubscriptionActivity.subscription_id == sub.id,
+                        SubscriptionActivity.type == "match_rejected",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rejected) == 1
+        assert rejected[0].payload["reason_code"] == "identity_id_conflict"
+        assert "资源声明全 3 集，本条目第 1 季在其发布前已播出 6 集" in rejected[0].message
+
+
 async def test_undeclared_season_pack_leaves_placeholders(db) -> None:
     """没写总集数的整季包：说不清有没有第 7 集以后，只满足 TMDB 已录的集。"""
     async with db.session() as session:

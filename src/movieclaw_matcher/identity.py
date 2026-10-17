@@ -43,6 +43,7 @@ import re
 import unicodedata
 from collections.abc import Callable, Iterable
 from dataclasses import replace
+from datetime import date
 from typing import TypeVar
 
 from movieclaw_matcher.models import IdentityMatch, MediaIdentity, TorrentCandidate
@@ -367,7 +368,10 @@ def match_identity(
     # 走到这里说明两边的 ID 没能相等（信号一没命中）。若两边**都有** ID 而它们
     # 不同，这是一条必须带出去的反证：站点已经明确说了"这是另一部片"，而旧逻辑
     # 掉到别名匹配就当没看见。内核只报告，裁决在消费侧（见字段注释）
-    if match is not None and (conflict := _id_conflict(candidate, media)):
+    if match is not None and (
+        conflict := _id_conflict(candidate, media)
+        or _episode_count_conflict(candidate, media, match)
+    ):
         return replace(match, id_conflict=conflict)
     return match
 
@@ -560,6 +564,45 @@ def _id_conflict(candidate: TorrentCandidate, media: MediaIdentity) -> str | Non
     if candidate.douban_id and media.douban_id and candidate.douban_id != media.douban_id:
         return f"站点标注豆瓣 {candidate.douban_id}，本条目是 {media.douban_id}"
     return None
+
+
+# 声明总集数不足发布前已播集数的这个比例才算反证：播出版与网络版、合并/拆分
+# 集常差几集（36 vs 40），差到 8 vs 13 才说明是另一部剧
+_DECLARED_TOTAL_MIN_RATIO = 0.8
+
+
+def _episode_count_conflict(
+    candidate: TorrentCandidate, media: MediaIdentity, match: IdentityMatch
+) -> str | None:
+    """包种子声明「全 N 集」，条目该季在发布前却已播出远多于 N 集：同名另一部剧。
+
+    真实教训：2004 年 13 集纪录片《楼梯杀妻案》的订阅，被标题不带年份的
+    「The Staircase S01 … 全8集」（2022 年 HBO 同名剧）仅凭片名匹配，8 集错片
+    入库、另 5 集永远对账不上。只数**发布前已播出**的集：TMDB 少录集数
+    （#640）或季还没播完都不会误判。标题年份与该季播出年份吻合时也不判——
+    综艺的平台剪辑版常比 TMDB 少几期（中餐厅 2024 S08 全8集 vs 12 期），
+    那是同一季；同名他剧要么不写年份，要么写的是它自己的年份。
+    """
+    total = match.declared_total
+    if not total or not media.aired_episodes:
+        return None
+    if len(match.pack_seasons) == 1:
+        season = next(iter(match.pack_seasons))
+    elif match.is_complete_series:
+        regular = {s for s, _ in media.aired_episodes if s != 0}
+        if len(regular) != 1:
+            return None  # 多季剧的"全 N 集"说不清是哪季的
+        season = next(iter(regular))
+    else:
+        return None
+    cutoff = candidate.publish_time.date() if candidate.publish_time else date.today()
+    aired = [day for s, day in media.aired_episodes if s == season and day <= cutoff]
+    if total >= len(aired) * _DECLARED_TOTAL_MIN_RATIO:
+        return None
+    year = candidate.attrs.year
+    if year is not None and min(aired).year - 1 <= year <= max(aired).year + 1:
+        return None
+    return f"资源声明全 {total} 集，本条目第 {season} 季在其发布前已播出 {len(aired)} 集"
 
 
 def _year_compatible(media: MediaIdentity, torrent_year: int | None) -> bool:
