@@ -121,14 +121,30 @@ def test_date_anomaly_does_not_disable_probing() -> None:
 
 def test_primary_site_probes_densely_and_chases_after_window() -> None:
     start = datetime(2026, 10, 17, 10, 0)
+    predicted = start + timedelta(hours=1)
     end = start + timedelta(hours=2)
-    probes = rf._primary_probes(start=start, end=end, predicted_at=start, confidence="stable")
-    lead = [p for p in probes if p < start]
-    dense = [p for p in probes if start <= p <= end]
+    probes = rf._primary_probes(start=start, end=end, predicted_at=predicted, confidence="stable")
+    near = [round((p - predicted).total_seconds() / 60) for p in probes if p <= end]
+    # 稳定剧集：探测集中在预测点前后（每 5 分钟），之后逐步拉开；窗前不再每小时空探
+    assert near == [-30, -15, -10, -5, 0, 5, 10, 15, 20, 27, 35, 45, 57]
     tail = [p for p in probes if p > end]
-    assert lead == [start - timedelta(hours=h) for h in range(6, 0, -1)]
-    assert dense == [start + timedelta(minutes=15 * i) for i in range(9)]
-    assert len(tail) == 24 and tail[-1] == end + timedelta(hours=24)
+    assert tail == [end + timedelta(hours=h) for h in range(1, 25)]
+
+    # 窗口更长时，尖峰之后按 10 分钟补齐到窗口结束
+    long_end = predicted + timedelta(hours=2)
+    longer = rf._primary_probes(
+        start=start, end=long_end, predicted_at=predicted, confidence="stable"
+    )
+    assert [p for p in longer if predicted + timedelta(minutes=70) < p <= long_end] == [
+        predicted + timedelta(minutes=m) for m in range(80, 121, 10)
+    ]
+
+    # 不稳定的预测：窗内每 10 分钟铺开，窗前 3 小时每小时一次
+    growing = rf._primary_probes(start=start, end=end, predicted_at=predicted, confidence="growing")
+    assert [p for p in growing if p < start] == [start - timedelta(hours=h) for h in (3, 2, 1)]
+    assert [p for p in growing if start <= p <= end] == [
+        start + timedelta(minutes=10 * i) for i in range(13)
+    ]
 
     # 宽窗口放宽步长：窗内最多约 24 次
     wide = rf._primary_probes(
@@ -163,7 +179,8 @@ def test_reader_gives_secondary_site_two_mid_window_probes() -> None:
     }
     probes = rf._forecast_site_probes(wanted, site_ids={"a", "b", "c"}, now=now)
     assert set(probes) == {"a", "b"}  # 停用站跳过，取当前启用站点的前两名
-    assert len(probes["a"]) == 6 + 9 + 24
+    # 首选站：尖峰 14 个偏移点 + 10 分钟补齐到窗口结束 5 个 + 窗后 24 个
+    assert len(probes["a"]) == 14 + 5 + 24
     assert probes["b"] == [start + timedelta(minutes=60), start + timedelta(minutes=96)]
 
     # 窗后追踪也结束很久的快照不再产生访问

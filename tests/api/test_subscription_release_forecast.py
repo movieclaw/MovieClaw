@@ -181,13 +181,13 @@ async def test_selected_episode_forecast_ignores_follow_future(db) -> None:
 
 
 async def test_displayed_probe_uses_scheduler_courtesy_time(db) -> None:
-    """首页返回的探测点必须与调度器应用 15 分钟礼貌间隔后的时间一致。"""
+    """首页返回的探测点必须与调度器应用 5 分钟礼貌间隔后的时间一致。"""
     async with db.session() as session:
         wanted, _expected = await _seed_target(session, follow_future=False)
         now = utcnow()
-        last_sync_at = now - timedelta(minutes=5)
+        last_sync_at = now - timedelta(minutes=2)
         raw_probe = now + timedelta(minutes=1)
-        expected_probe = last_sync_at + timedelta(minutes=15)
+        expected_probe = last_sync_at + timedelta(minutes=5)
         wanted.release_forecast = {
             "version": 1,
             "target_air_date": wanted.air_date.isoformat(),
@@ -279,11 +279,11 @@ async def test_prediction_probe_advances_existing_site_sync(db) -> None:
                 select(SiteSyncCursor).where(SiteSyncCursor.site_id == "site-a")
             )
         ).scalar_one()
-        cursor.last_sync_at = now - timedelta(minutes=5)
+        cursor.last_sync_at = now - timedelta(minutes=2)
         session.add(cursor)
         await session.commit()
     due, _wait = await _plan_sync([site])  # type: ignore[list-item]
-    assert due == []  # 探测点虽已到，但距上次同步不足 15 分钟，先遵守礼貌间隔
+    assert due == []  # 探测点虽已到，但距上次同步不足 5 分钟，先遵守礼貌间隔
 
     async with db.session() as session:
         cursor = (

@@ -17,9 +17,10 @@
   约 30% 的集因此不探测，其中多数其实预测得很准）。偏离超过 12h 的样本视为播出日
   异常，不参与预测值与窗口。
 
-探测也从「窗口 20/50/80% 三个点」改为首选站窗内每 15 分钟一次、窗口前 6 小时与
-窗口后 24 小时每小时一次（找到即停，见 ``_primary_probes``）。回放结果：发布到
-发现的中位延迟 2.2h → 0.2h，一小时内发现的比例 32% → 74%。
+探测也从「窗口 20/50/80% 三个点」改为集中在资源最可能出现的时段：稳定剧集在
+预测点前后每 5 分钟、之后逐步拉开，不稳定的在窗内每 10 分钟铺开，窗口后 24 小时
+每小时追踪（找到即停，见 ``_primary_probes``）。回放结果：发布到发现的中位延迟
+约 2h → 10 分钟，一小时内发现的比例 32% → 72%。
 
 同时保存几种「影子」预测（含旧算法）的结论，资源真正出现后统一打分写回快照并
 记日志（``evaluate_release_forecasts``），用于在真实数据上继续比较预测机制。
@@ -78,7 +79,9 @@ logger = logging.getLogger("movieclaw_api.subscription.release_forecast")
 FORECAST_VERSION = 1
 # 当前驱动探测的预测算法；影子算法见 _EXPERIMENTS
 FORECAST_ALGORITHM = "slot_robust"
-FORECAST_MIN_INTERVAL = timedelta(minutes=15)
+# 单站两次预测探测的最小间隔：与常规同步的下限（5 分钟）一致。最密的探测只出现在
+# 预测点前后约一小时内，窗外都是每小时一次
+FORECAST_MIN_INTERVAL = timedelta(minutes=5)
 _OBSERVATION_LOOKBACK = timedelta(days=90)
 _MAX_HISTORY_EPISODES = 4
 # 稳健窗口的滚动回测最多看同时段最近几集
@@ -88,11 +91,18 @@ _MAX_WINDOW = timedelta(hours=12)
 _DATE_ANOMALY = timedelta(hours=12)
 _EARLY_RELEASE_TOLERANCE = timedelta(days=2)
 _LATE_RELEASE_TOLERANCE = timedelta(days=7)
-# 首选站探测：窗内密集（窗口过长时放宽步长，单窗最多 24 次），窗外每小时一次
-_DENSE_PROBE_STEP = timedelta(minutes=15)
+# 首选站探测。stable：相对预测点的分钟偏移，预测点前后每 5 分钟、之后逐步拉开——
+# 稳定剧集的残差是尖峰（四分位 -5～+27 分钟），探测要花在尖峰上而不是均匀铺满窗口
+_STABLE_PROBE_OFFSETS = tuple(
+    timedelta(minutes=minutes)
+    for minutes in (-30, -15, -10, -5, 0, 5, 10, 15, 20, 27, 35, 45, 57, 70)
+)
+# 其余等级与 stable 尖峰之后：窗内按此步长均匀补齐（窗口过长时放宽，单窗最多约 24 次）
+_DENSE_PROBE_STEP = timedelta(minutes=10)
 _MAX_DENSE_PROBES = 24
 _SPARSE_PROBE_STEP = timedelta(hours=1)
-_LEAD_HOURS = 6
+# 非 stable 的窗前稀疏探测（stable 的窗前已由负偏移覆盖）
+_LEAD_HOURS = 3
 _TAIL_HOURS = 24
 _VOLATILE_SPAN = timedelta(hours=6)
 # 首个单集观测出现后再等这么久才评估：给其他站点的常规同步留时间补上更早的发布
@@ -311,21 +321,33 @@ def _dense_points(start: datetime, end: datetime, step: timedelta) -> list[datet
 def _primary_probes(
     *, start: datetime, end: datetime, predicted_at: datetime, confidence: str
 ) -> list[datetime]:
-    """首选站的探测计划：窗内密集，窗口前后每小时一次。
+    """首选站的探测计划：探测集中在资源最可能出现的时段，窗后每小时追踪。
+
+    - stable：预测点前后每 5 分钟、之后逐步拉开（_STABLE_PROBE_OFFSETS），再按 10 分钟
+      补齐到窗口结束；
+    - bootstrap / growing：预测本身不准，窗内每 10 分钟均匀铺开，窗前 3 小时每小时一次；
+    - volatile：预测点前后 6 小时每小时一次。
+
+    NAS 回放（341 集）：与「窗内每 15 分钟 + 窗前 6 小时」相比，中位发现延迟
+    13.7 → 9.8 分钟、5 分钟内发现 21% → 37%，每集访问 14.4 → 8.6 次。
 
     「找到即停」不在这里表达：工单一旦投递就不再是 wanted，读取端自然不再产出它的
-    探测点。窗口后的稀疏追踪覆盖「比预测晚」——回放里这是除窗口外最大的一类漏网，
-    否则只能等最长 6 小时的常规同步。
+    探测点。窗后追踪覆盖「比预测晚」——回放里这是除窗口外最大的一类漏网，否则只能
+    等最长 6 小时的常规同步。
     """
     if confidence == "volatile":
         start, end = predicted_at - _VOLATILE_SPAN, predicted_at + _VOLATILE_SPAN
-        dense = _dense_points(start, end, _SPARSE_PROBE_STEP)
+        points = _dense_points(start, end, _SPARSE_PROBE_STEP)
+    elif confidence == "stable":
+        near = [predicted_at + offset for offset in _STABLE_PROBE_OFFSETS]
+        points = [point for point in near if point <= predicted_at or point <= end]
+        points += _dense_points(near[-1] + _DENSE_PROBE_STEP, end, _DENSE_PROBE_STEP)
     else:
         step = max(_DENSE_PROBE_STEP, (end - start) / _MAX_DENSE_PROBES)
-        dense = _dense_points(start, end, step)
-    lead = [start - _SPARSE_PROBE_STEP * hours for hours in range(_LEAD_HOURS, 0, -1)]
+        points = [start - _SPARSE_PROBE_STEP * hours for hours in range(_LEAD_HOURS, 0, -1)]
+        points += _dense_points(start, end, step)
     tail = [end + _SPARSE_PROBE_STEP * hours for hours in range(1, _TAIL_HOURS + 1)]
-    return lead + dense + tail
+    return sorted(set(points + tail))
 
 
 def _secondary_probes(*, start: datetime, end: datetime, confidence: str) -> list[datetime]:
@@ -1086,8 +1108,8 @@ def effective_forecast_probe_at(
 ) -> datetime | None:
     """把原始预测点换算成站点真正可执行的下一探测时间。
 
-    上次同步之后的探测点才算未消费；即使预测点已到，也必须遵守单站 15 分钟
-    礼貌间隔。调度器与页面共用本函数，避免两边分别计算后发生时间漂移。
+    上次同步之后的探测点才算未消费；即使预测点已到，也必须遵守单站 5 分钟
+    礼貌间隔（FORECAST_MIN_INTERVAL）。调度器与页面共用本函数，避免两边分别计算后发生时间漂移。
     """
     pending = sorted(
         probe for probe in probes if last_sync_at is None or probe > last_sync_at
