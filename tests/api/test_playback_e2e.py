@@ -323,8 +323,8 @@ def test_seek_starts_the_stream_later_in_the_file(client, tmp_path):
     （播放器想到哪就 seek 到哪），服务端只从起播点所在的分片边界起转；
     那一片拼上 init 后 ffprobe 读到的起始时间就是它的边界（不是 0）。
 
-    源片关键帧在 0/2/4 秒、分片栅格 4 秒 → 边界 [0, 4]；3 秒落在第 0 片，
-    5 秒落在第 1 片（起点 4.0）。
+    直通档在每个关键帧切一段（``COPY_HLS_TIME``，#537 起）：源片关键帧在 0/2/4 秒 →
+    边界 [0, 2, 4]；5 秒落在第 2 片（起点 4.0）。
     """
     path = make_media(tmp_path / "m", "seek", codec="h264", container="mkv")
     file_id = client.portal.call(partial(_seed, path, codec="h264", container="mkv"))
@@ -340,11 +340,11 @@ def test_seek_starts_the_stream_later_in_the_file(client, tmp_path):
         for line in playlist.splitlines()
         if line.strip().split("?", 1)[0].endswith(".m4s")
     ]
-    assert names == ["seg00000.m4s", "seg00001.m4s"]  # 列表覆盖全片
+    assert names == ["seg00000.m4s", "seg00001.m4s", "seg00002.m4s"]  # 列表覆盖全片
     init = client.get(f"{_PB}/sessions/{session_id}/init.mp4?token={token}")
-    seg = client.get(f"{_PB}/sessions/{session_id}/seg00001.m4s?token={token}")
+    seg = client.get(f"{_PB}/sessions/{session_id}/seg00002.m4s?token={token}")
     assert init.status_code == 200 and seg.status_code == 200
-    joined = tmp_path / "seg1.mp4"
+    joined = tmp_path / "seg2.mp4"
     joined.write_bytes(init.content + seg.content)
     proc = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=start_time",
@@ -353,9 +353,6 @@ def test_seek_starts_the_stream_later_in_the_file(client, tmp_path):
     )
     start_time = float(proc.stdout.decode().strip())
     assert abs(start_time - 4.0) < 0.6   # 分片时间戳是文件绝对时间
-    # 第 1 片只有 4→6 秒这两秒，必然比 0→4 秒的第 0 片小
-    first = client.get(f"{_PB}/sessions/{session_id}/seg00000.m4s?token={token}")
-    assert first.status_code == 200 and len(seg.content) < len(first.content)
 
 
 def test_stopping_a_session_keeps_a_reusable_cache(client, tmp_path):
