@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>网盘存储层：界面样稿</title>
+<style>
+  :root{
+    --bg:#0a0b10;--raised:rgba(30,33,43,.92);
+    --text:#f3f5f9;--muted:rgba(243,245,249,.62);--faint:rgba(243,245,249,.36);
+    --line:rgba(255,255,255,.08);--line-strong:rgba(255,255,255,.15);
+    --accent:#cdd6e6;--accent-2:#9fb0c9;--accent-soft:rgba(205,214,230,.14);
+    --ok:#4ade80;--info:#7fb0ff;--warn:#f5c451;--danger:#ff6b6b;
+    --cloud:#7fc8ff;--cloud-soft:rgba(127,200,255,.13);
+    --mono:ui-monospace,Menlo,"SF Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#000;color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans SC",sans-serif;-webkit-font-smoothing:antialiased}
+  button,input,select{font:inherit;color:inherit}
+  code{font-family:var(--mono);font-size:11px;color:var(--accent-2)}
+
+  /* 样稿导航 */
+  .nav{position:sticky;top:0;z-index:20;display:flex;gap:6px;align-items:center;overflow-x:auto;padding:10px 12px;background:rgba(10,11,16,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  .nav button{flex:none;border:1px solid var(--line-strong);background:transparent;color:var(--muted);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer}
+  .nav button.on{background:var(--accent);color:#0a0b10;border-color:var(--accent)}
+  .screen{display:none;padding:18px 16px 70px}
+  .screen.on{display:block}
+  .note{max-width:1240px;margin:0 auto 14px;font-size:12px;color:var(--faint);border-left:2px solid var(--warn);padding:4px 10px;line-height:1.75}
+  .note b{color:var(--muted);font-weight:600}
+
+  /* 机框 */
+  .stage{max-width:1240px;margin:0 auto;display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+  .frame{position:relative;flex:1 1 760px;min-width:0;display:grid;grid-template-columns:176px 1fr;background:var(--bg);border:1px solid var(--line-strong);border-radius:18px;overflow:hidden;min-height:560px}
+  .frame.nosb{grid-template-columns:1fr;min-height:780px}
+  .scrim{overflow:auto}
+  .side{border-right:1px solid var(--line);padding:16px 10px;background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.01))}
+  .brand{font-weight:700;letter-spacing:.02em;padding:4px 10px 14px}
+  .side .grp{font-size:10px;letter-spacing:.12em;color:var(--faint);padding:10px 10px 4px}
+  .side a{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:9px;color:var(--muted);font-size:12.5px;text-decoration:none}
+  .side a.on{background:rgba(255,255,255,.1);color:var(--text)}
+  .main{padding:20px 22px 26px;min-width:0}
+  h1{font-size:20px;letter-spacing:-.02em;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:12.5px;margin:0 0 16px}
+  .sec-label{font-size:10px;letter-spacing:.14em;color:var(--faint);margin:18px 0 8px}
+  .side-panel{flex:1 1 300px;max-width:400px;min-width:0;font-size:12px;color:var(--muted);line-height:1.75;border:1px solid var(--line);border-radius:16px;padding:14px 16px;background:rgba(255,255,255,.02)}
+  .side-panel h3{margin:0 0 6px;font-size:13px;color:var(--text)}
+  .side-panel ul{margin:0;padding-left:18px}
+  .side-panel li{margin-bottom:4px}
+  .side-panel b{color:var(--text);font-weight:600}
+
+  /* 通用件 */
+  .new{font-size:10px;font-weight:600;border-radius:999px;padding:1px 7px;background:var(--cloud-soft);color:var(--cloud);letter-spacing:.02em}
+  .chg{font-size:10px;font-weight:600;border-radius:999px;padding:1px 7px;background:rgba(245,196,81,.14);color:var(--warn)}
+  .card{border:1px solid var(--line);background:rgba(255,255,255,.04);border-radius:16px;margin-bottom:10px;overflow:hidden}
+  .card .hd{display:flex;align-items:center;gap:12px;padding:12px 14px}
+  .card .bd{border-top:1px solid rgba(255,255,255,.06);padding:12px 14px}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .muted{color:var(--muted)} .faint{color:var(--faint)}
+  .small{font-size:11.5px} .tiny{font-size:10.5px}
+  .btn{border:1px solid var(--line-strong);background:rgba(255,255,255,.04);border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer;white-space:nowrap}
+  .btn:hover{background:rgba(255,255,255,.08)}
+  .btn.primary{background:var(--accent);color:#0a0b10;border-color:var(--accent);font-weight:600}
+  .btn.danger{border-color:rgba(255,107,107,.45);color:var(--danger)}
+  .btn.ghost{border-color:transparent;color:var(--faint)}
+  .pill{font-size:10.5px;border-radius:999px;padding:1px 8px;border:1px solid var(--line);white-space:nowrap}
+  .pill.ok{color:var(--ok);border-color:rgba(74,222,128,.3)}
+  .pill.warn{color:var(--warn);border-color:rgba(245,196,81,.35)}
+  .pill.bad{color:var(--danger);border-color:rgba(255,107,107,.4)}
+  .pill.info{color:var(--info);border-color:rgba(127,176,255,.35)}
+  .loc{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;border-radius:6px;padding:1px 6px;font-weight:600;line-height:17px}
+  .loc.local{background:rgba(255,255,255,.08);color:var(--muted)}
+  .loc.cloud{background:var(--cloud-soft);color:var(--cloud)}
+  .loc.both{background:linear-gradient(90deg,rgba(255,255,255,.08),var(--cloud-soft));color:var(--text)}
+  .logo115{flex:none;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-weight:800;font-size:12px;background:linear-gradient(135deg,#2a77ff,#3fb4ff);color:#fff;letter-spacing:-.03em}
+  .logo115.sm{width:20px;height:20px;border-radius:6px;font-size:8.5px}
+  .bar{height:5px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;min-width:80px;flex:1}
+  .bar i{display:block;height:100%;background:var(--cloud);border-radius:999px}
+  .bar.gray i{background:var(--accent-2)}
+  .kv{display:grid;grid-template-columns:120px 1fr;gap:6px 12px;font-size:12px}
+  .kv dt{color:var(--faint)} .kv dd{margin:0;color:var(--muted)}
+  .input{border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.04);padding:6px 10px;font-size:12px;outline:none;min-width:0}
+  .label{font-size:11.5px;font-weight:600;color:var(--muted);margin:14px 0 6px;display:flex;gap:6px;align-items:center}
+  .label small{font-weight:400;color:var(--faint)}
+  .info{display:flex;gap:9px;border:1px solid rgba(127,176,255,.25);background:rgba(127,176,255,.07);border-radius:12px;padding:9px 12px;font-size:11.5px;color:var(--muted);line-height:1.65;margin:10px 0}
+  .info.warn{border-color:rgba(245,196,81,.3);background:rgba(245,196,81,.06)}
+  .info.bad{border-color:rgba(255,107,107,.3);background:rgba(255,107,107,.06)}
+  .info b{color:var(--text);font-weight:600}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;padding:2px;gap:2px;background:rgba(255,255,255,.02)}
+  .seg button{border:none;background:transparent;color:var(--muted);border-radius:8px;padding:4px 12px;font-size:12px;cursor:pointer}
+  .seg button.on{background:rgba(255,255,255,.12);color:var(--text)}
+  .radio{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:6px;cursor:pointer}
+  .radio.on{border-color:var(--accent-2);background:var(--accent-soft)}
+  .radio .dot{flex:none;width:15px;height:15px;border-radius:50%;border:1.5px solid var(--line-strong);margin-top:2px;position:relative}
+  .radio.on .dot{border-color:var(--accent)}
+  .radio.on .dot::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--accent)}
+  .radio .t{font-size:12.5px;font-weight:600}
+  .radio .d{font-size:11.5px;color:var(--muted);line-height:1.6}
+  .toggle{width:36px;height:21px;border-radius:999px;background:rgba(255,255,255,.14);position:relative;border:none;cursor:pointer;flex:none}
+  .toggle::after{content:"";position:absolute;top:2.5px;left:2.5px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s}
+  .toggle.on{background:var(--accent-2)}
+  .toggle.on::after{transform:translateX(15px)}
+
+  /* 弹层 */
+  .scrim{position:absolute;inset:0;background:rgba(6,7,11,.66);backdrop-filter:blur(2px);display:flex;align-items:flex-start;justify-content:center;padding:28px 18px;z-index:5}
+  .modal{width:100%;max-width:640px;background:var(--raised);border:1px solid var(--line-strong);border-radius:18px;box-shadow:0 18px 48px rgba(0,0,0,.55);padding:18px 20px}
+  .modal h2{margin:0;font-size:16px}
+  .steps{display:flex;gap:18px;margin:12px 0 4px;font-size:11px;letter-spacing:.06em;font-weight:600;color:var(--faint);border-bottom:1px solid var(--line)}
+  .steps span{padding-bottom:8px}
+  .steps span.on{color:var(--text);box-shadow:inset 0 -2px 0 var(--accent)}
+  .mfoot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+  .tabs{display:flex;gap:4px;margin:12px 0}
+  .tabs button{border:none;background:transparent;color:var(--faint);border-radius:9px;padding:5px 12px;font-size:12.5px;cursor:pointer}
+  .tabs button.on{background:rgba(255,255,255,.1);color:var(--text)}
+  .qr{width:150px;height:150px;border-radius:12px;background:
+      repeating-linear-gradient(0deg,#fff 0 6px,#111 6px 9px),repeating-linear-gradient(90deg,#fff 0 5px,#111 5px 11px);background-blend-mode:difference;border:8px solid #fff;flex:none}
+
+  /* 根目录编辑器 */
+  .roots{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .root{display:flex;align-items:center;gap:10px;padding:9px 12px;border-top:1px solid var(--line);font-size:12px}
+  .root:first-child{border-top:none}
+  .root .p{font-family:var(--mono);font-size:11.5px;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .root .x{margin-left:auto;color:var(--faint);cursor:pointer}
+  .root .prim{font-size:10px;color:var(--accent);border:1px solid rgba(205,214,230,.3);border-radius:999px;padding:0 6px}
+  .addmenu{display:flex;gap:6px;padding:9px 12px;border-top:1px dashed var(--line);background:rgba(255,255,255,.015)}
+
+  /* 目录树 */
+  .tree{border:1px solid var(--line);border-radius:12px;max-height:280px;overflow:auto;font-size:12.5px}
+  .tn{display:flex;align-items:center;gap:8px;padding:6px 10px;border-top:1px solid rgba(255,255,255,.04)}
+  .tn:first-child{border-top:none}
+  .tn .cb{width:14px;height:14px;border-radius:4px;border:1.5px solid var(--line-strong);flex:none}
+  .tn .cb.on{background:var(--accent);border-color:var(--accent)}
+  .tn .n{flex:1}
+  .tn .c{font-size:11px;color:var(--faint)}
+
+  /* 库管理行 */
+  .lrow{display:grid;grid-template-columns:minmax(0,1fr) 150px 210px 30px;gap:14px;align-items:center;padding:12px 14px;border-top:1px solid var(--line)}
+  .lrow:first-child{border-top:none}
+  .thumb{width:72px;height:44px;border-radius:8px;background:linear-gradient(135deg,#25304a,#121620);flex:none;position:relative}
+  .thumb .badge{position:absolute;right:-5px;bottom:-5px}
+  .lname{font-weight:600;font-size:13px}
+  .lmeta{font-size:11.5px;color:var(--faint);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .inv{text-align:right;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .inv small{display:block;color:var(--faint);font-size:11px}
+  .stat{font-size:12px;color:var(--muted)}
+  .menu{position:absolute;right:20px;top:262px;width:220px;background:var(--raised);border:1px solid var(--line-strong);border-radius:12px;padding:5px;box-shadow:0 12px 30px rgba(0,0,0,.5);font-size:12.5px;z-index:3}
+  .menu div{padding:6px 10px;border-radius:8px;color:var(--muted)}
+  .menu div.n{color:var(--text)}
+  .menu hr{border:none;border-top:1px solid var(--line);margin:4px 0}
+
+  /* 文件区 */
+  .file{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;background:rgba(255,255,255,.025)}
+  .file .fn{font-family:var(--mono);font-size:11.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .file .spec{font-size:11px;color:var(--faint);margin-top:2px}
+  .file .ex{font-size:11.5px;color:var(--muted);margin-top:7px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .tooltip{display:inline-block;border:1px solid var(--line-strong);background:var(--raised);border-radius:8px;padding:6px 9px;font-size:11px;color:var(--muted);line-height:1.6;margin-top:6px}
+
+  /* 任务 */
+  .task{display:grid;grid-template-columns:28px 1fr 190px auto;gap:12px;align-items:center;padding:11px 14px;border-top:1px solid var(--line);font-size:12.5px}
+  .task:first-child{border-top:none}
+  .ti{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:rgba(255,255,255,.06);font-size:12px}
+
+  /* 播放器 */
+  .player{position:relative;aspect-ratio:16/9;border-radius:14px;overflow:hidden;background:radial-gradient(ellipse at 30% 40%,#2c3550,#0b0d14 70%);border:1px solid var(--line-strong)}
+  .player .ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)}
+  .player .box{max-width:360px;text-align:center;font-size:12.5px;color:var(--muted);line-height:1.7}
+  .player .box h4{margin:0 0 6px;font-size:15px;color:var(--text)}
+  .player .ctl{position:absolute;left:0;right:0;bottom:0;padding:10px 14px;background:linear-gradient(transparent,rgba(0,0,0,.7));font-size:11px;color:var(--muted);display:flex;gap:10px;align-items:center}
+  .stats{position:absolute;left:12px;top:12px;font-family:var(--mono);font-size:10.5px;line-height:1.7;background:rgba(0,0,0,.6);border-radius:8px;padding:7px 10px;color:#cfd6e3}
+
+  /* 扩展弹窗 */
+  .popup{width:320px;border-radius:14px;border:1px solid var(--line-strong);background:#14161d;padding:14px;font-size:12.5px;box-shadow:0 18px 40px rgba(0,0,0,.5)}
+
+  /* 影响面表 */
+  table.imp{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.imp th{text-align:left;font-size:10.5px;letter-spacing:.1em;color:var(--faint);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--line-strong)}
+  table.imp td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--muted);line-height:1.6}
+  table.imp td:first-child{color:var(--text);white-space:nowrap}
+  table.imp a{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+  .imp-wrap{max-width:1100px;margin:0 auto}
+  .grp-h{font-size:13px;font-weight:700;margin:22px 0 6px;display:flex;gap:8px;align-items:center}
+</style>
+</head>
+<body>
+
+<div class="nav" id="nav">
+  <button data-s="s0" class="on">影响面总览</button>
+  <button data-s="s1">设置 · 网盘</button>
+  <button data-s="s2">添加网盘账号</button>
+  <button data-s="s3">添加媒体库</button>
+  <button data-s="s4">115 目录选择</button>
+  <button data-s="s5">编辑库：改到 115</button>
+  <button data-s="s6">媒体库管理</button>
+  <button data-s="s7">纳管报告</button>
+  <button data-s="s8">条目详情 · 文件区</button>
+  <button data-s="s9">删除确认</button>
+  <button data-s="s10">任务中心</button>
+  <button data-s="s11">设置 · 播放 / 下载器</button>
+  <button data-s="s12">播放器</button>
+  <button data-s="s13">浏览器扩展</button>
+</div>
+
+<!-- ═════════════ 总览 ═════════════ -->
+<section class="screen on" id="s0">
+  <div class="imp-wrap">
+    <div class="note">网盘存储层（docs/design/cloud-storage.md）对界面的全部影响。<b>原则</b>：没装任何存储插件时，下面所有改动都不出现，产品与今天一样；
+      装了插件，网盘名、图标、登录方式都来自插件声明（样稿以 115 为例）。<b>不新增导航入口</b>：网盘只出现在设置里的一个分区和已有页面的局部。</div>
+
+    <div class="grp-h"><span class="new">新增</span> 两处</div>
+    <table class="imp">
+      <tr><th>页面</th><th>内容</th><th>出现条件</th></tr>
+      <tr><td><a data-go="s1">设置 → 媒体库 → 网盘</a></td><td>网盘账号列表：状态、容量、今日调用量、同时播放数；添加账号（扫码 / 浏览器扩展）；异常态（要重新登录、接口异常、限流中）</td><td>装了存储插件</td></tr>
+      <tr><td><a data-go="s4">115 目录选择器</a></td><td>按需展开的 115 目录树，勾选文件夹；添加媒体库、编辑库共用</td><td>选「115 网盘目录」时</td></tr>
+    </table>
+
+    <div class="grp-h"><span class="chg">修改</span> 十处</div>
+    <table class="imp">
+      <tr><th>页面</th><th>改动</th><th>不改的</th></tr>
+      <tr><td><a data-go="s3">添加媒体库 · 第 2 步</a></td><td>「添加目录」多一个「115 网盘目录」；主根在 115 时说明新片怎么走，并显示本地暂存目录（默认填好）</td><td>三步流程、类型、收藏范围、可见范围</td></tr>
+      <tr><td><a data-go="s5">编辑库</a></td><td>同上；把主根从本地改到 115 时，二次确认迁移规模</td><td>其余设置</td></tr>
+      <tr><td><a data-go="s6">媒体库管理 · 库行</a></td><td>根目录显示 115 路径与角标；状态列显示纳管 / 上传进度；库存第二行分本地 / 115；··· 菜单加「立即同步 115」「查看纳管报告」</td><td>行结构、其他菜单项</td></tr>
+      <tr><td><a data-go="s7">纳管报告</a>（抽屉）</td><td>已识别 / 待认领 / 跳过及原因；跳到现有待处理清单</td><td>待认领沿用现有认领流程</td></tr>
+      <tr><td><a data-go="s8">条目详情 · 文件区</a></td><td>每个文件一个位置标签（本地 / 本地 + 115 / 115）；上传进度；本地已腾空时的做种说明；悬浮路径多一行 115 路径</td><td>规格、音轨、版本、删除入口</td></tr>
+      <tr><td><a data-go="s9">删除确认 / 回收站</a></td><td>预览多一行「将从 115 删除（进 115 回收站）」；超过阈值时改为需要在任务中心确认</td><td>删除参与方（删种）选项</td></tr>
+      <tr><td><a data-go="s10">任务中心</a></td><td>新任务类型：纳管、上传（秒传 / 真传、速度、让路中）、待确认的批量删除</td><td>任务中心结构</td></tr>
+      <tr><td><a data-go="s11">设置 → 播放</a></td><td>「在外面播放网盘上的片子」三选一</td><td>远程转码设置</td></tr>
+      <tr><td><a data-go="s11">设置 → 下载器</a></td><td>一个开关「文件上传到网盘后自动删除下载任务」</td><td>下载器配置</td></tr>
+      <tr><td><a data-go="s12">播放器</a></td><td>两个新的错误说明（同时播放数已满、网盘要重新登录）；播放信息面板显示来源与取流方式</td><td>控件与交互</td></tr>
+    </table>
+
+    <div class="grp-h"><span class="pill info">只改文案</span> 两处</div>
+    <table class="imp">
+      <tr><th>位置</th><th>改动</th><th></th></tr>
+      <tr><td><a data-go="s13">浏览器扩展弹窗</a></td><td>在 115 网页上点同步，弹窗显示「已添加为网盘账号」——文案由服务端返回，扩展代码不改</td><td></td></tr>
+      <tr><td>通知</td><td>新增两类通知：网盘要重新登录、纳管完成（走现有通知规则，用户可关）</td><td></td></tr>
+    </table>
+
+    <div class="grp-h"><span class="pill">不变</span></div>
+    <table class="imp">
+      <tr><td>海报墙、首页、搜索、订阅、发现</td><td>网盘上的片子与本地片子长得一样，不加角标——「片子在哪」只在文件区和库管理页出现</td></tr>
+      <tr><td>iPhone / Mac / Apple TV / Android</td><td>一期只做：文件区位置标签、播放器两个错误说明（服务端给文案）、自家 App 直连失败自动改走转发（无界面）。设置与建库在 iPhone 二期补，其余端用网页</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ═════════════ 设置 · 网盘 ═════════════ -->
+<section class="screen" id="s1">
+  <div class="note"><b>新增分区</b>，放在「媒体库」组里（刮削与整理、播放之后）。只在装了存储插件时出现。账号卡片三种状态并排展示：正常、要重新登录、接口异常。</div>
+  <div class="stage">
+    <div class="frame">
+      <aside class="side">
+        <div class="brand">设置</div>
+        <div class="grp">资源与下载</div><a>订阅规则</a><a>资源站点</a><a>下载器</a><a>自动入库</a>
+        <div class="grp">媒体库</div><a>刮削与整理</a><a>播放</a><a class="on">网盘 <span class="new">新</span></a>
+        <div class="grp">系统</div><a>插件</a><a>网络</a>
+      </aside>
+      <main class="main">
+        <div class="row" style="justify-content:space-between">
+          <div><h1>网盘</h1><p class="sub" style="margin:0">媒体库可以放在网盘上：网盘里已有的片子直接看，新片下载后自动上传、本地自动腾空。</p></div>
+          <button class="btn primary" data-go="s2">添加网盘账号</button>
+        </div>
+
+        <div class="sec-label">账号</div>
+        <div class="card">
+          <div class="hd">
+            <div class="logo115">115</div>
+            <div style="min-width:0">
+              <div class="row" style="gap:8px"><b style="font-size:13px">影视仓库</b><span class="pill ok">正常</span><span class="faint small">扫码登录 · 支付宝小程序端</span></div>
+              <div class="faint small">用于 2 个媒体库 · 今日调用 1,204 / 8,000</div>
+            </div>
+            <div style="margin-left:auto;width:220px">
+              <div class="row small muted" style="justify-content:space-between"><span>容量</span><span>41.2 / 60 TB</span></div>
+              <div class="bar gray"><i style="width:69%"></i></div>
+            </div>
+          </div>
+          <div class="bd">
+            <div class="row small" style="justify-content:space-between">
+              <span class="muted">同时播放数 <b style="color:var(--text)">2</b> <span class="faint">· 家里转发时，115 同一时间最多开几路连接</span></span>
+              <span class="row"><button class="btn">调整</button><button class="btn ghost" onclick="document.getElementById('adv').classList.toggle('hide')">高级 ▾</button></span>
+            </div>
+            <div id="adv" class="hide" style="margin-top:12px">
+              <dl class="kv">
+                <dt>请求速率</dt><dd><input class="input" value="1.2" style="width:60px"> 次 / 秒 <span class="faint">（插件默认）</span></dd>
+                <dt>每日预算</dt><dd><input class="input" value="8000" style="width:80px"> 次 <span class="faint">· 后台任务用到 70% 就暂停，余量留给播放</span></dd>
+                <dt>上传速度上限</dt><dd><input class="input" value="不限" style="width:80px"> <span class="faint">· 有人在外面看片时自动降到 20%</span></dd>
+                <dt>登录</dt><dd><a class="small" style="color:var(--accent)">重新扫码</a> · <a class="small" style="color:var(--danger)">移除账号</a> <span class="faint">（不动 115 上的任何文件）</span></dd>
+              </dl>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="hd">
+            <div class="logo115">115</div>
+            <div style="min-width:0">
+              <div class="row" style="gap:8px"><b style="font-size:13px">老婆的 115</b><span class="pill bad">要重新登录</span><span class="faint small">浏览器导入 · 网页端</span></div>
+              <div class="faint small">登录已失效：可能是在别的电脑上登录了 115 网页版。播放与上传暂停中。</div>
+            </div>
+            <div style="margin-left:auto" class="row"><button class="btn primary">重新扫码</button></div>
+          </div>
+          <div class="bd small faint">网页端登录与浏览器共用，在没装扩展的电脑上登录 115 网页版会让它失效。<a style="color:var(--accent)">改为扫码登录（更稳定）</a></div>
+        </div>
+
+        <div class="card">
+          <div class="hd">
+            <div class="logo115">115</div>
+            <div style="min-width:0">
+              <div class="row" style="gap:8px"><b style="font-size:13px">备用盘</b><span class="pill warn">接口异常</span></div>
+              <div class="faint small">115 的接口有变化，插件暂时不认识。已有的片子仍可尝试播放；上传与同步暂停。</div>
+            </div>
+            <div style="margin-left:auto" class="row"><button class="btn">去更新插件</button></div>
+          </div>
+        </div>
+        <style>.hide{display:none}</style>
+      </main>
+    </div>
+    <div class="side-panel">
+      <h3>要点</h3>
+      <ul>
+        <li>状态只有五种：<b>正常、要重新登录、限流中（显示恢复时间）、接口异常、已停用</b>。只有确认登录失效才显示「要重新登录」。</li>
+        <li>「同时播放数」是唯一常用的数字，放在卡片上；速率、预算、上传上限收进「高级」，默认值够用。</li>
+        <li>移除账号只删 MovieClaw 里的记录；用了这个账号的库会提示「需要重新选择账号」。</li>
+        <li>插件被卸载时，这里仍列出账号，并提示「需要安装 115 存储插件」。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 添加网盘账号 ═════════════ -->
+<section class="screen" id="s2">
+  <div class="note"><b>新增弹窗</b>。两种方式：扫码（默认、推荐）与浏览器扩展。扫码前选登录端，默认已选好、避开常见冲突。</div>
+  <div class="stage">
+    <div class="frame nosb">
+      <main class="main" style="filter:blur(1px);opacity:.5"><h1>网盘</h1><p class="sub">……</p></main>
+      <div class="scrim">
+        <div class="modal">
+          <h2>添加网盘账号</h2>
+          <div class="row" style="margin-top:12px;gap:8px">
+            <span class="faint small">网盘</span>
+            <span class="row" style="gap:6px;border:1px solid var(--accent-2);background:var(--accent-soft);border-radius:999px;padding:3px 10px 3px 4px;font-size:12px"><span class="logo115 sm">115</span>115 网盘</span>
+            <span class="faint tiny">（列表来自已安装的存储插件）</span>
+          </div>
+          <div class="tabs" id="acctTabs"><button class="on" data-t="qr">扫码登录</button><button data-t="ext">用浏览器扩展</button></div>
+
+          <div id="t-qr">
+            <div class="row" style="align-items:flex-start;gap:18px">
+              <div class="qr"></div>
+              <div style="flex:1;min-width:0">
+                <div class="label" style="margin-top:0">登录端</div>
+                <select class="input" style="width:100%"><option>支付宝小程序（推荐）</option><option>微信小程序</option><option>鸿蒙</option><option>安卓电视</option><option>网页端（会与浏览器互踢）</option></select>
+                <p class="small muted" style="line-height:1.7;margin:8px 0 0">115 每种登录端同一时间只能在线一处，新登录会把同端的旧登录踢下线。请选一个<b style="color:var(--text)">你和其他工具（CloudDrive2、OpenList 等）都没在用</b>的端。</p>
+                <div class="info" style="margin-top:12px"><span>⏳</span><span>用 115 App 扫码并确认。<b>已扫描，等待在手机上确认…</b></span></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="t-ext" class="hide">
+            <ol class="small muted" style="line-height:1.9;padding-left:18px;margin:6px 0">
+              <li>在这台电脑的浏览器里打开 <code>115.com</code> 并登录；</li>
+              <li>点工具栏上的 MovieClaw 扩展图标 → 「同步当前站点」；</li>
+              <li>回到这里，账号会自动出现。</li>
+            </ol>
+            <div class="info warn"><span>⚠️</span><span>这种方式用的是<b>网页端登录</b>，与浏览器共用：在别的电脑上登录 115 网页版会让它失效（开着扩展的自动同步时，回到这台浏览器会自动恢复）。想更稳定请用扫码。</span></div>
+            <div class="row small faint">还没装扩展？<a style="color:var(--accent)">在「资源站点 → 浏览器扩展」下载</a></div>
+          </div>
+
+          <div class="mfoot"><button class="btn">取消</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="side-panel">
+      <h3>为什么扫码要选登录端</h3>
+      <ul>
+        <li>扫码登录不需要开放平台资质，就是 115 App 扫码换一组登录信息。</li>
+        <li>默认选「支付宝小程序」：大多数人不用这个端，不会把手机、浏览器、其他工具踢下线。</li>
+        <li>「网页端」放在列表最后并写明会互踢。</li>
+        <li>扫码成功后直接进入账号列表，弹出「已添加：影视仓库（41.2 / 60 TB）」。同一个 115 用户重复添加时更新原账号，不会出现两个。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 添加媒体库 ═════════════ -->
+<section class="screen" id="s3">
+  <div class="note"><b>改动现有弹窗的第 2 步「名称与目录」</b>：根目录可以来自 115。沿用现有规则「第一个为主根，新内容落在这里」——主根在 115，新片就上传到 115、本地自动腾空，<b>不需要另一个「存储模式」开关</b>。</div>
+  <div class="stage">
+    <div class="frame nosb">
+      <main class="main" style="filter:blur(1px);opacity:.5"><h1>媒体库</h1></main>
+      <div class="scrim">
+        <div class="modal">
+          <h2>添加媒体库</h2>
+          <div class="steps"><span>1 · 选类型</span><span class="on">2 · 名称与目录</span><span>3 · 收藏范围</span></div>
+          <div class="label">名称</div>
+          <input class="input" style="width:100%" value="电影 · 115">
+          <div class="label">根目录 <small>（第一个为主根，新内容落在这里）</small></div>
+          <div class="roots">
+            <div class="root"><span class="logo115 sm">115</span><span class="p">影视仓库 › 影视/电影</span><span class="prim">主根</span><span class="faint tiny">2,400 个视频文件</span><span class="x">✕</span></div>
+            <div class="root"><span class="logo115 sm">115</span><span class="p">影视仓库 › 转存/2024 电影合集</span><span class="faint tiny">312 个视频文件</span><span class="x">✕</span></div>
+            <div class="root"><span style="width:20px;text-align:center" class="faint">▤</span><span class="p">/volume1/media/movies-old</span><span class="faint tiny">本地</span><span class="x">✕</span></div>
+            <div class="addmenu"><button class="btn">＋ 服务器目录</button><button class="btn" data-go="s4">＋ 115 网盘目录 <span class="new">新</span></button></div>
+          </div>
+          <div class="info"><span>☁️</span><span>主根在 115：<b>新下载的片子入库后立即能看，后台上传到 115（多数秒传），传完核验、本地自动腾空。</b>
+            115 文件夹里已有的片子创建后自动纳管，按文件名识别，不下载、不改动 115 上的文件。</span></div>
+          <div class="row small" style="justify-content:space-between;border:1px solid var(--line);border-radius:12px;padding:9px 12px">
+            <span class="muted">本地暂存目录 <span class="faint">· 新片上传前放这里，硬链接入库不占额外空间；海报字幕也存这里</span></span>
+            <span class="row"><code>/volume1/downloads/.movieclaw/电影 · 115</code><a class="small" style="color:var(--accent)">修改</a></span>
+          </div>
+          <div class="label">可见范围</div>
+          <div class="seg"><button class="on">所有成员</button><button>指定成员</button></div>
+          <div class="mfoot"><button class="btn">上一步</button><button class="btn primary">下一步：收藏范围</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="side-panel">
+      <h3>组合规则（不用用户理解）</h3>
+      <ul>
+        <li><b>主根本地 + 其余本地</b>：今天的样子。</li>
+        <li><b>主根 115</b>：「115 库」——新片上传、本地腾空；所有 115 根目录纳管。</li>
+        <li><b>主根本地 + 有 115 根目录</b>：新片留本地；115 目录纳管进来一起看（适合「老片在 115、新片在 NAS」）。</li>
+        <li>「本地 + 115 两边都留（备份）」不在建库时问，放在编辑库的高级选项里，少一个首屏决定。</li>
+        <li>没有网盘账号时，「＋ 115 网盘目录」按钮不出现；装了插件但没账号时，点它先引导到添加账号。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 115 目录选择 ═════════════ -->
+<section class="screen" id="s4">
+  <div class="note"><b>新增弹窗</b>：只列目录，按需展开（不预先遍历整个网盘）；每个目录旁显示视频文件数，帮用户判断选哪一层。</div>
+  <div class="stage">
+    <div class="frame nosb">
+      <main class="main" style="filter:blur(1px);opacity:.5"><h1>添加媒体库</h1></main>
+      <div class="scrim">
+        <div class="modal" style="max-width:560px">
+          <h2>选择 115 上的文件夹</h2>
+          <div class="row small" style="margin:10px 0">
+            <span class="faint">账号</span><select class="input"><option>影视仓库（41.2 / 60 TB）</option><option>老婆的 115</option></select>
+          </div>
+          <div class="tree">
+            <div class="tn"><span class="faint">▾</span><span class="n">📁 影视</span><span class="c">3,104</span></div>
+            <div class="tn" style="padding-left:30px"><span class="cb on"></span><span class="n">📁 电影</span><span class="c">2,400</span></div>
+            <div class="tn" style="padding-left:30px"><span class="cb"></span><span class="n">▸ 📁 剧集</span><span class="c">612</span></div>
+            <div class="tn" style="padding-left:30px"><span class="cb"></span><span class="n">📁 原盘</span><span class="c">92 <span class="pill warn" style="margin-left:4px">原盘暂不支持</span></span></div>
+            <div class="tn"><span class="faint">▸</span><span class="n">📁 转存</span><span class="c">1,880</span></div>
+            <div class="tn"><span class="faint">▸</span><span class="n">📁 我的接收</span><span class="c">45</span></div>
+            <div class="tn"><span class="faint">▸</span><span class="n">📁 MovieClaw</span><span class="c">0</span></div>
+          </div>
+          <div class="info"><span>ℹ️</span><span>已选 <b>影视/电影</b>（2,400 个视频文件）。剧集请单独建剧集库再选「剧集」。电影库里选到的剧集文件会进「待认领」，不会出错。</span></div>
+          <div class="mfoot"><button class="btn">取消</button><button class="btn primary">添加</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="side-panel">
+      <h3>要点</h3>
+      <ul>
+        <li>文件数来自 115 目录信息，一次调用，不遍历。</li>
+        <li>选中父目录时子目录不能再单选（避免重复纳管）；已被别的库用掉的目录置灰并写明「已在《剧集》库」。</li>
+        <li>编辑库时同一个选择器，用来追加 115 根目录。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 编辑库：改到 115 ═════════════ -->
+<section class="screen" id="s5">
+  <div class="note"><b>编辑库</b>：把主根从本地拖到 115（或在 115 目录上点「设为主根」）时弹出二次确认，讲清规模和会发生什么。</div>
+  <div class="stage">
+    <div class="frame nosb">
+      <main class="main" style="filter:blur(1px);opacity:.5"><h1>编辑库</h1></main>
+      <div class="scrim">
+        <div class="modal" style="max-width:520px">
+          <h2>把「电影」的新内容改存到 115？</h2>
+          <dl class="kv" style="margin:14px 0">
+            <dt>要上传</dt><dd>1,320 个文件 · 18.4 TB（从新到旧逐个上传）</dd>
+            <dt>预计</dt><dd>多数能秒传；没秒传的按你的上行速度，大约需要数周，期间照常播放</dd>
+            <dt>本地</dt><dd>每个文件上传核验后自动腾空；仍在做种的等做种结束后删除下载任务（H&amp;R 种子保留）</dd>
+            <dt>存到</dt><dd><span class="logo115 sm" style="display:inline-grid;vertical-align:middle">115</span> 影视仓库 › MovieClaw/电影</dd>
+          </dl>
+          <label class="row small muted"><input type="checkbox"> 本地也保留一份（两边都留，当备份；不腾空间）</label>
+          <div class="mfoot"><button class="btn">取消</button><button class="btn primary">开始迁移</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="side-panel">
+      <h3>要点</h3>
+      <ul>
+        <li>「本地也保留一份」就是设计稿里的「本地 + 115」模式，只在这里和编辑库高级选项出现。</li>
+        <li>迁移过程可以随时停：主根改回本地，没传的不再传，已传的保持原样。</li>
+        <li>进度显示在库管理页这一行的状态列，不弹窗打扰。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 媒体库管理 ═════════════ -->
+<section class="screen" id="s6">
+  <div class="note"><b>改动现有库行</b>：根目录列、状态列、库存第二行、··· 菜单。三行分别是：纳管中的新库、正在迁移的库、稳定的 115 库。</div>
+  <div class="stage">
+    <div class="frame">
+      <aside class="side"><div class="brand">媒体库</div><a class="on">管理</a><a>回收站</a><a>重复文件</a></aside>
+      <main class="main" style="position:relative">
+        <h1>媒体库管理</h1><p class="sub">库、目录与状态</p>
+        <div class="card">
+          <div class="lrow">
+            <div class="row" style="flex-wrap:nowrap;min-width:0"><div class="thumb"><span class="badge logo115 sm">115</span></div>
+              <div style="min-width:0"><div class="lname">电影 · 115</div><div class="lmeta">电影 · <span class="loc cloud">115</span> <code>影视/电影</code> +1 个根目录</div></div></div>
+            <div class="inv">1,820 部<small>115 · 21.6 TB</small></div>
+            <div class="stat"><div class="row" style="gap:8px"><span>正在纳管</span><span class="faint small">1,820 / 2,712</span></div><div class="bar"><i style="width:67%"></i></div><div class="faint tiny" style="margin-top:3px">识别中 · 不下载任何内容</div></div>
+            <div class="faint">···</div>
+          </div>
+          <div class="lrow">
+            <div class="row" style="flex-wrap:nowrap;min-width:0"><div class="thumb"><span class="badge logo115 sm">115</span></div>
+              <div style="min-width:0"><div class="lname">电影 <span class="pill" style="font-size:10px">默认</span></div><div class="lmeta">电影 · <span class="loc cloud">115</span> <code>MovieClaw/电影</code> · <code>/volume1/media/movies</code></div></div></div>
+            <div class="inv">1,320 部<small>本地 9.1 TB · 115 9.3 TB</small></div>
+            <div class="stat"><div class="row" style="gap:8px"><span>迁移到 115</span><span class="faint small">604 / 1,320</span></div><div class="bar"><i style="width:46%"></i></div><div class="faint tiny" style="margin-top:3px">秒传 588 · 上传中 1（3.1 MB/s，有人在外面看片，已让路）</div></div>
+            <div class="faint">···</div>
+          </div>
+          <div class="lrow">
+            <div class="row" style="flex-wrap:nowrap;min-width:0"><div class="thumb"><span class="badge logo115 sm">115</span></div>
+              <div style="min-width:0"><div class="lname">剧集</div><div class="lmeta">剧集 · <span class="loc cloud">115</span> <code>影视/剧集</code></div></div></div>
+            <div class="inv">212 部<small>115 · 14.0 TB · 本地 38 GB 做种中</small></div>
+            <div class="stat"><span class="pill ok">正常</span> <span class="faint small">· 2 分钟前同步</span></div>
+            <div class="faint" style="color:var(--text)">···</div>
+          </div>
+          <div class="lrow">
+            <div class="row" style="flex-wrap:nowrap;min-width:0"><div class="thumb"></div>
+              <div style="min-width:0"><div class="lname">纪录片</div><div class="lmeta">电影 · <code>/volume1/media/docs</code></div></div></div>
+            <div class="inv">88 部<small>1.2 TB</small></div>
+            <div class="stat"><span class="pill ok">正常</span></div>
+            <div class="faint">···</div>
+          </div>
+        </div>
+        <div class="menu">
+          <div class="n">扫描库</div><div class="n">立即同步 115 <span class="new">新</span></div><div class="n" data-go="s7">查看纳管报告 <span class="new">新</span></div><hr><div>整理文件名</div><div>刷新元数据</div><hr><div>设为默认库</div><div>编辑库</div>
+        </div>
+      </main>
+    </div>
+    <div class="side-panel">
+      <h3>要点</h3>
+      <ul>
+        <li>根目录前加位置标签（本地不加，保持今天的样子）。</li>
+        <li>状态列复用现有「扫描中」的位置与进度条样式：纳管、迁移、上传都在这一格说清。</li>
+        <li>库存第二行按位置拆分字节数；做种中的本地字节单独写，回答「空间什么时候回来」。</li>
+        <li>纯本地库（最后一行）没有任何变化。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 纳管报告 ═════════════ -->
+<section class="screen" id="s7">
+  <div class="note"><b>新增抽屉</b>：纳管完成时弹一次通知，点开就是这个；之后从库行 ··· 菜单再打开。</div>
+  <div class="stage">
+    <div class="frame nosb">
+      <main class="main" style="filter:blur(1px);opacity:.5"><h1>媒体库管理</h1></main>
+      <div class="scrim" style="justify-content:flex-end;padding:0">
+        <div class="modal" style="max-width:420px;height:100%;border-radius:18px 0 0 18px">
+          <h2>纳管报告 · 电影 · 115</h2>
+          <p class="faint small" style="margin:4px 0 14px">10 月 17 日 14:02 完成，用时 6 分钟 · 调用 115 接口 38 次</p>
+          <div class="card"><div class="hd"><b style="font-size:22px">2,712</b><span class="muted small">个视频文件</span></div></div>
+          <div class="card"><div class="hd"><span class="pill ok">已识别</span><b>2,624</b><span class="faint small" style="margin-left:auto">已上海报墙</span></div></div>
+          <div class="card"><div class="hd"><span class="pill warn">待认领</span><b>60</b><button class="btn" style="margin-left:auto">去认领</button></div>
+            <div class="bd small faint">文件名里认不出片名或年份，例如 <code>未命名(3).mkv</code>、<code>[XX字幕组] 1080p.mp4</code></div></div>
+          <div class="card"><div class="hd"><span class="pill">跳过</span><b>28</b></div>
+            <div class="bd small muted" style="line-height:1.8">原盘目录（BDMV）21 · 暂不支持<br>ISO 镜像 4 · 暂不支持<br>样片、预告（&lt; 200 MB）3</div></div>
+          <div class="info"><span>ℹ️</span><span>规格（分辨率、HDR、音轨）在后台慢慢补齐，<b>不影响现在播放</b>；没补到的在起播时当场读取。</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 条目详情 · 文件区 ═════════════ -->
+<section class="screen" id="s8">
+  <div class="note"><b>改动现有文件区</b>：每个文件一个位置标签。四个文件分别演示：只在 115（纳管来的）、本地 + 115（刚上传完、等做种结束）、上传中、本地（未上 115 的库）。</div>
+  <div class="stage">
+    <div class="frame nosb">
+      <main class="main">
+        <div class="row" style="justify-content:space-between"><h1 style="font-size:16px">文件 · 3 个版本</h1><span class="faint small">处理重复</span></div>
+        <div class="file">
+          <div class="row"><span class="loc cloud">☁ 115</span><span class="fn">Dune.Part.Two.2024.2160p.UHD.BluRay.REMUX.DV.HDR.HEVC.TrueHD.Atmos.mkv</span></div>
+          <div class="spec">2160p · 杜比视界 · HEVC · 72.4 GB · TrueHD 7.1</div>
+          <div class="tooltip">悬浮路径：115 影视仓库 › 影视/电影/Dune Part Two (2024)/…mkv<br>纳管自 115 · 规格已在后台补齐</div>
+        </div>
+        <div class="file">
+          <div class="row"><span class="loc both">本地 + ☁ 115</span><span class="fn">Dune.Part.Two.2024.1080p.WEB-DL.DDP5.1.H.264.mkv</span></div>
+          <div class="spec">1080p · H.264 · 9.8 GB · 杜比数字+ 5.1</div>
+          <div class="ex"><span class="pill ok">已上传 · 秒传</span><span>本地文件还在做种，做种结束后自动删除下载任务、腾出 9.8 GB</span></div>
+        </div>
+        <div class="file">
+          <div class="row"><span class="loc local">本地</span><span class="fn">Dune.Part.Two.2024.2160p.WEB-DL.DV.HDR.H.265.DDP5.1.Atmos.mkv</span></div>
+          <div class="spec">2160p · 杜比视界 · HEVC · 24.1 GB</div>
+          <div class="ex"><span>上传到 115</span><div class="bar" style="max-width:180px"><i style="width:38%"></i></div><span class="faint">38% · 4.2 MB/s · 约 1 小时</span><span class="faint">· 现在就能播</span></div>
+        </div>
+        <div class="sec-label">另一个纯本地库里的条目（无变化）</div>
+        <div class="file">
+          <div class="row"><span class="fn">Blue.Planet.II.S01E01.2160p.mkv</span></div>
+          <div class="spec">2160p · HEVC · 18.2 GB</div>
+        </div>
+      </main>
+    </div>
+    <div class="side-panel">
+      <h3>要点</h3>
+      <ul>
+        <li>纯本地库不加标签，保持今天的样子；只有库里出现了网盘文件才显示位置标签。</li>
+        <li>标签只回答「片子在哪」，取流方式（转发 / 直连）不在这里出现——那是播放时的事。</li>
+        <li>单文件删除沿用现有入口；只在 115 的文件，确认弹窗写「将从 115 删除」。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 删除确认 ═════════════ -->
+<section class="screen" id="s9">
+  <div class="note"><b>改动现有删除确认</b>：库侧说明多一行网盘；删种参与方照旧。下方演示批量超阈值时的改法。</div>
+  <div class="stage">
+    <div class="frame nosb" style="min-height:620px">
+      <main class="main" style="filter:blur(1px);opacity:.5"><h1>沙丘 2</h1></main>
+      <div class="scrim">
+        <div class="modal" style="max-width:520px">
+          <h2>删除《沙丘 2》？</h2>
+          <div style="margin:12px 0;font-size:12.5px;line-height:1.85" class="muted">
+            <div>• 移入媒体库回收站，保留 30 天后清理</div>
+            <div>• 清理时<b style="color:var(--text)">从 115 删除 2 个文件（82.2 GB）</b>，进入 115 回收站 <span class="new">新</span></div>
+            <div>• 删除本地 1 个文件（24.1 GB）</div>
+          </div>
+          <label class="row small" style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;align-items:flex-start;gap:9px">
+            <input type="checkbox" style="margin-top:3px">
+            <span><b>同时删除下载任务和源文件</b><br><span class="faint">qB-家里 · Dune.Part.Two.2024.2160p.WEB-DL… · 硬链接入库，删除源文件才真正释放空间</span></span>
+          </label>
+          <div class="mfoot"><button class="btn">取消</button><button class="btn danger">删除</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="side-panel">
+      <h3>批量超过阈值（50 个文件或 200 GB）</h3>
+      <div class="info warn" style="margin-top:6px"><span>⚠️</span><span>这次会从 115 删除 <b>214 个文件（3.4 TB）</b>。删除前需要你在任务中心再确认一次。</span></div>
+      <ul>
+        <li>回收站「立即清理全部」也走同一个护栏。</li>
+        <li>把 115 文件夹从库里移除：确认文案写「只从媒体库移除，不删除 115 上的任何文件」。</li>
+        <li>纳管、同步、对账永远不删网盘文件，所以这里是唯一会删网盘的入口。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 任务中心 ═════════════ -->
+<section class="screen" id="s10">
+  <div class="note"><b>改动现有任务中心</b>：三种新任务。上传任务挂在入库任务下（父子关系沿用现有）。</div>
+  <div class="stage">
+    <div class="frame nosb">
+      <main class="main">
+        <h1>任务中心</h1><p class="sub">进行中 4</p>
+        <div class="card">
+          <div class="task" style="background:rgba(245,196,81,.05)"><div class="ti">⚠️</div><div><b>从 115 删除 214 个文件</b><div class="faint small">回收站清理 · 3.4 TB · 等你确认</div></div><div class="small muted">涉及《电影》库 · 进入 115 回收站</div><div class="row"><button class="btn">查看清单</button><button class="btn danger">确认删除</button></div></div>
+          <div class="task"><div class="ti">☁</div><div><b>上传 Dune.Part.Two…2160p.WEB-DL.mkv</b><div class="faint small">入库 › 上传到 115 · 未命中秒传，正常上传</div></div><div><div class="bar"><i style="width:38%"></i></div><div class="faint tiny" style="margin-top:3px">38% · 4.2 MB/s · 约 1 小时</div></div><div class="row"><button class="btn ghost">暂停</button></div></div>
+          <div class="task"><div class="ti">☁</div><div><b>迁移《电影》到 115</b><div class="faint small">604 / 1,320 · 秒传 588</div></div><div><div class="bar"><i style="width:46%"></i></div><div class="faint tiny" style="margin-top:3px"><span style="color:var(--warn)">让路中</span>：有人在外面看片，上传降到 0.8 MB/s</div></div><div class="row"><button class="btn ghost">暂停</button></div></div>
+          <div class="task"><div class="ti">⇣</div><div><b>纳管 115 文件夹「影视/电影」</b><div class="faint small">识别 1,820 / 2,712 · 不下载任何内容</div></div><div><div class="bar"><i style="width:67%"></i></div></div><div class="row"><button class="btn ghost">取消</button></div></div>
+          <div class="task"><div class="ti">⏸</div><div><b>上传 3 个文件</b><div class="faint small">账号「老婆的 115」要重新登录</div></div><div class="small muted">已暂停，登录后自动继续</div><div class="row"><button class="btn">去登录</button></div></div>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 设置 · 播放 / 下载器 ═════════════ -->
+<section class="screen" id="s11">
+  <div class="note"><b>设置 → 播放</b>加一组单选；<b>设置 → 下载器</b>加一个开关。两处都只在有网盘账号时出现。</div>
+  <div class="stage">
+    <div class="frame">
+      <aside class="side">
+        <div class="brand">设置</div>
+        <div class="grp">媒体库</div><a>刮削与整理</a><a class="on">播放</a><a>网盘</a>
+      </aside>
+      <main class="main">
+        <h1>播放</h1><p class="sub">远程转码与播放体验</p>
+        <div class="sec-label">在外面播放网盘上的片子 <span class="new">新</span></div>
+        <div id="modes">
+          <div class="radio on" data-m="auto"><span class="dot"></span><div><div class="t">自动（推荐）</div><div class="d">一般经家里转发；只有 MovieClaw 自家 App、且同一时间只有一处在外面时，才直连网盘（不占家里上行，码率不受限）。直连出错会自动改走转发。</div></div></div>
+          <div class="radio" data-m="relay"><span class="dot"></span><div><div class="t">总是经家里转发</div><div class="d">网盘只看到家里一个地址，最稳妥；在外面看高码率时受家里上行限制，超过时自动降码率。</div></div></div>
+          <div class="radio" data-m="direct"><span class="dot"></span><div><div class="t">总是直连网盘</div><div class="d">所有设备在外面都直接从网盘拉流。多处同时在外面看可能被网盘判为账号共享；部分第三方播放器可能播不了。</div></div></div>
+        </div>
+        <p class="faint small">在家里的设备始终经家里转发。离线下载始终由家里转出。</p>
+
+        <div style="height:1px;background:var(--line);margin:22px 0"></div>
+        <h1 style="font-size:16px">下载器 <span class="faint small" style="font-weight:400">（设置 → 下载器 页底部）</span></h1>
+        <div class="row" style="justify-content:space-between;border:1px solid var(--line);border-radius:12px;padding:11px 14px;margin-top:10px">
+          <div><div style="font-size:12.5px;font-weight:600">文件上传到网盘后自动删除下载任务 <span class="new">新</span></div><div class="faint small">做种完成后删除，腾出本地空间。H&amp;R 种子与不是 MovieClaw 投递的种子不会删。</div></div>
+          <button class="toggle on"></button>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 播放器 ═════════════ -->
+<section class="screen" id="s12">
+  <div class="note"><b>播放器</b>：两种新的错误说明（服务端给文案，各端照显示），以及播放信息面板里的来源行。直连失败自动改走转发是无感的。</div>
+  <div class="stage">
+    <div style="flex:1 1 380px;min-width:0">
+      <div class="player"><div class="ov"><div class="box"><h4>115 同时播放数已满</h4>「影视仓库」同一时间最多 2 路播放，家里正在播放《沙丘 2》《繁花 E12》。<br><span class="faint">可以稍后再试，或在设置 → 网盘里调整。</span><div class="row" style="justify-content:center;margin-top:12px"><button class="btn">重试</button><button class="btn ghost">去设置</button></div></div></div></div>
+    </div>
+    <div style="flex:1 1 380px;min-width:0">
+      <div class="player"><div class="ov"><div class="box"><h4>115 需要重新登录</h4>「老婆的 115」的登录已失效，这部片暂时播不了。<div class="row" style="justify-content:center;margin-top:12px"><button class="btn primary">去重新登录</button></div><div class="faint tiny" style="margin-top:6px">（成员看到的是：请联系管理员重新登录网盘）</div></div></div></div>
+    </div>
+    <div style="flex:1 1 380px;min-width:0">
+      <div class="player"><div class="stats">来源    115 · 影视仓库<br>取流    家里转发（在外面 · 自动）<br>视频    2160p HEVC DV · 直出<br>码率    46 Mbps（家里上行上限）</div><div class="ctl">▶ 01:12:40 / 02:46:21</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 浏览器扩展 ═════════════ -->
+<section class="screen" id="s13">
+  <div class="note"><b>浏览器扩展</b>：代码不改。在 115 网页上点「同步当前站点」，服务端认出这是网盘、返回结果文案，弹窗照常显示。</div>
+  <div class="stage" style="gap:24px">
+    <div class="popup">
+      <div class="row" style="justify-content:space-between"><b>MovieClaw</b><span class="faint tiny">已连接 · NAS</span></div>
+      <div style="margin:12px 0;border:1px solid var(--line);border-radius:10px;padding:10px">
+        <div class="faint tiny">当前站点</div><div style="font-weight:600">115.com</div>
+      </div>
+      <button class="btn primary" style="width:100%">同步当前站点</button>
+      <div class="info" style="margin-top:10px;border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.06)"><span>✓</span><span>已添加为网盘账号：<b>影视仓库</b><br><span class="faint">网页端登录，与浏览器共用。开着自动同步时，重新登录后会自动更新。</span></span></div>
+    </div>
+    <div class="popup">
+      <div class="row" style="justify-content:space-between"><b>MovieClaw</b><span class="faint tiny">已连接 · NAS</span></div>
+      <div style="margin:12px 0;border:1px solid var(--line);border-radius:10px;padding:10px">
+        <div class="faint tiny">当前站点</div><div style="font-weight:600">115.com</div>
+      </div>
+      <button class="btn primary" style="width:100%">同步当前站点</button>
+      <div class="info bad" style="margin-top:10px"><span>✕</span><span>没装 115 存储插件，无法添加网盘账号。<br><span class="faint">在 MovieClaw 设置 → 插件 里安装后再试。</span></span></div>
+    </div>
+  </div>
+</section>
+
+<script>
+function show(id){
+  document.querySelectorAll('#nav button[data-s]').forEach(b=>b.classList.toggle('on',b.dataset.s===id));
+  document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id));
+  history.replaceState(null,'','#'+id); window.scrollTo(0,0);
+}
+document.getElementById('nav').addEventListener('click',e=>{const b=e.target.closest('button[data-s]'); if(b) show(b.dataset.s);});
+document.addEventListener('click',e=>{const a=e.target.closest('[data-go]'); if(a) show(a.dataset.go);});
+if(/^#s\d+$/.test(location.hash)) show(location.hash.slice(1));
+document.getElementById('acctTabs').addEventListener('click',e=>{
+  const b=e.target.closest('button[data-t]'); if(!b) return;
+  document.querySelectorAll('#acctTabs button').forEach(x=>x.classList.toggle('on',x===b));
+  document.getElementById('t-qr').classList.toggle('hide',b.dataset.t!=='qr');
+  document.getElementById('t-ext').classList.toggle('hide',b.dataset.t!=='ext');
+});
+document.getElementById('modes').addEventListener('click',e=>{
+  const r=e.target.closest('.radio'); if(!r) return;
+  document.querySelectorAll('#modes .radio').forEach(x=>x.classList.toggle('on',x===r));
+});
+</script>
+</body>
+</html>
