@@ -1,5 +1,7 @@
 """网盘（strm）条目的规格探测（docs/design/strm-playback.md §2、plugin-strm-prefetch.md §4）。
 
+只在网盘上的库文件（纳管来的，cloud-storage.md §4.4）同样在这里探：直链由网盘插件现取。
+
 扫库不碰网盘（scan.py：strm 入账时规格留空），规格在**第一次播放**时探，或由预探插件提前探：
 ffprobe 直接读直链，只读文件头与索引（几百 KB 到几 MB），结论落进台账，之后与本地文件一样——
 决策按真实编码选直出 / 换封装 / 转码，详情页有规格，音轨字幕可选。
@@ -29,6 +31,7 @@ from movieclaw_db.models.base import utcnow
 from movieclaw_playback.streaming import (
     StrmError,
     StrmLink,
+    is_cloud,
     is_strm,
     parse_strm,
     strm_link_status,
@@ -98,9 +101,13 @@ def strm_container(url: str, format_name: str | None) -> str | None:
     return _FORMAT_CONTAINERS.get((format_name or "").split(",")[0])
 
 
+def _remote(file_path: str) -> bool:
+    return is_strm(file_path) or is_cloud(file_path)
+
+
 def needs_strm_probe(file: LibraryFile) -> bool:
-    """这一行是还没有规格的网盘条目。"""
-    return is_strm(file.file_path) and file.video_codec is None
+    """这一行是还没有规格的网盘条目（strm，或只在网盘上的文件）。"""
+    return _remote(file.file_path) and file.video_codec is None
 
 
 async def ensure_strm_spec(file: LibraryFile) -> bool:
@@ -141,7 +148,7 @@ async def probe_file(file_id: int, *, respect_backoff: bool = True) -> ProbeResu
         row = await session.get(LibraryFile, file_id)
         if row is None:
             return ProbeResult("missing")
-        if not is_strm(row.file_path):
+        if not _remote(row.file_path):
             return ProbeResult("not_strm")
         if row.video_codec is not None:
             return ProbeResult("ready")
@@ -154,25 +161,26 @@ async def probe_file(file_id: int, *, respect_backoff: bool = True) -> ProbeResu
         and state.next_retry_at > utcnow()
     ):
         return ProbeResult("backoff", state.last_error, state.next_retry_at)
-    outcome = await _probe_once(file_id, file_path)
+    outcome = await _probe_once(file_id, file_path, background=respect_backoff)
     if outcome.values is None:
         return ProbeResult("failed", outcome.error, outcome.next_retry_at)
     return ProbeResult("probed")
 
 
-async def _probe_once(file_id: int, file_path: str) -> _Outcome:
+async def _probe_once(file_id: int, file_path: str, *, background: bool = False) -> _Outcome:
     """同一文件并发的探测合并成一次（首播与后台预探可能撞在一起）。"""
     task = _inflight.get(file_id)
     if task is None:
-        task = asyncio.create_task(_probe_and_store(file_id, file_path))
+        task = asyncio.create_task(_probe_and_store(file_id, file_path, background=background))
         _inflight[file_id] = task
         task.add_done_callback(lambda _t, key=file_id: _inflight.pop(key, None))
     return await asyncio.shield(task)
 
 
-async def _probe_and_store(file_id: int, file_path: str) -> _Outcome:
+async def _probe_and_store(file_id: int, file_path: str, *, background: bool = False) -> _Outcome:
+    cloud = is_cloud(file_path)
     try:
-        source = parse_strm(file_path)
+        source = await _cloud_source(file_path, background) if cloud else parse_strm(file_path)
     except StrmError as exc:
         _failed_at[file_path] = time.monotonic()
         logger.warning("strm 用不了：%s（%s）", exc, file_path)
@@ -187,7 +195,8 @@ async def _probe_and_store(file_id: int, file_path: str) -> _Outcome:
         reason = await _failure_reason(source) if spec is None else "没有视频流"
         return await _record_failure(file_id, file_path, url, reason)
     _failed_at.pop(file_path, None)
-    values = _spec_values(spec, strm_container(url, spec.format_name))
+    # 网盘直链的路径不一定带扩展名：只在网盘上的文件按台账路径（原文件名）定容器
+    values = _spec_values(spec, strm_container(file_path if cloud else url, spec.format_name))
     async with get_database().session() as session:
         row = await session.get(LibraryFile, file_id)
         if row is None or row.file_path != file_path:
@@ -213,6 +222,21 @@ async def _probe_and_store(file_id: int, file_path: str) -> _Outcome:
         spec.resolution or "",
     )
     return _Outcome(values)
+
+
+async def _cloud_source(file_path: str, background: bool) -> StrmLink:
+    """只在网盘上的文件：现取服务器读用的直链。后台补探按后台优先级（受每日预算约束）。"""
+    from movieclaw_api.services.drives import gateway, sources
+    from movieclaw_api.services.drives.sources import stream_error
+
+    priority = gateway.Priority.BACKGROUND if background else gateway.Priority.PLAYBACK
+    try:
+        link = await sources.prefetch(file_path, priority=priority)
+    except Exception as exc:  # noqa: BLE001 -- 取不到直链按这次探测失败记
+        raise StrmError(stream_error(exc)) from exc
+    if link is None:
+        raise StrmError("网盘副本现在不可用")
+    return link
 
 
 async def _failure_reason(source: StrmLink | Path) -> str:

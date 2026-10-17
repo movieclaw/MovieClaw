@@ -102,6 +102,7 @@ dl update
 dl verify
 drives accounts cookie
 drives accounts delete
+drives accounts dirs
 drives accounts list
 drives accounts refresh
 drives accounts update

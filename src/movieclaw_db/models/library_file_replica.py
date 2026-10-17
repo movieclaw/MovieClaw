@@ -42,6 +42,8 @@ class LibraryFileReplica(TimestampMixin, table=True):
         default=None, sa_column=Column(Text, nullable=True), description="网盘上的路径（展示）"
     )
     origin: str = Field(description="uploaded（我们传的）/ imported（纳管来的）")
+    # 纳管来的副本属于哪个库文件夹（library_cloud_folder）：复查时按它圈出「该在这个文件夹里」的行
+    folder_id: int | None = Field(default=None, index=True, description="纳管来源文件夹")
     state: str = Field(description="uploading / verified / lost / deleting")
     size_bytes: int | None = Field(
         default=None, sa_column=Column(BigInteger, nullable=True), description="网盘报的大小"

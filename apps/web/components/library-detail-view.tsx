@@ -1495,7 +1495,12 @@ export function LibraryDetailView({ libraryId }: { libraryId: number }) {
           return;
         }
         // 重操作先确认（停止不确认：停止本身就是在纠正）
-        void confirm(scanLibraryConfirm(library.name)).then((ok) => {
+        void confirm(
+          scanLibraryConfirm(
+            library.name,
+            (library.cloud_folders ?? []).map((f) => f.backend_title),
+          ),
+        ).then((ok) => {
           if (!ok) return;
           void startLibraryScan(library.id)
             .then(() => reload())

@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from movieclaw_api.api.routes.channels import _qrcode_data_url
 from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
@@ -23,6 +23,7 @@ from movieclaw_api.schemas.drives import (
     DriveBackendView,
     DriveCapabilitiesView,
     DriveCookiePayload,
+    DriveDirView,
     DriveLoginChoiceView,
     DriveLoginOptionView,
     DriveLoginPayload,
@@ -161,6 +162,65 @@ async def update_account(
     return ok(account_view(row), message="已保存")
 
 
+@router.get(
+    "/accounts/{account_id}/dirs",
+    response_model=ApiResponse[list[DriveDirView]],
+    summary="列网盘目录的子目录（给媒体库选网盘文件夹）",
+    operation_id="drives.accounts.dirs",
+)
+async def list_dirs(
+    account_id: int,
+    parent_id: str = Query(default="", description="上层目录 id；空 = 网盘根目录"),
+    path: str = Query(default="", description="上层目录的网盘路径（拼出子目录的完整路径）"),
+) -> ApiResponse[list[DriveDirView]]:
+    """按需展开，不预先遍历整个网盘；已经挂在媒体库上的目录（含上下层）标出是哪个库。"""
+    from movieclaw_db.models.library import Library
+    from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
+
+    try:
+        dirs = await gateway.call(
+            account_id, "list_dir", priority=gateway.Priority.USER, dir_id=parent_id
+        )
+    except BackendUnavailable as exc:
+        raise ConflictException(str(exc)) from exc
+    except dv.NotFound as exc:
+        raise NotFoundException(exc.message) from exc
+    except dv.DriveError as exc:
+        raise BadRequestException(exc.message) from exc
+    base = "/".join(p for p in path.split("/") if p)
+    async with get_database().session() as session:
+        mounted = []
+        for folder in await LibraryCloudRepository(session).folders_of_account(account_id):
+            library = await session.get(Library, folder.library_id)
+            mounted.append((folder, library.name if library is not None else ""))
+    views = []
+    for item in dirs:
+        full = f"{base}/{item.name}" if base else item.name
+        owner = next(
+            (
+                (folder.library_id, name)
+                for folder, name in mounted
+                if folder.remote_dir_id == item.remote_id
+                or full == folder.display_path
+                or full.startswith(folder.display_path + "/")
+                or folder.display_path.startswith(full + "/")
+            ),
+            None,
+        )
+        views.append(
+            DriveDirView(
+                id=item.remote_id,
+                name=item.name,
+                path=full,
+                has_children=item.has_children,
+                video_count=item.video_count,
+                library_id=owner[0] if owner else None,
+                library_name=owner[1] if owner else None,
+            )
+        )
+    return ok(views)
+
+
 @router.delete(
     "/accounts/{account_id}",
     response_model=ApiResponse[dict],
@@ -169,7 +229,11 @@ async def update_account(
     openapi_extra={"x-cli-dangerous": "confirm"},
 )
 async def delete_account(account_id: int) -> ApiResponse[dict]:
-    if not await accounts.delete_account(account_id):
+    try:
+        removed = await accounts.delete_account(account_id)
+    except ValueError as exc:
+        raise ConflictException(str(exc)) from exc
+    if not removed:
         raise NotFoundException("网盘账号不存在")
     return ok({"removed": True}, message="已移除")
 

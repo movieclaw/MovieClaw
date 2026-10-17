@@ -163,3 +163,24 @@ export const refreshDriveAccount = (id: number) =>
 
 export const deleteDriveAccount = (id: number) =>
   unwrap(request<ApiEnvelope<{ removed: boolean }>>(`/drives/accounts/${id}`, { method: "DELETE" }));
+
+/** 目录选择器里的一个子目录 */
+export interface DriveDir {
+  id: string;
+  name: string;
+  /** 网盘上的完整路径（如「影视/电影」） */
+  path: string;
+  has_children: boolean | null;
+  /** 视频文件数（网盘目录信息直接给的）；不知道为 null */
+  video_count: number | null;
+  /** 这个目录（或它的上层、下层）已经挂在哪个媒体库上 */
+  library_id: number | null;
+  library_name: string | null;
+}
+
+export const listDriveDirs = (accountId: number, parentId = "", path = "") =>
+  unwrap(
+    request<ApiEnvelope<DriveDir[]>>(
+      `/drives/accounts/${accountId}/dirs?${new URLSearchParams({ parent_id: parentId, path })}`,
+    ),
+  );

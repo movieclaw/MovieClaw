@@ -7,6 +7,7 @@ import Link from "next/link";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
+import { CloudImportReport } from "@/components/cloud-import-report";
 import { GripIcon, LockIcon, MoreIcon } from "@/components/icons";
 import { LIBRARY_KIND_META } from "@/components/library-kind-meta";
 import { libraryCoverUrl, type MediaLibrary, SCAN_PHASE_LABELS } from "@/lib/api/libraries";
@@ -223,9 +224,15 @@ function AccessChip({ library }: { library: MediaLibrary }) {
   );
 }
 
-/** 主根目录（等宽）+ 多根时的「+N 个根目录」；桌面端接在小字行末，手机端独占一行，两处共用。 */
+/** 主根目录（等宽）+ 多根时的「+N 个根目录」；桌面端接在小字行末，手机端独占一行，两处共用。
+ *  挂了网盘目录的另起一段写「115 · 影视/电影」（本地目录不加标签，保持原样）。 */
 function RootPath({ library }: { library: MediaLibrary }) {
-  const extra = library.root_paths.length - 1;
+  const cloud = library.cloud_folders ?? [];
+  const extra = library.root_paths.length - 1 + Math.max(0, cloud.length - 1);
+  const others = [
+    ...library.root_paths.slice(1),
+    ...cloud.slice(1).map((f) => `${f.backend_title} · ${f.display_path}`),
+  ];
   return (
     <>
       <span
@@ -234,8 +241,13 @@ function RootPath({ library }: { library: MediaLibrary }) {
       >
         {library.root_paths[0] ?? "—"}
       </span>
+      {cloud[0] && (
+        <span className="min-w-0 shrink truncate text-[var(--text-muted)]" title={cloud[0].display_path}>
+          · {cloud[0].backend_title} · {cloud[0].display_path}
+        </span>
+      )}
       {extra > 0 && (
-        <span className="shrink-0" title={library.root_paths.slice(1).join("\n")}>
+        <span className="shrink-0" title={others.join("\n")}>
           +{extra} 个根目录
         </span>
       )}
@@ -360,6 +372,8 @@ function RowMenu({
   const pendingFiles = library.stats.unidentified_count + library.stats.missing_count;
   const caps = library.capabilities;
   const pct = status.percent === null ? "" : ` ${status.percent}%`;
+  const [reportOpen, setReportOpen] = useState(false);
+  const hasCloud = (library.cloud_folders ?? []).length > 0;
 
   return (
     <DropdownMenu.Root>
@@ -418,6 +432,11 @@ function RowMenu({
                   ? "重新读取 NFO 与封面"
                   : "重新生成封面"}
           </DropdownMenu.Item>
+          {hasCloud && (
+            <DropdownMenu.Item onSelect={() => setReportOpen(true)} className={itemClass}>
+              纳管报告
+            </DropdownMenu.Item>
+          )}
           {library.extract_chapter_images && (
             <DropdownMenu.Item
               onSelect={() => actions.onChapterImages(library)}
@@ -463,6 +482,16 @@ function RowMenu({
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
+      {reportOpen && (
+        <CloudImportReport
+          library={library}
+          onClose={() => setReportOpen(false)}
+          onClaim={() => {
+            setReportOpen(false);
+            actions.onOpenPending(library);
+          }}
+        />
+      )}
     </DropdownMenu.Root>
   );
 }

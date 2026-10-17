@@ -208,12 +208,14 @@ def server_link(item: CloudFile, url: str) -> StrmLink:
     return StrmLink(url=url, headers={"User-Agent": SERVER_USER_AGENT})
 
 
-async def prefetch(file_path: str) -> StrmLink | None:
+async def prefetch(
+    file_path: str, *, priority: gateway.Priority = gateway.Priority.PLAYBACK
+) -> StrmLink | None:
     """在事件循环上先把服务器读用的直链取好（之后同步读取直接命中缓存）。不是网盘文件返回 None。"""
     item = _paths.get(file_path)
     if item is None:
         return None
-    url = await direct_url(item.account_id, item.remote_id, SERVER_USER_AGENT)
+    url = await direct_url(item.account_id, item.remote_id, SERVER_USER_AGENT, priority=priority)
     return server_link(item, url)
 
 

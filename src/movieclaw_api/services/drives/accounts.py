@@ -262,8 +262,24 @@ async def update_settings(
 
 
 async def delete_account(account_id: int) -> bool:
-    """移除账号：只删 MovieClaw 里的记录，不动网盘上的任何文件。"""
+    """移除账号：只删 MovieClaw 里的记录，不动网盘上的任何文件。
+
+    还有媒体库挂着这个账号的目录时不让删（抛 ``ValueError``）：先在编辑库里拿掉那些目录。
+    """
+    from movieclaw_db.models.library import Library
+    from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
+
     async with get_database().session() as session:
+        folders = await LibraryCloudRepository(session).folders_of_account(account_id)
+        if folders:
+            names = []
+            for folder in folders:
+                library = await session.get(Library, folder.library_id)
+                if library is not None and library.name not in names:
+                    names.append(library.name)
+            raise ValueError(
+                f"媒体库《{'》《'.join(names)}》还在用这个账号的网盘目录，先在编辑库里拿掉它们"
+            )
         removed = await DriveAccountRepository(session).delete(account_id)
     if removed:
         gateway.forget(account_id)

@@ -35,6 +35,8 @@ class LedgerPresence(NamedTuple):
     file_path: str
     state: str
     container: str | None
+    #: 本地有没有字节：只在网盘上的行不按本地遍历判丢失
+    local_bytes: bool = True
 
 
 class LibraryFileRepository:
@@ -97,6 +99,7 @@ class LibraryFileRepository:
             LibraryFile.file_path,
             LibraryFile.state,
             LibraryFile.container,
+            LibraryFile.local_bytes,
         ).where(LibraryFile.library_id == library_id)
         if containers is not None:
             statement = statement.where(LibraryFile.container.in_(containers))  # type: ignore[union-attr]

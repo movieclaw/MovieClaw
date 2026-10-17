@@ -1227,6 +1227,87 @@ nonisolated extension API {
         }
     }
 
+    /// 库的一个网盘根目录（docs/design/cloud-storage.md §3.2）。
+    struct CloudFolderPayload: Codable, Hashable, Sendable {
+        /// 网盘账号 id
+        var accountId: Int
+        /// 网盘目录 id（目录选择器给的）
+        var remoteDirId: String
+        /// 网盘上的路径，如「影视/电影」（展示用）
+        var displayPath: String
+        /// 主根在这个网盘目录：新内容落在这里（上传后本地腾空），此时 root_paths 的第一项是本地暂存目录。每库至多一个
+        var isPrimary: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case accountId = "account_id"
+            case remoteDirId = "remote_dir_id"
+            case displayPath = "display_path"
+            case isPrimary = "is_primary"
+        }
+    }
+
+    /// 最近一次纳管 / 复查这个网盘目录的结果。
+    struct CloudFolderReportView: Codable, Hashable, Sendable {
+        var finishedAt: String
+        /// 用时（秒）
+        var seconds: Double
+        /// 调用网盘接口的次数
+        var calls: Int
+        /// 视频文件数
+        var videos: Int
+        /// 已识别
+        var identified: Int
+        /// 待认领（没认出来的）
+        var pending: Int
+        /// 跳过的：disc=原盘目录、iso=光盘镜像、extra=样片与花絮（一期不纳管）
+        var skipped: [String: Int]
+        /// 扫描中途停止了（数字不完整）
+        var cancelled: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case finishedAt = "finished_at"
+            case seconds
+            case calls
+            case videos
+            case identified
+            case pending
+            case skipped
+            case cancelled
+        }
+    }
+
+    struct CloudFolderView: Codable, Hashable, Sendable {
+        var id: Int
+        var accountId: Int
+        var accountName: String
+        /// 网盘类型
+        var backend: String
+        /// 网盘名；插件不在时就是类型值
+        var backendTitle: String
+        var remoteDirId: String
+        var displayPath: String
+        var isPrimary: Bool
+        /// 台账里在位的纳管文件数
+        var fileCount: Int
+        /// 上次纳管或复查的时间；没列过为 null
+        var listedAt: String?
+        var report: API.CloudFolderReportView?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case accountId = "account_id"
+            case accountName = "account_name"
+            case backend
+            case backendTitle = "backend_title"
+            case remoteDirId = "remote_dir_id"
+            case displayPath = "display_path"
+            case isPrimary = "is_primary"
+            case fileCount = "file_count"
+            case listedAt = "listed_at"
+            case report
+        }
+    }
+
     struct CloudNoticeView: Codable, Hashable, Sendable {
         var id: String
         /// info / warning
@@ -3166,6 +3247,32 @@ nonisolated extension API {
         }
     }
 
+    /// 目录选择器里的一个子目录。
+    struct DriveDirView: Codable, Hashable, Sendable {
+        /// 网盘目录 id
+        var id: String
+        var name: String
+        /// 网盘上的完整路径（展示用，如「影视/电影」）
+        var path: String
+        /// 底下还有没有子目录；不知道为 null
+        var hasChildren: Bool?
+        /// 视频文件数（网盘目录信息直接给的）；不知道为 null
+        var videoCount: Int?
+        /// 这个目录（或它的上层、下层）已经挂在哪个媒体库上
+        var libraryId: Int?
+        var libraryName: String?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case name
+            case path
+            case hasChildren = "has_children"
+            case videoCount = "video_count"
+            case libraryId = "library_id"
+            case libraryName = "library_name"
+        }
+    }
+
     struct DriveLoginChoiceView: Codable, Hashable, Sendable {
         var value: String
         var label: String
@@ -3930,6 +4037,30 @@ nonisolated extension API {
         enum CodingKeys: String, CodingKey {
             case webhookUrl = "webhook_url"
             case secret
+        }
+    }
+
+    /// 文件在网盘上的副本（cloud-storage.md §3.5）：文件区据此标「本地」「本地 + 115」「115」。
+    struct FileCloudView: Codable, Hashable, Sendable {
+        /// 网盘名
+        var backendTitle: String
+        var accountName: String
+        /// 网盘上的路径（展示用；成员端为 null）
+        var remotePath: String?
+        /// 本地也有字节
+        var local: Bool
+        /// imported（纳管来的）/ uploaded（我们传的）
+        var origin: String
+        /// uploading / verified / lost / deleting
+        var state: String
+
+        enum CodingKeys: String, CodingKey {
+            case backendTitle = "backend_title"
+            case accountName = "account_name"
+            case remotePath = "remote_path"
+            case local
+            case origin
+            case state
         }
     }
 
@@ -5267,6 +5398,8 @@ nonisolated extension API {
         var playbackDefaults: API.TrackDefaultsView?
         /// 有效章节列表（内嵌或按时长合成）；null=所在库未开启「生成章节」或尚未探测
         var chapters: [API.ChapterView]?
+        /// 网盘上的副本；null = 只在本地（没有网盘副本）
+        var cloud: API.FileCloudView?
         var addedAt: String
 
         enum CodingKeys: String, CodingKey {
@@ -5299,6 +5432,7 @@ nonisolated extension API {
             case subtitleStreams = "subtitle_streams"
             case playbackDefaults = "playback_defaults"
             case chapters
+            case cloud
             case addedAt = "added_at"
         }
     }
@@ -5660,6 +5794,8 @@ nonisolated extension API {
         var scrapeOverrides: [String: API.JSONValue]?
         /// 是否启用实时文件监控（关闭后该库不建 watchdog 监听，靠定期对账与手动扫描发现新文件——SMB/NFS 网络挂载建议关闭）；不传表示不改动，新建时默认开启
         var realtimeWatch: Bool?
+        /// 网盘根目录（整体覆盖式）：挂上即纳管——目录里已有的视频按文件名识别入库，不下载、不改动网盘上的文件；拿掉只删台账，不动网盘。不传表示不改动
+        var cloudFolders: [API.CloudFolderPayload]?
 
         enum CodingKeys: String, CodingKey {
             case name
@@ -5678,6 +5814,7 @@ nonisolated extension API {
             case autoClearMissing = "auto_clear_missing"
             case scrapeOverrides = "scrape_overrides"
             case realtimeWatch = "realtime_watch"
+            case cloudFolders = "cloud_folders"
         }
     }
 
@@ -5943,6 +6080,8 @@ nonisolated extension API {
         var metadataRefresh: API.MetadataRefreshView?
         /// 整库生成章节的作业状态（排队/进行中）；没在生成为 null
         var chapterJob: API.ChapterJobView?
+        /// 网盘根目录（管理员端恒为数组，成员端为 null）；有主根在网盘的，root_paths 第一项是本地暂存目录
+        var cloudFolders: [API.CloudFolderView]?
         var createdAt: String
         var updatedAt: String
 
@@ -5979,6 +6118,7 @@ nonisolated extension API {
             case lastOrganize = "last_organize"
             case metadataRefresh = "metadata_refresh"
             case chapterJob = "chapter_job"
+            case cloudFolders = "cloud_folders"
             case createdAt = "created_at"
             case updatedAt = "updated_at"
         }

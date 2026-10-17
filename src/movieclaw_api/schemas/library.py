@@ -16,6 +16,21 @@ from movieclaw_db.models.library import Library
 from movieclaw_media.models import MediaKind
 
 
+class CloudFolderPayload(BaseModel):
+    """库的一个网盘根目录（docs/design/cloud-storage.md §3.2）。"""
+
+    account_id: int = Field(description="网盘账号 id")
+    remote_dir_id: str = Field(description="网盘目录 id（目录选择器给的）")
+    display_path: str = Field(description="网盘上的路径，如「影视/电影」（展示用）")
+    is_primary: bool = Field(
+        default=False,
+        description=(
+            "主根在这个网盘目录：新内容落在这里（上传后本地腾空），此时 root_paths 的第一项是"
+            "本地暂存目录。每库至多一个"
+        ),
+    )
+
+
 class LibraryPayload(BaseModel):
     """创建/更新库的请求体。kind/source 仅创建时生效，更新时忽略（创建后不可改）。"""
 
@@ -123,6 +138,13 @@ class LibraryPayload(BaseModel):
             "是否启用实时文件监控（关闭后该库不建 watchdog 监听，"
             "靠定期对账与手动扫描发现新文件——SMB/NFS 网络挂载建议关闭）；"
             "不传表示不改动，新建时默认开启"
+        ),
+    )
+    cloud_folders: list[CloudFolderPayload] | None = Field(
+        default=None,
+        description=(
+            "网盘根目录（整体覆盖式）：挂上即纳管——目录里已有的视频按文件名识别入库，不下载、"
+            "不改动网盘上的文件；拿掉只删台账，不动网盘。不传表示不改动"
         ),
     )
 
@@ -288,6 +310,35 @@ class LibraryCapabilitiesView(BaseModel):
     )
 
 
+class CloudFolderReportView(BaseModel):
+    """最近一次纳管 / 复查这个网盘目录的结果。"""
+
+    finished_at: datetime
+    seconds: float = Field(description="用时（秒）")
+    calls: int = Field(description="调用网盘接口的次数")
+    videos: int = Field(description="视频文件数")
+    identified: int = Field(description="已识别")
+    pending: int = Field(description="待认领（没认出来的）")
+    skipped: dict[str, int] = Field(
+        description="跳过的：disc=原盘目录、iso=光盘镜像、extra=样片与花絮（一期不纳管）"
+    )
+    cancelled: bool = Field(default=False, description="扫描中途停止了（数字不完整）")
+
+
+class CloudFolderView(BaseModel):
+    id: int
+    account_id: int
+    account_name: str
+    backend: str = Field(description="网盘类型")
+    backend_title: str = Field(description="网盘名；插件不在时就是类型值")
+    remote_dir_id: str
+    display_path: str
+    is_primary: bool
+    file_count: int = Field(description="台账里在位的纳管文件数")
+    listed_at: datetime | None = Field(description="上次纳管或复查的时间；没列过为 null")
+    report: CloudFolderReportView | None = None
+
+
 class LibraryView(BaseModel):
     id: int
     name: str
@@ -361,6 +412,13 @@ class LibraryView(BaseModel):
     chapter_job: ChapterJobView | None = Field(
         default=None, description="整库生成章节的作业状态（排队/进行中）；没在生成为 null"
     )
+    cloud_folders: list[CloudFolderView] | None = Field(
+        default=None,
+        description=(
+            "网盘根目录（管理员端恒为数组，成员端为 null）；有主根在网盘的，"
+            "root_paths 第一项是本地暂存目录"
+        ),
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -387,6 +445,7 @@ class LibraryView(BaseModel):
         chapter_job: ChapterJobView | None = None,
         member_ids: list[int] | None = None,
         viewer_access: bool = True,
+        cloud_folders: list[CloudFolderView] | None = None,
     ) -> LibraryView:
         from movieclaw_api.services.library.cover import has_custom_cover
         from movieclaw_api.services.library.mounts import library_on_network_mount
@@ -432,6 +491,7 @@ class LibraryView(BaseModel):
             last_organize=last_organize,
             metadata_refresh=metadata_refresh,
             chapter_job=chapter_job,
+            cloud_folders=list(cloud_folders) if cloud_folders is not None else None,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -925,6 +985,17 @@ class TrackDefaultsView(BaseModel):
     subtitle_note: str = Field(description="字幕原因的一句中文，界面直接展示")
 
 
+class FileCloudView(BaseModel):
+    """文件在网盘上的副本（cloud-storage.md §3.5）：文件区据此标「本地」「本地 + 115」「115」。"""
+
+    backend_title: str = Field(description="网盘名")
+    account_name: str
+    remote_path: str | None = Field(description="网盘上的路径（展示用；成员端为 null）")
+    local: bool = Field(description="本地也有字节")
+    origin: str = Field(description="imported（纳管来的）/ uploaded（我们传的）")
+    state: str = Field(description="uploading / verified / lost / deleting")
+
+
 class LibraryFileView(BaseModel):
     """条目详情页的一个物理文件（一个版本 / 一集）。"""
 
@@ -984,6 +1055,9 @@ class LibraryFileView(BaseModel):
     chapters: list[ChapterView] | None = Field(
         default=None,
         description="有效章节列表（内嵌或按时长合成）；null=所在库未开启「生成章节」或尚未探测",
+    )
+    cloud: FileCloudView | None = Field(
+        default=None, description="网盘上的副本；null = 只在本地（没有网盘副本）"
     )
     added_at: datetime
 

@@ -75,6 +75,7 @@ async def library_core(ctx: Context) -> None:
     from movieclaw_api.services.library import (
         batch_transfer,
         chapters,
+        cloud,
         duplicate_scan,
         ingest,
         nfo_backfill,
@@ -88,7 +89,7 @@ async def library_core(ctx: Context) -> None:
     from movieclaw_api.services.reels import clips
     from movieclaw_scheduler import contribute_tasks
 
-    contribute_tasks(ctx, ingest, nfo_backfill, recycle, scan, series_backfill)
+    contribute_tasks(ctx, cloud, ingest, nfo_backfill, recycle, scan, series_backfill)
     # 批量转移、章节、重复文件三类处理器以前不在启动的 import 列表里，靠路由模块碰巧 import
     # 才注册上；现在显式贡献
     contribute_job_handlers(

@@ -2,10 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import type { Route } from "next";
+import Link from "next/link";
+
 import { DirectoryPicker } from "@/components/directory-picker";
+import { DriveFolderPicker, type PickedDriveFolder } from "@/components/drive-folder-picker";
 import {
   CheckIcon,
   ChevronDownIcon,
+  CloudDriveIcon,
   FolderIcon,
   InfoIcon,
   PlusIcon,
@@ -16,7 +21,10 @@ import { LIBRARY_KIND_META } from "@/components/library-kind-meta";
 import { Modal } from "@/components/modal";
 import { Tooltip } from "@/components/tooltip";
 import { fileToCompressedJpeg } from "@/lib/backdrop";
+import { type DriveAccount, listDriveAccounts, listDriveBackends } from "@/lib/api/drives";
 import {
+  type CloudFolderPayload,
+  type LibraryCloudFolder,
   type LibraryPayload,
   type MatchRule,
   type MediaLibrary,
@@ -167,16 +175,168 @@ function kindExcludedFromHome(kind: LibraryKind): boolean {
   return kind === "photo";
 }
 
+/** 表单里的一个网盘根目录（已挂上的带着服务端给的文件数） */
+interface CloudRootDraft extends CloudFolderPayload {
+  account_name: string;
+  backend_title: string;
+  file_count?: number;
+}
+
+function cloudDraftsOf(folders: LibraryCloudFolder[] | null | undefined): CloudRootDraft[] {
+  return (folders ?? []).map((f) => ({
+    account_id: f.account_id,
+    remote_dir_id: f.remote_dir_id,
+    display_path: f.display_path,
+    is_primary: f.is_primary,
+    account_name: f.account_name,
+    backend_title: f.backend_title,
+    file_count: f.file_count,
+  }));
+}
+
+function cloudPayload(drafts: CloudRootDraft[]): CloudFolderPayload[] {
+  return drafts.map((d) => ({
+    account_id: d.account_id,
+    remote_dir_id: d.remote_dir_id,
+    display_path: d.display_path,
+    is_primary: d.is_primary ?? false,
+  }));
+}
+
+function draftOf(picked: PickedDriveFolder): CloudRootDraft {
+  return {
+    account_id: picked.account.id,
+    remote_dir_id: picked.id,
+    display_path: picked.path,
+    is_primary: false,
+    account_name: picked.account.name,
+    backend_title: picked.account.backend_title,
+  };
+}
+
+/** 网盘账号与可用的网盘（决定「＋ 网盘目录」出不出现）；查不到按没有处理。 */
+function useDriveRootOptions(enabled: boolean): { accounts: DriveAccount[]; hasBackends: boolean } {
+  const [state, setState] = useState<{ accounts: DriveAccount[]; hasBackends: boolean }>({
+    accounts: [],
+    hasBackends: false,
+  });
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    void Promise.all([listDriveAccounts(), listDriveBackends()])
+      .then(([accounts, backends]) => {
+        if (!cancelled) setState({ accounts, hasBackends: backends.length > 0 });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
+  return state;
+}
+
+/** 网盘根目录行：挂上即纳管（按文件名识别、不下载、不改动网盘上的文件），拿掉只删台账。 */
+function CloudRootRows({
+  drafts,
+  onChange,
+  onAdd,
+  options,
+  needsLocal,
+}: {
+  drafts: CloudRootDraft[];
+  onChange: (next: CloudRootDraft[]) => void;
+  onAdd: () => void;
+  options: { accounts: DriveAccount[]; hasBackends: boolean };
+  /** 还没有服务器目录：主根得是一个服务器目录 */
+  needsLocal: boolean;
+}) {
+  const titles = new Set(options.accounts.map((a) => a.backend_title));
+  const addLabel = titles.size === 1 ? `${[...titles][0]}目录` : "网盘目录";
+  if (drafts.length === 0 && options.accounts.length === 0 && !options.hasBackends) return null;
+  return (
+    <>
+      {drafts.map((d) => (
+        <div
+          key={`${d.account_id}:${d.remote_dir_id}`}
+          className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2"
+        >
+          <CloudDriveIcon className="size-4 shrink-0 text-[var(--accent)]/80" />
+          <span className="min-w-0 flex-1 truncate text-ui text-[var(--text)]">
+            <span className="text-[var(--text-muted)]">{d.account_name} › </span>
+            {d.display_path}
+          </span>
+          {d.file_count != null && (
+            <span className="shrink-0 text-caption tabular-nums text-[var(--text-faint)]">
+              {d.file_count.toLocaleString()} 个视频
+            </span>
+          )}
+          <span className="shrink-0 rounded-full bg-white/[0.08] px-2 py-0.5 text-micro font-medium text-[var(--text-muted)]">
+            {d.backend_title}
+          </span>
+          <button
+            type="button"
+            aria-label={`移除 ${d.display_path}`}
+            onClick={() =>
+              onChange(
+                drafts.filter(
+                  (x) => !(x.account_id === d.account_id && x.remote_dir_id === d.remote_dir_id),
+                ),
+              )
+            }
+            className="shrink-0 rounded-md p-1 text-[var(--text-faint)] transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <XIcon className="size-3.5" />
+          </button>
+        </div>
+      ))}
+      {options.accounts.length > 0 ? (
+        <button
+          type="button"
+          onClick={onAdd}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 px-3 py-2.5 text-ui font-medium text-[var(--text-muted)] transition-colors hover:border-[var(--accent)]/50 hover:text-white"
+        >
+          <PlusIcon className="size-4" />
+          {addLabel}
+        </button>
+      ) : (
+        options.hasBackends && (
+          <p className="px-1 text-caption text-[var(--text-faint)]">
+            想把网盘上已有的片子加进来？先在
+            <Link href={"/settings/drives" as Route} className="mx-1 underline underline-offset-4 hover:text-white">
+              设置 → 网盘
+            </Link>
+            添加账号。
+          </p>
+        )
+      )}
+      {drafts.length > 0 && needsLocal && (
+        <p className="px-1 text-caption leading-5 text-[var(--warn)]">
+          还需要一个服务器目录当主根：新下载的片子、海报与字幕放在这里。
+        </p>
+      )}
+      {drafts.length > 0 && (
+        <p className="px-1 text-caption leading-5 text-[var(--text-faint)]">
+          网盘目录里已有的片子会按文件名识别加进库里，不下载、不改动网盘上的文件；之后在网盘里新增、移动、
+          删除的片子会自动跟上。
+        </p>
+      )}
+    </>
+  );
+}
+
 /** 根目录列表：第一项为主根；行内可原位更改、设为主根、移除。 */
 function RootsEditor({
   roots,
   onChange,
   onPick,
+  cloud,
 }: {
   roots: string[];
   onChange: (next: string[]) => void;
   /** 打开目录选择器："add"=追加，数字=原位更改该下标 */
   onPick: (target: "add" | number) => void;
+  /** 网盘根目录（没有网盘能力的库类型不传） */
+  cloud?: React.ReactNode;
 }) {
   return (
     <div className="space-y-1.5">
@@ -248,6 +408,7 @@ function RootsEditor({
         <PlusIcon className="size-4" />
         {roots.length === 0 ? "浏览服务器目录并添加" : "添加目录"}
       </button>
+      {cloud}
     </div>
   );
 }
@@ -501,6 +662,8 @@ function CreateLibraryDialog({
   const [name, setName] = useState("");
   const [roots, setRoots] = useState<string[]>([]);
   const [pickerTarget, setPickerTarget] = useState<"add" | number | null>(null);
+  const [cloud, setCloud] = useState<CloudRootDraft[]>([]);
+  const [drivePicker, setDrivePicker] = useState(false);
   const [regions, setRegions] = useState<string[]>([]);
   const [genres, setGenres] = useState<number[]>([]);
   const [accessMode, setAccessMode] = useState<LibraryAccessMode>("everyone");
@@ -511,6 +674,9 @@ function CreateLibraryDialog({
   const routingOptions = useRoutingOptions();
 
   const hasScope = kind !== null && kindIsScraped(kind);
+  // 网盘目录只给能播放的库（相册没有取流这回事）
+  const cloudCapable = kind !== null && kind !== "photo";
+  const driveOptions = useDriveRootOptions(true);
   const totalSteps = hasScope ? 3 : 2;
   const ready = name.trim().length > 0 && roots.length > 0;
   const scope = kind ? scopeSummary(kind, regions, genres, routingOptions) : null;
@@ -548,6 +714,7 @@ function CreateLibraryDialog({
       access_mode: accessMode,
       admin_visible: adminVisible,
       member_ids: accessMode === "selected" ? memberIds : [],
+      ...(cloudCapable && cloud.length > 0 ? { cloud_folders: cloudPayload(cloud) } : {}),
     };
     void createLibrary(payload)
       .then(onSaved)
@@ -672,7 +839,22 @@ function CreateLibraryDialog({
                   根目录
                   <span className="font-normal text-[var(--text-faint)]">（第一个为主根，新内容落在这里）</span>
                 </label>
-                <RootsEditor roots={roots} onChange={setRoots} onPick={setPickerTarget} />
+                <RootsEditor
+                  roots={roots}
+                  onChange={setRoots}
+                  onPick={setPickerTarget}
+                  cloud={
+                    cloudCapable && (
+                      <CloudRootRows
+                        drafts={cloud}
+                        onChange={setCloud}
+                        onAdd={() => setDrivePicker(true)}
+                        options={driveOptions}
+                        needsLocal={roots.length === 0}
+                      />
+                    )
+                  }
+                />
               </div>
               <div>
                 <label className={LABEL_CLASS}>可见范围</label>
@@ -748,6 +930,18 @@ function CreateLibraryDialog({
         </div>
       </Modal>
       <RootsPicker target={pickerTarget} roots={roots} onChange={setRoots} onClose={() => setPickerTarget(null)} />
+      {drivePicker && (
+        <DriveFolderPicker
+          accounts={driveOptions.accounts}
+          libraryId={null}
+          taken={cloud.map((c) => ({ account_id: c.account_id, path: c.display_path }))}
+          onClose={() => setDrivePicker(false)}
+          onSelect={(picked) => {
+            setCloud([...cloud, draftOf(picked)]);
+            setDrivePicker(false);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -1211,6 +1405,14 @@ function EditLibraryDialog({
   const [name, setName] = useState(library.name);
   const [roots, setRoots] = useState<string[]>(library.root_paths);
   const [pickerTarget, setPickerTarget] = useState<"add" | number | null>(null);
+  // 老服务器没有 cloud_folders：不显示、也不提交（不传 = 不改动）
+  const cloudKnown = Array.isArray(library.cloud_folders);
+  const [cloud, setCloud] = useState<CloudRootDraft[]>(cloudDraftsOf(library.cloud_folders));
+  const [drivePicker, setDrivePicker] = useState(false);
+  const driveOptions = useDriveRootOptions(cloudKnown && playable);
+  const removedCloudFiles = (library.cloud_folders ?? [])
+    .filter((f) => !cloud.some((c) => c.account_id === f.account_id && c.remote_dir_id === f.remote_dir_id))
+    .reduce((sum, f) => sum + f.file_count, 0);
   const [realtimeWatch, setRealtimeWatch] = useState(library.realtime_watch);
   const [autoClearMissing, setAutoClearMissing] = useState(library.auto_clear_missing);
   const [generateThumbnails, setGenerateThumbnails] = useState(library.generate_thumbnails);
@@ -1266,6 +1468,7 @@ function EditLibraryDialog({
       access_mode: accessMode,
       admin_visible: adminVisible,
       member_ids: memberIds,
+      ...(cloudKnown && playable ? { cloud_folders: cloudPayload(cloud) } : {}),
     };
     void updateLibrary(library.id, payload)
       .then(onSaved)
@@ -1291,6 +1494,7 @@ function EditLibraryDialog({
             {roots[0] ? "‎" + roots[0] + "‎" : "未设根目录"}
           </span>
           {roots.length > 1 && <span className="text-[var(--text-faint)]">等 {roots.length} 个目录</span>}
+          {cloud.length > 0 && <span className="text-[var(--text-faint)]">+ {cloud.length} 个网盘目录</span>}
         </>
       ),
       body: (
@@ -1309,7 +1513,29 @@ function EditLibraryDialog({
             <label className={LABEL_CLASS}>
               根目录<span className="font-normal text-[var(--text-faint)]">（第一个为主根，新内容落在这里）</span>
             </label>
-            <RootsEditor roots={roots} onChange={setRoots} onPick={setPickerTarget} />
+            <RootsEditor
+              roots={roots}
+              onChange={setRoots}
+              onPick={setPickerTarget}
+              cloud={
+                cloudKnown &&
+                playable && (
+                  <CloudRootRows
+                    drafts={cloud}
+                    onChange={setCloud}
+                    onAdd={() => setDrivePicker(true)}
+                    options={driveOptions}
+                    needsLocal={roots.length === 0}
+                  />
+                )
+              }
+            />
+            {removedCloudFiles > 0 && (
+              <p className="mt-2 rounded-lg border border-[var(--warn)]/30 bg-[var(--warn)]/[0.07] px-3 py-2 text-caption leading-5 text-[var(--text-muted)]">
+                保存后，拿掉的网盘目录里的 {removedCloudFiles.toLocaleString()} 个视频会从库里移除（只删记录，
+                网盘上的文件不动；重新挂上会重新识别）。
+              </p>
+            )}
           </div>
         </>
       ),
@@ -1549,6 +1775,18 @@ function EditLibraryDialog({
         </div>
       </Modal>
       <RootsPicker target={pickerTarget} roots={roots} onChange={setRoots} onClose={() => setPickerTarget(null)} />
+      {drivePicker && (
+        <DriveFolderPicker
+          accounts={driveOptions.accounts}
+          libraryId={library.id}
+          taken={cloud.map((c) => ({ account_id: c.account_id, path: c.display_path }))}
+          onClose={() => setDrivePicker(false)}
+          onSelect={(picked) => {
+            setCloud([...cloud, draftOf(picked)]);
+            setDrivePicker(false);
+          }}
+        />
+      )}
     </>
   );
 }

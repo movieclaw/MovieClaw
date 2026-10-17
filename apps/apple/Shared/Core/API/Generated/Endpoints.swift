@@ -878,6 +878,15 @@ nonisolated extension APIClient {
         return try await send("PATCH", "/drives/accounts/\(accountId)", body: body)
     }
 
+    /// 列网盘目录的子目录（给媒体库选网盘文件夹）
+    /// `GET /drives/accounts/{account_id}/dirs`
+    func drivesAccountsDirs(accountId: Int, parentId: String? = nil, path: String? = nil) async throws -> [API.DriveDirView] {
+        var query: [URLQueryItem] = []
+        if let parentId { query.append(URLQueryItem(name: "parent_id", value: "\(parentId)")) }
+        if let path { query.append(URLQueryItem(name: "path", value: "\(path)")) }
+        return try await send("GET", "/drives/accounts/\(accountId)/dirs", query: query)
+    }
+
     /// 刷新网盘账号的昵称与容量
     /// `POST /drives/accounts/{account_id}/refresh`
     func drivesAccountsRefresh(accountId: Int) async throws -> API.DriveAccountView {

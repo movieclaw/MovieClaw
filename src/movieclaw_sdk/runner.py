@@ -1081,6 +1081,14 @@ class Runner:
                 envelope["value"] = dv.result_dict(result)
             elif method == "account_info":
                 envelope["value"] = dv.info_dict(await backend.account_info(account))
+            elif method == "list_dir":
+                dirs = await backend.list_dir(account, args["dir_id"])
+                envelope["value"] = [dv.remote_dir_dict(d) for d in dirs]
+            elif method == "list_tree":
+                envelope["value"] = dv.tree_dict(await backend.list_tree(account, args["dir_id"]))
+            elif method == "changes":
+                page = await backend.changes(account, args.get("cursor"))
+                envelope["value"] = dv.change_page_dict(page)
             elif method == "stat":
                 item = await backend.stat(account, args["remote_id"])
                 envelope["value"] = dv.remote_file_dict(item)

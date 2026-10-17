@@ -220,6 +220,69 @@ data class ClientReleaseView(
 )
 
 /**
+ * 最近一次纳管 / 复查这个网盘目录的结果。
+ */
+@Serializable
+data class CloudFolderReportView(
+    @SerialName("finished_at") val finishedAt: String = "",
+    /**
+     * 用时（秒）
+     */
+    @SerialName("seconds") val seconds: Double = 0.0,
+    /**
+     * 调用网盘接口的次数
+     */
+    @SerialName("calls") val calls: Long = 0,
+    /**
+     * 视频文件数
+     */
+    @SerialName("videos") val videos: Long = 0,
+    /**
+     * 已识别
+     */
+    @SerialName("identified") val identified: Long = 0,
+    /**
+     * 待认领（没认出来的）
+     */
+    @SerialName("pending") val pending: Long = 0,
+    /**
+     * 跳过的：disc=原盘目录、iso=光盘镜像、extra=样片与花絮（一期不纳管）
+     */
+    @SerialName("skipped") val skipped: Map<String, Long> = emptyMap(),
+    /**
+     * 扫描中途停止了（数字不完整）
+     */
+    @SerialName("cancelled") val cancelled: Boolean = false,
+)
+
+@Serializable
+data class CloudFolderView(
+    @SerialName("id") val id: Long = 0,
+    @SerialName("account_id") val accountId: Long = 0,
+    @SerialName("account_name") val accountName: String = "",
+    /**
+     * 网盘类型
+     */
+    @SerialName("backend") val backend: String = "",
+    /**
+     * 网盘名；插件不在时就是类型值
+     */
+    @SerialName("backend_title") val backendTitle: String = "",
+    @SerialName("remote_dir_id") val remoteDirId: String = "",
+    @SerialName("display_path") val displayPath: String = "",
+    @SerialName("is_primary") val isPrimary: Boolean = false,
+    /**
+     * 台账里在位的纳管文件数
+     */
+    @SerialName("file_count") val fileCount: Long = 0,
+    /**
+     * 上次纳管或复查的时间；没列过为 null
+     */
+    @SerialName("listed_at") val listedAt: String? = null,
+    @SerialName("report") val report: CloudFolderReportView? = null,
+)
+
+/**
  * 合集卡片的一张封面图。
  * 合集自己没有图，封面就是成员的海报。由服务端在列合集时一并给出——否则
  * 客户端要为每个合集再请求一次成员才画得出卡片，一屏合集就是一屏请求。
@@ -648,6 +711,34 @@ data class FavoritesView(
 )
 
 /**
+ * 文件在网盘上的副本（cloud-storage.md §3.5）：文件区据此标「本地」「本地 + 115」「115」。
+ */
+@Serializable
+data class FileCloudView(
+    /**
+     * 网盘名
+     */
+    @SerialName("backend_title") val backendTitle: String = "",
+    @SerialName("account_name") val accountName: String = "",
+    /**
+     * 网盘上的路径（展示用；成员端为 null）
+     */
+    @SerialName("remote_path") val remotePath: String? = null,
+    /**
+     * 本地也有字节
+     */
+    @SerialName("local") val local: Boolean = false,
+    /**
+     * imported（纳管来的）/ uploaded（我们传的）
+     */
+    @SerialName("origin") val origin: String = "",
+    /**
+     * uploading / verified / lost / deleting
+     */
+    @SerialName("state") val state: String = "",
+)
+
+/**
  * 文件来源快照（docs/design/library-duplicate-files.md §2）：这个文件是怎么进库的。
  */
 @Serializable
@@ -1002,6 +1093,10 @@ data class LibraryFileView(
      * 有效章节列表（内嵌或按时长合成）；null=所在库未开启「生成章节」或尚未探测
      */
     @SerialName("chapters") val chapters: List<ChapterView>? = null,
+    /**
+     * 网盘上的副本；null = 只在本地（没有网盘副本）
+     */
+    @SerialName("cloud") val cloud: FileCloudView? = null,
     @SerialName("added_at") val addedAt: String = "",
 )
 
@@ -1500,6 +1595,10 @@ data class LibraryView(
      * 整库生成章节的作业状态（排队/进行中）；没在生成为 null
      */
     @SerialName("chapter_job") val chapterJob: ChapterJobView? = null,
+    /**
+     * 网盘根目录（管理员端恒为数组，成员端为 null）；有主根在网盘的，root_paths 第一项是本地暂存目录
+     */
+    @SerialName("cloud_folders") val cloudFolders: List<CloudFolderView>? = null,
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("updated_at") val updatedAt: String = "",
 )

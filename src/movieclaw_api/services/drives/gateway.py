@@ -56,6 +56,9 @@ TIMEOUTS: dict[str, float] = {
     "cancel_login": 10.0,
     "login_with_cookie": 20.0,
     "account_info": 30.0,
+    "list_dir": 30.0,
+    "list_tree": 120.0,
+    "changes": 30.0,
     "stat": 20.0,
     "direct_link": 8.0,
 }

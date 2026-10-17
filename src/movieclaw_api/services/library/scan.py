@@ -66,6 +66,7 @@ from sqlmodel import select
 from movieclaw_api.services import jobs
 from movieclaw_api.services.foreground import yield_to_foreground
 from movieclaw_api.services.library import acquisition
+from movieclaw_api.services.library import cloud as library_cloud
 from movieclaw_api.services.library.bluray import (
     disc_playlist_record,
     disc_playlist_stale,
@@ -889,6 +890,8 @@ async def enqueue_scan_job(
     actor_id: str | None = None,
     origin: str = "web",
     scope_paths: list[str] | None = None,
+    cloud_folder_ids: list[int] | None = None,
+    cloud_only: bool = False,
 ) -> jobs.CreateJobResult:
     """创建用户可观察、可取消、可跨重启恢复的媒体库扫描作业。
 
@@ -905,6 +908,12 @@ async def enqueue_scan_job(
         # 不同范围各自排队；整库扫描在跑时它覆盖了范围扫描，返回已有作业
         digest = hashlib.sha1("\n".join(sorted(scope_paths)).encode()).hexdigest()[:12]
         dedupe_key = f"library.scan:{library_id}:scope:{digest}"
+    if cloud_folder_ids is not None:
+        input_data["cloud_folder_ids"] = sorted(cloud_folder_ids)
+    if cloud_only:
+        # 只列网盘文件夹（操作动态、新挂上的文件夹）：不遍历本地、不补探存量规格
+        input_data.update(cloud_only=True, backfill_existing_specs=False)
+        dedupe_key = f"library.scan:{library_id}:cloud"
     if reconcile_root_change:
         input_data.update(
             reconcile_root_change=True,
@@ -940,6 +949,8 @@ async def scan_library(
     reconcile_root_change: bool = False,
     previous_root_paths: list[str] | None = None,
     reconcile_new_root_paths: list[str] | None = None,
+    cloud_folder_ids: set[int] | None = None,
+    cloud_only: bool = False,
     job_context: jobs.JobContext | None = None,
     raise_unexpected: bool = False,
 ) -> ScanSummary:
@@ -1061,6 +1072,8 @@ async def scan_library(
             previous_root_paths=previous_root_paths or [],
             reconcile_new_root_paths=reconcile_new_root_paths or [],
             bridge=bridge,
+            cloud_folder_ids=cloud_folder_ids,
+            cloud_only=cloud_only,
         )
         finished_normally = True
         return result
@@ -1127,6 +1140,11 @@ async def _run_scan_job(
     scope = input_data.get("scope_paths")
     if isinstance(scope, list) and scope:
         scan_kwargs["scope_paths"] = {str(path) for path in scope}
+    folder_ids = input_data.get("cloud_folder_ids")
+    if isinstance(folder_ids, list):
+        scan_kwargs["cloud_folder_ids"] = {int(folder_id) for folder_id in folder_ids}
+    if input_data.get("cloud_only") is True:
+        scan_kwargs["cloud_only"] = True
     if input_data.get("reconcile_root_change") is True:
         roots = input_data.get("previous_root_paths")
         new_roots = input_data.get("reconcile_new_root_paths")
@@ -1246,6 +1264,8 @@ async def _scan(
     previous_root_paths: list[str],
     reconcile_new_root_paths: list[str],
     bridge: _ScanJobBridge | None,
+    cloud_folder_ids: set[int] | None = None,
+    cloud_only: bool = False,
 ) -> ScanSummary:
     db = get_database()
     async with db.session() as session:
@@ -1319,7 +1339,7 @@ async def _scan(
         # 扫描与根路径迁移永远全量，快照过期（一周）或还没有也强制全量一轮
         snapshot_walk: _DirSnapshotWalk | None = None
         incremental = False
-        if scope_names_by_root is None:
+        if scope_names_by_root is None and not cloud_only:
             full_at = library.dir_snapshot_full_at
             incremental = (
                 not backfill_existing_specs
@@ -1335,7 +1355,8 @@ async def _scan(
                 # 点名重探的文件要进 pending 才会被 stat 比对：它的目录必须列
                 force_list={os.path.dirname(p) for p in reprobe_paths},
             )
-        for root in library.root_paths:
+        # 只看网盘文件夹的一轮（操作动态说某个文件夹变了）：本地根目录不遍历、不判丢失
+        for root in [] if cloud_only else library.root_paths:
             if bridge is not None:
                 await bridge.raise_if_cancelled()
             root_path = Path(root)
@@ -1413,6 +1434,28 @@ async def _scan(
                     snapshot_walk.listed,
                 )
 
+        # 网盘文件夹（cloud-storage.md §4）：整树列举代替遍历，列出来的视频并进待处理列表，
+        # 之后与本地文件同走识别与入账。范围扫描（监听事件）不碰网盘
+        cloud: library_cloud.CloudRound | None = None
+        if scope_names_by_root is None and profile.playable:
+            cloud_folders = await library_cloud.folders_to_list(
+                session,
+                library_id,
+                folder_ids=cloud_folder_ids,
+                everything=backfill_existing_specs,
+            )
+            if cloud_folders:
+                cloud = await library_cloud.collect(
+                    session, library, profile, cloud_folders, summary.errors
+                )
+                for cloud_root, cloud_file, cloud_disc in cloud.pending:
+                    if str(cloud_file) in seen_paths:
+                        continue
+                    seen_paths.add(str(cloud_file))
+                    pending.append((cloud_root, cloud_file, cloud_disc))
+                episodes_cache.update(cloud.episode_counts)
+                state.processed = len(pending)
+
         # 台账快照：逐文件处理只查本轮遍历到的路径，只装配这些行（丢失判定在收尾
         # 另行现查轻量切片）；改根路径要拿全部旧行与新路径配对，仍装整库
         known.update(
@@ -1483,7 +1526,8 @@ async def _scan(
                 _root_ahead, file_ahead, disc_ahead = pending[ahead]
                 probe_ahead[ahead] = (
                     asyncio.create_task(_probe_quietly(file_ahead))
-                    if _probe_ahead_eligible(known.get(str(file_ahead)), file_ahead, disc_ahead)
+                    if (cloud is None or str(file_ahead) not in cloud.entries)
+                    and _probe_ahead_eligible(known.get(str(file_ahead)), file_ahead, disc_ahead)
                     else None
                 )
             probe_task = probe_ahead.pop(done - 1, None)
@@ -1499,6 +1543,7 @@ async def _scan(
                 break
             path_str = str(file)
             existing = known.get(path_str)
+            cloud_entry = cloud.entries.get(path_str) if cloud is not None else None
             # 用户忽略过的文件秒过：花絮/预告/自录内容在 TMDB 本就没有条目，
             # 重走识别链只会再次失败、再次回到清单。忽略是**永久**承诺，
             # 「已忽略」清单里可一键恢复（消失又回来的顺手清 missing 标记，
@@ -1544,6 +1589,16 @@ async def _scan(
                         summary.errors.append(f"「{file.name}」身份复核失败：{exc}")
                 else:
                     summary.skipped_known += 1
+                if cloud_entry is not None:
+                    # 纳管文件：本地没有可 stat、可列的东西，只更新副本（展示路径、认回丢失）
+                    try:
+                        await library_cloud.touch(session, existing, cloud_entry)
+                    except Exception as exc:  # noqa: BLE001 -- 单文件失败不断整轮
+                        await recover_failed_session()
+                        logger.exception("纳管文件更新副本失败：%s", file)
+                        summary.errors.append(f"「{file.name}」更新网盘副本失败：{exc}")
+                    await advance(done)
+                    continue
                 # mtime 一次性回填：ETag 落库特性上线前的旧行没有 mtime，
                 # 趁扫描（用户主动发起）正在遍历目录顺手补上；补齐后的行
                 # 重扫不再 stat，秒过语义不变
@@ -1591,7 +1646,11 @@ async def _scan(
             # strm 不等：它按文件名识别、播放时才读内容，「写了一半」对台账无害；
             # 网盘插件写完 .strm 立刻触发的扫描不该再白等五分钟
             try:
-                age = now_ts - (await asyncio.to_thread(file.stat)).st_mtime
+                age = (
+                    NEW_FILE_QUIET_SECONDS  # 纳管文件在网盘上早就写完了
+                    if cloud_entry is not None
+                    else now_ts - (await asyncio.to_thread(file.stat)).st_mtime
+                )
             except OSError:
                 age = NEW_FILE_QUIET_SECONDS  # 瞬时消失/不可读：交给后续流程处理
             if -NEW_FILE_QUIET_SECONDS <= age < NEW_FILE_QUIET_SECONDS and (
@@ -1641,6 +1700,7 @@ async def _scan(
                     added_batch_id=added_batch_id,
                     origin=origin_snapshot,
                     prefetched_probe=probe_task,
+                    cloud=cloud_entry,
                 )
             except Exception as exc:  # noqa: BLE001 -- 单文件失败不断整轮
                 await recover_failed_session()
@@ -1731,6 +1791,10 @@ async def _scan(
             path_str = row.file_path
             if path_str in seen_paths:
                 continue
+            if not row.local_bytes:
+                # 只在网盘上的行本地本来就没有：在不在由网盘那边判（列过的文件夹在下面收尾），
+                # 绝不能按「本地没遍历到」标缺失——缺失行会被洗版、选源当成没有（§14.3）
+                continue
             # 目录凭 mtime 未变跳过 = 它直接包含的文件（原盘则是它自己）仍在原位
             if skipped_dirs and (
                 path_str in skipped_dirs or os.path.dirname(path_str) in skipped_dirs
@@ -1755,6 +1819,11 @@ async def _scan(
                 continue
             await repo.mark_missing(row.id, since=now)
             summary.marked_missing += 1
+
+        if cloud is not None:
+            summary.marked_missing += await library_cloud.finish(
+                session, library_id, cloud, cancelled=summary.cancelled
+            )
 
         # 收尾清理：开了「自动清理丢失记录」的库，把已确认丢失的行清出台账，
         # 让 file_count 与磁盘对齐（默认关；不可信的一轮整轮让路）。
@@ -2255,6 +2324,8 @@ async def _reconcile_removed_root_ledger_rows(
     for old in list(known.values()):
         if old.state != FileState.IN_PLACE:
             continue
+        if not old.local_bytes:
+            continue  # 只在网盘上的行：虚拟位置跟着旧主根走也照样能播，不按本地根收口
         old_root = next(
             (root for root in removed_roots if _row_under_root(old, root) is not None), None
         )
@@ -2751,6 +2822,50 @@ def _walk_videos(
             yield Path(entry.path), False
 
 
+def classify_cloud_path(
+    rel_path: str,
+    *,
+    ignore: IgnoreProfile = IgnoreProfile.SCRAPED,
+    exts: frozenset[str] | set[str] = SCAN_VIDEO_EXTS,
+) -> tuple[str, str | None] | None:
+    """网盘文件夹整树列举里的一个文件该怎么处理（纳管，cloud-storage.md §4.1）。
+
+    与 ``_walk_videos`` 同一套口径，只是输入换成相对路径。返回 None 表示不是内容（非视频、隐藏
+    或系统目录），否则 ``(结论, 原盘目录)``：``video`` 入账；``disc``（原盘目录里的文件，第二项
+    是原盘目录的相对路径，调用方去重计数）、``iso``、``extra``（样片、花絮）一期跳过并计数。
+    """
+    parts = [part for part in rel_path.split("/") if part]
+    if not parts:
+        return None
+    dirs, name = parts[:-1], parts[-1]
+    plain = ignore is IgnoreProfile.PLAIN
+    for index, directory in enumerate(dirs):
+        if directory in _DISC_MARKER_DIRS:
+            if VIDEO_EXTS.isdisjoint(exts):
+                return None
+            return "disc", "/".join(dirs[:index])
+        lower_dir = directory.lower()
+        if directory.startswith(".") or lower_dir in _SYSTEM_DIRS:
+            return None
+        if not plain and lower_dir in _IGNORE_DIRS:
+            return "extra", None
+    lower = name.lower()
+    if lower.startswith("."):
+        return None
+    suffix = Path(lower).suffix
+    if suffix == STRM_EXT:
+        return None  # 网盘上的 strm 指向别处，不是这个文件夹的内容
+    if suffix == ".iso":
+        return ("iso", None) if not VIDEO_EXTS.isdisjoint(exts) else None
+    if suffix not in exts:
+        return None
+    if plain:
+        return ("extra", None) if Path(lower).stem == "sample" else ("video", None)
+    if any(marker in lower for marker in _IGNORE_MARKERS) or extras_marker(name) is not None:
+        return "extra", None
+    return "video", None
+
+
 async def _relink_legacy_root_paths(
     session,
     library: Library,
@@ -3191,6 +3306,25 @@ async def _probe_quietly(file: Path) -> MediaSpec | None:
         return None
 
 
+#: 探测得来的规格列：纳管文件重走识别链时本轮不探测，这些列沿用台账已有的值
+_SPEC_COLUMNS = (
+    "resolution",
+    "video_codec",
+    "hdr",
+    "dv_profile",
+    "dv_bl_compatible",
+    "bit_depth",
+    "duration_seconds",
+    "bit_rate",
+    "frame_rate",
+    "color_space",
+    "probe_version",
+    "audio_streams",
+    "subtitle_streams",
+    "chapters",
+)
+
+
 async def _ingest_file(
     session,
     repo: LibraryFileRepository,
@@ -3211,11 +3345,14 @@ async def _ingest_file(
     added_batch_id: str,
     origin: dict | None = None,
     prefetched_probe: asyncio.Task[MediaSpec | None] | None = None,
+    cloud: library_cloud.CloudEntry | None = None,
 ) -> None:
     """把一个文件识别并写入台账。``existing`` 是该路径已有的台账行：
     在位但待识别 → 本次是识别重试；标记过 missing → 文件回归。
     ``prefetched_probe``：主循环预取的介质探测任务（普通视频文件才有，
-    见 _PROBE_AHEAD_WINDOW），没给就现场探测。"""
+    见 _PROBE_AHEAD_WINDOW），没给就现场探测。
+    ``cloud``：网盘文件夹里列出来的文件（纳管）。本地没有字节：不探测（规格由后台按预算
+    补探）、大小取网盘列表、不参与改名归并，入账后记副本。"""
     kind = profile.kind
     if existing is None or existing.state == FileState.MISSING:
         summary.scanned += 1  # 新文件 / 回归的 missing 文件
@@ -3226,7 +3363,9 @@ async def _ingest_file(
     # 直接跳过——去探 strm 内部的 URL 既慢又不可靠（直链多带时效鉴权），
     # 还违背 strm"扫库零流量"的初衷，规格列留空即可
     is_strm = not is_disc and file.suffix.lower() == STRM_EXT
-    probe_target = None if is_strm else (disc_main_stream(file) if is_disc else file)
+    probe_target = (
+        None if is_strm or cloud is not None else (disc_main_stream(file) if is_disc else file)
+    )
     if probe_target is None:
         spec = None
     elif prefetched_probe is not None:
@@ -3257,7 +3396,11 @@ async def _ingest_file(
                 spec, duration_seconds=playlist.duration_seconds, chapters=playlist.chapters()
             )
             disc_playlist = disc_playlist_record(playlist)
-    if is_disc:
+    if cloud is not None:
+        size_bytes = cloud.remote.size
+        file_mtime_ns = None
+        container = file.suffix.lstrip(".").lower() or None
+    elif is_disc:
         size_bytes = await asyncio.to_thread(_disc_total_size, file)
         container = "bluray" if (file / "BDMV").is_dir() else "dvd"
         # 原盘条目 file_path 是目录，取目录 mtime——语义同样是"变了就变"
@@ -3280,6 +3423,7 @@ async def _ingest_file(
     if (
         existing is None
         and not is_strm
+        and cloud is None
         and await _try_relink(
             repo,
             library,
@@ -3370,60 +3514,68 @@ async def _ingest_file(
     # 外挂字幕发现（jellyfin-subtitle.md §2.1）：原盘恒 []，其余（含 strm）
     # 用遍历时截获的目录清单做前缀匹配
     external_subtitles: list[dict] = (
-        [] if is_disc else await discover_external_subtitles_async(file, dir_names)
+        []
+        if is_disc or cloud is not None
+        else await discover_external_subtitles_async(file, dir_names)
     )
     assert library.id is not None
+    new_row = LibraryFile(
+        library_id=library.id,
+        media_item_id=item_id,
+        season_number=season,
+        episode_number=episode,
+        file_path=str(file),
+        size_bytes=size_bytes,
+        file_mtime_ns=file_mtime_ns,
+        container=container,
+        resolution=spec.resolution if spec else None,
+        video_codec=spec.video_codec if spec else None,
+        hdr=spec.hdr if spec else None,
+        dv_profile=spec.dv_profile if spec else None,
+        dv_bl_compatible=spec.dv_bl_compatible if spec else None,
+        bit_depth=spec.bit_depth if spec else None,
+        duration_seconds=spec.duration_seconds if spec else None,
+        bit_rate=spec.bit_rate if spec else None,
+        frame_rate=spec.frame_rate if spec else None,
+        color_space=spec.color_space if spec else None,
+        probe_version=PROBE_SCHEMA_VERSION if spec else None,
+        audio_streams=list(spec.audio_streams) if spec else None,
+        subtitle_streams=list(spec.subtitle_streams) if spec else None,
+        chapters=list(spec.chapters) if spec else None,
+        disc_playlist=disc_playlist,
+        external_subtitles=external_subtitles,
+        media_source=scanned_media_source(attrs, container) if profile.scraped else None,
+        release_group=attrs.release_group if profile.scraped else None,
+        # 扫描不知道入库前的原名，以发现时的文件名为准（只补空不覆盖，
+        # 已有快照的行重扫不变）；命名模板 {release_name} 的取值
+        release_name=file.stem,
+        source=FileSource.SCANNED,
+        # 兼容列双写（下一版删，library-boundary.md §5）：在那之前按获取领域现在的标记形态
+        # (info_hash, 下载器) 读；删掉以后媒体库不再解读标记
+        info_hash=torrent[0] if torrent else None,  # type: ignore[index]
+        downloader_id=torrent[1] if torrent else None,  # type: ignore[index]
+        added_batch_id=added_batch_id,
+        origin=origin,
+        # 临时本地身份的行同时带着"为什么没认出"：清单与角标据此表达
+        unidentified_reason=(unidentified_reason if item_id is None or provisional else None),
+        unidentified_code=unidentified_code if item_id is None or provisional else None,
+        unidentified_candidates=((candidates or None) if item_id is None or provisional else None),
+        identity_source=identity_source,
+        resolved_version=resolved_version,
+        review_suggestion=review_suggestion,
+        local_bytes=cloud is None,
+    )
+    if cloud is not None and existing is not None:
+        # 纳管文件重走识别链（识别重试、缺失回归）时本轮没探测：后台补探过的规格原样保留
+        for column in _SPEC_COLUMNS:
+            setattr(new_row, column, getattr(existing, column))
     scanned_row = await repo.upsert_by_path(
-        LibraryFile(
-            library_id=library.id,
-            media_item_id=item_id,
-            season_number=season,
-            episode_number=episode,
-            file_path=str(file),
-            size_bytes=size_bytes,
-            file_mtime_ns=file_mtime_ns,
-            container=container,
-            resolution=spec.resolution if spec else None,
-            video_codec=spec.video_codec if spec else None,
-            hdr=spec.hdr if spec else None,
-            dv_profile=spec.dv_profile if spec else None,
-            dv_bl_compatible=spec.dv_bl_compatible if spec else None,
-            bit_depth=spec.bit_depth if spec else None,
-            duration_seconds=spec.duration_seconds if spec else None,
-            bit_rate=spec.bit_rate if spec else None,
-            frame_rate=spec.frame_rate if spec else None,
-            color_space=spec.color_space if spec else None,
-            probe_version=PROBE_SCHEMA_VERSION if spec else None,
-            audio_streams=list(spec.audio_streams) if spec else None,
-            subtitle_streams=list(spec.subtitle_streams) if spec else None,
-            chapters=list(spec.chapters) if spec else None,
-            disc_playlist=disc_playlist,
-            external_subtitles=external_subtitles,
-            media_source=scanned_media_source(attrs, container) if profile.scraped else None,
-            release_group=attrs.release_group if profile.scraped else None,
-            # 扫描不知道入库前的原名，以发现时的文件名为准（只补空不覆盖，
-            # 已有快照的行重扫不变）；命名模板 {release_name} 的取值
-            release_name=file.stem,
-            source=FileSource.SCANNED,
-            # 兼容列双写（下一版删，library-boundary.md §5）：在那之前按获取领域现在的标记形态
-            # (info_hash, 下载器) 读；删掉以后媒体库不再解读标记
-            info_hash=torrent[0] if torrent else None,  # type: ignore[index]
-            downloader_id=torrent[1] if torrent else None,  # type: ignore[index]
-            added_batch_id=added_batch_id,
-            origin=origin,
-            # 临时本地身份的行同时带着"为什么没认出"：清单与角标据此表达
-            unidentified_reason=(unidentified_reason if item_id is None or provisional else None),
-            unidentified_code=unidentified_code if item_id is None or provisional else None,
-            unidentified_candidates=(
-                (candidates or None) if item_id is None or provisional else None
-            ),
-            identity_source=identity_source,
-            resolved_version=resolved_version,
-            review_suggestion=review_suggestion,
-        ),
+        new_row,
         # 同路径旧行调用方已经持有（扫描开场的整库快照），不必再查一次
         existing=existing,
     )
+    if cloud is not None:
+        await library_cloud.record(session, scanned_row, cloud, fresh=existing is None)
     if scanned_row.id is not None and (existing is None or existing.state == FileState.MISSING):
         strm = not is_disc and file.suffix.lower() == STRM_EXT
         summary.added_files.append((scanned_row.id, item_id, season, episode, strm))
@@ -3590,6 +3742,9 @@ async def _probe_backfill(
                     ),
                     LibraryFile.in_place(),
                     LibraryFile.ignored_at.is_(None),  # type: ignore[union-attr]
+                    # 只在网盘上的文件不在这里探：远程探测要取直链，走按预算的后台补探
+                    # （library/cloud_probe.py），不能随一次手动扫描整库打过去
+                    LibraryFile.local_bytes.is_(True),  # type: ignore[attr-defined]
                 )
             )
         )
@@ -3758,6 +3913,10 @@ async def _try_relink(
             continue
         if row.state == FileState.TRASHED:
             continue  # 待回收行不参与改名归并——归并会复活它
+        if not row.local_bytes:
+            # 只在网盘上的行本地本来就没有：按「同尺寸、旧路径不在」会把重新下载的同一版本
+            # 认成它的改名，劫持这一行（cloud-storage.md §14.3）
+            continue
         if (
             duration_seconds
             and row.duration_seconds

@@ -33,6 +33,7 @@ from movieclaw_db.models.job import (
     JobStatus,
 )
 from movieclaw_db.models.library import Library
+from movieclaw_db.models.library_cloud_folder import LibraryCloudFolder
 from movieclaw_db.models.library_dir_snapshot import LibraryDirSnapshot
 from movieclaw_db.models.library_duplicate_unit import LibraryDuplicateUnit
 from movieclaw_db.models.library_file import FileSource, FileState, LibraryFile
@@ -143,6 +144,7 @@ __all__ = [
     "LibraryDirSnapshot",
     "LibraryDuplicateUnit",
     "LibraryFile",
+    "LibraryCloudFolder",
     "LibraryFileReplica",
     "LlmProvider",
     "LoginDevice",

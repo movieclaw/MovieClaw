@@ -10,16 +10,19 @@ import type { ConfirmCheckbox, ConfirmOptions } from "@/components/feedback";
  * 确认；进行中的「停止」不设确认——停止本身就是在纠正一个重操作。
  */
 
-export function scanLibraryConfirm(name: string): ConfirmOptions {
+export function scanLibraryConfirm(name: string, cloudTitles: string[] = []): ConfirmOptions {
+  // 挂了网盘目录的库：扫描顺带把网盘目录重新列一次（cloud-storage.md §4.3）
+  const cloud = [...new Set(cloudTitles)].join("、");
   return {
     title: `扫描「${name}」？`,
     description: "本次扫描会检查库文件夹的最新变化：",
     bullets: [
       "找出新增的影片文件，自动识别并加入媒体库",
       "标记已经不在硬盘上的文件（记录保留，文件回来自动恢复）",
+      ...(cloud ? [`重新列一次 ${cloud} 上的库目录，跟上那边的新增、移动和删除`] : []),
       "为新入库的影片补齐简介、海报等信息",
       "首次扫描会读取每个文件的画质与音轨信息，文件多时较慢、可随时停止",
-      "不会移动、修改或删除你的任何文件",
+      cloud ? "不会移动、修改或删除你的任何文件（网盘上的也一样）" : "不会移动、修改或删除你的任何文件",
     ],
     confirmLabel: "开始扫描",
   };

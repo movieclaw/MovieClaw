@@ -110,3 +110,17 @@ class DriveLoginView(BaseModel):
     qr_image: str = Field(description="二维码图片（data URL）；没有为空")
     account: DriveAccountView | None = Field(description="confirmed 时的账号")
     created: bool = Field(description="confirmed 时：是新账号（否则是重新登录了已有账号）")
+
+
+class DriveDirView(BaseModel):
+    """目录选择器里的一个子目录。"""
+
+    id: str = Field(description="网盘目录 id")
+    name: str
+    path: str = Field(description="网盘上的完整路径（展示用，如「影视/电影」）")
+    has_children: bool | None = Field(description="底下还有没有子目录；不知道为 null")
+    video_count: int | None = Field(description="视频文件数（网盘目录信息直接给的）；不知道为 null")
+    library_id: int | None = Field(
+        default=None, description="这个目录（或它的上层、下层）已经挂在哪个媒体库上"
+    )
+    library_name: str | None = None

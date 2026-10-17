@@ -174,6 +174,55 @@ class RemoteFile:
     sha1: str | None = None
     #: 所在目录的 id
     parent_id: str | None = None
+    #: ``list_tree`` 里：相对被列目录的路径（含文件名，``/`` 分隔），其余方法不填
+    rel_path: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteDir:
+    """目录选择器里的一个子目录（``list_dir``）。"""
+
+    remote_id: str
+    name: str
+    #: 底下还有没有子目录（决定能不能展开）；不知道就是 None
+    has_children: bool | None = None
+    #: 目录里（含子目录）的视频文件数：网盘的目录信息直接给的才填，不要为它遍历
+    video_count: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteTree:
+    """一个目录下整棵树的文件（``list_tree``，纳管与每周复查用）。"""
+
+    #: 全部文件（不只视频，主程序自己挑），``rel_path`` 必填
+    files: tuple[RemoteFile, ...] = ()
+    #: 全部子目录的 id（不含被列目录自己）：主程序据此判断操作动态落没落在库里
+    dir_ids: tuple[str, ...] = ()
+
+
+#: 操作动态的种类：新文件 / 文件或目录被删 / 移动 / 改名 / 新建目录
+ChangeKind = Literal["added", "removed", "moved", "renamed", "dir_created"]
+
+
+@dataclass(frozen=True, slots=True)
+class Change:
+    """操作动态里的一条（``changes``）。"""
+
+    kind: ChangeKind
+    remote_id: str
+    is_dir: bool = False
+    name: str = ""
+    #: 现在所在的目录；删除时是原来所在的目录（网盘不给就是 None）
+    parent_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ChangePage:
+    #: 下次从这里接着拉
+    cursor: str
+    changes: tuple[Change, ...] = ()
+    #: 还有没拉完的（主程序接着拉）
+    has_more: bool = False
 
 
 @dataclass(slots=True)
@@ -306,6 +355,26 @@ class DriveBackend:
     async def account_info(self, account: DriveAccount) -> AccountInfo:
         raise NotImplementedError
 
+    # ---- 目录（纳管）
+    async def list_dir(self, account: DriveAccount, dir_id: str) -> list[RemoteDir]:
+        """列一个目录的**子目录**（目录选择器按需展开）。``dir_id`` 为空串表示网盘根目录。"""
+        raise NotImplementedError
+
+    async def list_tree(self, account: DriveAccount, dir_id: str) -> RemoteTree:
+        """一次拉回目录下整棵树的文件（相对路径、大小、哈希、文件 id）。
+
+        用网盘的整树列举接口，不要逐个目录往下列；目录不存在抛 ``NotFound``。
+        """
+        raise NotImplementedError
+
+    async def changes(self, account: DriveAccount, cursor: str | None) -> ChangePage:
+        """操作动态增量（``capabilities.change_feed`` 为真才会被调）。
+
+        ``cursor`` 为 None 表示从现在开始：只返回当前游标，不返回历史动态。动态不全（漏记复制、
+        改名）没关系，主程序每周还会复查一次。
+        """
+        raise NotImplementedError
+
     # ---- 文件
     async def stat(self, account: DriveAccount, remote_id: str) -> RemoteFile:
         """一个文件的大小与哈希；不存在抛 ``NotFound``。"""
@@ -325,7 +394,8 @@ class DriveBackend:
 #: 网盘插件往这个注册表贡献后端（贡献 id 随意，按 ``type`` 识别）
 DRIVE_BACKENDS: RegistryKey[DriveBackend] = RegistryKey(
     "drive-backends",
-    version="1.1",  # 1.1：后端实现 stat / direct_link（取流）
+    # 1.1：stat / direct_link（取流）；1.2：list_dir / list_tree / changes（纳管）
+    version="1.2",
     stability=Stability.EXPERIMENTAL,
     schema=DriveBackend,
     doc="网盘存储后端：插件贡献一家网盘的协议实现（登录、文件操作），主程序负责账号、调度与界面",
@@ -469,6 +539,7 @@ def remote_file_dict(item: RemoteFile) -> dict[str, Any]:
         "size": item.size,
         "sha1": item.sha1,
         "parent_id": item.parent_id,
+        "rel_path": item.rel_path,
     }
 
 
@@ -479,6 +550,73 @@ def remote_file_from(data: dict[str, Any]) -> RemoteFile:
         size=int(data["size"]),
         sha1=data.get("sha1"),
         parent_id=data.get("parent_id"),
+        rel_path=data.get("rel_path"),
+    )
+
+
+def remote_dir_dict(item: RemoteDir) -> dict[str, Any]:
+    return {
+        "remote_id": item.remote_id,
+        "name": item.name,
+        "has_children": item.has_children,
+        "video_count": item.video_count,
+    }
+
+
+def remote_dir_from(data: dict[str, Any]) -> RemoteDir:
+    return RemoteDir(
+        remote_id=str(data["remote_id"]),
+        name=str(data["name"]),
+        has_children=data.get("has_children"),
+        video_count=data.get("video_count"),
+    )
+
+
+def tree_dict(tree: RemoteTree) -> dict[str, Any]:
+    return {
+        "files": [remote_file_dict(f) for f in tree.files],
+        "dir_ids": list(tree.dir_ids),
+    }
+
+
+def tree_from(data: dict[str, Any]) -> RemoteTree:
+    return RemoteTree(
+        files=tuple(remote_file_from(f) for f in data.get("files") or ()),
+        dir_ids=tuple(str(d) for d in data.get("dir_ids") or ()),
+    )
+
+
+def change_page_dict(page: ChangePage) -> dict[str, Any]:
+    return {
+        "cursor": page.cursor,
+        "has_more": page.has_more,
+        "changes": [
+            {
+                "kind": c.kind,
+                "remote_id": c.remote_id,
+                "is_dir": c.is_dir,
+                "name": c.name,
+                "parent_id": c.parent_id,
+            }
+            for c in page.changes
+        ],
+    }
+
+
+def change_page_from(data: dict[str, Any]) -> ChangePage:
+    return ChangePage(
+        cursor=str(data["cursor"]),
+        has_more=bool(data.get("has_more")),
+        changes=tuple(
+            Change(
+                kind=c["kind"],
+                remote_id=str(c["remote_id"]),
+                is_dir=bool(c.get("is_dir")),
+                name=c.get("name") or "",
+                parent_id=c.get("parent_id"),
+            )
+            for c in data.get("changes") or ()
+        ),
     )
 
 
@@ -499,6 +637,8 @@ __all__ = [
     "ApiChanged",
     "AuthExpired",
     "Capabilities",
+    "Change",
+    "ChangePage",
     "Choice",
     "Conflict",
     "DirectLink",
@@ -512,7 +652,9 @@ __all__ = [
     "NotFound",
     "QuotaExceeded",
     "RateLimited",
+    "RemoteDir",
     "RemoteFile",
+    "RemoteTree",
     "RiskControl",
     "Transient",
 ]

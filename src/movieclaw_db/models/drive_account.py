@@ -58,3 +58,4 @@ class DriveAccount(TimestampMixin, table=True):
         default=None, sa_column=Column(BigInteger), description="已用（字节）"
     )
     profile_at: datetime | None = Field(default=None, description="昵称与容量的刷新时间")
+    change_cursor: str | None = Field(default=None, description="操作动态的游标（§4.3）")

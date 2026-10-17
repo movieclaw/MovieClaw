@@ -73,6 +73,16 @@ class RemoteDriveBackend(dv.DriveBackend):
     async def account_info(self, account: dv.DriveAccount) -> dv.AccountInfo:
         return dv.info_from(await self._call("account_info", {}, account))
 
+    async def list_dir(self, account: dv.DriveAccount, dir_id: str) -> list[dv.RemoteDir]:
+        data = await self._call("list_dir", {"dir_id": dir_id}, account)
+        return [dv.remote_dir_from(d) for d in data or ()]
+
+    async def list_tree(self, account: dv.DriveAccount, dir_id: str) -> dv.RemoteTree:
+        return dv.tree_from(await self._call("list_tree", {"dir_id": dir_id}, account))
+
+    async def changes(self, account: dv.DriveAccount, cursor: str | None) -> dv.ChangePage:
+        return dv.change_page_from(await self._call("changes", {"cursor": cursor}, account))
+
     async def stat(self, account: dv.DriveAccount, remote_id: str) -> dv.RemoteFile:
         return dv.remote_file_from(await self._call("stat", {"remote_id": remote_id}, account))
 

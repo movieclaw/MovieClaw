@@ -25,6 +25,7 @@ import {
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  CloudDriveIcon,
   FolderIcon,
   HeartIcon,
   MoreIcon,
@@ -2477,7 +2478,10 @@ function FileRow({
           <Tooltip
             content={
               <span className="tnum break-all font-mono text-caption leading-5">
-                {file.file_path}
+                {/* 只在网盘上的文件本地路径是虚拟位置，悬浮给网盘上的路径 */}
+                {file.cloud && !file.cloud.local && file.cloud.remote_path
+                  ? `${file.cloud.account_name} › ${file.cloud.remote_path}`
+                  : file.file_path}
               </span>
             }
             maxWidth={520}
@@ -2491,6 +2495,13 @@ function FileRow({
             </span>
           </Tooltip>
         </button>
+        {/* 位置标签：只有网盘副本的文件才标（纯本地的保持原样） */}
+        {file.cloud && (
+          <span className="flex shrink-0 items-center gap-1 rounded border border-white/15 px-1.5 py-px text-micro text-[var(--text-muted)]">
+            <CloudDriveIcon className="size-3" />
+            {file.cloud.local ? `本地 + ${file.cloud.backend_title}` : file.cloud.backend_title}
+          </span>
+        )}
         {file.missing && (
           <span className="shrink-0 rounded border border-[var(--warn)]/30 px-1.5 py-px text-micro text-[var(--warn)]/80">
             文件缺失
@@ -2519,7 +2530,7 @@ function FileRow({
             立即清理
           </button>
         )}
-        {file.state !== "trashed" && onDelete && (
+        {file.state !== "trashed" && onDelete && !(file.cloud && !file.cloud.local) && (
           <button
             type="button"
             aria-label="删除此文件"
