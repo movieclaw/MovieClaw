@@ -188,6 +188,34 @@ def test_reader_gives_secondary_site_two_mid_window_probes() -> None:
     assert rf._forecast_site_probes(wanted, site_ids={"a"}, now=later) == {}
 
 
+def test_probes_drop_to_hourly_once_candidate_observed() -> None:
+    """智能等待中已观测到候选：首选站降为每小时一次，次选站不再补探。"""
+    now = datetime(2026, 10, 17, 9, 0)
+    start = now + timedelta(hours=1)
+    observed = start + timedelta(minutes=10)
+    window = {
+        "predicted_at": rf._as_utc_text(start),
+        "window_start": rf._as_utc_text(start),
+        "window_end": rf._as_utc_text(start + timedelta(hours=2)),
+    }
+    wanted = _wanted(5, date(2026, 10, 17))
+    wanted.release_forecast = {
+        "version": 1,
+        "target_air_date": "2026-10-17",
+        "confidence": "stable",
+        "sites": [{"site_id": "a", **window}, {"site_id": "b", **window}],
+    }
+    wanted.selection_state = {"first_observed_at": observed.isoformat()}
+
+    probes = rf._forecast_site_probes(wanted, site_ids={"a", "b"}, now=observed)
+    assert set(probes) == {"a"}
+    gaps = {b - a for a, b in zip(probes["a"], probes["a"][1:], strict=False)}
+    assert probes["a"][0] == observed + timedelta(hours=1) and gaps == {timedelta(hours=1)}
+    # 每小时一次持续到原计划窗后追踪结束
+    tail_end = start + timedelta(hours=2 + 24)
+    assert tail_end - timedelta(hours=1) < probes["a"][-1] <= tail_end
+
+
 async def test_evaluation_scores_forecast_once_after_release(db) -> None:  # noqa: F811
     """资源出现 6 小时后给主预测与影子预测打分，写回快照且只评估一次。"""
     async with db.session() as session:
