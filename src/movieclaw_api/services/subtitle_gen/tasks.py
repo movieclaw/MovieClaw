@@ -1365,7 +1365,9 @@ async def _run(
     state.phase = "syncing"
     state.message = "正在检查字幕与影片是否同步"
     state.total_events = len(events)
-    sync_score = await sync.sample_sync_score(Path(row.file_path), events, row.duration_seconds)
+    sync_score = await sync.sample_sync_score(
+        Path(row.file_path), events, row.duration_seconds, sync.audio_index(row.audio_streams)
+    )
     if sync_score is not None and sync_score < sync.SYNC_THRESHOLD:
         return GenResult(
             ok=False,
@@ -1699,8 +1701,9 @@ async def _audio_reference_intervals(
         starts = [int(runtime * 0.05 + i * step) for i in range(_CALIBRATE_WINDOWS)]
         window = float(_CALIBRATE_WINDOW_S)
     intervals: list[tuple[int, int]] = []
+    audio = sync.audio_index(row.audio_streams)
     for start in starts:
-        pcm = await sync.extract_pcm(Path(row.file_path), float(start), window)
+        pcm = await sync.extract_pcm(Path(row.file_path), float(start), window, audio)
         if pcm is None:
             return intervals if intervals else None  # 首窗就失败=不可用
         speech = await asyncio.to_thread(sync.speech_intervals, pcm)
