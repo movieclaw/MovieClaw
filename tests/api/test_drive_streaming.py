@@ -445,3 +445,26 @@ def test_auth_expired_drive_gives_a_clear_reason(client, tmp_path):
     failed = _stream(client, file_id)
     assert failed.status_code == 503
     assert "需要重新登录" in failed.json()["message"]
+
+
+def test_auto_mode_redirects_apps_that_declare_fallback_in_the_query(client, tmp_path, monkeypatch):
+    """自研播放引擎自己发取流请求、带不了请求头：在地址上带 fallback=1 声明能降级。"""
+    from movieclaw_api.services.drives import sources
+
+    file_id, _path = seed(client, tmp_path)
+    monkeypatch.setattr(sources, "is_home_client", lambda host: False)
+
+    def stream(**params):
+        return client.get(
+            f"/api/v1/playback/files/{file_id}/stream",
+            params={"token": _token(client, file_id), **params},
+            headers={"User-Agent": "MovieClawPlayer"},
+            follow_redirects=False,
+        )
+
+    assert stream().status_code == 200  # 没声明：转发
+    direct = stream(fallback="1")
+    assert direct.status_code == 302 and "ua=MovieClawPlayer" in direct.headers["location"]
+    # 直连失败后带 relay=1 重来：转发
+    retried = stream(fallback="1", relay="1")
+    assert retried.status_code == 200 and retried.content == CONTENT

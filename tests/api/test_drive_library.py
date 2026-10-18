@@ -615,6 +615,23 @@ def test_folder_picker_overlap_guard_account_guard_and_unmount(client, tmp_path)
     assert set(ledger(client, view["id"])) == {"f-dune", "f-opp", "f-noname"}
 
 
+def test_editing_without_drive_fields_keeps_the_drive_setup(client, tmp_path):
+    """App 不做网盘管理：库表单不带网盘字段，保存后网盘目录、「本地也保留一份」、台账都不动。"""
+    view = _create_library(client, tmp_path, keep_local=True)
+    before = ledger(client, view["id"])
+    assert before
+    current = client.get(f"/api/v1/libraries/{view['id']}").json()["data"]
+    assert current["keep_local"] is True  # 新建时就认这个参数
+    payload = {"name": "电影（改名）", "kind": current["kind"], "root_paths": current["root_paths"]}
+    updated = client.put(f"/api/v1/libraries/{view['id']}", json=payload)
+    assert updated.status_code == 200, updated.text
+    data = updated.json()["data"]
+    assert data["name"] == "电影（改名）"
+    assert data["cloud_folders"] == current["cloud_folders"] and data["cloud_folders"]
+    assert data["keep_local"] is True
+    assert ledger(client, view["id"]) == before
+
+
 def test_cloud_files_get_specs_probed_in_the_background_within_budget(
     client, tmp_path, monkeypatch
 ):

@@ -228,6 +228,7 @@ class LibraryRepository:
         auto_series_collections: bool = True,
         access_mode: str = "everyone",
         admin_visible: bool = True,
+        keep_local: bool = False,
     ) -> Library:
         """新增一个库。该 kind 尚无默认库时，新库自动成为默认。新库置于
         展示顺序末尾（现有最大 sort_order + 1，不打乱用户排好的顺序）。"""
@@ -248,6 +249,7 @@ class LibraryRepository:
             auto_series_collections=auto_series_collections,
             access_mode=access_mode,
             admin_visible=admin_visible,
+            keep_local=keep_local,
             is_default=await self.get_default(kind) is None,
             sort_order=max((lib.sort_order for lib in existing), default=0) + 1,
         )

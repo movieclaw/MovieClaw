@@ -1336,6 +1336,7 @@ async def create_library(
         access_mode=payload.access_mode,
         admin_visible=payload.admin_visible,
         member_ids=payload.member_ids,
+        keep_local=payload.keep_local,
     )
     # 建库即扫描：根路径下的存量文件立刻开始识别入账，不用用户再手动点一次。
     # 网盘根目录没列过，这一轮一并纳管

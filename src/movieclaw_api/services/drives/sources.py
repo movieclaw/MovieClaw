@@ -19,6 +19,7 @@ import asyncio
 import ipaddress
 import logging
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -410,6 +411,15 @@ def choose_direct(
             return False
     _direct_clients[account_id] = (client_host or "", time.monotonic())
     return True
+
+
+def declares_fallback(headers: Mapping[str, str], query: Mapping[str, str]) -> bool:
+    """客户端声明「直连网盘失败会带 ``relay=1`` 改走转发」。
+
+    请求头 ``X-MovieClaw-Relay-Fallback: 1``，或查询参数 ``fallback=1``（播放引擎自己发请求、带不了
+    自定义请求头时用）。
+    """
+    return headers.get("x-movieclaw-relay-fallback") == "1" or query.get("fallback") == "1"
 
 
 async def stream_mode() -> StreamMode:
