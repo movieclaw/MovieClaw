@@ -93,6 +93,8 @@ lock = "requirements.lock"     # 包内路径；pip 的 requirements 格式，�
 ## 7. 对 115 插件的影响
 
 115 插件可以直接依赖 `p115cipher[full]`（pycryptodome、ecdsa、lz4 都有两种平台的轮子），不用自己重写加密函数。
+注意它实际是 GPLv3（PyPI 元数据写 MIT，轮子里的 LICENSE 是 GPLv3），115 插件因此以 GPL-3.0-or-later 发布，见
+[cloud-storage-115.md](cloud-storage-115.md) §0。选依赖时看轮子里的 LICENSE，别只信 PyPI 元数据。
 仍不整包依赖 p115client：它的依赖近 40 个，安装慢、出问题的面大，插件只需要它的加密部分。这一项不卡存储层内核的开工
 （里程碑一的主程序 PR 用测试内的假后端），但在 115 插件动工前要先合并本文的 PR 1～3。
 

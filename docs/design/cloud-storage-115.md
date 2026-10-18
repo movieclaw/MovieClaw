@@ -1,14 +1,15 @@
 # 115 网盘存储后端插件——设计
 
-> 状态：设计稿（2026-10-17），待实施。内核侧见 [cloud-storage.md](cloud-storage.md)，本文只写「怎么跟 115 说话」。
+> 状态：插件第一版已写完（2026-10-18，[movieclaw-plugins#4](https://github.com/movieclaw/movieclaw-plugins/pull/4)，对仿 115 测过），
+> 【待实测】各项还没在真账号上跑。内核侧见 [cloud-storage.md](cloud-storage.md)，本文只写「怎么跟 115 说话」。
 > 插件代码放插件仓库 [movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins) 的 `plugins/cloud-115/`，
 > 不进主仓库（主程序只做通用能力，主仓库用测试内的假后端验证契约）。
-> 依赖内核新契约 `drive-backends`，插件仓库 CI 要等含该契约的版本发布、`MOVIECLAW_REF` 升上去才能绿。
+> 依赖内核新契约 `drive-backends`，插件仓库 CI 先钉 main 上带该契约的提交（`MOVIECLAW_DEPS_REF`），发版后并回 `MOVIECLAW_REF`。
 >
 > **用户决策（2026-10-17）：先走 Cookie 登录**（扫码选登录端 + 浏览器扩展导入），不等开放平台应用资质；
 > 开放平台登录以后作为同一个 `115` 后端的第二种登录方式补上。
 >
-> 参考：p115client（Python，**MIT 许可**，可以依赖或借用）；115 开放平台公开文档；LitePan（`drivers/115_Open/`，
+> 参考：p115client（Python，主包 **MIT 许可**；但它拆出去的子包 p115cipher、p115pickcode 等是 GPLv3，见 §0「许可证」）；115 开放平台公开文档；LitePan（`drivers/115_Open/`，
 > PolyForm 非商用许可，**代码不能用**，只看思路）；SmartStrm（闭源，只有文档与 issue）。
 > 标【待实测】的条目必须先用真账号测过再定。
 
@@ -24,9 +25,13 @@ MD5 秒传）用来验证契约没有被 115 的形状绑死，另起一份文�
 各有一套请求实现；目录、核验、删除、指纹、续传状态、错误分类、能力声明共用。账号凭据里记着登录方式。
 
 **实现依赖**：Cookie 方式的上传初始化与取直链都要做 115 自己的加密 / 签名（ECDH、RSA 变体、`userkey` 签名）。插件声明依赖
-`p115cipher[full]`（MIT；pycryptodome、ecdsa、lz4 都有 x86_64 与 aarch64 的预编译轮子），安装时经管理员授权由主程序下载
+`p115cipher[full]` 与 `p115pickcode`（提取码换文件 id；pycryptodome、ecdsa、lz4 都有 x86_64 与 aarch64 的预编译轮子），安装时经管理员授权由主程序下载
 （[plugin-dependencies.md](plugin-dependencies.md)）。HTTP 用主程序自带的 `httpx`。**不整包依赖 p115client**：它的依赖近 40 个，
 安装慢、出问题的面大，插件只需要它的加密部分；接口路径与参数参考 p115client 的实现，按 115 的改版跟进。
+
+**许可证（2026-10-18 核实，维护者已定）**：p115cipher、p115pickcode 的 PyPI 元数据写 MIT，但轮子里的 LICENSE 与源码头都是
+**GPLv3**。所以 115 插件以 **GPL-3.0-or-later** 发布（与插件仓库其他插件不同）；这两个包不随插件包分发，由服务器按锁文件下载，
+插件在独立进程里经本机 HTTP 与主程序通信，主程序与主仓库不含任何 GPL 代码。插件用到时才导入它们，依赖批准安装前入口模块也能导入。
 
 ## 1. 能力声明
 
