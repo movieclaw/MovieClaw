@@ -524,8 +524,9 @@ class PlaybackSourceView(BaseModel):
     bit_rate: int | None = None
     frame_rate: float | None = None
     size_bytes: int | None = None
-    #: 本地没有字节、只在网盘上（docs/design/cloud-storage.md §7.5）：取原文件可能被 302 到网盘直链，
-    #: App 据此才带 ``fallback=1``、直连失败才带 ``relay=1`` 重来。可空：老服务器没有这个字段
+    #: 本地没有字节、只在网盘上（docs/design/cloud-storage.md §7.5）：取原文件可能被 302 到
+    #: 网盘直链，App 据此才带 ``fallback=1``、直连失败才带 ``relay=1`` 重来。
+    #: 可空：老服务器没有这个字段
     on_drive: bool | None = None
 
 
