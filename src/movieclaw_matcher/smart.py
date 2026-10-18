@@ -244,6 +244,13 @@ def decide(
     state.first_observed_at = state.first_observed_at or observed
     # 兼容已存在的人工延期状态；新发现的旧发布时间不得覆盖用户决定。
     state.manual_extended = state.manual_extended or state.reason == "user_extended"
+    # 订阅跟随当前类型设置：设置把等待改短（含改成不等待）时，已在等待的单元按新预算
+    # 立即收紧；改长不追溯，已定的截止不往后挪。用户手动延长过的保留用户决定。
+    if not state.manual_extended:
+        budget_end = state.anchor + timedelta(seconds=policy.wait_seconds)
+        if budget_end < state.deadline:
+            state.deadline = budget_end
+            state.observation_end = min(state.observation_end, budget_end)
     if not state.manual_extended and anchor < state.anchor:
         state.anchor, state.anchor_source = anchor, source
         state.deadline = min(state.deadline, anchor + timedelta(seconds=policy.wait_seconds))

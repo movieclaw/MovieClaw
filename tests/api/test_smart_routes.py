@@ -142,7 +142,7 @@ def test_smart_runtime_settings_registered_before_first_subscription(client):
 
 
 @pytest.mark.parametrize("kind,legacy_wait", [("movie", 259200), ("tv", 7200)])
-def test_week_wait_profiles_validate_and_keep_existing_policy(client, kind, legacy_wait):
+def test_week_wait_profiles_validate_and_existing_subscriptions_follow(client, kind, legacy_wait):
     base = "/api/v1/subscriptions"
     profile_url = f"{base}/smart-profiles/{kind}"
     saved = client.put(
@@ -177,9 +177,11 @@ def test_week_wait_profiles_validate_and_keep_existing_policy(client, kind, lega
         )
         assert result.status_code == status, result.text
         assert client.get(profile_url).json()["data"] == profile
+    # 已有订阅跟随当前设置（不再冻结创建时的快照）；被拒绝的保存不改动它
+    assert original["smart_policy"]["wait_seconds"] == legacy_wait
     detail = client.get(f"{base}/{original['id']}").json()["data"]
-    assert detail["smart_policy"] == original["smart_policy"]
-    assert detail["smart_policy"]["wait_seconds"] == legacy_wait
+    assert detail["smart_policy"]["wait_seconds"] == 168 * 3600
+    assert detail["smart_policy"]["profile_revision"] == revision
 
 
 def test_legacy_rule_id_contract_preserves_smart_policy(client, tmp_path):

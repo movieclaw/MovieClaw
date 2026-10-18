@@ -110,7 +110,7 @@ struct UpgradeRunSheet: View {
                 Section {
                     if let preferences = detail.smartPreferences {
                         Text("智能目标：\(preferences.targetLabel)").font(.headline)
-                        Text(preferences.allowUpgrade ? "按本订阅创建时的设置洗版，达标并完成入库核验后停止。" : "本订阅未开启后续洗版。")
+                        Text(preferences.allowUpgrade ? "按当前智能设置洗版，达标并完成入库核验后停止。" : "本订阅未开启后续洗版。")
                             .font(.subheadline).foregroundStyle(.secondary)
                     } else { Text("智能设置无法读取，暂不能洗版。") }
                 }

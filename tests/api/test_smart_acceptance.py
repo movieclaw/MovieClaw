@@ -569,7 +569,7 @@ async def test_due_load_10000_units_100_expired_within_scan_budget(
         )
 
 
-async def test_movie_observation_target_and_profile_isolation(db, monkeypatch):
+async def test_movie_observation_target_and_longer_profile_not_retroactive(db, monkeypatch):
     from tests.api.test_subscription_pipeline import _fake_twin_probe, _service
 
     from movieclaw_api.services.subscription.smart_profiles import save_profile
@@ -604,9 +604,8 @@ async def test_movie_observation_target_and_profile_isolation(db, monkeypatch):
         state = SelectionState.model_validate(row.selection_state)
         assert state.observation_end - state.anchor == timedelta(hours=6)
         assert state.deadline - state.anchor == timedelta(days=1)
-        await save_profile(
-            session, "movie", SmartPreferences(wait_seconds=259200, source="remux"), 1
-        )
+        # 订阅跟随电影设置，但把等待改长不追溯：已定的截止不往后挪
+        await save_profile(session, "movie", SmartPreferences(wait_seconds=259200), 1)
         clock += timedelta(minutes=5)
         target = await _insert_torrent(
             session,
@@ -623,7 +622,10 @@ async def test_movie_observation_target_and_profile_isolation(db, monkeypatch):
         assert (
             await evaluate_and_dispatch(session, [target], source="电影目标到达")
         ).dispatched_units == 1
-        assert sub.smart_policy["source"] == "web-dl" and sub.smart_policy["wait_seconds"] == 86400
+        await session.refresh(sub)
+        assert sub.smart_policy["source"] == "web-dl" and sub.smart_policy["wait_seconds"] == 259200
+        followed = SelectionState.model_validate(row.selection_state)
+        assert followed.deadline - followed.anchor == timedelta(days=1)
         assert not (await session.execute(select(SmartSeason))).scalars().all()
         await confirm_import(
             session,

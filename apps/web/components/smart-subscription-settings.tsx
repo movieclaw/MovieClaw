@@ -162,5 +162,5 @@ export function SmartProfileCard({ kind, onSaved, compact = false }: {
 }
 
 export function SmartSubscriptionSettings() {
-  return <section className="space-y-4"><p className="text-sub leading-relaxed text-[var(--text-muted)]">按品质目标和等待耐心自动选择版本，电影和剧集分别设置。</p><div className="grid gap-4 lg:grid-cols-2"><SmartProfileCard kind="movie" /><SmartProfileCard kind="tv" /></div><p className="text-caption leading-relaxed text-[var(--text-muted)]">后续订阅复用对应设置。已有订阅保持创建时的设置。</p></section>;
+  return <section className="space-y-4"><p className="text-sub leading-relaxed text-[var(--text-muted)]">按品质目标和等待耐心自动选择版本，电影和剧集分别设置。</p><div className="grid gap-4 lg:grid-cols-2"><SmartProfileCard kind="movie" /><SmartProfileCard kind="tv" /></div><p className="text-caption leading-relaxed text-[var(--text-muted)]">保存后新订阅和已有订阅同时生效。正在等待的集只会按新设置缩短等待，不会延长；手动延长过的保持不变。</p></section>;
 }
