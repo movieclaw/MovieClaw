@@ -184,10 +184,10 @@ export function PluginPackagesSection({
         description={installed ? `${installed.length} 个已安装` : undefined}
         action={
           <>
+            {/* 不设 accept：手机浏览器不认 .mcplugin，会置灰选不了；格式由服务端校验 */}
             <input
               ref={fileInput}
               type="file"
-              accept=".mcplugin,.zip"
               className="hidden"
               onChange={(event) => {
                 onFile(event.target.files?.[0]);
