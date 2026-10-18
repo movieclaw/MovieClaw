@@ -27,9 +27,15 @@ object UpdatePolicy {
         return expected == actual
     }
 
-    /** Release 正文开头（Markdown 去掉标题符号），弹窗里放得下：最多几行、几百字，超出加省略号 */
+    /**
+     * Release 正文开头（Markdown 去掉标题符号），弹窗里放得下：最多几行、几百字，超出加省略号。
+     * 正文英文在前、中文在后：有「## 简体中文」时只取它之后、到下一个单独一行的 `---` 为止
+     */
     fun summary(changelog: String, maxLines: Int = 4, maxChars: Int = 200): String {
-        val text = changelog.lineSequence()
+        val lines = changelog.lines()
+        val zh = lines.indexOfFirst { it.trim() == "## 简体中文" }
+        val section = if (zh < 0) lines else lines.drop(zh + 1).takeWhile { it.trim() != "---" }
+        val text = section.asSequence()
             .map { it.trim().trimStart('#', '>', ' ').trim() }
             .filter { it.isNotEmpty() && !it.startsWith("```") }
             .take(maxLines)

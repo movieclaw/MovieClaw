@@ -44,6 +44,11 @@ class UpdatePolicyTest {
         assertEquals("a".repeat(200) + "…", UpdatePolicy.summary("a".repeat(500)))
     }
 
+    @Test fun `changelog summary shows only the Chinese section`() {
+        val text = "## Android 0.5.0: Updates\n\nEnglish intro.\n\n---\n\n## 简体中文\n\n## Android 0.5.0：自动更新\n\n中文介绍。\n\n---\n\n验证范围"
+        assertEquals("Android 0.5.0：自动更新\n中文介绍。", UpdatePolicy.summary(text))
+    }
+
     @Test fun `an old server without the endpoint asks to update the server`() {
         assertEquals(
             "连接官网（GitHub）失败，改走你的服务器也没成：这台服务器的 MovieClaw 版本还不支持代查 App 更新，请检查网络能否访问 GitHub，或先更新服务器",
