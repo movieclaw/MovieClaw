@@ -23,7 +23,10 @@ struct TorrentResultsView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10, pinnedViews: []) {
+            // 头部（横幅、状态行、条件胶囊）不进懒加载，只有结果走 LazyVStack：头部和结果同在一个
+            // LazyVStack 里时，甩到底的回弹会停在离底约 500pt 处，最后几行怎么滑都到不了（模拟器实测，
+            // 分组 / 列表都有，结果行高度是稳的）；头部挪出来后回弹正常停在底部
+            VStack(alignment: .leading, spacing: 10) {
                 if let grabTarget {
                     grabBanner(grabTarget)
                 }
@@ -40,7 +43,9 @@ struct TorrentResultsView: View {
                 if model.streaming {
                     progressBar
                 }
-                results
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    results
+                }
             }
             .padding(.horizontal, cards.edge)
             .padding(.bottom, 40)
