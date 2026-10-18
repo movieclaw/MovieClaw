@@ -2208,6 +2208,7 @@ data class PlaybackSourceView(
     @SerialName("bit_rate") val bitRate: Long? = null,
     @SerialName("frame_rate") val frameRate: Double? = null,
     @SerialName("size_bytes") val sizeBytes: Long? = null,
+    @SerialName("on_drive") val onDrive: Boolean? = null,
 )
 
 /**

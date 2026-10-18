@@ -9079,6 +9079,7 @@ nonisolated extension API {
         var bitRate: Int?
         var frameRate: Double?
         var sizeBytes: Int?
+        var onDrive: Bool?
 
         enum CodingKeys: String, CodingKey {
             case container
@@ -9088,6 +9089,7 @@ nonisolated extension API {
             case bitRate = "bit_rate"
             case frameRate = "frame_rate"
             case sizeBytes = "size_bytes"
+            case onDrive = "on_drive"
         }
     }
 

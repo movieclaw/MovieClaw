@@ -468,3 +468,39 @@ def test_auto_mode_redirects_apps_that_declare_fallback_in_the_query(client, tmp
     # 直连失败后带 relay=1 重来：转发
     retried = stream(fallback="1", relay="1")
     assert retried.status_code == 200 and retried.content == CONTENT
+
+
+def test_session_says_whether_the_source_is_on_a_drive(client, tmp_path):
+    """App 只对只在网盘上的文件带 fallback=1、直连失败才改走转发：会话的 source.on_drive 告诉它。"""
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import LibraryFile
+
+    file_id, path = seed(client, tmp_path)
+    capability = {
+        "video": [{"codec": "h264"}],
+        "audio": [{"codec": "aac"}],
+        "containers": ["mkv", "mp4", "hls-fmp4"],
+    }
+
+    def open_session() -> dict:
+        resp = client.post(
+            "/api/v1/playback/sessions", json={"file_id": file_id, "capability": capability}
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["data"]
+
+    assert open_session()["source"]["on_drive"] is True
+
+    # 同一个文件回到本地（重新下载了）：普通本地文件
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_bytes(CONTENT)
+
+    async def back_local() -> None:
+        async with get_database().session() as session:
+            row = await session.get(LibraryFile, file_id)
+            row.local_bytes = True
+            session.add(row)
+            await session.commit()
+
+    call(client, back_local)
+    assert open_session()["source"]["on_drive"] is False

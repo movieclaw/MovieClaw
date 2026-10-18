@@ -1148,6 +1148,7 @@ async def start_playback_session(
         bit_rate=file.bit_rate,
         frame_rate=file.frame_rate,
         size_bytes=file.size_bytes,
+        on_drive=not file.local_bytes,
     )
     chapter_marks = _chapter_marks(file)
     # 片头片尾（docs/design/skip-intro.md）：两次主键查询；这一季还没识别过就在后台
@@ -1312,6 +1313,7 @@ async def start_playback_session(
             bit_rate=file.bit_rate,
             frame_rate=file.frame_rate,
             size_bytes=file.size_bytes,
+            on_drive=not file.local_bytes,
         )
         playback_warmup.cancel(file.media_item_id)
         trickplay.schedule(file, delay_s=90)
