@@ -84,7 +84,7 @@ export function DeleteOptions({
           <span className="tnum font-semibold">{preview.cloud.files}</span> 个文件（
           <span className="tnum">{formatBytes(preview.cloud.bytes)}</span>）
           {preview.cloud.recycle_bin
-            ? `，进入${preview.cloud.backend_title}的回收站，在那里还能还原。`
+            ? `，进入 ${preview.cloud.backend_title} 的回收站，在那里还能还原。`
             : "，网盘没有回收站，删了就找不回来。"}
         </p>
       )}
