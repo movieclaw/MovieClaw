@@ -245,6 +245,51 @@ async def test_pack_is_not_used_as_single_episode_observation(db) -> None:
         assert wanted.release_forecast is None
 
 
+async def test_multi_episode_pack_counts_for_its_last_episode(db) -> None:
+    """「S01E01-E02」合集发布时 E2 一定已出：记为 E2 的观测，用来预测 E3（醉梦首播期只有合集）。"""
+    async with db.session() as session:
+        wanted, _expected = await _seed_target(session, cadence_days=1)
+        torrent = (await session.execute(select(SiteTorrent))).scalar_one()
+        pack_publish = datetime.combine(wanted.air_date, time(12, 18))
+        torrent.title = "Test Show S01E01-E02 1080p WEB-DL"
+        torrent.attrs = {**torrent.attrs, "episodes": [1, 2]}
+        torrent.publish_time = pack_publish
+        third_air = wanted.air_date + timedelta(days=1)
+        session.add_all(
+            [
+                torrent,
+                MediaEpisode(
+                    media_item_id=wanted.media_item_id,
+                    season_number=1,
+                    episode_number=3,
+                    name="E3",
+                    air_date=third_air,
+                ),
+                WantedItem(
+                    subscription_id=wanted.subscription_id,
+                    media_item_id=wanted.media_item_id,
+                    season_number=1,
+                    episode_number=3,
+                    status=WantedStatus.WANTED,
+                    air_date=third_air,
+                    next_search_at=datetime.combine(third_air, time()) + timedelta(hours=48),
+                ),
+            ]
+        )
+        await session.commit()
+
+        await refresh_release_forecasts(session, media_item_ids={wanted.media_item_id})
+        third = (
+            await session.execute(select(WantedItem).where(WantedItem.episode_number == 3))
+        ).scalar_one()
+        forecast = third.release_forecast
+        assert forecast is not None
+        assert forecast["basis_units"] == [[1, 2]]
+        assert datetime.fromisoformat(forecast["predicted_at"]).astimezone(UTC).replace(
+            tzinfo=None
+        ) == pack_publish + timedelta(days=1)
+
+
 async def test_prediction_probe_advances_existing_site_sync(db) -> None:
     """预测不受自动续订影响；普通同步消费探测点，暂停后探测立即失效。"""
     async with db.session() as session:

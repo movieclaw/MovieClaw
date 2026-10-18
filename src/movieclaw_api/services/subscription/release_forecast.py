@@ -486,7 +486,14 @@ def _observations_for_item(
     episodes: list[MediaEpisode],
     candidates: list[tuple[Row, TorrentCandidate]],
 ) -> list[_ObservedRelease]:
-    """从 site_torrent 提取本条目的明确单集观测；整季包与多集包不参与训练。"""
+    """从 site_torrent 提取本条目的单集发布观测。
+
+    列出了具体集号的合集（"S01E05-E06"、枚举完整的"全 40 集"）只记最后一集：合集
+    发布时最后一集一定已经出了，是那一集「最晚可得时间」的有效样本；前面几集早有
+    单集发布，不能拿合集时间代表它们。只标季不标集的整季包没有集号，不参与。
+    NAS 回放（2026-10，372 集）：计入合集后中位发现延迟 18.2 → 11.8 分钟，首播期
+    只有合集、没有单集样本的剧也能更早给出预测。
+    """
     air_dates = {
         (episode.season_number, episode.episode_number): episode.air_date
         for episode in episodes
@@ -498,9 +505,9 @@ def _observations_for_item(
     earliest: dict[tuple[int, int, str], _ObservedRelease] = {}
     for row, candidate in candidates:
         match = match_identity(candidate, identity)
-        if match is None or match.is_pack or len(match.episodes) != 1:
+        if match is None or not match.episodes:
             continue
-        season_number, episode_number = next(iter(match.episodes))
+        season_number, episode_number = max(match.episodes)
         air_date = air_dates.get((season_number, episode_number))
         if air_date is None or row.publish_time is None or row.id is None:
             continue
@@ -912,8 +919,9 @@ async def evaluate_release_forecasts(session: AsyncSession) -> int:
 
     预测机制的实验数据就靠它积累：主预测、首次预测与各影子预测在同一集上的误差
     并排保存，可直接在库里统计。只评估一次；首个单集观测出现 6 小时后才评估，
-    给其他站点的常规同步留出补上更早发布的时间。整季包/多集包不是单集观测，
-    只被包覆盖的集不会评估。返回本轮评估的工单数。
+    给其他站点的常规同步留出补上更早发布的时间。观测口径同预测（单集，以及合集的
+    最后一集）；只标季不标集的整季包没有集号，只被它覆盖的集不会评估。返回本轮
+    评估的工单数。
     """
     now = utcnow()
     rows = (
