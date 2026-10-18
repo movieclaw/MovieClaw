@@ -120,6 +120,7 @@ from movieclaw_api.schemas.library_search import LibrarySearchView
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services import jobs, media_scrape
 from movieclaw_api.services.auth import Principal
+from movieclaw_api.services.drives import registry as drive_registry
 from movieclaw_api.services.drives import uploads as drive_uploads
 from movieclaw_api.services.library import acquisition, source_annotation
 from movieclaw_api.services.library import chapters as chapters_mod
@@ -918,8 +919,11 @@ async def list_libraries(
         job_type=chapters_mod.JOB_TYPE,
         limit_per_resource=1,
     )
-    cloud_folders = await _cloud_folder_views(session, library_ids) if principal.is_admin else {}
-    uploads = await _cloud_upload_views(session, library_ids) if principal.is_admin else {}
+    # 网盘字段只在有插件提供网盘后端时带（cloud-storage.md §11.8）：
+    # 没有就是 None，网页不显示网盘那套
+    drive_views = principal.is_admin and drive_registry.active()
+    cloud_folders = await _cloud_folder_views(session, library_ids) if drive_views else {}
+    uploads = await _cloud_upload_views(session, library_ids) if drive_views else {}
     views = [
         LibraryView.from_model(
             r,
@@ -935,7 +939,7 @@ async def list_libraries(
             ),
             member_ids=members_by_library.get(r.id or -1, []),
             viewer_access=r.id in visible,
-            cloud_folders=cloud_folders.get(r.id or -1, []) if principal.is_admin else None,
+            cloud_folders=cloud_folders.get(r.id or -1, []) if drive_views else None,
             cloud_upload=uploads.get(r.id or -1),
         )
         for r in rows
@@ -1271,12 +1275,12 @@ async def get_library(
         viewer_access=viewer_access,
         cloud_folders=(
             (await _cloud_folder_views(session, [library_id])).get(library_id, [])
-            if principal.is_admin
+            if principal.is_admin and drive_registry.active()
             else None
         ),
         cloud_upload=(
             (await _cloud_upload_views(session, [library_id])).get(library_id)
-            if principal.is_admin
+            if principal.is_admin and drive_registry.active()
             else None
         ),
     )
@@ -1349,7 +1353,11 @@ async def create_library(
             scan_progress=_queued_scan_view(),
             member_ids=payload.member_ids or [],
             viewer_access=row.admin_visible,
-            cloud_folders=(await _cloud_folder_views(session, [row.id])).get(row.id, []),
+            cloud_folders=(
+                (await _cloud_folder_views(session, [row.id])).get(row.id, [])
+                if drive_registry.active()
+                else None
+            ),
         ),
         message=f"已创建媒体库「{row.name}」，正在扫描存量文件",
     )
@@ -1556,7 +1564,11 @@ async def update_library(
         origin=_job_origin(client_name),
     )
     member_ids = await MemberRepository(session).get_library_member_ids(library_id)
-    cloud_views = (await _cloud_folder_views(session, [library_id])).get(library_id, [])
+    cloud_views = (
+        (await _cloud_folder_views(session, [library_id])).get(library_id, [])
+        if drive_registry.active()
+        else None
+    )
     # 新挂上的网盘目录：只列它们、立刻纳管（根路径也变了的话下面的整库扫描会一并列）
     if folder_change is not None and folder_change.added and not roots_changed:
         await enqueue_scan_job(

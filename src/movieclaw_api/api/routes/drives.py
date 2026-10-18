@@ -31,6 +31,7 @@ from movieclaw_api.schemas.drives import (
     DriveLoginView,
     DriveSettingsPayload,
     DriveSettingsView,
+    DriveStatusView,
 )
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.drives import accounts, gateway
@@ -125,6 +126,21 @@ def account_view(row: DriveAccount) -> DriveAccountView:
 )
 async def list_backends() -> ApiResponse[list[DriveBackendView]]:
     return ok([_backend_view(item) for item in backends().values()])
+
+
+@router.get(
+    "/status",
+    response_model=ApiResponse[DriveStatusView],
+    summary="网盘功能是否启用、有几个账号（各端决定网盘入口出不出现）",
+    operation_id="drives.status",
+)
+async def drive_status() -> ApiResponse[DriveStatusView]:
+    from sqlalchemy import func
+    from sqlmodel import select
+
+    async with get_database().session() as session:
+        count = (await session.execute(select(func.count()).select_from(DriveAccount))).scalar_one()
+    return ok(DriveStatusView(active=bool(backends()), accounts=int(count)))
 
 
 @router.get(

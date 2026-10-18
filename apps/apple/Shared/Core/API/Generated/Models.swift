@@ -3423,6 +3423,19 @@ nonisolated extension API {
         }
     }
 
+    /// 网盘功能醒没醒着（cloud-storage.md §11.8）：各端据此决定网盘入口出不出现，一次请求问完。
+    struct DriveStatusView: Codable, Hashable, Sendable {
+        /// 有插件提供网盘后端；没有时网盘功能整体休眠
+        var active: Bool
+        /// 网盘账号数（插件卸载后账号还在，设置页要能看到并提示装插件）
+        var accounts: Int
+
+        enum CodingKeys: String, CodingKey {
+            case active
+            case accounts
+        }
+    }
+
     /// 一个多文件单元里的一个文件。
     struct DuplicateFileView: Codable, Hashable, Sendable {
         var id: Int

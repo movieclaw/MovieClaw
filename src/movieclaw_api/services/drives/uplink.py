@@ -15,11 +15,12 @@ _last_outside = 0.0
 
 
 def note(client_host: str | None) -> None:
-    """一次取流请求：来自外网就记下时间。"""
+    """一次取流请求：来自外网就记下时间。没有网盘后端时什么都不做（cloud-storage.md §11.8）。"""
+    from movieclaw_api.services.drives.registry import active
     from movieclaw_api.services.drives.sources import is_home_client
 
     global _last_outside
-    if not is_home_client(client_host):
+    if active() and not is_home_client(client_host):
         _last_outside = time.monotonic()
 
 

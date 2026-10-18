@@ -21,7 +21,12 @@ import { LIBRARY_KIND_META } from "@/components/library-kind-meta";
 import { Modal } from "@/components/modal";
 import { Tooltip } from "@/components/tooltip";
 import { fileToCompressedJpeg } from "@/lib/backdrop";
-import { type DriveAccount, listDriveAccounts, listDriveBackends } from "@/lib/api/drives";
+import {
+  type DriveAccount,
+  getDriveStatus,
+  listDriveAccounts,
+  listDriveBackends,
+} from "@/lib/api/drives";
 import {
   type CloudFolderPayload,
   type LibraryCloudFolder,
@@ -214,7 +219,8 @@ function draftOf(picked: PickedDriveFolder): CloudRootDraft {
   };
 }
 
-/** 网盘账号与可用的网盘（决定「＋ 网盘目录」出不出现）；查不到按没有处理。 */
+/** 网盘账号与可用的网盘（决定「＋ 网盘目录」出不出现）；查不到按没有处理。
+ *  网盘功能休眠（没装网盘插件）时只问一次状态就停（cloud-storage.md §11.8）。 */
 function useDriveRootOptions(enabled: boolean): { accounts: DriveAccount[]; hasBackends: boolean } {
   const [state, setState] = useState<{ accounts: DriveAccount[]; hasBackends: boolean }>({
     accounts: [],
@@ -223,8 +229,10 @@ function useDriveRootOptions(enabled: boolean): { accounts: DriveAccount[]; hasB
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    void Promise.all([listDriveAccounts(), listDriveBackends()])
-      .then(([accounts, backends]) => {
+    void getDriveStatus()
+      .then(async (status) => {
+        if (!status.active) return;
+        const [accounts, backends] = await Promise.all([listDriveAccounts(), listDriveBackends()]);
         if (!cancelled) setState({ accounts, hasBackends: backends.length > 0 });
       })
       .catch(() => {});

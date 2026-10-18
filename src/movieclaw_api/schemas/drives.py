@@ -126,6 +126,15 @@ class DriveDirView(BaseModel):
     library_name: str | None = None
 
 
+class DriveStatusView(BaseModel):
+    """网盘功能醒没醒着（cloud-storage.md §11.8）：各端据此决定网盘入口出不出现，一次请求问完。"""
+
+    active: bool = Field(description="有插件提供网盘后端；没有时网盘功能整体休眠")
+    accounts: int = Field(
+        description="网盘账号数（插件卸载后账号还在，设置页要能看到并提示装插件）"
+    )
+
+
 class DriveSettingsView(BaseModel):
     """网盘的全局选项。"""
 

@@ -64,6 +64,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.services import jobs
+from movieclaw_api.services.drives.registry import active as drives_active
 from movieclaw_api.services.foreground import yield_to_foreground
 from movieclaw_api.services.library import acquisition
 from movieclaw_api.services.library import cloud as library_cloud
@@ -1435,9 +1436,10 @@ async def _scan(
                 )
 
         # 网盘文件夹（cloud-storage.md §4）：整树列举代替遍历，列出来的视频并进待处理列表，
-        # 之后与本地文件同走识别与入账。范围扫描（监听事件）不碰网盘
+        # 之后与本地文件同走识别与入账。范围扫描（监听事件）不碰网盘；没有插件提供网盘后端时
+        # 连网盘表都不查（§11.8）
         cloud: library_cloud.CloudRound | None = None
-        if scope_names_by_root is None and profile.playable:
+        if scope_names_by_root is None and profile.playable and drives_active():
             cloud_folders = await library_cloud.folders_to_list(
                 session,
                 library_id,

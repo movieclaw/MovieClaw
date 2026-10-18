@@ -14,7 +14,7 @@
 import { useEffect, useState } from "react";
 
 import { SettingsSection } from "@/components/settings-ui";
-import { listDriveAccounts } from "@/lib/api/drives";
+import { getDriveStatus } from "@/lib/api/drives";
 import { type CloudStreamMode, fetchPlaybackPolicy, savePlaybackPolicy } from "@/lib/api/playback";
 
 const OPTIONS: { value: CloudStreamMode; title: string; description: string }[] = [
@@ -44,10 +44,13 @@ export function CloudStreamModeSection() {
 
   useEffect(() => {
     let alive = true;
-    void Promise.all([listDriveAccounts(), fetchPlaybackPolicy()])
-      .then(([accounts, policy]) => {
+    // 网盘功能休眠（没装网盘插件）或没有账号时这一组不出现，连播放策略也不用读
+    void getDriveStatus()
+      .then(async (status) => {
+        if (!status.active || status.accounts === 0) return;
+        const policy = await fetchPlaybackPolicy();
         if (!alive) return;
-        setVisible(accounts.length > 0);
+        setVisible(true);
         setMode(policy.cloud_stream_mode ?? "auto");
       })
       .catch(() => {

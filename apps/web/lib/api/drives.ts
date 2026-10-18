@@ -108,6 +108,15 @@ export interface DriveLogin {
   created: boolean;
 }
 
+/** 网盘功能醒没醒着（cloud-storage.md §11.8）：没有插件提供后端时休眠，各处网盘入口据此出不出现 */
+export interface DriveStatus {
+  active: boolean;
+  /** 网盘账号数：插件卸载后账号还在，设置页要能看到并提示装插件 */
+  accounts: number;
+}
+
+export const getDriveStatus = () => unwrap(request<ApiEnvelope<DriveStatus>>("/drives/status"));
+
 export const listDriveBackends = () =>
   unwrap(request<ApiEnvelope<DriveBackend[]>>("/drives/backends"));
 

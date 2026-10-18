@@ -112,6 +112,7 @@ drives logins start
 drives logins status
 drives settings get
 drives settings update
+drives status
 extension cookies push
 extension ping
 extension sites list

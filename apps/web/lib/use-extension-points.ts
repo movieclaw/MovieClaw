@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from "react";
 
-import { listDriveAccounts, listDriveBackends } from "@/lib/api/drives";
+import { getDriveStatus } from "@/lib/api/drives";
 import type { ExtensionPoint } from "@/lib/mock-data";
 
 const EMPTY: ReadonlySet<ExtensionPoint> = new Set();
@@ -19,10 +19,10 @@ export function useActiveExtensionPoints(enabled: boolean): ReadonlySet<Extensio
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    void Promise.all([listDriveBackends(), listDriveAccounts()])
-      .then(([backends, accounts]) => {
+    void getDriveStatus()
+      .then((status) => {
         if (cancelled) return;
-        setActive(backends.length > 0 || accounts.length > 0 ? new Set(["drive-backends"]) : EMPTY);
+        setActive(status.active || status.accounts > 0 ? new Set(["drive-backends"]) : EMPTY);
       })
       .catch(() => {});
     return () => {

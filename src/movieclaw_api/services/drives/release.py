@@ -81,8 +81,14 @@ _reads: dict[int, float] = {}
 
 
 def note_read(file_id: int) -> None:
-    """直出取流读了这个文件的本地字节（取流入口调用）。"""
-    _reads[file_id] = time.monotonic()
+    """直出取流读了这个文件的本地字节（取流入口调用）。
+
+    没有网盘后端时不记（cloud-storage.md §11.8）。
+    """
+    from movieclaw_api.services.drives.registry import active
+
+    if active():
+        _reads[file_id] = time.monotonic()
 
 
 def _recently_read(file_id: int) -> bool:

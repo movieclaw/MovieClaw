@@ -100,31 +100,59 @@ async def transcode(ctx: Context) -> None:
 async def drive_sources(ctx: Context) -> None:
     """把只在网盘上的库文件接到播放的读字节入口：转码、字幕、关键帧读网盘直链。
 
-    docs/design/cloud-storage.md §7。
+    docs/design/cloud-storage.md §7。没有插件提供网盘后端时不登记（§11.8）。
     """
-    from movieclaw_api.services.drives import sources
+    from movieclaw_api.services.drives import registry, sources
 
     sources.bind()
     ctx.effect(sources.unbind, label="unbind-drive-sources")
-    count = await sources.load_registry()
-    if count:
-        logger.info("已登记 %d 个只在网盘上的库文件", count)
+
+    async def on_change(awake: bool) -> None:
+        if not awake:
+            sources.reset_state()
+            return
+        count = await sources.load_registry()
+        if count:
+            logger.info("已登记 %d 个只在网盘上的库文件", count)
+
+    registry.follow(ctx, on_change)
 
 
 @plugin("drives.uploads", title="网盘上传", inject=(DB,), reloadable=True)
 async def drive_uploads(ctx: Context) -> None:
-    """主根在网盘的库：新入库的本地文件传到网盘并核验，核验后腾空本地
-    （docs/design/cloud-storage.md §5、§6）。"""
-    from movieclaw_api.services.drives import release, uploads
+    """主根在网盘的库：新入库的本地文件传到网盘并核验，核验后腾空本地；网盘变化同步与规格补探
+    （docs/design/cloud-storage.md §4、§5、§6）。
+
+    定时任务只在有插件提供网盘后端时挂上，后端都撤走就撤下（§11.8）：没用网盘的用户不跑这些任务、
+    不留运行记录，定时任务列表里也没有它们。任务处理器常驻，好让排着的上传任务在后端回来后接着跑。
+    """
+    from movieclaw_api.services.drives import registry, release, uploads
     from movieclaw_api.services.jobs import contribute_job_handlers
-    from movieclaw_scheduler import contribute_tasks
+    from movieclaw_api.services.library import cloud
+    from movieclaw_scheduler import SCHEDULED_TASKS
+    from movieclaw_scheduler.registry import declared_tasks
     from movieclaw_sdk.events import LIBRARY_FILES_ADDED, FilesAdded
 
     contribute_job_handlers(ctx, uploads)
-    contribute_tasks(ctx, uploads, release)
+    tasks = ctx.registry(SCHEDULED_TASKS)
+    withdraw: list = []
+
+    def withdraw_tasks() -> None:
+        while withdraw:
+            withdraw.pop()()
+
+    async def on_change(awake: bool) -> None:
+        withdraw_tasks()
+        if awake:
+            for module in (uploads, release, cloud):
+                for definition in declared_tasks(module):
+                    withdraw.append(tasks.add(definition.key, definition, entry_id=ctx.entry_id))
+
+    ctx.effect(withdraw_tasks, label="withdraw-drive-tasks")
+    registry.follow(ctx, on_change)
 
     async def on_added(added: FilesAdded) -> None:
-        await uploads.enqueue(added.library_id)
+        if registry.active():
+            await uploads.enqueue(added.library_id)
 
     ctx.on(LIBRARY_FILES_ADDED, on_added, id="files-added")
-

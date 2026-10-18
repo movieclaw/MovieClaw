@@ -166,6 +166,7 @@ drives logins status
 drives settings
 drives settings get
 drives settings update
+drives status
 extension
 extension cookies
 extension cookies push
