@@ -101,6 +101,10 @@ class Database:
             echo=echo,
             # 允许连接在不同线程间复用（aiosqlite 在线程池中执行，需关闭该检查）
             connect_args={"check_same_thread": False},
+            # 后进先出：先拿刚还回来、页缓存还热的连接。默认先进先出会让连续请求
+            # 轮流落到 5 个连接上，各自从冷缓存读满一遍——NAS 库实测连续 8 次
+            # 「接下来继续」峰值多占约 120MB，单请求也慢约 10%
+            pool_use_lifo=True,
         )
 
         # 为底层同步引擎注册 connect 事件，写入 PRAGMA
