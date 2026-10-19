@@ -279,13 +279,27 @@ private struct TVPlayerContent: View {
                             .padding(.horizontal, 80)
                     }
                 }
+                .overlay(alignment: .top) {
+                    // 往下能拉出面板：跟控制层一起出现、一起收起，只一个小箭头加一行小字。
+                    // 留在电视的标题安全区里（距上沿 60，同暂停大标题）；暂停时左上角是大片名，不挤在一起
+                    if controller.session != nil, !showPaused {
+                        VStack(spacing: 6) {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 22, weight: .bold))
+                            Text(TVPlayerPanel.tabs(for: controller).map(\.rawValue).joined(separator: " · "))
+                                .font(.caption)
+                        }
+                        .foregroundStyle(.white.opacity(0.7))
+                        .padding(.top, 60)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("tv-player-panel-hint")
+                    }
+                }
             Spacer(minLength: 0)
             TVTransportBar(controller: controller, trickplay: trickplay, scrubMs: scrubMs, scrubRate: holdRate)
                 // 倍速键在片名一行的右端，同 tvOS 系统播放器的字幕 / 音轨 / 倍速键（docs/design/playback-speed.md）
                 .overlay(alignment: .topTrailing) {
-                    TVSpeedButton(controller: controller, focus: $focus, down: openPanel) {
-                        focus = .surface
-                    }
+                    TVSpeedButton(controller: controller, focus: $focus, down: openPanel)
                     .alignmentGuide(.top) { $0[VerticalAlignment.center] - 14 }
                     .disabled(isModal)
                 }
@@ -445,9 +459,9 @@ private struct TVPlayerContent: View {
             // 点按 / 长按要看松开的时刻，由 TVArrowPresses 处理（arrowDown / arrowUp）
             break
         case .down:
-            moveDown()
+            openPanel()
         case .up:
-            showChrome()
+            moveUp()
         @unknown default:
             break
         }
@@ -498,17 +512,16 @@ private struct TVPlayerContent: View {
     }
 
     private func handleVerticalSwipe(_ down: Bool) {
-        if down { moveDown() } else { showChrome() }
+        if down { openPanel() } else { moveUp() }
     }
 
-    /// 往下：控制层露着时先落到进度条上方的倍速键（同系统播放器，再往下才是面板）；控制层收着时直接开面板
-    private func moveDown() {
+    /// 往上：控制层露着时落到进度条上方的倍速键（键就在进度条上面）；收着时只唤出控制层。
+    /// 往下永远是字幕 / 音轨 / 画质面板，顶部的小箭头提示的就是它
+    private func moveUp() {
         if chromeVisible, panel == nil, !isModal, controller.session != nil {
             focus = .speed
-            showChrome()
-        } else {
-            openPanel()
         }
+        showChrome()
     }
 
     private func openPanel() {
