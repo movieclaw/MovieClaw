@@ -124,7 +124,7 @@
     {
       "id": 18,
       "prompt": "能不能把我的 123 网盘接进来，当媒体库的存储用？",
-      "expected_output": "触发技能；先用 drives backends list 查现在能接哪些网盘；没有就做成网盘后端插件（drive-backends 注册表，继承 DriveBackend），以插件仓库的 cloud-115 为参照；讲清登录方式（扫码或 Cookie）、要实现哪些能力、账号凭据与限速由主程序管；征得同意前不安装。",
+      "expected_output": "触发技能；先用 drives backends list 查现在能接哪些网盘；没有就做成网盘后端插件（drive-backends 注册表，继承 DriveBackend），以插件仓库的 cloud-115 为参照；讲清登录方式（扫码、Cookie，或开放平台 Client ID / 密钥走填表登录 login_with_form）、要实现哪些能力、账号凭据与限速由主程序管；征得同意前不安装。",
       "expectations": ["查了现有的网盘后端", "方案是网盘后端插件并提到 cloud-115 作参照", "没有在未经同意时安装"],
       "checks": {"skill_read": true, "must_mention_any": ["cloud-115", "DriveBackend", "网盘后端"], "no_install": true}
     }
