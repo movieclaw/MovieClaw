@@ -7,8 +7,10 @@ import {
   SKIP_TAIL_MS,
   activeSkipSegment,
   autoNextArmed,
+  autoSkips,
   isInOutro,
   skipLabel,
+  skipName,
   shouldShowUpNext,
 } from "../lib/player/timeline.ts";
 
@@ -90,4 +92,19 @@ test("下一集卡片只在认出的片尾里或放完后出现，不再按最�
     assert.equal(shouldShowUpNext([segment], 2_695_000), false);
     assert.equal(shouldShowUpNext([segment], 2_700_000, true), true);
   }
+});
+
+test("自动跳过：广告、预告直接跳，片头要这部剧学过，其他只给按钮", () => {
+  assert.equal(autoSkips(ad, true, false), true);
+  assert.equal(autoSkips({ ...ad, type: "preview" }, true, false), true);
+  assert.equal(autoSkips(intro, true, false), false);
+  assert.equal(autoSkips(intro, true, true), true);
+  for (const type of ["other", "outro", "future-type"]) {
+    assert.equal(autoSkips({ ...ad, type }, true, true), false);
+  }
+  // 总开关关了一律只给按钮
+  assert.equal(autoSkips(ad, false, true), false);
+  assert.equal(autoSkips(intro, false, true), false);
+  assert.equal(skipName(intro), "片头");
+  assert.equal(skipName(ad), "广告");
 });

@@ -401,8 +401,11 @@ final class TVFlowUITests: XCTestCase {
     // MARK: 播放器：跳过片头、下一集
 
     /// 剧集从头放：片头时段出现「跳过片头」并自动拿到焦点，按一下就跳过
+    /// （按过一次这部剧就学会自动跳，开测前先忘掉，用例可重跑）
     @MainActor
-    func testSkipIntroButton() {
+    func testSkipIntroButton() async throws {
+        let token = try await TestBackend.login(server: server, username: username, password: password)
+        try await TestBackend.setIntroAutoSkip(server: server, token: token, item: Int(showItem) ?? 0, enabled: false)
         let app = launchSignedIn(["-mcRoute", "/play/\(showItem)/s01e03?t=0"])
         waitForPlayback(app)
         let skip = app.element("tv-player-skip")
@@ -490,6 +493,15 @@ enum TestBackend {
 
     static func approve(server: String, token: String, userCode: String) async throws {
         _ = try await call(server, "POST", "/api/v1/auth/devices/requests/\(userCode)/approve", body: nil, token: token)
+    }
+
+    /// 自动跳过：记下 / 忘掉这部剧的片头（docs/design/skip-intro.md §5）
+    static func setIntroAutoSkip(server: String, token: String, item: Int, enabled: Bool) async throws {
+        _ = try await call(server, "PUT", "/api/v1/playback/auto-skip/intro/\(item)", body: ["enabled": enabled], token: token)
+    }
+
+    static func setAutoSkip(server: String, token: String, enabled: Bool) async throws {
+        _ = try await call(server, "PUT", "/api/v1/playback/auto-skip", body: ["enabled": enabled], token: token)
     }
 
     static func logout(server: String, token: String) async throws {

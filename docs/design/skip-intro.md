@@ -25,8 +25,8 @@
    抽查的一集与 TheIntroDB 人工标注的片头边界差在 1 秒内。追更场景下，
    一集入库当时就能给出结果的：片头 88%、片尾 92%，季里第 3 集起才有结果。
 4. **怎么用**：播放器在片头区间显示「跳过片头」，片尾一开始就提前显示「即将播放下一集」卡片。
-   Jellyfin 兼容层的 `/MediaSegments` 输出真实分段，Infuse 也会出现跳过按钮。iPhone / iPad 上广告、预告自动跳，
-   片头在用户手动跳过一次后按剧自动跳（§5「自动跳过」），其他端仍手动；识别到延伸至结尾的片尾时，当前 Web / Apple 客户端支持 8 秒倒计时切下一集。
+   Jellyfin 兼容层的 `/MediaSegments` 输出真实分段，Infuse 也会出现跳过按钮。网页与 Apple 客户端（iPhone / iPad / Mac / Apple TV）上广告、预告自动跳，
+   片头在用户手动跳过一次后按剧自动跳（§5「自动跳过」，设定跟账号走），Android 端仍手动；识别到延伸至结尾的片尾时，当前 Web / Apple 客户端支持 8 秒倒计时切下一集。
 5. **成本**：每集指纹约 33 KB，全库约 270 MB，放在可清理的缓存目录。音频部分不新增运行时依赖
    （jellyfin-ffmpeg 自带 chromaprint，numpy 已在依赖里）；v8 起用画面文字修正片尾、给开头段定类型
    （§2.12、§2.13），PP-OCR 模型约 16 MB 在构建镜像时烧进去，runtime-version 因此升到 18。
@@ -721,13 +721,16 @@ PYTHONPATH=src .venv/bin/python scripts/evaluate_skip_frames.py \
   没认出就不提前打扰（去掉了「最后 40 秒」兜底卡片），放完才弹。与跳过按钮占同一个角落、不同时出现；
   最后一集（没有下一集）不弹；
 - 片段模式（刷片）、已播完、报错、要用户同意、锁屏时都不给按钮；
-- **自动跳过**（2026-10-19 用户定，先做 iPhone / iPad；Mac、Apple TV、Web 仍手动）：
+- **自动跳过**（2026-10-19 用户定，先做 iPhone / iPad；2026-10-20 网页、Mac、Apple TV 跟上，同一套规则、同一份账号设定）：
   - 自然播进区间才判断（含开播就在区间里，如贴零的冠名广告）；用户拖进去、±10 秒跳进去、撤回回去的段只给按钮，
     一段一集里最多自动跳一次；离段尾不到 3 秒同样不跳；
   - 广告、预告直接跳，按钮位置换成「已跳过广告 · 撤回」停 5 秒，撤回回到段起点接着看；
   - 片头按剧学：这部剧没手动跳过过片头只给按钮；手动点过一次就记下，提示「本剧以后自动跳过片头 · 不用」，
     以后自动跳 +「撤回」；撤回或点「不用」就忘掉，提示「本剧不再自动跳过片头」；
     服务端是旧版本（会话里没有 `auto_skip`、记不住）时不学，也不给这句提示，片头只给按钮，广告照跳；
+  - Apple TV：「已跳过片头 · 撤回」整颗是按钮、自动拿焦点，按确认撤回，返回键 = 不撤回、收起提示（不退出播放）；
+    「本剧以后自动跳过片头」只告知、不拿焦点，不给「不用」——刚按完「跳过片头」焦点会落上去，连按就误点了，
+    不想自动跳在下一集按「撤回」即可；
   - 「跳过此段」（未分类）和非结尾片尾永远只给按钮；
   - 跟账号走：`playback_preference` 每人一行（总开关默认开 + 学过的剧），随会话下发 `auto_skip`，
     `PUT /playback/auto-skip`、`PUT /playback/auto-skip/intro/{media_item_id}` 修改；分享访客按默认（广告跳、片头只给按钮）；
@@ -740,7 +743,7 @@ PYTHONPATH=src .venv/bin/python scripts/evaluate_skip_frames.py \
   Apple TV 卡片有「下一集」「观看片尾」两颗按钮，焦点移到「观看片尾」立刻停倒计时，返回键等同「观看片尾」。
   暂停时倒计时停住；连续无人操作自动切换 3 次后不再自动接，放完时问「还在看吗？」
   （Apple TV 全屏对话框，其他端卡片换文案）。ad/preview/other 即使带 to_end，也不作为提前换集的依据。
-- 网页：`lib/player/timeline.ts`（`activeSkipSegment` / `shouldShowUpNext` / `skipLabel`）+ `video-player.tsx`；
+- 网页：`lib/player/timeline.ts`（`activeSkipSegment` / `shouldShowUpNext` / `skipLabel` / `autoSkips`）+ `video-player.tsx`；
   iOS：`SkipSegments.swift`（同一组规则）+ `PlayerSkipButton` + `PlaybackController.skipSegment`。
   两端逻辑逐条对照，用同一组用例各测一遍。
 

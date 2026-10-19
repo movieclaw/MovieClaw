@@ -24,6 +24,8 @@ enum Theme {
     static let warning = Color(red: 0xFB / 255, green: 0xBF / 255, blue: 0x24 / 255)
     static let info = Color(red: 0x60 / 255, green: 0xA5 / 255, blue: 0xFA / 255)
     static let line = Color.white.opacity(0.08)
+    /// 进度条上可跳过的段（片头、广告等，docs/design/skip-intro.md §5）：琥珀色，压在已播放部分之上也看得见
+    static let skippable = Color(red: 0.96, green: 0.72, blue: 0.32)
 
     /// 页面水平边距（Web 手机端 px-4 ≈ 16pt，标题区更宽）
     static let pagePadding: CGFloat = 16

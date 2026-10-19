@@ -82,6 +82,7 @@ struct TVPlayerScreen: View {
 enum TVPlayerFocus: Hashable {
     case surface
     case skip
+    case skipUndo
     case upNext
     case watchCredits
     case qualityOffer
@@ -183,7 +184,7 @@ private struct TVPlayerContent: View {
             // 改用系统的做法——它们声明「优先默认焦点」，这里请焦点引擎在这个范围里重新挑一次
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled else { return }
-            if contextualFocusTarget != nil || focus == nil || focus == .skip || focus == .upNext || focus == .watchCredits
+            if contextualFocusTarget != nil || focus == nil || focus == .skip || focus == .skipUndo || focus == .upNext || focus == .watchCredits
                 || focus == .qualityOffer {
                 resetFocus(in: focusScope)
             }
@@ -296,7 +297,7 @@ private struct TVPlayerContent: View {
         .allowsHitTesting(false)
     }
 
-    /// 右下角：跳过片头 / 下一集卡片 / 换画质建议（同一个角落，同时只出一个）
+    /// 右下角：跳过片头 / 自动跳过的提示 / 下一集卡片 / 换画质建议（同一个角落，同时只出一个）
     @ViewBuilder
     private var contextualCorner: some View {
         VStack {
@@ -307,6 +308,15 @@ private struct TVPlayerContent: View {
                     TVQualityOfferCard(offer: offer, accept: controller.acceptQualityOffer, dismiss: controller.dismissQualityOffer)
                         .focused($focus, equals: .qualityOffer)
                         .prefersDefaultFocus(true, in: focusScope)
+                } else if let notice = controller.skipNotice {
+                    // 提示优先于跳过按钮（撤回后回到片头里，提示收起才轮到按钮）
+                    TVSkipNotice(notice: notice, undo: controller.undoAutoSkip)
+                        .focused($focus, equals: .skipUndo)
+                        .prefersDefaultFocus(true, in: focusScope)
+                        .task(id: notice.id) {
+                            try? await Task.sleep(for: .milliseconds(notice.durationMs))
+                            controller.expireSkipNotice(notice.id)
+                        }
                 } else if let segment = controller.skipSegment {
                     TVSkipButton(segment: segment, action: controller.skipCurrentSegment)
                         .focused($focus, equals: .skip)
@@ -404,6 +414,11 @@ private struct TVPlayerContent: View {
     private var contextualFocusTarget: TVPlayerFocus? {
         guard !isModal, panel == nil else { return nil }
         if controller.qualityOffer != nil { return .qualityOffer }
+        if let notice = controller.skipNotice {
+            // 只有「已跳过 · 撤回」能按；「本剧以后自动跳过」只是告知，不抢焦点
+            if case .skipped = notice.kind { return .skipUndo }
+            return nil
+        }
         if controller.skipSegment != nil { return .skip }
         if upNextCardVisible { return .upNext }
         return nil
@@ -559,6 +574,12 @@ private struct TVPlayerContent: View {
         }
         if focus == .qualityOffer {
             controller.dismissQualityOffer()
+            focus = .surface
+            return
+        }
+        if let notice = controller.skipNotice, case .skipped = notice.kind {
+            // 「已跳过 · 撤回」在时返回键 = 不撤回、收起提示，免得刚跳过就一按退出播放
+            controller.expireSkipNotice(notice.id)
             focus = .surface
             return
         }

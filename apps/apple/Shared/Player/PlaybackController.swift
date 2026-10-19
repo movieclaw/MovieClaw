@@ -640,20 +640,13 @@ final class PlaybackController {
         noteUserActivity()
         guard let segment = skipSegment else { return }
         seek(toFileMs: segment.endMs, source: .button)
-        if Self.autoSkipSupported, segment.type == "intro", autoSkipEnabled, canLearnIntro, !introAutoSkip, !scope.isShare {
+        if segment.type == "intro", autoSkipEnabled, canLearnIntro, !introAutoSkip, !scope.isShare {
             setIntroAutoSkip(true)
             skipNotice = SkipNotice(kind: .learned)
         }
     }
 
     // MARK: 自动跳过（docs/design/skip-intro.md §5）
-
-    /// 先只在 iPhone / iPad 上做：Mac、Apple TV 还没有「撤回」的界面，照旧只给按钮
-    #if os(iOS)
-    static let autoSkipSupported = true
-    #else
-    static let autoSkipSupported = false
-    #endif
 
     /// 跳过按钮那个角落的提示
     struct SkipNotice: Equatable {
@@ -687,7 +680,7 @@ final class PlaybackController {
 
     /// 进度推进时调用：自然播进了区间、这一段还没决定过，就按 `SkipSegments.autoSkips` 跳或只给按钮
     private func evaluateAutoSkip() {
-        guard Self.autoSkipSupported, phase == .playing, !paused,
+        guard phase == .playing, !paused,
               let segment = skipSegment, !skipHandled.contains(segment.startMs) else { return }
         skipHandled.insert(segment.startMs)
         guard SkipSegments.autoSkips(segment, enabled: autoSkipEnabled, introLearned: introAutoSkip) else { return }

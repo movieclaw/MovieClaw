@@ -322,7 +322,7 @@ private struct MacPlayerContent: View {
         }
     }
 
-    /// 右下角：换画质建议 / 跳过片头 / 下一集卡片（同一个角落，同时只出一个）。控制层出现时让到面板上方
+    /// 右下角：换画质建议 / 自动跳过的提示 / 跳过片头 / 下一集卡片（同一个角落，同时只出一个）。控制层出现时让到面板上方
     private var contextualCorner: some View {
         // 叠放而不是横排：换下来的那个淡出期间还占着位置，横排会把新来的挤出窗口右边
         ZStack(alignment: .bottomTrailing) {
@@ -331,6 +331,14 @@ private struct MacPlayerContent: View {
             if let offer = controller.qualityOffer {
                 MacQualityOfferCard(offer: offer, accept: controller.acceptQualityOffer, dismiss: controller.dismissQualityOffer)
                     .transition(Self.cornerTransition)
+            } else if let notice = controller.skipNotice {
+                // 提示优先于跳过按钮（撤回后回到片头里，提示收起才轮到按钮）
+                MacSkipNotice(notice: notice, undo: controller.undoAutoSkip, decline: controller.declineIntroAutoSkip)
+                    .transition(Self.cornerTransition)
+                    .task(id: notice.id) {
+                        try? await Task.sleep(for: .milliseconds(notice.durationMs))
+                        controller.expireSkipNotice(notice.id)
+                    }
             } else if let segment = controller.skipSegment {
                 MacSkipButton(segment: segment, action: controller.skipCurrentSegment)
                     .transition(Self.cornerTransition)
@@ -417,7 +425,7 @@ private struct MacPlayerContent: View {
     }
 
     private var cornerKey: String {
-        "\(controller.qualityOffer != nil)-\(controller.skipSegment?.type ?? "")-\(controller.showsUpNext)"
+        "\(controller.qualityOffer != nil)-\(controller.skipNotice?.id.uuidString ?? "")-\(controller.skipSegment?.type ?? "")-\(controller.showsUpNext)"
     }
 
     /// 调试驱动读的状态摘要（控件树里 mac-player-surface 的值）

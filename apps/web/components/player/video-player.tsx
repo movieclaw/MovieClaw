@@ -23,6 +23,7 @@ import {
   reportPlaybackProgress,
   reportPlaybackProgressOnUnload,
   resolveStreamUrl,
+  setAutoSkipIntro,
   startPlaybackSession,
   fetchTrickplay,
   reportPlaybackRecord,
@@ -151,14 +152,19 @@ import { resolveTap } from "@/lib/player/tap";
 import {
   AUTO_NEXT_MAX_STREAK,
   AUTO_NEXT_MS,
+  SKIP_INFO_NOTICE_MS,
+  SKIP_NOTICE_MS,
+  type SkipSegment,
   activeSkipSegment,
   autoNextArmed,
+  autoSkips,
   clampSeekTarget,
   formatClock,
   isWithinRanges,
   planSeek,
   shouldShowUpNext,
   skipLabel,
+  skipName,
   toFileMs,
   toSessionSeconds,
 } from "@/lib/player/timeline";
@@ -1097,6 +1103,18 @@ export function VideoPlayer(props: VideoPlayerProps) {
    * 随会话下发，这里只管按播放位置用——不做任何计算。旧服务端没有这个字段，当空表。
    */
   const segments = useMemo(() => state.session?.segments ?? [], [state.session]);
+  const segmentsRef = useRef(segments);
+  segmentsRef.current = segments;
+  /**
+   * 自动跳过（docs/design/skip-intro.md §5）：本集已经决定过的段（按起点记）。自然播进去自动跳一次；
+   * 用户拖进去、±10 秒跳进去、撤回回去的只给按钮。换集清空
+   */
+  const skipHandledRef = useRef(new Set<number>());
+  /** 落点所在的段算「用户自己去的」：不自动跳，只给按钮 */
+  const markSkipHandled = useCallback((fileMs: number) => {
+    const seg = segmentsRef.current.find((s) => fileMs >= s.start_ms && fileMs < s.end_ms);
+    if (seg) skipHandledRef.current.add(seg.start_ms);
+  }, []);
 
   const subtitles = useMemo(() => {
     const session = state.session;
@@ -2864,6 +2882,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
       // 先夹进片长之内：越过片尾的落点会让换会话那条路开出一个转不出任何
       // 东西的会话（理由见 timeline.ts 的 clampSeekTarget）。
       const fileMs = clampSeekTarget(rawFileMs, durationMs);
+      // 自动跳过自己的跳转不算「用户去的」，其余落点所在的段都只给按钮
+      if (source !== "auto") markSkipHandled(fileMs);
       // 播放记录的跳转（playback-qoe.md §3.1）：从用户动作算到落点出画；换会话 / 落在缓冲里分开记
       const noteSeek = (restart: boolean, buffered: boolean) => {
         recordRef.current?.beginSeek({
@@ -2982,7 +3002,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
       setPositionMs(plan.startMs);
       dispatch({ type: "restart", startMs: plan.startMs });
     },
-    [video, sessionId, mode, durationMs, state.session, state.phase, state.startMs, freezeFrame, qoe, clearPendingCommit],
+    [video, sessionId, mode, durationMs, state.session, state.phase, state.startMs, freezeFrame, qoe, clearPendingCommit, markSkipHandled],
   );
 
   /**
@@ -3252,6 +3272,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
       // 控制条会**在拖动过程中**淡出——指针捕获让拖动照旧生效，用户却是
       // 对着一条看不见的进度条在拖，松手才知道跳到了哪儿。
       bumpChromeActivity();
+      // 拖动途中画面跟到哪段里，哪段就是用户自己去的：别在手指还没松开时自动跳走
+      markSkipHandled(fileMs);
       if (!video) return;
       // 连续拖动的跳转耗时以第一次拖动为起点（playback-qoe.md §1.3）
       recordRef.current?.noteScrubActivity();
@@ -3280,7 +3302,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
         if (target !== null) applyScrubFollowRef.current(target);
       }, plan.delayMs);
     },
-    [video, mode, isCheapSeek, bumpChromeActivity, cancelScrubFollow, applyScrubFollow],
+    [video, mode, isCheapSeek, bumpChromeActivity, markSkipHandled, cancelScrubFollow, applyScrubFollow],
   );
 
   /**
@@ -4110,6 +4132,75 @@ export function VideoPlayer(props: VideoPlayerProps) {
       : null;
 
   /**
+   * 自动跳过（docs/design/skip-intro.md §5，与 iOS `PlaybackController` 同一套）：广告、预告自然播进去就跳，
+   * 给「已跳过广告 · 撤回」；片头按剧学——手动跳过一次就记到账号里，以后自动跳。设定随会话下发
+   * （`auto_skip`）；旧服务端、分享访客没有：广告照跳，片头只给按钮、也不学（记不住，不能承诺）
+   */
+  const autoSkipView = state.session?.auto_skip ?? null;
+  const autoSkipEnabled = autoSkipView?.enabled ?? true;
+  const isShare = api.base !== DEFAULT_PLAYBACK_SCOPE.base;
+  const canLearnIntro = autoSkipView !== null && !isShare;
+  /** 本次播放里改过的片头选择（按剧）：保存请求还没落库时下一集的会话可能带回旧值，以这里为准 */
+  const [introOverrides, setIntroOverrides] = useState<Record<number, boolean>>({});
+  const introLearned = introOverrides[unit.media_item_id] ?? autoSkipView?.intro ?? false;
+  const [skipNotice, setSkipNotice] = useState<{
+    id: number;
+    kind: "skipped" | "learned" | "forgot";
+    segment?: SkipSegment;
+  } | null>(null);
+  const skipNoticeIdRef = useRef(0);
+  const showSkipNotice = useCallback((kind: "skipped" | "learned" | "forgot", segment?: SkipSegment) => {
+    skipNoticeIdRef.current += 1;
+    setSkipNotice({ id: skipNoticeIdRef.current, kind, segment });
+  }, []);
+  const setIntroAutoSkip = useCallback((mediaItemId: number, enabled: boolean) => {
+    setIntroOverrides((prev) => ({ ...prev, [mediaItemId]: enabled }));
+    void setAutoSkipIntro(mediaItemId, enabled).catch(() => {});
+  }, []);
+  useEffect(() => {
+    skipHandledRef.current.clear();
+    setSkipNotice(null);
+  }, [unitKey]);
+  // 提示到时间收起（换了新提示就重新计时）
+  useEffect(() => {
+    if (!skipNotice) return;
+    const id = skipNotice.id;
+    const timer = window.setTimeout(
+      () => setSkipNotice((cur) => (cur?.id === id ? null : cur)),
+      skipNotice.kind === "forgot" ? SKIP_INFO_NOTICE_MS : SKIP_NOTICE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [skipNotice]);
+  // 自然播进了区间、这一段还没决定过：按 autoSkips 跳或只给按钮（一段一集最多自动跳一次）
+  useEffect(() => {
+    if (!skipSegment || state.phase !== "playing" || paused) return;
+    if (skipHandledRef.current.has(skipSegment.start_ms)) return;
+    skipHandledRef.current.add(skipSegment.start_ms);
+    if (!autoSkips(skipSegment, autoSkipEnabled, introLearned)) return;
+    seekToFileMs(skipSegment.end_ms, "auto");
+    showSkipNotice("skipped", skipSegment);
+  }, [skipSegment, state.phase, paused, autoSkipEnabled, introLearned, seekToFileMs, showSkipNotice]);
+
+  /** 点「跳过」：跳到这一段结束处。片头是这部剧第一次手动跳，就记下来、以后自动跳，给「不用」反悔 */
+  const skipCurrentSegment = (seg: SkipSegment) => {
+    commitSeek(seg.end_ms);
+    if (seg.type === "intro" && autoSkipEnabled && canLearnIntro && !introLearned) {
+      setIntroAutoSkip(unit.media_item_id, true);
+      showSkipNotice("learned");
+    }
+  };
+  /** 「撤回」：回到这一段起点接着看；撤回的是片头就忘掉这部剧的片头自动跳 */
+  const undoAutoSkip = (seg: SkipSegment) => {
+    commitSeek(seg.start_ms, "button");
+    if (seg.type === "intro" && introLearned) {
+      setIntroAutoSkip(unit.media_item_id, false);
+      showSkipNotice("forgot");
+    } else {
+      setSkipNotice(null);
+    }
+  };
+
+  /**
    * 自动播下一集（Netflix 同款）：认出了片尾或已播完、卡片在显示、没到连播上限时倒计时 AUTO_NEXT_MS，
    * 走满就换集。暂停时停住（播完 `ended` 也算在走——片尾短于倒计时时不能卡在最后一帧），
    * 拖进度条时不走；关掉卡片 / 拖出片尾 / 换集都归零。点 ✕ 就是「继续看片尾」。
@@ -4154,14 +4245,47 @@ export function VideoPlayer(props: VideoPlayerProps) {
 
   // 右下角浮层：「跳过片头」按钮与「即将播放」卡片（两者不同时出现）。交给 PlayerControls
   // 挂在时间行右端，跟着控制条展开 / 收起上下走（见 PlayerControlsProps.corner）
-  const corner = skipSegment ? (
-    // 点了直接跳到这一段结束处；片段里才出现、出了片段自动消失，不自动跳。
+  const corner = skipNotice ? (
+    // 自动跳过的提示占跳过按钮的位置、同样高（撤回后回到片头里，提示收起才轮到按钮）：
+    // 文字在左，反悔的那颗白色小胶囊在右
+    <div
+      data-testid="skip-notice"
+      className="flex h-7 items-center gap-2 rounded-full bg-black/60 pl-3 text-[13px] font-semibold text-white shadow-lg backdrop-blur max-md:text-[12px]"
+      style={{ paddingRight: skipNotice.kind === "forgot" ? undefined : 2 }}
+    >
+      <span className={skipNotice.kind === "forgot" ? "pr-3" : undefined}>
+        {skipNotice.kind === "skipped" && skipNotice.segment
+          ? `已跳过${skipName(skipNotice.segment)}`
+          : skipNotice.kind === "learned"
+            ? "本剧以后自动跳过片头"
+            : "本剧不再自动跳过片头"}
+      </span>
+      {skipNotice.kind !== "forgot" ? (
+        <button
+          type="button"
+          data-testid="skip-notice-action"
+          onClick={() => {
+            if (skipNotice.kind === "skipped" && skipNotice.segment) {
+              undoAutoSkip(skipNotice.segment);
+            } else {
+              setIntroAutoSkip(unit.media_item_id, false);
+              setSkipNotice(null);
+            }
+          }}
+          className="h-6 rounded-full bg-white/90 px-2.5 text-[12px] font-semibold text-black transition-colors hover:bg-white"
+        >
+          {skipNotice.kind === "skipped" ? "撤回" : "不用"}
+        </button>
+      ) : null}
+    </div>
+  ) : skipSegment ? (
+    // 点了直接跳到这一段结束处；片段里才出现、出了片段自动消失。
     // 高度与左边的时间胶囊一样（h-7），看起来是控制条的一部分
     <button
       type="button"
       data-testid="skip-segment"
       data-segment-type={skipSegment.type}
-      onClick={() => commitSeek(skipSegment.end_ms)}
+      onClick={() => skipCurrentSegment(skipSegment)}
       className="h-7 rounded-full bg-white/90 px-3 text-[13px] font-semibold text-black shadow-lg backdrop-blur transition-colors hover:bg-white max-md:text-[12px]"
     >
       {skipLabel(skipSegment)}
@@ -4837,6 +4961,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
             onMenuOpenChange={setMenuOpen}
             trickplay={trickplay}
             chapters={chapters}
+            skipSegments={segments}
             fakeLandscape={fakeLandscape}
           />
         </div>

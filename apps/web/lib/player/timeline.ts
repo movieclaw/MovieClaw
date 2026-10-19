@@ -255,6 +255,41 @@ export function skipLabel(seg: SkipSegment): string {
 }
 
 /**
+ * 自动跳过（docs/design/skip-intro.md §5，与 iOS `SkipSegments.autoSkips` 同一组规则）：自然播进这一段时
+ * 直接跳过、还是只给按钮（`activeSkipSegment` 已保证离段尾超过 `SKIP_TAIL_MS`）。
+ * 总开关关了一律只给按钮；广告、预告直接跳；片头要这部剧学过（手动跳过过一次）才跳；
+ * 其他类型（含非结尾片尾、未来类型）不猜，只给按钮。
+ */
+export function autoSkips(seg: SkipSegment, enabled: boolean, introLearned: boolean): boolean {
+  if (!enabled) return false;
+  switch (seg.type) {
+    case "ad":
+    case "preview":
+      return true;
+    case "intro":
+      return introLearned;
+    default:
+      return false;
+  }
+}
+
+/** 跳过后的提示里怎么称呼这一段：「已跳过片头」 */
+export function skipName(seg: SkipSegment): string {
+  switch (seg.type) {
+    case "intro": return "片头";
+    case "outro": return "片尾";
+    case "ad": return "广告";
+    case "preview": return "预告";
+    default: return "此段";
+  }
+}
+
+/** 「已跳过片头 · 撤回」停留多久；「本剧以后自动跳过片头 · 不用」同样长，给人时间反悔 */
+export const SKIP_NOTICE_MS = 5000;
+/** 不带按钮的提示（「本剧不再自动跳过片头」）停留多久 */
+export const SKIP_INFO_NOTICE_MS = 3000;
+
+/**
  * 下一集卡片的时机：认出了放到结尾的片尾就从片尾起点给，否则播完才给（没有「最后 40 秒」兜底）。
  * 是否有下一集、是否已关闭，由播放器判断。
  */

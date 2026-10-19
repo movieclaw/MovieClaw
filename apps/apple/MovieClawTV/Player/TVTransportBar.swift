@@ -31,6 +31,16 @@ struct TVTransportBar: View {
                         .frame(width: width * fraction(buffered, of: duration))
                     Capsule().fill(.white)
                         .frame(width: playedX)
+                    // 可跳过的段（同 iPhone 版）：一集两三段，拖动时一眼看出哪截是片头
+                    if duration > 0, controller.clip == nil {
+                        ForEach(controller.session?.segments ?? [], id: \.startMs) { segment in
+                            let from = width * fraction(controller.timelineMs(fromFileMs: segment.startMs), of: duration)
+                            let to = width * fraction(controller.timelineMs(fromFileMs: segment.endMs), of: duration)
+                            Capsule().fill(Theme.skippable.opacity(0.9))
+                                .frame(width: max(2, to - from))
+                                .offset(x: from)
+                        }
+                    }
                 }
                 .frame(height: Self.barHeight)
                 .overlay(alignment: .leading) {

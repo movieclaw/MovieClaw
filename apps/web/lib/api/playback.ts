@@ -672,6 +672,17 @@ export interface PlaybackSegment {
   to_end: boolean;
 }
 
+/**
+ * 自动跳过的个人设定（docs/design/skip-intro.md §5），跟账号走、随会话下发。
+ * 旧服务端与分享访客没有（undefined / null）：按默认（广告直接跳、片头只给按钮），也学不了片头。
+ */
+export interface PlaybackAutoSkip {
+  /** 总开关，默认开 */
+  enabled: boolean;
+  /** 这部剧学过片头（手动跳过过一次）：片头也自动跳 */
+  intro: boolean;
+}
+
 export interface PlaybackSession {
   decision: PlaybackDecision;
   /** 档 0 没有会话（原文件直出），此处为 null */
@@ -696,6 +707,8 @@ export interface PlaybackSession {
   chapters?: PlaybackChapterMark[];
   /** 片头 / 片尾 / 其他可跳过的段；剧集库开了「识别片头片尾」且这一季识别过才有 */
   segments?: PlaybackSegment[];
+  /** 自动跳过的个人设定；旧服务端、分享访客没有 */
+  auto_skip?: PlaybackAutoSkip | null;
   /** 本单元的观看状态快照（§6.10）。续播点已由服务端并入 start_ms，这里
    * 整份带回给前端预填时间轴、恢复字幕记忆——起播不再单独问 /resume */
   watch: PlaybackWatchState | null;
@@ -989,6 +1002,14 @@ export async function setPlaybackMarks(
     body: JSON.stringify({ ...target, ...change, device_id: getPlayerDeviceId() }),
   });
   return response.data;
+}
+
+/** 记下 / 忘掉这部剧的片头自动跳（下一次开播随会话的 `auto_skip` 带回） */
+export async function setAutoSkipIntro(mediaItemId: number, enabled: boolean): Promise<void> {
+  await request<ApiEnvelope<unknown>>(`/playback/auto-skip/intro/${mediaItemId}`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
 }
 
 export interface PlaybackProgressBody extends PlaybackUnit {

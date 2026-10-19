@@ -413,8 +413,6 @@ struct PlayerProgressBar: View {
     private static let knobRadius: CGFloat = 6
     /// 拖动预览底边离细条中线的高度：给按在条上的手指指尖留出空隙，预览不被手指挡住
     private static let previewLift: CGFloat = 28
-    /// 可跳过段的颜色
-    static let segmentColor = Color(red: 0.96, green: 0.72, blue: 0.32)
 
     var body: some View {
         GeometryReader { proxy in
@@ -438,7 +436,7 @@ struct PlayerProgressBar: View {
                         let from = min(1, max(0, Double(controller.timelineMs(fromFileMs: segment.startMs)) / duration))
                         let to = min(1, max(0, Double(controller.timelineMs(fromFileMs: segment.endMs)) / duration))
                         Capsule()
-                            .fill(Self.segmentColor.opacity(0.9))
+                            .fill(Theme.skippable.opacity(0.9))
                             .frame(width: max(2, x(to) - x(from)), height: track)
                             .offset(x: x(from))
                     }

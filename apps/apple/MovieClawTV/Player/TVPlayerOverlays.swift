@@ -88,6 +88,45 @@ struct TVSkipButton: View {
     }
 }
 
+/// 自动跳过的提示（docs/design/skip-intro.md §5），占跳过按钮的位置：
+/// - 「已跳过片头 · 撤回」：整颗是按钮，出现时自动拿焦点，按一下撤回（返回键 = 不撤回，见 TVPlayerScreen）；
+/// - 「本剧以后自动跳过片头」「本剧不再自动跳过片头」：只是告知，不拿焦点。iPhone 版学会时的「不用」
+///   电视上不给——刚按完「跳过片头」焦点会落到它上面，连按一下就误点了；不想自动跳，下一集按「撤回」即可
+struct TVSkipNotice: View {
+    let notice: PlaybackController.SkipNotice
+    let undo: () -> Void
+
+    var body: some View {
+        switch notice.kind {
+        case let .skipped(segment):
+            Button(action: undo) {
+                HStack(spacing: 14) {
+                    Text("已跳过\(SkipSegments.name(segment))")
+                    Text("撤回")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 4)
+                        .background(.white, in: .capsule)
+                }
+                .font(.headline)
+                .padding(.leading, 12)
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.glass)
+            .accessibilityIdentifier("tv-player-skip-undo")
+        case .learned, .forgot:
+            Text(notice.kind == .learned ? "本剧以后自动跳过片头" : "本剧不再自动跳过片头")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 18)
+                .glassEffect(.regular, in: .capsule)
+                .accessibilityIdentifier("tv-player-skip-notice")
+        }
+    }
+}
+
 /// 片尾「下一集」卡片：剧照 + 集数集名，底下两颗按钮「下一集」「观看片尾」。
 /// 倒计时时「下一集」按钮本身就是进度条（扫过的部分更亮），走满自动换集；焦点移到「观看片尾」就停掉倒计时，
 /// 按下去收起卡片（由播放器接焦点变化 / 按键，见 TVPlayerScreen）

@@ -138,6 +138,58 @@ struct MacSkipButton: View {
     }
 }
 
+/// 自动跳过的提示（docs/design/skip-intro.md §5），占跳过按钮的位置、同样的玻璃胶囊：
+/// 「已跳过片头 · 撤回」「本剧以后自动跳过片头 · 不用」「本剧不再自动跳过片头」。
+/// 文字在左，反悔的那颗白色小胶囊在右（同 iPhone 版 `PlayerSkipNotice`）
+struct MacSkipNotice: View {
+    let notice: PlaybackController.SkipNotice
+    let undo: () -> Void
+    let decline: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(text)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+            if let action {
+                Button(action: action.run) {
+                    Text(action.label)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 12)
+                        .frame(height: 26)
+                        .background(.white, in: .capsule)
+                        .contentShape(.capsule)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("mac-player-skip-notice-action")
+            }
+        }
+        .padding(.leading, 18)
+        .padding(.trailing, action == nil ? 18 : 6)
+        .frame(height: 38)
+        .glassEffect(.regular.tint(.black.opacity(0.25)), in: .capsule)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("mac-player-skip-notice")
+    }
+
+    private var text: String {
+        switch notice.kind {
+        case let .skipped(segment): "已跳过\(SkipSegments.name(segment))"
+        case .learned: "本剧以后自动跳过片头"
+        case .forgot: "本剧不再自动跳过片头"
+        }
+    }
+
+    private var action: (label: String, run: () -> Void)? {
+        switch notice.kind {
+        case .skipped: ("撤回", undo)
+        case .learned: ("不用", decline)
+        case .forgot: nil
+        }
+    }
+}
+
 /// 片尾「下一集」卡片：剧照 + 集数集名；认出了片尾时卡片底边是倒计时进度，走满自动换集。右上角 ✕ 收起不再提示
 struct MacUpNextCard: View {
     let episode: API.EpisodeView
