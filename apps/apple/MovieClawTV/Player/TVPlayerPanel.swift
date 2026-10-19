@@ -119,7 +119,9 @@ struct TVPlayerPanel: View {
             // 按位置会落到最上面的 0.5×，顺手按确认就误选了
             .defaultFocus(focus, .panelOption(activeOptionID(tab)), priority: .userInitiated)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // 倍速只有「0.75×」这么短的字：定宽窄栏，把宽度让给画质说明、字幕与音轨的两行信息（四栏均分时画质说明要截断）
+        .frame(width: tab == .speed ? 240 : nil, alignment: .leading)
+        .frame(maxWidth: tab == .speed ? nil : .infinity, alignment: .leading)
         .animation(.easeOut(duration: 0.2), value: active)
     }
 
