@@ -568,6 +568,59 @@ def test_recheck_keeps_uploaded_local_rows_and_reuploads_lost_ones(client, tmp_p
     assert rows["a.mkv"]["state"] == "verified" and rows["a.mkv"]["remote_id"] != gone
 
 
+async def _verified_replica(file_id: int, account_id: int) -> None:
+    """模拟修复前已经被传上去并核验过的副本。"""
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import LibraryFileReplica
+    from movieclaw_db.models.base import utcnow
+
+    async with get_database().session() as session:
+        session.add(
+            LibraryFileReplica(
+                library_file_id=file_id,
+                account_id=account_id,
+                remote_id="r-strm",
+                origin="uploaded",
+                state="verified",
+                verified_at=utcnow(),
+            )
+        )
+        await session.commit()
+
+
+def test_strm_placeholders_never_upload_or_release(client, tmp_path, monkeypatch):
+    """strm 认路径不认容器列：探过规格后容器列是直链的真实容器、改写后被清空（#921）。"""
+    from movieclaw_api.services.drives import release, uploads
+
+    enqueue = uploads.enqueue
+    _pause_auto_uploads(client, monkeypatch)
+    library_id = _library(
+        client,
+        tmp_path,
+        {"a.mkv": _blob(13, PART), "纪录片/b.strm": b"https://example.com/b.mkv\n"},
+    )
+    _wait(lambda: len(replicas(client, library_id)) == 2)
+    _wait(lambda: not client.get(f"/api/v1/libraries/{library_id}").json()["data"]["scanning"])
+    strm_id = replicas(client, library_id)["b.strm"]["id"]
+    # 刚入账（容器 strm）、探过规格（容器 mkv）、strm 被改写（规格清空）：都只有 a.mkv 要传
+    for container in ("strm", "mkv", None):
+        call(client, _set_probed, strm_id, container=container)
+        assert call(client, _candidates, library_id) == 1, container
+    _progress, outcome = call(client, _run_job, library_id)
+    assert isinstance(outcome, dict) and outcome["uploaded"] == 1, outcome
+    rows = replicas(client, library_id)
+    assert rows["a.mkv"]["state"] == "verified" and rows["b.strm"]["state"] is None
+    assert {meta["path"] for meta in drive_state(client)["files"].values()} == {"影视/a.mkv"}
+    # 只剩 strm 没传：巡检不再排任务
+    assert call(client, enqueue, library_id) == []
+
+    # 修复前已经被传上去的 strm：腾空巡检不挑它，直接腾空也不删本地那份
+    call(client, _verified_replica, strm_id, client.account_id)  # type: ignore[attr-defined]
+    assert strm_id not in call(client, release.candidates)
+    assert call(client, release.try_release, strm_id) == "strm 占位文件不腾空"
+    assert (tmp_path / "staging" / "纪录片" / "b.strm").exists()
+
+
 # ---------------------------------------------------------------------- 腾空本地（§6）
 
 

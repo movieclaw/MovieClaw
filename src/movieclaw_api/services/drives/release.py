@@ -35,6 +35,7 @@ from movieclaw_db.models.library_file import FileState, LibraryFile
 from movieclaw_db.models.library_file_replica import REPLICA_VERIFIED, LibraryFileReplica
 from movieclaw_db.models.scheduled_task import TriggerType
 from movieclaw_db.repositories.library_cloud_repo import LibraryCloudRepository
+from movieclaw_playback.streaming import is_strm
 from movieclaw_scheduler.registry import register_task
 from movieclaw_sdk import drives as dv
 
@@ -117,6 +118,8 @@ async def try_release(file_id: int) -> str | None:
         file = await session.get(LibraryFile, file_id)
         if file is None or file.state != FileState.IN_PLACE or not file.local_bytes:
             return "不是在位的本地文件"
+        if is_strm(file.file_path):
+            return "strm 占位文件不腾空"
         library = await session.get(Library, file.library_id)
         repo = LibraryCloudRepository(session)
         folder = await repo.primary_folder(file.library_id)
@@ -214,6 +217,7 @@ async def candidates(limit: int = SWEEP_BATCH) -> list[int]:
                     LibraryFile.library_id.in_(library_ids),  # type: ignore[attr-defined]
                     LibraryFile.local_bytes.is_(True),  # type: ignore[attr-defined]
                     LibraryFile.state == FileState.IN_PLACE,
+                    ~LibraryFile.strm_path(),
                     LibraryFileReplica.state == REPLICA_VERIFIED,
                     Library.keep_local.is_(False),  # type: ignore[attr-defined]
                 )

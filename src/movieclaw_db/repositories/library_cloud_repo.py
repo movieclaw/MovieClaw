@@ -250,9 +250,10 @@ class LibraryCloudRepository:
                 LibraryFile.in_place(),
                 LibraryFile.local_bytes.is_(True),  # type: ignore[attr-defined]
                 LibraryFile.ignored_at.is_(None),  # type: ignore[union-attr]
+                ~LibraryFile.strm_path(),
                 or_(
                     LibraryFile.container.is_(None),  # type: ignore[union-attr]
-                    LibraryFile.container.not_in(("bluray", "dvd", "iso", "strm")),  # type: ignore[union-attr]
+                    LibraryFile.container.not_in(("bluray", "dvd", "iso")),  # type: ignore[union-attr]
                 ),
                 or_(
                     LibraryFileReplica.id.is_(None),  # type: ignore[union-attr]

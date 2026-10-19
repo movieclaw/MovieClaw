@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import JSON, BigInteger, Column, ForeignKey, Index, Integer, Text
+from sqlalchemy import JSON, BigInteger, Column, ForeignKey, Index, Integer, Text, func
 from sqlmodel import Field
 
 from movieclaw_db.models.base import TimestampMixin
@@ -165,6 +165,11 @@ class LibraryFile(TimestampMixin, table=True):
         全站共享的唯一判别——将来再加状态，所有消费方零改动。
         """
         return cls.state == FileState.IN_PLACE
+
+    @classmethod
+    def strm_path(cls):
+        """strm 占位文件。认路径后缀而不是容器列：探过规格后容器列记的是直链的真实容器（#921）。"""
+        return func.lower(cls.file_path).like("%.strm")
 
     @classmethod
     def on_shelf(cls):
