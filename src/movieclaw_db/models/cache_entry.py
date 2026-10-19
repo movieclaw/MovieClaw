@@ -20,7 +20,8 @@ class CacheEntry(SQLModel, table=True):
       由 ``movieclaw_cache.SwrCache`` 按 namespace 在代码里计算——将来调整
       TTL 不需要动数据，也不需要迁移。
     - ``namespace`` 单独成列而非拼进 key：清某个源的缓存、按源统计都是一个
-      等值条件，运维干净。豆瓣是首个租户（namespace="douban"）。
+      等值条件，运维干净。豆瓣是首个租户（namespace="douban"）；片名/名称的拼音
+      记忆（namespace="pinyin.*"，见 services/library/pinyin.py）同样可删可重算。
     - 不用 TimestampMixin：created/updated 对缓存行没有意义，四列足矣。
     """
 

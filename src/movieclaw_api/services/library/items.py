@@ -82,7 +82,7 @@ from movieclaw_api.services.library.nfo import (
     NfoActor,
 )
 from movieclaw_api.services.library.recycle import TRASH_DIR_NAME
-from movieclaw_api.services.library.sort_key import title_initial, title_sort_key
+from movieclaw_api.services.library.sort_key import prepare_titles, title_initial, title_sort_key
 from movieclaw_api.services.library.thumbs import primary_aspect
 from movieclaw_api.services.media_probe import (
     PROBE_SCHEMA_VERSION,
@@ -733,6 +733,7 @@ async def _titles_sorted(
             .distinct()
         )
     ).all()
+    await prepare_titles(t for _, t in rows)
     # id 收尾：拼音串相同（同名不同条目）时顺序必须稳定，否则翻页会重复或漏项
     return sorted(
         ((i, t) for i, t in rows if i is not None), key=lambda r: (title_sort_key(r[1]), r[0])
@@ -1433,6 +1434,7 @@ async def sort_item_ids(
                 select(MediaItem.id, MediaItem.title).where(MediaItem.id.in_(list(ids)))  # type: ignore[attr-defined]
             )
         ).all()
+        await prepare_titles(t for _, t in rows)
         ordered = [
             i
             for i, _ in sorted(

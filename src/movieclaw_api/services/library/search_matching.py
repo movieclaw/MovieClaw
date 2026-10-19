@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
 
 from opencc import OpenCC
-from pypinyin import Style, pinyin
+
+from movieclaw_api.services.library import pinyin as pinyin_memo
 
 _converter = OpenCC("t2s")
 _WORDS = re.compile(r"[^\W_]+", re.UNICODE)
@@ -43,18 +45,19 @@ class NameForms:
 @lru_cache(maxsize=65536)
 def name_forms(raw: str) -> NameForms:
     text = compact(raw)
-    syllables = tuple(
-        part[0]
-        for part in pinyin(
-            text, style=Style.NORMAL, heteronym=False, errors=lambda value: list(value)
-        )
-    )
+    # 逐字读音走持久记忆（pinyin.py）：建索引、匹配前须先 prepare_names
+    syllables = pinyin_memo.syllables(text)
     words = tuple(_WORDS.findall(normalized(raw)))
     has_han = any("\u3400" <= ch <= "\u9fff" for ch in text)
     initials = "".join(part[:1] for part in syllables)
     if not has_han:
         initials = "".join(word[:1] for word in words) if len(words) > 1 else ""
     return NameForms(text, "".join(syllables), initials, syllables, words)
+
+
+async def prepare_names(texts: Iterable[str]) -> None:
+    """建索引、匹配前把这批名称（compact 之后的文本）的逐字读音备进进程内记忆。"""
+    await pinyin_memo.prepare(syllables={t for t in texts if t})
 
 
 @dataclass(frozen=True, slots=True)

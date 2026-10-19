@@ -33,6 +33,7 @@ from movieclaw_api.services.library.search_matching import (
     compact,
     match_name,
     normalized,
+    prepare_names,
     query_tokens,
 )
 from movieclaw_api.services.people_images import avatar_url
@@ -354,6 +355,12 @@ async def search_candidates(session, query, library_ids, member_id, content_limi
             False,
         )
     rows, pending = await _name_candidates(session, query, eligible)
+    # 走匹配内核的行（混输、词组、待更新原名）可能要逐字读音：先备进记忆（pinyin.py）
+    await prepare_names(
+        normalized_name if normalized_name is not None else compact(raw)
+        for _, _, _, raw, normalized_name, _, _, tier in rows
+        if tier is None
+    )
     matched = await asyncio.to_thread(_match_rows, query, rows)
     people = []
     people_ids = list(matched["person"])

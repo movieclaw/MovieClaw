@@ -108,6 +108,10 @@ async def search_index(ctx: Context) -> None:
     contribute_job_handlers(ctx, module)
     module.start_search_index()
     ctx.effect(module.close_search_index, label="close-search-index")
+    # 拼音记忆补算（services/library/pinyin.py）：主进程不常驻 pypinyin 词库
+    from movieclaw_api.services.library import pinyin
+
+    ctx.task(pinyin.backfill(), name="pinyin-backfill")
 
 
 @plugin("library.skip-segments", title="片头识别启动补算", inject=(JOBS,), reloadable=True)
