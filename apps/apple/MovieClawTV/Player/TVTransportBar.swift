@@ -54,7 +54,11 @@ struct TVTransportBar: View {
                 Text(Formatters.clock(Double(position) / 1000))
                 Spacer()
                 // 不是正常速度时常驻一个角标，免得忘了自己开着倍速
-                if controller.rate != 1 { Text(PlaybackSpeed.short(controller.rate)).foregroundStyle(.white) }
+                if controller.rate != 1 {
+                    Text(PlaybackSpeed.short(controller.rate))
+                        .foregroundStyle(.white)
+                        .accessibilityIdentifier("tv-player-rate-badge")
+                }
                 Text("-" + Formatters.clock(Double(max(0, duration - position)) / 1000))
             }
             .font(.callout.monospacedDigit())

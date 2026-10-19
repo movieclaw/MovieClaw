@@ -115,6 +115,9 @@ struct TVPlayerPanel: View {
                     .padding(.horizontal, -40)
             }
             .focusSection()
+            // 左右换栏时落在这一栏已选中的那一项上，而不是位置最近的一行：倍速栏的「正常」在中间，
+            // 按位置会落到最上面的 0.5×，顺手按确认就误选了
+            .defaultFocus(focus, .panelOption(activeOptionID(tab)), priority: .userInitiated)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.easeOut(duration: 0.2), value: active)

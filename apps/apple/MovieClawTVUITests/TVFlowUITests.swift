@@ -317,6 +317,82 @@ final class TVFlowUITests: XCTestCase {
         TVRemote.press(.menu)
     }
 
+    /// 倍速（docs/design/playback-speed.md）：面板第四栏「倍速」，左右换栏、上下选；按右进栏落在已选中的那一档
+    /// （不是位置最近的 0.5×）；选 1.5× 后进度条旁有角标，同一部剧重开沿用；最后选回「正常」清掉记忆（不给之后的用例留倍速）
+    @MainActor
+    func testPlayerSpeedColumn() {
+        let route = "/play/\(showItem)/s01e01?t=30"
+        var app = launchSignedIn(["-mcRoute", route])
+        waitForPlayback(app)
+        TVRemote.press(.down)
+        XCTAssertTrue(app.element("tv-player-panel").waitForExistence(timeout: 10), "下滑没有出面板")
+        XCTAssertTrue(app.element("tv-panel-column-speed").exists, "面板里没有倍速栏")
+        enterSpeedColumn(app)
+        moveSpeedFocus(app, to: "1.5×")
+        snapshot("60-panel-speed")
+        TVRemote.press(.select)
+        TVRemote.press(.menu)
+        XCTAssertFalse(app.element("tv-player-panel").waitForExistence(timeout: 2), "返回键没有收起面板")
+        TVRemote.press(.up)
+        let badge = app.element("tv-player-rate-badge")
+        XCTAssertTrue(badge.waitForExistence(timeout: 5), "进度条旁没有倍速角标")
+        XCTAssertEqual(badge.label, "1.5×")
+        snapshot("61-speed-badge")
+
+        // 同一部剧重开：沿用 1.5×，进栏落在 1.5× 上（不清状态，记忆在本机）
+        app.terminate()
+        app = launchSignedIn(["-mcRoute", route], reset: false)
+        waitForPlayback(app)
+        TVRemote.press(.up)
+        XCTAssertTrue(app.element("tv-player-rate-badge").waitForExistence(timeout: 5), "同一部剧重开没有沿用倍速")
+        TVRemote.press(.down)
+        XCTAssertTrue(app.element("tv-player-panel").waitForExistence(timeout: 10))
+        enterSpeedColumn(app)
+        XCTAssertEqual(focusedSpeed(app), "1.5×", "进栏没有落在沿用的 1.5× 上")
+        snapshot("62-panel-speed-carried")
+
+        // 选回正常
+        moveSpeedFocus(app, to: "1×")
+        TVRemote.press(.select)
+        TVRemote.press(.menu)
+        TVRemote.press(.up)
+        XCTAssertTrue(app.element("tv-player-rate-badge").waitForNonExistence(timeout: 5), "选回正常后角标没消失")
+        TVRemote.press(.menu)
+    }
+
+    private static let speeds = ["0.5×", "0.75×", "1×", "1.25×", "1.5×", "2×"]
+
+    /// 焦点所在的倍速档；不在倍速栏时 nil
+    @MainActor
+    private func focusedSpeed(_ app: XCUIApplication) -> String? {
+        Self.speeds.first { app.buttons["tv-panel-speed-\($0)"].hasFocus }
+    }
+
+    /// 按右进倍速栏（最后一栏），落点必须是已选中的那一档（打勾的，不是位置最近的那行）
+    @MainActor
+    private func enterSpeedColumn(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        for _ in 0 ..< 5 where focusedSpeed(app) == nil {
+            TVRemote.press(.right)
+            usleep(300_000)
+        }
+        guard let landed = focusedSpeed(app) else {
+            return XCTFail("按右没有进倍速栏", file: file, line: line)
+        }
+        XCTAssertEqual(app.buttons["tv-panel-speed-\(landed)"].value as? String, "已选中",
+                       "进倍速栏落在 \(landed) 上，不是已选中的那一档", file: file, line: line)
+    }
+
+    /// 在倍速栏里按上下挪到目标档（按位置算步数：顶端再按上会出面板）
+    @MainActor
+    private func moveSpeedFocus(_ app: XCUIApplication, to target: String, file: StaticString = #filePath, line: UInt = #line) {
+        guard let current = focusedSpeed(app), let from = Self.speeds.firstIndex(of: current),
+              let to = Self.speeds.firstIndex(of: target) else {
+            return XCTFail("焦点不在倍速栏", file: file, line: line)
+        }
+        if to != from { TVRemote.press(to > from ? .down : .up, times: abs(to - from)) }
+        XCTAssertTrue(waitForFocus(app.buttons["tv-panel-speed-\(target)"]), "没挪到 \(target)", file: file, line: line)
+    }
+
     /// 隔离字幕夹具：完整标题、空白兜底、同名轨序号、强制标记与遥控选轨。
     @MainActor
     func testSubtitleMetadata() throws {
