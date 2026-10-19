@@ -1814,3 +1814,89 @@ def test_remux_for_a_dolby_vision_decoder_keeps_the_record():
     # 设备解不了杜比视界、只放基础层的不保留记录
     p8 = _replace(dv(8, True), audio_tracks=(DTS_51,))
     assert decide_playback(p8, HDR10_TV, WITH_GPU).video.dolby_vision is None
+
+
+# ---------------------------------------------------------------------------
+# 降档后的音轨（#906）：失败过的档位原样输出过它，降下来就不能再照抄
+# ---------------------------------------------------------------------------
+
+#: 小米 MiTV4X 的片：H.264 1080p MKV + 英语 AC3 5.1；电视申报能解 AC3，实际一放就停滞
+_MITV_AC3 = media(
+    audio_tracks=(
+        AudioTrack(ref="embedded:0", codec="ac3", channels=6, language="eng", is_default=True),
+    )
+)
+
+
+def test_audio_tier_after_failures_really_transcodes_the_audio():
+    """档 0、1 都失败后落到档 2「音频单转」：音轨必须真的转，固定为 AAC-LC 双声道。
+    以前档位号推到 2，音频计划却沿用「AC3 可直通」照样 copy，档 2 只是档 1 换了个编号。"""
+    decision = decide_playback(
+        _MITV_AC3, ANDROID_TRUEHD, WITH_GPU,
+        failed_tiers=frozenset({PlaybackTier.DIRECT_PLAY, PlaybackTier.REMUX}),
+    )
+    assert isinstance(decision, PlaybackPlan)
+    assert decision.tier is PlaybackTier.AUDIO_TRANSCODE
+    assert decision.video.action == "copy"
+    assert decision.audio.action == "transcode"
+    audio = decision.audio
+    assert (audio.codec, audio.channels, audio.downmix) == ("aac", 2, True)
+    assert decision.audio.track_ref == "embedded:0"
+    assert decision.degraded_from is PlaybackTier.DIRECT_PLAY
+    assert "AAC-LC 双声道" in decision.reason and "已自动降档" in decision.reason
+    assert "可直通；" not in decision.reason.split("；", 1)[1]
+
+
+def test_transcode_tiers_after_failures_keep_the_safe_audio():
+    """连档 2 也失败、视频改转码时，音轨同样不回到原样 copy（报告里档 4 仍是 AC3 6 声道）。"""
+    decision = decide_playback(
+        _MITV_AC3, ANDROID_TRUEHD, NO_GPU_SOFT_ON,
+        failed_tiers=frozenset(
+            {PlaybackTier.DIRECT_PLAY, PlaybackTier.REMUX, PlaybackTier.AUDIO_TRANSCODE}
+        ),
+    )
+    assert isinstance(decision, PlaybackPlan)
+    assert decision.tier is PlaybackTier.SOFTWARE_TRANSCODE
+    assert decision.audio.action == "transcode"
+    assert (decision.audio.codec, decision.audio.channels) == ("aac", 2)
+
+
+def test_audio_already_transcoded_before_the_failure_also_falls_back_to_aac():
+    """TrueHD 在档 2 转成 E-AC-3 5.1 仍然失败：降下来也换 AAC 双声道，别再交给同一个解码器。"""
+    profile = media(audio_tracks=(TRUEHD_71,))
+    no_truehd = ClientCapability(
+        **{
+            **vars(ANDROID_TRUEHD),
+            "audio": tuple(AudioSupport(c, 8) for c in ("aac", "ac3", "eac3")),
+        }
+    )
+    first = decide_playback(profile, no_truehd, WITH_GPU)
+    assert first.tier is PlaybackTier.AUDIO_TRANSCODE and first.audio.codec == "eac3"
+    decision = decide_playback(
+        profile, no_truehd, WITH_GPU, failed_tiers=frozenset({PlaybackTier.AUDIO_TRANSCODE})
+    )
+    assert decision.tier is PlaybackTier.HARDWARE_TRANSCODE
+    audio = decision.audio
+    assert (audio.action, audio.codec, audio.channels) == ("transcode", "aac", 2)
+
+
+def test_stereo_aac_is_not_reencoded_after_failures():
+    """源轨本来就是 AAC 双声道：已是最稳的格式，降档也照样 copy，不白编一路。"""
+    decision = decide_playback(
+        media(audio_tracks=(AAC_STEREO,)), ANDROID_TRUEHD, WITH_GPU,
+        failed_tiers=frozenset({PlaybackTier.DIRECT_PLAY, PlaybackTier.REMUX}),
+    )
+    assert decision.tier is PlaybackTier.AUDIO_TRANSCODE
+    assert decision.audio.action == "copy"
+
+
+def test_failure_history_without_a_degrade_keeps_the_audio():
+    """没被失败顶下来的会话（带着档 1 失败的历史开烧录会话）不动音轨，同降档标记的口径。"""
+    decision = decide_playback(
+        media(**PGS_MEDIA_KW, audio_tracks=(AC3_51,)), ANDROID_TRUEHD, WITH_GPU,
+        preferred_subtitle="embedded:1",
+        failed_tiers=frozenset({PlaybackTier.REMUX}),
+    )
+    assert decision.tier is PlaybackTier.HARDWARE_TRANSCODE
+    assert decision.degraded_from is None
+    assert (decision.audio.action, decision.audio.codec) == ("copy", "ac3")

@@ -602,7 +602,7 @@ def _judge_audio_and_tier(
         or audio.track is None
         or (audio.track.codec or "").lower() in FMP4_COPY_AUDIO_CODECS
     ):
-        return audio, resolved
+        return _degraded_audio(audio, resolved, capability)
     fmp4_capability = replace(
         audio_capability,
         audio=tuple(a for a in audio_capability.audio if a.codec in FMP4_COPY_AUDIO_CODECS),
@@ -614,7 +614,7 @@ def _judge_audio_and_tier(
             audio,
             reason=f"音轨 {label} 封装不进 HLS 分片，已转为 {(audio.target_codec or '').upper()}",
         )
-    return audio, _resolve_tier(
+    resolved = _resolve_tier(
         media,
         video_verdict,
         audio,
@@ -623,6 +623,45 @@ def _judge_audio_and_tier(
         capability=capability,
         enforce_keyframe_gate=enforce_keyframe_gate,
     )
+    return _degraded_audio(audio, resolved, capability)
+
+
+def _degraded_audio(
+    audio: _AudioVerdict,
+    resolved: tuple[PlaybackTier | PlaybackRejected, str, str, PlaybackTier | None],
+    capability: ClientCapability,
+) -> tuple[_AudioVerdict, tuple[PlaybackTier | PlaybackRejected, str, str, PlaybackTier | None]]:
+    """被失败顶到档 2 及以下的会话，音轨固定为 AAC-LC 双声道（#906）。
+
+    音轨在定档之前就判完了，降档回路只推档位号：「可直通」的结论不会因为落进档 2 而改变，
+    档 2「音频单转」就成了档 1 换个编号，档 3/4 也照旧原样输出那条音轨。小米电视申报能解
+    AC3、实际一放就停滞，整条阶梯从头到尾没换过它，全档失败。上一档的失败已经让播放器
+    申报的音频能力不可信（转出来的 E-AC-3 也可能交给同一个解码器），降下来就换各端都放得
+    了的格式。源轨本身是 AAC 双声道的不白编一遍；没被失败顶下来的会话不动。
+    """
+    tier, container, reason, degraded_from = resolved
+    track = audio.track
+    if (
+        degraded_from is None
+        or isinstance(tier, PlaybackRejected)
+        or tier < PlaybackTier.AUDIO_TRANSCODE
+        or track is None
+    ):
+        return audio, resolved
+    codec, channels = (
+        ((track.codec or "").lower(), track.channels or 2)
+        if audio.can_copy
+        else (audio.target_codec, audio.target_channels or 2)
+    )
+    if codec == "aac" and channels <= 2:
+        return audio, resolved
+    safe = _transcode_audio(
+        track,
+        capability,
+        prefix=f"降档后音轨 {_track_label(track)} 不再沿用原方案，",
+        force_aac=True,
+    )
+    return safe, (tier, container, reason.replace(audio.reason, safe.reason, 1), degraded_from)
 
 
 # ---------------------------------------------------------------------------
