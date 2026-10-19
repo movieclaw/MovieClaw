@@ -22,12 +22,16 @@ func shortHelp(op Operation) string {
 	return op.Summary
 }
 
-// longHelp 拼出 summary + description + 示例 + 危险标注。
+// longHelp 拼出 summary + description + 接口 + 示例 + 危险标注。
+//
+// 接口一行（方法 + 路径）给写插件网页的人用：网页里 fetch 的就是这个地址，
+// 字段与命令的输出一致（docs/design/plugin-web-pages.md §2）。
 func longHelp(op Operation) string {
 	text := op.Summary
 	if op.Description != "" {
 		text = op.Summary + "\n\n" + op.Description
 	}
+	text += fmt.Sprintf("\n\n接口：%s %s", strings.ToUpper(op.Method), op.Path)
 	text += "\n\n示例：\n\n  " + exampleLine(op)
 	if op.Dangerous != "" {
 		label := "需确认"

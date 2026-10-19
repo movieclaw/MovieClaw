@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>__PLUGIN_TITLE__</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <style>
+    /* 背景保持透明，透出主程序的玻璃背景；--mc-* 由主程序注入，跟着主题变 */
+    body { margin: 0; padding: 32px; font-family: var(--mc-font, system-ui); color: var(--mc-text, #eee); }
+    .muted { color: var(--mc-text-muted, #aaa); }
+    .card { border: 1px solid var(--mc-line, #333); border-radius: 14px; padding: 16px 20px; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <h1>__PLUGIN_TITLE__</h1>
+  <div class="card">
+    <div class="muted">当前登录</div>
+    <div id="me">加载中…</div>
+  </div>
+  <script>
+    // 同源调用主程序接口，浏览器自动带登录 Cookie；地址与返回字段：python <技能>/scripts/api.py <命令>
+    fetch("/api/v1/auth/me")
+      .then((r) => r.json())
+      .then((j) => { document.getElementById("me").textContent = `${j.data.nickname}（${j.data.role}）`; });
+  </script>
+</body>
+</html>

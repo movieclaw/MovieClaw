@@ -100,9 +100,10 @@ func readPluginManifest(dir string) (pluginManifest, error) {
 		}
 	}
 	required := map[string]string{"id": manifest.ID, "version": manifest.Version}
+	webOnly := manifest.Runtime != "exec" && manifest.Entry == "" && fileExists(filepath.Join(dir, "web", "index.html"))
 	if manifest.Runtime == "exec" {
 		required["command"] = manifest.Command
-	} else {
+	} else if !webOnly {
 		required["entry"] = manifest.Entry
 	}
 	for name, value := range required {
@@ -114,6 +115,10 @@ func readPluginManifest(dir string) (pluginManifest, error) {
 		if !fileExists(filepath.Join(dir, filepath.FromSlash(manifest.Command))) {
 			return manifest, clierr.Usagef("找不到可执行文件 %s（先按服务器平台编译好）", manifest.Command)
 		}
+		return manifest, nil
+	}
+	if webOnly {
+		// 只带网页的插件（docs/design/plugin-web-pages.md）：没有后端代码
 		return manifest, nil
 	}
 	module := filepath.Join(dir, manifest.Entry+".py")
@@ -277,7 +282,7 @@ func devVersion(base string, now time.Time) string {
 
 func newPluginDevCommand() *cobra.Command {
 	var interval time.Duration
-	var allowInline, allowDeps, once bool
+	var allowInline, allowDeps, allowWeb, once bool
 	cmd := &cobra.Command{
 		Use:   "dev <插件目录>",
 		Short: "开发循环：改一次代码就重新打包、上传、批准、加载",
@@ -285,7 +290,8 @@ func newPluginDevCommand() *cobra.Command {
 上传、按插件申请的权限批准、当场加载；起不来时服务器自动回到上一版并告诉你原因。
 
 批准等于授予插件申请的全部宿主操作与路径——只对自己的开发服务器用。插件带第三方依赖
-（清单 [dependencies]）时，看过要下载的包后加 --allow-dependencies 才会批准。看插件日志：
+（清单 [dependencies]）时，看过要下载的包后加 --allow-dependencies 才会批准；带网页（web/）时，
+网页会以使用它的人的身份运行，用户同意后加 --allow-web 才会批准。看插件日志：
 mclaw logs tail -f
 
 示例：
@@ -297,9 +303,10 @@ mclaw logs tail -f
 	flagx.Var(cmd.Flags(), &interval, "interval", time.Second, "检查文件变化的间隔（秒）")
 	cmd.Flags().BoolVar(&allowInline, "allow-inline", false, "插件申请在主进程里运行时，确认允许")
 	cmd.Flags().BoolVar(&allowDeps, "allow-dependencies", false, "插件要下载安装第三方包时，确认允许")
+	cmd.Flags().BoolVar(&allowWeb, "allow-web", false, "插件带网页时，确认允许它以使用者的身份运行")
 	cmd.Flags().BoolVar(&once, "once", false, "装一次就退出，不监视文件变化")
 
-	return withOverrides(cmd, []string{"interval", "allow-inline", "allow-dependencies", "once"},
+	return withOverrides(cmd, []string{"interval", "allow-inline", "allow-dependencies", "allow-web", "once"},
 		func(s *Settings, _ *cobra.Command, args []string) error {
 			client, err := s.NewAPI()
 			if err != nil {
@@ -307,7 +314,7 @@ mclaw logs tail -f
 			}
 			dir := args[0]
 			if once {
-				return devInstall(client, dir, allowInline, allowDeps)
+				return devInstall(client, dir, allowInline, allowDeps, allowWeb)
 			}
 			stop := make(chan os.Signal, 1)
 			signal.Notify(stop, os.Interrupt)
@@ -322,7 +329,7 @@ mclaw logs tail -f
 				}
 				if current != last {
 					last = current
-					if err := devInstall(client, dir, allowInline, allowDeps); err != nil {
+					if err := devInstall(client, dir, allowInline, allowDeps, allowWeb); err != nil {
 						output.Info("✗ %v（改好后会自动重试）", err)
 					}
 				}
@@ -337,7 +344,7 @@ mclaw logs tail -f
 }
 
 // devInstall 打包 → 上传 → 按申请批准 → 报告结果。
-func devInstall(client *api.Client, dir string, allowInline, allowDeps bool) error {
+func devInstall(client *api.Client, dir string, allowInline, allowDeps, allowWeb bool) error {
 	data, manifest, err := buildPluginPackage(dir, devVersion(readVersion(dir), time.Now()))
 	if err != nil {
 		return err
@@ -361,6 +368,13 @@ func devInstall(client *api.Client, dir string, allowInline, allowDeps bool) err
 		"operations":   nonNil(jsonval.Array(jsonval.At(uploaded, "operations"))),
 		"paths":        nonNil(jsonval.Array(jsonval.At(uploaded, "paths"))),
 		"allow_inline": allowInline,
+	}
+	if web := jsonval.At(uploaded, "web"); web != nil {
+		if !allowWeb {
+			return clierr.Usagef("插件带网页（%s）：网页会以使用它的人的身份运行，管理员打开时拥有管理员的全部权限；用户同意后加 --allow-web",
+				"/apps/"+manifest.ID)
+		}
+		body["allow_web"] = true
 	}
 	if deps := jsonval.At(uploaded, "dependencies"); deps != nil {
 		digest := jsonval.Str(jsonval.At(deps, "lock_digest"))

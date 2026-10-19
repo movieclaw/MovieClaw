@@ -30,3 +30,17 @@ func TestBooleanFlagsInExamplesUseEquals(t *testing.T) {
 		t.Fatal("spec 里应至少有一个必填布尔参数的命令（如 app plugins switch）")
 	}
 }
+
+// TestHelpShowsTheHTTPEndpoint 帮助里写明方法与路径：写插件网页时 fetch 的就是它。
+func TestHelpShowsTheHTTPEndpoint(t *testing.T) {
+	for _, op := range IterOperations(loadSpec(t)) {
+		if op.OperationID != "subscriptions.list" {
+			continue
+		}
+		if help := longHelp(op); !strings.Contains(help, "接口：GET /api/v1/subscriptions") {
+			t.Fatalf("帮助里应写明接口地址：\n%s", help)
+		}
+		return
+	}
+	t.Fatal("spec 里找不到 subscriptions.list")
+}

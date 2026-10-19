@@ -187,7 +187,11 @@ def main(argv: list[str]) -> int:
     if is_legacy_id(plugin.id):
         fail(f"id「{plugin.id}」是旧格式（带点）：新插件的 id 须{ID_RULE}；清单 id 与 @plugin 的名字一起改")
         return _finish()
-    ok(f"清单合规：{plugin.id} v{plugin.version}，入口 {plugin.entry}，运行方式 {plugin.runtime}")
+    web_only = not plugin.entry and plugin.runtime != "exec"
+    if web_only:
+        ok(f"清单合规：{plugin.id} v{plugin.version}，只带网页（没有后端代码）")
+    else:
+        ok(f"清单合规：{plugin.id} v{plugin.version}，入口 {plugin.entry}，运行方式 {plugin.runtime}")
     size_kb = len(data) // 1024
     if len(data) > MAX_ARCHIVE_BYTES:
         fail(f"包大小 {size_kb} KB 超过上限")
@@ -275,7 +279,12 @@ def main(argv: list[str]) -> int:
     if declared_callbacks - used_callbacks and used_callbacks:
         warn(f"清单声明了但代码里没找到的回调端点：{'、'.join(sorted(declared_callbacks - used_callbacks))}")
 
+    # 网页（docs/design/plugin-web-pages.md）
+    _check_web(directory, plugin.id, plugin.title)
+
     # 4. 导入入口模块
+    if web_only:
+        return _finish()
     result = probe(directory, plugin.entry, plugin.id)
     if result.get("error"):
         fail(f"导入入口模块 {plugin.entry} 失败：\n{result['error']}")
@@ -329,6 +338,66 @@ def main(argv: list[str]) -> int:
             "否则进程外运行时解析不了"
         )
     return _finish()
+
+
+def _check_web(directory: Path, entry_id: str, title: str) -> None:
+    """插件网页：入口、manifest 的侧边栏项、图标文件、跳主程序的链接。"""
+    import json
+    import re
+
+    from movieclaw_api.services import plugin_web
+
+    web = directory / "web"
+    if not web.is_dir():
+        return
+    if not (web / "index.html").is_file():
+        fail("有 web/ 目录但没有 web/index.html：网页的入口必须是它")
+        return
+    warn(
+        f"带网页（装好后地址 /apps/{entry_id}）：网页会以使用它的人的身份运行，管理员打开时拥有管理员的全部权限。"
+        "安装前要告诉用户并得到同意，同意后 mclaw plugin dev 加 --allow-web"
+    )
+    for name in plugin_web.MANIFEST_NAMES:
+        raw = web / name
+        if raw.is_file():
+            try:
+                data = json.loads(raw.read_text("utf-8"))
+            except ValueError as exc:
+                fail(f"web/{name} 不是合法的 JSON：{exc}")
+                return
+            shortcuts = data.get("shortcuts") if isinstance(data, dict) else None
+            break
+    else:
+        data, shortcuts = None, None
+        ok("没有 manifest.webmanifest：侧边栏一项，文字用插件名，图标用默认的")
+    plugin = plugin_web.WebPlugin(id=entry_id, title=title, source="local", root=web, consent=None)
+    manifest = plugin_web.read_manifest(plugin)
+    base = plugin_web.base_path(entry_id)
+    if data is not None:
+        items = "、".join(
+            f"「{e.label}」→ /apps/{entry_id}{('/' + e.path) if e.path else ''}" for e in manifest.entries
+        )
+        ok(f"侧边栏：{items}")
+        if isinstance(shortcuts, list) and len(manifest.entries) - 1 < len(shortcuts):
+            warn("manifest 的 shortcuts 里有地址越出了 web/（或不是相对地址），这些项不会出现在侧边栏")
+    for entry in manifest.entries:
+        if entry.icon and plugin_web.resolve_file(web, entry.icon[len(base) :].partition("?")[0]) is None:
+            warn(f"「{entry.label}」的图标 {entry.icon[len(base) :]} 在 web/ 里找不到，会显示默认图标")
+        elif entry.icon and not entry.monochrome:
+            warn(
+                f"「{entry.label}」的图标没标 purpose: monochrome：会按原图显示，不跟主题变色"
+                "（单色线条图标标上它，侧边栏按当前文字颜色着色）"
+            )
+    link = re.compile(r"<a\b[^>]*\bhref=[\"'](/[^\"']*)[\"'][^>]*>", re.I)
+    for path in sorted(web.rglob("*.html")):
+        for match in link.finditer(path.read_text("utf-8", errors="replace")):
+            href = match.group(1)
+            if href.startswith("/api/") or "target=" in match.group(0):
+                continue
+            warn(
+                f"web/{path.relative_to(web)} 里的链接 {href} 没写 target=\"_top\"："
+                "跳主程序的页面要加上它；插件自己的页面用相对地址（不带开头的 /）"
+            )
 
 
 def _check_dependencies(directory: Path, manifest: object) -> None:
