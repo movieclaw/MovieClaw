@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, Depends, Request
-from mcp.types import Tool
 
 from movieclaw_api.api.deps import require_admin_session
 from movieclaw_api.exceptions import NotFoundException
@@ -38,7 +37,7 @@ from movieclaw_api.settings import AppServerSetting, get_setting_store
 from movieclaw_api.settings.mcp import McpEndpoint
 from movieclaw_mcp.catalog import available_services, operations_by_domain, tools_by_name
 from movieclaw_mcp.selfcheck import self_check
-from movieclaw_mcp.tools import build_tools, describe_domain
+from movieclaw_mcp.tools import Tool, build_tools, describe_domain
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
@@ -247,7 +246,7 @@ def _tool_commands(tool: Tool) -> list[ToolCommand]:
 
 
 def _tool_preview(tool: Tool) -> ToolPreview:
-    """SDK 的 Tool → 管理页要展示的形态（含参数明细）。"""
+    """工具面的 Tool → 管理页要展示的形态（含参数明细）。"""
     schema = tool.input_schema or {}
     required = set(schema.get("required") or [])
     operation = tools_by_name().get(tool.name)

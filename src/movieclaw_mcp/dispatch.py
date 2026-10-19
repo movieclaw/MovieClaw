@@ -13,14 +13,16 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
-from mcp.types import CallToolResult, TextContent
 
 from movieclaw_api.services import auth as auth_service
 from movieclaw_mcp.catalog import Operation
 from movieclaw_sdk import ops
+
+if TYPE_CHECKING:
+    from mcp.types import CallToolResult
 
 logger = logging.getLogger("movieclaw_mcp.dispatch")
 
@@ -63,6 +65,9 @@ async def call_operation(
     错误一律以 ``is_error=True`` 的**结果**返回而不是抛异常：模型看得到原因才能
     自己纠正（少传了参数、id 不存在、权限不足），而抛异常只会变成一句协议层错误。
     """
+    # SDK 只在真有 MCP 调用时才加载（整包约 25MB）：build_request 还被插件宿主调用复用
+    from mcp.types import CallToolResult, TextContent
+
     path, query, body = build_request(op, arguments)
     token = await auth_service.issue_mcp_token(endpoint_id)
 

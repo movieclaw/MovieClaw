@@ -680,7 +680,8 @@ class McpEndpoint(BaseModel):
 
 ```
 src/movieclaw_mcp/__init__.py        # 包入口与 register(app)
-src/movieclaw_mcp/app.py             # ASGI 调度器 + SDK Server 构建与缓存
+src/movieclaw_mcp/app.py             # ASGI 调度器（鉴权，不导入 SDK）
+src/movieclaw_mcp/server.py          # SDK Server 构建与应答；首个合法请求才加载（SDK 常驻约 25MB）
 src/movieclaw_mcp/tools.py           # spec → Tool[]（两种模式、注解、过滤）
 src/movieclaw_mcp/dispatch.py        # 工具调用 → 本机 API → CallToolResult
 src/movieclaw_api/settings/mcp.py    # mcp.endpoints 配置域

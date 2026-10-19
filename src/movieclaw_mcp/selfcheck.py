@@ -21,8 +21,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from mcp.client import Client
-
 from movieclaw_api.settings.mcp import McpEndpoint
 
 logger = logging.getLogger("movieclaw_mcp.selfcheck")
@@ -58,7 +56,9 @@ def _pick_probe_tool(tools: list[Any]) -> Any | None:
 
 async def self_check(app: Any, endpoint: McpEndpoint, *, external_url: str = "") -> SelfCheckResult:
     """跑一次自检。异常一律收敛成结果对象——自检本身不该把管理页打挂。"""
-    from movieclaw_mcp.app import build_server
+    from mcp.client import Client
+
+    from movieclaw_mcp.server import build_server
 
     started = time.perf_counter()
     warnings: list[str] = []
