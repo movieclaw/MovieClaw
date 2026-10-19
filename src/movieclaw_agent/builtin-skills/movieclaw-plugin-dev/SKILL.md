@@ -31,7 +31,7 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 |---|---|
 | 通道、消息推送 | `channels list`（输出很长，只看各项 `id` / `title`）；已经会推哪些事件：`channels im push config get` |
 | 下载器 | `dl list` 看已接入的；支持哪些类型看 `dl types list`（随应用有 qBittorrent、Transmission，插件加的类型也列在这里） |
-| 网盘 | `drives backends list` 看能接哪些网盘（主程序本身不带，都由插件提供，如插件仓库的 `cloud-115`）；`drives accounts list` 看已登录的账号 |
+| 网盘 | `drives backends list` 看能接哪些网盘（主程序本身不带，都由插件提供，如插件仓库的 `cloud-115`；`drives status` 的 `active` 为假就是还没有）；`drives accounts list` 看已登录的账号；建库时怎么用网盘看 `library create --help`（`--cloud-folders-json` 纳管、主根在网盘） |
 | 订阅只要 / 不要某些资源（制作组、分辨率、HDR、字幕、体积、免费） | `rules update --help`：订阅规则组都能设（如制作组白名单），规则组表达不了的才用钩子 |
 | 站点 | `site list`、`site --help` |
 | 播放器跳过片头、片尾、广告、预告 | 内置：剧集库的片段识别，`library update --help` 的 `--detect-media-segments` |
@@ -94,7 +94,7 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 |---|---|
 | 任何插件 | `references/extension-points.md`（确认要用的契约存在、没落在「做不到」里）、`templates/starter/` |
 | 事件 / 钩子类（删片联动、关键字规则、选下载器） | `references/recipes.md` 第 1～3 节，对应示例 `references/examples/{delete_cascade,keyword_rules}.py` |
-| 网盘（接一家网盘做媒体库的存储） | `$SRC/movieclaw_sdk/drives.py` 文件头（契约与骨架）、`references/extension-points.md` 的 `drive-backends`；完整的真实插件是插件仓库的 `plugins/cloud-115/`（<https://github.com/movieclaw/movieclaw-plugins>，带第三方依赖，见 `references/manifest.md`「第三方依赖」） |
+| 网盘（接一家网盘做媒体库的存储） | `references/recipes.md` 第 18 节（**先看登录方式与能写的限制**）、`$SRC/movieclaw_sdk/drives.py` 文件头（契约与骨架）；完整的真实插件是插件仓库的 `plugins/cloud-115/`（<https://github.com/movieclaw/movieclaw-plugins>，带第三方依赖，见 `references/manifest.md`「第三方依赖」） |
 | 下载器（接一款新的下载软件） | `$SRC/movieclaw_sdk/downloaders.py` 文件头（骨架、连接参数只能取 url / username / password）、随带的 `$SRC/movieclaw_plugins/qbittorrent/`、`transmission/` |
 | 删除弹窗加勾选项 | `references/extension-points.md` 的 `library.delete-participants`、`$SRC/movieclaw_api/services/library/delete_participants.py` 文件头、内置参与方 `$SRC/movieclaw_api/services/remove_source.py` |
 | IM 通道 | `references/recipes.md` 第 11 节（**选接入方式**）、`references/examples/ntfy-channel/`、`$SRC/movieclaw_sdk/channels.py` 文件头；只推送的通道再看 `$SRC/movieclaw_plugins/feishu/`；靠平台回调收消息的看 `references/examples/wecom-channel/` |

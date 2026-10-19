@@ -129,7 +129,8 @@ platforms = ["linux/amd64", "linux/arm64"]    # 必填；与服务器平台不�
 ## 第三方依赖（`[dependencies]`）
 
 带本机代码的包（pycryptodome、lz4……）放不进 `vendor/`，在清单里声明锁文件，管理员批准安装时由服务器下载
-（设计：`docs/design/plugin-dependencies.md`）。
+（设计：`docs/design/plugin-dependencies.md`）。选依赖先看**轮子里的 LICENSE**：PyPI 页面写的许可证不一定准
+（如 p115cipher 页面写 MIT，轮子里是 GPLv3），带 GPL 的要在插件 README 里讲清，并告诉用户。
 
 1. 把直接依赖写进插件目录的 `requirements.in`（每行一个）；
 2. `python scripts/check_plugin.py plugins/<目录> --lock`：按主程序的 `host-constraints.txt`（最新服务器版本的 Release 附件；

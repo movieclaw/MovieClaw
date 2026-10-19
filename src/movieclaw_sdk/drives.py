@@ -50,7 +50,7 @@ from movieclaw_kernel import RegistryKey, Stability
 class Capabilities:
     """后端能做什么、默认怎么用（cloud-storage.md §11.1）。主程序据此决定界面与调度。"""
 
-    #: 能不能写（上传、移动、删除）；不能写的盘一期不支持
+    #: 能不能写（上传、移动、删除）；只读网盘目前不支持，须为 True 并实现上传与删除
     writable: bool = False
     #: 秒传用哪些指纹（``sha1`` / ``md5``）；空 = 不支持秒传
     rapid_upload_hashes: tuple[str, ...] = ()
@@ -353,8 +353,9 @@ class DriveBackend:
     """一家网盘的后端（注册表 ``drive-backends`` 的贡献项）。
 
     子类设置 ``type`` / ``title`` / ``capabilities`` / ``login``，按登录方式实现
-    ``begin_login`` 一族或 ``login_with_cookie``，都要实现 ``account_info``。
-    文件相关的方法随存储层的后续阶段加入。
+    ``begin_login`` 一族或 ``login_with_cookie``，都要实现 ``account_info``；取流实现 ``stat`` /
+    ``direct_link``，纳管实现 ``list_dir`` / ``list_tree``（有操作动态再实现 ``changes``），上传实现
+    ``ensure_dir`` / ``begin_upload`` / ``upload_part`` / ``finish_upload``，删除实现 ``delete``。
     """
 
     #: 存进账号的类型值，全局唯一（如 ``115``）；换一个实现同一网盘的插件时沿用同一个值，
