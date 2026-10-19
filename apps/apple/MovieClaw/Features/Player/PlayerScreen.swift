@@ -617,7 +617,8 @@ private struct PlayerContent: View {
             case .none: EmptyView()
             case .audio: AudioMenu(controller: controller) { menu = .none }.transition(menuTransition(.audio))
             case .subtitles: SubtitleMenu(controller: controller) { menu = .none }.transition(menuTransition(.subtitles))
-            case .settings: SettingsMenu(controller: controller) { menu = .none }.transition(menuTransition(.settings))
+            // ⋯ 是系统菜单（PlayerSettingsMenu），自己弹出；这里只记着它开着，让控制层常显
+            case .settings: EmptyView()
             }
         }
         .animation(.spring(duration: 0.32, bounce: 0.18), value: menu)

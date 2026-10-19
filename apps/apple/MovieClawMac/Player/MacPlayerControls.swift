@@ -279,7 +279,7 @@ struct MacPlayerTransport: View {
             if controller.scope.shareSlug == nil {
                 Menu {
                     ForEach(QualityOption.all) { item in
-                        Toggle(isOn: Binding(get: { controller.quality == item.maxHeight },
+                        Toggle(isOn: Binding(mcGet: { controller.quality == item.maxHeight },
                                              set: { _ in controller.selectQuality(item.maxHeight) })) {
                             Text(item.label)
                             Text(item.hint)
@@ -292,7 +292,7 @@ struct MacPlayerTransport: View {
             }
             Menu {
                 ForEach(PlaybackSpeed.all, id: \.self) { rate in
-                    Toggle(PlaybackSpeed.label(rate), isOn: Binding(get: { controller.rate == rate },
+                    Toggle(PlaybackSpeed.label(rate), isOn: Binding(mcGet: { controller.rate == rate },
                                                                      set: { _ in controller.selectRate(rate) }))
                 }
             } label: {

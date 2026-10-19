@@ -220,24 +220,21 @@ final class PlayerUITests: XCTestCase {
         }
         startSeconds = 30
 
-        // 1. 这一集：⋯ 一级写着「正常」→ 进二级 →「‹」能回一级 → 选 1.5×
+        // 1. 这一集：⋯ 一级「倍速」写着「正常」→ 展开子菜单 → 选 1.5×
         var app = launchRoute(String(format: "/play/%d/s01e%02d?t=%d", show, current, startSeconds))
         XCTAssertTrue(waitForPosition(app, atLeast: startSeconds + 2, timeout: 90), "没有开始播放")
         tapControl(app, "player-设置")
-        let speedEntry = app.buttons["menu-speed"]
-        XCTAssertTrue(speedEntry.waitForExistence(timeout: 5), "一级菜单没有「倍速」")
-        XCTAssertTrue(app.buttons["menu-quality"].exists, "一级菜单没有「画质」")
-        XCTAssertTrue(app.buttons["menu-diagnostics"].exists, "一级菜单没有「播放诊断」")
-        XCTAssertTrue(speedEntry.label.contains("正常"), "一级「倍速」行没写当前值：\(speedEntry.label)")
+        let speedEntry = menuItem(app, "倍速")
+        XCTAssertTrue(speedEntry.waitForExistence(timeout: 5), "设置菜单没有「倍速」")
+        XCTAssertTrue(menuItem(app, "画质").exists, "设置菜单没有「画质」")
+        XCTAssertTrue(menuItem(app, "播放诊断").exists, "设置菜单没有「播放诊断」")
+        XCTAssertTrue("\(speedEntry.label) \(speedEntry.value ?? "")".contains("正常"), "「倍速」没写当前值：\(speedEntry.label)")
         shot(app, "speed-root")
-        tapControl(app, "menu-speed")
-        XCTAssertTrue(app.buttons["speed-1.5×"].waitForExistence(timeout: 3), "倍速二级菜单没有打开")
+        speedEntry.tap()
+        XCTAssertTrue(app.buttons["1.5×"].waitForExistence(timeout: 3), "倍速子菜单没有打开")
         shot(app, "speed-options")
-        tapControl(app, "menu-back")
-        XCTAssertTrue(app.buttons["menu-speed"].waitForExistence(timeout: 3), "「‹」没有回到一级")
-        tapControl(app, "menu-speed")
-        tapControl(app, "speed-1.5×")
-        XCTAssertTrue(app.buttons["speed-1.5×"].waitForNonExistence(timeout: 3), "选了倍速菜单没有收起")
+        app.buttons["1.5×"].tap()
+        XCTAssertTrue(app.buttons["1.5×"].waitForNonExistence(timeout: 3), "选了倍速菜单没有收起")
         XCTAssertTrue(app.staticTexts["player-rate-badge"].waitForExistence(timeout: 3), "时间旁没有倍速角标")
         XCTAssertEqual(app.staticTexts["player-rate-badge"].label, "1.5×")
         // 进度按 1.5 倍走：墙钟 10 秒 ≈ 片子 15 秒（读数取整、读控件本身有延迟，给宽一点）
@@ -271,28 +268,38 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForNonExistence(timeout: 10), "播放器没有关闭")
         app.terminate()
 
-        // 4. 回到那部剧选回「正常」：角标消失，记忆清掉（不给之后的用例留倍速）
-        app = launchRoute(String(format: "/play/%d/s01e%02d?t=%d", show, current, startSeconds))
+        // 4. 回到那部剧选回「正常」：角标消失，记忆清掉（不给之后的用例留倍速）。
+        //    这一遍不钉控制层：⋯ 是系统菜单，开着时控制层不能 4 秒自己收起（收起会把菜单一起带走）
+        app = launchRoute(String(format: "/play/%d/s01e%02d?t=%d", show, current, startSeconds), pinChrome: false)
         XCTAssertTrue(waitForPosition(app, atLeast: startSeconds + 2, timeout: 90), "没有开始播放")
         tapControl(app, "player-设置")
-        tapControl(app, "menu-speed")
-        tapControl(app, "speed-1×")
+        XCTAssertTrue(menuItem(app, "倍速").waitForExistence(timeout: 5), "设置菜单没有打开")
+        sleep(6)
+        XCTAssertTrue(menuItem(app, "倍速").isHittable, "菜单开着时控制层自己收起了")
+        shot(app, "speed-menu-held")
+        menuItem(app, "倍速").tap()
+        XCTAssertTrue(app.buttons["正常"].waitForExistence(timeout: 3), "倍速子菜单没有打开")
+        app.buttons["正常"].tap()
         XCTAssertTrue(app.staticTexts["player-rate-badge"].waitForNonExistence(timeout: 3), "选回正常后角标没消失")
         tapControl(app, "player-close")
         XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForNonExistence(timeout: 10), "播放器没有关闭")
     }
 
     @MainActor
-    private func launchRoute(_ route: String) -> XCUIApplication {
+    private func launchRoute(_ route: String, pinChrome: Bool = true) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = [
-            "-mcServer", server, "-mcUser", username, "-mcPass", password, "-mcRoute", route,
-            // 钉住控制层：读进度、点菜单时不用和 4 秒自动收起赛跑
-            "-mcPlayerPinChrome", "YES",
-        ]
+        app.launchArguments = ["-mcServer", server, "-mcUser", username, "-mcPass", password, "-mcRoute", route]
+        // 钉住控制层：读进度、点菜单时不用和 4 秒自动收起赛跑
+        if pinChrome { app.launchArguments += ["-mcPlayerPinChrome", "YES"] }
         app.launch()
         XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForExistence(timeout: 30), "播放器没有打开")
         return app
+    }
+
+    /// ⋯ 系统菜单里的项：子菜单的标签是「标题 + 当前值」、画质档带一行说明，按开头找
+    @MainActor
+    private func menuItem(_ app: XCUIApplication, _ title: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
     }
 
     /// 墙钟 seconds 秒里播放头走了多少秒
@@ -392,15 +399,15 @@ final class PlayerUITests: XCTestCase {
         shot(app, "\(shotPrefix)-subtitles")
         // 点在「⋯」键的角上而不是图标正中：真机手指落点不准，只有图标笔画可点时这里会点空（真机反馈的根因）
         tapControl(app, "player-设置", at: CGVector(dx: 0.15, dy: 0.2))
-        XCTAssertTrue(app.buttons["menu-quality"].waitForExistence(timeout: 5), "设置菜单没有打开（点按钮边缘应同样生效）")
+        XCTAssertTrue(menuItem(app, "画质").waitForExistence(timeout: 5), "设置菜单没有打开（点按钮边缘应同样生效）")
         shot(app, "\(shotPrefix)-settings")
-        // 两级菜单：点「画质」进二级
-        tapControl(app, "menu-quality")
-        XCTAssertTrue(app.buttons["quality-原画"].waitForExistence(timeout: 3), "画质二级菜单没有打开")
+        // 系统菜单：点「画质」展开子菜单
+        menuItem(app, "画质").tap()
+        XCTAssertTrue(menuItem(app, "原画").waitForExistence(timeout: 3), "画质子菜单没有打开\n\(app.debugDescription)")
         shot(app, "\(shotPrefix)-settings-quality")
         // 点画面空白处收起菜单
         tapEmptyArea(app, dx: 0.95, dy: 0.55)
-        XCTAssertTrue(app.buttons["quality-原画"].waitForNonExistence(timeout: 3), "点画面应收起菜单")
+        XCTAssertTrue(menuItem(app, "原画").waitForNonExistence(timeout: 3), "点画面应收起菜单")
 
         // 退出
         tapControl(app, "player-close")

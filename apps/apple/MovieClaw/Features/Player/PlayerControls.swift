@@ -9,8 +9,9 @@ import SwiftUI
 /// 视觉统一走系统液态玻璃（`PlayerGlass`）：按钮压在画面上用透明玻璃叠薄黑、可交互（按下有系统的形变高光），
 /// 菜单与弹窗承载文字用常规玻璃。同一组按钮合进一枚胶囊，而不是各自一块底——这是 iOS 26 的分组方式。
 ///
-/// 菜单仍是自绘面板而不是系统 Menu：字幕菜单里要放时间轴/字号的步进器与开关，系统菜单放不下；
+/// 音轨、字幕菜单是自绘面板而不是系统 Menu：字幕菜单里要放时间轴/字号的步进器与开关，系统菜单放不下；
 /// 面板外观向系统菜单看齐（玻璃底、大圆角、行首对勾表示选中、行尾放图标）。
+/// ⋯ 设置只有几组单选，用系统菜单（`PlayerSettingsMenu`），`.settings` 只表示它开着。
 enum PlayerMenu: Equatable {
     case none, audio, subtitles, settings
 }
@@ -193,6 +194,71 @@ struct PlayerIconButton: View {
     }
 }
 
+/// ⋯ 设置：系统菜单（液态玻璃、从按钮长出、子菜单原地展开都是系统的），同发现页的筛选菜单。
+/// 一级「画质 ›」「倍速 ›」两个子菜单，标题下一行写当前值；下一节是「播放诊断」开关。
+/// 访客分享没有画质（服务端按分享的设定给流）。选一项菜单即收起（docs/design/playback-speed.md）
+struct PlayerSettingsMenu: View {
+    let controller: PlaybackController
+    /// 菜单开着时记成 `.settings`：控制层常显、收起别的菜单（系统菜单自己管弹出与收起）
+    @Binding var menu: PlayerMenu
+
+    var body: some View {
+        Menu {
+            Group {
+                if controller.scope.shareSlug == nil {
+                    Menu {
+                        // 画质：语义是上限——源不超所选档就照常直通（无损），超了才转码降下去
+                        ForEach(QualityOption.all) { option in
+                            Toggle(isOn: Binding(mcGet: { controller.quality == option.maxHeight },
+                                                 set: { _ in controller.selectQuality(option.maxHeight) })) {
+                                Text(option.label)
+                                Text(option.hint)
+                            }
+                        }
+                    } label: {
+                        Label("画质", systemImage: "sparkles.tv")
+                        Text(QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? "原画")
+                    }
+                }
+                Menu {
+                    ForEach(PlaybackSpeed.all, id: \.self) { rate in
+                        Toggle(PlaybackSpeed.label(rate), isOn: Binding(mcGet: { controller.rate == rate },
+                                                                        set: { _ in controller.selectRate(rate) }))
+                    }
+                } label: {
+                    Label("倍速", systemImage: "gauge.with.dots.needle.67percent")
+                    Text(PlaybackSpeed.label(controller.rate))
+                }
+                Section {
+                    Toggle(isOn: Binding(mcGet: { controller.diagnosticsOpen }, set: { controller.diagnosticsOpen = $0 })) {
+                        Label("播放诊断", systemImage: "waveform.path.ecg")
+                    }
+                }
+            }
+            .onAppear {
+                controller.noteUserActivity()
+                menu = .settings
+            }
+            .onDisappear {
+                if menu == .settings { menu = .none }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: PlayerLayout.button, height: PlayerLayout.button)
+                // 同 PlayerIconButton：整块都能点，不只是三个小圆点
+                .contentShape(.rect)
+        }
+        // 菜单从底栏往上弹：系统默认把离按钮最近的项排前面（诊断到了最上、倍速成了 2× → 0.5×），固定按写的顺序
+        .menuOrder(.fixed)
+        .menuStyle(.button)
+        .buttonStyle(PlayerIconButtonStyle(highlighted: menu == .settings, pressFeedback: true))
+        .accessibilityLabel("设置")
+        .accessibilityIdentifier("player-设置")
+    }
+}
+
 /// 图标按钮的浅色圆：比按钮内缩 4pt，放在胶囊两端时正好与胶囊端头同心
 private struct PlayerIconButtonStyle: ButtonStyle {
     let highlighted: Bool
@@ -249,7 +315,7 @@ struct PlayerBottomBar: View {
                             systemImage: controller.selectedSubtitle == nil ? "captions.bubble" : "captions.bubble.fill",
                             label: "字幕", identifier: "player-字幕", highlighted: menu == .subtitles
                         ) { toggle(.subtitles) }
-                        PlayerIconButton(systemImage: "ellipsis", label: "设置", identifier: "player-设置", highlighted: menu == .settings) { toggle(.settings) }
+                        PlayerSettingsMenu(controller: controller, menu: $menu)
                     }
                     .glassEffect(PlayerGlass.control, in: .capsule)
                     Spacer()
