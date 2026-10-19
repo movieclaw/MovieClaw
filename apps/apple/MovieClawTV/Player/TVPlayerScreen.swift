@@ -85,6 +85,8 @@ enum TVPlayerFocus: Hashable {
     case upNext
     case watchCredits
     case qualityOffer
+    /// 进度条上方的倍速键
+    case speed
     case panelOption(String)
     case dialog
 }
@@ -108,6 +110,8 @@ private struct TVPlayerContent: View {
     /// 按住左右键的连续快进 / 快退：当前速度（片内秒数 / 秒，带方向）；nil = 不在长按拖动
     @State private var holdRate: Int?
     @State private var trickplay = TrickplayImages()
+    /// 倍速键的系统菜单开着：控制层不能收起（键跟着控制层一起消失，菜单就没了着落）
+    @State private var speedMenuOpen = false
 
     var body: some View {
         ZStack {
@@ -260,6 +264,7 @@ private struct TVPlayerContent: View {
         VStack(spacing: 0) {
             LinearGradient(colors: [.black.opacity(0.7), .clear], startPoint: .top, endPoint: .bottom)
                 .frame(height: 220)
+                .allowsHitTesting(false)
                 .overlay(alignment: .topLeading) {
                     if showPaused, panel == nil {
                         TVPausedTitle(title: controller.title, episodeLabel: controller.episodeLabel(controller.currentEpisode))
@@ -269,15 +274,23 @@ private struct TVPlayerContent: View {
                 }
             Spacer(minLength: 0)
             TVTransportBar(controller: controller, trickplay: trickplay, scrubMs: scrubMs, scrubRate: holdRate)
+                // 倍速键在片名一行的右端，同 tvOS 系统播放器的字幕 / 音轨 / 倍速键（docs/design/playback-speed.md）
+                .overlay(alignment: .topTrailing) {
+                    TVSpeedButton(controller: controller, focus: $focus, menuOpen: $speedMenuOpen, down: openPanel) {
+                        focus = .surface
+                    }
+                    .alignmentGuide(.top) { $0[VerticalAlignment.center] - 14 }
+                    .disabled(isModal)
+                }
                 .padding(.horizontal, 80)
                 .padding(.bottom, 60)
                 .background(alignment: .bottom) {
                     LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom)
                         .frame(height: 360)
+                        .allowsHitTesting(false)
                 }
         }
         .ignoresSafeArea()
-        .allowsHitTesting(false)
     }
 
     /// 右下角：跳过片头 / 下一集卡片 / 换画质建议（同一个角落，同时只出一个）
@@ -377,7 +390,7 @@ private struct TVPlayerContent: View {
     /// 控制层必须常显：暂停时用户在找进度；正在拖；面板开着
     private var chromeMustStayVisible: Bool {
         let userPaused = controller.paused && !controller.phase.isBusy && controller.session != nil
-        return userPaused || scrubMs != nil || panel != nil
+        return userPaused || scrubMs != nil || panel != nil || focus == .speed || speedMenuOpen
     }
 
     private var autoHideKey: String {
@@ -425,7 +438,7 @@ private struct TVPlayerContent: View {
             // 点按 / 长按要看松开的时刻，由 TVArrowPresses 处理（arrowDown / arrowUp）
             break
         case .down:
-            openPanel()
+            moveDown()
         case .up:
             showChrome()
         @unknown default:
@@ -478,7 +491,17 @@ private struct TVPlayerContent: View {
     }
 
     private func handleVerticalSwipe(_ down: Bool) {
-        if down { openPanel() } else { showChrome() }
+        if down { moveDown() } else { showChrome() }
+    }
+
+    /// 往下：控制层露着时先落到进度条上方的倍速键（同系统播放器，再往下才是面板）；控制层收着时直接开面板
+    private func moveDown() {
+        if chromeVisible, panel == nil, !isModal, controller.session != nil {
+            focus = .speed
+            showChrome()
+        } else {
+            openPanel()
+        }
     }
 
     private func openPanel() {
@@ -543,6 +566,10 @@ private struct TVPlayerContent: View {
         }
         if focus == .qualityOffer {
             controller.dismissQualityOffer()
+            focus = .surface
+            return
+        }
+        if focus == .speed {
             focus = .surface
             return
         }

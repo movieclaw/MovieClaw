@@ -53,12 +53,6 @@ struct TVTransportBar: View {
             HStack {
                 Text(Formatters.clock(Double(position) / 1000))
                 Spacer()
-                // 不是正常速度时常驻一个角标，免得忘了自己开着倍速
-                if controller.rate != 1 {
-                    Text(PlaybackSpeed.short(controller.rate))
-                        .foregroundStyle(.white)
-                        .accessibilityIdentifier("tv-player-rate-badge")
-                }
                 Text("-" + Formatters.clock(Double(max(0, duration - position)) / 1000))
             }
             .font(.callout.monospacedDigit())
@@ -115,5 +109,47 @@ struct TVTransportBar: View {
             .foregroundStyle(.white)
             .shadow(radius: 6)
         }
+    }
+}
+
+/// 倍速键（docs/design/playback-speed.md）：进度条上方片名一行的右端，同 tvOS 系统播放器的倍速键——
+/// 按确认弹出系统菜单选档（打勾的是当前档）；正常速度只露图标，加速时图标旁写着「1.5×」，免得忘了开着倍速。
+/// 键上再按下 = 打开字幕 / 音轨 / 画质面板，按上或返回 = 回到画面
+struct TVSpeedButton: View {
+    let controller: PlaybackController
+    var focus: FocusState<TVPlayerFocus?>.Binding
+    @Binding var menuOpen: Bool
+    let down: () -> Void
+    let up: () -> Void
+
+    var body: some View {
+        Menu {
+            Picker("倍速", selection: Binding(mcGet: { controller.rate }, set: { controller.selectRate($0) })) {
+                ForEach(PlaybackSpeed.all, id: \.self) { rate in
+                    Text(PlaybackSpeed.label(rate)).tag(rate)
+                }
+            }
+            .onAppear { menuOpen = true }
+            .onDisappear { menuOpen = false }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "gauge.with.dots.needle.67percent")
+                if controller.rate != 1 {
+                    Text(PlaybackSpeed.short(controller.rate)).monospacedDigit()
+                }
+            }
+            .font(.callout.weight(.semibold))
+        }
+        .buttonBorderShape(.capsule)
+        .focused(focus, equals: .speed)
+        .onMoveCommand { direction in
+            switch direction {
+            case .down: down()
+            case .up: up()
+            default: break
+            }
+        }
+        .accessibilityLabel("倍速：\(PlaybackSpeed.label(controller.rate))")
+        .accessibilityIdentifier("tv-player-speed")
     }
 }
