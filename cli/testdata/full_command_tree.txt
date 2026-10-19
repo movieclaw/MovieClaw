@@ -30,6 +30,8 @@ app plugins packages retry-dependencies
 app plugins packages rollback
 app plugins packages uninstall
 app plugins packages upload
+app plugins pages
+app plugins pages list
 app plugins safe-mode
 app plugins safe-mode exit
 app plugins settings
@@ -37,6 +39,9 @@ app plugins settings show
 app plugins settings update
 app plugins show
 app plugins switch
+app plugins web
+app plugins web revoke
+app plugins web update
 app port
 app port set
 app restart

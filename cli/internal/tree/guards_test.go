@@ -28,6 +28,11 @@ var knownNonGenerated = []string{
 	"session.attachments.download",
 	// 技能清单：Web composer 数据源；Agent 侧技能走系统提示词注入
 	"skills.list",
+	// 插件网页（docs/design/plugin-web-pages.md）：侧边栏数据源与 iframe 加载的静态文件，
+	// 都是 Web 基础设施；命令行看插件网页走 app plugins pages list
+	"ui.apps.list",
+	"ui.apps.root",
+	"ui.apps.file",
 	"auth.device.authorize",
 	"auth.device.token",
 	// 原生 App 的账号密码登录：客户端之间的协议端点，mclaw 走配对码

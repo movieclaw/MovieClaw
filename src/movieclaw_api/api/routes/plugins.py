@@ -20,6 +20,7 @@ from movieclaw_api.api.deps import require_admin
 from movieclaw_api.exceptions import (
     BadRequestException,
     ConflictException,
+    ForbiddenException,
     NotFoundException,
     ServiceUnavailableException,
 )
@@ -457,6 +458,55 @@ class PackageRequestView(BaseModel):
     dependency_progress: DependencyProgressView | None = Field(
         default=None, description="批准后正在安装依赖时的进度"
     )
+    web: PendingWebView | None = Field(
+        default=None,
+        description="带网页：侧边栏入口预览。批准时须 allow_web（网页以使用者的身份运行）",
+    )
+
+
+class WebEntryView(BaseModel):
+    label: str = Field(description="侧边栏文字（manifest 的 short_name / name）")
+    path: str = Field(description="落点：相对插件网页根目录的子路径，主入口通常为空")
+    icon: str | None = Field(
+        default=None,
+        description="图标地址；待批准的包是内嵌的 SVG data URL；没有则由前端用默认图标",
+    )
+    monochrome: bool = Field(
+        default=False, description="manifest 标了 purpose: monochrome：按遮罩用当前文字颜色着色"
+    )
+
+
+class PendingWebView(BaseModel):
+    """待批准的包带网页：批准页预览侧边栏入口，并须单独同意授信运行。"""
+
+    id: str
+    name: str
+    source: str
+    base: str = Field(description="iframe 加载的地址前缀")
+    entries: list[WebEntryView]
+
+
+class WebConsentView(BaseModel):
+    nav: bool = Field(description="加到侧边栏")
+    members: bool = Field(description="成员也能看到（管理员总能看到）")
+
+
+class WebPageView(BaseModel):
+    """一个带网页的插件（插件包或本地插件），不论是否已同意。"""
+
+    id: str
+    name: str
+    source: str = Field(description="package：插件包；local：本地插件")
+    approved: bool = Field(description="用户已同意授信运行；没同意的不托管、不进侧边栏")
+    nav: bool
+    members: bool
+    base: str
+    entries: list[WebEntryView]
+
+
+class WebConsentUpdate(BaseModel):
+    nav: bool = Field(default=True, description="加到侧边栏")
+    members: bool = Field(default=False, description="成员也能看到")
 
 
 class InstalledPackageView(BaseModel):
@@ -478,6 +528,9 @@ class InstalledPackageView(BaseModel):
     )
     dependencies: InstalledDependenciesView | None = Field(
         default=None, description="批准安装的第三方依赖；没有则为空"
+    )
+    web: WebConsentView | None = Field(
+        default=None, description="插件网页的同意；不带网页或没同意为空"
     )
 
 
@@ -505,6 +558,13 @@ class PackageApprove(BaseModel):
         description="同意安装的第三方依赖：填待批准包的 dependencies.lock_digest；"
         "锁文件与已安装版本相同时不用填",
     )
+    allow_web: bool = Field(
+        default=False,
+        description="插件带网页时须显式确认：网页以正在使用它的人的身份运行"
+        "（管理员打开时拥有管理员的全部权限）",
+    )
+    web_nav: bool = Field(default=True, description="带网页时：加到侧边栏")
+    web_members: bool = Field(default=False, description="带网页时：成员也能看到")
 
 
 class PackageResultView(BaseModel):
@@ -580,6 +640,9 @@ async def approve_package(
             paths=body.paths,
             allow_member_notifications=body.allow_member_notifications,
             dependencies=body.dependencies,
+            allow_web=body.allow_web,
+            web_nav=body.web_nav,
+            web_members=body.web_members,
         )
     except LookupError as exc:
         raise NotFoundException(str(exc)) from exc
@@ -902,6 +965,87 @@ class PluginDetailView(BaseModel):
     )
     children: list[str] = Field(description="它的子条目")
     source: PluginSourceView | None = Field(default=None, description="源码在哪")
+
+
+@router.get(
+    "/pages",
+    response_model=ApiResponse[list[WebPageView]],
+    summary="带网页的插件（插件包与本地插件）：是否已同意、侧边栏入口",
+    operation_id="app.plugins.pages.list",
+)
+async def list_web_pages() -> ApiResponse[list[WebPageView]]:
+    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.services import plugin_web
+
+    rows = []
+    for item in plugin_web.web_plugins(get_settings()):
+        view = plugin_web.app_view(item)
+        rows.append(WebPageView.model_validate({**view, "approved": item.consent is not None}))
+    return ok(rows)
+
+
+@router.put(
+    "/{entry_id}/web",
+    response_model=ApiResponse[WebPageView],
+    summary="同意插件网页授信运行，或改它加不加侧边栏、成员能不能看到（只能由人在网页里操作）",
+    operation_id="app.plugins.web.update",
+    openapi_extra={"x-cli-dangerous": "confirm"},
+)
+async def update_web_consent(
+    entry_id: str,
+    body: WebConsentUpdate,
+    request: Request,
+    principal: Principal = Depends(require_admin),
+) -> ApiResponse[WebPageView]:
+    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.plugins.packages import SOURCE as PACKAGE
+    from movieclaw_api.services import plugin_web
+
+    # 插件网页以使用者的身份运行：同意这一步必须是人在网页里点的，Agent 与命令行的凭证不行
+    # （本地插件常由 Agent 写出来，不能让它替用户点同意）
+    if not principal.interactive:
+        raise ForbiddenException(
+            "插件网页会以使用者的身份运行，同意只能由管理员在网页里操作（设置 → 插件），"
+            "Agent 与命令行的凭证不能代为同意"
+        )
+    settings = get_settings()
+    found = plugin_web.find(settings, entry_id)
+    if found is None:
+        raise NotFoundException(f"插件 {entry_id} 没有网页")
+    consent = plugin_web.Consent(nav=body.nav, members=body.members)
+    if found.source == PACKAGE:
+        await _packages(request).set_web(entry_id, consent.record())
+    else:
+        plugin_web.write_local_consent(settings, entry_id, consent)
+    updated = plugin_web.find(settings, entry_id)
+    assert updated is not None
+    return ok(
+        WebPageView.model_validate({**plugin_web.app_view(updated), "approved": True}),
+        message="已同意" if found.consent is None else "已保存",
+    )
+
+
+@router.delete(
+    "/{entry_id}/web",
+    response_model=ApiResponse[None],
+    summary="撤销插件网页的同意：不再托管、从侧边栏撤下（插件本身照常运行）",
+    operation_id="app.plugins.web.revoke",
+    openapi_extra={"x-cli-dangerous": "confirm"},
+)
+async def revoke_web_consent(entry_id: str, request: Request) -> ApiResponse[None]:
+    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.plugins.packages import SOURCE as PACKAGE
+    from movieclaw_api.services import plugin_web
+
+    settings = get_settings()
+    found = plugin_web.find(settings, entry_id)
+    if found is None:
+        raise NotFoundException(f"插件 {entry_id} 没有网页")
+    if found.source == PACKAGE:
+        await _packages(request).set_web(entry_id, None)
+    else:
+        plugin_web.write_local_consent(settings, entry_id, None)
+    return ok(None, message="已撤销")
 
 
 @router.get(

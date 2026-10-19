@@ -21,6 +21,9 @@ struct LiveDecodeTests {
     @Test func appPluginsPackagesList() async throws {
         try await LiveServer.check { try await $0.appPluginsPackagesList() }
     }
+    @Test func appPluginsPagesList() async throws {
+        try await LiveServer.check { try await $0.appPluginsPagesList() }
+    }
     @Test func appStorageUsage() async throws {
         try await LiveServer.check { try await $0.appStorageUsage() }
     }
@@ -299,6 +302,9 @@ struct LiveDecodeTests {
     }
     @Test func transcodeStatus() async throws {
         try await LiveServer.check { try await $0.transcodeStatus() }
+    }
+    @Test func uiAppsList() async throws {
+        try await LiveServer.check { try await $0.uiAppsList() }
     }
     @Test func uiPrefsShow() async throws {
         try await LiveServer.check { try await $0.uiPrefsShow() }

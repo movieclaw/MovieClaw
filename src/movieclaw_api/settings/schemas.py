@@ -378,13 +378,21 @@ class NavUiPrefs(BaseModel):
       不会因为不在这个列表里而永远消失——这是这类"存死一份顺序"功能最常见的事故；
     - 已经不存在的 id（导航项被删）读取时直接忽略，无需迁移。
 
-    上限 32 只是防脏数据无限增长的安全阀，不是产品限制（主导航实际只有个位数项）。
+    上限 64 只是防脏数据无限增长的安全阀，不是产品限制（内置项个位数，另加插件网页的项）。
     """
 
     order: list[str] = Field(
         default_factory=list,
-        max_length=32,
+        max_length=64,
         description="侧栏主导航的展示顺序（导航项 id）；空列表 = 用内置默认顺序",
+    )
+    hidden: list[str] | None = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "从侧栏移出的导航项 id（只有插件网页的项能移出，"
+            "docs/design/plugin-web-pages.md §4.2）；空 = 都显示"
+        ),
     )
 
 

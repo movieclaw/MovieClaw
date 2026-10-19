@@ -48,7 +48,7 @@ DEFAULT_PREFS = {
     "sidebar": {"transparency": 0.49, "brightness": -0.36, "depth": 28.0},
     "scrim": {"blur": 13.0, "dark": 0.69},
     # 空顺序 = 侧栏主导航用内置默认排布
-    "nav": {"order": []},
+    "nav": {"order": [], "hidden": None},
     # 空清单 = 媒体库首页用出厂布局
     "home": {"rows": []},
 }
@@ -201,9 +201,9 @@ def test_nav_order_accepts_unknown_ids(client: TestClient) -> None:
 
 
 def test_nav_order_too_long_rejected(client: TestClient) -> None:
-    """超过 32 项整体拒绝（422）：防脏数据无限增长，正常主导航只有个位数项。"""
+    """超过 64 项整体拒绝（422）：防脏数据无限增长，正常主导航只有十来项。"""
     resp = client.put(
-        "/api/v1/ui/preferences", json={"nav": {"order": [f"item-{i}" for i in range(33)]}}
+        "/api/v1/ui/preferences", json={"nav": {"order": [f"item-{i}" for i in range(65)]}}
     )
     assert resp.status_code == 422
     assert client.get("/api/v1/ui/preferences").json()["data"] == DEFAULT_PREFS

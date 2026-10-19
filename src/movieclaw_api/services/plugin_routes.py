@@ -86,6 +86,9 @@ class PluginRoutes:
                 raise ValueError(
                     f"{route.path} 的 operationId 须以 {prefix} 开头（当前 {route.operation_id!r}）"
                 )
+            if route.path == "/web" or route.path.startswith("/web/"):
+                # 留给插件网页的静态托管（docs/design/plugin-web-pages.md §3）
+                raise ValueError(f"{route.path}：/web 这一段留给插件网页，插件路由不能用")
         if zone == "admin":
             guard = require_admin
         elif zone == "member":

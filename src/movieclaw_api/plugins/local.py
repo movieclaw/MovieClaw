@@ -242,6 +242,10 @@ def load_local_entries(settings: object) -> list[Entry]:
     for spec in specs:
         if spec.disabled:
             plugin = _failing(spec.id, "已在 plugins.yaml 中关闭")
+        elif _web_only(root, spec):
+            from movieclaw_api.plugins.packages import web_only
+
+            plugin = web_only(spec.id, spec.id)
         elif spec.runtime in ("process", "exec"):
             plugin = _remote(root, spec)
         else:
@@ -258,6 +262,16 @@ def load_local_entries(settings: object) -> list[Entry]:
     if process:
         logger.info("已加载 %d 个独立进程运行的本地插件：%s", len(process), "、".join(process))
     return entries
+
+
+def _web_only(root: Path, spec: LocalSpec) -> bool:
+    """只带网页的本地插件：目录里只有 web/，没有 Python 代码（docs/design/plugin-web-pages.md）。"""
+    if spec.runtime == "exec":
+        return False
+    has_code = (root / f"{spec.module}.py").is_file() or (
+        root / spec.module / "__init__.py"
+    ).is_file()
+    return not has_code and (root / spec.module / "web" / "index.html").is_file()
 
 
 def _remote(root: Path, spec: LocalSpec) -> Plugin:

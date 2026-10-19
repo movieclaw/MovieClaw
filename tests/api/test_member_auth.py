@@ -542,6 +542,11 @@ _MEMBER_ALLOWLIST = {
     # 界面偏好（同上，P2 per-member 化）
     ("GET", "/api/v1/ui/preferences"),
     ("PUT", "/api/v1/ui/preferences"),
+    # 插件网页（docs/design/plugin-web-pages.md）：列表与托管只给管理员同意过「成员也能看到」
+    # 的页面，其余对成员一律当作不存在（404）
+    ("GET", "/api/v1/ui/apps"),
+    ("GET", "/api/v1/plugins/{entry_id}/web"),
+    ("GET", "/api/v1/plugins/{entry_id}/web/{path}"),
     # 发现页 / 详情 / 演职员 / 图片：纯浏览面
     ("GET", "/api/v1/ui/discovery/{media_type}"),
     ("GET", "/api/v1/discover/collections"),

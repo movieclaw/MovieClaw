@@ -116,6 +116,12 @@ nonisolated extension APIClient {
         return try await send("POST", "/app/plugins/packages/\(entryId)/rollback")
     }
 
+    /// 带网页的插件（插件包与本地插件）：是否已同意、侧边栏入口
+    /// `GET /app/plugins/pages`
+    func appPluginsPagesList() async throws -> [API.WebPageView] {
+        return try await send("GET", "/app/plugins/pages")
+    }
+
     /// 退出插件安全模式：当场重新加载被跳过的本地 / 第三方插件
     /// `POST /app/plugins/safe-mode/exit`
     func appPluginsSafeModeExit() async throws -> API.SafeModeExitView {
@@ -158,6 +164,18 @@ nonisolated extension APIClient {
     /// `PUT /app/plugins/{entry_id}/settings`
     func appPluginsSettingsUpdate(entryId: String, body: API.PluginSettingsPayload) async throws -> API.PluginSettingsView {
         return try await send("PUT", "/app/plugins/\(entryId)/settings", body: body)
+    }
+
+    /// 撤销插件网页的同意：不再托管、从侧边栏撤下（插件本身照常运行）
+    /// `DELETE /app/plugins/{entry_id}/web`
+    func appPluginsWebRevoke(entryId: String) async throws -> Void {
+        let _: API.JSONValue? = try await send("DELETE", "/app/plugins/\(entryId)/web")
+    }
+
+    /// 同意插件网页授信运行，或改它加不加侧边栏、成员能不能看到（只能由人在网页里操作）
+    /// `PUT /app/plugins/{entry_id}/web`
+    func appPluginsWebUpdate(entryId: String, body: API.WebConsentUpdate) async throws -> API.WebPageView {
+        return try await send("PUT", "/app/plugins/\(entryId)/web", body: body)
     }
 
     /// 修改对外端口（保存后全量重启生效）
@@ -3067,6 +3085,12 @@ nonisolated extension APIClient {
         return try await send("GET", "/transcode-worker/status")
     }
 
+    /// 当前用户可见的插件网页与侧边栏入口（docs/design/plugin-web-pages.md）
+    /// `GET /ui/apps`
+    func uiAppsList() async throws -> [API.AppView] {
+        return try await send("GET", "/ui/apps")
+    }
+
     /// 发现页展示编排（分区引用与呈现方式）
     /// `GET /ui/discovery/{media_type}`
     func uiDiscoveryGet(mediaType: API.MediaKind, provider: API.MediaSource? = nil) async throws -> API.DiscoveryPageView {
@@ -3149,6 +3173,8 @@ nonisolated extension APIClient {
 // - GET /api/v1/playback/sessions/{session_id}/master.m3u8（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/playback/sessions/{session_id}/sub{index}.m3u8（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/playback/sessions/{session_id}/{name}（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/plugins/{entry_id}/web（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/plugins/{entry_id}/web/{path}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/push/images/{token}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/push/me/stream（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/reels/clips/{file_id}/{start_ms}.mp4（无响应模型：文件流/SSE 等，需手写）

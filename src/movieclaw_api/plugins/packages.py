@@ -70,6 +70,9 @@ _ID = re.compile(r"^[a-z][a-z0-9-]{1,38}[a-z0-9]$")
 _LEGACY_ID = re.compile(r"^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9_-]*)+$")
 ID_RULE = "小写字母开头，只用小写字母、数字和连字符，3～40 位，不含点，如 group-blocklist"
 
+#: 插件网页入口（docs/design/plugin-web-pages.md）：包里有它就带网页
+WEB_INDEX = "web/index.html"
+
 _VERSION = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 _MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -122,8 +125,8 @@ class _Plugin(BaseModel):
     @model_validator(mode="after")
     def _runtime_fields(self) -> _Plugin:
         if self.runtime != "exec":
-            if not self.entry:
-                raise ValueError("entry 必填（入口模块名，如 group_blocklist）")
+            # entry 留空 = 纯网页插件（只有 web/，docs/design/plugin-web-pages.md）：
+            # 包里有没有 web/index.html 在 read_archive 里查
             return self
         parts = (self.command or "").split("/")
         if not self.command or any(not p or p in (".", "..") for p in parts):
@@ -244,7 +247,14 @@ def read_archive(data: bytes) -> tuple[Manifest, zipfile.ZipFile]:
         raise PackageError(f"{MANIFEST} 的 {where} 不合规：{first['msg']}") from exc
     entry = manifest.plugin.entry
     names = set(archive.namelist())
-    if manifest.plugin.runtime == "exec":
+    if manifest.plugin.runtime != "exec" and not entry:
+        if WEB_INDEX not in names:
+            raise PackageError(
+                f"entry 必填（入口模块名，如 group_blocklist）；只带网页的插件须有 {WEB_INDEX}"
+            )
+        if manifest.dependencies is not None:
+            raise PackageError("只带网页的插件（entry 留空）不能声明第三方依赖")
+    elif manifest.plugin.runtime == "exec":
         if manifest.plugin.command not in names:
             raise PackageError(f"插件包里找不到可执行文件 {manifest.plugin.command}")
         here = current_platform()
@@ -374,6 +384,9 @@ class Installed:
     dependencies: dict[str, Any] | None = None
     """批准的第三方依赖（plugin-dependencies.md §2）：``{lock, digest, packages}``。
     授权按锁文件内容哈希认，升级时锁文件没变就不再问。"""
+    web: dict[str, Any] | None = None
+    """用户对插件网页的同意（docs/design/plugin-web-pages.md §5）：``{nav, members}``；
+    没有网页或没同意为空。"""
     previous: dict[str, Any] | None = None
     """上一版的安装记录（version、title、entry、runtime、operations），回滚用。"""
     bad: list[str] = field(default_factory=list)
@@ -395,6 +408,7 @@ class Installed:
             "sensitive": list(self.sensitive),
             "members_allowed": self.members_allowed,
             "dependencies": self.dependencies,
+            "web": self.web,
         }
 
 
@@ -498,6 +512,15 @@ def _failing(entry_id: str, reason: str) -> Plugin:
     return Plugin(name=entry_id, title=f"插件包 {entry_id}", apply=apply, disableable=True)
 
 
+def web_only(entry_id: str, title: str) -> Plugin:
+    """只带网页的插件：没有后端代码，挂一个空插件占位（诊断、停用、卸载与别的插件一样）。"""
+
+    async def apply(ctx: Any) -> None:
+        return None
+
+    return Plugin(name=entry_id, title=title, apply=apply, disableable=True)
+
+
 def _inline(path: Path, package: Installed) -> Plugin:
     """进程内运行（用户单独批准过）：按包目录导入，模块名带条目 id 前缀避免与别的包重名。"""
     import dataclasses
@@ -572,7 +595,9 @@ def entry_for(settings: object, package: Installed) -> Entry:
     path = version_dir(settings, package.id, package.version)
     try:
         _bind_dependencies(settings, package)
-        if package.runtime == "inline":
+        if not package.entry and package.runtime != "exec":
+            plugin = web_only(package.id, package.title)
+        elif package.runtime == "inline":
             plugin = _inline(path, package)
         else:
             from movieclaw_api.services.plugin_runtime import describe, remote_plugin

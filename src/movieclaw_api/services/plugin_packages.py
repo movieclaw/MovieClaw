@@ -106,8 +106,10 @@ def operation_details(patterns: list[str]) -> list[dict[str, Any]]:
     return details
 
 
-def _view(manifest: pkg.Manifest, current: pkg.Installed | None, lock: Any) -> dict[str, Any]:
-    from movieclaw_api.services import plugin_deps
+def _view(
+    manifest: pkg.Manifest, current: pkg.Installed | None, lock: Any, path: Any = None
+) -> dict[str, Any]:
+    from movieclaw_api.services import plugin_deps, plugin_web
 
     plugin = manifest.plugin
     approved = set(current.operations) if current else set()
@@ -133,6 +135,8 @@ def _view(manifest: pkg.Manifest, current: pkg.Installed | None, lock: Any) -> d
         "replaces_builtin": _replaces_builtin(plugin.id),
         "dependencies": plugin_deps.view(lock, current.dependencies if current else None),
         "dependency_progress": plugin_deps.progress(plugin.id) if lock is not None else None,
+        # 带网页：批准页预览侧边栏入口，并须单独同意授信运行（plugin-web-pages.md §5）
+        "web": plugin_web.pending_preview(path, plugin.id, plugin.title) if path else None,
     }
 
 
@@ -235,10 +239,16 @@ class PackageManager:
                     "watching": item.id in self._watches,
                     "replaces_builtin": _replaces_builtin(item.id),
                     "dependencies": _installed_dependencies(item),
+                    "web": item.web,
                 }
             )
         waiting = [
-            _view(manifest, packages.get(manifest.plugin.id), _pending_lock(manifest, path))
+            _view(
+                manifest,
+                packages.get(manifest.plugin.id),
+                _pending_lock(manifest, path),
+                path,
+            )
             for manifest, path in pkg.pending(self._settings)
         ]
         return {"installed": rows, "pending": waiting}
@@ -266,7 +276,17 @@ class PackageManager:
             target = pkg.pending_dir(self._settings, manifest.plugin.id, manifest.plugin.version)
             await asyncio.to_thread(pkg.extract, archive, target)
         logger.info("插件包 %s v%s 已上传，等待批准", manifest.plugin.id, manifest.plugin.version)
-        return _view(manifest, current, lock)
+        return _view(manifest, current, lock, target)
+
+    async def set_web(self, entry_id: str, consent: dict[str, Any] | None) -> None:
+        """改插件网页的同意（加不加侧边栏、成员能不能看到）；``None`` = 撤销。"""
+        async with self._lock:
+            packages = pkg.installed(self._settings)
+            record = packages.get(entry_id)
+            if record is None:
+                raise LookupError(f"没有安装插件包 {entry_id}")
+            record.web = consent
+            pkg.save(self._settings, packages)
 
     async def discard(self, entry_id: str) -> None:
         async with self._lock:
@@ -287,6 +307,9 @@ class PackageManager:
         paths: list[dict[str, str]] | None = None,
         allow_member_notifications: bool = False,
         dependencies: str | None = None,
+        allow_web: bool = False,
+        web_nav: bool = True,
+        web_members: bool = False,
     ) -> dict[str, Any]:
         """用户批准：安装并当场挂载；激活失败自动回滚。返回挂载结果。
 
@@ -319,6 +342,14 @@ class PackageManager:
                 )
             if manifest.notifies_members and not allow_member_notifications:
                 raise pkg.PackageError("这个插件会给普通成员发通知，须单独确认")
+            from movieclaw_api.services import plugin_web
+
+            has_web = plugin_web.has_web(path)
+            if has_web and not allow_web:
+                raise pkg.PackageError(
+                    "这个插件带网页：网页会以正在使用它的人的身份运行"
+                    "（管理员打开时拥有管理员的全部权限），须单独确认"
+                )
             lock = pkg.read_lock(manifest, path)
             current = pkg.installed(self._settings).get(entry_id)
             _check_dependency_consent(lock, current, dependencies)
@@ -351,6 +382,11 @@ class PackageManager:
                 sensitive=list(manifest.permissions.events),
                 members_allowed=manifest.notifies_members,
                 dependencies=pkg.lock_record(manifest, lock),
+                web=(
+                    plugin_web.Consent(nav=web_nav, members=web_members).record()
+                    if has_web
+                    else None
+                ),
                 previous=current.snapshot() if current else None,
                 bad=[v for v in (current.bad if current else []) if v != version],
                 installed_at=pkg.now(),
