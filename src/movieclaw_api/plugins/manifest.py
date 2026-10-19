@@ -139,6 +139,7 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         domains.downloads,
         domains.boost,
         domains.subscription,
+        domains.search_runs,
         domains.library_core,
         domains.media_scrape,
         domains.subtitle_gen,

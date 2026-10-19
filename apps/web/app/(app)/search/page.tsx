@@ -57,13 +57,17 @@ export default function SearchPage() {
   const torrentKey = useMemo(() => {
     const p = new URLSearchParams(key);
     p.delete("tab");
+    // fresh 是一次性指令（结果页取走即从地址栏抹掉），不是搜索身份的一部分
+    p.delete("fresh");
     return p.toString();
   }, [key]);
   const query = useMemo(
     () => parseSearchQuery(new URLSearchParams(torrentKey)),
     [torrentKey],
   );
-  // 手动选种模式（订阅详情页「手动选种」跳入）：for_sub = 目标订阅 id
+  // 一次性「要新结果」（快照条「重新搜索」带来，结果页发起搜索后即从地址栏抹掉）
+  const fresh = params.get("fresh") === "1";
+    // 手动选种模式（订阅详情页「手动选种」跳入）：for_sub = 目标订阅 id
   const forSubRaw = params.get("for_sub");
   const grabForSubscriptionId =
     forSubRaw != null && /^\d+$/.test(forSubRaw) ? Number(forSubRaw) : null;
@@ -93,9 +97,10 @@ export default function SearchPage() {
     router.push(`/search?${p.toString()}` as Route);
   };
 
-  // 快照提示条的「重新搜索」：切回实时搜索（丢掉 snapshot 参数）
+  // 快照提示条的「重新搜索」：切回实时搜索（丢掉 snapshot 参数）。带 fresh=1：
+  // 服务端可能还留着刚跑完的同一个搜索（正是这份快照），「重新搜索」要的是新结果
   const handleResearch = (keyword: string, scope: SearchScope, also?: string[]) => {
-    router.push(buildSearchPath({ keyword, also, scope }) as Route);
+    router.push(`${buildSearchPath({ keyword, also, scope })}&fresh=1` as Route);
   };
 
   /**
@@ -118,6 +123,7 @@ export default function SearchPage() {
       // 浏览模式没有关键词，影视/媒体库两个垂直无从谈起，强制落在站点资源上
       vertical={query.keyword ? vertical : "torrent"}
       grabForSubscriptionId={grabForSubscriptionId}
+      fresh={fresh}
       onSwitch={switchVertical}
       onScopeSwitch={switchScope}
       onResearch={handleResearch}
@@ -136,6 +142,7 @@ function SearchVerticals({
   query,
   vertical,
   grabForSubscriptionId,
+  fresh,
   onSwitch,
   onScopeSwitch,
   onResearch,
@@ -143,6 +150,7 @@ function SearchVerticals({
   query: SearchQuery;
   vertical: SearchVertical;
   grabForSubscriptionId: number | null;
+  fresh: boolean;
   onSwitch: (target: SearchVertical) => void;
   onScopeSwitch: (scope: SearchScope) => void;
   onResearch: (keyword: string, scope: SearchScope, also?: string[]) => void;
@@ -321,6 +329,7 @@ function SearchVerticals({
         <div className={vertical === "torrent" ? "min-h-0 flex-1" : "hidden"}>
           <SearchResults
             query={query}
+            fresh={fresh}
             onResearch={onResearch}
             grabForSubscriptionId={grabForSubscriptionId}
           />

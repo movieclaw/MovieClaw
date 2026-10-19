@@ -124,12 +124,12 @@ def test_blocking_search_saves_snapshot(client: TestClient, monkeypatch) -> None
 
 
 def test_research_overwrites_snapshot(client: TestClient, monkeypatch) -> None:
-    """同一组合重搜：历史行不新增，快照被最新结果覆盖。"""
+    """同一组合重搜（fresh：明确要新结果）：历史行不新增，快照被最新结果覆盖。"""
     _wire(monkeypatch, {"mteam": _FakeSite(items=[_item("old1", "沙丘")])})
     client.get("/api/v1/search/torrents/stream", params={"keyword": "沙丘"})
 
     _wire(monkeypatch, {"mteam": _FakeSite(items=[_item("new1", "沙丘"), _item("new2", "沙丘2")])})
-    client.get("/api/v1/search/torrents/stream", params={"keyword": "沙丘"})
+    client.get("/api/v1/search/torrents/stream", params={"keyword": "沙丘", "fresh": "true"})
 
     rows = client.get("/api/v1/search/history").json()["data"]
     assert len(rows) == 1  # 去重：同关键词同组合仍是一行
@@ -170,7 +170,9 @@ def test_poster_mode_refreshed_on_research(client: TestClient, monkeypatch) -> N
     """poster_mode 不进去重键：同组合换展示模式重搜，仍是一条历史、值刷新为最新。"""
     _wire(monkeypatch, {"mteam": _FakeSite(items=[_item("m1", "沙丘")])})
     client.get("/api/v1/search/torrents/stream", params={"keyword": "沙丘", "poster_mode": "true"})
-    client.get("/api/v1/search/torrents/stream", params={"keyword": "沙丘"})  # 列表模式重搜
+    client.get(  # 列表模式重搜
+        "/api/v1/search/torrents/stream", params={"keyword": "沙丘", "fresh": "true"}
+    )
 
     rows = client.get("/api/v1/search/history").json()["data"]
     assert len(rows) == 1

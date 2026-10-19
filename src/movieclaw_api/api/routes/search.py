@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +34,7 @@ from movieclaw_api.schemas.search import (
     TorrentSearchHistoryResultsView,
 )
 from movieclaw_api.services.auth import Principal
+from movieclaw_api.services.search_runs import SearchRunKey, get_search_run_registry
 from movieclaw_api.services.site_catalog import SiteCatalogService
 from movieclaw_api.services.site_search import (
     also_keywords_of,
@@ -199,6 +201,58 @@ async def _save_snapshot(
         logger.warning("搜索结果快照写入失败（不影响本次搜索）", exc_info=True)
 
 
+async def _run_search(
+    *,
+    keyword: str,
+    also: list[str],
+    categories: list[TorrentCategory] | None,
+    sites: list[str] | None,
+    label: str | None,
+    page: int,
+    poster_mode: bool,
+    allowed: set[str] | None,
+    owner: int,
+    record: bool,
+) -> AsyncIterator[tuple[str, str]]:
+    """一次后台搜索：记历史 → 逐事件产出（已序列化）→ 走完回写快照。
+
+    在后台运行里执行，与任何请求的生命周期无关，所以历史与快照都用独立会话。
+    没走完（停机取消/异常）不写快照——不完整的结果没有留存价值，保留上一份完整快照更有用。
+    """
+    history_id: int | None = None
+    if record:
+        async with get_database().session() as session:
+            history_id = await _record_history(
+                session,
+                keyword,
+                categories,
+                sites,
+                label,
+                page,
+                poster_mode,
+                member_id=owner,
+                also_keywords=also,
+            )
+    collected: list[TorrentHit] = []
+    done: SearchStreamDone | None = None
+    async for event, payload in stream_search_all_sites(
+        keyword=keyword,
+        also_keywords=also,
+        categories=categories,
+        site_ids=sites,
+        label=label,
+        page=page,
+        allowed_site_ids=allowed,
+    ):
+        if isinstance(payload, SiteStreamResult):
+            collected.extend(payload.items)
+        elif isinstance(payload, SearchStreamDone):
+            done = payload
+        yield event, payload.model_dump_json()
+    if history_id is not None and done is not None:
+        await _save_snapshot(history_id, collected, done.sites, done.total, done.elapsed_ms)
+
+
 @router.get(
     "/torrents/stream",
     summary="跨站点流式搜索（SSE）：站点开始/返回结果/失败逐事件实时推送",
@@ -236,6 +290,13 @@ async def search_torrents_stream(
         description="发起搜索时的图览模式偏好，仅随历史留存，用于点历史重搜/看快照时还原展示模式",
     ),
     page: int = Query(1, ge=1, description="页码（各站点独立分页）"),
+    fresh: bool = Query(
+        False,
+        description=(
+            "要新结果：不复用刚跑完的同一个搜索（重新搜索、单站重试）；同一个搜索正在跑时照样接上"
+        ),
+    ),
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
     principal: Principal = Depends(require_search_capability),
     session: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:
@@ -247,48 +308,63 @@ async def search_torrents_stream(
     ``site_error`` 事件，不中断整个流）。
 
     ``keyword`` 留空即浏览模式（按分类拉各站种子列表页），语义与阻塞版一致。
+
+    **搜索在后台跑**（#920）：连接断开不取消搜索，跑完照常回写历史快照。同一个
+    搜索（同一用户、同样的词/分类/站点/页码）正在跑或 10 分钟内跑完过，就直接
+    接上它、从头回放事件，不再重新打站——离开搜索页再回来、刷新都无缝接上。
+    每个事件带 SSE ``id``（从 1 起的序号），断线重连带 ``Last-Event-ID`` 即从其后续传。
     """
     keyword = keyword.strip()
     also = also_keywords_of(keyword, also_keywords)
-    # 历史在流开始前落库：流式响应返回后请求级 session 的生命周期不再可靠；
-    # 站点白名单同理（流式生成器运行时请求级 session 已不可用）
+    # 站点白名单在流开始前取：流式生成器运行时请求级 session 已不可用
     allowed = await usable_site_ids(session, principal)
-    history_id: int | None = None
+    owner = _history_owner(principal)
     # 浏览模式不写历史，口径同阻塞版
-    if not no_history and keyword:
-        history_id = await _record_history(
-            session,
-            keyword,
-            categories,
-            sites,
-            label,
-            page,
-            poster_mode,
-            member_id=_history_owner(principal),
-            also_keywords=also,
+    record = not no_history and bool(keyword)
+    key = SearchRunKey(
+        owner=owner,
+        allowed=frozenset(allowed) if allowed is not None else None,
+        keyword=keyword,
+        also_keywords=tuple(also),
+        categories=tuple(sorted(c.value for c in categories or [])),
+        site_ids=tuple(sorted(set(sites or []))),
+        label=label,
+        page=page,
+        record_history=record,
+    )
+    registry = get_search_run_registry()
+    # find 与 start 之间不能有 await：并发的同一个搜索才不会各起一轮
+    run = registry.find(key, fresh=fresh)
+    cursor = 0
+    if run is None:
+        run = registry.start(
+            key,
+            _run_search(
+                keyword=keyword,
+                also=also,
+                categories=categories,
+                sites=sites,
+                label=label,
+                page=page,
+                poster_mode=poster_mode,
+                allowed=allowed,
+                owner=owner,
+                record=record,
+            ),
         )
+    elif last_event_id and last_event_id.isdigit() and int(last_event_id) <= len(run.events):
+        # 断线续传：只补发客户端还没收到的。新起的运行事件从头编号，不按旧游标跳过
+        cursor = int(last_event_id)
 
     async def event_source():
-        # 边转发边收集完整结果集，流正常走完（收到 done）后回写快照。
-        # 客户端中途断开则不快照——不完整的结果没有留存价值，保留上一份完整快照更有用。
-        collected: list[TorrentHit] = []
-        done: SearchStreamDone | None = None
-        async for event, payload in stream_search_all_sites(
-            keyword=keyword,
-            also_keywords=also,
-            categories=categories,
-            site_ids=sites,
-            label=label,
-            page=page,
-            allowed_site_ids=allowed,
-        ):
-            if isinstance(payload, SiteStreamResult):
-                collected.extend(payload.items)
-            elif isinstance(payload, SearchStreamDone):
-                done = payload
-            yield f"event: {event}\ndata: {payload.model_dump_json()}\n\n"
-        if history_id is not None and done is not None:
-            await _save_snapshot(history_id, collected, done.sites, done.total, done.elapsed_ms)
+        position = cursor
+        while True:
+            batch, terminal = await registry.read(run, position, timeout_seconds=15)
+            for event, data in batch:
+                position += 1
+                yield f"id: {position}\nevent: {event}\ndata: {data}\n\n"
+            if terminal:
+                return
 
     return StreamingResponse(
         event_source(),

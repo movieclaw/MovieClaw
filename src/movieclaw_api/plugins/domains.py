@@ -72,6 +72,19 @@ async def subscription(ctx: Context) -> None:
     contribute_job_handlers(ctx, cleanup)  # 取消订阅联动清理
 
 
+@plugin("tracker.search-runs", title="站点搜索后台运行", inject=(SITE_ACCESS,), reloadable=True)
+async def search_runs(ctx: Context) -> None:
+    """站点资源搜索在后台跑完：离开搜索页、刷新再回来，进度接着看，不必重新搜。"""
+    from movieclaw_api.services.search_runs import (
+        close_search_run_registry,
+        init_search_run_registry,
+    )
+
+    # 在跑的搜索持有站点请求：停机时先于站点客户端关闭取消掉
+    init_search_run_registry()
+    ctx.effect(close_search_run_registry, label="close-search-runs")
+
+
 @plugin("library.core", title="媒体库", inject=(DB,), reloadable=True)
 async def library_core(ctx: Context) -> None:
     """媒体库后台工作：扫描对账、整理改名、条目转移、回收站清理、章节图、片头识别、查重复文件和片段预切。"""

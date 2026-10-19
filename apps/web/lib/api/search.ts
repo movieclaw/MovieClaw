@@ -360,6 +360,11 @@ export interface SearchParams {
   /** 搜索范围（标签换算而来）；不传等同「全部」 */
   scope?: SearchScope;
   page?: number;
+  /**
+   * 要新结果（仅流式搜索）：不复用服务端刚跑完的同一个搜索。默认会复用——
+   * 离开搜索页再回来、刷新都直接接上那次搜索，不重新打站（#920）
+   */
+  fresh?: boolean;
 }
 
 /**
@@ -378,7 +383,7 @@ export function searchTorrents(
   );
 }
 
-function searchParamsOf({ keyword, also, scope, page }: SearchParams): URLSearchParams {
+function searchParamsOf({ keyword, also, scope, page, fresh }: SearchParams): URLSearchParams {
   const params = new URLSearchParams({ keyword });
   for (const word of also ?? []) params.append("also_keywords", word);
   for (const c of scope?.categories ?? []) params.append("categories", c);
@@ -389,6 +394,7 @@ function searchParamsOf({ keyword, also, scope, page }: SearchParams): URLSearch
   // 图览模式偏好随历史留存：点历史重搜/看快照时后端回传，前端据此还原展示模式
   if (scope?.posterMode) params.set("poster_mode", "true");
   if (page && page > 1) params.set("page", String(page));
+  if (fresh) params.set("fresh", "true");
   return params;
 }
 
@@ -449,6 +455,9 @@ export type SearchStreamEvent =
  *
  * 用 fetch + ReadableStream 手动解析 SSE 而非 EventSource：后者断线会自动重连、
  * 把同一次搜索重放一遍；搜索是一次性动作，失败应该由用户显式重试。
+ *
+ * 搜索在服务端后台跑：中止（离开页面）只是不再看，搜索照常跑完、写快照；
+ * 同样的参数再请求一次即接上它，从头回放全部事件（params.fresh 除外）。
  * 取消上一次搜索走 `init.signal`（AbortController），中止会以 AbortError reject。
  */
 export async function streamSearchTorrents(

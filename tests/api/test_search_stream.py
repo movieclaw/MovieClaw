@@ -300,3 +300,158 @@ def test_stream_also_keywords_merge_into_one_site_result(
     snapshot = client.get(f"/api/v1/search/history/{history[0]['id']}/results").json()["data"]
     assert snapshot["also_keywords"] == ["Dune"]
     assert snapshot["total"] == 2
+
+
+# ---- 后台运行（#920）：离开页面不作废、同一搜索不重复打站 -----------------------
+
+
+class _CountingSite(_FakeSite):
+    """记录被搜了几次——每次都是一轮真实打站。"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.calls = 0
+
+    async def search(self, query: SearchQuery) -> SearchResult:
+        self.calls += 1
+        return await super().search(query)
+
+
+def _parse_ids(body: str) -> list[int]:
+    return [int(line[4:]) for line in body.splitlines() if line.startswith("id: ")]
+
+
+def _wait_snapshot(client: TestClient, timeout: float = 5.0) -> dict | None:
+    """后台运行跑完才写快照：轮询最近一条历史直到它有快照。"""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        rows = client.get("/api/v1/search/history").json()["data"]
+        if rows and rows[0]["has_snapshot"]:
+            return client.get(f"/api/v1/search/history/{rows[0]['id']}/results").json()["data"]
+        time.sleep(0.05)
+    return None
+
+
+def _leave_after(client: TestClient, params: dict[str, str], marker: bytes) -> None:
+    """模拟页面中途离开：在应用的事件循环里直接驱动 ASGI，收到 ``marker`` 即发
+    ``http.disconnect``。TestClient 会把整个响应读完，测不出「中途断开」。"""
+    from urllib.parse import urlencode
+
+    async def drive() -> None:
+        leave = asyncio.Event()
+        received = b""
+        requested = False
+
+        async def receive():
+            nonlocal requested
+            if not requested:
+                requested = True
+                return {"type": "http.request", "body": b"", "more_body": False}
+            await leave.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            nonlocal received
+            if message["type"] == "http.response.body":
+                received += message.get("body", b"")
+                if marker in received:
+                    leave.set()
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/api/v1/search/torrents/stream",
+            "raw_path": b"/api/v1/search/torrents/stream",
+            "query_string": urlencode(params).encode(),
+            "root_path": "",
+            "headers": [(b"host", b"testserver"), (b"accept", b"text/event-stream")],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+            "state": {},
+        }
+        await asyncio.wait_for(client.app(scope, receive, send), timeout=5)
+        assert leave.is_set(), "没等到离开的时机"
+
+    client.portal.call(drive)
+
+
+def test_stream_disconnect_keeps_search_running_and_saves_snapshot(
+    client: TestClient, monkeypatch
+) -> None:
+    """页面中途离开（连接断开）：慢站照常搜完，快照照常回写。"""
+    slow = _CountingSite(items=[_item("s1", "沙丘")], delay=0.5)
+    _wire(monkeypatch, {"fast": _FakeSite(items=[_item("f1", "沙丘")]), "slow": slow})
+
+    _leave_after(client, {"keyword": "沙丘"}, b"event: site_result")  # 快站结果到了就离开
+
+    snapshot = _wait_snapshot(client)
+    assert snapshot is not None, "断开后搜索应在后台跑完并写快照"
+    assert {i["torrent_id"] for i in snapshot["items"]} == {"f1", "s1"}
+    assert slow.calls == 1
+    # 回到搜索页：接上已跑完的这次，完整回放且不再打站
+    events = _parse_sse(
+        client.get("/api/v1/search/torrents/stream", params={"keyword": "沙丘"}).text
+    )
+    assert [e for e, _ in events].count("site_result") == 2
+    assert slow.calls == 1
+
+
+def test_stream_same_search_reuses_run_without_hitting_sites_again(
+    client: TestClient, monkeypatch
+) -> None:
+    """回到搜索页 / 刷新：同一个搜索直接回放上次的完整事件，不重新打站，也不重复计历史。"""
+    site = _CountingSite(items=[_item("m1", "沙丘")])
+    _wire(monkeypatch, {"mteam": site})
+
+    first = client.get("/api/v1/search/torrents/stream", params={"keyword": "沙丘"}).text
+    again = client.get("/api/v1/search/torrents/stream", params={"keyword": "沙丘"}).text
+
+    assert site.calls == 1
+    assert _parse_sse(again) == _parse_sse(first)
+    assert _parse_ids(again) == list(range(1, len(_parse_sse(first)) + 1))
+    assert client.get("/api/v1/search/history").json()["data"][0]["search_count"] == 1
+
+    # 范围不同就是另一个搜索
+    client.get("/api/v1/search/torrents/stream", params={"keyword": "沙丘", "page": 2})
+    assert site.calls == 2
+
+
+def test_stream_fresh_searches_again(client: TestClient, monkeypatch) -> None:
+    """fresh（重新搜索 / 单站重试）：不复用刚跑完的结果，重新打站并计一次历史。"""
+    site = _CountingSite(items=[_item("m1", "沙丘")])
+    _wire(monkeypatch, {"mteam": site})
+
+    client.get("/api/v1/search/torrents/stream", params={"keyword": "沙丘"})
+    events = _parse_sse(
+        client.get(
+            "/api/v1/search/torrents/stream", params={"keyword": "沙丘", "fresh": "true"}
+        ).text
+    )
+    assert site.calls == 2
+    assert events[-1][0] == "done"
+    assert client.get("/api/v1/search/history").json()["data"][0]["search_count"] == 2
+
+
+def test_stream_resumes_after_last_event_id(client: TestClient, monkeypatch) -> None:
+    """断线重连带 Last-Event-ID：只补发其后的事件，不重复已收到的结果。"""
+    _wire(
+        monkeypatch,
+        {
+            "mteam": _FakeSite(items=[_item("m1", "沙丘")]),
+            "ttg": _FakeSite(items=[_item("t1", "沙丘")]),
+        },
+    )
+    full = client.get("/api/v1/search/torrents/stream", params={"keyword": "沙丘"}).text
+    resumed = client.get(
+        "/api/v1/search/torrents/stream",
+        params={"keyword": "沙丘"},
+        headers={"Last-Event-ID": "3"},
+    ).text
+
+    assert _parse_ids(resumed) == _parse_ids(full)[3:]
+    assert _parse_sse(resumed) == _parse_sse(full)[3:]
