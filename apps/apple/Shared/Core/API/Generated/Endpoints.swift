@@ -2055,6 +2055,18 @@ nonisolated extension APIClient {
         return try await send("GET", "/playback/attempts/\(attemptId)")
     }
 
+    /// 自动跳过总开关（关了片头、广告都只给按钮）
+    /// `PUT /playback/auto-skip`
+    func playbackAutoSkipSet(body: API.PlaybackAutoSkipRequest) async throws -> Void {
+        let _: API.JSONValue? = try await send("PUT", "/playback/auto-skip", body: body)
+    }
+
+    /// 这部剧的片头自动跳 / 不再自动跳
+    /// `PUT /playback/auto-skip/intro/{media_item_id}`
+    func playbackAutoSkipIntroSet(mediaItemId: Int, body: API.PlaybackAutoSkipRequest) async throws -> Void {
+        let _: API.JSONValue? = try await send("PUT", "/playback/auto-skip/intro/\(mediaItemId)", body: body)
+    }
+
     /// 播放器客户端日志
     /// `POST /playback/client-log`
     func playbackClientLog(body: API.PlaybackClientLogPayload) async throws -> [String: API.JSONValue] {

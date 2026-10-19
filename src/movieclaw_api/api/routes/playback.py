@@ -39,6 +39,7 @@ from movieclaw_api.schemas.playback import (
     MediaActivityView,
     PlaybackArtifactUploadView,
     PlaybackAttemptView,
+    PlaybackAutoSkipRequest,
     PlaybackBlurayClipView,
     PlaybackBlurayStreamView,
     PlaybackBlurayView,
@@ -88,8 +89,15 @@ from movieclaw_api.services.library.items import (
     season_resume_episode,
 )
 from movieclaw_api.services.media_probe import probe_keyframe_before
+from movieclaw_api.services.playback import (
+    auto_skip,
+    metrics,
+    qoe,
+    track_memory,
+    trickplay,
+    video_cues,
+)
 from movieclaw_api.services.playback import marks as playback_marks
-from movieclaw_api.services.playback import metrics, qoe, track_memory, trickplay, video_cues
 from movieclaw_api.services.playback import plan as playback_plan
 from movieclaw_api.services.playback import warmup as playback_warmup
 from movieclaw_api.services.playback import watch as playback_watch
@@ -995,6 +1003,42 @@ async def _requested_file_ids(session: AsyncSession, payload: PlaybackSessionReq
     return [row.id for row in (await session.execute(statement)).scalars().all()]
 
 
+@router.put(
+    "/auto-skip",
+    response_model=ApiResponse[None],
+    summary="自动跳过总开关（关了片头、广告都只给按钮）",
+    operation_id="playback.auto_skip.set",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def set_auto_skip(
+    payload: PlaybackAutoSkipRequest,
+    principal: Principal = Depends(require_login),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[None]:
+    """跟账号走，下一次开播随会话的 ``auto_skip`` 带回（docs/design/skip-intro.md §5）。"""
+    await auto_skip.set_enabled(session, principal.owner_id, payload.enabled)
+    return ok(None)
+
+
+@router.put(
+    "/auto-skip/intro/{media_item_id}",
+    response_model=ApiResponse[None],
+    summary="这部剧的片头自动跳 / 不再自动跳",
+    operation_id="playback.auto_skip.intro.set",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def set_auto_skip_intro(
+    media_item_id: Annotated[int, Path(ge=1)],
+    payload: PlaybackAutoSkipRequest,
+    principal: Principal = Depends(require_login),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[None]:
+    """播放器在用户手动跳过片头时记下这部剧，点了「撤回」或「不用」时忘掉
+    （docs/design/skip-intro.md §5）。只记条目编号，不要求条目还在库里。"""
+    await auto_skip.set_intro(session, principal.owner_id, media_item_id, payload.enabled)
+    return ok(None)
+
+
 #: 一次只放一路的 App（登录设备类型）：开播新片时可以放心停掉它名下别的片子的会话
 _SINGLE_PLAYER_KINDS = frozenset({"ios", "tvos", "android", "androidtv"})
 
@@ -1158,6 +1202,12 @@ async def start_playback_session(
     ]
     if not segment_views:
         skip_segments.schedule_playback_bump(file)
+    # 自动跳过跟账号走：分享访客没有账号，客户端按默认（广告直接跳、片头只给按钮）
+    auto_skip_view = (
+        await auto_skip.view_for(session, member_id, file.media_item_id)
+        if principal.share is None
+        else None
+    )
 
     # 详情页可能正在为同一条目预热；正式播放已经接管 IO，取消那条后台任务，
     # 别让它和首片转码抢同一块盘。
@@ -1220,6 +1270,7 @@ async def start_playback_session(
                 source=source_view,
                 chapters=chapter_marks,
                 segments=segment_views,
+                auto_skip=auto_skip_view,
             )
         )
 
@@ -1485,6 +1536,7 @@ async def start_playback_session(
             source=source_view,
             chapters=chapter_marks,
             segments=segment_views,
+            auto_skip=auto_skip_view,
         )
     )
 

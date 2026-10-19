@@ -8487,6 +8487,28 @@ nonisolated extension API {
         }
     }
 
+    /// 改自动跳过：总开关，或某部剧的片头。
+    struct PlaybackAutoSkipRequest: Codable, Hashable, Sendable {
+        var enabled: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case enabled
+        }
+    }
+
+    /// 这个人的自动跳过设定（docs/design/skip-intro.md §5），跟账号走。
+    /// 客户端按它决定进了区间是直接跳还是只给按钮：广告、预告在 ``enabled`` 时直接跳；
+    /// 片头还要 ``intro``（用户在这部剧里手动跳过过一次片头）；其他类型永远只给按钮。
+    struct PlaybackAutoSkipView: Codable, Hashable, Sendable {
+        var enabled: Bool
+        var intro: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case enabled
+            case intro
+        }
+    }
+
     /// 主播放列表的一段剪辑：取流地址、在剪辑里播哪一截、入口点表。
     struct PlaybackBlurayClipView: Codable, Hashable, Sendable {
         var url: String
@@ -9160,6 +9182,7 @@ nonisolated extension API {
         var source: API.PlaybackSourceView?
         var chapters: [API.PlaybackChapterMarkView]
         var segments: [API.PlaybackSegmentView]?
+        var autoSkip: API.PlaybackAutoSkipView?
         var matroskaCues: API.MatroskaCuesView?
 
         enum CodingKeys: String, CodingKey {
@@ -9176,6 +9199,7 @@ nonisolated extension API {
             case source
             case chapters
             case segments
+            case autoSkip = "auto_skip"
             case matroskaCues = "matroska_cues"
         }
     }

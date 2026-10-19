@@ -95,7 +95,7 @@ struct SkipSegmentsTests {
         // 最小的会话响应：旧服务端没有 segments 字段，新 App 也要能解开（否则整个起播都失败）
         let base = """
         {"decision":{"outcome":"rejected","audio_tracks":[],"subtitles":[],"reason":"x"},
-         "start_ms":0,"timeline":"session","subtitle_urls":[],"chapters":[]
+         "progressive_segments":false,"start_ms":0,"timeline":"session","subtitle_urls":[],"chapters":[]
         """
         let old = try JSONDecoder().decode(API.PlaybackSessionView.self, from: Data((base + "}").utf8))
         #expect(old.segments == nil)
@@ -109,5 +109,29 @@ struct SkipSegmentsTests {
             let decoded = try JSONDecoder().decode(API.PlaybackSessionView.self, from: Data(json.utf8))
             #expect(decoded.segments == [segment(type, 1000, 9000)])
         }
+        // 自动跳过设定：旧服务端没有（nil，按默认），新服务端带回
+        #expect(old.autoSkip == nil)
+        let prefs = try JSONDecoder().decode(
+            API.PlaybackSessionView.self, from: Data((base + ##","auto_skip":{"enabled":false,"intro":true}}"##).utf8)
+        )
+        #expect(prefs.autoSkip == API.PlaybackAutoSkipView(enabled: false, intro: true))
+    }
+
+    @Test func autoSkipJumpsAdsAndLearnedIntrosOnly() {
+        // 广告、预告开着总开关就跳
+        #expect(SkipSegments.autoSkips(ad, enabled: true, introLearned: false))
+        #expect(SkipSegments.autoSkips(segment("preview", 0, 20_000), enabled: true, introLearned: false))
+        // 片头要这部剧学过（手动跳过过一次）
+        #expect(!SkipSegments.autoSkips(intro, enabled: true, introLearned: false))
+        #expect(SkipSegments.autoSkips(intro, enabled: true, introLearned: true))
+        // 未分类、非结尾片尾、未来类型永远只给按钮
+        for type in ["other", "outro", "future-type"] {
+            #expect(!SkipSegments.autoSkips(segment(type, 0, 20_000), enabled: true, introLearned: true))
+        }
+        // 总开关关了一律只给按钮
+        #expect(!SkipSegments.autoSkips(ad, enabled: false, introLearned: true))
+        #expect(!SkipSegments.autoSkips(intro, enabled: false, introLearned: true))
+        #expect(SkipSegments.name(intro) == "片头")
+        #expect(SkipSegments.name(ad) == "广告")
     }
 }

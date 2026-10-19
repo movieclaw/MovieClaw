@@ -469,6 +469,8 @@ final class PlaybackController {
         nextDismissed = false
         autoNextCancelled = false
         autoNextProgress = 0
+        skipHandled = []
+        skipNotice = nil
         qualitySuggestion = QualitySuggestion()
         dismissQualityOffer()
         nativeFailed = false
@@ -632,11 +634,117 @@ final class PlaybackController {
         return SkipSegments.active(session?.segments, at: positionMs)
     }
 
-    /// 点「跳过」：直接跳到这一段结束处
+    /// 点「跳过」：直接跳到这一段结束处。片头是这部剧第一次手动跳，就记下来、以后自动跳（§5），
+    /// 同时给「本剧以后自动跳过片头 · 不用」
     func skipCurrentSegment() {
         noteUserActivity()
         guard let segment = skipSegment else { return }
         seek(toFileMs: segment.endMs, source: .button)
+        if Self.autoSkipSupported, segment.type == "intro", autoSkipEnabled, !introAutoSkip, !scope.isShare {
+            setIntroAutoSkip(true)
+            skipNotice = SkipNotice(kind: .learned)
+        }
+    }
+
+    // MARK: 自动跳过（docs/design/skip-intro.md §5）
+
+    /// 先只在 iPhone / iPad 上做：Mac、Apple TV 还没有「撤回」的界面，照旧只给按钮
+    #if os(iOS)
+    static let autoSkipSupported = true
+    #else
+    static let autoSkipSupported = false
+    #endif
+
+    /// 跳过按钮那个角落的提示
+    struct SkipNotice: Equatable {
+        enum Kind: Equatable {
+            /// 「已跳过片头 · 撤回」
+            case skipped(API.PlaybackSegmentView)
+            /// 「本剧以后自动跳过片头 · 不用」
+            case learned
+            /// 「本剧不再自动跳过片头」
+            case forgot
+        }
+
+        let id = UUID()
+        let kind: Kind
+
+        var durationMs: Int { kind == .forgot ? SkipSegments.infoNoticeMs : SkipSegments.skipNoticeMs }
+    }
+
+    private(set) var skipNotice: SkipNotice?
+    /// 自动跳过总开关（跟账号走，随会话下发；旧服务端没有就按默认开）
+    private(set) var autoSkipEnabled = true
+    /// 这部剧的片头自动跳
+    private(set) var introAutoSkip = false
+    /// 本集已经决定过的段（按起点记）：自然播进去自动跳一次；用户拖进去、跳回去、撤回过的只给按钮
+    private var skipHandled: Set<Int> = []
+    /// 本次播放里改过的设定：保存请求还没落库时下一集的会话可能带回旧值，以这里为准
+    private var autoSkipEnabledOverride: Bool?
+    private var introAutoSkipOverride: Bool?
+
+    /// 进度推进时调用：自然播进了区间、这一段还没决定过，就按 `SkipSegments.autoSkips` 跳或只给按钮
+    private func evaluateAutoSkip() {
+        guard Self.autoSkipSupported, phase == .playing, !paused,
+              let segment = skipSegment, !skipHandled.contains(segment.startMs) else { return }
+        skipHandled.insert(segment.startMs)
+        guard SkipSegments.autoSkips(segment, enabled: autoSkipEnabled, introLearned: introAutoSkip) else { return }
+        seek(toFileMs: segment.endMs, source: .auto, marksSkipHandled: false)
+        skipNotice = SkipNotice(kind: .skipped(segment))
+    }
+
+    /// 落点所在的段算「用户自己去的」：不自动跳，只给按钮
+    private func markSkipHandled(at fileMs: Int) {
+        guard let segment = session?.segments?.first(where: { fileMs >= $0.startMs && fileMs < $0.endMs }) else { return }
+        skipHandled.insert(segment.startMs)
+    }
+
+    /// 「撤回」：回到这一段起点接着看；撤回的是片头就忘掉这部剧的片头自动跳
+    func undoAutoSkip() {
+        noteUserActivity()
+        guard case let .skipped(segment) = skipNotice?.kind else { return }
+        seek(toFileMs: segment.startMs, source: .button)
+        if segment.type == "intro", introAutoSkip {
+            setIntroAutoSkip(false)
+            skipNotice = SkipNotice(kind: .forgot)
+        } else {
+            skipNotice = nil
+        }
+    }
+
+    /// 学会时的「不用」：这部剧的片头还是只给按钮
+    func declineIntroAutoSkip() {
+        noteUserActivity()
+        setIntroAutoSkip(false)
+        skipNotice = nil
+    }
+
+    /// 提示到时间收起（id 对得上才收：期间换了新提示就不动）
+    func expireSkipNotice(_ id: UUID) {
+        if skipNotice?.id == id { skipNotice = nil }
+    }
+
+    /// ⋯ 菜单里的总开关
+    func setAutoSkipEnabled(_ enabled: Bool) {
+        noteUserActivity()
+        autoSkipEnabled = enabled
+        autoSkipEnabledOverride = enabled
+        let api = scope.api
+        Task { try? await api.playbackAutoSkipSet(body: API.PlaybackAutoSkipRequest(enabled: enabled)) }
+    }
+
+    private func setIntroAutoSkip(_ enabled: Bool) {
+        introAutoSkip = enabled
+        introAutoSkipOverride = enabled
+        let api = scope.api, item = unit.mediaItemId
+        Task { try? await api.playbackAutoSkipIntroSet(mediaItemId: item, body: API.PlaybackAutoSkipRequest(enabled: enabled)) }
+    }
+
+    /// 新会话带回的设定；本次播放里改过的片头选择优先
+    private func applyAutoSkip(_ view: API.PlaybackAutoSkipView?) {
+        guard let view else { return }
+        autoSkipEnabled = autoSkipEnabledOverride ?? view.enabled
+        introAutoSkip = introAutoSkipOverride ?? view.intro
     }
 
     // MARK: - 起播（决策 / 降档 / 换会话）
@@ -958,6 +1066,7 @@ final class PlaybackController {
         if requestedStartMs == nil || positionMs == 0 { positionMs = session.startMs }
         if let duration = session.watch?.durationMs { durationMs = duration }
         self.session = session
+        applyAutoSkip(session.autoSkip)
 
         // 4. 轨道
         subtitles = SubtitleTracks.plan(decision.subtitles, urls: session.subtitleUrls)
@@ -1615,11 +1724,13 @@ final class PlaybackController {
     }
 
     /// 跳到文件时间（毫秒）。`source` 进播放记录（按键 / 拖动 / 锁屏……分开看哪种慢）
-    func seek(toFileMs raw: Int, exact: Bool = true, source: PlaybackRecord.SeekSource = .unknown) {
+    /// `marksSkipHandled`：落点所在的可跳过段算「用户自己去的」，不再自动跳（自动跳过自己的跳转不算）
+    func seek(toFileMs raw: Int, exact: Bool = true, source: PlaybackRecord.SeekSource = .unknown, marksSkipHandled: Bool = true) {
         // 先夹进片长之内：越过片尾的落点会开出一个什么也转不出来的会话
         var target = max(0, raw)
         if let durationMs, durationMs > 1000 { target = min(target, durationMs - 1000) }
         if let clip { target = Self.clamp(target, into: clip) }
+        if marksSkipHandled { markSkipHandled(at: target) }
         scrubFollowTask?.cancel()
         let buffered = bufferedEndMs.map { target >= positionMs && target <= $0 } ?? false
         guard let engine, session != nil, phase != .sessionStarting, phase != .deciding, phase != .degrading else {
@@ -1661,6 +1772,8 @@ final class PlaybackController {
     func scrubFollow(toFileMs raw: Int) {
         guard let engine, session != nil, [.playing, .buffering, .ended].contains(phase) else { return }
         let target = clip.map { Self.clamp(raw, into: $0) } ?? raw
+        // 拖动途中画面跟到哪段里，哪段就是用户自己去的：别在手指还没松开时自动跳走
+        markSkipHandled(at: target)
         // 连续拖动的跳转耗时以第一次拖动为起点（松手那次 seek 结束计时）
         record?.noteScrubActivity()
         let reachable = target >= originMs
@@ -2223,6 +2336,7 @@ final class PlaybackController {
         paused = engine.isPaused
         if phase == .playing, !engine.isPaused { qoe.tickWatched() } else { qoe.pauseWatched() }
         if let clip, phase == .playing, !engine.isPaused, positionMs >= clip.endMs { reachClipEnd() }
+        evaluateAutoSkip()
     }
 
     private func tickSecond() {

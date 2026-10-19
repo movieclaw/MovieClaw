@@ -1873,6 +1873,17 @@ data class PlaybackArtifactUploadView(
 )
 
 /**
+ * 这个人的自动跳过设定（docs/design/skip-intro.md §5），跟账号走。
+ * 客户端按它决定进了区间是直接跳还是只给按钮：广告、预告在 ``enabled`` 时直接跳；
+ * 片头还要 ``intro``（用户在这部剧里手动跳过过一次片头）；其他类型永远只给按钮。
+ */
+@Serializable
+data class PlaybackAutoSkipView(
+    @SerialName("enabled") val enabled: Boolean = false,
+    @SerialName("intro") val intro: Boolean = false,
+)
+
+/**
  * 主播放列表的一段剪辑：取流地址、在剪辑里播哪一截、入口点表。
  */
 @Serializable
@@ -2195,6 +2206,7 @@ data class PlaybackSessionView(
     @SerialName("source") val source: PlaybackSourceView? = null,
     @SerialName("chapters") val chapters: List<PlaybackChapterMarkView> = emptyList(),
     @SerialName("segments") val segments: List<PlaybackSegmentView>? = null,
+    @SerialName("auto_skip") val autoSkip: PlaybackAutoSkipView? = null,
     @SerialName("matroska_cues") val matroskaCues: MatroskaCuesView? = null,
 )
 

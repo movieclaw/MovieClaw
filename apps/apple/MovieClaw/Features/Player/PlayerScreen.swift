@@ -542,7 +542,19 @@ private struct PlayerContent: View {
                     .padding(.horizontal, PlayerLayout.edge)
                     .padding(.bottom, PlayerLayout.gap)
                 }
-                if let segment = controller.skipSegment {
+                // 自动跳过的提示和跳过按钮占同一个角落，提示优先（撤回后回到片头里，提示收起才轮到按钮）
+                if let notice = controller.skipNotice {
+                    HStack {
+                        Spacer()
+                        PlayerSkipNotice(notice: notice, undo: controller.undoAutoSkip, decline: controller.declineIntroAutoSkip)
+                    }
+                    .padding(.horizontal, PlayerLayout.edge)
+                    .padding(.bottom, PlayerLayout.gap)
+                    .task(id: notice.id) {
+                        try? await Task.sleep(for: .milliseconds(notice.durationMs))
+                        controller.expireSkipNotice(notice.id)
+                    }
+                } else if let segment = controller.skipSegment {
                     HStack {
                         Spacer()
                         PlayerSkipButton(segment: segment, action: controller.skipCurrentSegment)

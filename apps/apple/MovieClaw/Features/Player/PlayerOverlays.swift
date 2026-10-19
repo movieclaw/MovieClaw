@@ -345,6 +345,62 @@ struct PlayerSkipButton: View {
     }
 }
 
+/// 自动跳过的提示（docs/design/skip-intro.md §5），占跳过按钮的位置、同样大小的玻璃胶囊：
+/// 「已跳过片头 · 撤回」「本剧以后自动跳过片头 · 不用」「本剧不再自动跳过片头」。
+/// 文字在左，反悔的那颗白色小胶囊在右，和「即将播放」卡片的实心白按钮同一种语言
+struct PlayerSkipNotice: View {
+    let notice: PlaybackController.SkipNotice
+    let undo: () -> Void
+    let decline: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(text)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+            if let action {
+                Button(action: action.run) {
+                    Text(action.label)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 12)
+                        .frame(height: 28)
+                        .background(.white, in: .capsule)
+                        // 胶囊高 28，上下各扩 8 凑满 44pt 触控高度，外侧再收回去，不改变排版
+                        .padding(.vertical, 8)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, -8)
+                .accessibilityIdentifier("player-skip-notice-action")
+            }
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, action == nil ? 16 : 6)
+        .frame(minHeight: 40)
+        .glassEffect(PlayerGlass.control, in: .capsule)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("player-skip-notice")
+        .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .trailing)))
+    }
+
+    private var text: String {
+        switch notice.kind {
+        case let .skipped(segment): "已跳过\(SkipSegments.name(segment))"
+        case .learned: "本剧以后自动跳过片头"
+        case .forgot: "本剧不再自动跳过片头"
+        }
+    }
+
+    private var action: (label: String, run: () -> Void)? {
+        switch notice.kind {
+        case .skipped: ("撤回", undo)
+        case .learned: ("不用", decline)
+        case .forgot: nil
+        }
+    }
+}
+
 /// 片段放完的卡片（片段模式，见 `PlaybackClip`）：摆在「即将播放」卡片的位置、同一套几何。
 /// 主操作「看全片」通栏大按钮（原地转成正常播放，从这里接着放整部），次操作「重播」从片段起点再放一遍
 struct PlayerClipEndCard: View {

@@ -230,6 +230,13 @@ struct PlayerSettingsMenu: View {
                     Text(PlaybackSpeed.label(controller.rate))
                 }
                 Section {
+                    // 自动跳过总开关（docs/design/skip-intro.md §5），跟账号走；访客没有账号，不给
+                    if PlaybackController.autoSkipSupported, controller.scope.shareSlug == nil {
+                        Toggle(isOn: Binding(mcGet: { controller.autoSkipEnabled }, set: { controller.setAutoSkipEnabled($0) })) {
+                            Label("自动跳过", systemImage: "forward.end")
+                            Text("广告直接跳；片头手动跳过一次，本剧以后自动跳")
+                        }
+                    }
                     Toggle(isOn: Binding(mcGet: { controller.diagnosticsOpen }, set: { controller.diagnosticsOpen = $0 })) {
                         Label("播放诊断", systemImage: "waveform.path.ecg")
                     }
@@ -396,6 +403,9 @@ struct PlayerBottomBar: View {
 /// 进度条上不画章节：原先在细条上切深色竖线，章节一多整条就像断成了十几截（真机反馈：蜘蛛侠 16 个章节）；
 /// 改成拖动时在细条上方点小圆点也被否了——电影的章节多是压片时按编号随手分的（「Part 01」「Chapter 3」），
 /// 位置不对应剧情，点出来没有信息量。系统播放器同样不在进度条上画章节。章节名只在拖动预览里跟着落点显示。
+///
+/// 可跳过的段（片头、广告等，docs/design/skip-intro.md §5）倒是画：一集只有两三段，位置正对应内容，
+/// 拖动时一眼能看出哪截是片头。画在已播放的部分之上，琥珀色，播过了也看得见
 struct PlayerProgressBar: View {
     let controller: PlaybackController
     let trickplay: TrickplayImages
@@ -410,6 +420,8 @@ struct PlayerProgressBar: View {
     private static let knobRadius: CGFloat = 6
     /// 拖动预览底边离细条中线的高度：给按在条上的手指指尖留出空隙，预览不被手指挡住
     private static let previewLift: CGFloat = 28
+    /// 可跳过段的颜色
+    static let segmentColor = Color(red: 0.96, green: 0.72, blue: 0.32)
 
     var body: some View {
         GeometryReader { proxy in
@@ -428,6 +440,16 @@ struct PlayerProgressBar: View {
                 Capsule().fill(.white.opacity(0.22)).frame(height: track)
                 Capsule().fill(.white.opacity(0.35)).frame(width: x(buffered), height: track)
                 Capsule().fill(Theme.accentStrong).frame(width: x(ratio), height: track)
+                if duration > 0, controller.clip == nil {
+                    ForEach(controller.session?.segments ?? [], id: \.startMs) { segment in
+                        let from = min(1, max(0, Double(controller.timelineMs(fromFileMs: segment.startMs)) / duration))
+                        let to = min(1, max(0, Double(controller.timelineMs(fromFileMs: segment.endMs)) / duration))
+                        Capsule()
+                            .fill(Self.segmentColor.opacity(0.9))
+                            .frame(width: max(2, x(to) - x(from)), height: track)
+                            .offset(x: x(from))
+                    }
+                }
                 Circle()
                     .fill(.white)
                     .frame(width: dragging ? 18 : 12, height: dragging ? 18 : 12)

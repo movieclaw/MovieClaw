@@ -637,6 +637,25 @@ class PlaybackSegmentView(BaseModel):
     to_end: bool = False
 
 
+class PlaybackAutoSkipView(BaseModel):
+    """这个人的自动跳过设定（docs/design/skip-intro.md §5），跟账号走。
+
+    客户端按它决定进了区间是直接跳还是只给按钮：广告、预告在 ``enabled`` 时直接跳；
+    片头还要 ``intro``（用户在这部剧里手动跳过过一次片头）；其他类型永远只给按钮。
+    """
+
+    #: 自动跳过总开关，默认开
+    enabled: bool = True
+    #: 这部剧的片头自动跳
+    intro: bool = False
+
+
+class PlaybackAutoSkipRequest(BaseModel):
+    """改自动跳过：总开关，或某部剧的片头。"""
+
+    enabled: bool
+
+
 class PlaybackDiscFileView(BaseModel):
     """原盘目录里可直推的一个文件（disc-direct-play.md §2.3）。"""
 
@@ -757,6 +776,8 @@ class PlaybackSessionView(BaseModel):
     #: 对旧服务端宽容——旧服务端没有这个字段，非可选的字段缺失会让新 App 的整个会话解码失败、
     #: 连带起不了播
     segments: list[PlaybackSegmentView] | None = Field(default_factory=list)
+    #: 自动跳过设定；分享访客、没有条目的文件不给（客户端按默认：广告直接跳、片头只给按钮）
+    auto_skip: PlaybackAutoSkipView | None = None
     #: 档 0 直出的 MKV：服务端缓存里有精简索引时随会话下发（没有就在后台生成，给下次用）
     matroska_cues: MatroskaCuesView | None = None
 

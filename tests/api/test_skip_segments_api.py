@@ -2445,3 +2445,24 @@ def test_jellyfin_maps_ad_and_preview_segments(client, tmp_path) -> None:
     guid = episode_guid(ids["show"], 1, 3)
     body = client.get(f"/MediaSegments/{guid}", params={"ApiKey": token}).json()
     assert [i["Type"] for i in body["Items"]] == ["Commercial", "Outro", "Preview"]
+
+
+def test_auto_skip_preferences_follow_account(client, tmp_path) -> None:
+    """自动跳过（§5）：总开关默认开，片头按剧记，随会话下发；只影响记下的那部剧。"""
+    ids = call(client, _seed, tmp_path, 3)
+    episode, film = ids["files"][0], ids["film"]
+    assert start_session(client, episode)["auto_skip"] == {"enabled": True, "intro": False}
+
+    resp = client.put(f"{_PB}/auto-skip/intro/{ids['show']}", json={"enabled": True})
+    assert resp.status_code == 200, resp.text
+    # 记两次也只记一份
+    client.put(f"{_PB}/auto-skip/intro/{ids['show']}", json={"enabled": True})
+    assert start_session(client, ids["files"][1])["auto_skip"] == {"enabled": True, "intro": True}
+    assert start_session(client, film)["auto_skip"]["intro"] is False
+
+    client.put(f"{_PB}/auto-skip", json={"enabled": False})
+    assert start_session(client, episode)["auto_skip"] == {"enabled": False, "intro": True}
+
+    client.put(f"{_PB}/auto-skip/intro/{ids['show']}", json={"enabled": False})
+    client.put(f"{_PB}/auto-skip", json={"enabled": True})
+    assert start_session(client, episode)["auto_skip"] == {"enabled": True, "intro": False}

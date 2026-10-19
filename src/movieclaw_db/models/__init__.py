@@ -55,6 +55,7 @@ from movieclaw_db.models.member_scoped import (
 from movieclaw_db.models.person import MediaItemPerson, Person
 from movieclaw_db.models.playback_log import PlaybackLog
 from movieclaw_db.models.playback_metric import PlaybackMetric
+from movieclaw_db.models.playback_preference import PlaybackPreference
 from movieclaw_db.models.playback_state import PlaybackState
 from movieclaw_db.models.plugin_callback import PluginCallback
 from movieclaw_db.models.plugin_data import PluginData
@@ -169,6 +170,7 @@ __all__ = [
     "PushOutbox",
     "PushPreference",
     "PlaybackMetric",
+    "PlaybackPreference",
     "PlaybackState",
     "PluginCallback",
     "PluginData",

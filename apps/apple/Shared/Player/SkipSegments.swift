@@ -8,8 +8,11 @@ import Foundation
 /// - `intro` 片头：位置在区间里显示「跳过片头」，点了跳到区间结束处；
 /// - `outro` 片尾：到起点就提前显示「即将播放下一集」并倒计时（`toEnd` 为真，片尾一直放到文件结尾）；
 ///   `toEnd` 为假时片尾后面还有内容（下集预告、彩蛋），按钮是「跳过片尾」；
-/// - `ad` 已确认的广告、`preview` 已确认的预告：分别显示「跳过广告」「跳过预告」，仅手动跳过；
+/// - `ad` 已确认的广告、`preview` 已确认的预告：分别显示「跳过广告」「跳过预告」；
 /// - `other` 尚未明确分类的重复段：显示「跳过此段」，客户端不猜测内容类型。
+///
+/// 自动跳过（§5，`autoSkips`）：自然播进区间时，广告、预告直接跳；片头要这部剧学过才跳
+/// （用户在这部剧里手动跳过过一次）；其他类型永远只给按钮。跳完给「撤回」。
 enum SkipSegments {
     /// 离区间尾不足这么多毫秒就不再给「跳过」：按下去只省一两秒，还会撞上区间尾的画面切换
     static let tailMs = 3000
@@ -42,6 +45,23 @@ enum SkipSegments {
     /// 连续自动播了这么多集、期间没人碰过播放器，就不再自动播（人多半睡着了，也别让 NAS 白转一晚上）
     static let autoNextMaxStreak = 3
 
+    /// 自然播进这一段时直接跳过、还是只给按钮（`active` 已保证离段尾超过 `tailMs`）。
+    /// 总开关关了一律只给按钮；广告、预告没人想看，直接跳；片头因人因剧而异，`introLearned`
+    /// （这部剧手动跳过过片头）才跳；其他类型（含非结尾片尾、未来类型）不猜，只给按钮
+    static func autoSkips(_ segment: API.PlaybackSegmentView, enabled: Bool, introLearned: Bool) -> Bool {
+        guard enabled else { return false }
+        switch segment.type {
+        case "ad", "preview": return true
+        case "intro": return introLearned
+        default: return false
+        }
+    }
+
+    /// 「已跳过片头 · 撤回」停留多久；「本剧以后自动跳过片头 · 不用」同样长，给人时间反悔
+    static let skipNoticeMs = 5000
+    /// 不带按钮的提示（「本剧不再自动跳过片头」）停留多久
+    static let infoNoticeMs = 3000
+
     /// 文案只依赖服务端类型；其他或未来类型不猜成片头或广告。
     static func label(_ segment: API.PlaybackSegmentView) -> String {
         switch segment.type {
@@ -50,6 +70,17 @@ enum SkipSegments {
         case "ad": "跳过广告"
         case "preview": "跳过预告"
         default: "跳过此段"
+        }
+    }
+
+    /// 跳过后的提示里怎么称呼这一段：「已跳过片头」
+    static func name(_ segment: API.PlaybackSegmentView) -> String {
+        switch segment.type {
+        case "intro": "片头"
+        case "outro": "片尾"
+        case "ad": "广告"
+        case "preview": "预告"
+        default: "此段"
         }
     }
 
