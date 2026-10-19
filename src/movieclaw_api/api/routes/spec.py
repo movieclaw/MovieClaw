@@ -11,9 +11,8 @@ CLI 的主 spec 通道是构建期内置基线；本端点只服务「远程安�
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, Request, Response
-from fastapi.responses import JSONResponse
 
-from movieclaw_api.spec_state import get_spec_hash
+from movieclaw_api.spec_state import get_spec_hash, spec_body
 
 router = APIRouter(prefix="/spec", tags=["system"])
 
@@ -31,4 +30,4 @@ async def get_spec(
     etag = f'"{get_spec_hash(request.app)}"'
     if if_none_match == etag:
         return Response(status_code=304, headers={"ETag": etag})
-    return JSONResponse(request.app.openapi(), headers={"ETag": etag})
+    return Response(spec_body(request.app), media_type="application/json", headers={"ETag": etag})

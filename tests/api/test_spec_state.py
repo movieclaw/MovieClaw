@@ -82,3 +82,45 @@ def test_without_baseline_the_hash_is_computed_live(monkeypatch, tmp_path) -> No
     spec_state._shared_spec_hashes.clear()
     app = create_app()
     assert spec_state.get_spec_hash(app) == spec_hash(app.openapi())
+
+
+def test_spec_is_cached_as_bytes_not_as_dict(monkeypatch, tmp_path) -> None:
+    """路由变化后后台备好 /spec 响应体：只留序列化字节，不常驻 FastAPI 的 schema dict。"""
+    import json
+
+    from fastapi import APIRouter
+
+    from movieclaw_api.export_openapi import build_spec
+    from movieclaw_api.services import spec_catalog
+
+    # 部署产物里一定有构建期基线（与生产同形态）
+    baseline = tmp_path / "spec.json"
+    baseline.write_text(json.dumps(build_spec()), encoding="utf-8")
+    monkeypatch.setattr(spec_catalog, "_SPEC_PATH", baseline)
+    monkeypatch.setattr(spec_state, "_baseline_hash", None)
+    monkeypatch.setattr(spec_state, "ROUTES_CHANGED_DEBOUNCE", 0)
+    app = create_app()
+    # 测试会复用应用实例（conftest），build_spec 已在它身上留过一份 dict
+    app.openapi_schema = None
+    spec_state.routes_changed(app).join()
+    assert app.openapi_schema is None
+    version, body = app.state.spec_body
+    assert version == app.router._get_routes_version()
+    assert json.loads(body) == app.openapi()
+    app.openapi_schema = None
+
+    # 请求时直接给备好的字节，不再现场生成
+    def forbidden(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("已有缓存时不该现场生成 OpenAPI")
+
+    monkeypatch.setattr(app, "openapi", forbidden)
+    assert spec_state.spec_body(app) is body
+
+    # 路由再变、缓存版本对不上：现算一次，算完同样只留字节
+    monkeypatch.delattr(app, "openapi")
+    extra = APIRouter()
+    extra.add_api_route("/spec-cache-probe", lambda: {"ok": True})
+    app.include_router(extra)
+    fresh = spec_state.spec_body(app)
+    assert "/spec-cache-probe" in json.loads(fresh)["paths"]
+    assert app.openapi_schema is None

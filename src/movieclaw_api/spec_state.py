@@ -16,6 +16,7 @@ from collections import OrderedDict
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute, iter_route_contexts
 
 from movieclaw_api.export_openapi import spec_hash
@@ -149,10 +150,9 @@ def routes_changed(app: FastAPI) -> threading.Thread:
             return
         if value is not None:
             app.state.spec_hash = value
-            # 顺手填上 FastAPI 自己的 OpenAPI 缓存（按快照时的路由版本）：CLI 发现指纹变了会来拉
-            # /spec，不必再在事件循环里现场生成一遍；路由若已再变，版本对不上，FastAPI 照常重算
-            app.openapi_schema = spec
-            app._openapi_routes_version = routes_version
+            # 顺手备好 /spec 的响应体（按快照时的路由版本）：CLI 发现指纹变了会来拉 /spec，
+            # 不必再在事件循环里现场生成一遍；路由若已再变，版本对不上，spec_body 照常重算
+            app.state.spec_body = (routes_version, JSONResponse(spec).body)
         elif getattr(app.state, "spec_hash", None) is not None:
             del app.state.spec_hash
 
@@ -211,3 +211,19 @@ def get_spec_hash(app: FastAPI) -> str:
 
     app.state.spec_hash = cached
     return cached
+
+
+def spec_body(app: FastAPI) -> bytes:
+    """当前路由的整份 spec，已序列化成 JSON 字节（/spec 的响应体）。
+
+    只缓存字节（约 400KB），不留 FastAPI 自己缓存的那份 dict：几十万个小对象常驻
+    6~9MB，而它只在 CLI 偶尔刷新 spec 时用一次。
+    """
+    version = app.router._get_routes_version()
+    cached = getattr(app.state, "spec_body", None)
+    if cached is not None and cached[0] == version:
+        return cached[1]
+    body = JSONResponse(app.openapi()).body
+    app.openapi_schema = None
+    app.state.spec_body = (version, body)
+    return body
