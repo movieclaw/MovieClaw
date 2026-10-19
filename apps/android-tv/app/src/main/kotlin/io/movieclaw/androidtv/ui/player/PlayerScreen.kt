@@ -61,6 +61,7 @@ import io.movieclaw.core.playback.Phase
 import io.movieclaw.core.playback.PlayerState
 import io.movieclaw.core.playback.PrefsStore
 import io.movieclaw.core.playback.ScrubMath
+import io.movieclaw.core.playback.SkipNotice
 import io.movieclaw.androidtv.ui.shell.PlayRequest
 import io.movieclaw.androidtv.ui.theme.pt
 import kotlinx.coroutines.delay
@@ -130,7 +131,7 @@ fun PlayerScreen(request: PlayRequest, onClose: () -> Unit) {
 }
 
 /** 播放器里能拿焦点的东西：平时在「画面」上（一块看不见的全屏可聚焦区，收遥控器的按键） */
-private enum class Focus { None, Surface, Skip, UpNext, QualityOffer, Panel, Dialog, Actions }
+private enum class Focus { None, Surface, Skip, SkipUndo, UpNext, QualityOffer, Panel, Dialog, Actions }
 
 /** 按住左右键的拖动状态（只在按键回调里读写，不需要触发重组） */
 private class HoldState {
@@ -146,6 +147,7 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
     val scope = rememberCoroutineScope()
     val surfaceFocus = remember { FocusRequester() }
     val skipFocus = remember { FocusRequester() }
+    val skipUndoFocus = remember { FocusRequester() }
     val upNextFocus = remember { FocusRequester() }
     val offerFocus = remember { FocusRequester() }
     val dialogFocus = remember { FocusRequester() }
@@ -243,6 +245,13 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
         }
         if (focus == Focus.QualityOffer) {
             controller.dismissQualityOffer()
+            focusSurfaceSoon()
+            return
+        }
+        val notice = state.skipNotice
+        if (notice != null && notice.kind == SkipNotice.Kind.Skipped) {
+            // 「已跳过 · 撤回」在时返回键 = 不撤回、收起提示，免得刚跳过就一按退出播放
+            controller.expireSkipNotice(notice.id)
             focusSurfaceSoon()
             return
         }
@@ -361,6 +370,8 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
     val contextual: Focus? = when {
         state.isModal || panelOpen || episodesOpen -> null
         state.qualityOffer != null -> Focus.QualityOffer
+        // 只有「已跳过 · 撤回」能按；「本剧以后自动跳过」只是告知，不抢焦点
+        state.skipNotice != null -> if (state.skipNotice?.kind == SkipNotice.Kind.Skipped) Focus.SkipUndo else null
         state.skipSegment != null -> Focus.Skip
         state.showsUpNext && state.nextEpisode != null -> Focus.UpNext
         else -> null
@@ -375,6 +386,7 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
     fun requestContextual(target: Focus) {
         val requester = when (target) {
             Focus.Skip -> skipFocus
+            Focus.SkipUndo -> skipUndoFocus
             Focus.UpNext -> upNextFocus
             Focus.QualityOffer -> offerFocus
             else -> surfaceFocus
@@ -394,7 +406,7 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
     // 跳过按钮、下一集卡片、换画质建议出现时焦点自动落上去（按一下就生效），消失时回到画面
     LaunchedEffect(contextual) {
         delay(150)
-        val corner = focus == Focus.Skip || focus == Focus.UpNext || focus == Focus.QualityOffer
+        val corner = focus == Focus.Skip || focus == Focus.SkipUndo || focus == Focus.UpNext || focus == Focus.QualityOffer
         if (contextual != null && (focus == Focus.None || focus == Focus.Surface || corner)) {
             requestContextual(contextual)
         } else if (contextual == null && (focus == Focus.None || corner)) {
@@ -484,7 +496,7 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { BusyView(state.phase, state.speedLabel) }
         }
 
-        // 6. 右下角：换画质建议 > 跳过 > 下一集（同时只出一个）
+        // 6. 右下角：换画质建议 > 自动跳过的提示 > 跳过 > 下一集（同时只出一个）
         val cornerBottom by animateDpAsState(if (chromeVisible) 200.pt else 80.pt, tween(250), label = "corner")
         Box(
             Modifier
@@ -494,7 +506,7 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
                 .focusProperties { canFocus = !panelOpen && !episodesOpen }
                 .onPreviewKeyEvent { event ->
                     // 右下角按钮上按左 / 上回到画面（那边就是画面），按右 / 下没有去处
-                    if (focus != Focus.Skip && focus != Focus.UpNext) return@onPreviewKeyEvent false
+                    if (focus != Focus.Skip && focus != Focus.SkipUndo && focus != Focus.UpNext) return@onPreviewKeyEvent false
                     when (event.nativeKeyEvent.keyCode) {
                         AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_UP -> {
                             if (event.type == KeyEventType.KeyDown) runCatching { surfaceFocus.requestFocus() }
@@ -507,6 +519,7 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
             contentAlignment = Alignment.BottomEnd,
         ) {
             val offer = state.qualityOffer
+            val notice = state.skipNotice
             val segment = state.skipSegment
             val next = state.nextEpisode
             when {
@@ -525,6 +538,20 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
                         if (it.hasFocus) focus = Focus.QualityOffer else if (focus == Focus.QualityOffer) focus = Focus.None
                     },
                 )
+                notice != null -> {
+                    // 提示优先于跳过按钮（撤回后回到片头里，提示收起才轮到按钮）
+                    SkipNoticeView(
+                        notice,
+                        onUndo = controller::undoAutoSkip,
+                        modifier = Modifier
+                            .focusRequester(skipUndoFocus)
+                            .onFocusChanged { if (it.isFocused) focus = Focus.SkipUndo else if (focus == Focus.SkipUndo) focus = Focus.None },
+                    )
+                    LaunchedEffect(notice.id) {
+                        delay(notice.durationMs)
+                        controller.expireSkipNotice(notice.id)
+                    }
+                }
                 segment != null -> SkipButton(
                     segment,
                     onClick = controller::skipCurrentSegment,

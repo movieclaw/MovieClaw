@@ -292,6 +292,12 @@ class McApi(private val transport: ApiTransport) {
         return transport.send("PUT", "/playback/policy", query, McJson.encodeToJsonElement(body), serializer<PlaybackPolicyView>(), enveloped = true)
     }
 
+    /** 这部剧的片头自动跳 / 不再自动跳（`PUT /playback/auto-skip/intro/{media_item_id}`） */
+    suspend fun playbackAutoSkipIntroSet(mediaItemId: Long, body: PlaybackAutoSkipRequest): Unit {
+        val query = emptyList<Pair<String, String>>()
+        transport.send("PUT", "/playback/auto-skip/intro/${mediaItemId}", query, McJson.encodeToJsonElement(body), serializer<JsonElement?>(), enveloped = true)
+    }
+
     /** 播放页条目信息（标题/海报/库归属）（`GET /playback/items/{media_item_id}`） */
     suspend fun playbackItemInfo(mediaItemId: Long): PlaybackItemView {
         val query = emptyList<Pair<String, String>>()

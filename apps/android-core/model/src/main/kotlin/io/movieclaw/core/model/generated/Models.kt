@@ -1873,6 +1873,14 @@ data class PlaybackArtifactUploadView(
 )
 
 /**
+ * 改自动跳过：总开关，或某部剧的片头。
+ */
+@Serializable
+data class PlaybackAutoSkipRequest(
+    @SerialName("enabled") val enabled: Boolean,
+)
+
+/**
  * 这个人的自动跳过设定（docs/design/skip-intro.md §5），跟账号走。
  * 客户端按它决定进了区间是直接跳还是只给按钮：广告、预告在 ``enabled`` 时直接跳；
  * 片头还要 ``intro``（用户在这部剧里手动跳过过一次片头）；其他类型永远只给按钮。

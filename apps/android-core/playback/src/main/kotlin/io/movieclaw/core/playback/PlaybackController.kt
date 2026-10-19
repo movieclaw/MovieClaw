@@ -35,11 +35,13 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException
 import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.session.MediaSession
+import io.movieclaw.core.model.generated.PlaybackAutoSkipView
 import io.movieclaw.core.model.generated.PlaybackBlurayView
 import io.movieclaw.core.model.generated.PlaybackClientLogPayload
 import io.movieclaw.core.model.generated.PlaybackDecisionView
 import io.movieclaw.core.model.generated.PlaybackMetricPayload
 import io.movieclaw.core.model.generated.PlaybackProgressRequest
+import io.movieclaw.core.model.generated.PlaybackSegmentView
 import io.movieclaw.core.model.generated.PlaybackSessionRequest
 import io.movieclaw.core.model.generated.PlaybackSessionView
 import io.movieclaw.core.model.generated.PlaybackStateView
@@ -501,7 +503,7 @@ class PlaybackController(
         }
         set {
             copy(
-                unit = next, speedLabel = null, hasSession = false, segments = null, pendingDecision = null,
+                unit = next, speedLabel = null, hasSession = false, segments = null, skipNotice = null, pendingDecision = null,
                 subtitles = SubtitleTracks(), selectedSubtitle = null, audioOptions = emptyList(), currentAudio = null,
                 trickplay = null, durationMs = null, bufferedEndMs = null, nextDismissed = false, autoNextProgress = 0.0,
                 qualityOffer = null, wantsPlay = true, positionMs = start ?: 0, overlaySubtitleUrl = null,
@@ -509,6 +511,7 @@ class PlaybackController(
             )
         }
         loadingBps = null
+        skipHandled.clear()
         beginRecord("tap")
         resetWatchdogs()
         request(startMs = start, next = Phase.Deciding)
@@ -579,10 +582,93 @@ class PlaybackController(
     /** 返回键收起「下一集」卡片：这一集里不再出现 */
     fun dismissUpNext() = set { copy(nextDismissed = true, autoNextProgress = 0.0) }
 
+    /**
+     * 点「跳过」：直接跳到这一段结束处。片头是这部剧第一次手动跳，就记下来、以后自动跳（§5），
+     * 同时给「本剧以后自动跳过片头 · 不用」；服务端记不住（旧版本）、访客就不学、不给这句话
+     */
     fun skipCurrentSegment() {
         noteUserActivity()
         val segment = s.skipSegment ?: return
         seekTo(segment.endMs, exact = true, source = "skip")
+        if (segment.type == "intro" && autoSkipEnabled && canLearnIntro && !introAutoSkip && backend !is ShareBackend) {
+            setIntroAutoSkip(true)
+            showSkipNotice(SkipNotice.Kind.Learned)
+        }
+    }
+
+    // ---- 自动跳过（docs/design/skip-intro.md §5，与 Apple 端 PlaybackController 同一套） ----
+
+    /** 自动跳过总开关（跟账号走，随会话下发；旧服务端没有就按默认开） */
+    private var autoSkipEnabled = true
+    /** 这部剧的片头自动跳 */
+    private var introAutoSkip = false
+    /** 服务端能不能记住片头选择：会话带回了 `auto_skip` 才能；旧服务端没有，学了下一集也带不回来 */
+    private var canLearnIntro = false
+    /** 本次播放里改过的片头选择：保存请求还没落库时下一集的会话可能带回旧值，以这里为准 */
+    private var introAutoSkipOverride: Boolean? = null
+    /** 本集已经决定过的段（按起点记）：自然播进去自动跳一次；用户拖进去、跳回去、撤回过的只给按钮 */
+    private val skipHandled = mutableSetOf<Long>()
+    private var skipNoticeSeq = 0L
+
+    private fun showSkipNotice(kind: SkipNotice.Kind, segment: PlaybackSegmentView? = null) {
+        skipNoticeSeq += 1
+        set { copy(skipNotice = SkipNotice(skipNoticeSeq, kind, segment)) }
+    }
+
+    /** 进度推进时调用：自然播进了区间、这一段还没决定过，就按 [SkipSegments.autoSkips] 跳或只给按钮 */
+    private fun evaluateAutoSkip() {
+        if (s.phase != Phase.Playing || s.paused) return
+        val segment = s.skipSegment ?: return
+        if (!skipHandled.add(segment.startMs)) return
+        if (!SkipSegments.autoSkips(segment, autoSkipEnabled, introAutoSkip)) return
+        seekTo(segment.endMs, exact = true, source = "auto", marksSkipHandled = false)
+        showSkipNotice(SkipNotice.Kind.Skipped, segment)
+    }
+
+    /** 落点所在的段算「用户自己去的」：不自动跳，只给按钮 */
+    private fun markSkipHandled(fileMs: Long) {
+        s.segments?.firstOrNull { fileMs >= it.startMs && fileMs < it.endMs }?.let { skipHandled.add(it.startMs) }
+    }
+
+    /** 「撤回」：回到这一段起点接着看；撤回的是片头就忘掉这部剧的片头自动跳 */
+    fun undoAutoSkip() {
+        noteUserActivity()
+        val notice = s.skipNotice ?: return
+        val segment = notice.segment?.takeIf { notice.kind == SkipNotice.Kind.Skipped } ?: return
+        seekTo(segment.startMs, exact = true, source = "skip")
+        if (segment.type == "intro" && introAutoSkip) {
+            setIntroAutoSkip(false)
+            showSkipNotice(SkipNotice.Kind.Forgot)
+        } else {
+            set { copy(skipNotice = null) }
+        }
+    }
+
+    /** 学会时的「不用」：这部剧的片头还是只给按钮 */
+    fun declineIntroAutoSkip() {
+        noteUserActivity()
+        setIntroAutoSkip(false)
+        set { copy(skipNotice = null) }
+    }
+
+    /** 提示到时间收起（id 对得上才收：期间换了新提示就不动） */
+    fun expireSkipNotice(id: Long) {
+        if (s.skipNotice?.id == id) set { copy(skipNotice = null) }
+    }
+
+    private fun setIntroAutoSkip(enabled: Boolean) {
+        introAutoSkip = enabled
+        introAutoSkipOverride = enabled
+        val item = unit.mediaItemId
+        scope.launch { runCatching { backend.setIntroAutoSkip(item, enabled) } }
+    }
+
+    /** 新会话带回的设定；本次播放里改过的片头选择优先 */
+    private fun applyAutoSkip(view: PlaybackAutoSkipView?) {
+        canLearnIntro = view != null
+        if (view == null) return
+        autoSkipEnabled = view.enabled
+        introAutoSkip = introAutoSkipOverride ?: view.intro
     }
 
     // ======================================================================
@@ -784,6 +870,7 @@ class PlaybackController(
                 durationMs = opened.watch?.durationMs ?: durationMs, phase = Phase.Buffering,
             )
         }
+        applyAutoSkip(opened.autoSkip)
         Log.i(TAG, "起播 item=${unit.mediaItemId} 档=${decision.tier} ${if (original) "原文件直连" else "服务端流"} start=${opened.startMs}")
 
         // 起播音轨：直连原文件时服务端计划里的那条一律落下（Exo 读到轨后显式选它，已经选中就不动）。
@@ -1328,12 +1415,16 @@ class PlaybackController(
     /** 相对跳转（左右键、媒体键）：按关键帧，快 */
     fun seekBy(deltaMs: Long) = seekTo(s.positionMs + deltaMs, exact = false, source = "dpad")
 
-    /** 跳到文件时间（毫秒）。[source] 记进播放记录：scrub（拖动）/ dpad / skip / media_key */
-    fun seekTo(raw: Long, exact: Boolean = true, source: String = "scrub") {
+    /**
+     * 跳到文件时间（毫秒）。[source] 记进播放记录：scrub（拖动）/ dpad / skip / media_key / auto（自动跳过）。
+     * [marksSkipHandled]：落点所在的可跳过段算「用户自己去的」，不再自动跳（自动跳过自己的跳转不算）
+     */
+    fun seekTo(raw: Long, exact: Boolean = true, source: String = "scrub", marksSkipHandled: Boolean = true) {
         // 先夹进片长之内：越过片尾的落点会开出一个什么也转不出来的会话
         var targetMs = raw.coerceAtLeast(0)
         val duration = s.durationMs
         if (duration != null && duration > 1000) targetMs = minOf(targetMs, duration - 1000)
+        if (marksSkipHandled) markSkipHandled(targetMs)
         scrubFollowJob?.cancel()
         val phase = s.phase
         if (!mediaLoaded || session == null || phase == Phase.SessionStarting || phase == Phase.Deciding || phase == Phase.Degrading) {
@@ -1370,6 +1461,8 @@ class PlaybackController(
 
     /** 拖动途中让画面跟着走：落点在缓冲里时 10Hz 跟随，原文件直连拖出缓冲时停住 60ms 后跟一次，其余松手才跳 */
     fun scrubFollow(fileMs: Long) {
+        // 拖动途中画面跟到哪段里，哪段就是用户自己去的：别在手指还没松开时自动跳走
+        markSkipHandled(fileMs)
         val phase = s.phase
         if (!mediaLoaded || session == null || (phase != Phase.Playing && phase != Phase.Buffering && phase != Phase.Ended)) return
         val cheap = fileMs >= s.positionMs - 1000 && fileMs <= (s.bufferedEndMs ?: 0)
@@ -1723,6 +1816,7 @@ class PlaybackController(
             )
         }
         if (phase == Phase.Playing && exo.isPlaying) record?.let { it.watchedMs += 250 }
+        evaluateAutoSkip()
     }
 
     /**

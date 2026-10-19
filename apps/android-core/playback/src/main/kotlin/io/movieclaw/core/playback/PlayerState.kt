@@ -61,6 +61,8 @@ data class PlayerState(
     val episodes: List<EpisodeView> = emptyList(),
     val hasSession: Boolean = false,
     val segments: List<PlaybackSegmentView>? = null,
+    /** 自动跳过的提示，与跳过按钮占同一个角落、优先显示 */
+    val skipNotice: SkipNotice? = null,
     val errorMessage: String? = null,
     val errorSuggestion: String? = null,
     /** 等用户拍板的决策（需要软件转码的同意弹窗） */

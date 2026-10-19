@@ -53,6 +53,9 @@ val AccentStrong = Color(0xFFEEF2F8)
 /** --accent-2：实测 rgb(159,176,201)，用于类型文字/集数行/章节徽标 */
 val Accent2 = Color(0xFF9FB0C1)
 
+/** 进度条上可跳过的段（片头、广告等，docs/design/skip-intro.md §5）：琥珀色，同 Apple 端 Theme.skippable */
+val Skippable = Color(245, 184, 82)
+
 /** 语义色：实测值（此前用的 iOS 值 60A5FA / FBBF24 都不对） */
 val Info = Color(0xFF7FB0FF)
 val Warn = Color(0xFFF5C451)

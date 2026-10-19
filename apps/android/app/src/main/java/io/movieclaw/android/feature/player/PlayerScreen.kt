@@ -96,6 +96,7 @@ import androidx.media3.ui.compose.ContentFrame
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.movieclaw.android.core.designsystem.Accent
 import io.movieclaw.android.core.designsystem.AccentStrong
+import io.movieclaw.android.core.designsystem.Skippable
 import io.movieclaw.android.core.designsystem.GlassCard
 import androidx.compose.foundation.layout.heightIn
 import io.movieclaw.android.core.designsystem.McFormat
@@ -114,6 +115,7 @@ import io.movieclaw.core.playback.Phase
 import io.movieclaw.core.playback.PlaybackController
 import io.movieclaw.core.playback.PlaybackSpeeds
 import io.movieclaw.core.playback.QualitySuggestion
+import io.movieclaw.core.playback.SkipNotice
 import io.movieclaw.core.playback.SkipSegments
 import javax.inject.Inject
 import kotlinx.coroutines.delay
@@ -666,9 +668,47 @@ private fun PlayingSurface(
         }
 
         // ── 跳过片头/片尾（docs/design/skip-intro.md §5，判定在引擎 SkipSegments）──
-        // 位置进区间（终点前 3s 前）出按钮，点了跳到区间尾；与「下一集」卡片不同时出现。不自动跳过（v1 拍板）。
+        // 位置进区间（终点前 3s 前）出按钮，点了跳到区间尾；与「下一集」卡片不同时出现。
+        // 自动跳过（广告直接跳、片头按剧学）的提示占同一个位置、优先显示：撤回后回到片头里，提示收起才轮到按钮
+        val skipNotice = state.skipNotice
         val skip = state.skipSegment
-        if (skip != null && !locked) {
+        if (skipNotice != null && !locked) {
+            LaunchedEffect(skipNotice.id) {
+                delay(skipNotice.durationMs)
+                controller.expireSkipNotice(skipNotice.id)
+            }
+            val action: Pair<String, () -> Unit>? = when (skipNotice.kind) {
+                SkipNotice.Kind.Skipped -> "撤回" to controller::undoAutoSkip
+                SkipNotice.Kind.Learned -> "不用" to controller::declineIntroAutoSkip
+                SkipNotice.Kind.Forgot -> null
+            }
+            Row(
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 96.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(GlassCapsule)
+                    .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(999.dp))
+                    .padding(start = 16.dp, end = if (action == null) 16.dp else 5.dp, top = 5.dp, bottom = 5.dp)
+                    .heightIn(min = 30.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(skipNotice.text, style = McType.subheadlineSemibold, color = Color.White)
+                if (action != null) {
+                    Text(
+                        action.first,
+                        style = McType.subheadlineSemibold,
+                        color = Color.Black,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color.White)
+                            .clickable(onClick = action.second)
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        } else if (skip != null && !locked) {
             Text(
                 SkipSegments.label(skip),
                 style = McType.subheadlineSemibold,
@@ -907,16 +947,18 @@ private fun PlayingSurface(
                                 .clip(RoundedCornerShape(3.dp))
                                 .background(AccentStrong),
                         )
-                        // 片头结束点与播放位置使用相同的文件时间和条宽；没有识别结果就不画。
+                        // 可跳过的段（片头、广告等，同 Apple 端）：琥珀色，画在已播放部分之上，与播放位置同一套文件时间和条宽
                         if (totalMs > 0) {
-                            state.segments.orEmpty().filter {
-                                it.type == "intro" && it.startMs >= 0 && it.endMs > it.startMs && it.endMs < totalMs
-                            }.forEach { segment ->
-                                val markerSize = 5.dp
+                            state.segments.orEmpty().filter { it.endMs > it.startMs }.forEach { segment ->
+                                val from = segment.startMs.coerceIn(0L, totalMs).toFloat() / totalMs
+                                val to = segment.endMs.coerceIn(0L, totalMs).toFloat() / totalMs
                                 Box(
                                     Modifier.align(Alignment.CenterStart)
-                                        .offset(x = travel * (segment.endMs.toFloat() / totalMs) + (handleSize - markerSize) / 2)
-                                        .size(markerSize).clip(CircleShape).background(Color.White),
+                                        .offset(x = maxWidth * from)
+                                        .width((maxWidth * (to - from)).coerceAtLeast(2.dp))
+                                        .height(3.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(Skippable.copy(alpha = 0.9f)),
                                 )
                             }
                         }

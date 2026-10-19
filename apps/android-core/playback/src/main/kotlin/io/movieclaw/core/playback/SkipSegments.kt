@@ -9,7 +9,10 @@ import io.movieclaw.core.model.generated.PlaybackSegmentView
  *
  * - `intro` 片头：位置在区间里显示「跳过片头」，点了跳到区间结束处；
  * - `outro` 片尾：`toEnd` 为真（一直放到文件结尾）时到起点就提前给「即将播放」卡片；为假时后面还有内容，按钮是「跳过片尾」；
- * - `ad` / `preview`：「跳过广告」「跳过预告」，仅手动跳过；`other` 等未知类型：「跳过此段」，不猜内容。
+ * - `ad` / `preview`：「跳过广告」「跳过预告」；`other` 等未知类型：「跳过此段」，不猜内容。
+ *
+ * 自动跳过（§5，[autoSkips]）：自然播进区间时，广告、预告直接跳；片头要这部剧学过才跳
+ * （用户在这部剧里手动跳过过一次）；其他类型永远只给按钮。跳完给「撤回」。
  */
 object SkipSegments {
     /** 离区间尾不足这么多毫秒就不再给「跳过」：按下去只省一两秒，还会撞上区间尾的画面切换 */
@@ -42,6 +45,35 @@ object SkipSegments {
     fun autoNextArmed(segments: List<PlaybackSegmentView>?, positionMs: Long, streak: Int): Boolean =
         streak < AUTO_NEXT_MAX_STREAK && isInOutro(segments, positionMs)
 
+    /** 「已跳过片头 · 撤回」停留多久；「本剧以后自动跳过片头 · 不用」同样长，给人时间反悔 */
+    const val SKIP_NOTICE_MS = 5000L
+
+    /** 不带按钮的提示（「本剧不再自动跳过片头」）停留多久 */
+    const val INFO_NOTICE_MS = 3000L
+
+    /**
+     * 自然播进这一段时直接跳过、还是只给按钮（[active] 已保证离段尾超过 [TAIL_MS]）。
+     * 总开关关了一律只给按钮；广告、预告没人想看，直接跳；片头因人因剧而异，[introLearned]
+     * （这部剧手动跳过过片头）才跳；其他类型（含非结尾片尾、未来类型）不猜，只给按钮
+     */
+    fun autoSkips(segment: PlaybackSegmentView, enabled: Boolean, introLearned: Boolean): Boolean {
+        if (!enabled) return false
+        return when (segment.type) {
+            "ad", "preview" -> true
+            "intro" -> introLearned
+            else -> false
+        }
+    }
+
+    /** 跳过后的提示里怎么称呼这一段：「已跳过片头」 */
+    fun name(segment: PlaybackSegmentView): String = when (segment.type) {
+        "intro" -> "片头"
+        "outro" -> "片尾"
+        "ad" -> "广告"
+        "preview" -> "预告"
+        else -> "此段"
+    }
+
     fun label(segment: PlaybackSegmentView): String = when (segment.type) {
         "intro" -> "跳过片头"
         "outro" -> "跳过片尾"
@@ -59,6 +91,23 @@ object SkipSegments {
         val remaining = durationMs - positionMs
         return remaining in 1..UP_NEXT_TAIL_MS
     }
+}
+
+/**
+ * 跳过按钮那个角落的自动跳过提示（docs/design/skip-intro.md §5）：
+ * 「已跳过片头 · 撤回」「本剧以后自动跳过片头 · 不用」「本剧不再自动跳过片头」
+ */
+data class SkipNotice(val id: Long, val kind: Kind, val segment: PlaybackSegmentView? = null) {
+    enum class Kind { Skipped, Learned, Forgot }
+
+    val text: String
+        get() = when (kind) {
+            Kind.Skipped -> "已跳过${segment?.let(SkipSegments::name) ?: "此段"}"
+            Kind.Learned -> "本剧以后自动跳过片头"
+            Kind.Forgot -> "本剧不再自动跳过片头"
+        }
+
+    val durationMs: Long get() = if (kind == Kind.Forgot) SkipSegments.INFO_NOTICE_MS else SkipSegments.SKIP_NOTICE_MS
 }
 
 /** 一个播放单元：电影季集都是 0 */

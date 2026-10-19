@@ -1,5 +1,6 @@
 package io.movieclaw.core.playback
 
+import io.movieclaw.core.model.generated.PlaybackAutoSkipRequest
 import io.movieclaw.core.model.generated.PlaybackBlurayView
 import io.movieclaw.core.model.generated.PlaybackDiagnosticsView
 import io.movieclaw.core.model.generated.PlaybackClientLogPayload
@@ -35,6 +36,9 @@ interface PlaybackBackend {
     /** 蓝光主片的剪辑清单（disc-clip-play.md）；凭取流 token，成员与访客同一个接口 */
     suspend fun bluray(fileId: Long, token: String): PlaybackBlurayView
 
+    /** 记下 / 忘掉这部剧的片头自动跳（docs/design/skip-intro.md §5）；访客没有账号，不记 */
+    suspend fun setIntroAutoSkip(mediaItemId: Long, enabled: Boolean) = Unit
+
     /** 播放诊断面板的服务端快照（执行位置、转码后端、供片）；凭取流 token */
     suspend fun diagnostics(sessionId: String, token: String): PlaybackDiagnosticsView? = null
 
@@ -64,6 +68,8 @@ class MemberBackend(private val api: McApi) : PlaybackBackend {
     override suspend fun trickplay(fileId: Long, token: String): TrickplayView = api.playbackFileTrickplay(fileId, token)
     override suspend fun bluray(fileId: Long, token: String): PlaybackBlurayView = api.playbackFileBluray(fileId, token)
     override suspend fun diagnostics(sessionId: String, token: String) = api.playbackSessionDiagnostics(sessionId, token)
+    override suspend fun setIntroAutoSkip(mediaItemId: Long, enabled: Boolean) =
+        api.playbackAutoSkipIntroSet(mediaItemId, PlaybackAutoSkipRequest(enabled = enabled))
     override val reportsMetrics: Boolean get() = true
     override suspend fun reportMetric(payload: PlaybackMetricPayload) {
         api.playbackMetricReport(payload)

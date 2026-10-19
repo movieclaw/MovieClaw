@@ -165,4 +165,29 @@ class SkipSegmentsTest {
         assertFalse(base.copy(wantsPlay = false, positionMs = 0).showPaused)
         assertFalse(base.copy(wantsPlay = false, phase = Phase.Error).showPaused)
     }
+
+    @Test fun autoSkipJumpsAdsAndLearnedIntrosOnly() {
+        // 广告、预告开着总开关就跳
+        assertTrue(SkipSegments.autoSkips(ad, enabled = true, introLearned = false))
+        assertTrue(SkipSegments.autoSkips(segment("preview", 0, 20_000), enabled = true, introLearned = false))
+        // 片头要这部剧学过（手动跳过过一次）
+        assertFalse(SkipSegments.autoSkips(intro, enabled = true, introLearned = false))
+        assertTrue(SkipSegments.autoSkips(intro, enabled = true, introLearned = true))
+        // 未分类、非结尾片尾、未来类型永远只给按钮
+        for (type in listOf("other", "outro", "future-type")) {
+            assertFalse(SkipSegments.autoSkips(segment(type, 0, 20_000), enabled = true, introLearned = true))
+        }
+        // 总开关关了一律只给按钮
+        assertFalse(SkipSegments.autoSkips(ad, enabled = false, introLearned = true))
+        assertFalse(SkipSegments.autoSkips(intro, enabled = false, introLearned = true))
+    }
+
+    @Test fun skipNoticeTextsAndDurations() {
+        assertEquals("已跳过片头", SkipNotice(1, SkipNotice.Kind.Skipped, intro).text)
+        assertEquals("已跳过广告", SkipNotice(1, SkipNotice.Kind.Skipped, ad).text)
+        assertEquals("本剧以后自动跳过片头", SkipNotice(2, SkipNotice.Kind.Learned).text)
+        assertEquals("本剧不再自动跳过片头", SkipNotice(3, SkipNotice.Kind.Forgot).text)
+        assertEquals(SkipSegments.SKIP_NOTICE_MS, SkipNotice(1, SkipNotice.Kind.Skipped, ad).durationMs)
+        assertEquals(SkipSegments.INFO_NOTICE_MS, SkipNotice(3, SkipNotice.Kind.Forgot).durationMs)
+    }
 }

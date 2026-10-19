@@ -85,6 +85,7 @@ ENDPOINTS = [
     "DELETE /playback/sessions/{session_id}",
     "POST /playback/progress",
     "PUT /playback/policy",
+    "PUT /playback/auto-skip/intro/{media_item_id}",
     "GET /playback/items/{media_item_id}",
     "GET /playback/items/{media_item_id}/episodes",
     "GET /playback/files/{file_id}/trickplay",
