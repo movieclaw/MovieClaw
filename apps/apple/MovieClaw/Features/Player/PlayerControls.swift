@@ -234,7 +234,7 @@ struct PlayerSettingsMenu: View {
                     if PlaybackController.autoSkipSupported, controller.scope.shareSlug == nil {
                         Toggle(isOn: Binding(mcGet: { controller.autoSkipEnabled }, set: { controller.setAutoSkipEnabled($0) })) {
                             Label("自动跳过", systemImage: "forward.end")
-                            Text("广告直接跳；片头手动跳过一次，本剧以后自动跳")
+                            Text("自动跳广告，片头按记忆跳过")
                         }
                     }
                     Toggle(isOn: Binding(mcGet: { controller.diagnosticsOpen }, set: { controller.diagnosticsOpen = $0 })) {

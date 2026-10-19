@@ -66,7 +66,7 @@ final class AutoSkipUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 5))
         snapshot("4-progress-marks")
         settings.tap()
-        // 系统菜单项的标签带着副标题（「自动跳过, 广告直接跳…」），按开头找
+        // 系统菜单项的标签带着副标题（「自动跳过, 自动跳广告…」），按开头找
         let toggle = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH '自动跳过'")).firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 5), "⋯ 菜单应有「自动跳过」")
         snapshot("5-settings-menu")
