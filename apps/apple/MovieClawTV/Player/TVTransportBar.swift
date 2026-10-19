@@ -118,7 +118,6 @@ struct TVTransportBar: View {
 struct TVSpeedButton: View {
     let controller: PlaybackController
     var focus: FocusState<TVPlayerFocus?>.Binding
-    @Binding var menuOpen: Bool
     let down: () -> Void
     let up: () -> Void
 
@@ -129,8 +128,6 @@ struct TVSpeedButton: View {
                     Text(PlaybackSpeed.label(rate)).tag(rate)
                 }
             }
-            .onAppear { menuOpen = true }
-            .onDisappear { menuOpen = false }
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "gauge.with.dots.needle.67percent")

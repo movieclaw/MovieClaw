@@ -335,6 +335,16 @@ final class TVFlowUITests: XCTestCase {
         XCTAssertTrue(waitForFocusWithin(speed), "选完焦点没回到倍速键")
         XCTAssertTrue(speed.label.contains("1.5×"), "倍速键没写当前档：\(speed.label)")
         snapshot("62-speed-set")
+        // 不抢播放 / 暂停：键上不动，控制层照常 4 秒收起、焦点还给画面，之后按确认是暂停而不是又弹倍速菜单
+        let surface = app.buttons["tv-player-surface"]
+        XCTAssertTrue(waitForFocus(surface, timeout: 8), "控制层收起后焦点没回到画面")
+        TVRemote.press(.select)
+        XCTAssertFalse(app.cells.containing(NSPredicate(format: "label == %@", "1.5×")).firstMatch.waitForExistence(timeout: 1),
+                       "按确认弹出了倍速菜单")
+        XCTAssertEqual(surface.label, "播放", "按确认没有暂停")
+        TVRemote.press(.select)
+        TVRemote.press(.down)
+        XCTAssertTrue(waitForFocusWithin(speed), "进度条露着时按下没有落到倍速键")
         TVRemote.press(.down)
         XCTAssertTrue(app.element("tv-player-panel").waitForExistence(timeout: 5), "倍速键上按下没有打开面板")
         XCTAssertFalse(app.element("tv-panel-column-speed").exists, "面板里不该再有倍速栏")
@@ -353,6 +363,11 @@ final class TVFlowUITests: XCTestCase {
         TVRemote.press(.down)
         XCTAssertTrue(waitForFocusWithin(app.element("tv-player-speed")))
         TVRemote.press(.select)
+        // 菜单开着时控制层不收起（收起会把键连同菜单一起带走）
+        let normal = app.cells.containing(NSPredicate(format: "label == %@", "正常")).firstMatch
+        XCTAssertTrue(normal.waitForExistence(timeout: 5), "倍速菜单没有弹出")
+        sleep(6)
+        XCTAssertTrue(normal.exists, "菜单开着 6 秒被收走了")
         pickSpeed(app, "正常")
         XCTAssertTrue(waitForFocusWithin(app.element("tv-player-speed")))
         XCTAssertEqual(app.element("tv-player-speed").label, "倍速：正常")
