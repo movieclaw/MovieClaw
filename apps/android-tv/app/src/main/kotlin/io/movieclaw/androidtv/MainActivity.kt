@@ -8,6 +8,7 @@ import android.view.Display
 import android.view.WindowManager
 import io.movieclaw.core.playback.EngineLog
 import io.movieclaw.core.playback.FrameRateMatch
+import io.movieclaw.core.playback.LabFaults
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import io.movieclaw.androidtv.system.DeepLink
@@ -29,6 +30,7 @@ class MainActivity : ComponentActivity() {
             val parts = spec.split(":", limit = 2)
             if (spec == "clear") list.clear() else if (parts.size == 2) list.deny(parts[0], parts[1], "实验台")
         }
+        labFaults(intent)
         DeepLink.from(intent)?.let { graph.deepLinks.value = it }
         setContent { AppRoot(graph, args) }
     }
@@ -36,11 +38,19 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         DeepLink.from(intent)?.let { graph.deepLinks.value = it }
+        labFaults(intent)
         if (BuildConfig.DEBUG) {
             intent.getLongExtra("mc_seek_ms", -1).takeIf { it >= 0 }?.let { graph.labSeeks.tryEmit(it) }
             intent.getStringExtra("mc_audio")?.let { graph.labTracks.tryEmit("audio" to it) }
             intent.getStringExtra("mc_subtitle")?.let { graph.labTracks.tryEmit("subtitle" to it) }
         }
+    }
+
+    /** 调试包：实验台让这些 MIME 的音频输出卡住（「audio/ac3,audio/eac3」；clear = 不卡），下一次起播生效（#906） */
+    private fun labFaults(intent: Intent) {
+        if (!BuildConfig.DEBUG) return
+        val spec = intent.getStringExtra("mc_stall_audio") ?: return
+        LabFaults.stallAudioMimes = if (spec == "clear") emptySet() else spec.split(",").map(String::trim).filter(String::isNotEmpty).toSet()
     }
 
     /**

@@ -10,6 +10,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.upstream.BandwidthMeter
@@ -43,7 +44,11 @@ object UnifiedExo {
         bandwidth: BandwidthMeter? = null,
         buffer: Buffer = Buffer.Main,
     ): ExoPlayer {
-        val renderers = DefaultRenderersFactory(context)
+        val labStall = LabFaults.audioStall()
+        val renderers = object : DefaultRenderersFactory(context) {
+            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink? =
+                super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams)?.let { labStall?.wrap(it) ?: it }
+        }
             // 扩展（FFmpeg 音频软解）排在系统解码器之后：系统能解、或能透传给电视 / 功放的（AC3 / E-AC-3 全景声 /
             // TrueHD）照旧走系统，FFmpeg 只兜底两者都不行的。PREFER 会让 FFmpeg 抢先解成 PCM，透传就没了
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
@@ -83,6 +88,9 @@ object UnifiedExo {
                 true,
             )
             .build()
-            .also { player -> ass?.init(player) }
+            .also { player ->
+                ass?.init(player)
+                labStall?.let { player.addAnalyticsListener(it.listener) }
+            }
     }
 }

@@ -12,6 +12,8 @@
 //                             例如 mp4=/play/965/s01e01?t=600,bdiso=/play/6295?t=600 → 场景 seeks:mp4、seeks:bdiso
 //   ATV_FAULTLAB_SWITCHES     （可选）量换轨耗时：「名字=路由|轨,轨…」分号分隔，轨写 audio:embedded:1 / subtitle:off，
 //                             例如 got=/play/6998/s01e01?t=600|audio:embedded:1,audio:embedded:0,subtitle:embedded:2,subtitle:off
+//   ATV_FAULTLAB_AC3          （可选）H.264 + AC3 5.1 的 MKV（模拟器靠 FFmpeg 软解 AC3、直放原文件），量 #906 的降档：
+//                             调试开关让 AC3 的音频输出卡住，例如夹具里的 /play/<第七号房客的 id>?t=120
 
 const env = (name) => process.env[`ATV_FAULTLAB_${name}`] || null;
 const cut = (secs) => async ({ proxy }) => proxy.setFault("refuse", { secs, cut: true });
@@ -64,11 +66,29 @@ function noPhantomProgress(fromS, toS) {
   };
 }
 
+/** #906：AC3 一路卡死，降到音频转码档时音轨要真的转成 AAC 双声道并放起来，之前的服务端流都还是原样 AC3 */
+function audioFallsBackToAac(r) {
+  const served = r.sessions.filter((s) => s.audio);
+  const last = served[served.length - 1];
+  if (!last) return "没有开过服务端会话";
+  if (last.tier !== 2 || last.audio !== "transcode/aac/2") return `最后一个会话是档 ${last.tier}、音频 ${last.audio}，不是档 2 的 AAC 双声道`;
+  const earlier = served.slice(0, -1).find((s) => s.audio !== "copy/ac3/6");
+  return earlier ? `降到档 2 之前就有会话不是原样 AC3：档 ${earlier.tier} ${earlier.audio}` : null;
+}
+
 const all = (...checks) => (r) => checks.map((c) => c(r)).find((x) => x) ?? null;
 
 export const scenarios = {
   "smoke-direct": { route: env("DIRECT"), durationS: 30, expect: all(noStepDown, playingAtEnd) },
   "smoke-hls": { route: env("HLS"), durationS: 30, expect: all(noStepDown, playingAtEnd) },
+
+  // —— 音频解码 / 输出卡死（#906 小米电视 AC3）：降到档 2 换 AAC 双声道放起来 ——
+  "audio-stall-ac3": {
+    route: env("AC3"),
+    extras: { mc_stall_audio: "audio/ac3" },
+    durationS: 20,
+    expect: all(audioFallsBackToAac, playingAtEnd),
+  },
 
   // —— 断线：同档原地恢复，不降档 ——
   "cut-direct": {

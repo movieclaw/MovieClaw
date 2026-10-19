@@ -109,7 +109,11 @@ async function runScenario(name, scenario) {
         };
         result.sessionRequests.push(req);
         emit({ kind: "session-req", ...req });
-        const res = { t: now(), status, tier: data?.decision?.tier ?? null, id: data?.session_id ?? null };
+        const audio = data?.decision?.audio;
+        const res = {
+          t: now(), status, tier: data?.decision?.tier ?? null, id: data?.session_id ?? null,
+          audio: audio ? [audio.action, audio.codec, audio.channels].filter((x) => x != null).join("/") : null,
+        };
         result.sessions.push(res);
         emit({ kind: "session", ...res });
       },
@@ -166,6 +170,8 @@ async function runScenario(name, scenario) {
     "--es", "mc_pass", password,
     "--es", "mc_route", `'${scenario.route}'`,
     "--es", "mc_lab", `rig:${name}`,
+    // 场景自带的调试开关（如 mc_stall_audio），起播前随启动参数生效
+    ...Object.entries(scenario.extras ?? {}).flatMap(([k, v]) => ["--es", k, v]),
   );
   const key = async (code) => adb("shell", "input", "keyevent", code);
   // 调试包的实验台入口：让正在放的播放器跳到文件时间（毫秒）
