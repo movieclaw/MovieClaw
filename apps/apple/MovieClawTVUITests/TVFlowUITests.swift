@@ -263,8 +263,6 @@ final class TVFlowUITests: XCTestCase {
         let item = try XCTUnwrap(env["MC_TEST_LONG_ITEM"], "需提供 ≥ 10 分钟的片源（MC_TEST_LONG_ITEM）")
         let app = launchSignedIn(["-mcRoute", "/play/\(item)"])
         waitForPlayback(app)
-        // 等起播时那一轮控制层收起再按上，只唤出进度条：它露着时按上会落到倍速键，左右键就不归播放头了
-        _ = app.element("tv-player-transport").waitForNonExistence(timeout: 8)
         TVRemote.press(.up)
         let start = try position(app)
 
@@ -319,99 +317,31 @@ final class TVFlowUITests: XCTestCase {
         TVRemote.press(.menu)
     }
 
-    /// 倍速（docs/design/playback-speed.md）：控制层露着时按上落到片名一行右端的倍速键（同系统播放器），
-    /// 按确认弹出系统菜单选 1.5×，键上写着当前档；按下永远是字幕 / 音轨 / 画质面板（顶部小箭头提示它，面板里没有倍速）；
-    /// 键不抢播放 / 暂停；同一部剧重开沿用；最后选回「正常」清掉记忆（不给之后的用例留倍速）
+    /// 控制层顶部的小箭头提示能往下拉出面板（写着有哪几栏）；面板里左右换栏落在那一栏已选中的那项，
+    /// 而不是位置最近的一行（多字幕片源默认选中的字幕在第二行，按位置会落到第一行「关闭」）
     @MainActor
-    func testPlayerSpeedMenu() {
-        let route = "/play/\(showItem)/s01e01?t=30"
-        var app = launchSignedIn(["-mcRoute", route])
+    func testPlayerPanelHintAndColumnFocus() {
+        let app = launchSignedIn(["-mcRoute", "/play/\(mkvItem)"])
         waitForPlayback(app)
-        let speed = app.element("tv-player-speed")
-        focusSpeedKey(app)
-        XCTAssertTrue(app.element("tv-player-panel-hint").exists, "控制层顶部没有下拉面板的提示")
-        snapshot("60-speed-button")
-        TVRemote.press(.select)
-        pickSpeed(app, "1.5×", shot: "61-speed-menu")
-        XCTAssertTrue(waitForFocusWithin(speed), "选完焦点没回到倍速键")
-        XCTAssertTrue(speed.label.contains("1.5×"), "倍速键没写当前档：\(speed.label)")
-        snapshot("62-speed-set")
-        // 不抢播放 / 暂停：键上不动，控制层照常 4 秒收起、焦点还给画面，之后按确认是暂停而不是又弹倍速菜单
-        let surface = app.buttons["tv-player-surface"]
-        XCTAssertTrue(waitForFocus(surface, timeout: 8), "控制层收起后焦点没回到画面")
-        TVRemote.press(.select)
-        XCTAssertFalse(app.cells.containing(NSPredicate(format: "label == %@", "1.5×")).firstMatch.waitForExistence(timeout: 1),
-                       "按确认弹出了倍速菜单")
-        XCTAssertEqual(surface.label, "播放", "按确认没有暂停")
-        TVRemote.press(.select)
-        // 控制层露着时按下也直接是面板（不经过倍速键）
-        XCTAssertTrue(app.element("tv-player-panel-hint").waitForExistence(timeout: 3))
-        TVRemote.press(.down)
-        XCTAssertTrue(app.element("tv-player-panel").waitForExistence(timeout: 5), "控制层露着时按下没有打开面板")
-        XCTAssertFalse(app.element("tv-panel-column-speed").exists, "面板里不该再有倍速栏")
-        snapshot("63-panel")
-        TVRemote.press(.menu)
-        XCTAssertFalse(app.element("tv-player-panel").waitForExistence(timeout: 2), "返回键没有收起面板")
-
-        // 同一部剧重开：沿用 1.5×（不清状态，记忆在本机）
-        app.terminate()
-        app = launchSignedIn(["-mcRoute", route], reset: false)
-        waitForPlayback(app)
-        focusSpeedKey(app)
-        XCTAssertTrue(app.element("tv-player-speed").label.contains("1.5×"), "同一部剧重开没有沿用倍速")
-
-        // 选回正常；菜单开着时控制层不收起；返回键先把焦点从倍速键还给画面，再按才退出
-        TVRemote.press(.select)
-        let normal = app.cells.containing(NSPredicate(format: "label == %@", "正常")).firstMatch
-        XCTAssertTrue(normal.waitForExistence(timeout: 5), "倍速菜单没有弹出")
-        sleep(6)
-        XCTAssertTrue(normal.exists, "菜单开着 6 秒被收走了")
-        pickSpeed(app, "正常")
-        XCTAssertTrue(waitForFocusWithin(app.element("tv-player-speed")))
-        XCTAssertEqual(app.element("tv-player-speed").label, "倍速：正常")
-        TVRemote.press(.menu)
-        XCTAssertTrue(waitForFocus(app.buttons["tv-player-surface"]), "返回键没把焦点还给画面")
-        XCTAssertTrue(app.element("tv-player").exists, "焦点在倍速键上时返回键不该退出播放")
-        TVRemote.press(.menu)
-    }
-
-    /// 按上把焦点挪到倍速键：控制层收着时第一下只唤出控制层
-    @MainActor
-    private func focusSpeedKey(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
-        let speed = app.element("tv-player-speed")
+        // 等起播那一轮控制层收起再按上唤出：免得读到一半它自己收了
+        let hint = app.element("tv-player-panel-hint")
+        _ = app.element("tv-player-transport").waitForNonExistence(timeout: 8)
+        XCTAssertFalse(hint.exists, "提示应跟控制层一起收起")
         TVRemote.press(.up)
-        if !waitForFocusWithin(speed, timeout: 1) { TVRemote.press(.up) }
-        XCTAssertTrue(waitForFocusWithin(speed), "按上没有落到倍速键", file: file, line: line)
-    }
-
-    /// 等焦点落进这个元素：系统菜单键（Menu）的焦点在它里面一层，键本身的 hasFocus 读出来是假
-    @MainActor
-    private func waitForFocusWithin(_ element: XCUIElement, timeout: TimeInterval = 3) -> Bool {
-        let focused = element.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true"))
-        let deadline = Date.now.addingTimeInterval(timeout)
-        while Date.now < deadline {
-            if element.hasFocus || focused.count > 0 { return true }
-            usleep(200_000)
-        }
-        return element.hasFocus || focused.count > 0
-    }
-
-    /// 倍速菜单里挪到目标档并选中：按目标在当前焦点的上方还是下方决定方向
-    @MainActor
-    private func pickSpeed(_ app: XCUIApplication, _ label: String, shot: String? = nil,
-                           file: StaticString = #filePath, line: UInt = #line) {
-        // 系统菜单的每一档是一个单元格（焦点落在它身上），文字在里面一层
-        let target = app.cells.containing(NSPredicate(format: "label == %@", label)).firstMatch
-        XCTAssertTrue(target.waitForExistence(timeout: 5), "倍速菜单没有弹出", file: file, line: line)
+        XCTAssertTrue(hint.waitForExistence(timeout: 3), "控制层顶部没有下拉面板的提示")
+        XCTAssertTrue(hint.label.contains("音轨"), "多音轨片源的提示里没有音轨：\(hint.label)")
+        snapshot("52-panel-hint")
+        TVRemote.press(.down)
+        XCTAssertTrue(app.element("tv-player-panel").waitForExistence(timeout: 10))
+        let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+        TVRemote.press(.right)
         usleep(500_000)
-        for _ in 0 ..< 8 where !waitForFocusWithin(target, timeout: 0.3) {
-            let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
-            TVRemote.press(focused.exists && focused.frame.minY > target.frame.minY ? .up : .down)
-        }
-        XCTAssertTrue(waitForFocusWithin(target), "没挪到 \(label)", file: file, line: line)
-        if let shot { snapshot(shot) }
-        TVRemote.press(.select)
-        XCTAssertTrue(target.waitForNonExistence(timeout: 3), "选了倍速菜单没有收起", file: file, line: line)
+        XCTAssertEqual(focused.value as? String, "已选中", "进音轨栏没落在已选中的音轨上：\(focused.label)")
+        TVRemote.press(.left)
+        usleep(500_000)
+        XCTAssertEqual(focused.value as? String, "已选中", "回字幕栏没落在已选中的字幕上：\(focused.label)")
+        TVRemote.press(.menu)
+        TVRemote.press(.menu)
     }
 
     /// 隔离字幕夹具：完整标题、空白兜底、同名轨序号、强制标记与遥控选轨。

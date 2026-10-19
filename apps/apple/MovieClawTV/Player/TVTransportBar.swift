@@ -111,37 +111,3 @@ struct TVTransportBar: View {
         }
     }
 }
-
-/// 倍速键（docs/design/playback-speed.md）：进度条上方片名一行的右端，同 tvOS 系统播放器的倍速键——
-/// 按确认弹出系统菜单选档（打勾的是当前档）；正常速度只露图标，加速时图标旁写着「1.5×」，免得忘了开着倍速。
-/// 键上按下 = 打开字幕 / 音轨 / 画质面板（同画面上按下），返回 = 回到画面
-struct TVSpeedButton: View {
-    let controller: PlaybackController
-    var focus: FocusState<TVPlayerFocus?>.Binding
-    let down: () -> Void
-
-    var body: some View {
-        Menu {
-            Picker("倍速", selection: Binding(mcGet: { controller.rate }, set: { controller.selectRate($0) })) {
-                ForEach(PlaybackSpeed.all, id: \.self) { rate in
-                    Text(PlaybackSpeed.label(rate)).tag(rate)
-                }
-            }
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "gauge.with.dots.needle.67percent")
-                if controller.rate != 1 {
-                    Text(PlaybackSpeed.short(controller.rate)).monospacedDigit()
-                }
-            }
-            .font(.callout.weight(.semibold))
-        }
-        .buttonBorderShape(.capsule)
-        .focused(focus, equals: .speed)
-        .onMoveCommand { direction in
-            if direction == .down { down() }
-        }
-        .accessibilityLabel("倍速：\(PlaybackSpeed.label(controller.rate))")
-        .accessibilityIdentifier("tv-player-speed")
-    }
-}
