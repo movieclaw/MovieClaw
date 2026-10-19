@@ -27,7 +27,9 @@ class LibraryFileReplica(TimestampMixin, table=True):
     最多一个副本（唯一约束），表结构不限制以后多副本。
 
     不设到 ``library_file`` 的级联外键：删台账行之前必须先处理副本（删云端或明确放弃），
-    否则云端文件就成了孤儿（cloud-storage.md §10）。
+    否则云端文件就成了孤儿（cloud-storage.md §10）。但副本记录随台账行一起删（迁移里的
+    触发器 ``library_file_drop_replica``，级联删的行也算）：``library_file.id`` 会被
+    SQLite 复用，留下的记录会挂到不相干的新文件上（#909）。
     """
 
     __tablename__ = "library_file_replica"

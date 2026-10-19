@@ -843,3 +843,110 @@ def test_transferring_a_cloud_item_moves_the_row_and_is_not_reimported(client, t
     # 原来的库重新列网盘目录：转移走的不再入一遍账
     call(client, scan_library, library_id)
     assert "f-opp" not in ledger(client, library_id)
+
+
+def test_recreating_a_deleted_cloud_library_does_not_inherit_old_replicas(client, tmp_path):
+    """#909：删库只级联删了台账行，副本记录留下；SQLite 复用 id 后挂到了新库的不相干文件上。"""
+    view = _create_library(client, tmp_path)
+    old_ids = {row["id"] for row in ledger(client, view["id"]).values()}
+    assert client.delete(f"/api/v1/libraries/{view['id']}").status_code == 200
+
+    def edit(data):
+        data["trees"]["d-tv"] = {
+            "files": [
+                _file("f-inception", "盗梦空间 (2010)/Inception.2010.mkv"),
+                _file("f-opp2", "奥本海默 (2023)/Oppenheimer.2023.2160p.mkv"),
+                _file("f-dune2", "沙丘2 (2024)/Dune.Part.Two.2024.1080p.mkv"),
+            ],
+            "dir_ids": [],
+        }
+
+    _edit_state(client, edit)
+    staging = tmp_path / "staging2"
+    staging.mkdir()
+    created = client.post(
+        "/api/v1/libraries",
+        json={
+            "name": "电影2",
+            "kind": "movie",
+            "root_paths": [str(staging)],
+            "cloud_folders": [
+                {
+                    "account_id": client.account_id,  # type: ignore[attr-defined]
+                    "remote_dir_id": "d-tv",
+                    "display_path": "影视/剧集",
+                    "is_primary": True,
+                }
+            ],
+        },
+    )
+    assert created.status_code == 200, created.text
+    view = _wait_idle(client, created.json()["data"]["id"])
+    # 建库时的首轮纳管就要入账成功（再扫一轮会把错挂的副本改对，掩盖问题）
+    assert view["last_scan"]["errors"] == [], view["last_scan"]
+
+    rows = ledger(client, view["id"])
+    # 新库的行确实复用了旧 id（不复用就测不到这个问题）
+    assert {row["id"] for row in rows.values()} & old_ids
+    assert set(rows) == {"f-inception", "f-opp2", "f-dune2"}
+    for remote_id, row in rows.items():
+        assert row["replica_state"] == "verified", (remote_id, row)
+        assert row["remote_path"].startswith("影视/剧集/"), (remote_id, row)
+        assert Path(row["path"]).name == row["remote_path"].rsplit("/", 1)[-1]
+
+
+async def _scan_job_payloads() -> tuple[dict, dict, list[int]]:
+    """最近一个扫描任务：(结论, 进度, 各条任务事件的 JSON 大小)。"""
+    from sqlmodel import select
+
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models.job import Job, JobEvent
+
+    async with get_database().session() as session:
+        job = (
+            (
+                await session.execute(
+                    select(Job)
+                    .where(Job.job_type == "library.scan")
+                    .order_by(Job.created_at.desc())  # type: ignore[attr-defined]
+                )
+            )
+            .scalars()
+            .first()
+        )
+        assert job is not None
+        events = (
+            (await session.execute(select(JobEvent).where(JobEvent.job_id == job.id)))
+            .scalars()
+            .all()
+        )
+        return job.result or {}, job.progress or {}, [len(json.dumps(e.payload)) for e in events]
+
+
+def test_mass_import_failures_keep_job_records_small(client, tmp_path, request, monkeypatch):
+    """#909：每个文件都入账失败时，进度事件不能每次带上全部报错（单条曾 6 MB、一个任务 11 GB）。"""
+    import movieclaw_api.services.library.cloud as cloud_mod
+
+    if request.node.callspec.params["client"] != "inline":
+        pytest.skip("只看任务记录体积，与插件跑在哪个进程无关")
+
+    def edit(data):
+        data["trees"]["d-movies"]["files"] = [
+            _file(f"f-x{n}", f"杂项/clip_{n:04d}.mkv", 10_000_000 + n) for n in range(1, 301)
+        ]
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("UNIQUE constraint failed " + "x" * 5000)
+
+    _edit_state(client, edit)
+    monkeypatch.setattr(cloud_mod, "record", broken)
+    view = _create_library(client, tmp_path)
+
+    errors = view["last_scan"]["errors"]
+    assert len(errors) == 51 and errors[-1] == "另有 250 个问题，详见后端日志"
+    assert all(len(e) <= 301 for e in errors)
+    result, progress, event_sizes = call(client, _scan_job_payloads)
+    assert len(result["errors"]) == 51
+    # 进度里只有条数（任务中心显示「N 个问题」照样能数）
+    assert isinstance(progress["details"]["errors"], int)
+    assert event_sizes and max(event_sizes) < 40_000, max(event_sizes)

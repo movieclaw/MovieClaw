@@ -511,9 +511,22 @@ async def emit_files_added(
     await events.publish_now(LIBRARY_FILES_ADDED, build)
 
 
+#: 扫描结论里最多留几条问题、每条最多多少字（全文在后端日志里）。上千个文件都出错时
+#: 全量列表能到几 MB（每条带完整 SQL），任务列表每次都要读它（#909）
+_PAYLOAD_ERRORS = 50
+_PAYLOAD_ERROR_CHARS = 300
+
+
 def scan_summary_payload(summary: ScanSummary) -> dict[str, object]:
     """生成可持久化的扫描结论；内部调度字段不进入 Job JSON。"""
     payload = asdict(summary)
+    errors = [
+        e if len(e) <= _PAYLOAD_ERROR_CHARS else f"{e[:_PAYLOAD_ERROR_CHARS]}…"
+        for e in summary.errors[:_PAYLOAD_ERRORS]
+    ]
+    if len(summary.errors) > _PAYLOAD_ERRORS:
+        errors.append(f"另有 {len(summary.errors) - _PAYLOAD_ERRORS} 个问题，详见后端日志")
+    payload["errors"] = errors
     payload.pop("recheck_delay_seconds", None)
     payload.pop("deferred_scopes", None)
     payload.pop("awaiting_downloader", None)
@@ -619,7 +632,8 @@ class _ScanJobBridge:
                 percent=percent,
                 phase_index=phase_order.get(state.phase),
                 phase_count=4,
-                details=scan_summary_payload(summary),
+                # 进度每秒写好几次、每次一条任务事件：问题只带条数，列表留给最终结论（#909）
+                details={**scan_summary_payload(summary), "errors": len(summary.errors)},
             )
             self._last_phase = state.phase
             self._last_processed = state.processed

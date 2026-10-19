@@ -650,6 +650,8 @@ def _job_last_scan_view(job: Job) -> LastScanView | None:
         payload = progress.get("details") if isinstance(progress.get("details"), dict) else {}
     else:
         return None
+    # 取消检查点（进度）里只有问题条数，没有列表
+    errors = payload.get("errors")
     return LastScanView(
         finished_at=job.finished_at,
         scanned=int(payload.get("scanned") or 0),
@@ -663,7 +665,7 @@ def _job_last_scan_view(job: Job) -> LastScanView | None:
         deferred=int(payload.get("deferred") or 0),
         retried=int(payload.get("retried") or 0),
         cancelled=job.status is JobStatus.CANCELLED or bool(payload.get("cancelled")),
-        errors=list(payload.get("errors") or []),
+        errors=errors if isinstance(errors, list) else [],
     )
 
 

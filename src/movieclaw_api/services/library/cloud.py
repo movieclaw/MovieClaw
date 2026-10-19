@@ -222,8 +222,6 @@ async def finish(
     扫描中途停止的不判缺失（没处理完不等于没有），只更新报告。
     """
     repo = LibraryCloudRepository(session)
-    # 台账行被别处删掉（清理缺失记录、删条目）留下的副本记录：纳管来的只是记账，直接清掉
-    await repo.drop_orphan_replicas()
     files = LibraryFileRepository(session)
     now = utcnow()
     marked = 0

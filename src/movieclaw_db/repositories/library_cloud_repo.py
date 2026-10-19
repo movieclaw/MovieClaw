@@ -212,24 +212,6 @@ class LibraryCloudRepository:
         replica.updated_at = at
         self._session.add(replica)
 
-    async def drop_orphan_replicas(self) -> int:
-        """台账行已经不在了的副本记录：纳管来的（只是记账），以及网盘上本来就没有的（丢了、没传成）。
-
-        我们上传、已核验的留着——它们本该经删除流程处理，留下记录方便查。
-        """
-        result = await self._session.execute(
-            delete(LibraryFileReplica).where(
-                or_(
-                    LibraryFileReplica.origin == REPLICA_ORIGIN_IMPORTED,  # type: ignore[arg-type]
-                    LibraryFileReplica.state.in_(  # type: ignore[attr-defined]
-                        (REPLICA_LOST, REPLICA_FAILED, REPLICA_UPLOADING)
-                    ),
-                ),
-                LibraryFileReplica.library_file_id.not_in(select(LibraryFile.id)),  # type: ignore[attr-defined]
-            )
-        )
-        return result.rowcount or 0
-
     # -- 上传 --------------------------------------------------------------
 
     async def primary_folders(self) -> list[LibraryCloudFolder]:
