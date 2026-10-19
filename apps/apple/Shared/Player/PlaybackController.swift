@@ -635,12 +635,12 @@ final class PlaybackController {
     }
 
     /// 点「跳过」：直接跳到这一段结束处。片头是这部剧第一次手动跳，就记下来、以后自动跳（§5），
-    /// 同时给「本剧以后自动跳过片头 · 不用」
+    /// 同时给「本剧以后自动跳过片头 · 不用」；服务端记不住（旧版本）就不学、不给这句话
     func skipCurrentSegment() {
         noteUserActivity()
         guard let segment = skipSegment else { return }
         seek(toFileMs: segment.endMs, source: .button)
-        if Self.autoSkipSupported, segment.type == "intro", autoSkipEnabled, !introAutoSkip, !scope.isShare {
+        if Self.autoSkipSupported, segment.type == "intro", autoSkipEnabled, canLearnIntro, !introAutoSkip, !scope.isShare {
             setIntroAutoSkip(true)
             skipNotice = SkipNotice(kind: .learned)
         }
@@ -673,14 +673,16 @@ final class PlaybackController {
     }
 
     private(set) var skipNotice: SkipNotice?
-    /// 自动跳过总开关（跟账号走，随会话下发；旧服务端没有就按默认开）
+    /// 自动跳过总开关（跟账号走，随会话下发；旧服务端没有就按默认开）。播放器里不给开关：
+    /// 片头靠记忆、跳了能撤回，用不着再关
     private(set) var autoSkipEnabled = true
     /// 这部剧的片头自动跳
     private(set) var introAutoSkip = false
+    /// 服务端能不能记住片头选择：会话带回了 `auto_skip` 才能；旧服务端没有，学了下一集也带不回来
+    private var canLearnIntro = false
     /// 本集已经决定过的段（按起点记）：自然播进去自动跳一次；用户拖进去、跳回去、撤回过的只给按钮
     private var skipHandled: Set<Int> = []
-    /// 本次播放里改过的设定：保存请求还没落库时下一集的会话可能带回旧值，以这里为准
-    private var autoSkipEnabledOverride: Bool?
+    /// 本次播放里改过的片头选择：保存请求还没落库时下一集的会话可能带回旧值，以这里为准
     private var introAutoSkipOverride: Bool?
 
     /// 进度推进时调用：自然播进了区间、这一段还没决定过，就按 `SkipSegments.autoSkips` 跳或只给按钮
@@ -724,15 +726,6 @@ final class PlaybackController {
         if skipNotice?.id == id { skipNotice = nil }
     }
 
-    /// ⋯ 菜单里的总开关
-    func setAutoSkipEnabled(_ enabled: Bool) {
-        noteUserActivity()
-        autoSkipEnabled = enabled
-        autoSkipEnabledOverride = enabled
-        let api = scope.api
-        Task { try? await api.playbackAutoSkipSet(body: API.PlaybackAutoSkipRequest(enabled: enabled)) }
-    }
-
     private func setIntroAutoSkip(_ enabled: Bool) {
         introAutoSkip = enabled
         introAutoSkipOverride = enabled
@@ -742,8 +735,9 @@ final class PlaybackController {
 
     /// 新会话带回的设定；本次播放里改过的片头选择优先
     private func applyAutoSkip(_ view: API.PlaybackAutoSkipView?) {
+        canLearnIntro = view != nil
         guard let view else { return }
-        autoSkipEnabled = autoSkipEnabledOverride ?? view.enabled
+        autoSkipEnabled = view.enabled
         introAutoSkip = introAutoSkipOverride ?? view.intro
     }
 

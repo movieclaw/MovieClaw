@@ -230,13 +230,6 @@ struct PlayerSettingsMenu: View {
                     Text(PlaybackSpeed.label(controller.rate))
                 }
                 Section {
-                    // 自动跳过总开关（docs/design/skip-intro.md §5），跟账号走；访客没有账号，不给
-                    if PlaybackController.autoSkipSupported, controller.scope.shareSlug == nil {
-                        Toggle(isOn: Binding(mcGet: { controller.autoSkipEnabled }, set: { controller.setAutoSkipEnabled($0) })) {
-                            Label("自动跳过", systemImage: "forward.end")
-                            Text("自动跳广告，片头按记忆跳过")
-                        }
-                    }
                     Toggle(isOn: Binding(mcGet: { controller.diagnosticsOpen }, set: { controller.diagnosticsOpen = $0 })) {
                         Label("播放诊断", systemImage: "waveform.path.ecg")
                     }
