@@ -368,7 +368,9 @@ def test_api_script_shows_address_params_and_typed_fields(tmp_path) -> None:
     assert shown.returncode == 0, shown.stdout + shown.stderr
     assert "GET /api/v1/downloaders/tasks" in shown.stdout
     assert "progress: number" in shown.stdout and "state: downloading" in shown.stdout
+    assert "权限：仅管理员" in shown.stdout  # 下载器整组只给管理员（路由组上的依赖）
     items = _run("api.py", "library.items.list", cwd=tmp_path)
     assert "query 参数 res" in items.stdout and "path 参数 library_id" in items.stdout
+    assert "权限：登录即可" in items.stdout
     missing = _run("api.py", "no.such.op", cwd=tmp_path)
     assert missing.returncode == 1 and "mclaw" in missing.stdout

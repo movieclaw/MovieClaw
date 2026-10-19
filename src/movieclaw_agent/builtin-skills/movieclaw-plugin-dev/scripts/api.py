@@ -24,7 +24,19 @@ def _resolve(spec: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
     return schema
 
 
-def _response_schema(operation_id: str) -> dict[str, Any] | None:
+def _admin_only(effective: Any) -> bool:
+    """路由（含所在路由组，取生效后的依赖）挂了管理员依赖：成员调用一律 403。"""
+    from movieclaw_api.api.deps import require_admin, require_admin_session
+
+    def walk(dependant: Any) -> bool:
+        return any(
+            d.call in (require_admin, require_admin_session) or walk(d) for d in dependant.dependencies
+        )
+
+    return walk(effective.dependant)
+
+
+def _response_schema(operation_id: str) -> tuple[dict[str, Any] | None, bool]:
     """接口返回的 data 的结构：在进程里读路由表，和 iOS 生成器（apps/apple/scripts/gen_api.py）一个办法。
 
     用「校验」模式出 schema：本项目的模型在序列化模式下类型会丢（导出的 OpenAPI 因此也缺类型）。
@@ -38,14 +50,17 @@ def _response_schema(operation_id: str) -> dict[str, Any] | None:
     from movieclaw_api.app import create_app
     from movieclaw_api.schemas.response import ApiResponse
 
-    for route, _ctx in _iter_routes_with_context(create_app().routes):
-        if isinstance(route, APIRoute) and route.operation_id == operation_id and route.response_model:
+    for route, effective in _iter_routes_with_context(create_app().routes):
+        if isinstance(route, APIRoute) and route.operation_id == operation_id:
+            admin = _admin_only(effective)
             model = route.response_model
+            if model is None:
+                return None, admin
             meta = getattr(model, "__pydantic_generic_metadata__", None) or {}
             if meta.get("origin") is ApiResponse and meta.get("args"):
-                return TypeAdapter(meta["args"][0]).json_schema(mode="validation")
-            return TypeAdapter(model).json_schema(mode="validation")
-    return None
+                return TypeAdapter(meta["args"][0]).json_schema(mode="validation"), admin
+            return TypeAdapter(model).json_schema(mode="validation"), admin
+    return None, False
 
 
 def _type(spec: dict[str, Any], schema: dict[str, Any]) -> str:
@@ -111,7 +126,12 @@ def main(argv: list[str]) -> int:
             if body:
                 print("请求体（JSON）：")
                 _fields(spec, body["schema"], 1, 1)
-            data = _response_schema(wanted)
+            data, admin = _response_schema(wanted)
+            print(
+                "权限：仅管理员（成员打开页面时调它会 403）"
+                if admin
+                else "权限：登录即可；成员还要看能力开关（订阅要「允许订阅」、搜索要「允许搜索」），不满足时 403"
+            )
             if data:
                 print("返回（外层是 {success, code, message, data}，下面是 data）：")
                 print(f"  data: {_type(data, data)}")

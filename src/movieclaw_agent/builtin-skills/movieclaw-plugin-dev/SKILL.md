@@ -124,7 +124,8 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
    （多加几个关键词、多记几个字段），作为建议提出来，用户同意再加。
 2. **查契约**：`python <本技能>/scripts/contracts.py` 列出全部开放契约；`python <本技能>/scripts/contracts.py <名字>`
    看某个事件 / 钩子的载荷与返回结构。只能用列出来的契约。要调用的宿主操作用 `mclaw <域> --help` 找，
-   操作 id 与命令一一对应（`mclaw subscriptions create` ↔ `subscriptions.create`）。
+   操作 id 与命令一一对应（`mclaw subscriptions create` ↔ `subscriptions.create`）；它的参数、返回字段、
+   要不要管理员，用 `python <本技能>/scripts/api.py <操作 id>` 查（`ops.call` 的参数、网页里 `fetch` 的地址都看它）。
 3. **生成骨架**：
    `python <本技能>/scripts/new_plugin.py plugins/<id> --id <id> --title "<中文标题>"`
    生成清单与入口模块，再按需求改。只带网页的插件加 `--web`（生成清单与 `web/`，没有 Python 代码，见 `references/web-pages.md`）。
@@ -247,4 +248,4 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 | `references/explaining-to-users.md` | 给用户解释插件、权限、安全、卸载的标准说法 |
 | `references/troubleshooting.md` | 按报错查原因 |
 | `references/examples/` | 6 个经过测试的真实插件（先读 README） |
-| `templates/starter/`、`scripts/` | 骨架；生成骨架、查契约、安装前检查的脚本 |
+| `templates/starter/`、`templates/web/`、`scripts/` | 骨架；生成骨架、查契约、查接口（`api.py`）、安装前检查的脚本 |
