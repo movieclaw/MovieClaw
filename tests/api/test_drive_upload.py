@@ -394,9 +394,13 @@ def test_new_local_files_upload_rapid_or_in_parts_and_verify(client, tmp_path):
     # 秒传：回答了区间校验，没有传分片；真传：按 64 KB 一片传了 4 片
     assert ["begin", "海边.mp4", True, True] in state["calls"]
     assert sorted(i for u, i in state["parts"]) == [0, 1, 2, 3]
-    # 库行：任务跑完不再显示上传进度；文件区标「本地 + 假网盘」
-    view = client.get(f"/api/v1/libraries/{library_id}").json()["data"]
-    assert view["cloud_upload"] is None
+
+    # 库行：任务跑完不再显示上传进度（副本核验后任务还要再查一轮候选才收尾）
+    def finished():
+        data = client.get(f"/api/v1/libraries/{library_id}").json()["data"]
+        return data if data["cloud_upload"] is None else None
+
+    view = _wait(finished)
     assert view["cloud_folders"][0]["is_primary"] is True
 
 
