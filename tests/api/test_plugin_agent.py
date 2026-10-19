@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 import threading
 import time
 
@@ -196,6 +197,12 @@ def bridge(request, tmp_path, monkeypatch):
         get_settings.cache_clear()
         reset_agent_session_store()
         reset_agent_attachment_store()
+        # 进程内运行的那组参数把本地插件模块导进了主进程：清掉，免得同一进程里后面的用例
+        # （如「插件代码只在子进程里导入」）看见它们
+        from movieclaw_api.plugins.local import PACKAGE
+
+        for name in [m for m in sys.modules if m == PACKAGE or m.startswith(PACKAGE + ".")]:
+            del sys.modules[name]
 
 
 def url(path: str, entry: str = ENTRY) -> str:
