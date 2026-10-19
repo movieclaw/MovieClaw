@@ -1007,7 +1007,7 @@ async def _requested_file_ids(session: AsyncSession, payload: PlaybackSessionReq
     "/auto-skip",
     response_model=ApiResponse[None],
     summary="自动跳过总开关（关了片头、广告都只给按钮）",
-    operation_id="playback.auto_skip.set",
+    operation_id="playback.auto-skip.set",
     openapi_extra={"x-cli-hidden": True},
 )
 async def set_auto_skip(
@@ -1024,7 +1024,7 @@ async def set_auto_skip(
     "/auto-skip/intro/{media_item_id}",
     response_model=ApiResponse[None],
     summary="这部剧的片头自动跳 / 不再自动跳",
-    operation_id="playback.auto_skip.intro.set",
+    operation_id="playback.auto-skip.intro.set",
     openapi_extra={"x-cli-hidden": True},
 )
 async def set_auto_skip_intro(

@@ -114,6 +114,9 @@ var knownNonGenerated = []string{
 	"playback.metric.report",
 	// 清观看记录是 Web 个人数据入口（destructive，见 library-access.md 2.6），不进命令树
 	"playback.history.clear",
+	// 自动跳过的个人偏好（skip-intro.md §5）：播放器在用户跳过 / 撤回时写，不进命令树
+	"playback.auto-skip.set",
+	"playback.auto-skip.intro.set",
 	// 待处理事项 → Agent 诊断工单：Web 活动页专用，命令行用户直接开会话即可
 	"session.handoff.prompt",
 	"playback.client-log",
