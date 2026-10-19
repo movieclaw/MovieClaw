@@ -545,6 +545,7 @@ _MEMBER_ALLOWLIST = {
     # 插件网页（docs/design/plugin-web-pages.md）：列表与托管只给管理员同意过「成员也能看到」
     # 的页面，其余对成员一律当作不存在（404）
     ("GET", "/api/v1/ui/apps"),
+    ("POST", "/api/v1/ui/apps/{entry_id}/errors"),
     ("GET", "/api/v1/plugins/{entry_id}/web"),
     ("GET", "/api/v1/plugins/{entry_id}/web/{path}"),
     # 发现页 / 详情 / 演职员 / 图片：纯浏览面

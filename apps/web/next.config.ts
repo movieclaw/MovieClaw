@@ -26,6 +26,10 @@ const nextConfig: NextConfig = {
     : {}),
   reactStrictMode: true,
   typedRoutes: true,
+  // 结尾斜杠的规范化改由 middleware.ts 做：插件网页的根地址（/api/v1/plugins/<id>/web/）
+  // 必须带着斜杠转给后端，页面里的相对地址才按 web/ 解析（docs/design/plugin-web-pages.md §3）。
+  // Next 内置的规范化不认例外，开着它会 308 去掉斜杠、后端再补回来，转成死循环。
+  skipTrailingSlashRedirect: true,
   // 关闭左下角 Next.js 开发指示器（dev tools 浮动按钮）
   devIndicators: false,
   async headers() {
@@ -130,6 +134,11 @@ const nextConfig: NextConfig = {
     }
 
     return [
+      // 插件网页的根地址带着结尾斜杠转过去（`:path*` 会把它吞掉），见 skipTrailingSlashRedirect
+      {
+        source: `${apiBaseUrl}/plugins/:id/web/`,
+        destination: `${proxyTarget}${apiBaseUrl}/plugins/:id/web/`,
+      },
       {
         source: `${apiBaseUrl}/:path*`,
         destination: `${proxyTarget}${apiBaseUrl}/:path*`,

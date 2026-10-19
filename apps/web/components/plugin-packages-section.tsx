@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Banner, ErrorBanner, StatusPill } from "@/components/cloud-push-ui";
 import { useConfirm, useToast } from "@/components/feedback";
+import { PluginAppIcon } from "@/components/plugin-app-icon";
+import { PluginWebPagesSection, WEB_PAGE_RISK } from "@/components/plugin-web-pages-section";
 import {
   SETTINGS_BUTTON_CLASS,
   SETTINGS_DANGER_BUTTON_CLASS,
@@ -26,7 +28,10 @@ import {
   type PackageDependencies,
   type PackageRequest,
   type PluginInfo,
+  type WebConsent,
 } from "@/lib/api/plugins";
+import { appHref } from "@/lib/plugin-apps";
+import { usePluginApps } from "@/lib/plugin-apps-context";
 import {
   isNewGrant,
   localPluginRuntimes,
@@ -57,6 +62,9 @@ export function PluginPackagesSection({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState<PackageRequest | null>(null);
+  // 装卸之后「插件网页」小节与侧边栏都要跟着刷新
+  const [webVersion, setWebVersion] = useState(0);
+  const { refresh: refreshApps } = usePluginApps();
   const fileInput = useRef<HTMLInputElement>(null);
   const confirm = useConfirm();
   const toast = useToast();
@@ -74,7 +82,9 @@ export function PluginPackagesSection({
   const refresh = useCallback(() => {
     reload();
     onChanged();
-  }, [reload, onChanged]);
+    setWebVersion((v) => v + 1);
+    refreshApps();
+  }, [reload, onChanged, refreshApps]);
   useEffect(() => {
     reload();
   }, [reload]);
@@ -118,9 +128,14 @@ export function PluginPackagesSection({
     });
   };
 
-  const approve = (item: PackageRequest, allowInline: boolean, allowMembers: boolean) =>
+  const approve = (
+    item: PackageRequest,
+    allowInline: boolean,
+    allowMembers: boolean,
+    web: WebConsent | null,
+  ) =>
     run(async () => {
-      const result = await approvePackage(item, allowInline, allowMembers);
+      const result = await approvePackage(item, allowInline, allowMembers, web);
       setReviewing(null);
       if (result.status === "active") {
         toast.success(`「${item.title}」v${item.version} 已安装并运行`);
@@ -294,6 +309,8 @@ export function PluginPackagesSection({
         </div>
       </SettingsSection>
 
+      <PluginWebPagesSection reloadKey={webVersion} />
+
       {locals.length > 0 && (
         <SettingsSection
           title="本地插件"
@@ -318,10 +335,11 @@ export function PluginPackagesSection({
 
       <ReviewDrawer
         item={reviewing}
+        currentWeb={installed?.find((p) => p.id === reviewing?.id)?.web ?? null}
         busy={busy}
         onClose={() => setReviewing(null)}
-        onApprove={(item, allowInline, allowMembers) =>
-          void approve(item, allowInline, allowMembers)
+        onApprove={(item, allowInline, allowMembers, web) =>
+          void approve(item, allowInline, allowMembers, web)
         }
         onDiscard={(item) =>
           void run(async () => {
@@ -354,25 +372,43 @@ function LocalRuntimeNote({ locals }: { locals: PluginInfo[] }) {
 /** 批准抽屉：逐项列出它要什么，升级时新增的申请高亮；申请主进程运行须单独勾选。 */
 function ReviewDrawer({
   item,
+  currentWeb,
   busy,
   onClose,
   onApprove,
   onDiscard,
 }: {
   item: PackageRequest | null;
+  /** 升级时当前版本对网页的同意：两个勾选沿用它 */
+  currentWeb: WebConsent | null;
   busy: boolean;
   onClose: () => void;
-  onApprove: (item: PackageRequest, allowInline: boolean, allowMembers: boolean) => void;
+  onApprove: (
+    item: PackageRequest,
+    allowInline: boolean,
+    allowMembers: boolean,
+    web: WebConsent | null,
+  ) => void;
   onDiscard: (item: PackageRequest) => void;
 }) {
   const [allowInline, setAllowInline] = useState(false);
   const [allowMembers, setAllowMembers] = useState(false);
+  // 带网页：须单独同意授信运行；加不加侧边栏、成员能不能看到由用户定（docs/design/plugin-web-pages.md §5）
+  const [allowWeb, setAllowWeb] = useState(false);
+  const [webNav, setWebNav] = useState(true);
+  const [webMembers, setWebMembers] = useState(false);
   useEffect(() => {
     setAllowInline(false);
     setAllowMembers(false);
+    // 授信每个版本都重新问；加不加侧边栏、成员能不能看到沿用当前版本的选择
+    setAllowWeb(false);
+    setWebNav(currentWeb?.nav ?? true);
+    setWebMembers(currentWeb?.members ?? false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在换了一个待批准的包时重置
   }, [item]);
   if (!item) return null;
   const inline = item.runtime === "inline";
+  const web = item.web ?? null;
   const notifiesMembers = item.notifies_members === true;
   const upgrade = item.installed_version !== null;
   const newBadge = (
@@ -409,8 +445,20 @@ function ReviewDrawer({
           </button>
           <button
             type="button"
-            disabled={busy || (inline && !allowInline) || (notifiesMembers && !allowMembers)}
-            onClick={() => onApprove(item, allowInline, allowMembers)}
+            disabled={
+              busy ||
+              (inline && !allowInline) ||
+              (notifiesMembers && !allowMembers) ||
+              (web !== null && !allowWeb)
+            }
+            onClick={() =>
+              onApprove(
+                item,
+                allowInline,
+                allowMembers,
+                web ? { nav: webNav, members: webMembers } : null,
+              )
+            }
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
             {busy ? (item.dependencies ? "正在下载安装依赖…" : "正在安装…") : "批准并安装"}
@@ -437,6 +485,53 @@ function ReviewDrawer({
             </label>
           )}
         </div>
+        {web && (
+          <div>
+            <dt className="mb-1.5 font-medium text-[var(--text)]">自带网页</dt>
+            <dd className="space-y-2">
+              <ul className="space-y-1.5">
+                {web.entries.map((entry) => (
+                  <li key={entry.path} className="flex items-center gap-2 text-[var(--text)]">
+                    <PluginAppIcon
+                      src={entry.icon}
+                      monochrome={entry.monochrome}
+                      className="size-[18px] text-[var(--text-muted)]"
+                    />
+                    {entry.label}
+                    <code className="text-caption text-[var(--text-faint)]">
+                      {appHref(item.id, entry.path)}
+                    </code>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[var(--danger)]">{WEB_PAGE_RISK}</p>
+              <label className="flex items-center gap-2 text-[var(--danger)]">
+                <input
+                  type="checkbox"
+                  checked={allowWeb}
+                  onChange={(event) => setAllowWeb(event.target.checked)}
+                />
+                我信任这个插件的网页
+              </label>
+              <label className="flex items-center gap-2 text-[var(--text-muted)]">
+                <input
+                  type="checkbox"
+                  checked={webNav}
+                  onChange={(event) => setWebNav(event.target.checked)}
+                />
+                加到侧边栏
+              </label>
+              <label className="flex items-center gap-2 text-[var(--text-muted)]">
+                <input
+                  type="checkbox"
+                  checked={webMembers}
+                  onChange={(event) => setWebMembers(event.target.checked)}
+                />
+                成员也能看到
+              </label>
+            </dd>
+          </div>
+        )}
         <div>
           <dt className="mb-1.5 font-medium text-[var(--text)]">能调用的操作</dt>
           <dd>

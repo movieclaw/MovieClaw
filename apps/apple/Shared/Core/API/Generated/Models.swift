@@ -253,6 +253,18 @@ nonisolated extension API {
         }
     }
 
+    struct AppErrorReport: Codable, Hashable, Sendable {
+        /// 报错信息（error.message）
+        var message: String
+        /// 出处与调用栈
+        var detail: String?
+
+        enum CodingKeys: String, CodingKey {
+            case message
+            case detail
+        }
+    }
+
     struct AppView: Codable, Hashable, Sendable {
         /// 插件 id；主程序地址是 /apps/<id>/
         var id: String

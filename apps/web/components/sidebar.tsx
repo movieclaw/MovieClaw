@@ -1,7 +1,9 @@
 "use client";
 
+import type { Route } from "next";
 import Image from "next/image";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode, type SVGProps } from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -26,6 +28,9 @@ import { UserMenu } from "@/components/user-menu";
 import { useAgentConversations } from "@/lib/agent-conversations";
 import { useBackdrop } from "@/lib/backdrop";
 import { sidebarGlass } from "@/lib/glass";
+import { pluginAppIconComponent } from "@/components/plugin-app-icon";
+import { activeAppNavId, appNavItems, withoutHidden } from "@/lib/plugin-apps";
+import { usePluginApps } from "@/lib/plugin-apps-context";
 import { applyNavOrder } from "@/lib/sidebar-nav";
 import { formatRelativeTime } from "@/lib/time";
 import { useUiPrefs } from "@/lib/ui-prefs";
@@ -68,7 +73,15 @@ export interface SidebarProps {
  *  的项按个人顺序在前，没排过的（包括版本升级新增的入口）按这里的次序追加在后
  *  （合并规则见 lib/sidebar-nav.ts）。设置页复用同一份清单渲染排序列表，
  *  两边的图标与文案不会各写一份。 */
-export const SIDEBAR_NAV_ITEMS = [
+export interface SidebarNavItem {
+  id: string;
+  label: string;
+  icon: ComponentType<SVGProps<SVGSVGElement>>;
+  /** 插件网页的项（docs/design/plugin-web-pages.md）：点了直接跳这个地址；内置项为空 */
+  href?: string;
+}
+
+export const SIDEBAR_NAV_ITEMS: SidebarNavItem[] = [
   { id: "new", label: "新会话", icon: PlusIcon },
   { id: "library", label: "媒体库", icon: LibraryStackIcon },
   { id: "subscriptions", label: "我的订阅", icon: BookmarkFillIcon },
@@ -85,18 +98,40 @@ const memberNavItems = SIDEBAR_NAV_ITEMS.filter((item) => item.id !== "new");
 /**
  * 当前用户实际可见的主导航项（未排序）。侧栏与设置页的排序列表必须用同一套
  * 可见性判定，否则会出现"设置页能排、侧栏没有"这种对不上的项。
+ *
+ * 插件网页的项（同意加到侧边栏的）追加在内置项后面，与内置项一起参与排序；
+ * 用户「移出侧边栏」的项仍在这里（设置页要能把它放回来），侧栏渲染时再滤掉。
  */
-export function useVisibleNavItems() {
+export function useVisibleNavItems(): SidebarNavItem[] {
   const { session } = useSession();
   const { isAdmin, canSubscribe } = usePermissions();
+  const { apps } = usePluginApps();
   const items = session.role === "member" ? memberNavItems : SIDEBAR_NAV_ITEMS;
-  return items.filter((item) => {
+  const builtin = items.filter((item) => {
     if (item.id === "subscriptions") return canSubscribe;
     // 活动页与任务数据都是管理员专属（JobCenter 自身也有这道判断，成员侧渲染为空），
     // 这里必须同样挡掉，否则设置页会列出一条侧栏根本没有的可排序项
     if (item.id === "tasks") return isAdmin;
     return true;
   });
+  const fromApps = appNavItems(apps ?? []).map((item) => ({
+    id: item.id,
+    label: item.label,
+    href: item.href,
+    icon: pluginAppIconComponent(item.icon, item.monochrome),
+  }));
+  return [...builtin, ...fromApps];
+}
+
+/**
+ * 插件网页的导航项，按个人排序、去掉移出的：给没有侧边栏的地方用（手机的「我的」页）。
+ */
+export function usePluginNavItems(): SidebarNavItem[] {
+  const { prefs } = useUiPrefs();
+  const items = useVisibleNavItems();
+  return withoutHidden(applyNavOrder(items, prefs.nav.order), prefs.nav.hidden).filter(
+    (item) => item.href,
+  );
 }
 
 export function Sidebar({
@@ -125,7 +160,12 @@ export function Sidebar({
   const isMember = session.role === "member";
   // 个人排序：prefs 已含设置页的未保存草稿，因此在设置页拖动时这里即时跟随
   const visibleNavItems = useVisibleNavItems();
-  const navItems = applyNavOrder(visibleNavItems, prefs.nav.order);
+  const navItems = withoutHidden(applyNavOrder(visibleNavItems, prefs.nav.order), prefs.nav.hidden);
+  // 插件网页的地址外壳不认识（navIdFromPath 只认内置路由），高亮在这里按最长前缀补上
+  const router = useRouter();
+  const pathname = usePathname();
+  const { apps } = usePluginApps();
+  const currentNav = activeAppNavId(pathname, apps ?? []) ?? activeNav;
   const body = (
     <>
       {/* 品牌头部。展开：完整字标 + 开合/搜索图标横排；折叠：独立徽标、开合、搜索竖排居中。
@@ -186,7 +226,7 @@ export function Sidebar({
             // 所以位置由这里的 map 决定，而不再被钉在主导航末尾
             if (item.id === "tasks") {
               return (
-                <JobCenter key={item.id} collapsed={collapsed} active={activeNav === "tasks"} />
+                <JobCenter key={item.id} collapsed={collapsed} active={currentNav === "tasks"} />
               );
             }
             const Icon = item.icon;
@@ -194,8 +234,8 @@ export function Sidebar({
               <button
                 key={item.id}
                 type="button"
-                data-active={activeNav === item.id}
-                onClick={() => onSelect(item.id)}
+                data-active={currentNav === item.id}
+                onClick={() => (item.href ? router.push(item.href as Route) : onSelect(item.id))}
                 title={collapsed ? item.label : undefined}
                 className={`glass-row nav-item py-2 max-md:py-2.5 ${collapsed ? "justify-center px-0" : "px-3"}`}
               >

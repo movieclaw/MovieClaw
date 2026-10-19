@@ -69,6 +69,8 @@ async def plugin_web_root(
 ) -> Response:
     _plugin(request, entry_id, principal)
     query = f"?{request.url.query}" if request.url.query else ""
+    # 经 Next 反代时结尾斜杠要原样转过来：见 next.config.ts 的 skipTrailingSlashRedirect
+    # 与专门的 rewrite
     return RedirectResponse(f"{plugin_web.base_path(entry_id)}{query}", status_code=308)
 
 

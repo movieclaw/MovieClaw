@@ -276,6 +276,70 @@ export interface PackageRequest {
   dependencies?: PackageDependencies | null;
   /** 批准后正在安装依赖时的进度 */
   dependency_progress?: DependencyProgress | null;
+  /** 带网页：侧边栏入口预览（图标是内嵌的 SVG）；批准时须单独同意授信运行。旧服务端没有这个字段 */
+  web?: PendingWebPage | null;
+}
+
+/** 插件网页的一项侧边栏入口（与 lib/plugin-apps.ts 的 PluginAppEntry 同形） */
+export interface WebPageEntry {
+  label: string;
+  path: string;
+  icon: string | null;
+  monochrome: boolean;
+}
+
+export interface PendingWebPage {
+  id: string;
+  name: string;
+  base: string;
+  entries: WebPageEntry[];
+}
+
+/** 一个带网页的插件（插件包或本地插件），不论是否已同意 */
+export interface WebPage {
+  id: string;
+  name: string;
+  /** package：插件包；local：本地插件 */
+  source: string;
+  /** 已同意授信运行；没同意的不托管、不进侧边栏 */
+  approved: boolean;
+  nav: boolean;
+  members: boolean;
+  base: string;
+  entries: WebPageEntry[];
+}
+
+export interface WebConsent {
+  /** 加到侧边栏 */
+  nav: boolean;
+  /** 成员也能看到 */
+  members: boolean;
+}
+
+/** 带网页的插件；旧服务端没有这个接口时返回空列表 */
+export async function listWebPages(): Promise<WebPage[]> {
+  try {
+    return (await request<ApiEnvelope<WebPage[]>>("/app/plugins/pages")).data;
+  } catch {
+    return [];
+  }
+}
+
+/** 同意插件网页授信运行，或改它加不加侧边栏、成员能不能看到（只能由人在网页里操作） */
+export async function setWebConsent(id: string, consent: WebConsent): Promise<WebPage> {
+  return (
+    await request<ApiEnvelope<WebPage>>(`/app/plugins/${encodeURIComponent(id)}/web`, {
+      method: "PUT",
+      body: JSON.stringify(consent),
+    })
+  ).data;
+}
+
+/** 撤销插件网页的同意：不再托管、从侧边栏撤下 */
+export async function revokeWebConsent(id: string): Promise<void> {
+  await request<ApiEnvelope<null>>(`/app/plugins/${encodeURIComponent(id)}/web`, {
+    method: "DELETE",
+  });
 }
 
 export interface InstalledPackage {
@@ -299,6 +363,8 @@ export interface InstalledPackage {
   replaces_builtin?: boolean;
   /** 批准安装的第三方依赖；progress 在安装中或安装失败时才有 */
   dependencies?: { packages: string[]; progress: DependencyProgress | null } | null;
+  /** 插件网页的同意；不带网页、没同意或旧服务端为空 */
+  web?: WebConsent | null;
 }
 
 export interface PackagesOverview {
@@ -330,11 +396,13 @@ export async function uploadPackage(file: File): Promise<PackageRequest> {
 }
 
 /** 批准：宿主操作与路径须与插件申请的完全一致（显式同意），进程内运行须 allowInline，
- * 会给普通成员发通知的须 allowMemberNotifications；批准页列出了依赖，批准即同意那一份锁文件 */
+ * 会给普通成员发通知的须 allowMemberNotifications，带网页的须给 web（同意授信运行）；
+ * 批准页列出了依赖，批准即同意那一份锁文件 */
 export async function approvePackage(
   pending: PackageRequest,
   allowInline: boolean,
   allowMemberNotifications = false,
+  web: WebConsent | null = null,
 ): Promise<PackageResult> {
   return (
     await request<ApiEnvelope<PackageResult>>(
@@ -348,6 +416,7 @@ export async function approvePackage(
           allow_inline: allowInline,
           allow_member_notifications: allowMemberNotifications,
           dependencies: pending.dependencies?.lock_digest ?? null,
+          ...(web ? { allow_web: true, web_nav: web.nav, web_members: web.members } : {}),
         }),
       },
     )

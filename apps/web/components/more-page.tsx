@@ -16,6 +16,7 @@ import {
   UsersIcon,
 } from "@/components/icons";
 import { NoticeCenter } from "@/components/notice-center";
+import { usePluginNavItems } from "@/components/sidebar";
 import { reloadAfterAccountChange } from "@/lib/account-reload";
 import { logout } from "@/lib/api/auth";
 import { useAgentConversations } from "@/lib/agent-conversations";
@@ -49,6 +50,8 @@ export function MorePage() {
   const { conversations, hasMore, loadingMore, loadMore } = useAgentConversations();
   const { forkConversation, renameConversation, removeConversation } = useConversationActions();
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  // 手机没有侧边栏：插件网页（docs/design/plugin-web-pages.md）的入口放在这里
+  const pluginItems = usePluginNavItems();
 
   // 手机顶栏标题「我的」（同 App：这一页是正文字号的行内标题，不是大字标题）
   const setTopBarTitle = usePageChrome()?.setTopBarTitle;
@@ -115,6 +118,19 @@ export function MorePage() {
           <MoreRow Icon={GearIcon} label="设置" onClick={() => router.push("/settings" as Route)} />
           <AppUpdateEntry collapsed={false} onOpen={() => router.push("/settings/app" as Route)} />
         </MoreGroup>
+
+        {pluginItems.length > 0 && (
+          <MoreGroup label="插件页面">
+            {pluginItems.map((item) => (
+              <MoreRow
+                key={item.id}
+                Icon={item.icon}
+                label={item.label}
+                onClick={() => router.push(item.href as Route)}
+              />
+            ))}
+          </MoreGroup>
+        )}
 
         <MoreGroup label="账号">
           <MoreRow Icon={UsersIcon} label="切换账号" onClick={() => setSwitcherOpen(true)} />

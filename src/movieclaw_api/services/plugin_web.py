@@ -351,3 +351,25 @@ def resolve_file(root: Path, sub: str) -> Path | None:
     if not target.is_relative_to(base) or not target.is_file():
         return None
     return target
+
+
+# ---------------------------------------------------------------------- 报错
+#: 每个插件每分钟最多记这么多条页面报错：页面里写了死循环报错也不能刷爆日志
+ERRORS_PER_MINUTE = 20
+_error_window: dict[str, tuple[float, int]] = {}
+
+
+def log_page_error(entry_id: str, who: str, message: str, detail: str) -> bool:
+    """记一条插件页面的报错；超出频率上限的丢掉（每个窗口只提示一次）。返回是否记下。"""
+    now = time.monotonic()
+    start, count = _error_window.get(entry_id, (now, 0))
+    if now - start >= 60:
+        start, count = now, 0
+    count += 1
+    _error_window[entry_id] = (start, count)
+    if count > ERRORS_PER_MINUTE:
+        if count == ERRORS_PER_MINUTE + 1:
+            logger.warning("插件 %s 的页面报错太频繁，这一分钟里后面的不再记录", entry_id)
+        return False
+    logger.warning("插件 %s 的页面报错（%s 打开时）：%s\n%s", entry_id, who, message, detail)
+    return True

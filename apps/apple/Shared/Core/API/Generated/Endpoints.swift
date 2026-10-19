@@ -3091,6 +3091,12 @@ nonisolated extension APIClient {
         return try await send("GET", "/ui/apps")
     }
 
+    /// 插件页面里没接住的报错：写进系统日志（按插件 id 可查）
+    /// `POST /ui/apps/{entry_id}/errors`
+    func uiAppsErrorsReport(entryId: String, body: API.AppErrorReport) async throws -> Void {
+        let _: API.JSONValue? = try await send("POST", "/ui/apps/\(entryId)/errors", body: body)
+    }
+
     /// 发现页展示编排（分区引用与呈现方式）
     /// `GET /ui/discovery/{media_type}`
     func uiDiscoveryGet(mediaType: API.MediaKind, provider: API.MediaSource? = nil) async throws -> API.DiscoveryPageView {

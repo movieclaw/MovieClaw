@@ -17,10 +17,13 @@ import { clearBackdropCache } from "@/lib/backdrop-cache";
 import type { SearchScope } from "@/lib/categories";
 import { useAgentConversations } from "@/lib/agent-conversations";
 import { accessiblePathFor, usePermissions } from "@/lib/permissions";
+import { activeAppNavId, appNavItems, withoutHidden } from "@/lib/plugin-apps";
+import { usePluginApps } from "@/lib/plugin-apps-context";
 import { useSearchAccess } from "@/lib/search-access";
 import { useSession } from "@/lib/session";
 import { taskActivityBadge, useTaskActivity, type TaskActivityBadge } from "@/lib/task-activity";
 import { clearUiPrefsCache } from "@/lib/ui-prefs-cache";
+import { useUiPrefs } from "@/lib/ui-prefs";
 
 /**
  * Netflix 主题的桌面顶栏（≥768px，docs/design/web-themes.md §5.1）。
@@ -35,6 +38,7 @@ import { clearUiPrefsCache } from "@/lib/ui-prefs-cache";
  *   不破坏画面的入口）· 搜索（复用 SearchCommand 命令面板）· 通知铃 · 头像下拉。
  * - 侧栏的 nav.order 个人排序不作用于顶栏（记录在案的取舍）：顶栏链接是
  *   全局固定五项，权限过滤对齐侧栏的可见性判定（useVisibleNavItems 同口径）。
+ *   插件网页的项（docs/design/plugin-web-pages.md）追加在固定项后面，同样尊重「移出侧边栏」。
  */
 
 /** 顶栏导航链接的全局固定清单（权限过滤对齐侧栏可见性判定）。
@@ -66,7 +70,8 @@ export function NetflixTopNav({
   const { canSubscribe, isAdmin } = usePermissions();
   // 搜索入口按「任一搜索分区可用」露出（影视 / 资源 / 媒体库），不只看资源搜索开关
   const { canOpenSearch } = useSearchAccess();
-  const active = activeNavId(pathname);
+  const { apps } = usePluginApps();
+  const active = activeAppNavId(pathname, apps ?? []) ?? activeNavId(pathname);
 
   // 顶栏透明 → 实底的滚动判定：全站页面都是「外壳固定 + 内部容器滚动」，
   // window 本身不滚，用 capture 监听才能收到各页面滚动容器的事件。
@@ -111,7 +116,16 @@ export function NetflixTopNav({
     return () => window.clearTimeout(resume);
   }, [pathname]);
 
-  const visibleLinks = NAV_LINKS.filter((link) => link.id !== "subscriptions" || canSubscribe);
+  const { prefs } = useUiPrefs();
+  const appLinks = withoutHidden(appNavItems(apps ?? []), prefs.nav.hidden).map((item) => ({
+    id: item.id,
+    label: item.label,
+    href: item.href as Route,
+  }));
+  const visibleLinks = [
+    ...NAV_LINKS.filter((link) => link.id !== "subscriptions" || canSubscribe),
+    ...appLinks,
+  ];
 
   return (
     <header ref={rootRef} className="nf-topnav fixed inset-x-0 top-0 z-40">

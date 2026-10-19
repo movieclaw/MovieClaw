@@ -18,6 +18,7 @@ import {
 } from "@/components/icons";
 import { AppUpdateEntry } from "@/components/app-update-entry";
 import { NoticeCenter } from "@/components/notice-center";
+import { usePluginNavItems } from "@/components/sidebar";
 import { logout } from "@/lib/api/auth";
 import { clearBackdropCache } from "@/lib/backdrop-cache";
 import { useAgentConversations } from "@/lib/agent-conversations";
@@ -42,6 +43,8 @@ import { useThemeState } from "@/lib/ui-prefs";
  * 账号操作。行皮肤用 glass-row（Netflix 主题下自动换实色卡 + 4px 方角）。
  */
 export function NetflixMyPage() {
+  // 插件网页（docs/design/plugin-web-pages.md）的入口：顶栏放不下的手机端放在这里
+  const pluginItems = usePluginNavItems();
   const router = useRouter();
   // loading 期间**不做任何跳转判断**：首帧主题读的是 localStorage 缓存，冷缓存
   // 时它是 silver，直接 replace 会把 Netflix 用户从「我的」弹回媒体库
@@ -158,6 +161,19 @@ export function NetflixMyPage() {
         )}
 
         {/* 账号操作 */}
+        {pluginItems.length > 0 && (
+          <nav aria-label="插件页面" className="mt-6 space-y-0.5">
+            {pluginItems.map((item) => (
+              <MyRow
+                key={item.id}
+                Icon={item.icon}
+                label={item.label}
+                onClick={() => router.push(item.href as Route)}
+              />
+            ))}
+          </nav>
+        )}
+
         <nav aria-label="账号操作" className="mt-6 space-y-0.5">
           <MyRow Icon={UsersIcon} label="切换账号" onClick={() => setSwitcherOpen(true)} />
           <MyRow Icon={LogoutIcon} label="退出登录" danger onClick={() => void handleLogout()} />

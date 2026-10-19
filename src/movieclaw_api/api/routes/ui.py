@@ -117,3 +117,33 @@ async def list_apps(
     kernel = getattr(request.app.state, "kernel", None)
     apps = plugin_web.visible_apps(get_settings(), principal, kernel)
     return ok([AppView.model_validate(app) for app in apps])
+
+
+class AppErrorReport(BaseModel):
+    message: str = Field(max_length=500, description="报错信息（error.message）")
+    detail: str = Field(default="", max_length=4000, description="出处与调用栈")
+
+
+@router.post(
+    "/apps/{entry_id}/errors",
+    response_model=ApiResponse[None],
+    summary="插件页面里没接住的报错：写进系统日志（按插件 id 可查）",
+    operation_id="ui.apps.errors.report",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def report_app_error(
+    entry_id: str,
+    body: AppErrorReport,
+    request: Request,
+    principal: Principal = Depends(require_login),
+) -> ApiResponse[None]:
+    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.exceptions import NotFoundException
+    from movieclaw_api.services import plugin_web
+
+    found = plugin_web.find(get_settings(), entry_id)
+    kernel = getattr(request.app.state, "kernel", None)
+    if found is None or not plugin_web.visible_to(found, principal, kernel):
+        raise NotFoundException("没有这个插件页面")
+    plugin_web.log_page_error(entry_id, principal.name, body.message, body.detail)
+    return ok(None)

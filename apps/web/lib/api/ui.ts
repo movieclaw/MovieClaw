@@ -1,5 +1,6 @@
 import { request } from "@/lib/http";
 import type { HomeUiPrefs } from "@/lib/home-rows";
+import type { PluginApp } from "@/lib/plugin-apps";
 import { isValidThemeId, normalizeThemeId } from "@/lib/themes";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
@@ -43,6 +44,11 @@ export interface ScrimUiPrefs {
 export interface NavUiPrefs {
   /** 导航项 id 的展示顺序；空数组 = 用内置默认顺序 */
   order: string[];
+  /**
+   * 从侧栏移出的插件网页项（`app:<插件 id>:<序号>`，docs/design/plugin-web-pages.md §4.2）；
+   * 内置项不能移出。旧服务端没有这个字段，读成 null。
+   */
+  hidden?: string[] | null;
 }
 
 export interface UiPreferences {
@@ -101,7 +107,10 @@ export function normalizeUiPreferences(
     scrim: { ...DEFAULT_UI_PREFS.scrim, ...data?.scrim },
     // order 必须兜住非数组：老后端不认识这个分组时返回的是 undefined，
     // 消费者（applyNavOrder）拿到的必须永远是可迭代的数组
-    nav: { order: Array.isArray(data?.nav?.order) ? data.nav.order : [] },
+    nav: {
+      order: Array.isArray(data?.nav?.order) ? data.nav.order : [],
+      hidden: Array.isArray(data?.nav?.hidden) ? data.nav.hidden : null,
+    },
     home: { rows: Array.isArray(data?.home?.rows) ? data.home.rows : [] },
   };
 }
@@ -123,4 +132,29 @@ export async function updateUiPreferences(prefs: UiPreferences): Promise<UiPrefe
       }),
     ),
   );
+}
+
+// ---------------------------------------------------------------------------
+// 插件网页（docs/design/plugin-web-pages.md）
+// ---------------------------------------------------------------------------
+
+/** 当前用户可见的插件网页与它们的侧边栏入口；旧服务端没有这个接口时当作没有。 */
+export async function fetchPluginApps(): Promise<PluginApp[]> {
+  try {
+    return await unwrap(request<ApiEnvelope<PluginApp[]>>("/ui/apps"));
+  } catch {
+    return [];
+  }
+}
+
+/** 插件页面里没接住的报错：交给服务端写进系统日志（按插件 id 可查），失败不再管。 */
+export async function reportPluginAppError(appId: string, message: string, detail: string): Promise<void> {
+  try {
+    await request(`/ui/apps/${encodeURIComponent(appId)}/errors`, {
+      method: "POST",
+      body: JSON.stringify({ message, detail }),
+    });
+  } catch {
+    // 上报失败不影响页面
+  }
 }

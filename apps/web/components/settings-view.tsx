@@ -69,6 +69,7 @@ import { DEFAULT_UI_PREFS } from "@/lib/api/ui";
 import { HttpError } from "@/lib/http";
 import { normalizeThemeId, THEMES } from "@/lib/themes";
 import { useSession } from "@/lib/session";
+import { isAppNavId } from "@/lib/plugin-apps";
 import { applyNavOrder, mergeNavOrder, sameNavOrder } from "@/lib/sidebar-nav";
 import { settingsSectionGroupsFor, settingsSections } from "@/lib/mock-data";
 import { useActiveExtensionPoints } from "@/lib/use-extension-points";
@@ -1256,9 +1257,13 @@ function NavOrderGroup() {
     [itemsKey],
   );
   const [draft, setDraft] = useState(savedOrder);
+  // 移出侧边栏的插件网页项（内置项不能移出，docs/design/plugin-web-pages.md §4.2）
+  const savedHidden = useMemo(() => savedPrefs.nav.hidden ?? [], [savedPrefs.nav.hidden]);
+  const [hiddenDraft, setHiddenDraft] = useState<string[]>(savedHidden);
 
   // 已保存值变化（首次拉取完成 / 保存成功）时把草稿对齐到最新落库值
   useEffect(() => setDraft(savedOrder), [savedOrder]);
+  useEffect(() => setHiddenDraft(savedHidden), [savedHidden]);
   // 离开外观分区时撤销未保存的预览，侧栏顺序回到已保存状态
   useEffect(() => () => setPreview(null), [setPreview]);
 
@@ -1266,13 +1271,20 @@ function NavOrderGroup() {
   const rows = draft.map((id) => byId.get(id)).filter((item) => item != null);
 
   /** 顺序落到草稿并即时预览（未落库）。不可见项的 id 在这里一并保留。 */
-  const apply = (nextOrder: string[]) => {
+  const apply = (nextOrder: string[], nextHidden: string[] = hiddenDraft) => {
     setDraft(nextOrder);
+    setHiddenDraft(nextHidden);
     setPreview({
       ...savedPrefs,
-      nav: { order: mergeNavOrder(nextOrder, savedPrefs.nav.order) },
+      nav: { order: mergeNavOrder(nextOrder, savedPrefs.nav.order), hidden: nextHidden },
     });
   };
+
+  const toggleHidden = (id: string) =>
+    apply(
+      draft,
+      hiddenDraft.includes(id) ? hiddenDraft.filter((h) => h !== id) : [...hiddenDraft, id],
+    );
 
   const move = (from: number, to: number) => {
     if (to < 0 || to >= draft.length || from === to) return;
@@ -1288,7 +1300,7 @@ function NavOrderGroup() {
     try {
       await savePrefs({
         ...savedPrefs,
-        nav: { order: mergeNavOrder(nextOrder, savedPrefs.nav.order) },
+        nav: { order: mergeNavOrder(nextOrder, savedPrefs.nav.order), hidden: hiddenDraft },
       });
     } catch (err) {
       setError(err instanceof HttpError ? err.message : "保存失败，请稍后重试");
@@ -1301,29 +1313,33 @@ function NavOrderGroup() {
    *  调整、或新增导航入口时，没自定义过的人自动跟随新的默认排布。 */
   const reset = () => {
     setDraft(defaultOrder);
-    setPreview({ ...savedPrefs, nav: { order: [] } });
+    setHiddenDraft([]);
+    setPreview({ ...savedPrefs, nav: { order: [], hidden: null } });
     setBusy(true);
     setError(null);
-    savePrefs({ ...savedPrefs, nav: { order: [] } })
+    savePrefs({ ...savedPrefs, nav: { order: [], hidden: null } })
       .catch((err) => setError(err instanceof HttpError ? err.message : "保存失败，请稍后重试"))
       .finally(() => setBusy(false));
   };
 
-  const dirty = !sameNavOrder(draft, savedOrder);
-  const isDefault = sameNavOrder(draft, defaultOrder);
+  const dirty =
+    !sameNavOrder(draft, savedOrder) || !sameNavOrder([...hiddenDraft].sort(), [...savedHidden].sort());
+  const isDefault = sameNavOrder(draft, defaultOrder) && hiddenDraft.length === 0;
   const disabled = loading || busy;
 
   return (
     // 页签名就是标题：页签下直接是说明 + 行组，不再套同名小节
     <div>
       <p className="mb-3 px-1 text-sub leading-5 text-[var(--text-muted)]">
-        调整左侧栏主导航的排列次序：拖动条目，或用右侧的上下按钮。待处理与更新入口有事才出现，位置固定，不参与排序。
+        调整左侧栏主导航的排列次序：拖动条目，或用右侧的上下按钮。插件页面可以移出侧边栏，移出后仍能从插件详情打开。待处理与更新入口有事才出现，位置固定，不参与排序。
       </p>
       <div className="overflow-hidden rounded-xl">
         <SettingsList>
           <ul className="divide-y divide-[var(--line)]">
             {rows.map((item, index) => {
               const Icon = item.icon;
+              const removable = isAppNavId(item.id);
+              const hidden = removable && hiddenDraft.includes(item.id);
               return (
                 <li
                   key={item.id}
@@ -1344,10 +1360,27 @@ function NavOrderGroup() {
                   } ${disabled ? "opacity-50" : "cursor-grab active:cursor-grabbing"}`}
                 >
                   <GripIcon className="size-4 shrink-0 text-[var(--text-faint)]" />
-                  <Icon className="size-[18px] shrink-0 text-[var(--text-muted)]" />
-                  <span className="flex-1 truncate text-ui font-medium text-[var(--text)]">
+                  <Icon
+                    className={`size-[18px] shrink-0 text-[var(--text-muted)] ${hidden ? "opacity-40" : ""}`}
+                  />
+                  <span
+                    className={`flex-1 truncate text-ui font-medium ${
+                      hidden ? "text-[var(--text-faint)]" : "text-[var(--text)]"
+                    }`}
+                  >
                     {item.label}
+                    {hidden && <span className="ml-2 text-caption font-normal">已移出</span>}
                   </span>
+                  {removable && (
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => toggleHidden(item.id)}
+                      className="shrink-0 rounded-md px-2 py-1 text-caption text-[var(--text-muted)] transition hover:bg-[var(--glass-fill-hover)] hover:text-[var(--text)] disabled:opacity-25"
+                    >
+                      {hidden ? "放回侧边栏" : "移出"}
+                    </button>
+                  )}
                   <span className="tnum shrink-0 text-caption text-[var(--text-faint)]">
                     {index + 1}
                   </span>

@@ -33,6 +33,7 @@ var knownNonGenerated = []string{
 	"ui.apps.list",
 	"ui.apps.root",
 	"ui.apps.file",
+	"ui.apps.errors.report",
 	"auth.device.authorize",
 	"auth.device.token",
 	// 原生 App 的账号密码登录：客户端之间的协议端点，mclaw 走配对码

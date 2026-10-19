@@ -347,3 +347,27 @@ def test_nav_hidden_round_trips_through_ui_preferences(data_dir) -> None:
         assert kept["nav"]["hidden"] == ["app:acme-web:1"]
         client.put("/api/v1/ui/preferences", json={**kept, "nav": {"order": [], "hidden": None}})
         assert client.get("/api/v1/ui/preferences").json()["data"]["nav"]["hidden"] is None
+
+
+def test_page_errors_go_to_the_system_log_with_a_rate_limit(data_dir, caplog) -> None:
+    import logging
+
+    write_local(data_dir)
+    plugin_web.write_local_consent(get_settings(), "weekly-board", plugin_web.Consent())
+    plugin_web._error_window.clear()
+    client, who = start()
+    with client, caplog.at_level(logging.WARNING, logger="movieclaw_api.plugin_web"):
+        sent = client.post(
+            "/api/v1/ui/apps/weekly-board/errors",
+            json={"message": "TypeError: x is undefined", "detail": "app.js:3"},
+        )
+        assert sent.status_code == 200
+        assert any("weekly-board" in r.message and "TypeError" in r.message for r in caplog.records)
+        for _ in range(plugin_web.ERRORS_PER_MINUTE + 5):
+            client.post("/api/v1/ui/apps/weekly-board/errors", json={"message": "again"})
+        recorded = [r for r in caplog.records if "again" in r.message]
+        assert len(recorded) == plugin_web.ERRORS_PER_MINUTE - 1
+        # 看不到的页面不收报错
+        who.current = who.member
+        hidden = client.post("/api/v1/ui/apps/weekly-board/errors", json={"message": "x"})
+        assert hidden.status_code == 404

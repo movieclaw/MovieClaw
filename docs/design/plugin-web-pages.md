@@ -64,7 +64,7 @@ my-plugin/
 | 插件内部换页 | 相对链接 `<a href="downloads">`，或单页应用的 `history.pushState` |
 | 跳到主程序页面 | `<a href="/library/..." target="_top">` |
 | 实时数据 | `EventSource`（主程序已有的 SSE 流，如 `/api/v1/jobs/stream`） |
-| 跟主程序观感一致（可选） | 引用主程序提供的 `theme.css`，里面是 CSS 变量与 `color-scheme`（§6.3，地址随 PR 2 定） |
+| 跟主程序观感一致（可选） | 写 `var(--mc-text)`、`var(--mc-line)` 这类 CSS 变量：外框自动注入，跟着主题变（§6.3）；不写也照常能用 |
 
 ## 3. 地址
 
@@ -102,7 +102,8 @@ my-plugin/
 - 用户可以把某一项**移出侧边栏**：`ui.preferences.nav` 新增 `hidden: string[]`（只加字段，老客户端不受影响）。
   只有应用项能隐藏，内置项保持现状。移出后仍能从插件详情页打开。
 - **高亮**：取当前子路径**最长前缀匹配**的那一项（在 `/apps/stats/downloads/2026-10` 时点亮「下载统计」）。
-- **手机网页**：侧边栏抽屉与桌面同一份列表，自动就有。
+- **手机网页**：手机用底部标签栏、没有侧边栏，插件网页的项放在「我的」页的「插件页面」一组里，顺序与移出同侧边栏。
+- **Netflix 主题**：桌面顶栏的固定链接后面追加插件网页的项（顶栏本来不跟个人排序，这里同样只尊重移出）。
 
 ### 4.3 接口
 
@@ -138,21 +139,38 @@ my-plugin/
 
 ### 6.2 网页
 
-- 新路由 `app/(app)/apps/[plugin]/[[...path]]/page.tsx`：外框里放一个占满正文区的 iframe。
+- 新路由 `app/(app)/apps/[plugin]/layout.tsx` + `[[...path]]/page.tsx`（空）：外框挂在 layout 上，插件内部换页只改子路径，
+  iframe 不会被重建。iframe 加载 `web/` 本身而不是 `web/index.html`，单页应用的路由看到的是干净的根路径。
   - 同源、**不加 `sandbox`**（授信模式）；背景透明，主程序的玻璃背景能透出来；
   - 地址同步：iframe 每次 `load`、`popstate`、`hashchange` 以及 `history.pushState` / `replaceState` 之后（同源可直接包一层），
     把 iframe 的子路径用 `replaceState` 写回地址栏——浏览器历史里只留 iframe 自己那一条，返回键按一次退一页；
-  - 错误收集：同源可直接监听 iframe 窗口的 `error` / `unhandledrejection`，上报到系统日志（带插件 id，`/settings/logs?q=<插件 id>` 可查），
-    页面本身不用写任何代码；
+  - 跳出网页根目录（没写 `target="_top"` 的站内链接）：外框把整页带过去，不套娃；
+  - 错误收集：同源可直接监听 iframe 窗口的 `error` / `unhandledrejection`，经 `POST /ui/apps/{id}/errors` 写进系统日志
+    （带插件 id 与打开它的人，`/settings/logs?q=<插件 id>` 可查；每个插件每分钟最多 20 条），页面本身不用写任何代码。
+    页面脚本在 iframe `load` 之前抛的错收不到；
+  - 标签页标题用插件名：地址同步会让 Next 重新套用路由的兜底标题，每次地址变化后写回；
   - 插件未批准、已卸载、安全模式：显示对应的空状态，不加载 iframe。
 - 侧边栏：`useVisibleNavItems()` 合并 `/ui/apps` 的项；图标渲染支持遮罩与原图两种；`nav.hidden` 过滤；导航设置页能拖、能移出应用项。
 - 现有安全头不用改：`X-Frame-Options: SAMEORIGIN`、`frame-ancestors 'self'` 都允许同源嵌入。
+- **开发代理的结尾斜杠**：Docker 部署里 nginx 把 `/api/v1` 直接转给后端；不经 nginx 时由 Next 反代，而 Next 默认会把
+  `web/` 的结尾斜杠 308 掉、后端再补回来，转成死循环。所以 `next.config.ts` 关掉内置的结尾斜杠规范化
+  （`skipTrailingSlashRedirect`），改由 `middleware.ts` 对页面地址做同样的去斜杠，接口原样转；`web/` 另配一条带斜杠的 rewrite。
 
 ### 6.3 主题样式（可选）
 
-由 Next 提供一个静态的 `theme.css`（设计变量本来就在前端，地址随 PR 2 定）：把主程序的设计变量（颜色、圆角、字体、玻璃底色）导出成标准 CSS 自定义属性，并按主题 id 写在
-`:root[data-theme="…"]` 下，附 `color-scheme`。主程序在 iframe 每次 `load` 后给它的 `<html>` 设上当前的 `data-theme`
-（同源可直接改），切换主题时同步更新。页面加一行 `<link>` 就跟主程序一致；不加也照常能用。
+不另出 `theme.css`（会和前端的主题变量两处维护）：外框在 iframe 每次 `load` 后，把主程序当前的设计变量以 `--mc-` 前缀写到
+页面的 `<html>` 上，并对齐 `color-scheme`、设上 `data-mc-theme`；切换主题时同步更新。前缀是为了不和页面自己的变量撞名。
+
+| 变量 | 含义 |
+|---|---|
+| `--mc-text` / `--mc-text-muted` / `--mc-text-faint` | 文字三档 |
+| `--mc-line` / `--mc-line-strong` | 描边 |
+| `--mc-accent` / `--mc-accent-strong` / `--mc-accent-soft` | 强调色 |
+| `--mc-surface-raised` / `--mc-surface-inset` / `--mc-glass-fill` / `--mc-glass-fill-hover` | 浮层、输入框、可点行的底色 |
+| `--mc-ok` / `--mc-info` / `--mc-warn` / `--mc-danger` / `--mc-danger-solid` | 状态色 |
+| `--mc-font` | 字体 |
+
+页面背景保持透明就能透出主程序的玻璃背景；写 `var(--mc-text, #eee)` 带上兜底值，单独打开也能看。
 
 ## 7. Agent
 
@@ -169,7 +187,7 @@ my-plugin/
 | PR | 内容 | 端到端验证 |
 |---|---|---|
 | 1 | 服务端：纯网页插件包、静态托管、manifest 解析、`/ui/apps`、管理接口、`nav.hidden`、批准页需要的字段 | 上传一个只有 `index.html` + manifest 的包：批准前访问 403，批准后能取到；单页回退只对页面请求生效；`..` 越界被拒；升级版本要求重新批准 |
-| 2 | 网页：`/apps/...` 路由与 iframe、地址同步、错误收集、空状态与安全模式；侧边栏合并 / 图标 / 高亮 / 拖动 / 移出；批准页的入口预览与两个勾选、本地插件的确认入口；`theme.css`（设计变量在前端，由 Next 提供） | 真实场景：装一个两项入口的插件，左侧出现两项、能拖、能移出；插件内部换页外框不刷新、地址栏同步、返回键按一次退一页；切主题后页面跟着变；页面抛异常能在系统日志里按插件 id 查到；成员默认看不到，勾选后能看到但调管理员接口被拒 |
+| 2 | 网页：`/apps/...` 路由与 iframe、地址同步、错误收集、空状态与安全模式；侧边栏合并 / 图标 / 高亮 / 拖动 / 移出；批准页的入口预览与两个勾选、本地插件的确认入口；主题变量注入；手机「我的」页与 Netflix 顶栏的入口；页面报错上报接口 | 真实场景：装一个两项入口的插件，左侧出现两项、能拖、能移出；插件内部换页外框不刷新、地址栏同步、返回键按一次退一页；切主题后页面跟着变；页面抛异常能在系统日志里按插件 id 查到；成员默认看不到，勾选后能看到但调管理员接口被拒 |
 | 3 | Agent 技能补「插件网页」一节 + 测试台调优 | 用真实提示词「做个页面放左边，看本周新入库的 4K 片」，Agent 在本地插件目录里一次写出能用的页面 |
 
 每步独立 PR、可单独回滚。老客户端只是看不到新字段，不受影响。
