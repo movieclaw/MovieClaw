@@ -45,8 +45,9 @@ struct OfflinePlaceholder: View {
         } description: {
             Text("这里需要连接服务器。\(ClientPlatform.deviceName) 上已下载的影片在「媒体库」里，可以照常播放。")
         } actions: {
+            // App 的 tint 是冷银（近白），裸 .glassProminent 会白底白字看不清
             Button("去媒体库") { router.selectTab(.library) }
-                .buttonStyle(.glassProminent)
+                .discoverProminentButton()
             Button("重新连接") { reachability.reconnect() }
                 .buttonStyle(.glass)
         }

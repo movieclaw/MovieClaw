@@ -74,6 +74,8 @@ struct MainTabView: View {
         let session = model.session
         let permissions = session.map(Permissions.init(session:)) ?? .none
         let api = model.api ?? EnvironmentValues().api
+        // 快捷输入要连服务器发起 AI 会话：离线模式不显示（2026-10-19 用户要求）
+        let showsQuickInput = onMoreTab && permissions.isAdmin && !ServerReachability.shared.isOffline
 
         TabView(selection: Binding(get: { router.selection }, set: { item in
             router.select(item)
@@ -116,10 +118,10 @@ struct MainTabView: View {
                     // 快捷输入只属于「我的」导航栈，展开与收起共用页面内的玻璃容器。
                     .scrollDismissesKeyboard(.interactively)
                     // 栈外 safeAreaBar 不会替栈内 List / Form 增加内容边距；按实际高度为末项留出滚动空间。
-                    .contentMargins(.bottom, onMoreTab ? (permissions.isAdmin ? quickInputHeight : 0) + 24 : nil, for: .scrollContent)
-                    .contentMargins(.bottom, onMoreTab && permissions.isAdmin ? quickInputHeight : nil, for: .scrollIndicators)
+                    .contentMargins(.bottom, onMoreTab ? (showsQuickInput ? quickInputHeight : 0) + 24 : nil, for: .scrollContent)
+                    .contentMargins(.bottom, showsQuickInput ? quickInputHeight : nil, for: .scrollIndicators)
                     .safeAreaBar(edge: .bottom, spacing: 0) {
-                        if onMoreTab, permissions.isAdmin {
+                        if showsQuickInput {
                             AgentQuickInput(quick: quickDraft)
                                 // iPad 宽窗口与「我的」页同宽居中（手机比 820 窄，不受影响）
                                 .frame(maxWidth: 820)
@@ -144,7 +146,7 @@ struct MainTabView: View {
         .modifier(PadSidebarTabStyle(enabled: Self.isPad))
         // 「片段」上下滑动是在换条，不是在往下读：停在它上面时标签栏不收起（docs/design/reels.md）；
         // 显示快捷输入时菜单保持完整，避免滚动后只剩头像、上方却悬着整行输入框。
-        .tabBarMinimizeBehavior(onReels || (onMoreTab && permissions.isAdmin) ? .never : .onScrollDown)
+        .tabBarMinimizeBehavior(onReels || showsQuickInput ? .never : .onScrollDown)
         // 「接着看」条：片段页自己占满底部、AI 会话页底部是输入框（2026-09-30 用户反馈条贴在输入框下面很怪），都不显示；
         // 「我的」页使用自己的 AI 输入框，不切换全局附件中的内容。
         // 离线时也不显示：它来自服务器，可能指向一部没下载的片（离线首页自有「接着看」行）
@@ -616,6 +618,7 @@ enum TabIcon {
 /// 外层注入的 `.topBarTrailing` 会排到页面按钮前面，所以放 `.primaryAction`（固定在最右），
 /// 再用固定间隔隔开：页面按钮在左边自成一组，搜索是独立圆钮。
 /// 媒体库例外：「▶ ⋯ 搜索」三个合成一组，不加间隔（2026-10-13 用户要求试试）。
+/// 离线模式没有搜索（2026-10-19 用户要求）。
 ///
 /// 「我的」页只保留扫码钮：
 /// 扫电视 / 终端上的登录二维码 → 直达独立的批准页（DeviceApprovalView）。
@@ -623,10 +626,11 @@ struct AppTopBar: ViewModifier {
     let tab: MainTab
     @Environment(Router.self) private var router
     @Environment(\.searchAccess) private var searchAccess
+    @State private var reachability = ServerReachability.shared
 
     func body(content: Content) -> some View {
         content.toolbar {
-            if tab == .more || (searchAccess.canOpenSearch && tab != .library) {
+            if tab == .more || (canSearch && tab != .library) {
                 ToolbarSpacer(.fixed, placement: .primaryAction)
             }
             if tab == .more, MainTabView.isPad {
@@ -653,7 +657,7 @@ struct AppTopBar: ViewModifier {
                 }
             }
             // 任一搜索分区可用就给入口（影视 / 资源 / 媒体库，见 SearchAccess.canOpenSearch）
-            if tab != .more, searchAccess.canOpenSearch {
+            if tab != .more, canSearch {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         router.push(.searchHome(mode: preferredSearchMode))
@@ -669,6 +673,9 @@ struct AppTopBar: ViewModifier {
 }
 
 extension AppTopBar {
+    /// 搜索都要连服务器：离线模式不给入口
+    private var canSearch: Bool { searchAccess.canOpenSearch && !reachability.isOffline }
+
     /// 各页签进搜索时预选的模式；nil = 沿用搜索页上次停留的模式
     private var preferredSearchMode: SearchVertical? {
         switch tab {

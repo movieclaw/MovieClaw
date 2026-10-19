@@ -61,26 +61,29 @@ struct LibraryHomeView: View {
             // 「片段」是 2026-09-29 用户要求放在媒体库顶部试验的入口（docs/design/reels.md），图标用圆圈播放
             // （不和底部「媒体库」页签的 play.square.stack 撞）。不常用：只留图标、排在最左，
             // 与 ⋯ 合成一个玻璃胶囊，顶栏只剩「▶ ⋯ · 搜索」两组（2026-10-05 用户要求，原先三颗圆钮又多又乱）
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { openReels() } label: {
-                    Image(systemName: "play.circle")
-                }
-                .accessibilityLabel("片段")
-                .accessibilityIdentifier("library-reels")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button("自定义首页", systemImage: "slider.horizontal.3") { router.push(.libraryCustomize) }
-                        .accessibilityIdentifier("library-customize")
-                    Button("全部合集", systemImage: "rectangle.stack") { router.push(.allCollections) }
-                    if permissions.canManageLibraries {
-                        Button("管理媒体库", systemImage: "externaldrive") { router.push(.libraryManage()) }
+            // 离线模式下片段、⋯ 菜单（自定义首页 / 合集 / 管理）都要连服务器，整组不显示（2026-10-19 用户要求）
+            if !reachability.isOffline {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { openReels() } label: {
+                        Image(systemName: "play.circle")
                     }
-                } label: {
-                    Image(systemName: "ellipsis")
+                    .accessibilityLabel("片段")
+                    .accessibilityIdentifier("library-reels")
                 }
-                .accessibilityLabel("更多操作")
-                .accessibilityIdentifier("library-more")
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("自定义首页", systemImage: "slider.horizontal.3") { router.push(.libraryCustomize) }
+                            .accessibilityIdentifier("library-customize")
+                        Button("全部合集", systemImage: "rectangle.stack") { router.push(.allCollections) }
+                        if permissions.canManageLibraries {
+                            Button("管理媒体库", systemImage: "externaldrive") { router.push(.libraryManage()) }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                    }
+                    .accessibilityLabel("更多操作")
+                    .accessibilityIdentifier("library-more")
+                }
             }
         }
         .refreshable { await reload() }
