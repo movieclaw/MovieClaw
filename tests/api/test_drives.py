@@ -6,7 +6,9 @@
 - 扫码登录：宿主在后台跟着插件的流程走，扫完码建账号；同一网盘用户重新登录更新原账号；
 - Cookie 登录：手动粘贴与浏览器扩展推送（按插件声明的域名分发）；
 - 调用包装：插件换了凭据先落库（成功、出错都一样）；只有登录失效让账号进「要重新登录」
-  并亮待处理事项，之后的调用不再打到插件；限流只挡后台、不挡用户操作；重新登录复位状态、消退提醒；
+  并亮待处理事项，之后的调用不再打到插件；限流挡后台与用户操作、不挡播放；重新登录复位状态、消退提醒；
+- 按请求限速：插件经 SDK 网络出口每发一个请求领一个名额、计一次预算；账号中途被限流就停下；
+  超时按多久没有进展算；
 - 账号设置的范围校验、移除账号。
 """
 
@@ -29,9 +31,12 @@ from movieclaw_api.services import durable_events
 ADMIN = {"username": "admin", "password": "s3cret-pass"}
 
 PLUGIN = """
+import asyncio
 import itertools
 
-from movieclaw_sdk import plugin
+import httpx
+
+from movieclaw_sdk import net, plugin
 from movieclaw_sdk.drives import (
     DRIVE_BACKENDS,
     AccountInfo,
@@ -44,6 +49,8 @@ from movieclaw_sdk.drives import (
     LoginOption,
     LoginResult,
     RateLimited,
+    RemoteFile,
+    RemoteTree,
 )
 
 _ids = itertools.count(1)
@@ -117,6 +124,21 @@ class FakeDrive(DriveBackend):
             raise RateLimited("访问太频繁", 30)
         account.credentials = {**account.credentials, "token": f"t{int(token[1:]) + 1}"}
         return AccountInfo(display_name="测试盘", vip="VIP", quota_total=100, quota_used=40)
+
+    async def list_tree(self, account, dir_id):
+        # 像真网盘那样一页一个请求，经 SDK 网络出口（这里的上游换成假的）
+        if dir_id == "stuck":
+            await asyncio.sleep(30)
+        transport = net._Paced(httpx.MockTransport(lambda request: httpx.Response(200, json={})))
+        async with httpx.AsyncClient(transport=transport) as client:
+            for page in range(int(dir_id)):
+                await client.get(f"https://fake.example/files?page={page}")
+        return RemoteTree(
+            files=tuple(
+                RemoteFile(remote_id=str(i), name=f"{i}.mkv", size=1, rel_path=f"{i}.mkv")
+                for i in range(int(dir_id))
+            )
+        )
 
 
 @plugin("fake-drive", title="假网盘")
@@ -369,7 +391,12 @@ def test_auth_expired_blocks_the_account_until_relogin(client) -> None:
     assert _notices(client) == [f"drive:{account_id}:resolved"]
 
 
-def test_rate_limit_pauses_background_but_not_user_calls(client) -> None:
+def _set_qps(client: TestClient, account_id: int, qps: float) -> None:
+    response = client.patch(f"/api/v1/drives/accounts/{account_id}", json={"qps": qps})
+    assert response.status_code == 200, response.text
+
+
+def test_rate_limit_pauses_background_and_user_calls_but_not_playback(client) -> None:
     from movieclaw_api.services.drives import gateway
     from movieclaw_sdk import drives as dv
 
@@ -389,11 +416,104 @@ def test_rate_limit_pauses_background_but_not_user_calls(client) -> None:
             return exc.message
         return None
 
-    assert "后台任务暂停" in call(client, background)
-    # 用户操作照常尝试（插件这次成功，状态复位）
+    assert "分钟后恢复" in call(client, background)
+    # 用户操作也不打出去（每多一次被拒，网盘的冷却就往后推），告诉用户还要等多久
     _set_token(client, account_id, "t1")
-    assert client.post(f"/api/v1/drives/accounts/{account_id}/refresh").status_code == 200
+    refused = client.post(f"/api/v1/drives/accounts/{account_id}/refresh")
+    assert refused.status_code == 400 and "分钟后恢复" in refused.text
+    assert _raw_row(client, account_id)[1]["token"] == "t1"
+    # 播放照常尝试（插件这次成功，状态复位）
+    call(client, gateway.call, account_id, "account_info", priority=gateway.Priority.PLAYBACK)
     assert client.get("/api/v1/drives/accounts").json()["data"][0]["status"] == "ok"
+    assert client.post(f"/api/v1/drives/accounts/{account_id}/refresh").status_code == 200
+
+
+def test_every_request_of_a_call_takes_its_own_slot(client) -> None:
+    from movieclaw_api.services.drives import gateway
+
+    account_id = _scan_login(client)["account"]["id"]
+    _set_qps(client, account_id, 20)
+
+    async def list_pages():
+        before = gateway.usage_today(account_id)
+        started = time.monotonic()
+        tree = await gateway.call(
+            account_id, "list_tree", priority=gateway.Priority.BACKGROUND, dir_id="8"
+        )
+        return len(tree.files), time.monotonic() - started, gateway.usage_today(account_id) - before
+
+    files, elapsed, used = call(client, list_pages)
+    assert files == 8
+    # 8 个请求 8 个名额：调用本身领一个给第一个请求，后 7 个各领一个，逐个按 20 次 / 秒排队
+    assert used == 8
+    assert elapsed >= 7 / 20 * 0.9
+
+
+def test_paging_stops_as_soon_as_the_account_is_rate_limited(client) -> None:
+    from datetime import timedelta
+
+    from movieclaw_api.services.drives import gateway
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import utcnow
+    from movieclaw_db.models.drive_account import DRIVE_STATUS_RATE_LIMITED
+    from movieclaw_db.repositories.drive_account_repo import DriveAccountRepository
+    from movieclaw_sdk import drives as dv
+
+    account_id = _scan_login(client)["account"]["id"]
+    _set_qps(client, account_id, 10)
+
+    async def list_until_limited():
+        before = gateway.usage_today(account_id)
+        task = asyncio.ensure_future(
+            gateway.call(account_id, "list_tree", priority=gateway.Priority.BACKGROUND, dir_id="40")
+        )
+        await asyncio.sleep(0.35)
+        # 别的调用这时吃了网盘的限流
+        async with get_database().session() as session:
+            await DriveAccountRepository(session).set_status(
+                account_id, DRIVE_STATUS_RATE_LIMITED, "访问太频繁", utcnow() + timedelta(minutes=5)
+            )
+        try:
+            await task
+        except dv.RateLimited as exc:
+            return exc.message, gateway.usage_today(account_id) - before
+        raise AssertionError("翻页没有停下")
+
+    message, used = call(client, list_until_limited)
+    assert "分钟后恢复" in message
+    assert used < 10
+    # 是宿主叫停的、不是网盘报的错：账号状态保持原样，冷却不往后推
+    assert _raw_row(client, account_id)[0].status_message == "访问太频繁"
+
+
+def test_timeout_counts_time_without_progress(client, monkeypatch) -> None:
+    from movieclaw_api.services.drives import gateway
+    from movieclaw_sdk import drives as dv
+
+    account_id = _scan_login(client)["account"]["id"]
+    _set_qps(client, account_id, 4)
+    monkeypatch.setitem(gateway.TIMEOUTS, "list_tree", 0.6)
+    # 8 页按 4 次 / 秒要翻近 2 秒，比超时长得多；但一直有进展，不算超时
+    tree = call(
+        client,
+        gateway.call,
+        account_id,
+        "list_tree",
+        priority=gateway.Priority.BACKGROUND,
+        dir_id="8",
+    )
+    assert len(tree.files) == 8
+    started = time.monotonic()
+    with pytest.raises(dv.Transient, match="响应超时"):
+        call(
+            client,
+            gateway.call,
+            account_id,
+            "list_tree",
+            priority=gateway.Priority.BACKGROUND,
+            dir_id="stuck",
+        )
+    assert time.monotonic() - started < 5
 
 
 def test_background_stops_at_its_share_of_the_daily_budget(client) -> None:

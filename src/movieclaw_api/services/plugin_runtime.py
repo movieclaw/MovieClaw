@@ -1159,6 +1159,17 @@ class _Net:
 
         return resolve_proxy_url(service) if service in own_services(self._entry_id) else None
 
+    async def pace(self) -> dict[str, Any] | None:
+        # 插件带着调用号回来：上下文是宿主发起这次网盘调用时的，限速器就在里面
+        from movieclaw_sdk import drives as dv
+        from movieclaw_sdk import net
+
+        try:
+            await net.pace()
+        except dv.DriveError as exc:
+            return dv.error_dict(exc)
+        return None
+
 
 class _Job:
     def __init__(self, session: Session) -> None:

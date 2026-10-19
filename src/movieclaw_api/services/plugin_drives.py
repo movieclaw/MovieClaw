@@ -12,9 +12,6 @@ from typing import Any
 
 from movieclaw_sdk import drives as dv
 
-#: 插件进程这一层的上限（秒）；宿主调用包装另有按方法的超时，先到先算（传一片最久）
-CALL_TIMEOUT = 600.0
-
 
 class RemoteDriveBackend(dv.DriveBackend):
     def __init__(self, session: Any, cid: str, spec: dict[str, Any]) -> None:
@@ -38,9 +35,8 @@ class RemoteDriveBackend(dv.DriveBackend):
         if account is not None:
             payload["account"] = dv.account_dict(account)
         try:
-            envelope = await self._session.call(
-                self._cid, payload, timeout=CALL_TIMEOUT, kind="drive"
-            )
+            # 超时由宿主调用包装按「多久没有进展」管：大目录逐页限速可以翻很久，这一层不设总上限
+            envelope = await self._session.call(self._cid, payload, timeout=None, kind="drive")
         except PluginProcessGone as exc:
             raise dv.Transient(
                 f"网盘插件 {self._session.entry_id} 没在运行，稍后会自动重试"

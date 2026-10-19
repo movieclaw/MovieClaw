@@ -91,9 +91,14 @@ class OpsApi(Protocol):
 
 
 class NetApi(Protocol):
-    """网络出口：插件自己的服务名在「网络与代理」里配的代理（可能带凭据，只回答自己的）。"""
+    """网络出口：插件自己的服务名在「网络与代理」里配的代理（可能带凭据，只回答自己的）。
+
+    ``pace``：网盘调用里出口发请求前领一个限速名额；不许发时返回网盘错误（``drives.error_dict``）。
+    """
 
     async def proxy(self, service: str) -> str | None: ...
+
+    async def pace(self) -> dict[str, Any] | None: ...
 
 
 class JobApi(Protocol):

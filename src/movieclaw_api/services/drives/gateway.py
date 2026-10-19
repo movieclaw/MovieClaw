@@ -1,11 +1,13 @@
 """对网盘后端的每次调用都经这里（docs/design/cloud-storage.md §8、§11.3、§11.4）。
 
-- **超时**：每次调用有硬超时，插件卡死拖不住宿主；
-- **按账号限速**：按账号的请求速率排队，**播放优先**（优先级高的先拿到下一个名额）；
-- **每日预算**：已用次数只记在内存里（计量不碰盘，重启后从零算起）。后台用到预算的 70%
-  就停，余量留给播放；播放与用户操作不受预算拦截；
-- **错误归类**：只有 ``AuthExpired`` 让账号进「要重新登录」；限流、风控让后台整体推迟、
-  播放照常尝试；接口改版标「接口异常」；其余按临时错误交还调用方；
+- **按请求限速**：网盘按 HTTP 请求计频率，一次调用里可能翻几十页。调用本身先领一个名额，
+  之后插件经 SDK 网络出口（``movieclaw_sdk.net``）每多发一个请求再领一个；按账号排队，
+  **播放优先**（优先级高的先拿到下一个名额）；
+- **超时**：按「多久没有进展」算，插件卡死拖不住宿主；排队等名额不算没进展，大目录慢慢翻不会被掐断；
+- **每日预算**：已用次数按请求计、只记在内存里（计量不碰盘，重启后从零算起）。后台用到预算的
+  70% 就停，余量留给播放；播放与用户操作不受预算拦截；
+- **错误归类**：只有 ``AuthExpired`` 让账号进「要重新登录」；限流、风控期间后台与用户操作
+  直接拒绝（翻到一半的也停下）、播放照常尝试；接口改版标「接口异常」；其余按临时错误交还调用方；
 - **凭据**：插件在调用里换了凭据（刷新令牌、Cookie 换新），先落库再把结果交给调用方。
 """
 
@@ -16,6 +18,7 @@ import contextlib
 import heapq
 import itertools
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from enum import IntEnum
@@ -35,6 +38,7 @@ from movieclaw_db.models.drive_account import (
 )
 from movieclaw_db.repositories.drive_account_repo import DriveAccountRepository
 from movieclaw_sdk import drives as dv
+from movieclaw_sdk import net
 
 logger = logging.getLogger("movieclaw_api.drives")
 
@@ -49,7 +53,7 @@ class Priority(IntEnum):
 
 #: 后台用量到每日预算的这个比例就停，余量留给播放
 BACKGROUND_SHARE = 0.7
-#: 各方法的超时（秒）；没列出的用默认值
+#: 各方法的超时（秒）：多久没有进展（插件没再领到名额、也没返回）就放弃；没列出的用默认值
 TIMEOUTS: dict[str, float] = {
     "begin_login": 15.0,
     "login_state": 15.0,
@@ -73,6 +77,10 @@ DEFAULT_TIMEOUT = 30.0
 #: 插件没说要等多久时，限流、风控各暂停后台多久（秒）
 RATE_LIMIT_PAUSE = 600.0
 RISK_CONTROL_PAUSE = 3600.0
+#: 这些方法一定要请求网盘：调完一个请求都没经过 SDK 网络出口，说明插件绕过了限速
+_NETWORK_METHODS = frozenset({"account_info", "list_dir", "list_tree", "changes"})
+#: 已经提醒过绕过出口的后端类型（每种只记一次日志）
+_unpaced_warned: set[str] = set()
 
 
 def _notice_key(account_id: int) -> str:
@@ -151,6 +159,7 @@ def reset_state() -> None:
     """清掉内存里的排队与计数（测试换库时用）。"""
     _limiters.clear()
     _usage.clear()
+    _unpaced_warned.clear()
 
 
 def forget(account_id: int) -> None:
@@ -177,6 +186,87 @@ def _seconds_to_midnight() -> float:
     return (tomorrow - now).total_seconds()
 
 
+class _Meter:
+    """一次调用的限速记账：调用本身领一个名额，插件经网络出口每多发一个请求再领一个。
+
+    插件的第一个请求用调用本身的名额；不走 SDK 出口的插件至少还按调用限速。
+    """
+
+    def __init__(
+        self, account_id: int, name: str, qps: float, budget: int, priority: Priority
+    ) -> None:
+        self.account_id = account_id
+        self.name = name
+        self.qps = qps
+        self.budget = budget
+        self.priority = priority
+        #: 经出口发出的请求数
+        self.requests = 0
+        #: 是限速器叫停了这次调用（限流、额度用完）：不是网盘报的错，不改账号状态
+        self.stopped = False
+        #: 正在排队等名额（不算没进展）
+        self.waiting = False
+        #: 最近一次有进展的时刻（事件循环时间）
+        self.progress = 0.0
+
+    async def acquire(self) -> None:
+        if (
+            self.priority is Priority.BACKGROUND
+            and usage_today(self.account_id) >= self.budget * BACKGROUND_SHARE
+        ):
+            raise dv.RateLimited(
+                f"「{self.name}」今天的后台调用额度已用到 {int(BACKGROUND_SHARE * 100)}%，"
+                "余量留给播放，明天继续",
+                _seconds_to_midnight(),
+            )
+        limiter = _limiters.get(self.account_id)
+        if limiter is None or limiter.loop is not asyncio.get_running_loop():
+            # 应用在同一进程里重启（插件内核重载、测试）后事件循环换了，旧的排队对象不能再用
+            limiter = _limiters[self.account_id] = _Limiter()
+        await limiter.acquire(self.qps, self.priority)
+        _count(self.account_id)
+
+    async def pace(self) -> None:
+        """出口发请求前调：领名额；账号这期间被限流了就叫停（翻到一半的列举不再接着打）。"""
+        self.requests += 1
+        if self.requests == 1:
+            return
+        self.waiting = True
+        try:
+            async with get_database().session() as session:
+                row = await DriveAccountRepository(session).get(self.account_id)
+            if row is None:
+                raise dv.NotFound("网盘账号不存在")
+            _check_status(row.status, row.status_until, self.priority, self.name)
+            await self.acquire()
+        except dv.DriveError:
+            self.stopped = True
+            raise
+        finally:
+            self.waiting = False
+            self.progress = asyncio.get_running_loop().time()
+
+
+async def _run(job: Any, meter: _Meter, timeout: float) -> Any:
+    """跑一次后端调用；``timeout`` 秒没有进展（领到名额或返回）就取消，抛 ``TimeoutError``。"""
+    loop = asyncio.get_running_loop()
+    task = asyncio.ensure_future(job)
+    meter.progress = loop.time()
+    try:
+        while True:
+            left = timeout if meter.waiting else meter.progress + timeout - loop.time()
+            done, _ = await asyncio.wait({task}, timeout=max(left, 0.0))
+            if done:
+                return task.result()
+            if not meter.waiting and loop.time() - meter.progress >= timeout:
+                raise TimeoutError
+    finally:
+        if not task.done():
+            task.cancel()
+            # 取消后的结果没人等了：取走异常，免得「从未取回」的告警
+            task.add_done_callback(lambda t: t.cancelled() or t.exception())
+
+
 async def call(
     account_id: int,
     method: str,
@@ -198,23 +288,16 @@ async def call(
     backend = get_backend(backend_type)
     _check_status(status, status_until, priority, name)
     qps, budget, _slots = effective(row, backend)
-    if priority is Priority.BACKGROUND and usage_today(account_id) >= budget * BACKGROUND_SHARE:
-        raise dv.RateLimited(
-            f"「{name}」今天的后台调用额度已用到 {int(BACKGROUND_SHARE * 100)}%，"
-            "余量留给播放，明天继续",
-            _seconds_to_midnight(),
-        )
-    limiter = _limiters.get(account_id)
-    if limiter is None or limiter.loop is not asyncio.get_running_loop():
-        # 应用在同一进程里重启（插件内核重载、测试）后事件循环换了，旧的排队对象不能再用
-        limiter = _limiters[account_id] = _Limiter()
-    await limiter.acquire(qps, priority)
-    _count(account_id)
+    meter = _Meter(account_id, name, qps, budget, priority)
+    await meter.acquire()
 
     account = dv.DriveAccount(user_id=row.remote_user_id, credentials=dict(credentials))
+    # 进程内的插件由出口直接读到它；进程外的带着调用号回来，宿主在这次调用的上下文里读到它
+    token = net.pacer.set(meter.pace)
     try:
-        value = await asyncio.wait_for(
+        value = await _run(
             getattr(backend, method)(account, **args),
+            meter,
             TIMEOUTS.get(method, DEFAULT_TIMEOUT),
         )
     except TimeoutError:
@@ -222,9 +305,20 @@ async def call(
         raise dv.Transient(f"「{name}」响应超时") from None
     except dv.DriveError as exc:
         await _persist_credentials(account_id, credentials, account.credentials)
-        await _record_failure(account_id, name, exc)
+        if not meter.stopped:
+            await _record_failure(account_id, name, exc)
         raise
+    finally:
+        net.pacer.reset(token)
     await _persist_credentials(account_id, credentials, account.credentials)
+    if meter.requests == 0 and method in _NETWORK_METHODS and backend_type not in _unpaced_warned:
+        _unpaced_warned.add(backend_type)
+        logger.warning(
+            "网盘后端 %s 的 %s 没经 SDK 网络出口发请求（movieclaw_sdk.net.http_transport）："
+            "翻页等多次请求不受限速，用户配的代理也不生效",
+            backend_type,
+            method,
+        )
     if status != DRIVE_STATUS_OK:
         await _record_recovery(account_id, status)
     return value
@@ -249,13 +343,14 @@ def _check_status(status: str, until: Any, priority: Priority, name: str) -> Non
         raise dv.ApiChanged(f"「{name}」的接口有变化，插件暂时不认识，请更新插件")
     if (
         status == DRIVE_STATUS_RATE_LIMITED
-        and priority is Priority.BACKGROUND
+        and priority is not Priority.PLAYBACK
         and until is not None
         and until > utcnow()
     ):
+        # 用户操作也不打出去：每多一次被拒，网盘的冷却就往后推
+        left = (until - utcnow()).total_seconds()
         raise dv.RateLimited(
-            f"「{name}」被网盘限流，后台任务暂停到稍后",
-            (until - utcnow()).total_seconds(),
+            f"「{name}」被网盘限流，约 {max(1, math.ceil(left / 60))} 分钟后恢复", left
         )
 
 

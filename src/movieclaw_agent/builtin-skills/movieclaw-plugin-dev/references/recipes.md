@@ -683,9 +683,10 @@ audience = "admins"
 
 **写的时候**：
 
-- 连网盘同样按第 4 节规范：`httpx.AsyncClient(transport=movieclaw_sdk.net.http_transport("<条目 id>"), timeout=…)`，清单写
-  `network = true`。cloud-115 目前直连、清单没写 `network`，**这一点别照抄**。把 transport 做成构造参数（缺省用 `http_transport`），
-  测试时注入假服务。
+- 连网盘**必须**走 `httpx.AsyncClient(transport=movieclaw_sdk.net.http_transport("<条目 id>"), timeout=…)`，清单写
+  `network = true`：主程序的限速就在这个出口上，一次调用里翻几十页也逐个请求排队、计预算；直连的话翻页会连发，
+  网盘按请求计频率，很快就限流（#907），主程序日志也会警告「没经 SDK 网络出口」。把 transport 做成构造参数（缺省用
+  `http_transport`），测试时注入假服务；客户端建一个长期复用，别每个请求 `async with` 一个（退出时会关掉共享的 transport）。
 - 网盘的社区协议库常带 GPL 等传染性许可证（PyPI 页面写的不一定准），选依赖要看轮子里的 LICENSE（见 `manifest.md`「第三方依赖」）。
 
 **验证**：
