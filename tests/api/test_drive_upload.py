@@ -690,6 +690,8 @@ def test_release_waits_for_gates_then_frees_local_bytes(client, tmp_path, monkey
     assert call(client, release.try_release, row["id"]) is None
     rows = replicas(client, library_id)
     assert rows["a.mkv"]["local_bytes"] is False and not local.exists()
+    # 搬空的目录跟着清掉，库根留着
+    assert not local.parent.exists() and (tmp_path / "staging").is_dir()
     # 之后读网盘：登记进了读字节入口
     assert sources.cloud_file(str(local)) is not None
     # 实时监控 / 对账看到本地没了：不标缺失
@@ -700,10 +702,43 @@ def test_release_waits_for_gates_then_frees_local_bytes(client, tmp_path, monkey
     assert replicas(client, library_id)["a.mkv"]["local_bytes"] is False
 
     # 用户把文件拷回原位：字节回到本地，播放读本地
+    local.parent.mkdir()
     local.write_bytes(data)
     call(client, scan_library, library_id, backfill_existing_specs=False)
     assert replicas(client, library_id)["a.mkv"]["local_bytes"] is True
     assert sources.cloud_file(str(local)) is None
+
+
+def test_release_prunes_only_directories_it_empties(client, tmp_path, monkeypatch):
+    from movieclaw_api.services.drives import release
+
+    library_id = _uploaded(
+        client,
+        tmp_path,
+        monkeypatch,
+        {
+            "剧集/Season 01/e1.mkv": _blob(14, PART),
+            "剧集/Season 01/e2.mkv": _blob(15, PART),
+            "纪录片/Season 01/d1.mkv": _blob(16, PART),
+        },
+    )
+    show = tmp_path / "staging" / "剧集"
+    (show / "tvshow.nfo").write_text("<tvshow/>")
+    rows = replicas(client, library_id)
+    for row in rows.values():
+        call(client, _set_probed, row["id"])
+
+    # 同一季还有别的集：季目录留着
+    assert call(client, release.try_release, rows["e1.mkv"]["id"]) is None
+    assert (show / "Season 01").is_dir()
+    # 最后一集腾空：季目录空了清掉，剧目录还有旁车，留着
+    assert call(client, release.try_release, rows["e2.mkv"]["id"]) is None
+    assert not (show / "Season 01").exists()
+    assert (show / "tvshow.nfo").exists()
+    # 整棵目录都空了：一路清到库根为止
+    assert call(client, release.try_release, rows["d1.mkv"]["id"]) is None
+    assert not (tmp_path / "staging" / "纪录片").exists()
+    assert (tmp_path / "staging").is_dir()
 
 
 def test_release_rechecks_local_and_remote_and_times_out_gates(client, tmp_path, monkeypatch):
