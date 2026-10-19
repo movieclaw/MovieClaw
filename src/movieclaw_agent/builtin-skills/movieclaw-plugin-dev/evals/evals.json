@@ -120,6 +120,13 @@
       "expected_output": "触发技能；方案是插件网页（web/ 里的普通网页，manifest 定侧边栏名字与图标，同源 fetch 现有接口）；用 mclaw 查清要用的接口与字段；讲清网页会以打开它的人的身份运行、成员默认看不到，征得同意后才用 plugin dev --allow-web 安装。",
       "expectations": ["选择插件网页而不是说做不到", "说明网页以打开它的人的身份运行", "没有在未经同意时安装"],
       "checks": {"skill_read": true, "must_mention_any": ["身份", "左侧栏", "侧边栏"], "no_install": true}
+    },
+    {
+      "id": 18,
+      "prompt": "能不能把我的 123 网盘接进来，当媒体库的存储用？",
+      "expected_output": "触发技能；先用 drives backends list 查现在能接哪些网盘；没有就做成网盘后端插件（drive-backends 注册表，继承 DriveBackend），以插件仓库的 cloud-115 为参照；讲清登录方式（扫码或 Cookie）、要实现哪些能力、账号凭据与限速由主程序管；征得同意前不安装。",
+      "expectations": ["查了现有的网盘后端", "方案是网盘后端插件并提到 cloud-115 作参照", "没有在未经同意时安装"],
+      "checks": {"skill_read": true, "must_mention_any": ["cloud-115", "DriveBackend", "网盘后端"], "no_install": true}
     }
   ]
 }

@@ -30,7 +30,8 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 | 需求 | 查什么 |
 |---|---|
 | 通道、消息推送 | `channels list`（输出很长，只看各项 `id` / `title`）；已经会推哪些事件：`channels im push config get` |
-| 下载器 | `dl list` 看已接入的；支持哪些类型看 `dl add --help`（只有 qBittorrent、Transmission） |
+| 下载器 | `dl list` 看已接入的；支持哪些类型看 `dl types list`（随应用有 qBittorrent、Transmission，插件加的类型也列在这里） |
+| 网盘 | `drives backends list` 看能接哪些网盘（主程序本身不带，都由插件提供，如插件仓库的 `cloud-115`）；`drives accounts list` 看已登录的账号 |
 | 订阅只要 / 不要某些资源（制作组、分辨率、HDR、字幕、体积、免费） | `rules update --help`：订阅规则组都能设（如制作组白名单），规则组表达不了的才用钩子 |
 | 站点 | `site list`、`site --help` |
 | 播放器跳过片头、片尾、广告、预告 | 内置：剧集库的片段识别，`library update --help` 的 `--detect-media-segments` |
@@ -45,7 +46,8 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 |---|---|
 | 某件事发生后自动做点什么：下载完成、入库完成、删片 / 删文件 / 回收站、订阅新建 / 删除 / 开始下载 / 收齐 / 状态变化 | 可靠事件 |
 | 改变系统的判断：订阅搜索词、淘汰或重排候选种子、选下载器、否决删种、网盘挂载文件给播放器换直链（302） | 决策钩子 |
-| 加一种新实现：IM 通道（含只推送的，如 Bark）、下载器（Deluge、Aria2……）、站点类 / 站点数据包、定时任务（可整段替换内置的）、后台任务、入库流水线步骤 | 注册表 |
+| 加一种新实现：IM 通道（含只推送的，如 Bark）、下载器（Deluge、Aria2……）、网盘（115、123……：登录、取流、纳管、上传、删除）、站点类 / 站点数据包、定时任务（可整段替换内置的）、后台任务、入库流水线步骤 | 注册表 |
+| 删影片 / 删文件的弹窗里加一个「顺带清理」的勾选项（默认不勾，先预览后果，勾了才执行） | 注册表 `library.delete-participants` |
 | 给 AI 助手加一个能力（查天气、查某个外部服务）、给外部系统开接口 | 插件接口：自动成为 mclaw 命令，AI 助手直接能调 |
 | 用户自己的页面（看板、统计、片单、管理页），出现在网页左侧栏 | 插件网页：`web/` 里一个普通网页，同源调接口（`references/web-pages.md`） |
 | 接收外部平台推过来的消息（企业微信自建应用回调、GitHub / Slack 推送、Telegram Webhook） | 回调端点：宿主发地址，请求原样交给插件，插件自己验签 |
@@ -92,6 +94,9 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 |---|---|
 | 任何插件 | `references/extension-points.md`（确认要用的契约存在、没落在「做不到」里）、`templates/starter/` |
 | 事件 / 钩子类（删片联动、关键字规则、选下载器） | `references/recipes.md` 第 1～3 节，对应示例 `references/examples/{delete_cascade,keyword_rules}.py` |
+| 网盘（接一家网盘做媒体库的存储） | `$SRC/movieclaw_sdk/drives.py` 文件头（契约与骨架）、`references/extension-points.md` 的 `drive-backends`；完整的真实插件是插件仓库的 `plugins/cloud-115/`（<https://github.com/movieclaw/movieclaw-plugins>，带第三方依赖，见 `references/manifest.md`「第三方依赖」） |
+| 下载器（接一款新的下载软件） | `$SRC/movieclaw_sdk/downloaders.py` 文件头（骨架、连接参数只能取 url / username / password）、随带的 `$SRC/movieclaw_plugins/qbittorrent/`、`transmission/` |
+| 删除弹窗加勾选项 | `references/extension-points.md` 的 `library.delete-participants`、`$SRC/movieclaw_api/services/library/delete_participants.py` 文件头、内置参与方 `$SRC/movieclaw_api/services/remove_source.py` |
 | IM 通道 | `references/recipes.md` 第 11 节（**选接入方式**）、`references/examples/ntfy-channel/`、`$SRC/movieclaw_sdk/channels.py` 文件头；只推送的通道再看 `$SRC/movieclaw_plugins/feishu/`；靠平台回调收消息的看 `references/examples/wecom-channel/` |
 | 定时 / 后台任务、入库流水线 | `references/recipes.md` 第 6～7 节、`references/examples/{watchlist_feed,cloud_strm}.py` |
 | 用户正要用的先准备好（开始播放预取下一集、收藏 / 打开详情先处理、新文件入库后慢慢补） | `references/recipes.md` 第 7、16 节（实时事件 + 插件自己建后台任务），完整示例 `$SRC/movieclaw_plugins/strm_prefetch/` |
@@ -247,5 +252,5 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 | `references/architecture.md` | 原理：生命周期、进程外运行、权限模型、源码位置 |
 | `references/explaining-to-users.md` | 给用户解释插件、权限、安全、卸载的标准说法 |
 | `references/troubleshooting.md` | 按报错查原因 |
-| `references/examples/` | 6 个经过测试的真实插件（先读 README） |
+| `references/examples/` | 8 个经过测试的真实插件（先读 README） |
 | `templates/starter/`、`templates/web/`、`scripts/` | 骨架；生成骨架、查契约、查接口（`api.py`）、安装前检查的脚本 |

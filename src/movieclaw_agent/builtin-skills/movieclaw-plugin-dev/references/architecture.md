@@ -100,12 +100,12 @@ async def apply(ctx: Context) -> None:
 | 位置 | 内容 |
 |---|---|
 | `$SRC/movieclaw_kernel/` | 内核：`plugin`、`Context`、事件总线、契约与版本、测试工具 `KernelHarness` |
-| `$SRC/movieclaw_sdk/` | 给插件用的 SDK：`plugin` / `Context` 再导出、IM 通道契约 `channels.py`、网络出口 `net.py`、进程外运行器 `runner.py`、契约表面 `surface.json` |
+| `$SRC/movieclaw_sdk/` | 给插件用的 SDK：`plugin` / `Context` 再导出、IM 通道契约 `channels.py`、下载器契约 `downloaders.py`、网盘契约 `drives.py`、宿主操作 `ops.py`、调 AI 助手 `agent.py`、后台任务 `jobs.py`、系统事件 `events/`、网络出口 `net.py`、进程外运行器 `runner.py`、契约表面 `surface.json` |
 | `$SRC/movieclaw_plugins/` | 随应用携带的插件包（微信、Telegram、Discord、飞书、qBittorrent、Transmission、网盘规格预探），与第三方插件包同格式 |
 | <https://github.com/movieclaw/movieclaw-plugins> | 第三方插件和商店索引。每个插件目录的 `store.json` 只给索引用，见该仓库 `example/GUIDE.md` |
 | `$SRC/movieclaw_api/plugins/` | 主程序的内置插件与插件管理，见下表 |
 | `$SRC/movieclaw_api/services/plugin_*.py`、`host_ops.py` | 插件用到的各服务的实现（看方法签名）；`plugin_runtime.py` 是进程外运行的宿主侧 |
-| 本技能 `references/examples/` | 插件体系的验收插件（删片联动、片单订阅、关键字规则、网盘上传、站点数据包、ntfy 通道），CI 真实运行 |
+| 本技能 `references/examples/` | 插件体系的验收插件（删片联动、片单订阅、关键字规则、网盘上传、站点数据包、ntfy 通道、企业微信通道、Go 写的 A2A 桥），CI 真实运行 |
 
 **内置插件**（`$SRC/movieclaw_api/plugins/`，产品功能都以插件形式挂在内核上）
 
