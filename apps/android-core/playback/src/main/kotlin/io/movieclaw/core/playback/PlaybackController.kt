@@ -246,6 +246,13 @@ class PlaybackController(
     private var tracksKnown = false
     private val qualityMemory = QualityMemory(prefs)
     private var qualityFromMemory = false
+    private val speedMemory = SpeedMemory(prefs)
+    /** 倍速是这次打开时从记忆里取的、用户还没动过：开播提示要点明 */
+    private var speedFromMemory = false
+    /** 长按倍速生效中：这期间 Exo 的速度不是 [PlayerState.speed] */
+    private var holdSpeedActive = false
+    /** 从加速降下来后视频还要丢几秒帧才追平：这之前不判直通掉帧 */
+    private var frameDropGraceUntil = 0L
     private var memoryNoticeChecked = false
     val network: PlaybackNetwork = PlaybackNetwork.current(server.origin.host)
 
@@ -288,6 +295,14 @@ class PlaybackController(
         val remembered = qualityMemory.quality(target.mediaItemId, network)
         set { copy(quality = remembered) }
         qualityFromMemory = remembered != null
+        // 倍速同样按片记（访客不记）；Exo 换集时沿用同一个速度
+        if (backend !is ShareBackend) {
+            speedMemory.speed(target.mediaItemId)?.let { speed ->
+                set { copy(speed = speed) }
+                exo.setPlaybackSpeed(speed)
+                speedFromMemory = true
+            }
+        }
         exo.addListener(ExoListener())
         exo.addAnalyticsListener(engineFacts)
         this.scope.launch {
@@ -885,6 +900,9 @@ class PlaybackController(
     /** 能不能在同意弹窗里直接开启软件转码（访客没有设置权，只能看说明） */
     val canGrantConsent: Boolean get() = backend !is ShareBackend
 
+    /** 访客分享：不能选画质（服务端按分享的设定给流），倍速不记 */
+    val isGuest: Boolean get() = backend is ShareBackend
+
     /** 同意弹窗「开启并播放」：写入全局开关后重新决策。失败抛出，弹窗显示原因 */
     suspend fun grantConsent() {
         val saved = backend.enableSoftwareTranscode() ?: throw IllegalStateException("分享观看不能开启软件转码，请联系分享者")
@@ -1000,6 +1018,12 @@ class PlaybackController(
         if (s.phase == Phase.Playing) {
             // 卡顿不看引擎报不报缓冲，按播放头判（tickPosition → PlaybackRecord.samplePlayhead）
             set { copy(phase = Phase.Buffering) }
+            // 菜单选的加速供不上（线路或转码跟不上这个速度）：退回正常速度并记下，下一集不再卡（长按倍速由界面自己退）
+            val buffered = exo.bufferedPosition - exo.currentPosition
+            if (s.speed > 1f && !holdSpeedActive && seekStartedAt == null && buffered < 1_000) {
+                selectSpeed(1f)
+                flash("缓冲跟不上，已回到正常速度")
+            }
         }
     }
 
@@ -1376,13 +1400,34 @@ class PlaybackController(
         scrubFollowJob?.cancel()
     }
 
-    /** 播放速度（手机的倍速菜单与长按倍速；换会话、换集都保持） */
-    fun setSpeed(speed: Float) {
+    /** 菜单选倍速：按这部片记（访客不记），换会话、换集都保持；长按倍速期间只改记着的那档，松手回到它 */
+    fun selectSpeed(speed: Float) {
         noteUserActivity()
+        speedFromMemory = false
+        set { copy(speed = speed) }
+        if (!holdSpeedActive) applySpeed(speed)
+        if (backend !is ShareBackend) speedMemory.remember(speed, unit.mediaItemId)
+    }
+
+    /** 长按倍速：临时盖住所选的速度 */
+    fun beginHoldSpeed(speed: Float) {
+        noteUserActivity()
+        holdSpeedActive = true
         exo.setPlaybackSpeed(speed)
     }
 
-    val speed: Float get() = exo.playbackParameters.speed
+    /** 松手（或缓冲跟不上）：回到菜单选的那档 */
+    fun endHoldSpeed() {
+        if (!holdSpeedActive) return
+        holdSpeedActive = false
+        applySpeed(s.speed)
+    }
+
+    private fun applySpeed(speed: Float) {
+        exo.setPlaybackSpeed(speed)
+        frameDrops.reset()
+        frameDropGraceUntil = SystemClock.elapsedRealtime() + 8_000
+    }
 
     /** 当前这份播放计划（档位、判据原文、字幕压制）：界面上的档位标签用；还没开出会话时 null */
     val decision: PlaybackDecisionView? get() = session?.decision
@@ -1740,6 +1785,9 @@ class PlaybackController(
             "offer" to JsonPrimitive(st.qualityOffer != null),
             "stall" to JsonPrimitive(record?.stalling == true),
             "q" to (st.quality?.let(::JsonPrimitive) ?: JsonNull),
+            // 实际播放速度（菜单选的或长按临时的）与菜单选的那档
+            "rate" to JsonPrimitive(exo.playbackParameters.speed),
+            "speed" to JsonPrimitive(st.speed),
             "bps" to (loadingBps?.let { JsonPrimitive(it.toLong()) } ?: JsonNull),
         )
         Log.i(PROBE_TAG, JsonObject(fields).toString())
@@ -1782,6 +1830,12 @@ class PlaybackController(
         // 掉帧只在视频直通时判：转码档已经是 h264，再掉帧说明连转码产物都放不动，继续降档只会更糟
         val copying = playsOriginalFile || session?.decision?.video?.action == "copy"
         if (!copying || phase != Phase.Playing || !exo.playWhenReady || seekStartedAt != null) return
+        // 加速时 Exo 按音频节奏主动丢帧跟上（4K 60 帧 2 倍就是每秒 120 帧），掉帧是预期内的，不能判成「直通放不动」；
+        // 降回来后还要几秒才追平
+        if (exo.playbackParameters.speed > 1f || SystemClock.elapsedRealtime() < frameDropGraceUntil) {
+            frameDrops.reset()
+            return
+        }
         val counters = exo.videoDecoderCounters ?: return
         counters.ensureUpdated()
         val dropped = counters.droppedBufferCount.toLong()
@@ -1844,7 +1898,7 @@ class PlaybackController(
     /** 当前文件时间（毫秒）：叠加层字幕 10Hz 读 */
     fun currentFileMs(): Long = originMs + exo.currentPosition
 
-    /** 这次沿用了哪些**不是默认**的记忆（画质、音轨、字幕），拼成开播提示；都是默认的返回 null */
+    /** 这次沿用了哪些**不是默认**的记忆（画质、音轨、字幕、倍速），拼成开播提示；都是默认的返回 null */
     private fun rememberedChoiceNotice(): String? {
         val session = session ?: return null
         val qualityLimit = if (qualityFromMemory && qualityLimited) s.quality else null
@@ -1863,7 +1917,7 @@ class PlaybackController(
                 s.subtitles.options.firstOrNull { it.ref == ref }?.let { RememberedChoices.shortLabel(it.label, s.subtitles.options.map { o -> o.label }) }
             } ?: "关闭"
         }
-        return RememberedChoices.notice(qualityLimit, network, audio, subtitle)
+        return RememberedChoices.notice(qualityLimit, network, audio, subtitle, s.speed.takeIf { speedFromMemory })
     }
 
     fun flash(message: String) {

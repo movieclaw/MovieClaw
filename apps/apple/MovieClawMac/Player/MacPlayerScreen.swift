@@ -317,9 +317,6 @@ private struct MacPlayerContent: View {
         case .tracks:
             MacTracksPanel(controller: controller, maxWidth: maxWidth, maxHeight: maxHeight) { panel = nil }
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottomTrailing)))
-        case .quality:
-            MacQualityPanel(controller: controller, maxHeight: maxHeight) { panel = nil }
-                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottomTrailing)))
         case nil:
             EmptyView()
         }
@@ -556,11 +553,23 @@ private struct MacPlayerContent: View {
                 if once { toggleFullScreen() }
             } else if character == "m", modifiers.isEmpty {
                 if once { toggleMute() }
+            } else if character == "[" || character == "]", modifiers.isEmpty {
+                // 倍速逐档（同 Windows 版的 [ ]）：到头不再变
+                if once { stepRate(character == "]" ? 1 : -1) }
             } else {
                 return .ignored
             }
         }
         return .handled
+    }
+
+    private func stepRate(_ direction: Int) {
+        let all = PlaybackSpeed.all
+        let index = all.firstIndex(of: controller.rate) ?? all.firstIndex(of: 1) ?? 0
+        let next = all[min(max(0, index + direction), all.count - 1)]
+        guard next != controller.rate else { return }
+        controller.selectRate(next)
+        flash = MacPlayerFlash(symbol: direction > 0 ? "hare.fill" : "tortoise.fill", text: PlaybackSpeed.short(next))
     }
 
     private func debugLog(_ message: String) {

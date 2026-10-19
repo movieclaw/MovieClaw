@@ -291,6 +291,12 @@ struct PlayerBottomBar: View {
                     .accessibilityIdentifier("player-time")
                     .accessibilityValue(String(position / 1000))
                 Spacer()
+                // 不是正常速度时常驻一个角标，免得忘了自己开着倍速（长按倍速另有顶部 HUD）
+                if controller.rate != 1, !controller.holdSpeedActive {
+                    Text(PlaybackSpeed.short(controller.rate))
+                        .foregroundStyle(.white)
+                        .accessibilityIdentifier("player-rate-badge")
+                }
                 Text(remainingText)
             }
             .font(.caption.monospacedDigit())

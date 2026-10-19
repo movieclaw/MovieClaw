@@ -492,6 +492,7 @@ public final class AetherPlayback {
                 // 宿主起播：续播点要逐帧解太久时从前一个关键帧开播（内置引擎补丁 P39）。引擎自己的重建不经这里，原位接上
                 engine.snapsNextStartToKeyframe = true
                 try await engine.load(source: mediaSource, startPosition: start, options: options)
+                if let self, !Task.isCancelled, self.hostRate != 1 { engine.setRate(self.hostRate) }
             } catch is CancellationError {
                 // 被新的装载 / 停止取代：不是播放失败
             } catch {
@@ -557,7 +558,14 @@ public final class AetherPlayback {
         Task { await engine.seek(to: max(0, seconds)) }
     }
 
-    public func setRate(_ rate: Float) { engine.setRate(rate) }
+    /// 宿主选的倍速。引擎每装载一个新片源都把速率归回 1（上游 #436），装载在后台任务里跑、比这里的调用晚，
+    /// 所以记下来、装载完再补一次
+    private var hostRate: Float = 1
+
+    public func setRate(_ rate: Float) {
+        if rate != 0 { hostRate = rate }
+        engine.setRate(rate)
+    }
 
     /// 放大前向缓冲到「多少秒内容」：线路跟不上片子码率时，让暂停能多攒（引擎补丁 P20）
     public func setForwardBufferDuration(_ seconds: Double) { engine.setForwardBufferDuration(seconds) }

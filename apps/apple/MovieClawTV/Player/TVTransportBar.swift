@@ -53,6 +53,8 @@ struct TVTransportBar: View {
             HStack {
                 Text(Formatters.clock(Double(position) / 1000))
                 Spacer()
+                // 不是正常速度时常驻一个角标，免得忘了自己开着倍速
+                if controller.rate != 1 { Text(PlaybackSpeed.short(controller.rate)).foregroundStyle(.white) }
                 Text("-" + Formatters.clock(Double(max(0, duration - position)) / 1000))
             }
             .font(.callout.monospacedDigit())

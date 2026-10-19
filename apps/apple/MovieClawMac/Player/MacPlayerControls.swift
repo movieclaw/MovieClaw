@@ -191,6 +191,12 @@ struct MacPlayerTransport: View {
                     .accessibilityIdentifier("mac-player-time")
                     .accessibilityValue("\(position)")
                 MacScrubber(controller: controller, trickplay: trickplay, pointer: pointer, scrubMs: $scrubMs)
+                // 不是正常速度时常驻一个角标，免得忘了自己开着倍速
+                if controller.rate != 1 {
+                    Text(PlaybackSpeed.short(controller.rate))
+                        .help("倍速（[ 减慢，] 加快）")
+                        .accessibilityIdentifier("mac-player-rate-badge")
+                }
                 Button {
                     showsTotal.toggle()
                 } label: {
@@ -246,16 +252,14 @@ struct MacPlayerTransport: View {
         }
     }
 
-    /// 右边：音频与字幕、画质、全屏
+    /// 右边：音频与字幕、⋯（画质 / 倍速）、全屏
     private var trailingButtons: some View {
         HStack(spacing: 6) {
             MacPlayerIconButton(symbol: controller.selectedSubtitle == nil ? "captions.bubble" : "captions.bubble.fill",
                                 size: 18, help: "字幕与音轨", id: "mac-player-tracks", active: panel == .tracks) {
                 panel = panel == .tracks ? nil : .tracks
             }
-            if controller.scope.shareSlug == nil {
-                qualityButton
-            }
+            moreMenu
             MacPlayerIconButton(symbol: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
                                 size: 17, help: isFullScreen ? "退出全屏（F）" : "全屏（F）", id: "mac-player-fullscreen",
                                 action: toggleFullScreen)
@@ -267,26 +271,47 @@ struct MacPlayerTransport: View {
         return controller.paused && !controller.wantsPlay ? "play.fill" : "pause.fill"
     }
 
-    /// 画质：一枚小字徽标写着当前档（自动 / 1080p…），点开选档
-    private var qualityButton: some View {
-        let label = QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? "原画"
-        return Button {
-            panel = panel == .quality ? nil : .quality
+    /// ⋯：画质、倍速两个子菜单（docs/design/playback-speed.md）。用系统菜单而不是自绘面板：悬停就展开二级、
+    /// 当前项打勾，是 Mac 用户的习惯；子菜单标题下一行小字写着当前值。访客分享不能选画质（服务端按分享的设定给流）
+    private var moreMenu: some View {
+        let quality = QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? "原画"
+        return Menu {
+            if controller.scope.shareSlug == nil {
+                Menu {
+                    ForEach(QualityOption.all) { item in
+                        Toggle(isOn: Binding(get: { controller.quality == item.maxHeight },
+                                             set: { _ in controller.selectQuality(item.maxHeight) })) {
+                            Text(item.label)
+                            Text(item.hint)
+                        }
+                    }
+                } label: {
+                    Text("画质")
+                    Text(quality)
+                }
+            }
+            Menu {
+                ForEach(PlaybackSpeed.all, id: \.self) { rate in
+                    Toggle(PlaybackSpeed.label(rate), isOn: Binding(get: { controller.rate == rate },
+                                                                     set: { _ in controller.selectRate(rate) }))
+                }
+            } label: {
+                Text("倍速")
+                Text(PlaybackSpeed.label(controller.rate))
+            }
         } label: {
-            Text(label)
-                .font(.system(size: 11.5, weight: .bold))
-                .padding(.horizontal, 7)
-                .frame(height: 20)
-                .overlay(Capsule().strokeBorder(.white.opacity(0.85), lineWidth: 1.4))
-                // 四周同样留 7 点：悬停 / 选中的底与徽标是同心的两层胶囊
-                .padding(.horizontal, 7)
-                .frame(minHeight: 34)
+            Image(systemName: "ellipsis")
+                .font(.system(size: 17, weight: .semibold))
+                .frame(width: 34, height: 34)
                 .contentShape(.rect)
         }
-        .buttonStyle(MacPlayerButtonStyle(active: panel == .quality))
-        .help("画质")
-        .accessibilityLabel("画质：\(label)")
-        .accessibilityIdentifier("mac-player-quality")
+        .menuStyle(.button)
+        .buttonStyle(MacPlayerButtonStyle())
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("更多")
+        .accessibilityLabel("更多：画质与倍速")
+        .accessibilityIdentifier("mac-player-more")
     }
 }
 

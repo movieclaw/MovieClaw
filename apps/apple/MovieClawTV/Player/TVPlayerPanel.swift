@@ -1,16 +1,18 @@
 import SwiftUI
 
-/// 面板的三栏（下滑 / 点按下呼出）。打开时焦点落在哪一栏由 `TVPlayerPanel.firstTab` 定
+/// 面板的四栏（下滑 / 点按下呼出）。打开时焦点落在哪一栏由 `TVPlayerPanel.firstTab` 定。
+/// 倍速也是一栏、不做二级菜单：遥控器上每多一层就多一次确认加一次返回（docs/design/playback-speed.md）
 enum TVPlayerPanelTab: String, CaseIterable, Hashable {
     case subtitles = "字幕"
     case audio = "音轨"
     case quality = "画质"
+    case speed = "倍速"
 }
 
-/// 播放器的字幕 / 音轨 / 画质面板（2026-10-04 用户选定「压暗三栏 + 焦点即预览」，同 Netflix 电视版的「音频与字幕」）：
+/// 播放器的字幕 / 音轨 / 画质 / 倍速面板（2026-10-04 用户选定「压暗三栏 + 焦点即预览」，同 Netflix 电视版的「音频与字幕」）：
 ///
 /// - **画面退后而不熄灭**：整屏由中间向外渐暗（不磨砂，画面清楚可见），播放照常继续；
-/// - **对称三栏竖排**：字幕 / 音轨 / 画质，左右换栏、上下选，每栏各自滚动（上下边缘渐隐）。竖排而不是横排：
+/// - **对称多栏竖排**：字幕 / 音轨 / 画质 / 倍速，左右换栏、上下选，每栏各自滚动（上下边缘渐隐）。竖排而不是横排：
 ///   本地片源动辄十几条字幕，横排一屏只放得下五六个、两行信息也放不下（系统播放器、Netflix、Infuse 都是竖排）；
 /// - **字幕按语言分组**：关闭 → 正在使用 → 中文 → 英语 → 其他语言（组名与轨道名同用中文）；轨道多时「其他语言」折叠成一行，按确认展开；
 /// - **选了就切**：选中后直接在画面上看到效果，不预览、不加提示（试过「焦点即预览」与切换提示，用户要简洁，2026-10-04 去掉）。
@@ -40,7 +42,7 @@ struct TVPlayerPanel: View {
             switch tab {
             case .audio: !controller.audioOptions.isEmpty
             case .quality: controller.scope.shareSlug == nil
-            case .subtitles: true
+            case .subtitles, .speed: true
             }
         }
     }
@@ -152,6 +154,12 @@ struct TVPlayerPanel: View {
                     controller.selectQuality(item.maxHeight)
                 }
             }
+        case .speed:
+            ForEach(PlaybackSpeed.all, id: \.self) { rate in
+                option(id: "speed-\(PlaybackSpeed.short(rate))", title: PlaybackSpeed.label(rate), detail: nil, active: controller.rate == rate) {
+                    controller.selectRate(rate)
+                }
+            }
         }
     }
 
@@ -231,6 +239,7 @@ struct TVPlayerPanel: View {
         if id.hasPrefix("subtitle-") { return .subtitles }
         if id.hasPrefix("audio-") { return .audio }
         if id.hasPrefix("quality-") { return .quality }
+        if id.hasPrefix("speed-") { return .speed }
         return nil
     }
 
@@ -239,6 +248,7 @@ struct TVPlayerPanel: View {
         case .subtitles: controller.subtitles.options.count + controller.subtitles.unavailable.count
         case .audio: controller.audioOptions.count
         case .quality: QualityOption.all.count
+        case .speed: PlaybackSpeed.all.count
         }
     }
 
@@ -251,6 +261,8 @@ struct TVPlayerPanel: View {
             (controller.currentAudio ?? AudioOption.defaultRef(in: controller.audioOptions)).map { "audio-\($0)" } ?? ""
         case .quality:
             "quality-" + (QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? "原画")
+        case .speed:
+            "speed-" + PlaybackSpeed.short(controller.rate)
         }
     }
 }

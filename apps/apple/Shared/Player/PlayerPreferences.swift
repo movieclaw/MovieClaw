@@ -80,6 +80,56 @@ struct QualityOption: Identifiable, Hashable {
     ]
 }
 
+/// 倍速档（docs/design/playback-speed.md）：各端同一组。最高 2 倍是自研引擎视频通路的上限（`maxSupportedRate`），
+/// 也是 B 站、Infuse 等的上限
+enum PlaybackSpeed {
+    static let all: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2]
+
+    /// 「正常」/「1.25×」
+    static func label(_ rate: Float) -> String {
+        rate == 1 ? "正常" : short(rate)
+    }
+
+    /// 「1×」「1.25×」：时间旁的角标、开播提示用
+    static func short(_ rate: Float) -> String {
+        let text = String(format: "%.2f", rate).replacingOccurrences(of: #"\.?0+$"#, with: "", options: .regularExpression)
+        return text + "×"
+    }
+}
+
+/// 倍速按片记（2026-10-19 用户拍板）：同一部剧换集、下次再打开都保持，换一部片从正常速度起。
+/// 只存不是正常速度的选择，选回正常就删掉；最多 `limit` 条，超出按最久没用的先丢（同 `QualityMemory`）
+enum SpeedMemory {
+    private static let key = "movieclaw.player.speed-by-title"
+    static let limit = 300
+
+    /// [条目 id: [倍速, 记下的时刻]]
+    private static var entries: [String: [Double]] {
+        get { UserDefaults.standard.dictionary(forKey: key) as? [String: [Double]] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+
+    static func rate(mediaItemId: Int) -> Float? {
+        guard let rate = entries[String(mediaItemId)]?.first.map(Float.init),
+              rate != 1, PlaybackSpeed.all.contains(rate) else { return nil }
+        return rate
+    }
+
+    static func remember(_ rate: Float, mediaItemId: Int) {
+        var all = entries
+        if rate != 1 {
+            all[String(mediaItemId)] = [Double(rate), Date().timeIntervalSince1970]
+            if all.count > limit {
+                let oldest = all.sorted { ($0.value.last ?? 0) < ($1.value.last ?? 0) }.prefix(all.count - limit)
+                oldest.forEach { all.removeValue(forKey: $0.key) }
+            }
+        } else {
+            all.removeValue(forKey: String(mediaItemId))
+        }
+        entries = all
+    }
+}
+
 /// 分享访客的本机进度（对应 Web `lib/player/local-progress.ts`）：
 /// 访客没有成员身份，进度不落服务端，只记在这台设备上，按分享 slug 分命名空间。
 enum ShareLocalProgress {
@@ -158,7 +208,7 @@ enum QualityMemory {
 /// 默认的就不打扰。
 enum RememberedChoices {
     /// 各项传 nil = 这一项是默认（或这次没沿用记忆），不提
-    static func notice(quality: Int?, network: PlaybackNetwork, audio: String?, subtitle: String?) -> String? {
+    static func notice(quality: Int?, network: PlaybackNetwork, audio: String?, subtitle: String?, rate: Float? = nil) -> String? {
         var parts: [String] = []
         if let quality {
             // 画质按网络环境分开记：点明是哪个环境下的选择，回到家看到原画不会以为记忆失灵
@@ -166,6 +216,7 @@ enum RememberedChoices {
         }
         if let audio { parts.append("音轨 \(audio)") }
         if let subtitle { parts.append("字幕 \(subtitle)") }
+        if let rate { parts.append("倍速 \(PlaybackSpeed.short(rate))") }
         return parts.isEmpty ? nil : "已沿用上次的选择：" + parts.joined(separator: "，")
     }
 

@@ -1,11 +1,9 @@
 import SwiftUI
 
-/// 胶囊上方弹出的两种玻璃面板
+/// 胶囊上方弹出的玻璃面板（画质、倍速在 ⋯ 系统菜单里）
 enum MacPlayerPanelKind: Hashable {
     /// 字幕与音轨（左右两栏，同 Apple TV App 的「音频与字幕」）
     case tracks
-    /// 画质
-    case quality
 }
 
 /// 字幕与音轨面板：左栏字幕（关闭 → 中文 → 英语 → 其他语言 → 放不了的），右栏音轨（只有一条以上才有这一栏）。
@@ -102,42 +100,6 @@ struct MacTracksPanel: View {
                 close()
             }
         }
-    }
-}
-
-/// 画质面板：自动 / 1080p / 720p / 480p，每档一行说明。访客分享不出这个面板（服务端按分享的设定给流）
-struct MacQualityPanel: View {
-    let controller: PlaybackController
-    let maxHeight: CGFloat
-    let close: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("画质")
-                .font(.system(size: 13, weight: .bold))
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
-            // 小窗口里放不下四档时可滚动
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(QualityOption.all) { item in
-                        MacPanelRow(id: "mac-panel-quality-\(item.label)", title: item.label, detail: item.hint,
-                                    active: controller.quality == item.maxHeight) {
-                            controller.selectQuality(item.maxHeight)
-                            close()
-                        }
-                    }
-                }
-                .padding(.horizontal, 6)
-                .padding(.bottom, 8)
-            }
-            .scrollIndicators(.automatic)
-            .frame(maxHeight: maxHeight)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(width: 250)
-        .macPlayerPanel()
-        .accessibilityIdentifier("mac-player-quality-panel")
     }
 }
 

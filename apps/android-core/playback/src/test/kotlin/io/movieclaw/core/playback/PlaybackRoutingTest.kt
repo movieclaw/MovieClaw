@@ -234,4 +234,37 @@ class PlaybackRoutingTest {
         assertNull(memory.quality(1, PlaybackNetwork.Home))
         assertEquals(480, memory.quality(QualityMemory.LIMIT + 1L, PlaybackNetwork.Home))
     }
+
+    @Test fun speedLabels() {
+        assertEquals(listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f), PlaybackSpeeds.ALL)
+        assertEquals("正常", PlaybackSpeeds.label(1f))
+        assertEquals("1.25×", PlaybackSpeeds.label(1.25f))
+        assertEquals("0.5×", PlaybackSpeeds.short(0.5f))
+        assertEquals("2×", PlaybackSpeeds.short(2f))
+        assertEquals("已沿用上次的选择：倍速 1.5×", RememberedChoices.notice(null, PlaybackNetwork.Home, null, null, 1.5f))
+    }
+
+    @Test fun speedMemoryPerTitle() {
+        val store = object : PrefsStore {
+            val map = HashMap<String, String>()
+            override fun string(key: String) = map[key]
+            override fun putString(key: String, value: String?) {
+                if (value == null) map.remove(key) else map[key] = value
+            }
+        }
+        var now = 0L
+        val memory = SpeedMemory(store) { now++ }
+        assertNull(memory.speed(1))
+        memory.remember(1.5f, 1)
+        assertEquals(1.5f, memory.speed(1))
+        // 换一部片从正常速度起
+        assertNull(memory.speed(2))
+        // 选回正常 = 忘掉
+        memory.remember(1f, 1)
+        assertNull(memory.speed(1))
+        // 超出上限丢最久没用的
+        for (id in 1..SpeedMemory.LIMIT + 1L) memory.remember(2f, id)
+        assertNull(memory.speed(1))
+        assertEquals(2f, memory.speed(SpeedMemory.LIMIT + 1L))
+    }
 }

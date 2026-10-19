@@ -6,21 +6,25 @@ import SwiftUI
 ///
 /// 对齐：标题、对勾、说明文字、样式编辑器的左缘同在一条线上（`MenuMetrics.edge`），
 /// 各行的标题在对勾列之后另起一条线（`MenuMetrics.titleLeading`）。
+///
+/// 两级菜单（⋯ 设置）：一级不带标题；进了二级标题前多一个「‹」，点标题回到一级（`onBack`）
 struct PlayerMenuPanel<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
+    let title: String?
+    var onBack: (() -> Void)?
+    let content: Content
     @Environment(\.playerMenuMaxHeight) private var maxHeight
     @State private var headerHeight: CGFloat = 0
     @State private var contentHeight: CGFloat = 0
 
+    init(title: String?, onBack: (() -> Void)? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.onBack = onBack
+        self.content = content()
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.55))
-                .padding(.horizontal, MenuMetrics.edge)
-                .padding(.top, 14)
-                .padding(.bottom, 4)
+            header
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
             // 内容短就贴合内容高度；超出「顶栏与底栏之间的空隙」才在面板里滚动，面板永远不压住顶栏
             ScrollView {
@@ -32,6 +36,36 @@ struct PlayerMenuPanel<Content: View>: View {
         .frame(width: MenuMetrics.width)
         .clipShape(.rect(cornerRadius: MenuMetrics.radius))
         .glassEffect(PlayerGlass.panel, in: .rect(cornerRadius: MenuMetrics.radius))
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        if let title, let onBack {
+            Button(action: onBack) {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.left")
+                    Text(title)
+                }
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.75))
+                .padding(.horizontal, MenuMetrics.edge)
+                .frame(maxWidth: .infinity, minHeight: MenuMetrics.rowHeight, alignment: .leading)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
+            .accessibilityLabel("返回")
+            .accessibilityIdentifier("menu-back")
+        } else if let title {
+            Text(title)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.55))
+                .padding(.horizontal, MenuMetrics.edge)
+                .padding(.top, 14)
+                .padding(.bottom, 4)
+        } else {
+            Color.clear.frame(height: 8)
+        }
     }
 
     private var rows: some View {
@@ -353,21 +387,91 @@ struct SettingsMenu: View {
     let controller: PlaybackController
     let close: () -> Void
 
+    /// 一级（画质 / 倍速 / 播放诊断）还是进了哪一项的二级；每次打开都从一级起（菜单收起时这个视图就没了）
+    @State private var page: Page = .root
+
+    enum Page { case root, quality, speed }
+
     var body: some View {
-        // 面板标题直接用第一节的「画质」：点的就是 ⋯ 设置，再叠一行「设置」只是重复
-        PlayerMenuPanel(title: "画质") {
-            // 画质：语义是上限——源不超所选档就照常直通（无损），超了才转码降下去
+        PlayerMenuPanel(title: title, onBack: page == .root ? nil : { go(.root) }) {
+            // 叠放而不是竖排：换页过渡期间新旧两页同时在，竖排会上下摞成两截
+            ZStack(alignment: .topLeading) {
+                switch page {
+                case .root: rootRows.transition(.push(from: .leading))
+                case .quality: qualityRows.transition(.push(from: .trailing))
+                case .speed: speedRows.transition(.push(from: .trailing))
+                }
+            }
+            .clipped()
+        }
+    }
+
+    private var title: String? {
+        switch page {
+        case .root: nil
+        case .quality: "画质"
+        case .speed: "倍速"
+        }
+    }
+
+    private func go(_ next: Page) {
+        withAnimation(.snappy(duration: 0.28)) { page = next }
+    }
+
+    /// 一级：每项行尾写着当前值，不点进去也看得到；访客分享不能选画质（服务端按分享的设定给流）
+    @ViewBuilder
+    private var rootRows: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if controller.scope.shareSlug == nil {
+                PlayerMenuRow(title: "画质", active: false, identifier: "menu-quality", badge: {
+                    MenuValue(text: QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? "原画")
+                }) { go(.quality) }
+            }
+            PlayerMenuRow(title: "倍速", active: false, identifier: "menu-speed", badge: {
+                MenuValue(text: PlaybackSpeed.label(controller.rate))
+            }) { go(.speed) }
+            MenuDivider()
+            PlayerMenuRow(title: "播放诊断", active: controller.diagnosticsOpen, systemImage: "waveform.path.ecg", identifier: "menu-diagnostics") {
+                controller.diagnosticsOpen.toggle()
+                close()
+            }
+        }
+    }
+
+    private var qualityRows: some View {
+        // 画质：语义是上限——源不超所选档就照常直通（无损），超了才转码降下去
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(QualityOption.all) { option in
                 PlayerMenuRow(title: option.label, hint: option.hint, active: controller.quality == option.maxHeight, identifier: "quality-\(option.label)") {
                     controller.selectQuality(option.maxHeight)
                     close()
                 }
             }
-            MenuDivider()
-            PlayerMenuRow(title: "播放诊断", active: controller.diagnosticsOpen, systemImage: "waveform.path.ecg", identifier: "menu-diagnostics") {
-                controller.diagnosticsOpen.toggle()
-                close()
+        }
+    }
+
+    private var speedRows: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(PlaybackSpeed.all, id: \.self) { rate in
+                PlayerMenuRow(title: PlaybackSpeed.label(rate), active: controller.rate == rate, identifier: "speed-\(PlaybackSpeed.short(rate))") {
+                    controller.selectRate(rate)
+                    close()
+                }
             }
+        }
+    }
+}
+
+/// 一级菜单行尾：当前值 + 「›」（系统设置的样式）
+private struct MenuValue: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(text).foregroundStyle(.white.opacity(0.55))
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.35))
         }
     }
 }

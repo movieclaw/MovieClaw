@@ -121,6 +121,10 @@ final class PlaybackController {
     private(set) var quality: Int?
     /// 画质是这次打开时从记忆里取的、用户还没动过：开播提示要点明
     private var qualityFromMemory = false
+    /// 用户选的倍速（菜单里那一档）：按这部片记（`SpeedMemory`），换集、换引擎都带着；长按 2 倍速只是临时盖住它
+    private(set) var rate: Float = 1
+    /// 倍速是这次打开时从记忆里取的、用户还没动过：开播提示要点明
+    private var rateFromMemory = false
     /// 开播提示「已沿用上次的选择」只在打开播放器后第一次出画时判一次（自动连播下一集不再提示）
     private var memoryNoticeChecked = false
     /// 播放时的网络环境（在家直连 / 在外面），画质记忆按它分开
@@ -258,6 +262,11 @@ final class PlaybackController {
         } else {
             quality = request.shareSlug == nil ? QualityMemory.quality(mediaItemId: request.mediaItemId, network: network) : nil
             qualityFromMemory = quality != nil
+            // 倍速同样按片记、访客不记；片段模式从正常速度起
+            if request.shareSlug == nil, let remembered = SpeedMemory.rate(mediaItemId: request.mediaItemId) {
+                rate = remembered
+                rateFromMemory = true
+            }
         }
     }
 
@@ -1032,6 +1041,8 @@ final class PlaybackController {
             self.handleEngineEvent(event)
         }
         newEngine.applySubtitleStyle(subtitleStyle)
+        // 新引擎从正常速度起：换集、换档、重开都把选的倍速带过去（长按中换的也回到所选那档）
+        if rate != 1 { newEngine.setRate(rate) }
         resetWatchdogs()
         let startSeconds = Double(max(0, positionMs - originMs)) / 1000
         // 起播音轨：用户这次选过、或服务端挑的不是容器默认轨（记着的、沿用上一集的、默认轨策略挑的原声）
@@ -1320,15 +1331,21 @@ final class PlaybackController {
             // 换会话 / 降档时控制器自己按的暂停（request 里的 engine.pause）不上报：那不是用户暂停
             if reportedStart, !phase.isBusy { sendProgress(paused: true) }
         case .buffering:
+            let wasPlaying = phase == .playing
             if phase == .playing {
                 phase = .buffering
                 // seek 造成的等待是「跳转耗时」，不是卡顿（同 Web qoe.ts 口径）
                 if seekStartedAt == nil { qoe.beginRebuffer() }
             }
-            if holdSpeedActive, (engine?.bufferedEnd ?? 0) - (engine?.currentTime ?? 0) < 1 {
+            let starved = (engine?.bufferedEnd ?? 0) - (engine?.currentTime ?? 0) < 1
+            if holdSpeedActive, starved {
                 // 倍速吃光了前向缓冲：退回原速
                 endHoldSpeed()
                 flash("缓冲跟不上，已退出 2 倍速")
+            } else if rate > 1, starved, wasPlaying, seekStartedAt == nil {
+                // 菜单选的加速也一样：线路或转码供不上这个速度，退回正常速度（并记下，下一集不再卡）
+                selectRate(1)
+                flash("缓冲跟不上，已回到正常速度")
             }
         case .ended:
             guard [.buffering, .playing].contains(phase) else { return }
@@ -1671,6 +1688,21 @@ final class PlaybackController {
         }
     }
 
+    // MARK: 倍速
+
+    /// 菜单选倍速：按这部片记下（访客、片段模式不记）。长按 2 倍速期间只改记着的那档，松手后回到它
+    func selectRate(_ value: Float) {
+        rate = value
+        rateFromMemory = false
+        if !holdSpeedActive {
+            engine?.setRate(value)
+            // 从加速降下来时视频还要丢几秒帧才追平（同 endHoldSpeed）：这段不判掉帧
+            frameDrops.reset()
+            frameDropGraceUntil = Date().addingTimeInterval(8)
+        }
+        if scope.shareSlug == nil, clip == nil { SpeedMemory.remember(value, mediaItemId: unit.mediaItemId) }
+    }
+
     // MARK: 长按 2 倍速
 
     /// 现在能不能起长按倍速（同 Web canHoldSpeed：暂停时不行，松手按轻点处理）
@@ -1687,7 +1719,7 @@ final class PlaybackController {
     func endHoldSpeed() {
         guard holdSpeedActive else { return }
         holdSpeedActive = false
-        engine?.setRate(1)
+        engine?.setRate(rate)
         // 倍速期间视频被音频甩在后面，回到原速后引擎还要丢几秒帧才追平（真机 4K 60 帧约 6 秒）：
         // 这段不判掉帧，宽限期过后从头统计
         frameDrops.reset()
@@ -2286,8 +2318,8 @@ final class PlaybackController {
             return
         }
         // 长按 2 倍速时引擎按音频节奏主动丢帧跟上（4K 60 帧就是每秒 120 帧），掉帧是预期内的，不能判成
-        // 「直通放不动」——真机实测一按倍速 3 秒就被判掉帧、白白换成了服务端转码
-        guard copying, phase == .playing, !engine.isPaused, seekStartedAt == nil, !holdSpeedActive,
+        // 「直通放不动」——真机实测一按倍速 3 秒就被判掉帧、白白换成了服务端转码。菜单选的加速同理
+        guard copying, phase == .playing, !engine.isPaused, seekStartedAt == nil, !holdSpeedActive, rate <= 1,
               let dropped = stats.droppedFrames, let total = stats.totalFrames else { return }
         if let ratio = frameDrops.sample(dropped: dropped, total: total), ratio >= FrameDropTracker.ratio {
             frameDrops.reset()
@@ -2354,7 +2386,7 @@ final class PlaybackController {
 
     // MARK: - 提示
 
-    /// 这次沿用了哪些**不是默认**的记忆（画质、音轨、字幕），拼成开播提示；都是默认的返回 nil。
+    /// 这次沿用了哪些**不是默认**的记忆（画质、音轨、字幕、倍速），拼成开播提示；都是默认的返回 nil。
     ///
     /// 服务端每次进度上报都会把正在放的轨记下来，「记着」不等于「用户选过」：记着的和默认挑选一致就不提
     private func rememberedChoiceNotice() -> String? {
@@ -2377,7 +2409,8 @@ final class PlaybackController {
                 subtitle = "关闭"
             }
         }
-        return RememberedChoices.notice(quality: qualityLimit, network: network, audio: audio, subtitle: subtitle)
+        return RememberedChoices.notice(quality: qualityLimit, network: network, audio: audio, subtitle: subtitle,
+                                        rate: rateFromMemory ? rate : nil)
     }
 
     // MARK: - 播放记录（docs/design/playback-qoe.md）
