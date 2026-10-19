@@ -89,8 +89,8 @@ FEATURES: tuple[Feature, ...] = (
     ),
     Feature(
         "jellyfin-discovery",
-        "Jellyfin 局域网发现",
-        "让 Infuse 等 Jellyfin 客户端在局域网里自动找到这台服务器",
+        "局域网发现",
+        "让 MovieClaw 各端 App 和 Infuse 等 Jellyfin 客户端在局域网里自动找到这台服务器",
         ("jellyfin.discovery",),
         switchable=True,
     ),

@@ -2,13 +2,33 @@ import Foundation
 import Testing
 @testable import MovieClaw
 
-/// 局域网自动发现里不碰网络的部分：应答解析、候选地址推导、网段枚举
+/// 局域网自动发现里不碰网络的部分：应答解析、合并、候选地址推导、网段枚举
 struct ServerDiscoveryTests {
-    /// 与后端 `movieclaw_jellyfin/udp.py` 发出的报文同一形状
-    @Test func parsesBackendReply() throws {
+    /// 与后端 `services/lan_discovery.py` 的 Jellyfin 应答同一形状
+    @Test func parsesJellyfinReply() throws {
         let data = Data(#"{"Address": "http://192.168.1.10:3000", "Id": "abc", "Name": "MovieClaw", "EndpointAddress": null}"#.utf8)
         let reply = try #require(ServerDiscovery.parse(data, source: "192.168.1.10"))
-        #expect(reply == .init(address: "http://192.168.1.10:3000", name: "MovieClaw", source: "192.168.1.10"))
+        #expect(reply == .init(addresses: ["http://192.168.1.10:3000"], name: "MovieClaw", source: "192.168.1.10"))
+    }
+
+    /// 自家应答：一组地址，可以为空
+    @Test func parsesNativeReply() throws {
+        let data = Data(#"{"type": "movieclaw.discovery", "version": 1, "instance_id": "abc", "name": "客厅", "server_version": "0.41.0", "addresses": ["http://192.168.1.10:3300", "", 5, "https://m.example.com"]}"#.utf8)
+        let reply = try #require(ServerDiscovery.parse(data, source: "192.168.1.10"))
+        #expect(reply == .init(addresses: ["http://192.168.1.10:3300", "https://m.example.com"], name: "客厅", source: "192.168.1.10", native: true))
+        let empty = try #require(ServerDiscovery.parse(Data(#"{"type": "movieclaw.discovery", "addresses": []}"#.utf8), source: "10.0.0.2"))
+        #expect(empty.addresses.isEmpty && empty.name == "MovieClaw")
+    }
+
+    /// 新服务器对两句询问都应答：同一来源合并成一条，自家的地址在前
+    @Test func mergesRepliesFromTheSameSource() {
+        let jellyfin = ServerDiscovery.Reply(addresses: ["http://172.17.0.2:3000"], name: "NAS", source: "192.168.1.10")
+        let native = ServerDiscovery.Reply(addresses: ["http://192.168.1.10:3300"], name: "NAS", source: "192.168.1.10", native: true)
+        let other = ServerDiscovery.Reply(addresses: ["http://192.168.1.20:8096"], name: "Jellyfin", source: "192.168.1.20")
+        #expect(ServerDiscovery.merged([jellyfin, other, native]) == [
+            .init(addresses: ["http://192.168.1.10:3300", "http://172.17.0.2:3000"], name: "NAS", source: "192.168.1.10", native: true),
+            other,
+        ])
     }
 
     @Test func emptyNameFallsBackToMovieClaw() throws {
@@ -23,13 +43,13 @@ struct ServerDiscoveryTests {
 
     /// 应答地址就是宿主地址：只有一个候选
     @Test func directAddressIsTheOnlyCandidate() {
-        let reply = ServerDiscovery.Reply(address: "http://192.168.1.10:3000", name: "MovieClaw", source: "192.168.1.10")
+        let reply = ServerDiscovery.Reply(addresses: ["http://192.168.1.10:3000"], name: "MovieClaw", source: "192.168.1.10")
         #expect(ServerDiscovery.candidates(for: reply).map(\.displayString) == ["http://192.168.1.10:3000"])
     }
 
     /// Docker 桥接且没配对外地址：后端报的是容器内网 IP，改用报文来源 IP，端口沿用应答里的
     @Test func dockerBridgeAddressFallsBackToSourceIP() {
-        let reply = ServerDiscovery.Reply(address: "http://172.17.0.2:8096", name: "MovieClaw", source: "192.168.1.10")
+        let reply = ServerDiscovery.Reply(addresses: ["http://172.17.0.2:8096"], name: "MovieClaw", source: "192.168.1.10")
         #expect(ServerDiscovery.candidates(for: reply).map(\.displayString) == [
             "http://172.17.0.2:8096",
             "http://192.168.1.10:8096",
@@ -39,11 +59,39 @@ struct ServerDiscoveryTests {
 
     /// 配了公网发布地址（无端口的 https）：公网地址优先，局域网退回默认端口
     @Test func publishedURLComesFirst() {
-        let reply = ServerDiscovery.Reply(address: "https://movie.example.com/", name: "家里", source: "192.168.1.10")
+        let reply = ServerDiscovery.Reply(addresses: ["https://movie.example.com/"], name: "家里", source: "192.168.1.10")
         #expect(ServerDiscovery.candidates(for: reply).map(\.displayString) == [
             "https://movie.example.com",
             "http://192.168.1.10:3000",
         ])
+    }
+
+    /// 自家应答的地址列表为空（桥接部署、还没学到宿主地址）：只剩来源 IP + 默认端口；
+    /// 学到的宿主端口 3300 也会和来源 IP 拼一份
+    @Test func nativeAddressesAndTheirPortsComeFirst() {
+        #expect(ServerDiscovery.candidates(for: .init(addresses: [], name: "m", source: "192.168.1.10", native: true))
+            .map(\.displayString) == ["http://192.168.1.10:3000"])
+        let reply = ServerDiscovery.Reply(addresses: ["http://10.0.0.5:3300", "https://m.example.com"], name: "m", source: "192.168.1.10", native: true)
+        #expect(ServerDiscovery.candidates(for: reply).map(\.displayString) == [
+            "http://10.0.0.5:3300",
+            "https://m.example.com",
+            "http://192.168.1.10:3300",
+            "http://192.168.1.10:3000",
+        ])
+    }
+
+    /// 手动输入只写了主机：依次试 3000、80、https；写了协议或端口就只用它自己
+    @Test(arguments: [
+        ("192.168.1.10", ["http://192.168.1.10:3000", "http://192.168.1.10", "https://192.168.1.10"]),
+        ("nas.local/", ["http://nas.local:3000", "http://nas.local", "https://nas.local"]),
+        ("192.168.1.10:3300", ["http://192.168.1.10:3300"]),
+        ("192.168.1.10:80", ["http://192.168.1.10"]),
+        ("http://192.168.1.10", ["http://192.168.1.10"]),
+        ("https://movie.example.com", ["https://movie.example.com"]),
+    ])
+    func manualAlternatives(typed: String, expected: [String]) throws {
+        let address = try ServerAddress(parsing: typed)
+        #expect(ServerDiscovery.manualAlternatives(address, typed: typed).map(\.displayString) == expected)
     }
 
     @Test func slash24ListsAll254Hosts() {

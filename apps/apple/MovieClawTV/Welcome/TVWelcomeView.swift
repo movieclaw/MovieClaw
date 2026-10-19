@@ -167,6 +167,8 @@ struct TVServerPicker: View {
     @State private var found: ServerDiscovery.Found?
     @State private var manual = ""
     @State private var error: String?
+    /// 手填的地址只写了主机，正在试端口
+    @State private var settling = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 34) {
@@ -191,7 +193,7 @@ struct TVServerPicker: View {
                 .accessibilityIdentifier("tv-server-found")
             } else if !discovering {
                 HStack(spacing: 20) {
-                    Text("没在局域网里找到服务器").foregroundStyle(.secondary)
+                    Text("没在局域网里找到服务器（Docker 部署要映射 UDP 7359）").foregroundStyle(.secondary)
                     Button("重新查找") { Task { await discover() } }
                 }
             }
@@ -245,9 +247,17 @@ struct TVServerPicker: View {
     }
 
     private func submitManual() {
+        let raw = manual.trimmingCharacters(in: .whitespaces)
         do {
-            onPick(try ServerAddress(parsing: manual.trimmingCharacters(in: .whitespaces)))
+            let address = try ServerAddress(parsing: raw)
             error = nil
+            guard !settling else { return }
+            settling = true
+            Task {
+                defer { settling = false }
+                // 只写了主机（如 192.168.1.10）时试一下 3000 / 80 / https，免得默认落到 80 端口连不上
+                onPick(await ServerDiscovery.settle(address, typed: raw))
+            }
         } catch {
             self.error = "地址格式不对：请填写完整地址，例如 http://192.168.0.100:3000"
         }

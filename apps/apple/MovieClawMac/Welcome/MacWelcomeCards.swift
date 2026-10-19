@@ -312,6 +312,8 @@ struct MacServerPicker: View {
     @State private var discoveryRun = 0
     @State private var manual = ""
     @State private var error: String?
+    /// 手填的地址只写了主机，正在试端口
+    @State private var settling = false
     @FocusState private var addressFocused: Bool
 
     var body: some View {
@@ -358,7 +360,7 @@ struct MacServerPicker: View {
                     }
                     .macWelcomePrimary()
                     .fixedSize()
-                    .disabled(manual.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(manual.trimmingCharacters(in: .whitespaces).isEmpty || settling)
                     .accessibilityIdentifier("mac-server-connect")
                 }
             }
@@ -411,9 +413,9 @@ struct MacServerPicker: View {
         case .found:
             EmptyView()
         case .notFound:
-            // 自动发现靠服务端的「Jellyfin 兼容」监听 UDP 7359：关了它、或 Docker 没映射这个端口都找不到
+            // 自动发现靠服务端监听 UDP 7359：关了「局域网发现」、或 Docker 没映射这个端口都找不到
             VStack(alignment: .leading, spacing: 4) {
-                Text("没在局域网里找到服务器。可能不在同一网络，或服务器关闭了「Jellyfin 兼容」（Docker 部署还需映射 UDP 7359），请在下面手动填写地址。")
+                Text("没在局域网里找到服务器。可能不在同一网络，或 Docker 部署没有映射 UDP 7359，请在下面手动填写地址。")
                     .foregroundStyle(Theme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
                 Button("重新查找") { discoveryRun += 1 }
@@ -441,7 +443,13 @@ struct MacServerPicker: View {
         do {
             let address = try ServerAddress(parsing: raw)
             error = nil
-            onPick(address)
+            guard !settling else { return }
+            settling = true
+            Task {
+                defer { settling = false }
+                // 只写了主机（如 192.168.1.10）时试一下 3000 / 80 / https，免得默认落到 80 端口连不上
+                onPick(await ServerDiscovery.settle(address, typed: raw))
+            }
         } catch {
             self.error = error.localizedDescription
             addressFocused = true

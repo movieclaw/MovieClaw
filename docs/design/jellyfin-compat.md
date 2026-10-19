@@ -214,7 +214,11 @@ Public 字段）；`/emby/*` 路径前缀别名（**非 Jellyfin 行为**——1
 
 实现为 asyncio DatagramProtocol 后台任务，随 lifespan 启停；端口被占/无权限时
 写中文警告日志并跳过（发现失败不影响手动填地址）。控制台的兼容层开关对齐
-Jellyfin 的 `AutoDiscovery` 配置语义（默认 true，关闭时不监听）。
+Jellyfin 的 `AutoDiscovery` 配置语义（默认 true，关闭时不应答）。
+
+> 2026-10 起同一个监听也应答 MovieClaw 自家的 `who is MovieClawServer?`（各端 App 用，
+> 不受兼容层开关影响），实现挪到 `src/movieclaw_api/services/lan_discovery.py`，
+> 协议见 [lan-discovery.md](lan-discovery.md)。下面的地址策略两种应答共用。
 
 **`Address` 必须是客户端真实可达的地址**。真 Jellyfin 的逻辑
 （`ApplicationHost.cs:930-941`）：`PublishedServerUrl` 非空则原样返回，否则按

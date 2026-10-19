@@ -1,47 +1,111 @@
 // Package discover 是局域网里找 movieclaw 的最后一招。
 //
-// 用的是服务端已经在应答的那条通道：UDP 7359 上的 Jellyfin 发现协议
-// （`src/movieclaw_jellyfin/udp.py`）。广播一句 `who is JellyfinServer?`，
-// 服务端单播回一个 JSON，里面的 Address 就是 web 端口的完整地址——正好是
-// mclaw 要的那个。复用它意味着服务端一行不用改，也不占新端口。
+// 协议见 docs/design/lan-discovery.md：往 UDP 7359 广播两句询问——自家的
+// `who is MovieClawServer?`（应答一组按可信度排好的地址）与 Jellyfin 的
+// `who is JellyfinServer?`（v0.40.0 及更早的服务器只认这一句，应答一个 Address）。
+// 同一来源 IP 的应答合并成一台服务器。
 //
-// **它只是兜底，不是主路**。四种情况下发现不到，`--server` 必须一直留着：
+// **它只是兜底，不是主路**。这些情况下发现不到，`--server` 必须一直留着：
 //
-//  1. 「Jellyfin 兼容层」开关被关掉了（服务端就不应答）；
-//  2. Docker 桥接部署下探测出的可能是容器内网段地址（服务端自己会告警）；
-//  3. 跨网段、VPN、公网——广播出不去；
-//  4. UDP 7359 被别的程序占了。
+//  1. 服务端停用了「局域网发现」，或 Docker 部署没映射 UDP 7359；
+//  2. 跨网段、VPN、公网——广播出不去；
+//  3. UDP 7359 被别的程序占了。
 package discover
 
 import (
 	"encoding/json"
 	"errors"
 	"net"
+	"net/url"
+	"strconv"
 	"time"
 )
 
-// probe 是服务端认的暗号，大小写不敏感。
-const probe = "who is JellyfinServer?"
+// probes 是服务端认的两句暗号（大小写不敏感），自家的在前。
+var probes = []string{"who is MovieClawServer?", "who is JellyfinServer?"}
 
-// port 与 movieclaw_jellyfin/udp.py 的 DISCOVERY_PORT 一致。
+// defaultPort 是 docker-compose 默认映射的对外端口。
+const defaultPort = 3000
+
+// port 与服务端 services/lan_discovery.py 的 DISCOVERY_PORT 一致。
 // 是变量而非常量，只为让测试能在临时端口上起应答者（7359 常被真服务占着）。
 var port = 7359
 
 // Server 是一台应答了发现请求的服务器。
 type Server struct {
-	// Address 是服务端自报的完整地址（含协议与端口），可直接拿来发请求。
+	// Address 是最可信的候选地址（含协议与端口），即 Candidates[0]。
 	Address string
-	// Name 是「设置 → Jellyfin 兼容」里配的服务器名，用于在多台之间区分。
+	// Name 是服务器名，用于在多台之间区分。
 	Name string
+	// Candidates 是按可信度排好的全部候选地址：应答里的地址 → 来源 IP +
+	// 应答里出现过的端口 → 来源 IP + 3000。桥接部署下服务端报的地址未必连得上，
+	// 调用方应逐个确认。
+	Candidates []string
 }
 
-// response 是服务端应答的 JSON（字段名对齐 Jellyfin，故为大写开头）。
-type response struct {
-	Address string `json:"Address"`
-	Name    string `json:"Name"`
+// reply 是一条解析后的应答。
+type reply struct {
+	addresses []string
+	name      string
+	native    bool
 }
 
-// Find 广播一次并收集 timeout 内的全部应答，按 Address 去重。
+// parseReply 解析应答；不是发现应答（非 JSON、Jellyfin 应答缺 Address）时 ok 为 false。
+// 自家应答的地址列表可以为空：桥接部署又没学到宿主地址时，只能靠来源 IP 拼。
+func parseReply(data []byte) (reply, bool) {
+	var raw map[string]any
+	if json.Unmarshal(data, &raw) != nil {
+		return reply{}, false
+	}
+	text := func(key string) string {
+		value, _ := raw[key].(string)
+		return value
+	}
+	if text("type") == "movieclaw.discovery" {
+		list, _ := raw["addresses"].([]any)
+		var addresses []string
+		for _, item := range list {
+			if value, ok := item.(string); ok && value != "" {
+				addresses = append(addresses, value)
+			}
+		}
+		return reply{addresses: addresses, name: text("name"), native: true}, true
+	}
+	if text("Address") == "" {
+		return reply{}, false
+	}
+	return reply{addresses: []string{text("Address")}, name: text("Name")}, true
+}
+
+// candidatesFor 由一台服务器的全部应答地址与来源 IP 拼出候选地址（去重、保序）。
+func candidatesFor(addresses []string, source string) []string {
+	var list []string
+	add := func(value string) {
+		for _, existing := range list {
+			if existing == value {
+				return
+			}
+		}
+		list = append(list, value)
+	}
+	var ports []int
+	for _, address := range addresses {
+		parsed, err := url.Parse(address)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			continue
+		}
+		add(parsed.Scheme + "://" + parsed.Host)
+		if p, err := strconv.Atoi(parsed.Port()); err == nil {
+			ports = append(ports, p)
+		}
+	}
+	for _, p := range append(ports, defaultPort) {
+		add("http://" + net.JoinHostPort(source, strconv.Itoa(p)))
+	}
+	return list
+}
+
+// Find 广播一次并收集 timeout 内的全部应答，同一来源 IP 合并成一台。
 //
 // 找不到不是错误：局域网里没有、或者根本不在同一网段，都是正常情况，
 // 调用方据空结果回落到「请给地址」即可。返回 error 只表示「这次探测本身
@@ -59,8 +123,10 @@ func Find(timeout time.Duration) ([]Server, error) {
 	}
 	var sent int
 	for _, target := range targets {
-		if _, err := conn.WriteToUDP([]byte(probe), target); err == nil {
-			sent++
+		for _, probe := range probes {
+			if _, err := conn.WriteToUDP([]byte(probe), target); err == nil {
+				sent++
+			}
 		}
 	}
 	if sent == 0 {
@@ -70,25 +136,49 @@ func Find(timeout time.Duration) ([]Server, error) {
 	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
 		return nil, err
 	}
-	seen := map[string]bool{}
-	var found []Server
+	var sources []string
+	replies := map[string][]reply{}
 	buf := make([]byte, 4096)
 	for {
-		n, _, err := conn.ReadFromUDP(buf)
+		n, from, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			// 读超时即本轮结束——这是正常出口，不是失败
-			return found, nil
+			break
 		}
-		var reply response
-		if json.Unmarshal(buf[:n], &reply) != nil || reply.Address == "" {
+		parsed, ok := parseReply(buf[:n])
+		if !ok {
 			continue
 		}
-		if seen[reply.Address] {
-			continue
+		source := from.IP.String()
+		if _, seen := replies[source]; !seen {
+			sources = append(sources, source)
 		}
-		seen[reply.Address] = true
-		found = append(found, Server{Address: reply.Address, Name: reply.Name})
+		replies[source] = append(replies[source], parsed)
 	}
+	return merge(sources, replies), nil
+}
+
+// merge 把每个来源的应答合成一台服务器：自家应答的地址与名字在前。
+func merge(sources []string, replies map[string][]reply) []Server {
+	var found []Server
+	for _, source := range sources {
+		var addresses []string
+		name := ""
+		for _, native := range []bool{true, false} {
+			for _, item := range replies[source] {
+				if item.native != native {
+					continue
+				}
+				addresses = append(addresses, item.addresses...)
+				if name == "" {
+					name = item.name
+				}
+			}
+		}
+		candidates := candidatesFor(addresses, source)
+		found = append(found, Server{Address: candidates[0], Name: name, Candidates: candidates})
+	}
+	return found
 }
 
 // broadcastTargets 收集要发往的广播地址。

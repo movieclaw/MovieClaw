@@ -922,7 +922,7 @@ Mac Worker 的改动（`DevicePairing.swift`、设置窗重写、握手改 Beare
   只需两处加法，不需要推翻。
 - **不为发现新开协议或新开端口**。`mclaw login` 的局域网自动发现改为复用服务端
   **已经在应答**的那条通道：UDP 7359 上的 Jellyfin 发现协议
-  （`src/movieclaw_jellyfin/udp.py`）。客户端广播一句 `who is JellyfinServer?`，
+  （当时的 `src/movieclaw_jellyfin/udp.py`；2026-10 起改为自家协议，见 lan-discovery.md）。客户端广播一句 `who is JellyfinServer?`，
   服务端回的 `Address` 就是 web 端口的完整地址。代价是客户端约 130 行 Go，
   服务端零改动（详见 §6.5）——比另起 mDNS 或自定义应答器低一个数量级。
 

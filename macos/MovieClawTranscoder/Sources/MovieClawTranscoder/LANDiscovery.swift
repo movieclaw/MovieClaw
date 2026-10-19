@@ -3,16 +3,17 @@ import Foundation
 
 /// 局域网里找 movieclaw（docs/design/device-auth.md §6.5）。
 ///
-/// 用的是服务端**已经在应答**的那条通道：UDP 7359 上的 Jellyfin 发现协议
-/// （`src/movieclaw_jellyfin/udp.py`）。广播一句 `who is JellyfinServer?`，
-/// 服务端单播回一个 JSON，里面的 `Address` 就是 web 端口的完整地址。
-/// mclaw CLI 用的是同一套（`cli/internal/discover`），两边行为保持一致。
+/// 协议见 docs/design/lan-discovery.md：往 UDP 7359 广播两句询问——自家的
+/// `who is MovieClawServer?`（应答一组按可信度排好的地址）与 Jellyfin 的
+/// `who is JellyfinServer?`（v0.40.0 及更早的服务器只认这一句，应答一个 `Address`）。
+/// 同一来源 IP 的应答只留一条，自家的优先。mclaw CLI 用的是同一套
+/// （`cli/internal/discover`），两边行为保持一致。
 ///
-/// **它只是省掉一次手打，不是必需路径**。四种情况下找不到，地址输入框
+/// **它只是省掉一次手打，不是必需路径**。这些情况下找不到，地址输入框
 /// 因此永远保留：
 ///
-///   1. 服务端的「Jellyfin 兼容层」开关被关掉了（就不应答了）；
-///   2. 桥接网络部署下服务端自报的是容器内地址（连不上，会被剔掉）；
+///   1. 服务端停用了「局域网发现」，或 Docker 部署没映射 UDP 7359；
+///   2. 桥接网络部署下服务端还不知道宿主地址（自报的连不上）；
 ///   3. 跨网段、VPN、公网——广播出不去；
 ///   4. UDP 7359 被别的程序占了。
 ///
@@ -29,14 +30,20 @@ enum LANDiscovery {
     struct Server: Equatable {
         /// 服务端自报的完整地址（含协议与端口）。
         let address: String
-        /// 「设置 → Jellyfin 兼容」里配的服务器名，用于在多台之间区分。
+        /// 服务器名，用于在多台之间区分。
         let name: String
     }
 
-    /// 与 `movieclaw_jellyfin/udp.py` 的 DISCOVERY_PORT 一致。
+    /// 一帧应答：解析出的服务器，以及是不是自家协议的应答。
+    struct Reply: Equatable {
+        let server: Server
+        let native: Bool
+    }
+
+    /// 与服务端 `services/lan_discovery.py` 的 DISCOVERY_PORT 一致。
     static let port: UInt16 = 7359
-    /// 服务端认的暗号，大小写不敏感。
-    private static let probe = "who is JellyfinServer?"
+    /// 服务端认的两句暗号（大小写不敏感），自家的在前。
+    private static let probes = ["who is MovieClawServer?", "who is JellyfinServer?"]
 
     /// 广播一次并收集 timeout 内的全部应答，按地址去重。
     ///
@@ -64,42 +71,62 @@ enum LANDiscovery {
 
         var sent = 0
         for target in broadcastTargets() {
-            var addr = target
-            let bytes = Array(probe.utf8)
-            let result = withUnsafePointer(to: &addr) { pointer -> Int in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    sendto(fd, bytes, bytes.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+            for probe in probes {
+                var addr = target
+                let bytes = Array(probe.utf8)
+                let result = withUnsafePointer(to: &addr) { pointer -> Int in
+                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                        sendto(fd, bytes, bytes.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    }
                 }
+                if result > 0 { sent += 1 }
             }
-            if result > 0 { sent += 1 }
         }
         guard sent > 0 else { return [] }
 
         let deadline = Date().addingTimeInterval(timeout)
-        var seen = Set<String>()
-        var found: [Server] = []
+        var replies: [Reply] = []
+        var sources: [String] = []
         var buffer = [UInt8](repeating: 0, count: 4096)
         while Date() < deadline {
-            let count = recv(fd, &buffer, buffer.count, 0)
+            var from = sockaddr_in()
+            var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let count = withUnsafeMutablePointer(to: &from) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    recvfrom(fd, &buffer, buffer.count, 0, $0, &length)
+                }
+            }
             // 读超时（EAGAIN）或出错都表示本轮结束，这是正常出口
             guard count > 0 else { break }
-            guard let server = parse(Data(buffer[0..<count])) else { continue }
-            guard seen.insert(server.address).inserted else { continue }
-            found.append(server)
+            let source = String(cString: inet_ntoa(from.sin_addr))
+            guard let reply = parse(Data(buffer[0..<count]), source: source) else { continue }
+            // 同一来源只留一条：新服务器两句都答，自家的应答优先
+            if let index = sources.firstIndex(of: source) {
+                if reply.native && !replies[index].native { replies[index] = reply }
+                continue
+            }
+            sources.append(source)
+            replies.append(reply)
         }
-        return found
+        var seen = Set<String>()
+        return replies.map(\.server).filter { seen.insert($0.address).inserted }
     }
 
-    /// 解析一帧应答。非 JSON、缺 Address 的都跳过——局域网里什么都可能往这个端口发。
-    static func parse(_ data: Data) -> Server? {
+    /// 解析一帧应答。非 JSON、Jellyfin 应答缺 Address 的都跳过——局域网里什么都可能往这个端口发。
+    /// 自家应答取地址列表的第一个（服务端已按可信度排好，局域网地址在公网域名前面）；
+    /// 列表为空（桥接部署、服务端还不知道宿主地址）时用来源 IP + 默认端口 3000。
+    static func parse(_ data: Data, source: String) -> Reply? {
         guard
             let object = try? JSONSerialization.jsonObject(with: data),
-            let payload = object as? [String: Any],
-            let address = payload["Address"] as? String,
-            !address.isEmpty
+            let payload = object as? [String: Any]
         else { return nil }
-        let name = (payload["Name"] as? String) ?? ""
-        return Server(address: address, name: name)
+        if payload["type"] as? String == "movieclaw.discovery" {
+            let addresses = (payload["addresses"] as? [Any] ?? []).compactMap { $0 as? String }.filter { !$0.isEmpty }
+            let address = addresses.first ?? "http://\(source):3000"
+            return Reply(server: Server(address: address, name: (payload["name"] as? String) ?? ""), native: true)
+        }
+        guard let address = payload["Address"] as? String, !address.isEmpty else { return nil }
+        return Reply(server: Server(address: address, name: (payload["Name"] as? String) ?? ""), native: false)
     }
 
     /// 要发往的广播地址。

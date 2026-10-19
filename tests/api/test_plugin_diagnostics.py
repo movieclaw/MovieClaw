@@ -129,14 +129,14 @@ def test_failed_plugin_raises_a_notice_and_recovery_resolves_it(env, monkeypatch
 
 
 def test_patch_file_disables_only_disableable_plugins(env, monkeypatch, caplog) -> None:
-    from movieclaw_jellyfin import udp
+    from movieclaw_api.services import lan_discovery
 
     started: list[int] = []
 
     async def fake_start(port: int) -> None:
         started.append(port)
 
-    monkeypatch.setattr(udp, "start_discovery", fake_start)
+    monkeypatch.setattr(lan_discovery, "start_discovery", fake_start)
     (env / "plugins.yaml").write_text(
         "- id: jellyfin.discovery\n"
         "  disabled: true\n"

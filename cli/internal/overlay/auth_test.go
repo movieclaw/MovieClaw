@@ -177,7 +177,7 @@ func TestResolveOrDiscoverExplainsBothCauses(t *testing.T) {
 	if !strings.Contains(cliErr.Message, "局域网内也没有找到") {
 		t.Errorf("没说明自动查找也失败了：%q", cliErr.Message)
 	}
-	for _, want := range []string{"--server", "MOVIECLAW_SERVER", "Jellyfin 兼容层"} {
+	for _, want := range []string{"--server", "MOVIECLAW_SERVER", "UDP 7359"} {
 		if !strings.Contains(cliErr.Hint, want) {
 			t.Errorf("提示里缺少 %q：%s", want, cliErr.Hint)
 		}

@@ -138,11 +138,12 @@ async def push_arrivals(ctx: Context) -> None:
     ctx.effect(arrivals.stop, label="stop-arrivals")
 
 
-@plugin("jellyfin.discovery", title="Jellyfin 局域网发现", disableable=True, reloadable=True)
+# 插件 id 沿用早期的 jellyfin.discovery：用户存过的禁用补丁 / 功能开关都按它认
+@plugin("jellyfin.discovery", title="局域网发现", disableable=True, reloadable=True)
 async def jellyfin_discovery(ctx: Context) -> None:
-    """在局域网内应答 Jellyfin 客户端的自动发现，客户端不必手填地址就能找到本服务器。"""
-    from movieclaw_jellyfin.udp import start_discovery, stop_discovery
+    """在局域网内应答各端 App 与 Jellyfin 客户端的自动发现，不必手填地址就能找到本服务器。"""
+    from movieclaw_api.services.lan_discovery import start_discovery, stop_discovery
 
-    # UDP 7359；开关关闭 / 端口被占时内部自行降级
+    # UDP 7359；端口被占时内部自行降级。Jellyfin 兼容开关只管要不要应答 Jellyfin 的询问
     await start_discovery(ctx.settings.jellyfin_public_port)
     ctx.effect(stop_discovery, label="stop-discovery")

@@ -368,11 +368,13 @@ struct WelcomeSignInPanel: View {
         let typed = address
         Task {
             defer { busy = false }
+            // 只写了主机（如 192.168.1.10）时试一下 3000 / 80 / https，免得默认落到 80 端口连不上
+            let target = await ServerDiscovery.settle(server, typed: typed)
             do {
                 if setup {
-                    try await model.createAdmin(on: server, username: name, password: password)
+                    try await model.createAdmin(on: target, username: name, password: password)
                     onSignedIn?()
-                } else if try await model.signIn(to: server, username: name, password: password) == .needsSetup {
+                } else if try await model.signIn(to: target, username: name, password: password) == .needsSetup {
                     setupAddress = typed
                     focus = .confirm
                 } else {

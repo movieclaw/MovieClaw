@@ -3,12 +3,15 @@ package discover
 import (
 	"encoding/json"
 	"net"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
 
-// responder 起一个照 movieclaw_jellyfin/udp.py 协议应答的临时监听者。
-func responder(t *testing.T, replies ...string) {
+// responder 起一个照服务端 services/lan_discovery.py 协议应答的临时监听者：
+// 按询问分别回自家应答或 Jellyfin 应答（不传就不应答那一句，模拟旧服务器）。
+func responder(t *testing.T, native, jellyfin []string) {
 	t.Helper()
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 	if err != nil {
@@ -26,8 +29,10 @@ func responder(t *testing.T, replies ...string) {
 				return
 			}
 			// 暗号大小写不敏感，这里按服务端的口径只做包含判断
-			if len(buf[:n]) == 0 {
-				continue
+			query := strings.ToLower(string(buf[:n]))
+			replies := jellyfin
+			if strings.Contains(query, "who is movieclawserver?") {
+				replies = native
 			}
 			for _, reply := range replies {
 				_, _ = conn.WriteToUDP([]byte(reply), addr)
@@ -36,28 +41,58 @@ func responder(t *testing.T, replies ...string) {
 	}()
 }
 
-func reply(address, name string) string {
+func jellyfinReply(address, name string) string {
 	raw, _ := json.Marshal(map[string]any{
 		"Address": address, "Name": name, "Id": "x", "EndpointAddress": nil,
 	})
 	return string(raw)
 }
 
-func TestFindCollectsAndDeduplicates(t *testing.T) {
+func nativeReply(name string, addresses ...string) string {
+	raw, _ := json.Marshal(map[string]any{
+		"type": "movieclaw.discovery", "version": 1, "instance_id": "x",
+		"name": name, "server_version": "0.41.0", "addresses": addresses,
+	})
+	return string(raw)
+}
+
+// 新服务器两句都答：同一来源合并成一台，自家应答的地址在前，来源 IP 拼出的兜底在后。
+// 广播在本机回环上收到的来源 IP 不固定，按 Find 返回的来源推导期望值。
+func TestFindMergesBothRepliesFromOneServer(t *testing.T) {
 	responder(t,
-		reply("http://192.168.1.10:3000", "客厅 NAS"),
-		reply("http://192.168.1.10:3000", "客厅 NAS"), // 同一台重复应答只算一次
-		reply("http://192.168.1.20:3000", "书房"),
+		[]string{nativeReply("客厅 NAS", "http://192.168.1.10:3300", "https://m.example.com")},
+		[]string{jellyfinReply("http://172.17.0.2:3000", "客厅 NAS")},
 	)
 	found, err := Find(time.Second)
 	if err != nil {
 		t.Fatalf("查找失败：%v", err)
 	}
-	if len(found) != 2 {
-		t.Fatalf("期望去重后 2 台，实际 %d：%+v", len(found), found)
+	if len(found) != 1 {
+		t.Fatalf("期望合并成 1 台，实际 %d：%+v", len(found), found)
 	}
-	if found[0].Address != "http://192.168.1.10:3000" || found[0].Name != "客厅 NAS" {
-		t.Errorf("解析结果不对：%+v", found[0])
+	got := found[0]
+	source := strings.TrimSuffix(strings.TrimPrefix(got.Candidates[len(got.Candidates)-1], "http://"), ":3000")
+	want := []string{
+		"http://192.168.1.10:3300",
+		"https://m.example.com",
+		"http://172.17.0.2:3000",
+		"http://" + source + ":3300",
+		"http://" + source + ":3000",
+	}
+	if got.Name != "客厅 NAS" || got.Address != want[0] || !reflect.DeepEqual(got.Candidates, want) {
+		t.Errorf("合并结果不对：%+v\n期望候选 %v", got, want)
+	}
+}
+
+// 旧服务器只认 Jellyfin 的询问：照样找得到。
+func TestFindWorksWithOldServers(t *testing.T) {
+	responder(t, nil, []string{jellyfinReply("http://10.0.0.5:3000", "旧版")})
+	found, err := Find(time.Second)
+	if err != nil {
+		t.Fatalf("查找失败：%v", err)
+	}
+	if len(found) != 1 || found[0].Address != "http://10.0.0.5:3000" || found[0].Name != "旧版" {
+		t.Fatalf("旧服务器的应答没解析出来：%+v", found)
 	}
 }
 
@@ -83,16 +118,33 @@ func TestFindReturnsEmptyWhenNobodyAnswers(t *testing.T) {
 	}
 }
 
-// TestFindIgnoresGarbage 校验非 JSON 或缺 Address 的应答被跳过——
-// 局域网里什么都可能往这个端口发。
-func TestFindIgnoresGarbage(t *testing.T) {
-	responder(t, "不是 JSON", `{"Name":"缺地址"}`, reply("http://10.0.0.5:3000", "有效"))
-	found, err := Find(time.Second)
-	if err != nil {
-		t.Fatalf("查找失败：%v", err)
+// TestParseReplyIgnoresGarbage 校验非 JSON 或缺 Address 的应答被跳过——
+// 局域网里什么都可能往这个端口发；自家应答的空地址列表是合法的。
+func TestParseReplyIgnoresGarbage(t *testing.T) {
+	for _, raw := range []string{"不是 JSON", `{"Name":"缺地址"}`, `{"Address":""}`, `[1,2]`} {
+		if _, ok := parseReply([]byte(raw)); ok {
+			t.Errorf("垃圾应答没有被过滤：%s", raw)
+		}
 	}
-	if len(found) != 1 || found[0].Address != "http://10.0.0.5:3000" {
-		t.Fatalf("垃圾应答没有被过滤：%+v", found)
+	got, ok := parseReply([]byte(`{"type":"movieclaw.discovery","addresses":["", 5, "http://a:1"]}`))
+	if !ok || !got.native || !reflect.DeepEqual(got.addresses, []string{"http://a:1"}) {
+		t.Errorf("自家应答解析不对：%+v", got)
+	}
+	got, ok = parseReply([]byte(`{"type":"movieclaw.discovery","addresses":[]}`))
+	if !ok || len(got.addresses) != 0 {
+		t.Errorf("空地址列表也该算合法应答：%+v %v", got, ok)
+	}
+}
+
+func TestCandidatesForFallsBackToSourceIP(t *testing.T) {
+	got := candidatesFor(nil, "192.168.1.10")
+	if !reflect.DeepEqual(got, []string{"http://192.168.1.10:3000"}) {
+		t.Errorf("没有地址时只剩来源 IP + 3000：%v", got)
+	}
+	got = candidatesFor([]string{"ftp://x", "https://m.example.com/", "http://192.168.1.10:3000/"}, "192.168.1.10")
+	want := []string{"https://m.example.com", "http://192.168.1.10:3000"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("候选地址不对：%v，期望 %v", got, want)
 	}
 }
 

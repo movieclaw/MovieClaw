@@ -239,9 +239,9 @@ services:
     ports:
       # 左边是宿主端口，被占了就改左边（比如 "8096:3000"），右边保持 3000
       - "3000:3000"
-      # 可选：播放器局域网自动发现（Jellyfin 协议）。要用就去掉下一行的 #；
-      # 宿主上已经跑着 Jellyfin / Emby 时别打开，端口冲突会让容器起不来
-      # - "7359:7359/udp"
+      # 局域网自动发现：MovieClaw 各端 App 和 Jellyfin 播放器靠它找到服务器。
+      # 宿主上已经跑着 Jellyfin / Emby 时在这一行前加 # 关掉，端口冲突会让容器起不来
+      - "7359:7359/udp"
     volumes:
       - ./data:/app/data              # 运行数据，备份这个文件夹就够了
                                       # （含隐藏文件 .secret_key，备份工具别跳过点文件）
@@ -299,8 +299,8 @@ docker compose up -d
 4. 可选："设置 → 模型接入"接入大模型、"设置 → AI 设定"选默认模型，解锁 AI 助手；"设置 → 自动入库"加一条"源目录 → 目标库"规则，让任意来源的下载也自动入库。
 
 > 只想试一条命令？
-> `docker run -d --name movieclaw --init -p 3000:3000 --restart unless-stopped -e TZ=Asia/Shanghai -v "$(pwd)/data:/app/data" -v /volume1/media:/media -v /volume1/downloads:/downloads movieclaw/movieclaw:latest`
-> 挂载路径的规则和上面完全一样。要用播放器局域网自动发现，再加一个 `-p 7359:7359/udp`。
+> `docker run -d --name movieclaw --init -p 3000:3000 -p 7359:7359/udp --restart unless-stopped -e TZ=Asia/Shanghai -v "$(pwd)/data:/app/data" -v /volume1/media:/media -v /volume1/downloads:/downloads movieclaw/movieclaw:latest`
+> 挂载路径的规则和上面完全一样。`-p 7359:7359/udp` 是局域网自动发现，宿主上已有 Jellyfin / Emby 时去掉它。
 
 ### 日常升级：不用重拉镜像
 
@@ -323,7 +323,7 @@ MovieClaw 对外提供 Jellyfin 兼容的播放接口，第三方播放器**把�
 | Infuse / VidHub | **真机验证可用** | 以 Jellyfin 服务器身份连接，浏览、直连播放、进度同步，播放器侧零改动 |
 | Fileball / SenPlayer | 同一套接口 | 走的是同一条 Jellyfin 兼容链路，但没有逐台真机验证过 |
 | Emby / Jellyfin 官方 App | 不适用 | 它们连的是自己的服务端；MovieClaw 可以在入库后通知 Emby/Jellyfin 刷新 |
-| 局域网自动发现 | 部分 | 需映射 `7359/udp`。桥接网络下广播不一定到得了容器，到了也要在"设置 → 网络 → 外部访问地址"填局域网地址（如 `http://192.168.1.10:3000`）；最稳是 host 网络，或播放器里手动填地址 |
+| 局域网自动发现 | 支持 | 需映射 `7359/udp`。桥接网络下容器不知道宿主的局域网地址：用浏览器以局域网地址（如 `http://192.168.1.10:3000`）打开一次 MovieClaw，服务端会记住它；也可以在"设置 → 网络 → 外部访问地址"填写 |
 | 远程硬件转码 | macOS Apple Silicon | 菜单栏 App，走 VideoToolbox 硬件编码（一台常开的 Mac mini 就够）。协议开放，其他平台可自行扩展 |
 
 细节见 [jellyfin-compat.md](docs/design/jellyfin-compat.md)、[web-player.md](docs/design/web-player.md)、
@@ -426,9 +426,9 @@ python -m movieclaw_api.reset_password
 （或其他空闲端口）改内部前端端口；后端仍固定为 8000，须确保它空闲。host 网络下应删除
 `ports`，因为端口映射无效。此选项需要拉取更新后的 Docker 镜像并重建容器，应用内更新无法
 替换启动脚本和 nginx 模板。另外 host 网络下还会监听
-UDP 7359（Jellyfin 局域网自动发现），和已有的 Jellyfin / Emby 会撞。
+UDP 7359（局域网自动发现），和已有的 Jellyfin / Emby 会撞。
 
-**所以：除非你确实需要局域网自动发现，否则用上面改冒号左边的办法，别上 host 网络。**
+**所以：用上面改冒号左边的办法就好，别上 host 网络。**桥接网络下局域网自动发现也能用（映射 `7359/udp` 即可）。
 </details>
 
 <details>

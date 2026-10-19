@@ -52,7 +52,7 @@ func NewLoginCommand() *cobra.Command {
     mclaw login --server http://192.168.1.10:3000    # 直接指定
 
 不带 --server 时会广播查找同一局域网内的 movieclaw，找到后请你确认。跨网段、
-VPN，或服务端关掉了「Jellyfin 兼容层」时找不到，自己给地址即可。
+VPN，或 Docker 部署没映射 UDP 7359 时找不到，自己给地址即可。
 
 随后命令会显示一个批准链接和一段配对码：在登录着 movieclaw 的浏览器里打开
 链接，核对配对码后批准（打不开链接时，到网页或 App 的「设置 → 设备」手动
@@ -461,13 +461,14 @@ func noServerError(cause error, result discovery) error {
 	if len(result.Unreachable) > 0 {
 		return clierr.Usagef("局域网里找到了 movieclaw，但它自报的地址连不上：%s",
 			strings.Join(result.Unreachable, "、")).
-			WithHint("桥接网络部署下服务端探测到的常是容器内地址。" +
-				"请到网页「设置 → 网络与维护」填写对外访问地址，" +
-				"或直接用 mclaw login --server http://<主机>:3000 指定")
+			WithHint("桥接网络部署下服务端还不知道宿主地址：" +
+				"在浏览器里用局域网地址打开一次 MovieClaw 让它记住，" +
+				"或到网页「设置 → 网络与维护」填写对外访问地址，" +
+				"或直接用 mclaw login --server http://<主机>:<端口> 指定")
 	}
 	return clierr.Usagef("%s（局域网内也没有找到）", cliErr.Message).
-		WithHint("%s 局域网查找依赖服务端的「Jellyfin 兼容层」开关，"+
-			"跨网段、VPN 或桥接网络下也可能找不到。", cliErr.Hint)
+		WithHint("%s Docker 部署需映射 UDP 7359 才能在局域网里找到；"+
+			"跨网段、VPN 下也可能找不到。", cliErr.Hint)
 }
 
 // discovery 是一次查找的结果：确认过的，和应答了但连不上的。
@@ -491,13 +492,23 @@ var discoverServers = func() discovery {
 	}
 	var result discovery
 	for _, candidate := range candidates {
-		name, ok := probeMovieclaw(candidate.Address)
-		if !ok {
+		// 候选地址按可信度排好：第一个确认是 movieclaw 的就是它
+		confirmed := false
+		for _, address := range candidate.Candidates {
+			name, ok := probeMovieclaw(address)
+			if !ok {
+				continue
+			}
+			candidate.Address = address
+			if candidate.Name == "" {
+				candidate.Name = name
+			}
+			confirmed = true
+			break
+		}
+		if !confirmed {
 			result.Unreachable = append(result.Unreachable, candidate.Address)
 			continue
-		}
-		if candidate.Name == "" {
-			candidate.Name = name
 		}
 		result.Confirmed = append(result.Confirmed, candidate)
 	}

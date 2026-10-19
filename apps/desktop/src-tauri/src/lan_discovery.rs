@@ -1,4 +1,6 @@
-//! Same UDP 7359 discovery contract as the Mac client. Advertisements are only
+//! Same UDP 7359 discovery contract as the Mac client (docs/design/lan-discovery.md).
+//! Each target is asked twice: MovieClaw's own query (a list of addresses) and
+//! the Jellyfin one (older servers only answer that). Advertisements are only
 //! candidates; an unauthenticated MovieClaw health response must validate them.
 use serde_json::{json, Value};
 use std::{
@@ -8,41 +10,55 @@ use std::{
 };
 
 const PORT: u16 = 7359;
-const QUERY: &[u8] = b"who is JellyfinServer?";
+const QUERIES: [&[u8]; 2] = [b"who is MovieClawServer?", b"who is JellyfinServer?"];
 
 fn candidates(bytes: &[u8], sender: SocketAddr) -> Vec<(String, String)> {
     let Ok(value) = serde_json::from_slice::<Value>(bytes) else {
         return vec![];
     };
-    let advertised = value["Address"]
+    let native = value["type"] == "movieclaw.discovery";
+    let advertised: Vec<&str> = if native {
+        value["addresses"]
+            .as_array()
+            .map(|list| list.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default()
+    } else {
+        match value["Address"]
+            .as_str()
+            .or_else(|| value["EndpointAddress"].as_str())
+        {
+            Some(address) => vec![address],
+            None => return vec![],
+        }
+    };
+    let name = value[if native { "name" } else { "Name" }]
         .as_str()
-        .or_else(|| value["EndpointAddress"].as_str())
-        .unwrap_or_default();
-    let name = value["Name"]
-        .as_str()
+        .filter(|v| !v.is_empty())
         .unwrap_or("MovieClaw")
         .chars()
         .take(128)
         .collect::<String>();
-    let parsed = crate::connect::validate_http_url(advertised).ok();
-    let port = parsed
-        .as_ref()
-        .and_then(|v| v.port_or_known_default())
-        .unwrap_or(3000);
-    let mut targets = Vec::new();
-    if let Some(url) = parsed {
-        targets.push((url.as_str().trim_end_matches('/').to_owned(), name.clone()));
+    let parsed: Vec<_> = advertised
+        .iter()
+        .take(8)
+        .filter_map(|v| crate::connect::validate_http_url(v).ok())
+        .collect();
+    let mut targets: Vec<(String, String)> = Vec::new();
+    let mut push = |url: String| {
+        if !targets.iter().any(|(target, _)| target == &url) {
+            targets.push((url, name.clone()));
+        }
+    };
+    for url in &parsed {
+        push(url.as_str().trim_end_matches('/').to_owned());
     }
     let ip = if sender.is_ipv6() {
         format!("[{}]", sender.ip())
     } else {
         sender.ip().to_string()
     };
-    for port in [port, 3000] {
-        let url = format!("http://{ip}:{port}");
-        if !targets.iter().any(|(target, _)| target == &url) {
-            targets.push((url, name.clone()));
-        }
+    for port in parsed.iter().filter_map(|v| v.port()).chain([3000]) {
+        push(format!("http://{ip}:{port}"));
     }
     targets
 }
@@ -150,8 +166,10 @@ fn receive() -> Result<Vec<(String, String)>, String> {
     let mut buffer = [0u8; 8192];
     for _ in 0..2 {
         for (i, target) in targets.iter().enumerate() {
-            let _ = socket.send_to(QUERY, target);
-            if i % 32 == 31 {
+            for query in QUERIES {
+                let _ = socket.send_to(query, target);
+            }
+            if i % 16 == 15 {
                 std::thread::sleep(Duration::from_millis(2));
             }
         }
@@ -181,7 +199,7 @@ pub async fn discover_servers() -> Result<Vec<Value>, String> {
         .map_err(|_| "无法配置服务器检测")?;
     let mut tasks = tokio::task::JoinSet::new();
     let permits = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
-    for (url, name) in advertised {
+    for (order, (url, name)) in advertised.into_iter().enumerate() {
         let client = client.clone();
         let permits = permits.clone();
         tasks.spawn(async move {
@@ -192,19 +210,31 @@ pub async fn discover_servers() -> Result<Vec<Value>, String> {
         while let Some(chunk)=response.chunk().await.ok()? { if bytes.len()+chunk.len()>16*1024 {return None;} bytes.extend_from_slice(&chunk); }
         let health:Value=serde_json::from_slice(&bytes).ok()?;
         if health["status"]!="ok" {return None;}
-        Some(json!({"name":name,"url":url,"version":health.get("version").cloned().unwrap_or(Value::Null)}))
+        let instance=health.get("instance_id").and_then(Value::as_str).unwrap_or_default().to_owned();
+        Some((order, instance, json!({"name":name,"url":url,"version":health.get("version").cloned().unwrap_or(Value::Null)})))
     });
     }
-    let mut found = Vec::new();
+    let mut passed = Vec::new();
     while let Some(result) = tasks.join_next().await {
         if generation != crate::native_auth::generation() {
             tasks.abort_all();
             return Ok(vec![]);
         }
         if let Ok(Some(value)) = result {
-            if !found.iter().any(|v: &Value| v["url"] == value["url"]) {
-                found.push(value);
-            }
+            passed.push(value);
+        }
+    }
+    // One row per server: the same instance often answers on several candidates
+    // (LAN address and public domain); keep its most trusted one.
+    passed.sort_by_key(|(order, _, _)| *order);
+    let mut found: Vec<Value> = Vec::new();
+    let mut instances = HashSet::new();
+    for (_, instance, value) in passed {
+        if !instance.is_empty() && !instances.insert(instance) {
+            continue;
+        }
+        if !found.iter().any(|v| v["url"] == value["url"]) {
+            found.push(value);
         }
     }
     found.sort_by(|a, b| a["url"].as_str().cmp(&b["url"].as_str()));
@@ -232,6 +262,28 @@ mod tests {
             candidates(b"MOVIECLAW_SERVER_V1|NAS|0.1|3000", sender),
             vec![]
         );
+        assert_eq!(candidates(br#"{"Name":"NAS"}"#, sender), vec![]);
+    }
+    #[test]
+    fn native_reply_lists_addresses_then_sender_ports() {
+        let sender = "192.168.1.25:7359".parse().unwrap();
+        let values = candidates(
+            br#"{"type":"movieclaw.discovery","version":1,"name":"NAS","addresses":["http://10.0.0.5:3300","https://m.example.com",7]}"#,
+            sender,
+        );
+        assert_eq!(
+            values.iter().map(|v| v.0.as_str()).collect::<Vec<_>>(),
+            vec![
+                "http://10.0.0.5:3300",
+                "https://m.example.com",
+                "http://192.168.1.25:3300",
+                "http://192.168.1.25:3000"
+            ]
+        );
+        assert!(values.iter().all(|v| v.1 == "NAS"));
+        // Bridge deployment that has not learned the host address yet
+        let empty = candidates(br#"{"type":"movieclaw.discovery","addresses":[]}"#, sender);
+        assert_eq!(empty, vec![("http://192.168.1.25:3000".to_owned(), "MovieClaw".to_owned())]);
     }
     #[test]
     fn subnet_probe_is_private_and_bounded() {

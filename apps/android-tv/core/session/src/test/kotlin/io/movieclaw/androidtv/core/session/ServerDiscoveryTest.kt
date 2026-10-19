@@ -12,7 +12,7 @@ class ServerDiscoveryTest {
     @Test
     fun parsesDiscoveryReplies() {
         val r = reply("""{"Address":"http://192.168.1.10:3000","Id":"x","Name":"客厅 NAS","EndpointAddress":null}""")
-        assertEquals(ServerDiscovery.Reply("http://192.168.1.10:3000", "客厅 NAS", "192.168.1.10"), r)
+        assertEquals(ServerDiscovery.Reply(listOf("http://192.168.1.10:3000"), "客厅 NAS", "192.168.1.10"), r)
         // 没有名字 / 名字为空 → 默认 MovieClaw
         assertEquals("MovieClaw", reply("""{"Address":"http://a:3000","Name":""}""")?.name)
         assertEquals("MovieClaw", reply("""{"Address":"http://a:3000"}""")?.name)
@@ -24,26 +24,70 @@ class ServerDiscoveryTest {
     }
 
     @Test
+    fun parsesNativeReplies() {
+        val r = reply("""{"type":"movieclaw.discovery","version":1,"instance_id":"x","name":"客厅","server_version":"0.41.0","addresses":["http://192.168.1.10:3300","",5,"https://m.example.com"]}""")
+        assertEquals(ServerDiscovery.Reply(listOf("http://192.168.1.10:3300", "https://m.example.com"), "客厅", "192.168.1.10", native = true), r)
+        // 地址列表可以为空（桥接部署、还没学到宿主地址）
+        assertEquals(ServerDiscovery.Reply(emptyList(), "MovieClaw", "192.168.1.10", native = true), reply("""{"type":"movieclaw.discovery","addresses":[]}"""))
+    }
+
+    @Test
+    fun repliesFromTheSameSourceAreMerged() {
+        val jellyfin = ServerDiscovery.Reply(listOf("http://172.17.0.2:3000"), "NAS", "192.168.1.10")
+        val native = ServerDiscovery.Reply(listOf("http://192.168.1.10:3300"), "NAS", "192.168.1.10", native = true)
+        val other = ServerDiscovery.Reply(listOf("http://192.168.1.20:8096"), "Jellyfin", "192.168.1.20")
+        assertEquals(
+            listOf(ServerDiscovery.Reply(listOf("http://192.168.1.10:3300", "http://172.17.0.2:3000"), "NAS", "192.168.1.10", native = true), other),
+            ServerDiscovery.merged(listOf(jellyfin, other, native)),
+        )
+    }
+
+    @Test
+    fun nativeAddressesAndTheirPortsComeFirst() {
+        assertEquals(
+            listOf("http://192.168.1.10:3000"),
+            ServerDiscovery.candidates(ServerDiscovery.Reply(emptyList(), "m", "192.168.1.10", native = true)).map { it.toString() },
+        )
+        assertEquals(
+            listOf("http://10.0.0.5:3300", "https://m.example.com", "http://192.168.1.10:3300", "http://192.168.1.10:3000"),
+            ServerDiscovery.candidates(
+                ServerDiscovery.Reply(listOf("http://10.0.0.5:3300", "https://m.example.com"), "m", "192.168.1.10", native = true),
+            ).map { it.toString() },
+        )
+    }
+
+    @Test
+    fun manualInputWithoutPortTriesCommonPorts() {
+        fun alternatives(input: String) = ServerDiscovery.manualAlternatives(input).map { it.toString() }
+        assertEquals(listOf("http://192.168.1.10:3000", "http://192.168.1.10", "https://192.168.1.10"), alternatives("192.168.1.10"))
+        assertEquals(listOf("http://nas.local:3000", "http://nas.local", "https://nas.local"), alternatives(" nas.local/ "))
+        assertEquals(listOf("http://192.168.1.10:3300"), alternatives("192.168.1.10:3300"))
+        assertEquals(listOf("http://192.168.1.10"), alternatives("http://192.168.1.10"))
+        assertEquals(listOf("https://movie.example.com"), alternatives("https://movie.example.com"))
+        assertEquals(emptyList<String>(), alternatives("ftp://x"))
+    }
+
+    @Test
     fun candidatesAreOrderedAndDeduplicated() {
         // 应答地址可用：它排第一；来源 IP + 端口与它相同就不重复
         assertEquals(
             listOf("http://192.168.1.10:3000"),
-            ServerDiscovery.candidates(ServerDiscovery.Reply("http://192.168.1.10:3000", "m", "192.168.1.10")).map { it.toString() },
+            ServerDiscovery.candidates(ServerDiscovery.Reply(listOf("http://192.168.1.10:3000"), "m", "192.168.1.10")).map { it.toString() },
         )
         // 桥接部署：应答是容器内网 IP + 自定义端口 → 来源 IP + 应答端口 → 来源 IP + 3000
         assertEquals(
             listOf("http://172.17.0.2:8096", "http://192.168.1.10:8096", "http://192.168.1.10:3000"),
-            ServerDiscovery.candidates(ServerDiscovery.Reply("http://172.17.0.2:8096", "m", "192.168.1.10")).map { it.toString() },
+            ServerDiscovery.candidates(ServerDiscovery.Reply(listOf("http://172.17.0.2:8096"), "m", "192.168.1.10")).map { it.toString() },
         )
         // 外部访问地址是不带端口的域名：端口按默认 3000 推
         assertEquals(
             listOf("https://mc.example.com", "http://192.168.1.10:3000"),
-            ServerDiscovery.candidates(ServerDiscovery.Reply("https://mc.example.com/", "m", "192.168.1.10")).map { it.toString() },
+            ServerDiscovery.candidates(ServerDiscovery.Reply(listOf("https://mc.example.com/"), "m", "192.168.1.10")).map { it.toString() },
         )
         // 应答地址写坏了：只剩来源 IP
         assertEquals(
             listOf("http://10.0.0.5:3000"),
-            ServerDiscovery.candidates(ServerDiscovery.Reply("ftp://x", "m", "10.0.0.5")).map { it.toString() },
+            ServerDiscovery.candidates(ServerDiscovery.Reply(listOf("ftp://x"), "m", "10.0.0.5")).map { it.toString() },
         )
     }
 
