@@ -667,9 +667,12 @@ audience = "admins"
 
 **动手前先跟用户讲清的几件事**：
 
-- **登录只有两种**：扫码（`Login(scan=True)`，实现 `begin_login` / `login_state`，扫码前要选的项用 `options`）和浏览器扩展把网页
-  Cookie 推过来（`cookie_domains`，实现 `login_with_cookie`）。只能用「App ID + 密钥」之类表单登录的网盘（开放平台）**目前接不了**，
-  直说需要扩展登录方式，不要拿插件设置变通（设置是全局一份，网盘账号是每个一份，对不上）。
+- **登录有三种**：扫码（`Login(scan=True)`，实现 `begin_login` / `login_state`，扫码前要选的项用 `options`）、浏览器扩展把网页
+  Cookie 推过来（`cookie_domains`，实现 `login_with_cookie`）、填表（`Login(form=<pydantic 模型>)`，实现 `login_with_form`）。
+  开放平台的 Client ID / 密钥、WebDAV 的地址与密码都走填表：密钥字段用 `SecretStr`（界面按密码框画、不回显），
+  `login_with_form` 里**真去网盘换一次令牌、读一次用户信息**，交回真实的网盘用户 id；密钥不对抛 `AuthExpired`，限流照常抛 `RateLimited`。
+  令牌由长期密钥换来的，把密钥、令牌、过期时间一起放进凭据，快过期时在调用里重新换、赋给 `account.credentials`。
+  不要拿插件设置存网盘密钥（设置是全局一份，网盘账号是每个一份，对不上），也不要把密钥伪装成 Cookie。
 - **只支持能写的网盘**（`Capabilities(writable=True)`，只读网盘这一期不支持）：上传（`ensure_dir` / `begin_upload` /
   `upload_part` / `finish_upload`）和删除（`delete`）都要实现。
 - **建库时网盘有两种用法**（`mclaw library create --help`）：`--cloud-folders-json` 挂上已有的网盘文件夹即纳管（按文件名识别入库，

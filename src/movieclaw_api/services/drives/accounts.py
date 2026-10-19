@@ -1,9 +1,11 @@
-"""网盘账号：扫码登录、Cookie 导入、设置、删除（docs/design/cloud-storage.md §3.1、§11.5）。
+"""网盘账号：扫码、Cookie、填表登录，设置、删除（docs/design/cloud-storage.md §3.1、§11.5、§11.9）。
 
 扫码登录是插件维护的流程：宿主开始一次登录后在后台跟着轮询插件（前端不轮询也能完成——扫完码就建账号），
 设置页轮询宿主拿二维码与状态。登录会话只在内存里，过期后清掉。
 
 同一网盘用户只有一个账号：重新扫码、浏览器扩展重复推送都更新原账号的凭据，不改用户起的名字。
+从某个账号卡片上「重新登录」时带上它的 id：登进来的必须是同一个网盘用户，否则拒绝（不悄悄新建一个、
+让原账号继续失效）。
 """
 
 from __future__ import annotations
@@ -40,6 +42,8 @@ class LoginSession:
     backend: str
     flow_id: str
     detail: str | None
+    #: 重新登录的目标账号（扫到的必须是同一个网盘用户）
+    relogin: int | None = None
     status: str = "pending"
     message: str = ""
     qr: str | None = None
@@ -86,7 +90,9 @@ def _detail(backend: dv.DriveBackend, options: dict[str, str]) -> str | None:
     return " · ".join(parts) or None
 
 
-async def begin_login(backend_type: str, options: dict[str, str]) -> LoginSession:
+async def begin_login(
+    backend_type: str, options: dict[str, str], *, relogin: int | None = None
+) -> LoginSession:
     backend = get_backend(backend_type)
     if not backend.login.scan:
         raise ValueError(f"{backend.title}不支持扫码登录")
@@ -102,6 +108,7 @@ async def begin_login(backend_type: str, options: dict[str, str]) -> LoginSessio
         backend=backend_type,
         flow_id=flow.flow_id,
         detail=_detail(backend, picked),
+        relogin=relogin,
         expires_at=time.monotonic() + LOGIN_TTL_S,
     )
     await _apply(item, flow)
@@ -155,7 +162,12 @@ async def _apply(item: LoginSession, flow: dv.LoginFlow) -> None:
             item.status, item.message = "failed", "登录结果缺失，请重新扫码"
             return
         try:
-            row, created = await _commit(item.backend, flow.result, "scan", item.detail)
+            row, created = await _commit(
+                item.backend, flow.result, "scan", item.detail, relogin=item.relogin
+            )
+        except ValueError as exc:  # 扫的是另一个账号
+            item.status, item.message = "failed", str(exc)
+            return
         except Exception as exc:  # noqa: BLE001 -- 落库失败原样告诉用户
             logger.exception("网盘账号落库失败")
             item.status, item.message = "failed", f"添加账号失败：{exc}"
@@ -168,7 +180,9 @@ async def _apply(item: LoginSession, flow: dv.LoginFlow) -> None:
     item.message = flow.message
 
 
-async def import_cookie(backend_type: str, cookie_header: str) -> tuple[DriveAccount, bool]:
+async def import_cookie(
+    backend_type: str, cookie_header: str, *, relogin: int | None = None
+) -> tuple[DriveAccount, bool]:
     """浏览器扩展推送或用户粘贴的 Cookie：交给插件挑出需要的几项并校验，
 
     再建账号或更新同一用户的账号。
@@ -184,13 +198,66 @@ async def import_cookie(backend_type: str, cookie_header: str) -> tuple[DriveAcc
         raise ValueError(f"没读到 {backend.title}的登录：{exc.message}") from exc
     except dv.DriveError as exc:
         raise ValueError(exc.message) from exc
-    return await _commit(backend_type, result, "cookie", "网页端")
+    return await _commit(backend_type, result, "cookie", "网页端", relogin=relogin)
+
+
+def _form_values(backend: dv.DriveBackend, values: dict[str, Any]) -> dict[str, Any]:
+    """按插件声明的表单收窄：只留声明过的字段、必填项非空、文本去掉首尾空白（粘贴的密钥常带换行）。"""
+    schema = dv.form_schema(backend.login)
+    if schema is None:
+        raise ValueError(f"{backend.title}不支持填写凭据登录")
+    props: dict[str, Any] = schema.get("properties") or {}
+    unknown = sorted(set(values) - set(props))
+    if unknown:
+        raise ValueError(f"登录表单里没有这些字段：{'、'.join(unknown)}")
+    cleaned = {k: v.strip() if isinstance(v, str) else v for k, v in values.items()}
+    missing = [
+        props[k].get("title") or k
+        for k in schema.get("required") or ()
+        if cleaned.get(k) is None or cleaned.get(k) == ""
+    ]
+    if missing:
+        raise ValueError(f"请填写：{'、'.join(missing)}")
+    return cleaned
+
+
+async def login_with_form(
+    backend_type: str, values: dict[str, Any], *, relogin: int | None = None
+) -> tuple[DriveAccount, bool]:
+    """填表登录（开放平台的 Client ID / 密钥等）：插件真去网盘验一次，交回凭据与网盘用户 id，
+
+    再建账号或更新同一用户的账号。填的值只交给插件，不落日志、不出现在报错里。
+    """
+    backend = get_backend(backend_type)
+    cleaned = _form_values(backend, values)
+    try:
+        result = await gateway.call_backend(backend, "login_with_form", values=cleaned)
+    except dv.AuthExpired as exc:
+        raise ValueError(f"{backend.title}没认这组凭据：{exc.message}") from exc
+    except dv.DriveError as exc:
+        raise ValueError(exc.message) from exc
+    return await _commit(backend_type, result, "form", None, relogin=relogin)
 
 
 async def _commit(
-    backend_type: str, result: dv.LoginResult, method: str, detail: str | None
+    backend_type: str,
+    result: dv.LoginResult,
+    method: str,
+    detail: str | None,
+    *,
+    relogin: int | None = None,
 ) -> tuple[DriveAccount, bool]:
     async with get_database().session() as session:
+        if relogin is not None:
+            target = await DriveAccountRepository(session).get(relogin)
+            if target is None:
+                raise ValueError("要重新登录的网盘账号已经不在了")
+            if target.backend != backend_type or target.remote_user_id != result.user_id:
+                who = result.display_name or result.user_id
+                raise ValueError(
+                    f"登录的是另一个账号（{who}），不是「{target.name}」。"
+                    "要添加新账号请用「添加网盘账号」"
+                )
         row, created = await DriveAccountRepository(session).upsert_login(
             backend=backend_type,
             remote_user_id=result.user_id,

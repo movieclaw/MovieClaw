@@ -314,6 +314,39 @@ def test_cookie_login_by_paste_and_by_extension(client) -> None:
     assert unknown.status_code == 404
 
 
+def test_relogin_from_an_account_card_must_be_the_same_user(client) -> None:
+    pasted = client.post(
+        "/api/v1/drives/accounts/cookie", json={"backend": "fake", "cookie": "UID=u2; SEID=s"}
+    )
+    account_id = pasted.json()["data"]["account"]["id"]
+
+    # 粘贴了另一个人的 Cookie：拒绝，不悄悄新建一个账号
+    other = client.post(
+        "/api/v1/drives/accounts/cookie",
+        json={"backend": "fake", "cookie": "UID=u3; SEID=s", "relogin": account_id},
+    )
+    assert other.status_code == 400 and "登录的是另一个账号（网页盘）" in other.text
+    same = client.post(
+        "/api/v1/drives/accounts/cookie",
+        json={"backend": "fake", "cookie": "UID=u2; SEID=new", "relogin": account_id},
+    )
+    assert same.status_code == 201 and same.json()["data"]["account"]["id"] == account_id
+
+    # 扫码扫到的是 u1，不是要重新登录的 u2：登录失败，账号不变
+    started = client.post(
+        "/api/v1/drives/logins",
+        json={"backend": "fake", "options": {"device": "mini"}, "relogin": account_id},
+    ).json()["data"]
+    deadline = time.monotonic() + 10
+    view = started
+    while view["status"] not in ("confirmed", "failed"):
+        assert time.monotonic() < deadline, view
+        time.sleep(0.05)
+        view = client.get(f"/api/v1/drives/logins/{started['login_id']}").json()["data"]
+    assert view["status"] == "failed" and "登录的是另一个账号（测试盘）" in view["message"]
+    assert [a["id"] for a in client.get("/api/v1/drives/accounts").json()["data"]] == [account_id]
+
+
 def test_auth_expired_blocks_the_account_until_relogin(client) -> None:
     account_id = _scan_login(client)["account"]["id"]
     _set_token(client, account_id, "dead")

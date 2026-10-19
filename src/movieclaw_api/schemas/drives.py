@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import Field
 
@@ -41,6 +42,10 @@ class DriveLoginSpecView(BaseModel):
     scan: bool = Field(description="支持扫码登录")
     cookie: bool = Field(description="支持用浏览器扩展导入或粘贴 Cookie 登录")
     cookie_domains: list[str]
+    form: dict[str, Any] | None = Field(
+        default=None,
+        description="填表登录的字段（JSON Schema 子集，同插件设置）；null = 不支持填表登录",
+    )
     options: list[DriveLoginOptionView] = Field(description="扫码前要选的项（如登录端）")
     hint: str
 
@@ -63,7 +68,7 @@ class DriveAccountView(BaseModel):
     backend_available: bool = Field(description="提供这种网盘的插件在运行")
     accent_color: str
     name: str
-    login_method: str = Field(description="scan / cookie")
+    login_method: str = Field(description="scan / cookie / form")
     login_detail: str | None = Field(description="登录细节（如扫码选的登录端）")
     status: str = Field(description="ok / auth_expired / rate_limited / api_broken / disabled")
     status_message: str | None
@@ -95,11 +100,25 @@ class DriveAccountUpdatePayload(BaseModel):
 class DriveLoginPayload(BaseModel):
     backend: str
     options: dict[str, str] = Field(default_factory=dict, description="扫码前选的项")
+    relogin: int | None = Field(
+        default=None, description="从这个账号的卡片上重新登录：登进来的必须是同一个网盘用户"
+    )
 
 
 class DriveCookiePayload(BaseModel):
     backend: str
     cookie: str = Field(description="整页 Cookie（name=value; name2=value2）")
+    relogin: int | None = Field(
+        default=None, description="从这个账号的卡片上重新登录：登进来的必须是同一个网盘用户"
+    )
+
+
+class DriveFormLoginPayload(BaseModel):
+    backend: str
+    values: dict[str, Any] = Field(description="按后端声明的 login.form 填的值")
+    relogin: int | None = Field(
+        default=None, description="从这个账号的卡片上重新登录：登进来的必须是同一个网盘用户"
+    )
 
 
 class DriveLoginView(BaseModel):

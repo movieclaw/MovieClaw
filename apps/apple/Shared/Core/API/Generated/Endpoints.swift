@@ -884,6 +884,12 @@ nonisolated extension APIClient {
         return try await send("POST", "/drives/accounts/cookie", body: body)
     }
 
+    /// 填表登录网盘（开放平台的 Client ID / 密钥等，字段由插件声明）
+    /// `POST /drives/accounts/form`
+    func drivesAccountsForm(body: API.DriveFormLoginPayload) async throws -> API.DriveLoginView {
+        return try await send("POST", "/drives/accounts/form", body: body)
+    }
+
     /// 移除网盘账号（只删 MovieClaw 里的记录，不动网盘上的文件）
     /// `DELETE /drives/accounts/{account_id}`
     func drivesAccountsDelete(accountId: Int) async throws -> [String: API.JSONValue] {

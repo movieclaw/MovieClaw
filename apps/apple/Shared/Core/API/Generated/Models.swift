@@ -3227,7 +3227,7 @@ nonisolated extension API {
         var backendAvailable: Bool
         var accentColor: String
         var name: String
-        /// scan / cookie
+        /// scan / cookie / form
         var loginMethod: String
         /// 登录细节（如扫码选的登录端）
         var loginDetail: String?
@@ -3339,10 +3339,13 @@ nonisolated extension API {
         var backend: String
         /// 整页 Cookie（name=value; name2=value2）
         var cookie: String
+        /// 从这个账号的卡片上重新登录：登进来的必须是同一个网盘用户
+        var relogin: Int?
 
         enum CodingKeys: String, CodingKey {
             case backend
             case cookie
+            case relogin
         }
     }
 
@@ -3369,6 +3372,20 @@ nonisolated extension API {
             case videoCount = "video_count"
             case libraryId = "library_id"
             case libraryName = "library_name"
+        }
+    }
+
+    struct DriveFormLoginPayload: Codable, Hashable, Sendable {
+        var backend: String
+        /// 按后端声明的 login.form 填的值
+        var values: [String: API.JSONValue]
+        /// 从这个账号的卡片上重新登录：登进来的必须是同一个网盘用户
+        var relogin: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case backend
+            case values
+            case relogin
         }
     }
 
@@ -3404,10 +3421,13 @@ nonisolated extension API {
         var backend: String
         /// 扫码前选的项
         var options: [String: String]?
+        /// 从这个账号的卡片上重新登录：登进来的必须是同一个网盘用户
+        var relogin: Int?
 
         enum CodingKeys: String, CodingKey {
             case backend
             case options
+            case relogin
         }
     }
 
@@ -3417,6 +3437,8 @@ nonisolated extension API {
         /// 支持用浏览器扩展导入或粘贴 Cookie 登录
         var cookie: Bool
         var cookieDomains: [String]
+        /// 填表登录的字段（JSON Schema 子集，同插件设置）；null = 不支持填表登录
+        var form: [String: API.JSONValue]?
         /// 扫码前要选的项（如登录端）
         var options: [API.DriveLoginOptionView]
         var hint: String
@@ -3425,6 +3447,7 @@ nonisolated extension API {
             case scan
             case cookie
             case cookieDomains = "cookie_domains"
+            case form
             case options
             case hint
         }

@@ -7,8 +7,11 @@
  *   - 扫码（推荐）：先选登录选项（如 115 的登录端，默认已选好、避开常见冲突）→ 显示二维码与状态 →
  *     扫完码服务端在后台建好账号，这里轮询到 confirmed 就完成；
  *   - 浏览器扩展：在已登录网盘的网页上点 MovieClaw 扩展同步，账号自动出现（这里等着刷新列表）；
- *     扩展用不了时可以展开粘贴整页 Cookie。
- * 同一网盘用户重新登录会更新原账号（不新建、不改名）。
+ *     扩展用不了时可以展开粘贴整页 Cookie；
+ *   - 填写凭据：开放平台的 Client ID / 密钥这类，字段由插件声明（login.form），按插件设置的通用表单画，
+ *     提交后插件真去网盘验一次才建账号。
+ * 同一网盘用户重新登录会更新原账号（不新建、不改名）；从账号卡片上重新登录时带上账号 id，
+ * 登进来的是别的网盘用户会被服务端拒绝。
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -18,6 +21,7 @@ import Link from "next/link";
 
 import { LINK_CLASS } from "@/components/cloud-push-ui";
 import { Modal } from "@/components/modal";
+import { parseValue, SchemaForm, unsupportedField } from "@/components/schema-form";
 import {
   SETTINGS_BUTTON_CLASS,
   SETTINGS_INPUT_CLASS,
@@ -32,32 +36,50 @@ import {
   getDriveLogin,
   importDriveCookie,
   listDriveAccounts,
+  loginDriveWithForm,
   startDriveLogin,
 } from "@/lib/api/drives";
+import type { ConfigSchema } from "@/lib/api/plugins";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 
 const FAILED = new Set(["expired", "failed"]);
 
-type Tab = "scan" | "extension";
+type Tab = "scan" | "form" | "extension";
+
+/** 重新登录默认打开哪一页：沿用原来的方式；网页端 Cookie 容易被挤掉，照旧引导改扫码 */
+const METHOD_TAB: Record<DriveAccount["login_method"], Tab> = {
+  scan: "scan",
+  form: "form",
+  cookie: "scan",
+};
 
 export interface DriveLoginDialogProps {
   backend: DriveBackend;
+  /** 从这个账号的卡片上重新登录（登进来的必须是同一个网盘用户）；不传 = 添加账号 */
+  relogin?: DriveAccount;
   onClose: () => void;
   /** 登录完成：由调用方关闭弹窗并刷新列表 */
   onDone: (account: DriveAccount, created: boolean) => void;
 }
 
-export function DriveLoginDialog({ backend, onClose, onDone }: DriveLoginDialogProps) {
-  const tabs = [
+export function DriveLoginDialog({ backend, relogin, onClose, onDone }: DriveLoginDialogProps) {
+  const form = backend.login.form ?? null;
+  const tabs: { id: Tab; label: string }[] = [
     ...(backend.login.scan ? [{ id: "scan" as const, label: "扫码登录" }] : []),
+    ...(form ? [{ id: "form" as const, label: "填写凭据" }] : []),
     ...(backend.login.cookie ? [{ id: "extension" as const, label: "用浏览器扩展" }] : []),
   ];
-  const [tab, setTab] = useState<Tab>(tabs[0]?.id ?? "scan");
+  // 填表登录的账号重新登录时不该一进来就发起扫码
+  const preferred = relogin ? METHOD_TAB[relogin.login_method] : undefined;
+  const [tab, setTab] = useState<Tab>(
+    tabs.find((t) => t.id === preferred)?.id ?? tabs[0]?.id ?? "scan",
+  );
+  const title = relogin ? `重新登录「${relogin.name}」` : `添加 ${backend.title} 账号`;
 
   return (
-    <Modal open onClose={onClose} label={`添加 ${backend.title} 账号`}>
+    <Modal open onClose={onClose} label={title}>
       <div className="scroll-thin max-h-[80dvh] overflow-y-auto p-6 max-md:p-5">
-        <h2 className="text-title font-bold text-white">添加 {backend.title} 账号</h2>
+        <h2 className="text-title font-bold text-white">{title}</h2>
         {backend.login.hint && (
           <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">{backend.login.hint}</p>
         )}
@@ -68,9 +90,11 @@ export function DriveLoginDialog({ backend, onClose, onDone }: DriveLoginDialogP
         )}
         <div className="mt-5">
           {tab === "scan" ? (
-            <ScanBody backend={backend} onDone={onDone} />
+            <ScanBody backend={backend} relogin={relogin?.id} onDone={onDone} />
+          ) : tab === "form" && form ? (
+            <FormBody backend={backend} schema={form} relogin={relogin?.id} onDone={onDone} />
           ) : (
-            <ExtensionBody backend={backend} onDone={onDone} />
+            <ExtensionBody backend={backend} relogin={relogin?.id} onDone={onDone} />
           )}
         </div>
         <div className="mt-6 flex justify-end">
@@ -87,9 +111,11 @@ export function DriveLoginDialog({ backend, onClose, onDone }: DriveLoginDialogP
 
 function ScanBody({
   backend,
+  relogin,
   onDone,
 }: {
   backend: DriveBackend;
+  relogin?: number;
   onDone: (account: DriveAccount, created: boolean) => void;
 }) {
   const defaults = useMemo(
@@ -112,7 +138,7 @@ function ScanBody({
         void cancelDriveLogin(previous.login_id).catch(() => {});
       }
       try {
-        setLogin(await startDriveLogin(backend.type, picked));
+        setLogin(await startDriveLogin(backend.type, picked, relogin));
       } catch (e) {
         setLogin(null);
         setError((e as Error).message);
@@ -120,7 +146,7 @@ function ScanBody({
         setBusy(false);
       }
     },
-    [backend.type],
+    [backend.type, relogin],
   );
 
   // 进弹窗即发起：点「添加」的意图就是要二维码。改登录选项时重新发起（旧的二维码作废）
@@ -249,9 +275,11 @@ function ScanBody({
 
 function ExtensionBody({
   backend,
+  relogin,
   onDone,
 }: {
   backend: DriveBackend;
+  relogin?: number;
   onDone: (account: DriveAccount, created: boolean) => void;
 }) {
   const domain = backend.login.cookie_domains[0] ?? "";
@@ -287,7 +315,7 @@ function ExtensionBody({
     setBusy(true);
     setError(null);
     try {
-      const result = await importDriveCookie(backend.type, cookie.trim());
+      const result = await importDriveCookie(backend.type, cookie.trim(), relogin);
       if (result.account) onDone(result.account, result.created);
     } catch (e) {
       setError((e as Error).message);
@@ -346,5 +374,84 @@ function ExtensionBody({
         </div>
       )}
     </div>
+  );
+}
+
+/* —— 填写凭据（开放平台的 Client ID / 密钥等） —— */
+
+function FormBody({
+  backend,
+  schema,
+  relogin,
+  onDone,
+}: {
+  backend: DriveBackend;
+  schema: ConfigSchema;
+  relogin?: number;
+  onDone: (account: DriveAccount, created: boolean) => void;
+}) {
+  // 敏感字段不带默认值（服务端也不给），其余字段用插件声明的默认值
+  const [values, setValues] = useState<Record<string, unknown>>(() =>
+    Object.fromEntries(
+      Object.entries(schema.properties)
+        .filter(([, field]) => field.default !== undefined)
+        .map(([name, field]) => [name, field.default]),
+    ),
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const unknown = unsupportedField(schema);
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    try {
+      const payload = Object.fromEntries(
+        Object.entries(schema.properties)
+          .filter(([name]) => values[name] !== undefined)
+          .map(([name, field]) => {
+            const value = values[name];
+            return [name, typeof value === "string" ? parseValue(field, value) : value];
+          }),
+      );
+      const result = await loginDriveWithForm(backend.type, payload, relogin);
+      if (result.account) onDone(result.account, result.created);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (unknown) {
+    return (
+      <p className="text-sub text-[var(--text-muted)]">
+        这个网盘的登录表单有网页还不认识的字段（{unknown}），刷新页面后再试。
+      </p>
+    );
+  }
+
+  return (
+    <form
+      className="space-y-5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <SchemaForm
+        schema={schema}
+        values={values}
+        disabled={busy}
+        onChange={(name, value) => setValues((prev) => ({ ...prev, [name]: value }))}
+      />
+      <p className="text-caption leading-5 text-[var(--text-faint)]">
+        提交后会用这组凭据登录一次 {backend.title} 来确认有效；密钥加密保存，之后不再显示。
+      </p>
+      {error && <p className="text-caption text-[var(--danger)]">{error}</p>}
+      <button type="submit" disabled={busy} className={SETTINGS_PRIMARY_BUTTON_CLASS}>
+        {busy ? "验证中…" : "验证并登录"}
+      </button>
+    </form>
   );
 }

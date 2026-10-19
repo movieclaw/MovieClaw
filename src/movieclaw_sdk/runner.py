@@ -1080,6 +1080,8 @@ class Runner:
             elif method == "login_with_cookie":
                 result = await backend.login_with_cookie(args["cookie_header"])
                 envelope["value"] = dv.result_dict(result)
+            elif method == "login_with_form":
+                envelope["value"] = dv.result_dict(await backend.login_with_form(args["values"]))
             elif method == "account_info":
                 envelope["value"] = dv.info_dict(await backend.account_info(account))
             elif method == "list_dir":

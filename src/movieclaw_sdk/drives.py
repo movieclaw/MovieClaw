@@ -28,6 +28,27 @@
 先把新凭据落库，再把结果交给调用方（滚动刷新的令牌用一次就作废，先用后存会在崩溃时
 丢失登录态）。
 
+**登录方式**：扫码（``begin_login`` 一族）、Cookie（``login_with_cookie``）、填表
+（``login_with_form``）。填表适合开放平台的 Client ID / 密钥、WebDAV 的地址与密码这类
+「用户填几项、插件验一次」的网盘：``Login(form=Credentials)`` 声明一个 pydantic 模型，
+主程序按它画表单（``SecretStr`` 字段按密码框画、不回显）::
+
+    class Credentials(BaseModel):
+        client_id: str = Field(title="Client ID")
+        client_secret: SecretStr = Field(title="Client Secret")
+
+    class Pan123(DriveBackend):
+        login = Login(form=Credentials)
+
+        async def login_with_form(self, values: dict[str, Any]) -> LoginResult:
+            creds = Credentials.model_validate(values)   # 不合格抛 ValueError
+            token = await self._token(creds)              # 真去换一次令牌，密钥不对抛 AuthExpired
+            me = await self._me(token)                    # 拿真实的网盘用户 id
+            return LoginResult(user_id=me.uid, display_name=me.nickname, credentials={...})
+
+令牌由长期密钥换来（client credentials）的，把密钥与令牌、过期时间一起放进 ``credentials``，
+令牌快过期时在调用里重新换、赋给 ``account.credentials`` 即可。
+
 **错误**：只抛本模块的异常（``RateLimited``、``AuthExpired`` ……），主程序按类型决定
 推迟、重试还是让用户重新登录。**只有确认登录已失效才抛 ``AuthExpired``**：限流、风控、
 网络错误都不是。其余异常一律按 ``Transient`` 处理。插件里不要自己睡眠重试、不要自己
@@ -106,6 +127,9 @@ class Login:
     cookie_domains: tuple[str, ...] = ()
     #: 扫码前的选项
     options: tuple[LoginOption, ...] = ()
+    #: 填表登录的字段（pydantic 模型，实现 ``login_with_form``）；None = 不支持。
+    #: 进程外运行时宿主这边拿到的是已经转好的 JSON Schema（dict）
+    form: Any = None
     #: 添加账号对话框顶部的一句说明
     hint: str = ""
 
@@ -353,9 +377,10 @@ class DriveBackend:
     """一家网盘的后端（注册表 ``drive-backends`` 的贡献项）。
 
     子类设置 ``type`` / ``title`` / ``capabilities`` / ``login``，按登录方式实现
-    ``begin_login`` 一族或 ``login_with_cookie``，都要实现 ``account_info``；取流实现 ``stat`` /
-    ``direct_link``，纳管实现 ``list_dir`` / ``list_tree``（有操作动态再实现 ``changes``），上传实现
-    ``ensure_dir`` / ``begin_upload`` / ``upload_part`` / ``finish_upload``，删除实现 ``delete``。
+    ``begin_login`` 一族、``login_with_cookie`` 或 ``login_with_form``，都要实现 ``account_info``；
+    取流实现 ``stat`` / ``direct_link``，纳管实现 ``list_dir`` / ``list_tree``（有操作动态再实现
+    ``changes``），上传实现 ``ensure_dir`` / ``begin_upload`` / ``upload_part`` /
+    ``finish_upload``，删除实现 ``delete``。
     """
 
     #: 存进账号的类型值，全局唯一（如 ``115``）；换一个实现同一网盘的插件时沿用同一个值，
@@ -384,6 +409,15 @@ class DriveBackend:
         """从整页 Cookie 里挑出需要的几项并校验。
 
         没登录抛 ``AuthExpired``，Cookie 不全抛 ``ValueError``。
+        """
+        raise NotImplementedError
+
+    # ---- 登录：填表（开放平台的 Client ID / 密钥、WebDAV 地址与密码……）
+    async def login_with_form(self, values: dict[str, Any]) -> LoginResult:
+        """用户按 ``login.form`` 填的值：真去网盘验一次，交回凭据与**真实的**网盘用户 id。
+
+        ``values`` 只含表单里声明的字段（必填项主程序已查过非空）。凭据不对抛 ``AuthExpired``，
+        填得不合格抛 ``ValueError``；限流、网络错误照常抛对应的异常，不要都归成凭据不对。
         """
         raise NotImplementedError
 
@@ -478,8 +512,9 @@ class DriveBackend:
 DRIVE_BACKENDS: RegistryKey[DriveBackend] = RegistryKey(
     "drive-backends",
     # 1.1：stat / direct_link（取流）；1.2：list_dir / list_tree / changes（纳管）；
-    # 1.3：ensure_dir / begin_upload / upload_part / finish_upload（上传）；1.4：delete
-    version="1.4",
+    # 1.3：ensure_dir / begin_upload / upload_part / finish_upload（上传）；1.4：delete；
+    # 1.5：Login.form / login_with_form（填表登录）
+    version="1.5",
     stability=Stability.EXPERIMENTAL,
     schema=DriveBackend,
     doc="网盘存储后端：插件贡献一家网盘的协议实现（登录、文件操作），主程序负责账号、调度与界面",
@@ -515,6 +550,7 @@ def backend_spec(backend: DriveBackend) -> dict[str, Any]:
         "login": {
             "scan": login.scan,
             "cookie_domains": list(login.cookie_domains),
+            "form": form_schema(login),
             "hint": login.hint,
             "options": [
                 {
@@ -539,6 +575,7 @@ def spec_parts(data: dict[str, Any]) -> tuple[Capabilities, Login]:
     return Capabilities(**caps), Login(
         scan=bool(login["scan"]),
         cookie_domains=tuple(login.get("cookie_domains") or ()),
+        form=login.get("form"),
         hint=login.get("hint") or "",
         options=tuple(
             LoginOption(
@@ -551,6 +588,20 @@ def spec_parts(data: dict[str, Any]) -> tuple[Capabilities, Login]:
             for o in login.get("options") or ()
         ),
     )
+
+
+def form_schema(login: Login) -> dict[str, Any] | None:
+    """填表登录的 JSON Schema（``config_schema`` 子集）；没有表单为 None。
+
+    进程外的后端交来的已经是 dict；模型超出子集抛 ``SchemaNotSupported``（插件写错了，加载时暴露）。
+    """
+    if login.form is None:
+        return None
+    if isinstance(login.form, dict):
+        return login.form
+    from movieclaw_sdk.config_schema import config_schema
+
+    return config_schema(login.form)
 
 
 def result_dict(result: LoginResult) -> dict[str, Any]:

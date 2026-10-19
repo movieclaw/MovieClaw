@@ -630,13 +630,14 @@
         "list_tree": "(self, account: 'DriveAccount', dir_id: 'str') -> 'RemoteTree'",
         "login_state": "(self, flow_id: 'str') -> 'LoginFlow'",
         "login_with_cookie": "(self, cookie_header: 'str') -> 'LoginResult'",
+        "login_with_form": "(self, values: 'dict[str, Any]') -> 'LoginResult'",
         "stat": "(self, account: 'DriveAccount', remote_id: 'str') -> 'RemoteFile'",
         "upload_part": "(self, account: 'DriveAccount', state: 'dict[str, Any]', index: 'int', data: 'bytes') -> 'dict[str, Any]'"
       }
     },
     "kind": "registry",
     "stability": "experimental",
-    "version": "1.4"
+    "version": "1.5"
   },
   "host-ops": {
     "doc": "宿主操作：插件以自己的身份调用本进程的 OpenAPI 操作（按操作授权）",

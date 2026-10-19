@@ -6,12 +6,16 @@
   ``GET /drives/logins/{id}`` 拿二维码与状态；扫完码宿主在后台就把账号建好（前端不轮询也行）；
 - Cookie 登录：浏览器扩展推送走 ``/extension/cookies``（按插件声明的域名分发到这里的服务），
   手动粘贴走 ``POST /drives/accounts/cookie``；
-- 同一网盘用户只有一个账号，重新登录更新原账号。
+- 填表登录（开放平台的 Client ID / 密钥等）：``POST /drives/accounts/form``，表单按插件声明的
+  ``login.form`` 画；
+- 同一网盘用户只有一个账号，重新登录更新原账号；带 ``relogin`` 时登进来的必须是那个账号。
 
 提供网盘的插件不在时账号照常列出（``backend_available=false``），登录给出明确提示，不报 500。
 """
 
 from __future__ import annotations
+
+import logging
 
 from fastapi import APIRouter, Query
 
@@ -24,6 +28,7 @@ from movieclaw_api.schemas.drives import (
     DriveCapabilitiesView,
     DriveCookiePayload,
     DriveDirView,
+    DriveFormLoginPayload,
     DriveLoginChoiceView,
     DriveLoginOptionView,
     DriveLoginPayload,
@@ -40,8 +45,20 @@ from movieclaw_db.engine import get_database
 from movieclaw_db.models.drive_account import DriveAccount
 from movieclaw_db.repositories.drive_account_repo import DriveAccountRepository
 from movieclaw_sdk import drives as dv
+from movieclaw_sdk.config_schema import SchemaNotSupported
+
+logger = logging.getLogger("movieclaw_api.drives")
 
 router = APIRouter(prefix="/drives", tags=["drives"])
+
+
+def _form_schema(item: dv.DriveBackend) -> dict | None:
+    try:
+        return dv.form_schema(item.login)
+    except SchemaNotSupported as exc:
+        # 插件的表单模型写错了：不让它拖垮整个网盘列表，只是不提供填表登录
+        logger.warning("网盘 %s 的登录表单界面画不了：%s", item.type, exc)
+        return None
 
 
 def _backend_view(item: dv.DriveBackend) -> DriveBackendView:
@@ -69,6 +86,7 @@ def _backend_view(item: dv.DriveBackend) -> DriveBackendView:
             scan=login.scan,
             cookie=bool(login.cookie_domains),
             cookie_domains=list(login.cookie_domains),
+            form=_form_schema(item),
             hint=login.hint,
             options=[
                 DriveLoginOptionView(
@@ -317,14 +335,40 @@ async def refresh_account(account_id: int) -> ApiResponse[DriveAccountView]:
 )
 async def import_cookie(payload: DriveCookiePayload) -> ApiResponse[DriveLoginView]:
     try:
-        row, created = await accounts.import_cookie(payload.backend, payload.cookie)
+        row, created = await accounts.import_cookie(
+            payload.backend, payload.cookie, relogin=payload.relogin
+        )
     except BackendUnavailable as exc:
         raise ConflictException(str(exc)) from exc
     except ValueError as exc:
         raise BadRequestException(str(exc)) from exc
+    return _done_view(payload.backend, row, created)
+
+
+@router.post(
+    "/accounts/form",
+    response_model=ApiResponse[DriveLoginView],
+    status_code=201,
+    summary="填表登录网盘（开放平台的 Client ID / 密钥等，字段由插件声明）",
+    operation_id="drives.accounts.form",
+)
+async def login_with_form(payload: DriveFormLoginPayload) -> ApiResponse[DriveLoginView]:
+    try:
+        row, created = await accounts.login_with_form(
+            payload.backend, payload.values, relogin=payload.relogin
+        )
+    except BackendUnavailable as exc:
+        raise ConflictException(str(exc)) from exc
+    except ValueError as exc:
+        raise BadRequestException(str(exc)) from exc
+    return _done_view(payload.backend, row, created)
+
+
+def _done_view(backend: str, row: DriveAccount, created: bool) -> ApiResponse[DriveLoginView]:
+    """一步完成的登录（Cookie、填表）也按扫码登录的结果形状返回，前端一套处理。"""
     view = DriveLoginView(
         login_id="",
-        backend=payload.backend,
+        backend=backend,
         status="confirmed",
         message=f"已添加：{row.name}" if created else f"已重新登录：{row.name}",
         qr_image="",
@@ -364,7 +408,7 @@ async def _login_view(login_id: str) -> DriveLoginView:
 )
 async def start_login(payload: DriveLoginPayload) -> ApiResponse[DriveLoginView]:
     try:
-        item = await accounts.begin_login(payload.backend, payload.options)
+        item = await accounts.begin_login(payload.backend, payload.options, relogin=payload.relogin)
     except BackendUnavailable as exc:
         raise ConflictException(str(exc)) from exc
     except ValueError as exc:

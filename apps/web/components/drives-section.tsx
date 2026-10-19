@@ -55,7 +55,9 @@ export function DrivesSection() {
   const [accounts, setAccounts] = useState<DriveAccount[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 正在登录的网盘（null = 没开弹窗）
-  const [login, setLogin] = useState<DriveBackend | null>(null);
+  const [login, setLogin] = useState<{ backend: DriveBackend; relogin?: DriveAccount } | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     setError(null);
@@ -130,7 +132,11 @@ export function DrivesSection() {
         }
         action={
           backends.length > 0 && (
-            <AddAccountButton backends={backends} onPick={setLogin} disabled={loading} />
+            <AddAccountButton
+              backends={backends}
+              onPick={(backend) => setLogin({ backend })}
+              disabled={loading}
+            />
           )
         }
       >
@@ -158,7 +164,7 @@ export function DrivesSection() {
                 onChange={replace}
                 onRelogin={() => {
                   const b = byType.get(account.backend);
-                  if (b) setLogin(b);
+                  if (b) setLogin({ backend: b, relogin: account });
                 }}
                 onRefresh={() => void handleRefresh(account)}
                 onRemove={() => void handleRemove(account)}
@@ -172,7 +178,8 @@ export function DrivesSection() {
 
       {login && (
         <DriveLoginDialog
-          backend={login}
+          backend={login.backend}
+          relogin={login.relogin}
           onClose={() => setLogin(null)}
           onDone={(account, created) => {
             setLogin(null);
@@ -301,10 +308,13 @@ function AccountCard({
   const prompt = usePrompt();
   const [advanced, setAdvanced] = useState(false);
   const pill = statusPill(account);
-  const how =
+  const how = `${
     account.login_method === "cookie"
-      ? `浏览器导入${account.login_detail ? ` · ${account.login_detail}` : ""}`
-      : `扫码登录${account.login_detail ? ` · ${account.login_detail}` : ""}`;
+      ? "浏览器导入"
+      : account.login_method === "form"
+        ? "填写凭据"
+        : "扫码登录"
+  }${account.login_detail ? ` · ${account.login_detail}` : ""}`;
   const quota =
     account.quota_total && account.quota_total > 0
       ? {
@@ -377,9 +387,17 @@ function AccountCard({
             items={[
               { label: "刷新容量", onSelect: onRefresh, disabled: !account.backend_available },
               {
-                label: account.login_method === "cookie" ? "改为扫码登录" : "重新扫码登录",
+                label: !backend?.login.scan
+                  ? "重新登录"
+                  : account.login_method === "cookie"
+                    ? "改为扫码登录"
+                    : account.login_method === "form"
+                      ? "重新登录"
+                      : "重新扫码登录",
                 onSelect: onRelogin,
-                disabled: !account.backend_available || !backend?.login.scan,
+                disabled:
+                  !account.backend_available ||
+                  !(backend?.login.scan || backend?.login.form || backend?.login.cookie),
               },
               {
                 label: "改名",

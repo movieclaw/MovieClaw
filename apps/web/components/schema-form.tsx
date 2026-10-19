@@ -66,7 +66,8 @@ export function SchemaForm({
   schema: ConfigSchema;
   /** 当前编辑中的值；字符串列表在编辑中保持为原始文本 */
   values: Record<string, unknown>;
-  secretsSet: readonly string[];
+  /** 已经存过值的敏感字段（编辑已有配置时提示「留空不改」）；新填的表单（如登录）不传 */
+  secretsSet?: readonly string[];
   disabled?: boolean;
   onChange: (name: string, value: unknown) => void;
 }) {
@@ -138,7 +139,7 @@ export function SchemaForm({
               min={field.minimum}
               max={field.maximum}
               placeholder={
-                secret
+                secret && secretsSet
                   ? secretsSet.includes(name)
                     ? "已设置（留空不改）"
                     : "未设置"

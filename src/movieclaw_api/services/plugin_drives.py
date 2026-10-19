@@ -71,6 +71,9 @@ class RemoteDriveBackend(dv.DriveBackend):
             await self._call("login_with_cookie", {"cookie_header": cookie_header})
         )
 
+    async def login_with_form(self, values: dict[str, Any]) -> dv.LoginResult:
+        return dv.result_from(await self._call("login_with_form", {"values": values}))
+
     async def account_info(self, account: dv.DriveAccount) -> dv.AccountInfo:
         return dv.info_from(await self._call("account_info", {}, account))
 

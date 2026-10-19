@@ -1,4 +1,5 @@
 import { request } from "@/lib/http";
+import type { ConfigSchema } from "@/lib/api/plugins";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
 interface ApiEnvelope<T> {
@@ -55,6 +56,8 @@ export interface DriveBackend {
     /** 支持用浏览器扩展导入 / 粘贴 Cookie */
     cookie: boolean;
     cookie_domains: string[];
+    /** 填表登录的字段（开放平台的 Client ID / 密钥等，同插件设置的 Schema）；null = 不支持 */
+    form?: ConfigSchema | null;
     options: DriveLoginOption[];
     hint: string;
   };
@@ -71,7 +74,7 @@ export interface DriveAccount {
   backend_available: boolean;
   accent_color: string;
   name: string;
-  login_method: "scan" | "cookie";
+  login_method: "scan" | "cookie" | "form";
   /** 登录细节（如扫码选的登录端、「网页端」） */
   login_detail: string | null;
   status: DriveAccountStatus;
@@ -123,11 +126,16 @@ export const listDriveBackends = () =>
 export const listDriveAccounts = () =>
   unwrap(request<ApiEnvelope<DriveAccount[]>>("/drives/accounts"));
 
-export const startDriveLogin = (backend: string, options: Record<string, string>) =>
+/** ``relogin``：从某个账号卡片上重新登录时传它的 id，登进来的必须是同一个网盘用户 */
+export const startDriveLogin = (
+  backend: string,
+  options: Record<string, string>,
+  relogin?: number,
+) =>
   unwrap(
     request<ApiEnvelope<DriveLogin>>("/drives/logins", {
       method: "POST",
-      body: JSON.stringify({ backend, options }),
+      body: JSON.stringify({ backend, options, relogin }),
     }),
   );
 
@@ -142,11 +150,23 @@ export const cancelDriveLogin = (loginId: string) =>
     ),
   );
 
-export const importDriveCookie = (backend: string, cookie: string) =>
+export const importDriveCookie = (backend: string, cookie: string, relogin?: number) =>
   unwrap(
     request<ApiEnvelope<DriveLogin>>("/drives/accounts/cookie", {
       method: "POST",
-      body: JSON.stringify({ backend, cookie }),
+      body: JSON.stringify({ backend, cookie, relogin }),
+    }),
+  );
+
+export const loginDriveWithForm = (
+  backend: string,
+  values: Record<string, unknown>,
+  relogin?: number,
+) =>
+  unwrap(
+    request<ApiEnvelope<DriveLogin>>("/drives/accounts/form", {
+      method: "POST",
+      body: JSON.stringify({ backend, values, relogin }),
     }),
   );
 
