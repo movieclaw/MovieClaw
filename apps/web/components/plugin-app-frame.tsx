@@ -97,7 +97,9 @@ function Frame({ app }: { app: PluginApp }) {
     reported.current = host;
     const win = iframeRef.current?.contentWindow;
     if (src === null || !win) setSrc(target);
-    else win.location.assign(target);
+    // replace 而不是 assign：主程序这次跳转已经在浏览器历史里记了一条，iframe 再记一条，
+    // 返回键就得按两次
+    else win.location.replace(target);
     // pathname 只用来触发；地址以 window.location 为准（含查询串和片段）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, app.base]);
@@ -123,8 +125,11 @@ function Frame({ app }: { app: PluginApp }) {
     }
     const host = hostPathFromFrame(app.id, app.base, location);
     if (host === null) {
-      // 跳出了网页根目录：整页带过去
-      router.push(`${location.pathname}${location.search}${location.hash}` as Route);
+      // 跳出了网页根目录、落到主程序的页面上（没写 target="_top" 的站内链接）：整页带过去，
+      // 不在 iframe 里套一个主程序。落到接口地址（插件自己的 JSON、文件）就留在 iframe 里
+      if (!location.pathname.startsWith("/api/")) {
+        router.push(`${location.pathname}${location.search}${location.hash}` as Route);
+      }
       return;
     }
     sync();

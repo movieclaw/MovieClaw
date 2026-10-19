@@ -138,13 +138,9 @@ export async function updateUiPreferences(prefs: UiPreferences): Promise<UiPrefe
 // 插件网页（docs/design/plugin-web-pages.md）
 // ---------------------------------------------------------------------------
 
-/** 当前用户可见的插件网页与它们的侧边栏入口；旧服务端没有这个接口时当作没有。 */
+/** 当前用户可见的插件网页与它们的侧边栏入口。失败时抛错，由调用方决定沿用上一份还是当作没有。 */
 export async function fetchPluginApps(): Promise<PluginApp[]> {
-  try {
-    return await unwrap(request<ApiEnvelope<PluginApp[]>>("/ui/apps"));
-  } catch {
-    return [];
-  }
+  return unwrap(request<ApiEnvelope<PluginApp[]>>("/ui/apps"));
 }
 
 /** 插件页面里没接住的报错：交给服务端写进系统日志（按插件 id 可查），失败不再管。 */

@@ -69,7 +69,8 @@ import { DEFAULT_UI_PREFS } from "@/lib/api/ui";
 import { HttpError } from "@/lib/http";
 import { normalizeThemeId, THEMES } from "@/lib/themes";
 import { useSession } from "@/lib/session";
-import { isAppNavId } from "@/lib/plugin-apps";
+import { appNavId, isAppNavId, pruneAppNavIds } from "@/lib/plugin-apps";
+import { usePluginApps } from "@/lib/plugin-apps-context";
 import { applyNavOrder, mergeNavOrder, sameNavOrder } from "@/lib/sidebar-nav";
 import { settingsSectionGroupsFor, settingsSections } from "@/lib/mock-data";
 import { useActiveExtensionPoints } from "@/lib/use-extension-points";
@@ -1237,6 +1238,15 @@ function InterfaceTextureGroup() {
 function NavOrderGroup() {
   const { savedPrefs, savePrefs, setPreview, loading } = useUiPrefs();
   const items = useVisibleNavItems();
+  // 还装着的插件网页项（含没加到侧边栏的）：保存时据此清掉已卸载插件留下的 id
+  const { apps } = usePluginApps();
+  const knownAppIds = useMemo(
+    () =>
+      apps === null
+        ? null
+        : new Set(apps.flatMap((app) => app.entries.map((_, index) => appNavId(app.id, index)))),
+    [apps],
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 拖拽中的行下标；null = 没在拖
@@ -1300,7 +1310,10 @@ function NavOrderGroup() {
     try {
       await savePrefs({
         ...savedPrefs,
-        nav: { order: mergeNavOrder(nextOrder, savedPrefs.nav.order), hidden: hiddenDraft },
+        nav: {
+          order: pruneAppNavIds(mergeNavOrder(nextOrder, savedPrefs.nav.order), knownAppIds),
+          hidden: pruneAppNavIds(hiddenDraft, knownAppIds),
+        },
       });
     } catch (err) {
       setError(err instanceof HttpError ? err.message : "保存失败，请稍后重试");

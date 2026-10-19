@@ -85,6 +85,18 @@ export function withoutHidden<T extends { id: string }>(items: T[], hidden: stri
   return items.filter((item) => !(isAppNavId(item.id) && set.has(item.id)));
 }
 
+/**
+ * 保存导航偏好前清掉已经不存在的插件网页项（卸载了、撤销了、不再加到侧边栏）。
+ *
+ * `nav.order` 会保留看不见的 id（权限收回再给回来时位置还在），插件项也跟着一直留着；
+ * 装装卸卸多了会顶到服务端的上限，而界面偏好是整体保存的——超限会让整份偏好都存不进去。
+ * `known` 为 null（插件列表还没拉到）时一项都不删，免得把还在的插件位置清掉。
+ */
+export function pruneAppNavIds(ids: string[], known: Set<string> | null): string[] {
+  if (known === null) return ids;
+  return ids.filter((id) => !isAppNavId(id) || known.has(id));
+}
+
 /** `/apps/<id>/<子路径>` → `{ appId, sub }`；不是插件网页地址返回 null。 */
 export function parseAppPath(pathname: string): { appId: string; sub: string } | null {
   if (!pathname.startsWith(APPS_ROUTE)) return null;

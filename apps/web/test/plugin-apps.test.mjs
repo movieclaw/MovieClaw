@@ -8,6 +8,7 @@ import {
   frameSrc,
   hostPathFromFrame,
   parseAppPath,
+  pruneAppNavIds,
   withoutHidden,
 } from "../lib/plugin-apps.ts";
 
@@ -100,4 +101,11 @@ test("地址换算：主程序地址 ↔ iframe 地址", () => {
     }),
     "/apps/stats-board",
   );
+});
+
+test("保存导航偏好时清掉已卸载插件的项；插件列表还没拉到时一项不删", () => {
+  const saved = ["library", "app:gone:0", "app:stats-board:1", "tasks"];
+  const known = new Set(["app:stats-board:0", "app:stats-board:1"]);
+  assert.deepEqual(pruneAppNavIds(saved, known), ["library", "app:stats-board:1", "tasks"]);
+  assert.deepEqual(pruneAppNavIds(saved, null), saved);
 });

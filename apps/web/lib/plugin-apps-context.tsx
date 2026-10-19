@@ -27,9 +27,15 @@ export function PluginAppsProvider({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     let cancelled = false;
-    void fetchPluginApps().then((next) => {
-      if (!cancelled) setApps(next);
-    });
+    fetchPluginApps()
+      .then((next) => {
+        if (!cancelled) setApps(next);
+      })
+      .catch(() => {
+        // 一次拉取失败（网络抖动、服务重启中）不把侧边栏里的插件项清空：沿用上一份；
+        // 从没拉到过才当作没有（旧服务端没有这个接口也走这里）
+        if (!cancelled) setApps((current) => current ?? []);
+      });
     return () => {
       cancelled = true;
     };

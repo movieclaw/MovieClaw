@@ -21,7 +21,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import secrets
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -85,18 +87,24 @@ def read_local_consents(settings: object) -> dict[str, Consent]:
     return found
 
 
+#: 读改写同意记录要串行：两个同时的「同意」不能互相覆盖掉对方
+_consent_lock = threading.Lock()
+
+
 def write_local_consent(settings: object, entry_id: str, consent: Consent | None) -> None:
     """记下（或撤销，``consent=None``）本地插件网页的确认；原子写入。"""
     path = _consent_path(settings)
-    current = {k: v.record() for k, v in read_local_consents(settings).items()}
-    if consent is None:
-        current.pop(entry_id, None)
-    else:
-        current[entry_id] = {**consent.record(), "approved_at": time.time()}
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
-    tmp.write_text(json.dumps({"pages": current}, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    with _consent_lock:
+        current = {k: v.record() for k, v in read_local_consents(settings).items()}
+        if consent is None:
+            current.pop(entry_id, None)
+        else:
+            current[entry_id] = {**consent.record(), "approved_at": time.time()}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+        text = json.dumps({"pages": current}, ensure_ascii=False, indent=2)
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
 
 
 # ---------------------------------------------------------------------- 插件
@@ -117,10 +125,46 @@ def has_web(directory: Path) -> bool:
     return (directory / WEB_DIR / INDEX).is_file()
 
 
+#: 本地插件条目（plugins.yaml）的缓存：文件没变就不重新解析。每个静态文件请求都要查一次，
+#: 而解析时格式不对会打告警——不缓存的话一个页面几十个资源就是几十条重复告警
+_local_cache: dict[str, tuple[tuple[int, int], list[tuple[str, str, bool]]]] = {}
+
+
+def _local_entries(settings: object) -> list[tuple[str, str, bool]]:
+    """``plugins.yaml`` 里开启的本地插件 → ``(条目 id, 目录名, 是否关掉)``。
+
+    不用 ``local_specs``：它会顺带登记插件事件（有副作用），是给启动加载用的。目录名的规则与它一致。
+    """
+    from movieclaw_api.plugins.local import default_module
+    from movieclaw_api.plugins.manifest import patch_file, read_patch_items
+
+    path = patch_file(settings)
+    try:
+        stat = path.stat()
+    except OSError:
+        return []
+    key = (stat.st_mtime_ns, stat.st_size)
+    cached = _local_cache.get(str(path))
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    found: list[tuple[str, str, bool]] = []
+    for item in read_patch_items(settings):
+        if item.get("local") is not True:
+            continue
+        module = item.get("module") or default_module(item["id"])
+        command = item.get("command")
+        if item.get("runtime") == "exec" and isinstance(command, str) and "/" in command:
+            module = command.split("/", 1)[0]
+        if isinstance(module, str) and module and "/" not in module and module not in (".", ".."):
+            found.append((item["id"], module, bool(item.get("disabled", False))))
+    _local_cache[str(path)] = (key, found)
+    return found
+
+
 def web_plugins(settings: object) -> list[WebPlugin]:
     """全部带网页的插件包与本地插件（每次现读盘：本地插件改了文件、加了网页不用重启）。"""
     from movieclaw_api.plugins import packages as pkg
-    from movieclaw_api.plugins.local import local_specs, plugins_dir
+    from movieclaw_api.plugins.local import plugins_dir
 
     found: list[WebPlugin] = []
     for record in pkg.installed(settings).values():
@@ -137,18 +181,18 @@ def web_plugins(settings: object) -> list[WebPlugin]:
             )
     consents = read_local_consents(settings)
     local_root = plugins_dir(settings)
-    for spec in local_specs(settings):
+    for entry_id, module, disabled in _local_entries(settings):
         # 只有包形式（目录）的本地插件能带网页；exec 插件的 module 就是它的目录
-        directory = local_root / spec.module
-        if spec.disabled or not has_web(directory):
+        directory = local_root / module
+        if disabled or not has_web(directory):
             continue
         found.append(
             WebPlugin(
-                id=spec.id,
-                title=spec.id,
+                id=entry_id,
+                title=entry_id,
                 source="local",
                 root=directory / WEB_DIR,
-                consent=consents.get(spec.id),
+                consent=consents.get(entry_id),
             )
         )
     return found
@@ -371,5 +415,12 @@ def log_page_error(entry_id: str, who: str, message: str, detail: str) -> bool:
         if count == ERRORS_PER_MINUTE + 1:
             logger.warning("插件 %s 的页面报错太频繁，这一分钟里后面的不再记录", entry_id)
         return False
-    logger.warning("插件 %s 的页面报错（%s 打开时）：%s\n%s", entry_id, who, message, detail)
+    # 报错内容来自浏览器（成员也能发）：消息压成一行、出处逐行缩进，不让它在日志里伪造出新的一行
+    one_line = _CONTROL.sub(" ", message).strip()
+    lines = [f"    {_CONTROL.sub(' ', line)}" for line in detail.splitlines() if line.strip()]
+    where = "".join(f"\n{line}" for line in lines)
+    logger.warning("插件 %s 的页面报错（%s 打开时）：%s%s", entry_id, who, one_line, where)
     return True
+
+
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")

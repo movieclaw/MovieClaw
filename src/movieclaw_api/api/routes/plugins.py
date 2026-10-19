@@ -973,7 +973,7 @@ class PluginDetailView(BaseModel):
     summary="带网页的插件（插件包与本地插件）：是否已同意、侧边栏入口",
     operation_id="app.plugins.pages.list",
 )
-async def list_web_pages() -> ApiResponse[list[WebPageView]]:
+def list_web_pages() -> ApiResponse[list[WebPageView]]:
     from movieclaw_api.core.config import get_settings
     from movieclaw_api.services import plugin_web
 

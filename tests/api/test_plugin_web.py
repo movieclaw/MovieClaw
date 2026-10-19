@@ -371,3 +371,56 @@ def test_page_errors_go_to_the_system_log_with_a_rate_limit(data_dir, caplog) ->
         who.current = who.member
         hidden = client.post("/api/v1/ui/apps/weekly-board/errors", json={"message": "x"})
         assert hidden.status_code == 404
+
+
+def test_static_requests_do_not_reparse_plugins_yaml(data_dir, monkeypatch) -> None:
+    """静态文件请求每次都查插件：plugins.yaml 没变就不重新解析（不重复告警、不重复登记事件）。"""
+    from movieclaw_api.plugins import manifest
+
+    write_local(data_dir)
+    plugin_web.write_local_consent(get_settings(), "weekly-board", plugin_web.Consent())
+    calls = []
+    original = manifest.read_patch_items
+    monkeypatch.setattr(manifest, "read_patch_items", lambda s: calls.append(1) or original(s))
+    plugin_web._local_cache.clear()
+    client, _ = start()
+    with client:
+        calls.clear()
+        for _ in range(5):
+            assert client.get("/api/v1/plugins/weekly-board/web/").status_code == 200
+        assert len(calls) <= 1
+
+
+def test_concurrent_local_consents_are_all_kept(data_dir) -> None:
+    import threading
+
+    settings = get_settings()
+    threads = [
+        threading.Thread(
+            target=plugin_web.write_local_consent, args=(settings, f"p{i}", plugin_web.Consent())
+        )
+        for i in range(20)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(plugin_web.read_local_consents(settings)) == sorted(f"p{i}" for i in range(20))
+
+
+def test_page_error_cannot_forge_log_lines(caplog) -> None:
+    import logging
+
+    plugin_web._error_window.clear()
+    with caplog.at_level(logging.WARNING, logger="movieclaw_api.plugin_web"):
+        plugin_web.log_page_error(
+            "weekly-board",
+            "family",
+            "boom\n2026-10-19 00:00:00 | ERROR | movieclaw_api | 伪造",
+            "app.js:1\n\x1b[31mred",
+        )
+    text = caplog.records[-1].getMessage()
+    lines = text.splitlines()
+    assert "伪造" in lines[0]  # 消息里的换行被压掉，伪造的内容留在第一行里
+    assert all(line.startswith("    ") for line in lines[1:])  # 出处逐行缩进
+    assert "\x1b" not in text

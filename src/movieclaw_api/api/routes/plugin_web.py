@@ -9,6 +9,9 @@
 - 都没有、且是页面导航请求时回退到 ``web/index.html``（单页应用的前端路由）；脚本、图片照常 404；
 - 标准 HTTP 缓存校验：ETag + ``Cache-Control: no-cache``；
 - 后端默认的 ``X-Frame-Options: DENY`` 在这里换成同源可嵌。
+
+处理函数刻意写成普通 ``def``：每次请求都要读安装记录、``plugins.yaml`` 和文件状态，放在线程池里跑，
+盘慢的时候（NAS）不会卡住事件循环。
 """
 
 from __future__ import annotations
@@ -64,7 +67,7 @@ def _plugin(request: Request, entry_id: str, principal: Principal) -> plugin_web
     operation_id="ui.apps.root",
     openapi_extra={"x-cli-hidden": True},
 )
-async def plugin_web_root(
+def plugin_web_root(
     entry_id: str, request: Request, principal: Principal = Depends(require_login)
 ) -> Response:
     _plugin(request, entry_id, principal)
@@ -80,7 +83,7 @@ async def plugin_web_root(
     operation_id="ui.apps.file",
     openapi_extra={"x-cli-hidden": True},
 )
-async def plugin_web_file(
+def plugin_web_file(
     entry_id: str, path: str, request: Request, principal: Principal = Depends(require_login)
 ) -> Response:
     found = _plugin(request, entry_id, principal)

@@ -108,9 +108,10 @@ class AppView(BaseModel):
     operation_id="ui.apps.list",
     openapi_extra={"x-cli-hidden": True},
 )
-async def list_apps(
+def list_apps(
     request: Request, principal: Principal = Depends(require_login)
 ) -> ApiResponse[list[AppView]]:
+    # 普通 def：要读安装记录与插件目录，放线程池里跑，不占事件循环
     from movieclaw_api.core.config import get_settings
     from movieclaw_api.services import plugin_web
 
@@ -131,7 +132,7 @@ class AppErrorReport(BaseModel):
     operation_id="ui.apps.errors.report",
     openapi_extra={"x-cli-hidden": True},
 )
-async def report_app_error(
+def report_app_error(
     entry_id: str,
     body: AppErrorReport,
     request: Request,
