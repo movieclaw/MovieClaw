@@ -790,7 +790,7 @@ async def _cloud_target(request: Request, identity: RequestIdentity, f: LibraryF
             f.file_path,
             holder=f"play:{identity.device.device_id}:{f.id}",
             side=network_side.request_side(request),
-            place=network_side.outside_place(request) or f"device:{identity.device.device_id}",
+            place=f"device:{identity.device.device_id}",
             user_agent=request.headers.get("user-agent"),
             relay_fallback=sources.declares_fallback(request.headers, request.query_params),
             force_relay=request.query_params.get("relay") == "1",

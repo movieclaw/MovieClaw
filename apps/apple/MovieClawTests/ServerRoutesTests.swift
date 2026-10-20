@@ -13,7 +13,7 @@ struct ServerRoutesTests {
     }
 
     private static func iface(_ name: String, _ ip: String, _ bits: Int = 24) -> NetworkSnapshot.Interface {
-        NetworkSnapshot.Interface(name: name, address: ServerRoutes.parseIPv4(ip)!, netmask: .max << (32 - UInt32(bits)))
+        NetworkSnapshot.Interface(name: name, address: PlaybackNetwork.parseIPv4(ip)!, netmask: .max << (32 - UInt32(bits)))
     }
 
     private static let home = NetworkSnapshot(physical: [iface("en0", "192.168.1.23")], vpn: [], cellular: false)
@@ -30,17 +30,32 @@ struct ServerRoutesTests {
                 "蜂窝上开着 VPN 回家：内网地址可能通")
     }
 
-    @Test func optimisticGuessNeedsNoNetwork() {
-        // 在家：同网段的内网地址
+    @Test func optimisticGuessNeverSendsTheTokenToAnUnverifiedAddress() {
+        let wanLogin = ServerAddress(origin: Self.wan.origin)
+        // 登录地址就是内网的：在家直接用（和改造前一样）
         #expect(ServerRoutes.optimisticGuess(book: Self.book(), server: Self.server, net: Self.home)
             == ServerRoutes.Current(origin: Self.lan.origin, route: .lan))
-        // 只有蜂窝：登录地址是内网的也不用，直接外网
+        // 只有蜂窝：内网登录地址不用，先用 https 外网地址（证书验过主机名）
         #expect(ServerRoutes.optimisticGuess(book: Self.book(), server: Self.server, net: Self.cellular)
             == ServerRoutes.Current(origin: Self.wan.origin, route: .wan))
-        // 这个网络记过外网：直接用记住的
-        let remembered = Self.book(memory: [.init(fingerprint: Self.cafe.fingerprint, origin: Self.wan.origin)])
-        #expect(ServerRoutes.optimisticGuess(book: remembered, server: Self.server, net: Self.cafe)
+        // 用外网域名登录、这个网络记过内网 http 地址：不先用它——网段一样的别人家 Wi-Fi 指纹也一样，
+        // 那个 192.168.1.10 可能是另一台机器。先用登录地址，等探测验过身份再换
+        let rememberedLAN = Self.book(memory: [.init(fingerprint: Self.home.fingerprint, origin: Self.lan.origin)])
+        #expect(ServerRoutes.optimisticGuess(book: rememberedLAN, server: wanLogin, net: Self.home)
             == ServerRoutes.Current(origin: Self.wan.origin, route: .wan))
+        // 记过的是 https 地址：证书验过主机名，可以先用
+        let httpsLAN = ServerRoutes.Endpoint(origin: URL(string: "https://nas.home.example.com")!, kind: "lan")
+        let rememberedHTTPS = Self.book([httpsLAN, Self.wan], memory: [.init(fingerprint: Self.home.fingerprint, origin: httpsLAN.origin)])
+        #expect(ServerRoutes.optimisticGuess(book: rememberedHTTPS, server: wanLogin, net: Self.home)?.origin == httpsLAN.origin)
+        // 内网登录地址、在咖啡馆（不同网段、没有 VPN）：先用 https 外网地址，不让头一批请求等超时
+        #expect(ServerRoutes.optimisticGuess(book: Self.book(), server: Self.server, net: Self.cafe)
+            == ServerRoutes.Current(origin: Self.wan.origin, route: .wan))
+        // 家里分了多个网段、这个网络记过内网登录地址：照旧直接用
+        let multiSubnet = Self.book(memory: [.init(fingerprint: Self.cafe.fingerprint, origin: Self.lan.origin)])
+        #expect(ServerRoutes.optimisticGuess(book: multiSubnet, server: Self.server, net: Self.cafe)?.origin == Self.lan.origin)
+        // 内网登录地址 + 只有蜂窝 + 只有 http 外网地址：不先用任何地址（照旧登录地址，等探测）
+        let httpWAN = ServerRoutes.Endpoint(origin: URL(string: "http://movie.example.com:8888")!, kind: "wan")
+        #expect(ServerRoutes.optimisticGuess(book: Self.book([Self.lan, httpWAN]), server: Self.server, net: Self.cellular) == nil)
     }
 
     @Test func routeTellsVPNApartFromHome() {
@@ -52,6 +67,20 @@ struct ServerRoutesTests {
         let homeWithVPN = NetworkSnapshot(physical: Self.home.physical, vpn: Self.cellularVPN.vpn, cellular: false)
         #expect(ServerRoutes.route(of: split, book: Self.book([split, Self.wan]), net: homeWithVPN) == .lan)
         #expect(ServerRoutes.route(of: split, book: Self.book([split, Self.wan]), net: Self.cellularVPN) == .vpn)
+        // 同一个域名，在咖啡馆经公网 DNS 连上：人在外面
+        #expect(ServerRoutes.route(of: split, book: Self.book([split, Self.wan]), net: Self.cafe) == .wan)
+        // 内网 IP 不同网段、没有 VPN：家里分了多个网段（路由器转过去的），仍算家里
+        #expect(ServerRoutes.route(of: Self.lan, book: Self.book(), net: Self.cafe) == .lan)
+    }
+
+    @Test func otherAddressesOfTheServerCountAsItsOwn() {
+        let server = ServerAddress(origin: URL(string: "http://10.9.8.6:3000")!)
+        let other = ServerRoutes.Endpoint(origin: URL(string: "https://belongs-test.example.com")!, kind: "wan")
+        ServerRoutes.shared.install(Self.book([ServerRoutes.Endpoint(origin: server.origin, kind: "lan"), other]), for: server)
+        #expect(ServerRoutes.shared.belongs(URL(string: "https://belongs-test.example.com/library/3")!, to: server))
+        #expect(ServerRoutes.shared.belongs(URL(string: "http://10.9.8.6:3000/library/3")!, to: server))
+        #expect(!ServerRoutes.shared.belongs(URL(string: "https://example.org/x")!, to: server))
+        #expect(ServerRoutes.shared.hostLabels(of: server).contains("belongs-test.example.com"))
     }
 
     @Test func healthProofMustVerifyWithThePinnedHostKey() throws {
@@ -114,11 +143,11 @@ struct ServerRoutesTests {
     @Test func networkSnapshotRules() {
         #expect(NetworkSnapshot.kind(of: "en0") == .physical)
         #expect(NetworkSnapshot.kind(of: "pdp_ip0") == .cellular)
-        #expect(NetworkSnapshot.kind(of: "utun3", address: ServerRoutes.parseIPv4("100.80.1.2")!) == .vpn)
-        #expect(NetworkSnapshot.kind(of: "utun4", address: ServerRoutes.parseIPv4("198.18.0.1")!) == .other,
+        #expect(NetworkSnapshot.kind(of: "utun3", address: PlaybackNetwork.parseIPv4("100.80.1.2")!) == .vpn)
+        #expect(NetworkSnapshot.kind(of: "utun4", address: PlaybackNetwork.parseIPv4("198.18.0.1")!) == .other,
                 "代理 App 的 TUN（fake-ip）不是回家的 VPN")
-        #expect(NetworkSnapshot.kind(of: "utun4", address: ServerRoutes.parseIPv4("198.19.255.1")!) == .other)
-        #expect(NetworkSnapshot.kind(of: "utun4", address: ServerRoutes.parseIPv4("198.20.0.1")!) == .vpn)
+        #expect(NetworkSnapshot.kind(of: "utun4", address: PlaybackNetwork.parseIPv4("198.19.255.1")!) == .other)
+        #expect(NetworkSnapshot.kind(of: "utun4", address: PlaybackNetwork.parseIPv4("198.20.0.1")!) == .vpn)
         #expect(NetworkSnapshot.kind(of: "awdl0") == .other)
         #expect(Self.home.fingerprint == "192.168.1.0/24")
         #expect(Self.cellular.fingerprint == "cellular")
@@ -134,5 +163,17 @@ struct ServerRoutesTests {
         #expect(ServerRouteLabel.text(.init(origin: Self.wan.origin, route: .wan)) == "外网 · movie.example.com")
         #expect(ServerRouteLabel.text(.init(origin: Self.lan.origin, route: .vpn)) == "外网（经 VPN）· 192.168.1.10:3300")
         #expect(ServerRouteLabel.text(.init(origin: Self.lan.origin, route: nil)) == nil)
+    }
+
+    @Test func resumeDataBoundToAnOldAddressIsDropped() throws {
+        let plist = try PropertyListSerialization.data(fromPropertyList: [
+            "NSURLSessionDownloadURL": "http://192.168.1.10:3300/api/v1/offline/files/7/content",
+            "NSURLSessionResumeBytesReceived": 1024,
+        ] as [String: Any], format: .binary, options: 0)
+        #expect(OfflineDownloader.resumeData(plist, matches: URL(string: "http://192.168.1.10:3300/api/v1/offline/files/7/content")!))
+        #expect(!OfflineDownloader.resumeData(plist, matches: URL(string: "https://movie.example.com/api/v1/offline/files/7/content")!),
+                "出门后地址换了：不拿旧地址续传")
+        #expect(OfflineDownloader.resumeData(Data("garbage".utf8), matches: URL(string: "https://movie.example.com/x")!),
+                "读不出地址照旧续传")
     }
 }

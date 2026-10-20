@@ -74,8 +74,8 @@ struct AgentConversationView: View {
                 }
             }
             .environment(\.openURL, OpenURLAction { url in
-                // 站内链接（相对路径或指向当前服务器）走原生路由；外链交给系统浏览器（同 Web 新窗口打开）
-                if url.scheme == nil || url.host() == api.server.apiBase.host(), router.open(webPath: url.path() + (url.query().map { "?\($0)" } ?? "")) {
+                // 站内链接（相对路径或指向这台服务器的任一地址）走原生路由；外链交给系统浏览器（同 Web 新窗口打开）
+                if url.scheme == nil || ServerRoutes.shared.belongs(url, to: api.server), router.open(webPath: url.path() + (url.query().map { "?\($0)" } ?? "")) {
                     return .handled
                 }
                 return .systemAction

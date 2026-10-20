@@ -71,7 +71,9 @@ nonisolated extension APIClient {
     private func activityDeviceAction(_ method: String, _ segments: [String], fallback: String) async throws -> String {
         let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#;+=&"))
         let encoded = segments.map { $0.addingPercentEncoding(withAllowedCharacters: allowed) ?? $0 }
-        guard var components = URLComponents(url: server.apiBase, resolvingAgainstBaseURL: false) else {
+        // 发到当前选中的地址（在家内网、出门外网），不用登录地址
+        let base = ServerRoutes.shared.origin(for: server).appending(path: "api/v1")
+        guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
             throw APIError.network("服务器地址异常")
         }
         components.percentEncodedPath += "/" + encoded.joined(separator: "/")

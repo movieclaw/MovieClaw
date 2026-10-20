@@ -72,8 +72,10 @@ async def optional_login(
         principal = await auth_service.verify_bearer_token(bearer, ip=ip, user_agent=user_agent)
     if principal is not None:
         _attribute(principal)
-        if principal.plugin is None and principal.kind != "agent":
-            # 访问地址簿只从人用的客户端学（插件、Agent 走的是本机回环）
+        human = principal.plugin is None and principal.kind not in ("agent", "mcp")
+        if principal.is_admin and human:
+            # 访问地址簿只从管理员用的客户端学：学到的地址会发给全家的 App 去连，Host /
+            # X-Forwarded-Host 又是请求方自己能写的（server-addresses.md §3.1）
             connection.scope[AUTHENTICATED_SCOPE_KEY] = True
     return principal
 

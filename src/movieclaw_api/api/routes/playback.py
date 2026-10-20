@@ -2187,7 +2187,7 @@ async def _cloud_stream_response(request: Request, grant, file: LibraryFile) -> 
             file.file_path,
             holder=holder,
             side=network_side.request_side(request, route=grant.route),
-            place=network_side.outside_place(request) or f"device:{who}",
+            place=f"device:{who}",
             user_agent=request.headers.get("user-agent"),
             relay_fallback=sources.declares_fallback(request.headers, request.query_params),
             force_relay=request.query_params.get("relay") == "1",

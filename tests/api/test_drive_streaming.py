@@ -339,20 +339,18 @@ def test_auto_mode_gives_direct_links_to_one_outside_place_at_a_time():
     )
     home = choose(side="home", place="", relay_fallback=True)
     assert home is False, "家里一律转发"
-    assert choose(side="outside", place="8.8.8.8", relay_fallback=False) is False, "不能降级的转发"
+    assert choose(side="outside", place="device:a", relay_fallback=False) is False, "不能降级的转发"
     assert choose(side="unknown", place="device:a", relay_fallback=True) is False, (
         "认不准时无从保证只有一处在外面，转发"
     )
-    assert choose(side="outside", place="8.8.8.8", relay_fallback=True) is True
-    assert choose(side="outside", place="8.8.8.8", relay_fallback=True) is True, "同一处照常直连"
-    assert choose(side="outside", place="1.1.1.1", relay_fallback=True) is False, "第二处转发"
+    assert choose(side="outside", place="device:a", relay_fallback=True) is True
+    assert choose(side="outside", place="device:a", relay_fallback=True) is True, "同一台照常直连"
     assert choose(side="outside", place="device:b", relay_fallback=True) is False, (
-        "取不到公网地址时按设备算，另一台设备算第二处"
+        "另一台设备算第二处（哪怕在同一个咖啡馆）：转发"
     )
     other = partial(sources.choose_direct, relay_fallback=True, force_relay=False)
-    assert other(mode="relay", account_id=2, side="outside", place="8.8.8.8", original_link=True) is (
-        False
-    )
+    relay = other(mode="relay", account_id=2, side="outside", place="device:a", original_link=True)
+    assert relay is False
     assert (
         other(mode="direct", account_id=3, side="unknown", place="", original_link=True) is True
     ), "「总是直连」认不准时也直连（用户明确选的）"
@@ -360,7 +358,7 @@ def test_auto_mode_gives_direct_links_to_one_outside_place_at_a_time():
         other(mode="direct", account_id=3, side="home", place="", original_link=True) is False
     ), "「总是直连」在家照样转发"
     assert (
-        other(mode="direct", account_id=4, side="outside", place="8.8.8.8", original_link=False)
+        other(mode="direct", account_id=4, side="outside", place="device:a", original_link=False)
         is False
     ), "直链不是原画就不直连"
 

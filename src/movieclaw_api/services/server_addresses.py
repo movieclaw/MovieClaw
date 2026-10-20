@@ -2,9 +2,11 @@
 
 App 拿到这份地址簿后自己判断在家走内网、出门走外网，用户不用选。地址来源：
 
-- **学到的**：已登录、成功的请求进的是哪个入口（``X-Forwarded-Host`` 优先于 ``Host``，协议按
-  ``X-Forwarded-Proto``）就记下哪个。只学已登录的请求：``Host`` 谁都能伪造，匿名请求学到的
-  地址会让 App 去探一个陌生地址。30 天没人用过的自动淘汰。
+- **学到的**：管理员已登录、成功的请求进的是哪个入口（``X-Forwarded-Host`` 优先于
+  ``Host``，协议按 ``X-Forwarded-Proto``）就记下哪个。只学管理员的：``Host`` /
+  ``X-Forwarded-Host`` 是请求方自己能写的，学到的地址又会发给全家的 App 去连——成员或匿名请求
+  塞进来一个转发中继，主机签名也拦不住（中继把探测原样转给真服务器就能拿到合法签名）。
+  30 天没人用过的自动淘汰。局域网发现记下的地址（匿名请求也会学）不进地址簿。
 - **配置的**：「外部访问地址」与 ``published_server_url``。
 - **手动的**：管理员在「设置 → 网络 → 访问地址」里加的。类型可以改：家里 DNS 把域名解析到
   内网时，这个域名其实是内网地址，只看名字判断不出来。不过期。
@@ -129,8 +131,8 @@ class _AddressBook:
         self._manual_hosts: dict[str, Kind] = {}
         self._loaded = False
         self._lock = asyncio.Lock()
-        #: 上一次看到的入口（Host 字节串, 协议字节串）与时间
-        self._last_observed: tuple[tuple[bytes, bytes], int] | None = None
+        #: 最近看到的入口（Host 字节串, 协议字节串）→ 时间：一分钟内再来不做任何事
+        self._recent: dict[tuple[bytes, bytes], int] = {}
         self._tasks: set[asyncio.Task] = set()
 
     # ------------------------------------------------------------------ 读写
@@ -175,16 +177,15 @@ class _AddressBook:
     def observe(
         self, host: bytes, forwarded_host: bytes | None, forwarded_proto: bytes | None
     ) -> None:
-        """一次已登录、成功的请求进的入口。同一个入口一分钟内连续出现时只比较一次字节串。"""
+        """一次管理员已登录、成功的请求进的入口。同一个入口一分钟内再来只查一次字典（两个入口交替也一样）。"""
         now = int(time.time())
         key = (forwarded_host or host, forwarded_proto or b"http")
-        if (
-            self._last_observed is not None
-            and self._last_observed[0] == key
-            and now - self._last_observed[1] < 60
-        ):
+        seen = self._recent.get(key)
+        if seen is not None and now - seen < 60:
             return
-        self._last_observed = (key, now)
+        if len(self._recent) >= 64:
+            self._recent.clear()
+        self._recent[key] = now
         netloc = key[0].decode("latin-1").split(",")[0].strip()
         proto = key[1].decode("latin-1").split(",")[0].strip().lower()
         try:
@@ -266,16 +267,6 @@ class _AddressBook:
             views[record.url] = AddressView(
                 url=record.url, kind=record.kind, source="learned", last_seen=_dt(record.last_seen)
             )
-        # 局域网发现记下的地址（升级前就有、或还没有人登录后用过）：没有使用时间，排在最后
-        from movieclaw_api.services.lan_discovery import lan_origins
-
-        for origin in await lan_origins.get():
-            try:
-                url = normalize_url(origin)
-            except ValueError:
-                continue
-            if url not in views:
-                views[url] = AddressView(url=url, kind="lan", source="learned")
         return sorted(
             views.values(),
             key=lambda v: (v.kind != "lan", -(v.last_seen.timestamp() if v.last_seen else 0)),
@@ -302,15 +293,12 @@ class _AddressBook:
 
     async def remove(self, raw: str) -> bool:
         """删掉学到的或手动加的地址。学到的地址之后再有人用会重新出现。"""
-        from movieclaw_api.services.lan_discovery import lan_origins
-
         url = normalize_url(raw)
         await self._ensure_loaded()
-        forgot = await lan_origins.forget(url)
         if self._records.pop(url, None) is None:
-            return forgot
+            return False
         self._reindex()
-        self._last_observed = None
+        self._recent.clear()
         await self._persist()
         return True
 

@@ -405,11 +405,11 @@ enum PlaybackNetwork: String {
     }
 
     /// RFC 1918 私有网段（10/8、172.16/12、192.168/16）
-    static func isPrivate(_ ip: UInt32) -> Bool {
+    nonisolated static func isPrivate(_ ip: UInt32) -> Bool {
         ip >> 24 == 10 || ip >> 20 == 0xAC1 || ip >> 16 == 0xC0A8
     }
 
-    static func parseIPv4(_ text: String) -> UInt32? {
+    nonisolated static func parseIPv4(_ text: String) -> UInt32? {
         let parts = text.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4 else { return nil }
         var value: UInt32 = 0
@@ -441,22 +441,7 @@ enum PlaybackNetwork: String {
 
     /// 本机开着的非回环 IPv4 网卡
     static func localInterfaces() -> [Interface] {
-        var result: [Interface] = []
-        var head: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&head) == 0, let first = head else { return [] }
-        defer { freeifaddrs(head) }
-        var cursor: UnsafeMutablePointer<ifaddrs>? = first
-        while let item = cursor?.pointee {
-            defer { cursor = item.ifa_next }
-            let flags = Int32(item.ifa_flags)
-            guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0,
-                  let address = item.ifa_addr, address.pointee.sa_family == UInt8(AF_INET),
-                  let netmask = item.ifa_netmask else { continue }
-            let ip = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
-            let mask = netmask.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
-            result.append(Interface(address: ip, netmask: mask))
-        }
-        return result
+        NetworkSnapshot.interfaces().map { Interface(address: $0.address, netmask: $0.netmask) }
     }
 
     /// 域名 → IPv4 的缓存：查询放后台线程，不卡播放器弹出。

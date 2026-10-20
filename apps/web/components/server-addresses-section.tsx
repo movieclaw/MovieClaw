@@ -26,7 +26,7 @@ import { formatRelativeTime } from "@/lib/time";
  * 访问地址（设置 → 网络，docs/design/server-addresses.md）。
  *
  * 各端 App 拿这份地址簿，在家自动走内网、出门自动走外网，用户不用选。地址主要靠自动收集
- * （有人登录后用过就记下），这里只做两件事：看看收集到了什么、补上自动收集不到的（典型是家里
+ * （管理员登录后用过就记下；成员的请求不算，因为地址会发给全家的 App 去连），这里只做两件事：看看收集到了什么、补上自动收集不到的（典型是家里
  * DNS 把域名解析到内网——只看名字判断不出它是内网地址，要手动标一下）。外部访问地址也会列在
  * 这里，但改它在下面的「外部访问」里。
  */
@@ -126,7 +126,7 @@ export function ServerAddressesSection() {
   return (
     <SettingsSection
       title="访问地址"
-      description="各端 App 在家自动走内网、出门自动走外网。有人用过的地址会自动出现在这里。"
+      description="各端 App 在家自动走内网、出门自动走外网。管理员用过的地址会自动出现在这里。"
       action={
         !adding && items !== null ? (
           <button type="button" className={SETTINGS_BUTTON_CLASS} onClick={() => setAdding(true)}>
@@ -147,7 +147,7 @@ export function ServerAddressesSection() {
         {items?.length === 0 && !adding && (
           <SettingsRow
             label="还没有记录到地址"
-            description="用浏览器或 App 登录一次，用的地址就会出现在这里。"
+            description="用管理员账号在浏览器或 App 里登录一次，用的地址就会出现在这里。"
           />
         )}
         {items?.map((item) => (

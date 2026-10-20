@@ -151,13 +151,30 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
         }
     }
 
-    /// 当前地址出了硬错误（连不上、找不到主机、超时）：重新选一次，选出不同的地址就返回它（调用方据此重试一次）
+    /// 当前地址出了硬错误（连不上、找不到主机、超时）：重新选，选出不同的地址就返回它（调用方据此重试一次）。
+    /// 先看正在跑的那轮（它可能是别的原因起的、没排除这个坏地址）；还停在坏地址上就排除它补跑一轮。
+    /// 一有别的地址就返回，不等这一轮里慢的探测超时
     func failover(_ server: ServerAddress, failed: URL) async -> URL? {
         let key = Self.key(server.origin)
         guard lock.withLock({ books[key] }) != nil else { return nil }
-        await select(server, reason: "当前地址连不上", excluding: Self.key(failed)).value
-        let now = origin(for: server)
-        return Self.key(now) == Self.key(failed) ? nil : now
+        let failedKey = Self.key(failed)
+        for rerun in [false, true] {
+            let round = select(server, reason: "当前地址连不上", excluding: failedKey, rerun: rerun)
+            if let moved = await movedAway(server, from: failedKey, during: round) { return moved }
+        }
+        return nil
+    }
+
+    /// 等到当前地址不再是坏的那个（返回新地址），或这一轮跑完还没换（返回 nil）
+    private func movedAway(_ server: ServerAddress, from failedKey: String, during round: Task<Void, Never>) async -> URL? {
+        let done = DoneFlag()
+        Task.detached { await round.value; done.set() }
+        while true {
+            let now = origin(for: server)
+            if Self.key(now) != failedKey { return now }
+            if done.isSet { return nil }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
     }
 
     private func startObserving() {
@@ -384,52 +401,82 @@ nonisolated final class ServerRoutes: @unchecked Sendable {
         book.endpoints.filter { $0.kind != "lan" || net.canReachPrivate }
     }
 
-    /// 不发请求先定一个：这个网络记过的地址 > 同网段的内网地址 > 登录地址能用就用（不是只剩蜂窝时的内网）> 第一个外网地址
+    /// 不发请求先定一个，冷启动不用等探测。这时还没验身份，带令牌只能发给本来就信得过的地址：
+    /// - 登录地址（用户自己填的，和改造前一样）；
+    /// - https 地址（证书验过主机名）。
+    /// 未验证的 http 地址一律不先用：网络指纹只看网段，换到同网段的别人家 Wi-Fi 时，记过的
+    /// `192.168.1.10` 可能是另一台机器。在此之上：这个网络记过的 > 登录地址（只剩蜂窝时的内网登录地址除外）>
+    /// 第一个 https 外网地址；都不行返回 nil（照旧用登录地址，等探测）
     static func optimisticGuess(book: Book, server: ServerAddress, net: NetworkSnapshot) -> Current? {
         let usable = candidates(book: book, server: server, net: net)
+        func trusted(_ endpoint: Endpoint) -> Bool {
+            key(endpoint.origin) == key(server.origin) || endpoint.origin.scheme?.lowercased() == "https"
+        }
         if let remembered = book.memory.last(where: { $0.fingerprint == net.fingerprint }),
-           let endpoint = usable.first(where: { key($0.origin) == key(remembered.origin) }) {
+           let endpoint = usable.first(where: { key($0.origin) == key(remembered.origin) }), trusted(endpoint) {
             return Current(origin: endpoint.origin, route: route(of: endpoint, book: book, net: net))
         }
-        if let local = usable.first(where: { $0.kind == "lan" && net.sameSubnet($0.origin.host() ?? "") }) {
-            return Current(origin: local.origin, route: .lan)
-        }
-        if let login = usable.first(where: { key($0.origin) == key(server.origin) }) {
+        let login = usable.first(where: { key($0.origin) == key(server.origin) })
+        // 登录地址是内网 IP，本机却不在它的网段、也没开 VPN：多半在外面，先用 https 外网地址，
+        // 免得头一批请求等满超时（家里分了多个网段时，这个网络记过登录地址，上面已经直接用了）
+        let loginLooksAway = login.map { endpoint in
+            let host = endpoint.origin.host() ?? ""
+            return endpoint.kind == "lan" && parseIPv4(host) != nil && !net.sameSubnet(host) && !net.hasVPN
+        } ?? true
+        if let login, !loginLooksAway {
             return Current(origin: login.origin, route: route(of: login, book: book, net: net))
         }
-        return usable.first(where: { $0.kind != "lan" }).map { Current(origin: $0.origin, route: .wan) }
+        if let https = usable.first(where: { $0.kind != "lan" && trusted($0) }) {
+            return Current(origin: https.origin, route: .wan)
+        }
+        return login.map { Current(origin: $0.origin, route: route(of: $0, book: book, net: net)) }
     }
 
-    /// 用这个地址时的路线：内网地址不在本机任何一块实体网卡的网段里、却有 VPN 时，算经 VPN 连回家
+    /// 用这个地址时的路线：
+    /// - 内网 IP：和某块实体网卡同网段为 lan；不同网段但有 VPN 为 vpn（经 VPN 连回家）；不同网段也没有 VPN
+    ///   为 lan（家里分了多个网段，路由器转过去的）；
+    /// - 内网域名（手动标的，家里 DNS 指向内网）：本机实体网卡在内网网段里为 lan；否则有 VPN 为 vpn，
+    ///   没有 VPN 为 wan——在咖啡馆经公网 DNS 连上了同一个域名，人在外面
     static func route(of endpoint: Endpoint, book: Book, net: NetworkSnapshot) -> Route {
         guard endpoint.kind == "lan" else { return .wan }
-        guard net.hasVPN else { return .lan }
         let host = endpoint.origin.host() ?? ""
-        if net.sameSubnet(host) { return .lan }
-        if parseIPv4(host) == nil, net.physicalIn(subnets: book.lanSubnets) { return .lan }
-        return .vpn
+        if parseIPv4(host) != nil {
+            if net.sameSubnet(host) { return .lan }
+            return net.hasVPN ? .vpn : .lan
+        }
+        if net.physicalIn(subnets: book.lanSubnets) { return .lan }
+        return net.hasVPN ? .vpn : .wan
+    }
+
+    /// 这台服务器所有已知地址的「主机:端口」（登录地址、地址簿）：扫码批准时判断二维码是不是这台服务器的
+    func hostLabels(of server: ServerAddress) -> [String] {
+        let endpoints = lock.withLock { books[Self.key(server.origin)]?.endpoints ?? [] }
+        return [server.hostLabel] + endpoints.map { ServerAddress(origin: $0.origin).hostLabel }
+    }
+
+    /// 这个地址是不是这台服务器的（登录地址、当前地址、地址簿里任一个）：站内链接判断用
+    func belongs(_ url: URL, to server: ServerAddress) -> Bool {
+        let target = Self.key(url)
+        if target == Self.key(server.origin) { return true }
+        return lock.withLock {
+            let key = Self.key(server.origin)
+            if let now = current[key], Self.key(now.origin) == target { return true }
+            return books[key]?.endpoints.contains { Self.key($0.origin) == target } ?? false
+        }
     }
 
     static func guessKind(_ url: URL) -> String {
         let host = (url.host() ?? "").lowercased()
         if let ip = parseIPv4(host) {
             let shared = ip >> 22 == (100 << 2 | 1) // 100.64.0.0/10
-            let rfc1918 = ip >> 24 == 10 || ip >> 20 == 0xAC1 || ip >> 16 == 0xC0A8
-            return !shared && (rfc1918 || ip >> 24 == 127 || ip >> 16 == 0xA9FE) ? "lan" : "wan"
+            return !shared && (PlaybackNetwork.isPrivate(ip) || ip >> 24 == 127 || ip >> 16 == 0xA9FE) ? "lan" : "wan"
         }
         let suffixes = [".local", ".lan", ".home.arpa", ".internal", ".localdomain"]
         return !host.contains(".") || suffixes.contains(where: host.hasSuffix) ? "lan" : "wan"
     }
 
     static func parseIPv4(_ text: String) -> UInt32? {
-        let parts = text.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 4 else { return nil }
-        var value: UInt32 = 0
-        for part in parts {
-            guard let byte = UInt8(part) else { return nil }
-            value = value << 8 | UInt32(byte)
-        }
-        return value
+        PlaybackNetwork.parseIPv4(text)
     }
 
     /// `scheme://host:port`，默认端口补齐，用来比较两个地址是不是同一个
@@ -475,7 +522,7 @@ nonisolated struct NetworkSnapshot: Equatable, Sendable {
 
     /// 主机（IPv4 字面量）和某块实体网卡在同一网段
     func sameSubnet(_ host: String) -> Bool {
-        guard let ip = ServerRoutes.parseIPv4(host) else { return false }
+        guard let ip = PlaybackNetwork.parseIPv4(host) else { return false }
         return physical.contains { $0.netmask != 0 && $0.netmask != .max && $0.address & $0.netmask == ip & $0.netmask }
     }
 
@@ -483,7 +530,7 @@ nonisolated struct NetworkSnapshot: Equatable, Sendable {
     func physicalIn(subnets: [String]) -> Bool {
         subnets.contains { subnet in
             let parts = subnet.split(separator: "/")
-            guard parts.count == 2, let base = ServerRoutes.parseIPv4(String(parts[0])), let bits = Int(parts[1]), (0 ... 32).contains(bits)
+            guard parts.count == 2, let base = PlaybackNetwork.parseIPv4(String(parts[0])), let bits = Int(parts[1]), (0 ... 32).contains(bits)
             else { return false }
             let mask: UInt32 = bits == 0 ? 0 : .max << (32 - UInt32(bits))
             return physical.contains { $0.address & mask == base & mask }
@@ -491,11 +538,23 @@ nonisolated struct NetworkSnapshot: Equatable, Sendable {
     }
 
     static func current() -> NetworkSnapshot {
-        var physical: [Interface] = []
-        var vpn: [Interface] = []
-        var cellular = false
+        var snapshot = NetworkSnapshot(physical: [], vpn: [], cellular: false)
+        for iface in interfaces() {
+            switch kind(of: iface.name, address: iface.address) {
+            case .physical: snapshot.physical.append(iface)
+            case .vpn: snapshot.vpn.append(iface)
+            case .cellular: snapshot.cellular = true
+            case .other: break
+            }
+        }
+        return snapshot
+    }
+
+    /// 本机开着的非回环 IPv4 网卡（只读本机，不发请求）
+    static func interfaces() -> [Interface] {
+        var result: [Interface] = []
         var head: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&head) == 0, let first = head else { return NetworkSnapshot(physical: [], vpn: [], cellular: false) }
+        guard getifaddrs(&head) == 0, let first = head else { return [] }
         defer { freeifaddrs(head) }
         var cursor: UnsafeMutablePointer<ifaddrs>? = first
         while let item = cursor?.pointee {
@@ -504,18 +563,11 @@ nonisolated struct NetworkSnapshot: Equatable, Sendable {
             guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0,
                   let address = item.ifa_addr, address.pointee.sa_family == UInt8(AF_INET),
                   let netmask = item.ifa_netmask else { continue }
-            let name = String(cString: item.ifa_name)
             let ip = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
             let mask = netmask.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
-            let iface = Interface(name: name, address: ip, netmask: mask)
-            switch kind(of: name, address: ip) {
-            case .physical: physical.append(iface)
-            case .vpn: vpn.append(iface)
-            case .cellular: cellular = true
-            case .other: break
-            }
+            result.append(Interface(name: String(cString: item.ifa_name), address: ip, netmask: mask))
         }
-        return NetworkSnapshot(physical: physical, vpn: vpn, cellular: cellular)
+        return result
     }
 
     enum Kind { case physical, vpn, cellular, other }
@@ -534,6 +586,14 @@ nonisolated struct NetworkSnapshot: Equatable, Sendable {
     static func dotted(_ ip: UInt32) -> String {
         "\(ip >> 24 & 0xFF).\(ip >> 16 & 0xFF).\(ip >> 8 & 0xFF).\(ip & 0xFF)"
     }
+}
+
+/// 一轮选址跑完没有（故障转移等它时轮询）
+private nonisolated final class DoneFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.withLock { value } }
+    func set() { lock.withLock { value = true } }
 }
 
 nonisolated extension Data {

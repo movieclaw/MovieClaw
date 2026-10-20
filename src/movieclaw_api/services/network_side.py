@@ -74,29 +74,11 @@ def request_side(connection: HTTPConnection, *, route: str | None = None) -> Sid
     return "home" if kind == "lan" else "outside"
 
 
-def outside_place(connection: HTTPConnection) -> str:
-    """在外面的这一处是谁：转发链里离我们最近的公网 IP，没有就看对端；都不是公网时为空串。
-
-    网盘「自动」模式据此保证同一时间只有一处在外面直连（cloud-storage.md §7.2）。为空时调用方用
-    设备标识代替——同一个咖啡馆里的两台设备会被当成两处，第二台走转发，是安全的那一边。
-    """
-    hops = _public_hops(connection)
-    if hops:
-        return hops[-1]
-    peer = connection.client.host if connection.client else ""
-    try:
-        ipaddress.ip_address(peer)
-    except ValueError:
-        return ""
-    return peer if host_kind(peer) == "wan" else ""
-
-
 __all__ = [
     "ROUTE_HEADER",
     "Route",
     "Side",
     "current_route",
-    "outside_place",
     "parse_route",
     "request_side",
 ]

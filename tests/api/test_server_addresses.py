@@ -162,13 +162,6 @@ def test_route_in_stream_token_wins_when_the_engine_cannot_send_headers():
     assert network_side.request_side(lan_entry, route=None) == "home"
 
 
-def test_outside_place_prefers_the_nearest_public_hop():
-    conn = _conn({"X-Forwarded-For": "5.6.7.8, 1.2.3.4, 10.10.10.2"})
-    assert network_side.outside_place(conn) == "1.2.3.4"
-    assert network_side.outside_place(_conn({}, client=("8.8.8.8", 1))) == "8.8.8.8"
-    assert network_side.outside_place(_conn({}, client=("10.10.10.2", 1))) == ""
-
-
 async def test_stream_token_carries_the_declared_route(client):
     from movieclaw_api.services.playback.signing import issue_stream_token, verify_stream_token
 
@@ -203,9 +196,10 @@ def test_route_header_reaches_tokens_issued_in_the_request(client):
 
 
 def test_addresses_are_learned_from_logged_in_requests_only(client):
-    # 匿名请求带着陌生的 Host：不学
+    # 匿名请求带着陌生的 Host：不学；局域网发现从匿名请求记下的私网地址也不进地址簿
     anonymous = TestClient(client.app)
     anonymous.get("/api/v1/health", headers={"Host": "evil.example.net"})
+    anonymous.get("/api/v1/health", headers={"Host": "192.168.1.77:3000"})
     # 已登录：一次走局域网地址，一次经外层反代的外网域名
     client.get(f"{_AUTH}/me", headers={"Host": "192.168.1.10:3300"})
     client.get(
@@ -272,9 +266,15 @@ def test_members_can_read_but_not_change_addresses(client):
     assert created.status_code == 200, created.text
     client.cookies.clear()
     assert client.post(f"{_AUTH}/login", json=_MEMBER).status_code == 200
-    assert client.get(_ADDRESSES).status_code == 200
+    # 成员的请求不教地址簿：学到的地址会发给全家的 App 去连，成员能自己写 X-Forwarded-Host
+    client.get(f"{_AUTH}/me", headers={"X-Forwarded-Host": "relay.attacker.example"})
+    client.get(f"{_AUTH}/me", headers={"Host": "192.168.1.66:3000"})
+    time.sleep(0.3)
+    learned = _urls(_addresses(client))
+    assert not any("attacker" in url or "192.168.1.66" in url for url in learned), learned
     assert client.post(_ADDRESSES, json={"url": "http://192.168.1.9"}).status_code == 403
-    assert client.post(f"{_ADDRESSES}/remove", json={"url": "http://192.168.1.9"}).status_code == 403
+    removed = client.post(f"{_ADDRESSES}/remove", json={"url": "http://192.168.1.9"})
+    assert removed.status_code == 403
     client.cookies.clear()
     assert client.get(_ADDRESSES).status_code == 401
 

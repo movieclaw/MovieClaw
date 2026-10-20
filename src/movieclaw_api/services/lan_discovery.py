@@ -132,18 +132,6 @@ class _LanOrigins:
             await self._sync()
         return list(self._origins)
 
-    async def forget(self, origin: str) -> bool:
-        """管理员在「访问地址」里删掉了它：内存和库里都不再留。"""
-        if not self._loaded:
-            await self._sync()
-        if origin not in self._origins:
-            return False
-        self._origins = [o for o in self._origins if o != origin]
-        self._last_host = None
-        store = get_setting_store()
-        await store.set(LanOriginsSetting(origins=list(self._origins)))
-        return True
-
     async def _sync(self) -> None:
         """与库里的合并（内存里的新在前），有变化才写。"""
         try:

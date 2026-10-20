@@ -285,9 +285,10 @@ struct DeviceApprovalFlow: View {
 
     /// 二维码来自另一台服务器时补一句：电视连的是 A，手机当前账号在 B，在 B 上当然查不到
     private var serverMismatchHint: String {
-        guard let host, let origin = model.server?.origin, let current = origin.host else { return "" }
-        let mine = origin.port.map { "\(current):\($0)" } ?? current
-        guard mine.lowercased() != host.lowercased() else { return "" }
+        guard let host, let server = model.server, let current = server.origin.host else { return "" }
+        let mine = server.origin.port.map { "\(current):\($0)" } ?? current
+        // 同一台服务器的另一个地址（电视连内网、手机登录用的域名）不算另一台
+        guard !ServerRoutes.shared.hostLabels(of: server).contains(where: { $0.lowercased() == host.lowercased() }) else { return "" }
         return "二维码来自 \(host)，而当前账号连的是 \(mine)；如果那台设备连的是另一台服务器，请先在「我的」页切换到那台服务器上的账号。"
     }
 
