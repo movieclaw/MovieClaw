@@ -86,6 +86,8 @@ def settled_screenshot(page, path, **options):
 
 
 def test_setup_reuse_wait_actions_and_mobile(smart_stack):
+    from playwright.sync_api import expect
+
     base, api, root = smart_stack
     with pw.sync_playwright() as playwright:
         options = (
@@ -105,7 +107,7 @@ def test_setup_reuse_wait_actions_and_mobile(smart_stack):
         page.on("pageerror", lambda error: errors.append(str(error)))
         # Removed preview links no longer mount a feature or expose its API.
         page.goto(f"{base}/settings/subscription?preview=1&run=1")
-        page.get_by_role("region", name="剧集智能设置").wait_for()
+        page.get_by_role("region", name="智能设置", exact=True).wait_for()
         assert page.get_by_role("link", name="试订阅", exact=False).count() == 0
         assert page.get_by_role("button", name="智能订阅试验室", exact=True).count() == 0
         assert page.get_by_role("region", name="预览结果").count() == 0
@@ -120,11 +122,17 @@ def test_setup_reuse_wait_actions_and_mobile(smart_stack):
         assert context.request.get(f"{api}/api/v1/subscriptions/smart-lab/1").status == 404
         page.goto(f"{base}/media/tv/200")
         page.get_by_role("button", name="订阅追踪", exact=True).click()
-        card = page.get_by_role("region", name="剧集智能设置")
-        card.get_by_role("button", name="保存剧集设置", exact=True).wait_for()
+        # One shared settings set: the first subscription asks for it inline, once.
+        card = page.get_by_role("region", name="智能选择", exact=True)
+        card.get_by_role("button", name="保存设置", exact=True).wait_for()
+        card.get_by_text("只需设置一次，电影和剧集都按它来。", exact=True).wait_for()
         assert page.get_by_role("button", name="确认订阅", exact=True).is_disabled()
         settled_screenshot(page, root / "tv-first-desktop.png")
-        card.get_by_role("button", name="保存剧集设置", exact=True).click()
+        card.get_by_role("button", name="保存设置", exact=True).click()
+        card.get_by_text("优先 4K WEB-DL", exact=True).wait_for()
+        assert card.get_by_role("button", name="保存设置", exact=True).count() == 0
+        defaults = context.request.get(f"{base}/api/v1/subscriptions/smart-defaults").json()["data"]
+        assert defaults["configured"] is True
         card.get_by_role("button", name="修改设置", exact=True).click()
         assert page.get_by_role("button", name="确认订阅", exact=True).is_disabled()
         card.get_by_label("优先分辨率", exact=True).select_option("1080p")
@@ -197,26 +205,49 @@ def test_setup_reuse_wait_actions_and_mobile(smart_stack):
         page.set_viewport_size({"width": 390, "height": 844})
         page.goto(f"{base}/media/movie/100")
         page.get_by_role("button", name="订阅追踪", exact=True).click()
-        card = page.get_by_role("region", name="电影智能设置")
-        card.get_by_role("button", name="保存电影设置", exact=True).wait_for()
+        # Settings are shared now: the TV setup above already configured movies, so
+        # the first movie subscription reuses them with no separate first setup.
+        # Changing quality for this one title is the per-movie choice and must not
+        # leak into the shared defaults the TV subscription runs on.
+        card = page.get_by_role("region", name="智能选择", exact=True)
+        card.get_by_text("优先 4K WEB-DL", exact=True).wait_for()
+        assert card.get_by_role("button", name="保存设置", exact=True).count() == 0
+        assert page.get_by_text("后续电影订阅直接复用这套设置。", exact=True).count() == 0
+        expect(page.get_by_role("button", name="确认订阅", exact=True)).to_be_enabled()
         settled_screenshot(page, root / "movie-first-mobile.png")
-        card.get_by_label("优先片源", exact=True).select_option("blu-ray")
-        card.get_by_role("button", name="保存电影设置", exact=True).click()
-        card.get_by_role("button", name="修改设置", exact=True).wait_for()
+        card.get_by_role("button", name="改画质", exact=True).click()
+        card.get_by_role("group", name="片源", exact=True).get_by_role(
+            "button", name="蓝光", exact=True
+        ).click()
+        card.get_by_text("优先 4K 蓝光", exact=True).wait_for()
+        assert (
+            card.get_by_role("group", name="以后也这样吗？")
+            .get_by_label("只这部", exact=True)
+            .is_checked()
+        )
+        assert not page.evaluate("document.documentElement.scrollWidth > innerWidth")
+        settled_screenshot(page, root / "movie-ready-mobile.png")
+        page.get_by_role("button", name="确认订阅", exact=True).click()
+        card.wait_for(state="hidden")
+        movie_sub = next(
+            s
+            for s in context.request.get(f"{base}/api/v1/subscriptions").json()["data"]
+            if s["media"]["kind"] == "movie" and s["media"]["tmdb_id"] == 100
+        )
+        assert movie_sub["selection_mode"] == "smart"
+        assert movie_sub["smart_policy"]["source"] == "blu-ray"
+        assert (
+            context.request.get(f"{base}/api/v1/subscriptions/smart-defaults").json()["data"][
+                "source"
+            ]
+            == "web-dl"
+        )
         assert (
             context.request.get(f"{base}/api/v1/subscriptions/smart-profiles/tv").json()["data"][
                 "preferences"
             ]["source"]
             == "web-dl"
         )
-        page.get_by_role("button", name="关闭", exact=True).last.click()
-        page.get_by_role("button", name="订阅追踪", exact=True).click()
-        card.get_by_text("优先 4K 蓝光", exact=True).wait_for()
-        assert page.get_by_text("后续电影订阅直接复用这套设置。", exact=True).count() == 0
-        assert card.get_by_role("button", name="保存电影设置", exact=True).count() == 0
-        settled_screenshot(page, root / "movie-ready-mobile.png")
-        page.get_by_role("button", name="确认订阅", exact=True).click()
-        card.wait_for(state="hidden")
         assert not page.evaluate("document.documentElement.scrollWidth > innerWidth")
         page.goto(f"{base}/subscriptions/{sub['id']}")
         page.get_by_text("智能目标", exact=True).wait_for()
@@ -315,21 +346,22 @@ def test_compact_subscription_options_and_saved_profile(smart_stack):
                 context.request.post(f"{base}/api/v1/auth/bootstrap", data=credentials).status
                 == 200
             ), bootstrap
-        profile_url = f"{base}/api/v1/subscriptions/smart-profiles/movie"
-        current = context.request.get(profile_url).json()["data"]
-        preferences = {
-            "resolution": "2160p",
-            "source": "web-dl",
-            "wait_seconds": 86400,
-            "allow_upgrade": True,
-            "strict_resolution": False,
-        }
-        assert (
-            context.request.put(
-                profile_url, data={"revision": current["revision"], "preferences": preferences}
-            ).status
-            == 200
+        defaults_url = f"{base}/api/v1/subscriptions/smart-defaults"
+        current = context.request.get(defaults_url).json()["data"]
+        saved = context.request.put(
+            defaults_url,
+            data={
+                "movie_revision": current["movie_revision"],
+                "tv_revision": current["tv_revision"],
+                "resolution": "2160p",
+                "source": "web-dl",
+                "allow_upgrade": True,
+                "strict_resolution": False,
+                "movie_wait_seconds": 86400,
+                "tv_wait_seconds": current["tv_wait_seconds"],
+            },
         )
+        assert saved.status == 200, saved.text()
         assert context.request.post(f"{api}/__lab/subscription-downloader/true").status == 200
         libraries = []
         for name in ("电影", "收藏"):
@@ -397,13 +429,21 @@ def test_compact_subscription_options_and_saved_profile(smart_stack):
         assert "存入「收藏」" in dialog.inner_text()
         dialog.get_by_role("button", name="修改设置", exact=True).click()
         expect(dialog.get_by_role("button", name="确认订阅", exact=True)).to_be_disabled()
-        dialog.get_by_label("等待耐心", exact=True).select_option("0")
+        dialog.get_by_label("电影最多等", exact=True).select_option("0")
         dialog.get_by_label("允许后续洗版", exact=True).uncheck()
         dialog.get_by_text("选择说明与最低要求", exact=True).click()
         dialog.get_by_label("只接受 4K，到期也不降低分辨率", exact=True).check()
-        dialog.get_by_role("button", name="保存电影设置", exact=True).click()
-        dialog.get_by_text("尽快下载 · 入库后不洗版", exact=True).wait_for()
-        dialog.get_by_text("只接受 4K", exact=True).wait_for()
+        dialog.get_by_role("button", name="保存设置", exact=True).click()
+        dialog.get_by_text("尽快下载 · 入库后不洗版 · 只接受 4K", exact=True).wait_for()
+        expect(dialog.get_by_role("button", name="确认订阅", exact=True)).to_be_enabled()
+        # The plan summary no longer lists the strict-resolution floor; reopening
+        # the settings form shows that it was saved.
+        dialog.get_by_role("button", name="修改设置", exact=True).click()
+        dialog.get_by_text("选择说明与最低要求", exact=True).click()
+        expect(dialog.get_by_label("只接受 4K，到期也不降低分辨率", exact=True)).to_be_checked()
+        expect(dialog.get_by_label("允许后续洗版", exact=True)).not_to_be_checked()
+        dialog.get_by_role("button", name="取消修改", exact=True).click()
+        dialog.get_by_text("尽快下载 · 入库后不洗版 · 只接受 4K", exact=True).wait_for()
         dialog.get_by_role("button", name="确认订阅", exact=True).click()
         dialog.wait_for(state="hidden")
         rows = context.request.get(f"{base}/api/v1/subscriptions").json()["data"]
@@ -445,7 +485,9 @@ def test_custom_day_input_persists_into_subscription(
     smart_stack, kind, width, days, legacy_hours, media_id
 ):
     base, _, root = smart_stack
-    label = "电影" if kind == "movie" else "剧集"
+    # One shared settings form; movies and TV each keep their own wait field.
+    label = "电影最多等" if kind == "movie" else "剧集每集最多等"
+    wait_key = f"{kind}_wait_seconds"
     with pw.sync_playwright() as playwright:
         options = (
             {"channel": "chrome"}
@@ -461,6 +503,24 @@ def test_custom_day_input_persists_into_subscription(
                 context.request.post(f"{base}/api/v1/auth/bootstrap", data=credentials).status
                 == 200
             )
+        defaults_url = f"{base}/api/v1/subscriptions/smart-defaults"
+        current = context.request.get(defaults_url).json()["data"]
+        saved = context.request.put(
+            defaults_url,
+            data={
+                "movie_revision": current["movie_revision"],
+                "tv_revision": current["tv_revision"],
+                "resolution": "2160p",
+                "source": "web-dl",
+                "allow_upgrade": True,
+                "strict_resolution": False,
+                "movie_wait_seconds": 86400,
+                "tv_wait_seconds": 10800,
+            },
+        )
+        assert saved.status == 200, saved.text()
+        # An older client stored this kind's wait through the per-kind profile API,
+        # in whole hours; the shared form must show and keep that value.
         profile_url = f"{base}/api/v1/subscriptions/smart-profiles/{kind}"
         profile = context.request.get(profile_url).json()["data"]
         preferences = {
@@ -476,17 +536,18 @@ def test_custom_day_input_persists_into_subscription(
             ).status
             == 200
         )
+        assert context.request.get(defaults_url).json()["data"][wait_key] == legacy_hours * 3600
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.goto(f"{base}/settings/subscription")
-        card = page.get_by_role("region", name=f"{label}智能设置", exact=True)
+        card = page.get_by_role("region", name="智能设置", exact=True)
         card.get_by_role("button", name="修改设置", exact=True).click()
-        select = card.get_by_label("等待耐心", exact=True)
-        number = card.get_by_role("spinbutton", name="自定义等待天数", exact=True)
-        decrease = card.get_by_role("button", name="减少 1 天", exact=True)
-        increase = card.get_by_role("button", name="增加 1 天", exact=True)
-        save_button = card.get_by_role("button", name=f"保存{label}设置", exact=True)
+        select = card.get_by_label(label, exact=True)
+        number = card.get_by_role("spinbutton", name=f"{label}天数", exact=True)
+        decrease = card.get_by_role("button", name=f"{label}减少 1 天", exact=True)
+        increase = card.get_by_role("button", name=f"{label}增加 1 天", exact=True)
+        save_button = card.get_by_role("button", name="保存设置", exact=True)
         if legacy_hours % 24:
             assert select.input_value() == str(legacy_hours * 3600)
             assert number.count() == 0
@@ -496,6 +557,9 @@ def test_custom_day_input_persists_into_subscription(
             assert (
                 context.request.get(profile_url).json()["data"]["preferences"]["wait_seconds"]
                 == legacy_hours * 3600
+            )
+            assert context.request.get(defaults_url).json()["data"][wait_key] == (
+                legacy_hours * 3600
             )
             card.get_by_role("button", name="修改设置", exact=True).click()
             select.select_option("custom")
@@ -534,20 +598,21 @@ def test_custom_day_input_persists_into_subscription(
             assert number.input_value() == str(expected)
             assert select.input_value() == "custom"
         # Direct entry, keyboard increments, limits, and invalid edits all use the
-        # same form that saves a real profile; no stale value may be submitted.
+        # same form that saves the real settings; no stale value may be submitted.
         number.fill("7")
         assert increase.is_disabled()
         decrease.click()
         assert number.input_value() == "6"
         number.press("ArrowUp")
         assert number.input_value() == "7"
-        before_invalid = context.request.get(profile_url).json()["data"]
+        before_invalid = context.request.get(defaults_url).json()["data"]
         updates = []
         page.on(
             "request",
             lambda request: (
                 updates.append(request.url)
-                if request.method == "PUT" and "/smart-profiles/" in request.url
+                if request.method == "PUT"
+                and ("/smart-defaults" in request.url or "/smart-profiles/" in request.url)
                 else None
             ),
         )
@@ -557,26 +622,32 @@ def test_custom_day_input_persists_into_subscription(
             save_button.click()
             assert number.is_visible()
         assert updates == []
-        assert context.request.get(profile_url).json()["data"] == before_invalid
+        assert context.request.get(defaults_url).json()["data"] == before_invalid
         number.fill(str(days))
         assert number.evaluate("el => el.validity.valid")
         assert number.input_value() == str(days)
-        card.get_by_role("button", name=f"保存{label}设置", exact=True).click()
+        save_button.click()
         card.get_by_role("button", name="修改设置", exact=True).wait_for()
+        assert updates and all("/smart-defaults" in url for url in updates)
+        assert context.request.get(defaults_url).json()["data"][wait_key] == days * 86400
         assert (
             context.request.get(profile_url).json()["data"]["preferences"]["wait_seconds"]
             == days * 86400
         )
-        assert f"最多等 {days} 天" in card.inner_text()
+        summary = "电影" if kind == "movie" else "剧集每集"
+        assert f"{summary}最多等 {days} 天" in card.inner_text()
         page.reload()
         card.get_by_role("button", name="修改设置", exact=True).click()
         assert select.input_value() == "custom" and number.input_value() == str(days)
         card.get_by_role("button", name="取消修改", exact=True).click()
         page.goto(f"{base}/media/{kind}/{media_id}")
         page.get_by_role("button", name="订阅追踪", exact=True).click()
+        card = page.get_by_role("region", name="智能选择", exact=True)
         card.get_by_role("button", name="修改设置", exact=True).wait_for()
         assert f"最多等 {days} 天" in card.inner_text()
         card.get_by_role("button", name="修改设置", exact=True).click()
+        select = card.get_by_label(label, exact=True)
+        number = card.get_by_role("spinbutton", name=f"{label}天数", exact=True)
         assert select.input_value() == "custom" and number.input_value() == str(days)
         evidence = Path(os.environ.get("MOVIECLAW_SMART_EVIDENCE", str(root)))
         evidence.mkdir(parents=True, exist_ok=True)
@@ -620,23 +691,42 @@ def test_settings_tabs_rule_editor_and_real_preview(smart_stack, width, height):
                 == 200
             )
         # Ensure this case can also run on its own.
-        profile_url = f"{base}/api/v1/subscriptions/smart-profiles/movie"
-        profile = context.request.get(profile_url).json()["data"]
-        if not profile["preferences"]:
+        defaults_url = f"{base}/api/v1/subscriptions/smart-defaults"
+        defaults = context.request.get(defaults_url).json()["data"]
+        if not defaults["configured"]:
             assert (
                 context.request.put(
-                    profile_url,
-                    data={"revision": profile["revision"], "preferences": {"wait_seconds": 86400}},
+                    defaults_url,
+                    data={
+                        key: defaults[key]
+                        for key in (
+                            "movie_revision",
+                            "tv_revision",
+                            "resolution",
+                            "source",
+                            "allow_upgrade",
+                            "strict_resolution",
+                            "movie_wait_seconds",
+                            "tv_wait_seconds",
+                        )
+                    },
                 ).status
                 == 200
             )
         assert context.request.post(f"{api}/__lab/subscription-downloader/true").status == 200
-        profiles_before = {
-            kind: context.request.get(f"{base}/api/v1/subscriptions/smart-profiles/{kind}").json()[
-                "data"
-            ]
-            for kind in ("movie", "tv")
-        }
+
+        def saved_settings():
+            return {
+                "defaults": context.request.get(defaults_url).json()["data"],
+                **{
+                    kind: context.request.get(
+                        f"{base}/api/v1/subscriptions/smart-profiles/{kind}"
+                    ).json()["data"]
+                    for kind in ("movie", "tv")
+                },
+            }
+
+        profiles_before = saved_settings()
         subscriptions_before = context.request.get(f"{base}/api/v1/subscriptions").json()["data"]
         page = context.new_page()
         errors = []
@@ -650,14 +740,16 @@ def test_settings_tabs_rule_editor_and_real_preview(smart_stack, width, height):
         expect(smart).to_be_visible()
         assert page.get_by_role("button", name="预览匹配", exact=True).count() == 0
         assert page.get_by_role("searchbox", name="搜索预览作品").count() == 0
-        movie = smart.get_by_role("region", name="电影智能设置", exact=True)
+        movie = smart.get_by_role("region", name="智能设置", exact=True)
+        movie.get_by_role("heading", name="默认", exact=True).wait_for()
+        smart.get_by_role("region", name="它记住的", exact=True).wait_for()
         movie.get_by_role("button", name="修改设置", exact=True).click()
         movie.get_by_label("优先分辨率", exact=True).select_option("1080p")
         smart_tab.focus()
         smart_tab.press("ArrowRight")
         expect(rules_tab).to_be_focused()
         expect(rules).to_be_visible()
-        assert smart.get_by_role("region", name="电影智能设置").count() == 0
+        assert smart.get_by_role("region", name="智能设置").count() == 0
         rules_tab.press("Home")
         expect(smart).to_be_visible()
         assert movie.get_by_label("优先分辨率", exact=True).input_value() == "1080p"
@@ -722,12 +814,7 @@ def test_settings_tabs_rule_editor_and_real_preview(smart_stack, width, height):
             context.request.get(f"{base}/api/v1/subscriptions").json()["data"]
             == subscriptions_before
         )
-        assert {
-            kind: context.request.get(f"{base}/api/v1/subscriptions/smart-profiles/{kind}").json()[
-                "data"
-            ]
-            for kind in ("movie", "tv")
-        } == profiles_before
+        assert saved_settings() == profiles_before
         assert not page.evaluate("document.documentElement.scrollWidth > innerWidth")
         assert not errors
         browser.close()
@@ -743,8 +830,14 @@ def test_identity_skip_is_informational_on_desktop_and_mobile(smart_stack):
         )
         browser = playwright.chromium.launch(headless=True, **options)
         context = browser.new_context(viewport={"width": 1440, "height": 1000})
-        credentials = {"username": "identity-test", "password": "isolated-test-only"}
-        assert context.request.post(f"{base}/api/v1/auth/bootstrap", data=credentials).status == 200
+        # Same admin as the other cases so this one also runs after them in the module
+        # (bootstrap only succeeds once per database).
+        credentials = {"username": "smart-admin", "password": "isolated-test-only"}
+        if context.request.post(f"{base}/api/v1/auth/login", data=credentials).status != 200:
+            assert (
+                context.request.post(f"{base}/api/v1/auth/bootstrap", data=credentials).status
+                == 200
+            )
         result = context.request.post(f"{api}/__lab/identity/false").json()
         assert result["dispatched"] == 0
         sub_id = result["id"]

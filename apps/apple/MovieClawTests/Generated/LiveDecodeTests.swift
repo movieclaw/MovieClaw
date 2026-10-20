@@ -288,6 +288,12 @@ struct LiveDecodeTests {
     @Test func subscriptionsListRecentArrivals() async throws {
         try await LiveServer.check { try await $0.subscriptionsListRecentArrivals() }
     }
+    @Test func subscriptionsGetSmartDefaults() async throws {
+        try await LiveServer.check { try await $0.subscriptionsGetSmartDefaults() }
+    }
+    @Test func subscriptionsGetSmartMemory() async throws {
+        try await LiveServer.check { try await $0.subscriptionsGetSmartMemory() }
+    }
     @Test func subscriptionsListTodayArrivals() async throws {
         try await LiveServer.check { try await $0.subscriptionsListTodayArrivals() }
     }

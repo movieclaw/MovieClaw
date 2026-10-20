@@ -46,11 +46,14 @@ struct SubscribeSheet: View {
     @State private var cancelling = false
 
     @State private var selectionMode = "smart"
-    @State private var smartProfile: SmartProfile?
+    /// 智能选择里管理员做的选择（字幕回答、改过的画质与记住的范围），随创建请求提交
+    @State private var smartChoice = SmartChoice()
     @State private var pages: [Page] = []
     @State private var formHeight: CGFloat = 0
 
-    enum Page: Hashable { case smart, range, options }
+    enum Page: Hashable { case smart, quality, range, options }
+
+    private var smartPlan: API.SmartPlanView? { prepared?.smart }
 
     private var upgradeMode: Bool { request.upgrade }
     private var canManage: Bool { permissions.canManageSubscriptions }
@@ -70,7 +73,7 @@ struct SubscribeSheet: View {
 
     private var canSubmit: Bool {
         guard let media = prepared?.media, !busy, pages.isEmpty else { return false }
-        if selectionMode == "smart", smartProfile?.preferences == nil || smartProfile?.kind != media.kind { return false }
+        if selectionMode == "smart", smartPlan?.configured != true { return false }
         if upgradeMode, canManage, !selectableRules.contains(where: { $0.id == ruleSetId }) { return false }
         if media.kind == "movie" { return true }
         return !selectedSeasons.isEmpty || followFuture
@@ -108,9 +111,9 @@ struct SubscribeSheet: View {
                         .navigationDestination(for: Page.self) { page in
                             switch page {
                             case .smart:
-                                if let smartProfile {
-                                    SmartProfileEditor(kind: kind, profile: smartProfile) { self.smartProfile = $0 }
-                                }
+                                SmartDefaultsEditor { Task { await refreshSmartPlan() } }
+                            case .quality:
+                                if let smartPlan { SmartQualityPage(plan: smartPlan, choice: $smartChoice) }
                             case .range:
                                 Form { rangeFields }.subsFormStyle().navigationTitle("追踪范围")
                                     .navigationBarTitleDisplayMode(.inline)
@@ -144,6 +147,10 @@ struct SubscribeSheet: View {
             }
         }
         .interactiveDismissDisabled(busy || pages.contains(.smart))
+        .onChange(of: smartPlan?.configured) { _, configured in
+            // 首次使用：管理员直接进入设置页，保存后回到订阅
+            if configured == false, smartPlan?.canEdit == true, selectionMode == "smart", pages.isEmpty { pages.append(.smart) }
+        }
         .accessibilityIdentifier("subscribe-sheet")
         .task { await runPrepare(request.titleRef) }
         // 投递路由预览随「入库库」与「预检收敛出的条目」两者变化重拉（同 Web 依赖 [prepared?.media, libraryId]）：
@@ -309,10 +316,7 @@ struct SubscribeSheet: View {
     @ViewBuilder
     private func form(_ prepared: API.PrepareView) -> some View {
         if selectionMode == "smart" {
-            SmartProfileSection(kind: kind, profile: $smartProfile) {
-                if pages.isEmpty { pages.append(.smart) }
-            }
-                .id(kind)
+            SmartPlanSection(plan: smartPlan, choice: $smartChoice).id(kind)
         } else {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
@@ -482,7 +486,7 @@ struct SubscribeSheet: View {
     /// 预检并按结果初始化表单默认值（候选确认后带新引用再次进入）
     private func runPrepare(_ ref: String) async {
         prepared = nil
-        smartProfile = nil
+        smartChoice = SmartChoice()
         selectionMode = upgradeMode ? "rules" : "smart"
         error = nil
         upgradeReport = nil
@@ -556,6 +560,8 @@ struct SubscribeSheet: View {
         error = nil
         defer { busy = false }
         do {
+            let smart = selectionMode == "smart" ? smartPlan : nil
+            let choice = smart.map { smartChoice.payload(for: $0) }
             // 提交预检收敛好的 TMDB 引用；豆瓣身份靠 source_title_ref 原样带回
             let created = try await api.subscriptionsCreate(body: .init(
                 titleRef: "tmdb:\(media.kind):\(media.tmdbId)",
@@ -565,7 +571,12 @@ struct SubscribeSheet: View {
                 ruleSetId: canManage && selectionMode == "rules" ? ruleSetId : nil,
                 libraryId: canManage ? libraryId : nil,
                 selectionMode: selectionMode,
-                smartProfileRevision: selectionMode == "smart" ? smartProfile?.revision : nil
+                smartProfileRevision: smart?.profileRevision,
+                smartLanguageAnswer: choice?.language,
+                smartResolution: choice?.resolution,
+                smartSource: choice?.source,
+                smartScope: choice?.scope,
+                smartMemoryRevision: choice?.memoryRevision
             ))
             await refreshIndex()
             if upgradeMode {
@@ -580,7 +591,18 @@ struct SubscribeSheet: View {
             dismiss()
         } catch {
             self.error = error.localizedDescription.isEmpty ? "订阅失败，请稍后重试" : error.localizedDescription
+            // 弹层打开期间别人改了设置或记忆：重新读一遍，按最新的再确认
+            if (error as? APIError)?.status == 409 { await refreshSmartPlan() }
         }
+    }
+
+    /// 智能设置保存或记忆冲突后，只刷新智能选择摘要，不动已选的季和库。
+    private func refreshSmartPlan() async {
+        guard let media = prepared?.media,
+              let next = try? await api.uiSubscriptionsPreviewTitle(body: .init(titleRef: "tmdb:\(media.kind):\(media.tmdbId)"))
+        else { return }
+        smartChoice = SmartChoice()
+        prepared?.smart = next.smart
     }
 
     /// 管理员先叠一层问「种子与媒体库资源要不要一起删」；成员只取消自己的关注

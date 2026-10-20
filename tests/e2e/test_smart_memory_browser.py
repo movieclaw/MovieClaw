@@ -264,3 +264,23 @@ def test_members_only_see_conclusions(stack, browser):
     assert card.get_by_role("group", name=re.compile("字幕吗")).count() == 0
     shot(page, "12-member-view")
     context.close()
+
+
+def test_switching_modes_never_leaves_submit_stuck(stack, browser):
+    """改到一半切到规则模式再切回来：没保存的编辑作废，确认订阅不会一直灰着。"""
+    base, _api = stack
+    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    assert context.request.post(f"{base}/api/v1/auth/login", data=ADMIN).status == 200
+    page = context.new_page()
+    card = open_dialog(page, base, "tmdb:movie:706")
+    card.get_by_role("button", name="修改设置").click()
+    submit = page.get_by_role("button", name="确认订阅", exact=True).last
+    assert submit.is_disabled()
+    page.get_by_role("button", name=re.compile("^更多选项")).click()
+    page.get_by_role("button", name=re.compile("^选择方式")).click()
+    page.get_by_role("menuitemradio", name="规则模式").click()
+    page.get_by_role("button", name=re.compile("^选择方式")).click()
+    page.get_by_role("menuitemradio", name="智能选择").click()
+    page.get_by_role("region", name="智能选择").get_by_text("优先 4K WEB-DL").wait_for()
+    assert submit.is_enabled()
+    context.close()

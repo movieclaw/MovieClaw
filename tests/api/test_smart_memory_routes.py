@@ -115,6 +115,9 @@ def test_one_settings_set_for_movies_and_tv(client):
     assert stale.status_code == 409
     plan = _preview(client, "tmdb:tv:804")
     assert plan["wait_label"] == "最多等 2 小时 · 达标后停止洗版"
+    _defaults(client, resolution="1080p", tv_wait_seconds=7200, strict_resolution=True)
+    strict = _preview(client, "tmdb:tv:804")["wait_label"]
+    assert strict == "最多等 2 小时 · 达标后停止洗版 · 只接受 1080p"
 
 
 def test_language_question_once_then_remembered_and_applied_everywhere(client):

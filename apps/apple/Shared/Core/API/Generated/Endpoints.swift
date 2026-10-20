@@ -2938,6 +2938,30 @@ nonisolated extension APIClient {
         return try await send("GET", "/subscriptions/recent-arrivals", query: query)
     }
 
+    /// get_smart_defaults
+    /// `GET /subscriptions/smart-defaults`
+    func subscriptionsGetSmartDefaults() async throws -> API.SmartDefaultsView {
+        return try await send("GET", "/subscriptions/smart-defaults")
+    }
+
+    /// put_smart_defaults
+    /// `PUT /subscriptions/smart-defaults`
+    func subscriptionsSaveSmartDefaults(body: API.SmartDefaultsPayload) async throws -> API.SmartDefaultsView {
+        return try await send("PUT", "/subscriptions/smart-defaults", body: body)
+    }
+
+    /// get_smart_memory
+    /// `GET /subscriptions/smart-memory`
+    func subscriptionsGetSmartMemory() async throws -> API.SmartMemoryView {
+        return try await send("GET", "/subscriptions/smart-memory")
+    }
+
+    /// patch_smart_memory
+    /// `PATCH /subscriptions/smart-memory`
+    func subscriptionsUpdateSmartMemory(body: API.SmartMemoryPatch) async throws -> API.SmartMemoryView {
+        return try await send("PATCH", "/subscriptions/smart-memory", body: body)
+    }
+
     /// 预览订阅目标的季集、库存和现有订阅状态
     /// `POST /subscriptions/title-preview`
     func uiSubscriptionsPreviewTitle(body: API.SubscriptionTargetPreviewPayload) async throws -> API.PrepareView {

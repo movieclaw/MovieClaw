@@ -28,6 +28,35 @@ struct SmartWantedSelection: View {
             .padding(.top, 8)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("identity-info")
+        } else if let state = SmartSelection(context.wanted), state.awaitingSubtitles {
+            VStack(alignment: .leading, spacing: 10) {
+                if let error { Text(error).foregroundStyle(SubsColor.danger).accessibilityIdentifier("smart-action-error") }
+                if let explanation = state["wait_explanation"] { Text(explanation) }
+                if let line = context.detail.smartSubtitle?.line { Text(line).accessibilityIdentifier("smart-subtitle-requirement") }
+                if state["reason"] == "awaiting_subtitles", let deadline = state["deadline"] {
+                    Text("最晚等待至 \(SubsFormat.dateTime(deadline))").fontWeight(.medium)
+                        .accessibilityIdentifier("smart-deadline")
+                }
+                if let title = state["candidate_title"] {
+                    Text("原版：\(title)").textSelection(.enabled).accessibilityIdentifier("smart-candidate")
+                }
+                if context.canManage, context.detail.status == "active", context.detail.smartStatus == "active",
+                   let key = state["candidate_key"] {
+                    Button(busy ? "正在处理…" : "这次先下原版") {
+                        Task {
+                            if await change(.init(version: context.wanted.selectionVersion ?? 0, candidateKey: key)) {
+                                NotificationCenter.default.post(name: .smartOriginalRequested, object: context.detail.id)
+                            }
+                        }
+                    }
+                    .buttonStyle(.bordered).disabled(busy).accessibilityIdentifier("smart-download-original")
+                }
+            }
+            .font(.subheadline).foregroundStyle(Theme.textMuted)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 8)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("smart-awaiting-subtitles")
         } else if let state = SmartSelection(context.wanted) {
             VStack(alignment: .leading, spacing: 10) {
                 if let error { Text(error).foregroundStyle(SubsColor.danger).accessibilityIdentifier("smart-action-error") }
@@ -78,15 +107,24 @@ struct SmartWantedSelection: View {
         }
     }
 
-    private func change(_ payload: SmartWaitPayload) async {
-        guard !busy else { return }
+    @discardableResult
+    private func change(_ payload: SmartWaitPayload) async -> Bool {
+        guard !busy else { return false }
         busy = true
         error = nil
+        var succeeded = false
         do {
             try await api.changeSmartWait(subscriptionId: context.detail.id, wantedId: context.wanted.id, body: payload)
+            succeeded = true
         } catch { self.error = error.localizedDescription }
         // 成功或版本冲突都重新读取，下一次点击使用最新候选与版本。
         await context.onChanged()
         busy = false
+        return succeeded
     }
+}
+
+extension Notification.Name {
+    /// 「这次先下原版」成功：订阅详情据此追问看不看得懂这种语言（object = 订阅 id）
+    static let smartOriginalRequested = Notification.Name("movieclaw.smart.original-requested")
 }

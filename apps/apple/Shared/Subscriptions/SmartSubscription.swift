@@ -77,6 +77,40 @@ nonisolated extension API.SubscriptionDetailView {
     }
 }
 
+/// 订阅弹层里管理员做的选择（字幕回答、改过的画质与记住的范围），随创建请求提交，由服务端写入记忆。
+nonisolated struct SmartChoice: Hashable, Sendable {
+    var language: String?
+    var resolution: String?
+    var source: String?
+    var scope = "only"
+
+    /// 题目出现时即使没改也回传默认答案：答过就不再问。成员不能写记忆，什么都不带。
+    func payload(for plan: API.SmartPlanView) -> (language: String?, resolution: String?, source: String?, scope: String?, memoryRevision: Int?) {
+        guard plan.canEdit else { return (nil, nil, nil, nil, nil) }
+        let language = language ?? (plan.question != nil ? "subtitles" : nil)
+        let resolution = resolution.flatMap { $0 == plan.resolution ? nil : $0 }
+        let source = source.flatMap { $0 == plan.source ? nil : $0 }
+        return (language, resolution, source, resolution != nil || source != nil ? scope : nil, plan.memoryRevision)
+    }
+
+    func qualityChanged(_ plan: API.SmartPlanView) -> Bool {
+        (resolution ?? plan.resolution) != plan.resolution || (source ?? plan.source) != plan.source
+    }
+}
+
+nonisolated enum SmartLabels {
+    static func quality(resolution: String?, source: String?) -> String {
+        let r = resolution == "2160p" ? "4K" : (resolution ?? "")
+        let s = ["web-dl": "WEB-DL", "blu-ray": "蓝光", "remux": "Remux"][source ?? ""] ?? (source ?? "")
+        return "\(r) \(s)"
+    }
+    static func wait(_ seconds: Int) -> String {
+        if seconds == 0 { return "尽快下载" }
+        if seconds % 86400 == 0 { return "最多等 \(seconds / 86400) 天" }
+        return "最多等 \(seconds / 3600) 小时"
+    }
+}
+
 /// 只呈现服务器已作出的决策；没有合格候选时继续使用原有未播出 / 搜索状态。
 nonisolated struct SmartSelection {
     let values: [String: API.JSONValue]
@@ -93,6 +127,8 @@ nonisolated struct SmartSelection {
             return ("观察中", "按你延长的时间继续等待合适版本")
         }
         switch reason {
+        case "awaiting_subtitles": return ("等字幕", "已有 \(values["subtitle_blocked"].flatMap(\.intValue) ?? 1) 个原版，在等带字幕的版本")
+        case "deadline_awaiting_subtitles": return ("等字幕", "等待期已过，仍没有字幕版；原版不会自动下载")
         case "identity_unconfirmed": return ("寻找中", "部分资源未通过影片身份核验，已跳过，继续寻找。")
         case "waiting_target": return ("等版本", "历史发布记录支持等待目标品质版本")
         case "waiting_series": return ("等版本", "已有合格候选，等待当前跟随版本")
@@ -108,6 +144,7 @@ nonisolated struct SmartSelection {
         default: return ("观察中", "已有合格候选，短暂观察更合适的版本")
         }
     }
+    var awaitingSubtitles: Bool { ["awaiting_subtitles", "deadline_awaiting_subtitles"].contains(self["reason"] ?? "") }
     var followingLabel: String? {
         guard let raw = self["following"] else { return nil }
         let parts = raw.split(separator: "|", omittingEmptySubsequences: false).map(String.init)

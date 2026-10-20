@@ -169,7 +169,8 @@ async def _smart_plan_view(
         quality_note=resolved.quality_note,
         quality_shadow=resolved.quality_shadow,
         wait_label=f"{_wait_label(prefs.wait_seconds)} · "
-        f"{'达标后停止洗版' if prefs.allow_upgrade else '入库后不洗版'}",
+        f"{'达标后停止洗版' if prefs.allow_upgrade else '入库后不洗版'}"
+        + (f" · 只接受 {'4K' if resolved.resolution == '2160p' else '1080p'}" if prefs.strict_resolution else ""),
         subtitle_language=language,
         subtitle_language_label=language_label(language) if language else None,
         subtitle_understood=None if language is None else not resolved.watchable_languages,

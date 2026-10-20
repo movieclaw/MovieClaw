@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { SmartDefaultsCard, smartSummary } from "@/components/smart-subscription-settings";
 import type { SmartPlan, SmartPreferences } from "@/lib/api/subscriptions";
@@ -66,6 +66,8 @@ export function SmartPlanCard({ plan, choice, setChoice, onSettingsSaved, onEdit
     setEditingDefaultsState(editing);
     onEditingChange?.(editing);
   };
+  // 卡片被换掉（切到规则模式、重新预检）时，没保存的编辑就不算了
+  useEffect(() => () => onEditingChange?.(false), [onEditingChange]);
   const [editingQuality, setEditingQuality] = useState(false);
   const [editingSubtitle, setEditingSubtitle] = useState(false);
 
