@@ -35,6 +35,7 @@ from sqlalchemy import select
 
 from movieclaw_api.api.routes.playback import get_session_segment
 from movieclaw_api.exceptions import NotFoundException
+from movieclaw_api.services import network_side
 from movieclaw_api.services.library import skip_segments
 from movieclaw_api.services.library.access import member_content_limit, member_visible_ids
 from movieclaw_api.services.playback import watch as playback_watch
@@ -681,7 +682,7 @@ async def video_stream(
     # 外网取流：后台的网盘上传先让路（cloud-storage.md §5.3）
     from movieclaw_api.services.drives import uplink
 
-    uplink.note(request.client.host if request.client else None)
+    uplink.note(network_side.request_side(request))
 
     files = await _files_for_ref(ref, identity.device.member_id)
     selected = _select_source(files, request.query_params.get("mediaSourceId"), item_id)
@@ -788,7 +789,8 @@ async def _cloud_target(request: Request, identity: RequestIdentity, f: LibraryF
         return await sources.stream_target(
             f.file_path,
             holder=f"play:{identity.device.device_id}:{f.id}",
-            client_host=request.client.host if request.client else None,
+            side=network_side.request_side(request),
+            place=network_side.outside_place(request) or f"device:{identity.device.device_id}",
             user_agent=request.headers.get("user-agent"),
             relay_fallback=sources.declares_fallback(request.headers, request.query_params),
             force_relay=request.query_params.get("relay") == "1",

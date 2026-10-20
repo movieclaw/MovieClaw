@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Toggle } from "@/components/cloud-push-ui";
 import { ExternalAccessSection } from "@/components/external-access-section";
+import { ServerAddressesSection } from "@/components/server-addresses-section";
 import { ChevronDownIcon } from "@/components/icons";
 import {
   SETTINGS_BUTTON_CLASS,
@@ -355,6 +356,9 @@ export function NetworkConfigSection() {
           </SettingsList>
         </SettingsSection>
       )}
+
+      {/* —— 访问地址：各端 App 在内网 / 外网之间自动选（独立组件，走访问地址接口）—— */}
+      <ServerAddressesSection />
 
       {/* —— 外部访问：外部访问地址 / 对外端口（独立组件，走应用配置接口）—— */}
       <ExternalAccessSection />

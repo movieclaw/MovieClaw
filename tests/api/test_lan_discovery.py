@@ -145,6 +145,12 @@ async def test_movieclaw_reply_lists_all_candidates(env):
             "http://10.0.0.2:3300",
             "https://movie.example.com",
         ],
+        # 同一组地址标上内网 / 外网（server-addresses.md §3.2）
+        "endpoints": [
+            {"url": "http://192.168.1.10:3000", "kind": "lan"},
+            {"url": "http://10.0.0.2:3300", "kind": "lan"},
+            {"url": "https://movie.example.com", "kind": "wan"},
+        ],
     }
 
 

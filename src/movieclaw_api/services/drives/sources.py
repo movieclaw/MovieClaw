@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import logging
 import time
 from collections.abc import Mapping
@@ -27,6 +26,7 @@ from sqlalchemy import select
 
 from movieclaw_api.services.drives import gateway
 from movieclaw_api.services.drives.registry import backends
+from movieclaw_api.services.network_side import Side
 from movieclaw_db.engine import get_database
 from movieclaw_db.models.library_file import LibraryFile
 from movieclaw_db.models.library_file_replica import REPLICA_VERIFIED, LibraryFileReplica
@@ -364,52 +364,40 @@ def release_slot(account_id: int, holder: str) -> None:
 _direct_clients: dict[int, tuple[str, float]] = {}
 
 
-def is_home_client(host: str | None) -> bool:
-    """请求来自家里吗：环回、私网、链路本地、IPv6 ULA 算家里；其余（含 100.64/10）算在外面。
-
-    取不到对端地址（容器桥接网络把所有设备 NAT 成网关）时网关本身是私网地址，于是一律算家里——
-    结果是全部走家里转发，安全的那一边。
-    """
-    if not host:
-        return True
-    try:
-        ip = ipaddress.ip_address(host.strip())
-    except ValueError:
-        return True
-    if ip.version == 4 and ip in ipaddress.ip_network("100.64.0.0/10"):
-        return False
-    return ip.is_loopback or ip.is_private or ip.is_link_local
-
-
 def choose_direct(
     *,
     mode: StreamMode,
     account_id: int,
-    client_host: str | None,
+    side: Side,
+    place: str,
     relay_fallback: bool,
     force_relay: bool,
     original_link: bool,
 ) -> bool:
     """这次取流要不要 302 到网盘直链（cloud-storage.md §7.2）。不直连就由家里转发。
 
+    ``side`` 是请求方在家还是在外面（server-addresses.md §5），``place`` 是在外面的哪一处（公网
+    地址，取不到时是设备标识）。
+
     - 家里的设备、点了「改走转发」的（App 直连失败后带 ``relay=1`` 重来）、插件说直链不是原画
       的：转发；
-    - 「总是转发」：转发；「总是直连」：直连；
-    - 「自动」：只有声明能在直连失败时改走转发的客户端（自家 App），且这个账号此刻没有别处在外面
-      直连，才直连——任何时刻最多「家里 + 一处在外」两个地址访问网盘，第三方播放器永远不直连。
+    - 「总是转发」：转发；「总是直连」：在外面或认不准都直连（用户明确选的）；
+    - 「自动」：只有声明能在直连失败时改走转发的客户端（自家 App），确定在外面，且这个账号此刻
+      没有别处在外面直连，才直连——任何时刻最多「家里 + 一处在外」两个地址访问网盘，第三方播放器
+      永远不直连。认不准时无从保证「只有一处」，转发。
     """
-    if force_relay or not original_link or is_home_client(client_host):
+    if force_relay or not original_link or side == "home":
         return False
     if mode == "relay":
         return False
     if mode == "auto":
-        if not relay_fallback:
+        if not relay_fallback or side != "outside":
             return False
         holder = _direct_clients.get(account_id)
         now = time.monotonic()
-        if holder is not None and holder[0] != client_host and now - holder[1] < DIRECT_IDLE_S:
+        if holder is not None and holder[0] != place and now - holder[1] < DIRECT_IDLE_S:
             return False
-    _direct_clients[account_id] = (client_host or "", time.monotonic())
+    _direct_clients[account_id] = (place, time.monotonic())
     return True
 
 
@@ -443,15 +431,17 @@ async def stream_target(
     file_path: str,
     *,
     holder: str,
-    client_host: str | None,
     user_agent: str | None,
+    side: Side = "unknown",
+    place: str = "",
     relay_fallback: bool = False,
     force_relay: bool = False,
     allow_direct: bool = True,
 ) -> CloudStream:
     """只在网盘上的文件这次取流怎么走（cloud-storage.md §7.2、§7.3）。
 
-    ``holder`` 是这路播放的标识（同一台设备同一个文件的几条 Range 请求共用一个名额）。
+    ``holder`` 是这路播放的标识（同一台设备同一个文件的几条 Range 请求共用一个名额）。``side`` /
+    ``place`` 见 ``choose_direct``；不许直连（``allow_direct=False``）时不用给。
     直连网盘不经过家里，不占名额。失败抛 ``SlotsFull`` / ``BackendUnavailable`` / ``DriveError``。
     """
     from movieclaw_api.services.drives.registry import BackendUnavailable
@@ -466,7 +456,8 @@ async def stream_target(
     if allow_direct and choose_direct(
         mode=await stream_mode(),
         account_id=item.account_id,
-        client_host=client_host,
+        side=side,
+        place=place,
         relay_fallback=relay_fallback,
         force_relay=force_relay,
         original_link=backend.capabilities.original_link,

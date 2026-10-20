@@ -721,6 +721,8 @@ _MEMBER_ALLOWLIST = {
     # App 推送（docs/design/cloud-push.md §7.3）：每个人只管自己的通知开关、设备状态、
     # 测试通知；App 登记只认这台设备自己的凭证（服务层判定，网页会话登记不了）
     ("GET", "/api/v1/app/features"),
+    # 访问地址簿（docs/design/server-addresses.md §3.2）：各端 App 登录后据此在内外网之间自动选
+    ("GET", "/api/v1/server/addresses"),
     ("GET", "/api/v1/push/me"),
     ("PUT", "/api/v1/push/me/preferences"),
     ("POST", "/api/v1/push/me/test"),

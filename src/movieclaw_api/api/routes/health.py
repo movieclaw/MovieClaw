@@ -3,6 +3,7 @@ from fastapi import APIRouter, Request
 from movieclaw_api import __version__
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.schemas.base import BaseModel
+from movieclaw_api.services import host_key
 from movieclaw_api.settings.schemas import get_jellyfin_compat
 from movieclaw_api.spec_state import get_spec_hash
 
@@ -25,6 +26,10 @@ class HealthResponse(BaseModel):
     # server_id 同一个值，首次读取时生成、永不重置。App 用它认「是不是我家那台」——
     # 离线下载的归属与连通性探测都按它，不按地址（局域网 IP 与域名是同一台）
     instance_id: str | None = None
+    # 主机签名（docs/design/server-addresses.md §4.8）：请求带 ``?nonce=`` 时对
+    # 「movieclaw-health\n<instance_id>\n<nonce>」的 Ed25519 签名（base64url）。App 在家试内网
+    # 地址时先验它，验过才带登录凭据。不带 nonce 时不出现
+    proof: str | None = None
 
 
 @router.get(
@@ -33,15 +38,20 @@ class HealthResponse(BaseModel):
     summary="Health check",
     operation_id="health.check",
 )
-async def healthcheck(request: Request) -> HealthResponse:
+async def healthcheck(request: Request, nonce: str | None = None) -> HealthResponse:
     settings = get_settings()
+    instance_id = await _instance_id()
+    proof = None
+    if nonce is not None and instance_id and host_key.NONCE_PATTERN.match(nonce):
+        proof = await host_key.prove(instance_id, nonce)
     return HealthResponse(
         status="ok",
         service=settings.app_name,
         environment=settings.app_env,
         spec_hash=get_spec_hash(request.app),
         version=__version__,
-        instance_id=await _instance_id(),
+        instance_id=instance_id,
+        proof=proof,
     )
 
 

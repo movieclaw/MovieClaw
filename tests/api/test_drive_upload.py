@@ -492,8 +492,8 @@ def test_uploads_yield_while_someone_outside_is_watching(client, tmp_path, monke
     monkeypatch.setattr(uplink, "QUIET_S", 0.6)
     library_id = _library(client, tmp_path, {"片.mkv": _blob(4, 2 * PART)})
     _wait(lambda: replicas(client, library_id).get("片.mkv"))
-    uplink.note("8.8.8.8")  # 外网设备在取流
-    uplink.note("192.168.1.20")  # 家里的不算
+    uplink.note("outside")  # 外网设备在取流
+    uplink.note("home")  # 家里的不算
     assert uplink.busy()
     started = time.monotonic()
     _progress, outcome = call(client, _run_job, library_id)

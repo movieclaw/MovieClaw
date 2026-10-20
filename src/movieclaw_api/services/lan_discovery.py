@@ -132,6 +132,18 @@ class _LanOrigins:
             await self._sync()
         return list(self._origins)
 
+    async def forget(self, origin: str) -> bool:
+        """管理员在「访问地址」里删掉了它：内存和库里都不再留。"""
+        if not self._loaded:
+            await self._sync()
+        if origin not in self._origins:
+            return False
+        self._origins = [o for o in self._origins if o != origin]
+        self._last_host = None
+        store = get_setting_store()
+        await store.set(LanOriginsSetting(origins=list(self._origins)))
+        return True
+
     async def _sync(self) -> None:
         """与库里的合并（内存里的新在前），有变化才写。"""
         try:
@@ -250,7 +262,28 @@ async def movieclaw_reply(client_ip: str, http_port: int) -> dict | None:
         "name": setting.server_name,
         "server_version": __version__,
         "addresses": addresses,
+        "endpoints": await _endpoints(addresses),
     }
+
+
+async def _endpoints(addresses: list[str]) -> list[dict[str, str]]:
+    """``addresses`` 加上访问地址簿，标上内网 / 外网（server-addresses.md §3.2）。"""
+    from movieclaw_api.services.server_addresses import address_book, normalize_url, url_kind
+
+    try:
+        book = await address_book.list()
+    except Exception:
+        logger.debug("自动发现：读访问地址失败", exc_info=True)
+        book = []
+    kinds = {view.url: view.kind for view in book}
+    result: dict[str, str] = {}
+    for raw in [*addresses, *(view.url for view in book)]:
+        try:
+            url = normalize_url(raw)
+        except ValueError:
+            continue
+        result.setdefault(url, kinds.get(url) or url_kind(url))
+    return [{"url": url, "kind": kind} for url, kind in result.items()]
 
 
 async def jellyfin_reply(client_ip: str, http_port: int) -> dict | None:

@@ -1,4 +1,4 @@
-"""全局 HTTP 中间件：安全响应头、spec 指纹头、访问日志与局域网访问地址记录。
+"""全局 HTTP 中间件：安全响应头、spec 指纹头、访问日志与访问地址记录。
 
 都以**纯 ASGI 中间件**实现，而不是 ``@app.middleware("http")``
 （``BaseHTTPMiddleware``）。原因是 2026-08 NAS 现场事故：
@@ -23,6 +23,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from movieclaw_api.core.config import Settings
 from movieclaw_api.services import foreground
 from movieclaw_api.services.lan_discovery import lan_origins
+from movieclaw_api.services.network_side import current_route, parse_route
+from movieclaw_api.services.server_addresses import AUTHENTICATED_SCOPE_KEY, address_book
 from movieclaw_api.spec_state import SPEC_HASH_HEADER, get_spec_hash
 
 logger = logging.getLogger("movieclaw_api.access")
@@ -152,29 +154,56 @@ class AccessLogMiddleware:
             raise
 
 
-class LanOriginMiddleware:
-    """记下用局域网 IP 访问本服务时的地址（Host 头），供局域网自动发现应答。
+class AccessAddressMiddleware:
+    """记下客户端走的是哪个入口，并取出自家 App 声明的路线。
 
-    Docker 桥接部署下容器不知道宿主 IP 与映射端口，浏览器地址栏里那一串就是答案
-    （见 services/lan_discovery.py）。同一个 Host 连续出现时只比较一次字节串。
+    - 用局域网 IP 访问时的地址（Host 头）供局域网自动发现应答：Docker 桥接部署下容器不知道宿主
+      IP 与映射端口，浏览器地址栏里那一串就是答案（见 services/lan_discovery.py）；
+    - 已登录、成功的请求进的入口记进访问地址簿，App 据此在内外网地址之间自动选
+      （services/server_addresses.py）；
+    - ``X-MovieClaw-Route`` 放进 ``current_route``，签发取流 token 时写进去
+      （services/network_side.py）。
+
+    同一个 Host 连续出现时只比较一次字节串；只包一层 send 看响应状态。
     """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] in ("http", "websocket"):
-            host = forwarded_host = forwarded_proto = None
-            for name, value in scope.get("headers", ()):
-                if name == b"host":
-                    host = value
-                elif name == b"x-forwarded-host":
-                    forwarded_host = value
-                elif name == b"x-forwarded-proto":
-                    forwarded_proto = value
-            if host is not None:
-                lan_origins.observe(host, forwarded_host, forwarded_proto)
-        await self.app(scope, receive, send)
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        host = forwarded_host = forwarded_proto = route = None
+        for name, value in scope.get("headers", ()):
+            if name == b"host":
+                host = value
+            elif name == b"x-forwarded-host":
+                forwarded_host = value
+            elif name == b"x-forwarded-proto":
+                forwarded_proto = value
+            elif name == b"x-movieclaw-route":
+                route = value
+        if host is not None:
+            lan_origins.observe(host, forwarded_host, forwarded_proto)
+        token = current_route.set(parse_route(route))
+        try:
+            if scope["type"] != "http" or host is None:
+                await self.app(scope, receive, send)
+                return
+
+            async def send_observed(message: Message) -> None:
+                if (
+                    message["type"] == "http.response.start"
+                    and message.get("status", 500) < 400
+                    and scope.get(AUTHENTICATED_SCOPE_KEY)
+                ):
+                    address_book.observe(host, forwarded_host, forwarded_proto)
+                await send(message)
+
+            await self.app(scope, receive, send_observed)
+        finally:
+            current_route.reset(token)
 
 
 class ForegroundPressureMiddleware:
@@ -217,7 +246,7 @@ def register_middlewares(app: FastAPI, settings: Settings) -> None:
     # 安全头挂在最内层：它只补自己那几个字段，与另外两层互不干扰；放最内可以
     # 覆盖到经由异常处理器产出的响应。
     app.add_middleware(SecurityHeadersMiddleware)
-    app.add_middleware(LanOriginMiddleware)
+    app.add_middleware(AccessAddressMiddleware)
     app.add_middleware(SpecHashHeaderMiddleware, api_prefix=settings.api_v1_prefix)
     app.add_middleware(AccessLogMiddleware, enabled=settings.access_log_enabled)
     # 最外层：从请求进门到响应头出门都算在途，不受访问日志开关影响

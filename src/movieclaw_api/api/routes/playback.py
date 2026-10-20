@@ -72,7 +72,7 @@ from movieclaw_api.schemas.playback import (
     UpNextView,
 )
 from movieclaw_api.schemas.response import ApiResponse, ok
-from movieclaw_api.services import login_devices, media_scrape
+from movieclaw_api.services import login_devices, media_scrape, network_side
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.drives import release as drive_release
 from movieclaw_api.services.drives import uplink
@@ -1951,7 +1951,7 @@ async def get_session_segment(
         raise NotFoundException("会话不存在或已结束")
     if grant.device_id and activity.device_ended(grant.device_id):
         raise NotFoundException("播放已被管理员结束")
-    uplink.note(request.client.host if request.client else None)
+    uplink.note(network_side.request_side(request, route=grant.route))
     session.touch()
     meter = await _session_activity_meter(session, grant, request)
     target = session.directory / name
@@ -2068,7 +2068,7 @@ async def stream_library_file(
     grant = await verify_stream_token(token, file_id=file_id)
     if grant is None:
         raise NotFoundException("播放地址无效或已过期")
-    uplink.note(request.client.host if request.client else None)
+    uplink.note(network_side.request_side(request, route=grant.route))
     if grant.device_id and activity.device_ended(grant.device_id):
         # 拒绝窗口内不再供流：直出播放器每次缓冲续拉都是新的 Range 连接，
         # 只掐当前连接挡不住它
@@ -2180,12 +2180,14 @@ async def _cloud_stream_response(request: Request, grant, file: LibraryFile) -> 
     """只在网盘上的文件直出：按取流方式 302 到网盘直链，或由家里转发（同时播放数在这里占）。"""
     from movieclaw_api.services.drives import sources
 
-    holder = f"play:{grant.device_id or grant.session_id or grant.member_id}:{file.id}"
+    who = grant.device_id or grant.session_id or grant.member_id
+    holder = f"play:{who}:{file.id}"
     try:
         target = await sources.stream_target(
             file.file_path,
             holder=holder,
-            client_host=request.client.host if request.client else None,
+            side=network_side.request_side(request, route=grant.route),
+            place=network_side.outside_place(request) or f"device:{who}",
             user_agent=request.headers.get("user-agent"),
             relay_fallback=sources.declares_fallback(request.headers, request.query_params),
             force_relay=request.query_params.get("relay") == "1",

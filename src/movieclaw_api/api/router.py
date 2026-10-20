@@ -78,6 +78,7 @@ from movieclaw_api.api.routes.rule_sets import router as rule_sets_router
 from movieclaw_api.api.routes.scheduled_tasks import router as scheduled_tasks_router
 from movieclaw_api.api.routes.scrape_settings import router as scrape_settings_router
 from movieclaw_api.api.routes.search import router as search_router
+from movieclaw_api.api.routes.server_addresses import router as server_addresses_router
 from movieclaw_api.api.routes.shares import admin_router as shares_admin_router
 from movieclaw_api.api.routes.shares import public_router as shares_public_router
 from movieclaw_api.api.routes.sites import router as sites_router
@@ -155,6 +156,9 @@ _MEMBER_ROUTERS = [
     # 功能开关（docs/design/plugin-page-tiers.md §6）：各端都要知道哪些功能停用了好隐藏入口；
     # 切换在路由级挂 require_admin
     features_router,
+    # 访问地址簿（docs/design/server-addresses.md §3.2）：各端 App 登录后据此在内外网之间自动选；
+    # 增删在路由级挂 require_admin
+    server_addresses_router,
 ]
 for _router in _MEMBER_ROUTERS:
     api_router.include_router(_router, dependencies=[Depends(require_login)])

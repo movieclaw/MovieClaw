@@ -175,7 +175,6 @@ async def download_original_file(
             target = await sources.stream_target(
                 file.file_path,
                 holder=f"offline:{principal.member_id}:{file.id}",
-                client_host=request.client.host if request.client else None,
                 user_agent=None,
                 allow_direct=False,
             )

@@ -269,6 +269,10 @@ def seed(client: TestClient, tmp_path: Path) -> tuple[int, str]:
     return call(client, _seed_cloud_file, tmp_path, client.account_id)  # type: ignore[attr-defined]
 
 
+#: 外网入口：外面的设备经外层反代的域名进来
+OUTSIDE_HOST = "movie.example.com:8888"
+
+
 def _token(client: TestClient, file_id: int, device: str = "dev-a") -> str:
     from movieclaw_api.services.playback.signing import issue_stream_token
 
@@ -299,19 +303,16 @@ def test_home_clients_get_bytes_relayed_with_the_server_user_agent(client, tmp_p
     assert {ua for _p, _r, ua in cdn.requests} == {SERVER_USER_AGENT}
 
 
-def test_direct_mode_redirects_outside_clients_with_their_own_user_agent(
-    client, tmp_path, cdn, monkeypatch
-):
-    from movieclaw_api.services.drives import sources
-
+def test_direct_mode_redirects_outside_clients_with_their_own_user_agent(client, tmp_path, cdn):
     file_id, _path = seed(client, tmp_path)
-    monkeypatch.setattr(sources, "is_home_client", lambda host: False)
+    # 外面的手机经外网域名进来（外层反代传了 X-Forwarded-Host）
+    outside = {"User-Agent": "Mozilla/Phone", "X-Forwarded-Host": OUTSIDE_HOST}
     # 默认「自动」：网页播放器不能降级，不给直链
-    relayed = _stream(client, file_id, headers={"User-Agent": "Mozilla/Phone"})
+    relayed = _stream(client, file_id, headers=outside)
     assert relayed.status_code == 200
     saved = client.put("/api/v1/playback/policy", json={"cloud_stream_mode": "direct"})
     assert saved.status_code == 200 and saved.json()["data"]["cloud_stream_mode"] == "direct"
-    redirected = _stream(client, file_id, headers={"User-Agent": "Mozilla/Phone"})
+    redirected = _stream(client, file_id, headers=outside)
     assert redirected.status_code == 302
     target = redirected.headers["location"]
     assert "ua=Mozilla/Phone" in target
@@ -323,48 +324,45 @@ def test_direct_mode_redirects_outside_clients_with_their_own_user_agent(
     fallback = client.get(
         f"/api/v1/playback/files/{file_id}/stream",
         params={"token": _token(client, file_id), "relay": "1"},
-        headers={"User-Agent": "Mozilla/Phone"},
+        headers=outside,
         follow_redirects=False,
     )
     assert fallback.status_code == 200 and fallback.content == CONTENT
 
 
-def test_auto_mode_gives_direct_links_to_one_outside_place_at_a_time(monkeypatch):
+def test_auto_mode_gives_direct_links_to_one_outside_place_at_a_time():
     from movieclaw_api.services.drives import sources
 
     sources.reset_state()
     choose = partial(
         sources.choose_direct, mode="auto", account_id=1, force_relay=False, original_link=True
     )
-    assert choose(client_host="192.168.1.20", relay_fallback=True) is False, "家里一律转发"
-    assert choose(client_host="8.8.8.8", relay_fallback=False) is False, "不能降级的客户端转发"
-    assert choose(client_host="8.8.8.8", relay_fallback=True) is True
-    assert choose(client_host="8.8.8.8", relay_fallback=True) is True, "同一处再取照常直连"
-    assert choose(client_host="1.1.1.1", relay_fallback=True) is False, "第二处在外面的转发"
-    assert choose(client_host="100.80.1.2", relay_fallback=True) is False, "Tailscale 也算第二处"
-    assert (
-        sources.choose_direct(
-            mode="relay",
-            account_id=2,
-            client_host="8.8.8.8",
-            relay_fallback=True,
-            force_relay=False,
-            original_link=True,
-        )
-        is False
+    home = choose(side="home", place="", relay_fallback=True)
+    assert home is False, "家里一律转发"
+    assert choose(side="outside", place="8.8.8.8", relay_fallback=False) is False, "不能降级的转发"
+    assert choose(side="unknown", place="device:a", relay_fallback=True) is False, (
+        "认不准时无从保证只有一处在外面，转发"
+    )
+    assert choose(side="outside", place="8.8.8.8", relay_fallback=True) is True
+    assert choose(side="outside", place="8.8.8.8", relay_fallback=True) is True, "同一处照常直连"
+    assert choose(side="outside", place="1.1.1.1", relay_fallback=True) is False, "第二处转发"
+    assert choose(side="outside", place="device:b", relay_fallback=True) is False, (
+        "取不到公网地址时按设备算，另一台设备算第二处"
+    )
+    other = partial(sources.choose_direct, relay_fallback=True, force_relay=False)
+    assert other(mode="relay", account_id=2, side="outside", place="8.8.8.8", original_link=True) is (
+        False
     )
     assert (
-        sources.choose_direct(
-            mode="direct",
-            account_id=3,
-            client_host="8.8.8.8",
-            relay_fallback=False,
-            force_relay=False,
-            original_link=False,
-        )
+        other(mode="direct", account_id=3, side="unknown", place="", original_link=True) is True
+    ), "「总是直连」认不准时也直连（用户明确选的）"
+    assert (
+        other(mode="direct", account_id=3, side="home", place="", original_link=True) is False
+    ), "「总是直连」在家照样转发"
+    assert (
+        other(mode="direct", account_id=4, side="outside", place="8.8.8.8", original_link=False)
         is False
     ), "直链不是原画就不直连"
-    assert sources.is_home_client(None) is True, "取不到对端地址按家里（全部转发，安全的那一边）"
 
 
 def test_concurrent_playback_slots(client, tmp_path):
@@ -447,18 +445,15 @@ def test_auth_expired_drive_gives_a_clear_reason(client, tmp_path):
     assert "需要重新登录" in failed.json()["message"]
 
 
-def test_auto_mode_redirects_apps_that_declare_fallback_in_the_query(client, tmp_path, monkeypatch):
+def test_auto_mode_redirects_apps_that_declare_fallback_in_the_query(client, tmp_path):
     """自研播放引擎自己发取流请求、带不了请求头：在地址上带 fallback=1 声明能降级。"""
-    from movieclaw_api.services.drives import sources
-
     file_id, _path = seed(client, tmp_path)
-    monkeypatch.setattr(sources, "is_home_client", lambda host: False)
 
     def stream(**params):
         return client.get(
             f"/api/v1/playback/files/{file_id}/stream",
             params={"token": _token(client, file_id), **params},
-            headers={"User-Agent": "MovieClawPlayer"},
+            headers={"User-Agent": "MovieClawPlayer", "X-Forwarded-Host": OUTSIDE_HOST},
             follow_redirects=False,
         )
 

@@ -567,7 +567,6 @@ async def transcode_source(
             target = await sources.stream_target(
                 file.file_path,
                 holder=f"worker:{session_id}",
-                client_host=request.client.host if request.client else None,
                 user_agent=None,
                 allow_direct=False,
             )

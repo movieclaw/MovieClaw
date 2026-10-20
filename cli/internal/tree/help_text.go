@@ -6,7 +6,7 @@ package tree
 //
 // 本文件由 Python 版逐字导出，两边内容必须一致（有守护测试）。
 var domainHelp = map[string]string{
-	"app":           "外部访问设置、应用重启、版本升级/回退与 NER 模型更新",
+	"app":           "外部访问设置、访问地址（内网 / 外网）、应用重启、版本升级/回退与 NER 模型更新",
 	"appearance":    "首页背景与图库",
 	"auth":          "个人信息、会话与 API 令牌",
 	"channels":      "微信、Telegram、Discord、飞书消息推送与 AI 对话入口",

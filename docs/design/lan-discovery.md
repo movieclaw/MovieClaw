@@ -50,6 +50,8 @@ host 网络 / 裸机有用，而这两种部署下现有的 7359 单播本来就
   4. 「设置 → 网络 → 外部访问地址」。
 
   桥接部署下探测出的容器内网地址不放进来（客户端反正连不上）。
+- `endpoints`：同一组地址再加上访问地址簿（`server-addresses.md` §3），每项 `{url, kind}`，`kind` 为
+  `lan`（内网）/ `wan`（外网）。新客户端用它，旧客户端照旧读 `addresses`。
 
 Jellyfin 应答保持与真 Jellyfin 一致：`{"Address", "Id", "Name", "EndpointAddress": null}`，
 `Address` 取上面列表的第一个，列表为空时退回容器内网地址并在服务端日志告警。
