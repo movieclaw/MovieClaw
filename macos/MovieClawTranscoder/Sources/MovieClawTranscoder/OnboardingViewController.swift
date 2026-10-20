@@ -328,7 +328,7 @@ final class OnboardingViewController: NSViewController, NSTextFieldDelegate {
         } else if discovered.isEmpty {
             let card = RoundedFillView(fill: .neutral)
             let text = PanelText.wrapping(
-                "没有找到。跨网段、开了 VPN、服务端关掉了「Jellyfin 兼容层」或跑在桥接网络里时都会找不到，直接在下面填地址即可。",
+                "没有找到。跨网段、开了 VPN，或 Docker 部署没有映射 UDP 7359 时都会找不到，直接在下面填地址即可。",
                 size: 12, lines: 4, width: Self.contentWidth - 28, color: .secondaryLabelColor
             )
             card.pin(text, padding: 12, insetX: 14)
