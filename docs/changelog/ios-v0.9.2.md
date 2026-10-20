@@ -8,7 +8,7 @@ The player now skips ads by itself and learns which shows you skip the intro on.
 
 #### Ads skip themselves, intros once you've skipped one
 
-Every recognized ad or intro used to wait for you to tap skip, episode after episode. Now ads and previews skip on their own, with **Undo (撤回)** next to the "skipped" notice for a few seconds. Skip an intro by hand once and the player offers to do it for the rest of that show, with **No thanks (不用)** to decline; undoing a skipped intro forgets the show again.
+Every recognized ad or intro used to wait for you to tap skip, episode after episode. Now ads and previews skip on their own, with **Undo (撤回)** next to the "skipped" notice for a few seconds. Skip an intro by hand once and the player remembers to skip it for the rest of that show; **No thanks (不用)** next to the notice takes that back. Undoing a skipped intro forgets the show too.
 
 - Skippable parts are marked in amber on the progress bar. Seeking or dragging into one only shows the skip button.
 - Learned shows belong to your account, so the web player and other updated apps skip them too.
@@ -20,7 +20,7 @@ Every recognized ad or intro used to wait for you to tap skip, episode after epi
 
 There was no way to speed up a slow scene or a talk show except holding the screen for 2×. Now tap ⋯ (设置) in the player, then **Speed (倍速)**, and pick from 0.5× to 2×.
 
-- The speed is remembered per title: it stays for the next episode of the same show and goes back to normal for anything else. Share links and clips don't remember it.
+- The speed is remembered per title: it stays for the next episode of the same show and goes back to normal for anything else. Share links and clips (片段) don't remember it.
 - After holding for 2×, playback returns to the speed you picked.
 - If the buffer can't keep up, the player goes back to normal speed and says so.
 
@@ -28,7 +28,7 @@ There was no way to speed up a slow scene or a talk show except holding the scre
 
 - **A simpler ⋯ menu**: the player's ⋯ menu is now a standard menu, with **Quality (画质)** and **Speed (倍速)** showing their current choice, plus **Playback diagnostics (播放诊断)**.
 - **Finding the server**: the server shows up on the sign-in screen even when Jellyfin compatibility is off (Server 0.41.0), and the app keeps the port the server reports. Typing just an address like 192.168.1.10 tries port 3000, then 80, then https.
-- **Offline mode**: buttons that need the server, such as reels, the library ⋯ menu, search and the quick AI input on Me, are hidden while offline.
+- **Offline mode**: buttons that need the server, such as the ▶ button (片段) at the top of the library, the library ⋯ menu, search and the quick AI input on Me (administrators), are hidden while offline.
 - **Cloud-drive films away from home**: when a film that lives only on a cloud drive fails to stream straight from the drive, the app tries again through your home server. This needs Server 0.40.0 with a cloud drive plugin.
 
 ### Fixed
@@ -51,9 +51,9 @@ Full changes: [ios-v0.9.0 → ios-v0.9.2](https://github.com/movieclaw/MovieClaw
 
 #### 广告自动跳，片头跳过一次就记住
 
-以前认出来的广告和片头都要你一集一集地点「跳过」。现在广告和预告自动跳过，提示旁有几秒的「撤回」。在一部剧里手动跳过一次片头，播放器就提议这部剧以后都自动跳，点「不用」可以拒绝；撤回一次自动跳过的片头，这部剧就不再自动跳。
+以前认出来的广告和片头都要你一集一集地点「跳过」。现在广告和预告自动跳过，提示旁有几秒的「撤回」。在一部剧里手动跳过一次片头，这部剧以后就自动跳，提示旁的「不用」可以反悔；撤回一次自动跳过的片头，这部剧也不再自动跳。
 
-- 能跳过的片段在进度条上标成琥珀色。拖动或跳转到片段里，只给「跳过」按钮。
+- 能跳过的段落在进度条上标成琥珀色。拖动或跳转到这些段落里，只给「跳过」按钮。
 - 记住的剧跟着你的账号走，网页和其他更新过的 App 也会照样跳。
 - 没有关闭自动跳过的开关；每次自动跳过都可以撤回。
 - 片尾和尚未分类的重复段不会自动跳过。分享链接里广告照跳，但不会记片头。
@@ -63,7 +63,7 @@ Full changes: [ios-v0.9.0 → ios-v0.9.2](https://github.com/movieclaw/MovieClaw
 
 以前想快进一段慢戏或综艺，只能按住屏幕 2 倍速。现在在播放器里点 ⋯（设置）→「倍速」，从 0.5× 到 2× 任选。
 
-- 速度按片子记：同一部剧的下一集沿用，换别的片子回到正常速度。分享链接和片段不记。
+- 速度按片子记：同一部剧的下一集沿用，换别的片子回到正常速度。分享链接和「片段」里的播放不记。
 - 按住 2 倍速松开后，回到你选的速度。
 - 缓冲跟不上时自动回到正常速度，并给出提示。
 
@@ -71,7 +71,7 @@ Full changes: [ios-v0.9.0 → ios-v0.9.2](https://github.com/movieclaw/MovieClaw
 
 - **⋯ 菜单更简洁**：播放器的 ⋯ 菜单换成系统菜单，「画质」「倍速」直接显示当前选择，下面是「播放诊断」。
 - **找服务器**：服务器关掉 Jellyfin 兼容时，登录页也能找到它（需要服务器 0.41.0），并沿用服务器报来的端口。只填 192.168.1.10 这样的地址时，会依次试 3000 端口、80 端口和 https。
-- **离线模式**：需要服务器的按钮在离线时隐藏，如刷片、媒体库的 ⋯ 菜单、搜索和「我的」页的 AI 快捷输入框。
+- **离线模式**：需要服务器的按钮在离线时隐藏，如媒体库顶部的 ▶ 按钮（片段）、媒体库的 ⋯ 菜单、搜索和「我的」页的 AI 快捷输入框（管理员）。
 - **在外面看网盘上的片子**：只存在网盘上的片子直连网盘失败时，App 会改走家里的服务器再试一次。需要服务器 0.40.0 和网盘插件。
 
 ### 修好了

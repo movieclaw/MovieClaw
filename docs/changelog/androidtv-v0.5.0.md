@@ -10,7 +10,7 @@ The player now skips ads by itself and learns which shows you skip the intro on.
 
 Every recognized ad or intro used to wait for you to press skip, episode after episode. Now ads and previews skip on their own, and an **Undo (撤回)** button takes focus for a few seconds: press select to go back, or Back to dismiss it and keep watching. Skip an intro by hand once and that show skips its intro from then on; the screen says so. Undoing a skipped intro forgets the show again.
 
-- Skippable parts are marked in amber on the progress bar. Seeking or scrubbing into one only shows the skip button.
+- Skippable parts are marked in amber on the progress bar. Seeking or dragging into one only shows the skip button.
 - Learned shows belong to your account, so the web player and other updated apps skip them too.
 - There's no switch to turn automatic skipping off; every skip can be undone.
 - Outros and unclassified repeats are never skipped on their own. Share links skip ads but don't learn intros.
@@ -18,9 +18,9 @@ Every recognized ad or intro used to wait for you to press skip, episode after e
 
 ### More features and improvements
 
-- **Back goes home first**: on the account (**Who's watching (谁在看)**) and Search tabs, Back returns to Home instead of quitting. On Home, the first press shows **Press Back again to exit (再按一次返回键退出)**; press again within 2 seconds to quit.
+- **Back goes home first**: on the account (**Who's watching (谁在看？)**) and Search tabs, Back returns to Home instead of quitting. On Home, the first press shows **Press Back again to exit (再按一次返回键退出)**; press again within 2 seconds to quit.
 - **Finding the server**: the server shows up on the welcome screen even when Jellyfin compatibility is off (Server 0.41.0), and the app keeps the port the server reports. Typing just an address like 192.168.1.10 tries port 3000, then 80, then https.
-- **Dolby Vision UHD Blu-ray remuxes**: on a TV with HDR10 but no Dolby Vision, these films (Profile 7) play in HDR10 without transcoding, even when the server has no graphics card. This needs Server 0.41.0.
+- **Dolby Vision UHD Blu-ray remuxes**: on a TV with HDR10 but no Dolby Vision, these films (Profile 7) play in HDR10 without transcoding the picture (the server repackages them), even when it has no graphics card. This needs Server 0.41.0.
 
 ### Fixed
 
@@ -45,7 +45,7 @@ Thanks to @jasonhorga. Full changes: [androidtv-v0.4.0 → androidtv-v0.5.0](htt
 
 以前认出来的广告和片头都要你一集一集地按「跳过」。现在广告和预告自动跳过，焦点会落到几秒的「撤回」按钮上：按确认键回到原处，按返回键收起它、接着看。在一部剧里手动跳过一次片头，这部剧以后就自动跳片头，屏幕上会提示。撤回一次自动跳过的片头，这部剧就不再自动跳。
 
-- 能跳过的片段在进度条上标成琥珀色。跳转或拖动到片段里，只给「跳过」按钮。
+- 能跳过的段落在进度条上标成琥珀色。拖动或跳转到这些段落里，只给「跳过」按钮。
 - 记住的剧跟着你的账号走，网页和其他更新过的 App 也会照样跳。
 - 没有关闭自动跳过的开关；每次自动跳过都可以撤回。
 - 片尾和尚未分类的重复段不会自动跳过。分享链接里广告照跳，但不会记片头。
@@ -53,9 +53,9 @@ Thanks to @jasonhorga. Full changes: [androidtv-v0.4.0 → androidtv-v0.5.0](htt
 
 ### 其他新功能与改进
 
-- **返回键先回首页**：在账号（「谁在看」）和搜索页签按返回键，回到首页而不是退出。在首页按第一下会提示「再按一次返回键退出」，2 秒内再按才退出。
+- **返回键先回首页**：在账号（「谁在看？」）和搜索页签按返回键，回到首页而不是退出。在首页按第一下会提示「再按一次返回键退出」，2 秒内再按才退出。
 - **找服务器**：服务器关掉 Jellyfin 兼容时，欢迎页也能找到它（需要服务器 0.41.0），并沿用服务器报来的端口。只填 192.168.1.10 这样的地址时，会依次试 3000 端口、80 端口和 https。
-- **杜比视界 UHD 原盘 remux**：在支持 HDR10、不支持杜比视界的电视上，这类片子（Profile 7）直接按 HDR10 播放、不用转码，服务器没有显卡也能播。需要服务器 0.41.0。
+- **杜比视界 UHD 原盘 remux**：在支持 HDR10、不支持杜比视界的电视上，这类片子（Profile 7）直接按 HDR10 播放，画面不用转码（由服务器换封装），服务器没有显卡也能播。需要服务器 0.41.0。
 
 ### 修好了
 
