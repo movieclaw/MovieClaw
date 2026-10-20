@@ -14,8 +14,10 @@ import kotlinx.serialization.serializer
  * 路径相对 `/api/v1`，信封 `{data}` 已拆掉。 */
 class McApi(private val transport: ApiTransport) {
     /** Health check（`GET /health`） */
-    suspend fun healthCheck(): HealthResponse {
-        val query = emptyList<Pair<String, String>>()
+    suspend fun healthCheck(nonce: String? = null): HealthResponse {
+        val query = buildList<Pair<String, String>> {
+            nonce?.let { add("nonce" to it.toString()) }
+        }
         return transport.send("GET", "/health", query, null, serializer<HealthResponse>(), enveloped = false)
     }
 

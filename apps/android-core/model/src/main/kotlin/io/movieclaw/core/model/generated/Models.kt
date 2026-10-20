@@ -805,6 +805,7 @@ data class HealthResponse(
     @SerialName("spec_hash") val specHash: String = "",
     @SerialName("version") val version: String? = null,
     @SerialName("instance_id") val instanceId: String? = null,
+    @SerialName("proof") val proof: String? = null,
 )
 
 /**
