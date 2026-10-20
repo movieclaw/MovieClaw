@@ -1005,8 +1005,10 @@ nonisolated extension APIClient {
 
     /// Health check
     /// `GET /health`
-    func healthCheck() async throws -> API.HealthResponse {
-        return try await raw("GET", "/health")
+    func healthCheck(nonce: String? = nil) async throws -> API.HealthResponse {
+        var query: [URLQueryItem] = []
+        if let nonce { query.append(URLQueryItem(name: "nonce", value: "\(nonce)")) }
+        return try await raw("GET", "/health", query: query)
     }
 
     /// 列出全部监听导入规则
@@ -2620,6 +2622,24 @@ nonisolated extension APIClient {
         if let posterMode { query.append(URLQueryItem(name: "poster_mode", value: "\(posterMode)")) }
         if let page { query.append(URLQueryItem(name: "page", value: "\(page)")) }
         return try await send("GET", "/search/torrents", query: query)
+    }
+
+    /// 这台服务器的访问地址（内网 / 外网）
+    /// `GET /server/addresses`
+    func appAddressesList() async throws -> API.ServerAddressesView {
+        return try await send("GET", "/server/addresses")
+    }
+
+    /// 手动添加一个访问地址
+    /// `POST /server/addresses`
+    func appAddressesAdd(body: API.ServerAddressPayload) async throws -> API.ServerAddressesView {
+        return try await send("POST", "/server/addresses", body: body)
+    }
+
+    /// 删掉一个访问地址（学到的之后再有人用会重新出现）
+    /// `POST /server/addresses/remove`
+    func appAddressesRemove(body: API.ServerAddressRemovePayload) async throws -> API.ServerAddressesView {
+        return try await send("POST", "/server/addresses/remove", body: body)
     }
 
     /// 最近会话列表（按最后活跃时间倒序）

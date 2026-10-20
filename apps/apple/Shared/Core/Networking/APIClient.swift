@@ -207,10 +207,14 @@ nonisolated struct APIClient: Sendable {
         self.session = session
     }
 
-    /// 给请求补上设备令牌（调用方已显式设了 Authorization 的不覆盖）
+    /// 给请求补上设备令牌（调用方已显式设了 Authorization 的不覆盖）与这次走的路线
+    /// （`X-MovieClaw-Route`，服务端据此判断在家还是在外面，docs/design/server-addresses.md §5.2）
     func authorized(_ request: URLRequest) -> URLRequest {
-        guard let token, request.value(forHTTPHeaderField: "Authorization") == nil else { return request }
         var request = request
+        if let route = ServerRoutes.shared.route(for: server) {
+            request.setValue(route.rawValue, forHTTPHeaderField: "X-MovieClaw-Route")
+        }
+        guard let token, request.value(forHTTPHeaderField: "Authorization") == nil else { return request }
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return request
     }
@@ -221,7 +225,9 @@ nonisolated struct APIClient: Sendable {
         let trimmed = path.hasPrefix("/") ? String(path.dropFirst()) : path
         // path 里可能自带查询串（与 Web 端写法一致），拆开后再合并 query
         let parts = trimmed.split(separator: "?", maxSplits: 1).map(String.init)
-        var components = URLComponents(url: server.apiBase.appending(path: parts[0]), resolvingAgainstBaseURL: false)!
+        // 发到这台服务器当前选中的地址（在家内网、出门外网，见 ServerRoutes）
+        let base = ServerRoutes.shared.origin(for: server).appending(path: "api/v1")
+        var components = URLComponents(url: base.appending(path: parts[0]), resolvingAgainstBaseURL: false)!
         var items: [URLQueryItem] = []
         if parts.count > 1 {
             items += URLComponents(string: "?\(parts[1])")?.queryItems ?? []
@@ -340,6 +346,54 @@ nonisolated struct APIClient: Sendable {
 
     /// 同 `perform`，另外带回响应头（键为小写）
     func performReturningHeaders(_ request: URLRequest) async throws -> (Data, [String: String]) {
+        do {
+            return try await performOnce(request)
+        } catch let error as URLError where Self.shouldFailover(error, method: request.httpMethod) {
+            // 当前地址连不上（出门了还在用内网地址、回家了外网反代挂了）：重新选一次地址，换了就把这个请求
+            // 原样重发一次。只重发读请求，写请求不自动重试，免得重复提交
+            guard let failed = request.url,
+                  let next = await ServerRoutes.shared.failover(server, failed: failed),
+                  let retried = Self.retarget(request, to: next)
+            else { throw Self.mapped(error) }
+            do {
+                return try await performOnce(retried)
+            } catch let error as URLError {
+                throw Self.mapped(error)
+            }
+        } catch let error as URLError {
+            throw Self.mapped(error)
+        }
+    }
+
+    /// 硬错误才换地址：连不上、找不到主机、超时
+    static func shouldFailover(_ error: URLError, method: String?) -> Bool {
+        guard ["GET", "HEAD", nil].contains(method) else { return false }
+        return [.cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .timedOut, .networkConnectionLost,
+                .secureConnectionFailed].contains(error.code)
+    }
+
+    /// 把请求的协议、主机、端口换成新地址，路径与查询原样
+    static func retarget(_ request: URLRequest, to origin: URL) -> URLRequest? {
+        guard let url = request.url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        components.scheme = origin.scheme
+        components.host = origin.host
+        components.port = origin.port
+        guard let target = components.url else { return nil }
+        var request = request
+        request.url = target
+        return request
+    }
+
+    private static func mapped(_ error: URLError) -> Error {
+        switch error.code {
+        case .timedOut: APIError.timeout
+        case .cancelled: CancellationError()
+        default: APIError.network(networkMessage(error))
+        }
+    }
+
+    /// 发一次；网络层失败原样抛 URLError（由 `performReturningHeaders` 决定换地址重试还是换成中文说明）
+    private func performOnce(_ request: URLRequest) async throws -> (Data, [String: String]) {
         let data: Data
         let response: URLResponse
         let startedAt = Date()
@@ -352,11 +406,7 @@ nonisolated struct APIClient: Sendable {
                 ServerReachability.report(origin: server.origin, outcome: .of(error), startedAt: startedAt)
             }
             #endif
-            switch error.code {
-            case .timedOut: throw APIError.timeout
-            case .cancelled: throw CancellationError()
-            default: throw APIError.network(Self.networkMessage(error))
-            }
+            throw error
         }
         guard let http = response as? HTTPURLResponse else {
             throw APIError.network("服务器响应异常")

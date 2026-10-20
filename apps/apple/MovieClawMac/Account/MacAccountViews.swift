@@ -126,6 +126,9 @@ struct MacAccountPanel: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
+                if let server = model.server {
+                    ServerRouteLabel(server: server, font: .system(size: 11))
+                }
             }
             Spacer(minLength: 0)
             Image(systemName: "checkmark.circle.fill")

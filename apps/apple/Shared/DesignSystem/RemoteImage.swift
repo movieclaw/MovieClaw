@@ -402,13 +402,16 @@ private nonisolated struct AuthorizedDataLoader: DataLoading {
            let token = AuthTokenRegistry.shared.token(for: url) {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        // 图片地址按登录地址拼（缓存键、离线图片都认它），真正去取时换成当前地址（在家内网、出门外网）
+        let original = request.url
+        if let url = original { request.url = ServerRoutes.shared.rewrite(url) }
         #if os(iOS)
         // 离线下载的本机图片（docs/design/offline-download.md §4）：离线模式直接用、不发请求；在线时请求失败才回落
-        if let url = request.url, OfflineModeFlag.isOffline, let data = OfflineImages.shared.localData(for: url) {
+        if let url = original, OfflineModeFlag.isOffline, let data = OfflineImages.shared.localData(for: url) {
             Self.deliver(data, url: url, didReceiveData: didReceiveData, completion: completion)
             return RetryingTask()
         }
-        let completion: @Sendable (Error?) -> Void = { [url = request.url] error in
+        let completion: @Sendable (Error?) -> Void = { [url = original] error in
             if error != nil, let url, let data = OfflineImages.shared.localData(for: url) {
                 Self.deliver(data, url: url, didReceiveData: didReceiveData, completion: completion)
             } else {

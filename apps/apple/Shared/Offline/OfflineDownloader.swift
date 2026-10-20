@@ -242,8 +242,9 @@ final class OfflineDownloader {
 
     private func createTask(_ unit: OfflineUnit, owner: OfflineOwner) {
         let server = ServerAddress(origin: owner.origin)
+        // 发到这台服务器当前选中的地址（在家内网、出门外网）：每次（重新）建任务时定，续传断了重建也跟着换
         guard let token = TokenVault.token(server: server, username: owner.username),
-              let url = contentURL(unit, origin: owner.origin) else {
+              let url = contentURL(unit, origin: ServerRoutes.shared.origin(for: server)) else {
             fail(unit.fileId, Self.signedOutMessage, retryable: true)
             return
         }

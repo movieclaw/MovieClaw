@@ -124,7 +124,7 @@ struct OfflinePackager {
 
     /// 清单里的地址是 `/api/v1/...` 的绝对路径（字幕、字体带了签名 token）
     private func fetch(_ path: String, timeout: TimeInterval) async throws -> Data {
-        guard let url = URL(string: path, relativeTo: api.server.origin)?.absoluteURL else {
+        guard let url = api.server.resolve(path) else {
             throw APIError.decoding("地址无效：\(path)")
         }
         var request = URLRequest(url: url, timeoutInterval: timeout)

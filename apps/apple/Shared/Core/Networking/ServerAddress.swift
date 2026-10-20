@@ -11,7 +11,8 @@ import Foundation
 /// - 所有接口都挂在 `<根>/api/v1` 下（与 Web 端 `NEXT_PUBLIC_API_BASE_URL` 默认值一致），
 ///   Jellyfin 兼容层等其它命名空间不经过这里。
 nonisolated struct ServerAddress: Hashable, Codable, Sendable {
-    /// 服务器根地址，形如 `http://192.168.1.10:3000`（无尾斜杠、无路径）
+    /// 服务器根地址，形如 `http://192.168.1.10:3000`（无尾斜杠、无路径）：登录时用的那个，也是这台服务器在
+    /// 本机的身份（令牌、快照、缓存都按它存）。真正发请求的地址可能是同一台服务器的另一个（`ServerRoutes`）
     let origin: URL
 
     /// 业务接口根：`<origin>/api/v1`
@@ -70,13 +71,13 @@ nonisolated struct ServerAddress: Hashable, Codable, Sendable {
         self.origin = url
     }
 
-    /// 把后端返回的站内相对地址（如 `/api/v1/images/...`）解析成绝对 URL；
-    /// 已是绝对地址的原样返回。
+    /// 把后端返回的站内相对地址（如 `/api/v1/playback/...`）解析成绝对 URL；已是绝对地址的原样返回。
+    /// 拼在这台服务器**当前选中的地址**上（在家内网、出门外网，见 `ServerRoutes`）：取流地址据此在起播时定下
     func resolve(_ path: String?) -> URL? {
         guard let path, !path.isEmpty else { return nil }
         if path.hasPrefix("http://") || path.hasPrefix("https://") {
             return URL(string: path)
         }
-        return URL(string: path, relativeTo: origin)?.absoluteURL
+        return URL(string: path, relativeTo: ServerRoutes.shared.origin(for: self))?.absoluteURL
     }
 }

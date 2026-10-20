@@ -332,6 +332,8 @@ nonisolated final class NetworkCost: @unchecked Sendable {
             self.lock.unlock()
             if changed { NotificationCenter.default.post(name: .networkCostChanged, object: nil) }
             if pathChanged { NotificationCenter.default.post(name: .networkPathChanged, object: nil, userInfo: ["satisfied": up]) }
+            // 每次系统报网络变化都发：换了 Wi-Fi、蜂窝 ↔ Wi-Fi、连上 VPN 时 ServerRoutes 据此看要不要换地址
+            NotificationCenter.default.post(name: .networkPathUpdated, object: nil)
         }
         monitor.start(queue: DispatchQueue(label: "movieclaw.network-cost", qos: .utility))
     }
@@ -362,6 +364,8 @@ extension Notification.Name {
     nonisolated static let networkCostChanged = Notification.Name("movieclaw.networkCostChanged")
     /// 网络通路有无变了（`userInfo["satisfied"]`：开关飞行模式、Wi-Fi 与蜂窝都断开 / 恢复）
     nonisolated static let networkPathChanged = Notification.Name("movieclaw.networkPathChanged")
+    /// 系统报了一次网络路径更新（任何变化，含换 Wi-Fi、连 VPN）
+    nonisolated static let networkPathUpdated = Notification.Name("movieclaw.networkPathUpdated")
 }
 
 /// 播放时的网络环境：画质按它分开记（`QualityMemory`）。
@@ -416,8 +420,14 @@ enum PlaybackNetwork: String {
         return value
     }
 
-    /// 当前环境。IPv4 地址直接判；域名用查到的地址（还没查到就在后台发起，这次先算「分不清」）
+    /// 当前环境：选过地址就按这次走的路线（内网地址为家里，外网 / VPN 为外网，见 `ServerRoutes`）；
+    /// 旧服务器没有地址簿时照旧看地址本身：IPv4 地址直接判；域名用查到的地址（还没查到就在后台发起，这次先算「分不清」）
     static func current(server: ServerAddress) -> PlaybackNetwork {
+        switch ServerRoutes.shared.route(for: server) {
+        case .lan: return .home
+        case .vpn, .wan: return .away
+        case nil: break
+        }
         guard let host = server.origin.host else { return .unknown }
         let ip = parseIPv4(host) ?? resolvedHosts.value(for: host)
         return classify(serverIPv4: ip, interfaces: localInterfaces())

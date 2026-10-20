@@ -4556,6 +4556,7 @@ nonisolated extension API {
         var specHash: String
         var version: String?
         var instanceId: String?
+        var proof: String?
 
         enum CodingKeys: String, CodingKey {
             case status
@@ -4564,6 +4565,7 @@ nonisolated extension API {
             case specHash = "spec_hash"
             case version
             case instanceId = "instance_id"
+            case proof
         }
     }
 
@@ -11586,6 +11588,63 @@ nonisolated extension API {
             case posterUrl = "poster_url"
             case mediaItemId = "media_item_id"
             case subscribed
+        }
+    }
+
+    struct ServerAddressItem: Codable, Hashable, Sendable {
+        /// 协议 + 主机 + 端口，如 http://192.168.1.10:3300
+        var url: String
+        /// lan = 内网（在家用），wan = 外网（出门用）
+        var kind: String
+        /// learned = 有人用过自动记下的；configured = 外部访问地址等配置项；manual = 管理员手动加的
+        var source: String
+        /// 最近一次有人经它访问
+        var lastSeen: String?
+
+        enum CodingKeys: String, CodingKey {
+            case url
+            case kind
+            case source
+            case lastSeen = "last_seen"
+        }
+    }
+
+    struct ServerAddressPayload: Codable, Hashable, Sendable {
+        /// 要加的地址，http:// 或 https:// 开头
+        var url: String
+        /// 内网 / 外网；不填按地址自动判断
+        var kind: String?
+
+        enum CodingKeys: String, CodingKey {
+            case url
+            case kind
+        }
+    }
+
+    struct ServerAddressRemovePayload: Codable, Hashable, Sendable {
+        /// 要删的地址
+        var url: String
+
+        enum CodingKeys: String, CodingKey {
+            case url
+        }
+    }
+
+    struct ServerAddressesView: Codable, Hashable, Sendable {
+        /// 这台服务器的实例号（与 /health 的 instance_id 相同）
+        var instanceId: String
+        /// 主机公钥（base64url 的 32 字节 Ed25519 公钥）：验 /health?nonce= 的 proof
+        var hostKey: String
+        /// 内网在前，各自按最近使用排
+        var addresses: [API.ServerAddressItem]
+        /// 内网 IPv4 地址所在的 /24：客户端不发请求就能判断是否在这个网段
+        var lanSubnets: [String]
+
+        enum CodingKeys: String, CodingKey {
+            case instanceId = "instance_id"
+            case hostKey = "host_key"
+            case addresses
+            case lanSubnets = "lan_subnets"
         }
     }
 

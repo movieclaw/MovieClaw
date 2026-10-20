@@ -1618,7 +1618,8 @@ final class PlaybackController {
         Task { [weak self] in
             var backoff = ReconnectBackoff()
             while true {
-                let verdict = await SourceProbe.check(probeURL)
+                // 出门 / 回家换了地址：每轮都按这台服务器当前的地址去探
+                let verdict = await SourceProbe.check(ServerRoutes.shared.rewrite(probeURL))
                 guard let self, myAttempt == self.attempt, !self.closed else { return }
                 switch verdict {
                 case .reachable:

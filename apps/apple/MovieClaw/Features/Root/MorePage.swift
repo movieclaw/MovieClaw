@@ -199,6 +199,7 @@ struct MorePage: View {
                             .textSelection(.enabled)
                             .accessibilityLabel("当前服务器 \(server.hostLabel)")
                             .accessibilityIdentifier("more-server-address")
+                        ServerRouteLabel(server: server)
                     }
                     MoreRouteRow(routes: [.settings], tint: Theme.accent) {
                         Text("服务器设置").font(.subheadline.weight(.medium))

@@ -135,6 +135,8 @@ final class AppModel {
         if let server, let active = saved.first(where: { $0.address == server })?.activeAccount {
             token = TokenVault.token(server: server, username: active.username)
             AuthTokenRegistry.shared.setCurrent(token, server: server)
+            // 在家走内网、出门走外网：先按本机记下的结论当场定地址，后台再核实（docs/design/server-addresses.md §4）
+            ServerRoutes.shared.activate(server, token: token)
             if token != nil, !Self.debugLaunchOverridesSession, let cached = SessionCache.load(server: server, username: active.username) {
                 phase = .ready(cached)
                 needsRevalidation = true
@@ -536,6 +538,7 @@ final class AppModel {
         server = address
         self.token = token
         AuthTokenRegistry.shared.setCurrent(token, server: address)
+        ServerRoutes.shared.activate(address, token: token)
         UserDefaults.standard.set(address.origin, forKey: Self.serverKey)
         launchError = nil
         expiredUsername = nil
