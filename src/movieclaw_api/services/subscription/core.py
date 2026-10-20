@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from statistics import median
 from types import EllipsisType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,6 +79,9 @@ from movieclaw_sdk.events import (
     SUBSCRIPTION_DELETED,
     SUBSCRIPTION_STATUS_CHANGED,
 )
+
+if TYPE_CHECKING:
+    from movieclaw_api.services.subscription.smart_memory import SmartChoice
 
 logger = logging.getLogger("movieclaw_api.subscription")
 
@@ -419,6 +422,7 @@ class SubscriptionService:
         selection_mode: str = "rules",
         smart_profile_revision: int | None = None,
         episode_floors: dict[int, int] | None = None,
+        smart_choice: SmartChoice | None = None,
     ) -> Subscription:
         """创建订阅并生成初始工单。同一条目已有订阅时幂等返回已有（不改参数）。
 
@@ -444,16 +448,23 @@ class SubscriptionService:
             return existing
         assert item.id is not None
 
-        from movieclaw_api.services.subscription.smart_profiles import freeze_policy
+        from movieclaw_api.services.subscription.smart_memory import freeze_smart
 
         if selection_mode not in {"rules", "smart"}:
             raise BadRequestException("订阅模式无效")
         if selection_mode == "smart" and rule_set_id is not None:
             raise BadRequestException("智能模式不能同时指定规则组")
-        smart_policy = (
-            await freeze_policy(self._session, kind.value, smart_profile_revision)
-            if selection_mode == "smart" else None
-        )
+        smart_policy = smart_overrides = None
+        memory_changed = False
+        if selection_mode == "smart":
+            # 记忆只由管理员写；成员与不经过弹层的调用方按已有记忆和安全默认解析
+            smart_policy, smart_overrides, memory_changed = await freeze_smart(
+                self._session,
+                item,
+                smart_profile_revision,
+                smart_choice,
+                is_admin=member_id is None,
+            )
 
         selected = self._validate_selection(kind, selected_seasons or [], seasons)
         episodes = await self._media_repo.list_episodes(item.id)
@@ -518,6 +529,7 @@ class SubscriptionService:
                 rule_set_id=rule_set_id,
                 selection_mode=selection_mode,
                 smart_policy=smart_policy,
+                smart_overrides=smart_overrides,
                 library_id=library_id,
                 status=SubscriptionStatus.ACTIVE,
                 created_by_member_id=member_id,
@@ -543,6 +555,13 @@ class SubscriptionService:
             imported = await materialize_owned_wanted(self._session, subscription)
             await fill_snapshots(self._session, item.id, imported)
             await arm_upgrade_candidates(self._session, imported)
+            if memory_changed:
+                from movieclaw_api.services.subscription.smart_memory import (
+                    apply_to_subscriptions,
+                )
+
+                # 新回答立刻作用到其他在等的智能订阅（比如「我看得懂英语」）
+                await apply_to_subscriptions(self._session)
             await self._session.commit()
         created_message = self._created_message(item, kind, selected, follow_future, rows)
         if skipped_owned:

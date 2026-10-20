@@ -166,6 +166,49 @@ class DoubanEpisodesView(BaseModel):
     tmdb_count: int = Field(description="TMDB 已录到的最大集号")
 
 
+class SmartQuestionView(BaseModel):
+    """第一次碰到某种语言时问的那一句；文案由服务端生成，各端原样显示。"""
+
+    language: str = Field(description="语言键，如 en / ja / yue")
+    prompt: str = Field(description="如「这是英语片，要中文字幕吗？」")
+    subtitles_label: str = Field(description="默认选项，如「要，只下带中文字幕的」")
+    understood_label: str = Field(description="如「不用，我看得懂英语」")
+
+
+class SmartScopeOptionView(BaseModel):
+    value: str = Field(description="回传给创建接口的 smart_scope；only = 只这部")
+    label: str = Field(description="如「只这部」「所有剧集」「韩国的剧」「tvN 的剧」")
+
+
+class SmartPlanView(BaseModel):
+    """订阅弹层的智能选择摘要：按当前设置、记忆和作品信息解析出的结果与整句文案。"""
+
+    configured: bool = Field(description="智能设置是否已保存；未保存时其余字段为空")
+    profile_revision: int = 0
+    memory_revision: int = 0
+    resolution: str | None = None
+    source: str | None = None
+    quality_label: str | None = Field(default=None, description="如「优先 4K WEB-DL」")
+    quality_note: str | None = Field(default=None, description="如「按「韩国的剧」的习惯」")
+    quality_shadow: str | None = Field(
+        default=None, description="被更具体的习惯盖住的那条，如「「韩国的剧」是 1080p」"
+    )
+    wait_label: str | None = Field(default=None, description="如「最多等 1 天 · 达标后停止洗版」")
+    subtitle_language: str | None = None
+    subtitle_language_label: str | None = None
+    subtitle_understood: bool | None = Field(
+        default=None, description="作品语言是否看得懂；未知语言为空"
+    )
+    subtitle_line: str | None = Field(
+        default=None, description="如「英语 · 只下带中文字幕的」；中文或未知语言为空"
+    )
+    question: SmartQuestionView | None = Field(
+        default=None, description="仅管理员、且这种语言还没回答过时给出"
+    )
+    scope_options: list[SmartScopeOptionView] = Field(default_factory=list)
+    can_edit: bool = Field(default=False, description="管理员可改字幕、画质并写入记忆")
+
+
 class PrepareView(BaseModel):
     """预检结果三态：ready 可直接渲染弹层；ambiguous 先让用户选候选；
     not_found 提示该条目暂无法订阅。"""
@@ -194,6 +237,9 @@ class PrepareView(BaseModel):
             "从豆瓣条目订阅、且豆瓣集数多于 TMDB 已录集数时给出（issue #640）；"
             "弹层据此提示「按豆瓣集数追」，确认后随创建请求带 episode_floors"
         ),
+    )
+    smart: SmartPlanView | None = Field(
+        default=None, description="智能选择摘要（docs/design/smart-subscription-memory.md）"
     )
 
 
@@ -287,6 +333,23 @@ class SubscriptionCreatePayload(BaseModel):
     library_id: int | None = Field(default=None, description="入库目标库；缺省用该类型默认库")
     selection_mode: Literal["rules", "smart"] = "rules"
     smart_profile_revision: int | None = Field(default=None, ge=1)
+    smart_language_answer: Literal["subtitles", "understood"] | None = Field(
+        default=None, description="管理员对字幕问题的回答，写入「看得懂的语言」"
+    )
+    smart_resolution: Literal["1080p", "2160p"] | None = Field(
+        default=None, description="管理员在弹层里改过的分辨率"
+    )
+    smart_source: Literal["web-dl", "blu-ray", "remux"] | None = Field(
+        default=None, description="管理员在弹层里改过的片源"
+    )
+    smart_scope: str | None = Field(
+        default=None,
+        max_length=200,
+        description="改过的画质记在哪：only=只这部，或 title-preview 给出的范围选项",
+    )
+    smart_memory_revision: int | None = Field(
+        default=None, ge=0, description="弹层读到的记忆版本；不一致返回 409"
+    )
     episode_floors: dict[int, int] | None = Field(
         default=None,
         description=(
@@ -300,7 +363,16 @@ class SubscriptionCreatePayload(BaseModel):
         if self.selection_mode == "smart":
             if self.rule_set_id is not None or self.smart_profile_revision is None:
                 raise ValueError("智能模式需提供已保存的设置版本，且不能同时指定规则组")
-        elif self.smart_profile_revision is not None:
+        elif self.smart_profile_revision is not None or any(
+            v is not None
+            for v in (
+                self.smart_language_answer,
+                self.smart_resolution,
+                self.smart_source,
+                self.smart_scope,
+                self.smart_memory_revision,
+            )
+        ):
             raise ValueError("规则模式不能指定智能设置")
         return self
 
@@ -470,6 +542,15 @@ class ProgressView(BaseModel):
     upgrading: int = 0
 
 
+class SmartSubtitleView(BaseModel):
+    """订阅详情：这部作品的字幕要求，「这次先下原版」之后追问看不看得懂要用。"""
+
+    language: str
+    language_label: str
+    line: str
+    understood: bool
+
+
 class SubscriptionView(BaseModel):
     id: int
     media: MediaBrief
@@ -500,9 +581,7 @@ class SubscriptionView(BaseModel):
         selected = {s for s in self.selected_seasons if s > 0}
         if not selected and seasons:
             selected = {max(s.season_number for s in seasons)}
-        missing = any(
-            s.aired_count > s.owned_count for s in seasons if s.season_number in selected
-        )
+        missing = any(s.aired_count > s.owned_count for s in seasons if s.season_number in selected)
         progress = self.progress
         if missing or progress.wanted + progress.grabbed + progress.downloaded > 0:
             return 0
@@ -869,6 +948,12 @@ class SubscriptionDetailView(SubscriptionView):
             "为 true 时 wanted[].release_forecast 可能还是旧值或空值，稍后重取即可"
         ),
     )
+    smart_subtitle: SmartSubtitleView | None = Field(
+        default=None, description="智能订阅的字幕要求；中文、语言未知或规则模式为 null"
+    )
+    smart_quality_note: str | None = Field(
+        default=None, description="智能订阅的画质按哪条习惯，如「按「韩国的剧」的习惯」"
+    )
 
     @classmethod
     def from_detail(
@@ -1172,3 +1257,73 @@ class RuleSetView(BaseModel):
             match_rules=list(row.match_rules or []),
             reference_count=reference_count,
         )
+
+
+class SmartDefaultsView(BaseModel):
+    """智能设置只有一套：画质、洗版、最低要求共用，等待时间电影和剧集各一个。"""
+
+    configured: bool
+    movie_revision: int = 0
+    tv_revision: int = 0
+    resolution: str = "2160p"
+    source: str = "web-dl"
+    allow_upgrade: bool = True
+    strict_resolution: bool = False
+    movie_wait_seconds: int = 86400
+    tv_wait_seconds: int = 10800
+
+
+class SmartDefaultsPayload(BaseModel):
+    movie_revision: int = Field(ge=0)
+    tv_revision: int = Field(ge=0)
+    resolution: Literal["1080p", "2160p"]
+    source: Literal["web-dl", "blu-ray", "remux"]
+    allow_upgrade: bool = True
+    strict_resolution: bool = False
+    movie_wait_seconds: int = Field(ge=0, le=604800)
+    tv_wait_seconds: int = Field(ge=0, le=604800)
+
+
+class SmartLanguageView(BaseModel):
+    key: str
+    label: str
+    source_title: str | None = None
+    removable: bool = True
+
+
+class SmartLanguageOptionView(BaseModel):
+    key: str
+    label: str
+
+
+class SmartHabitView(BaseModel):
+    key: str
+    label: str = Field(description="如「韩国的剧」")
+    quality_label: str = Field(description="只写改过的项，如「1080p」「1080p 蓝光」")
+    source_title: str | None = None
+
+
+class SmartMemoryView(BaseModel):
+    """智能设置页的「看得懂的语言」与「它记住的」。"""
+
+    revision: int
+    languages: list[SmartLanguageView] = Field(description="看得懂的语言，中文在最前且不可移除")
+    addable_languages: list[SmartLanguageOptionView] = Field(default_factory=list)
+    habits: list[SmartHabitView] = Field(default_factory=list)
+
+
+class SmartMemoryPatch(BaseModel):
+    """改记忆：设一种语言看不看得懂，或删一条画质习惯。"""
+
+    revision: int = Field(ge=0)
+    language: str | None = Field(default=None, min_length=1, max_length=16)
+    understood: bool | None = None
+    remove_habit: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def validate_change(self):
+        if (self.language is None) == (self.remove_habit is None):
+            raise ValueError("一次只改一种语言或删一条习惯")
+        if self.language is not None and self.understood is None:
+            raise ValueError("请说明这种语言看不看得懂")
+        return self

@@ -75,6 +75,24 @@ class SubscriptionIdentitySkipped(Frozen):
     media: MediaRef
 
 
+class SubscriptionAwaitingSubtitles(Frozen):
+    """智能订阅等到期，仍只有看不懂的原版（没有看得懂的字幕或音轨）。
+
+    原版不会自动下载；每个单元每次等待到期只发一次，出现字幕版会立即选择。
+    """
+
+    subscription_id: int
+    media: MediaRef
+    units: tuple[UnitRef, ...]
+    language: str
+    """作品语言的中文名，如「英语」。"""
+    acceptable: str
+    """看得懂的语言，如「中文」「中文或英语」。"""
+    originals: int
+    """已找到的原版数量。"""
+    waited_hours: int
+
+
 class SubscriptionDownloadStuck(Frozen):
     """订阅的一个下载卡住了（下载器里停滞），自动换源也没找到能替代的资源。
 
@@ -154,6 +172,13 @@ SUBSCRIPTION_IDENTITY_SKIPPED = define(
     title="已跳过同名资源",
     group="订阅",
     doc="订阅发现无法确认身份的同名资源，已自动跳过",
+)
+SUBSCRIPTION_AWAITING_SUBTITLES = define(
+    "subscription.awaiting_subtitles",
+    SubscriptionAwaitingSubtitles,
+    title="等不到字幕版",
+    group="订阅",
+    doc="智能订阅等到期仍没有看得懂的字幕版本，原版不会自动下载",
 )
 SUBSCRIPTION_DOWNLOAD_STUCK = define(
     "subscription.download_stuck",

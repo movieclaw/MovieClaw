@@ -14,6 +14,20 @@ class SmartProfile(TimestampMixin, table=True):
     preferences: dict = Field(sa_column=Column(JSON, nullable=False))
 
 
+class SmartMemoryRow(TimestampMixin, table=True):
+    """智能订阅的记忆（单行，id=1）：看得懂的语言与分范围的画质习惯。
+
+    结构由 ``movieclaw_matcher.smart_memory.SmartMemory`` 定义；revision 做乐观并发。
+    """
+
+    __tablename__ = "smart_memory"
+
+    id: int = Field(default=1, primary_key=True)
+    revision: int = Field(default=0)
+    languages: list[dict] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    habits: list[dict] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+
+
 class SmartSeason(TimestampMixin, table=True):
     __tablename__ = "smart_season"
     __table_args__ = (UniqueConstraint("subscription_id", "season_number", name="uq_smart_season"),)

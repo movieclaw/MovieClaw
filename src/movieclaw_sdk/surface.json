@@ -4083,6 +4083,133 @@
     "stability": "experimental",
     "version": "1.0"
   },
+  "subscription.awaiting_subtitles": {
+    "doc": "智能订阅等到期仍没有看得懂的字幕版本，原版不会自动下载",
+    "durable": true,
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        },
+        "UnitRef": {
+          "properties": {
+            "episode": {
+              "type": "integer"
+            },
+            "season": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "season",
+            "episode"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "acceptable": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "media": {
+          "$ref": "#/$defs/MediaRef"
+        },
+        "originals": {
+          "type": "integer"
+        },
+        "subscription_id": {
+          "type": "integer"
+        },
+        "units": {
+          "items": {
+            "$ref": "#/$defs/UnitRef"
+          },
+          "type": "array"
+        },
+        "waited_hours": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "subscription_id",
+        "media",
+        "units",
+        "language",
+        "acceptable",
+        "originals",
+        "waited_hours"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
   "subscription.candidates.filter": {
     "doc": "候选淘汰：规则评估之后按插件规则再淘汰（只能淘汰不能添加，淘汰原因写进订阅动态）",
     "durable": false,

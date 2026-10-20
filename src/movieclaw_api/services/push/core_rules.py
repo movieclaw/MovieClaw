@@ -57,6 +57,21 @@ async def _stuck(_s: AsyncSession, _member: int, p: Any) -> AlertContent:
     )
 
 
+async def _awaiting_subtitles(_s: AsyncSession, _member: int, p: Any) -> AlertContent:
+    from movieclaw_api.services.push.labels import units_text
+
+    which = units_text([(u.season, u.episode) for u in p.units])
+    return AlertContent(
+        title=f"《{p.media.title}》{which}还没有字幕版",
+        body=(
+            f"等了 {p.waited_hours} 小时，还没有带{p.acceptable}字幕的版本，"
+            f"{p.language}原版已有 {p.originals} 个。可以继续等，也可以在订阅里先下原版。"
+        ),
+        open=f"/subscriptions/{p.subscription_id}",
+        thread=f"subscription:{p.subscription_id}",
+    )
+
+
 async def _more_episodes(_s: AsyncSession, _member: int, p: Any) -> AlertContent:
     where = "站点上出现了后面的集" if p.source == "site" else "豆瓣的集数更多"
     return AlertContent(
@@ -174,6 +189,21 @@ def register_all() -> None:
             audience=Audience.subscribers("subscription_id"),
             render=_identity_skipped,
             collapse=lambda p: ("identity-skipped", str(p.subscription_id)),
+        )
+    )
+    register(
+        Rule(
+            event="subscription.awaiting_subtitles",
+            title="等不到字幕版",
+            description="智能订阅等到期仍没有你看得懂的字幕版本时；原版不会自动下载",
+            group="我的订阅",
+            default=True,
+            audience=Audience.subscribers("subscription_id"),
+            render=_awaiting_subtitles,
+            collapse=lambda p: (
+                "awaiting-subtitles",
+                f"{p.subscription_id}:" + ",".join(f"{u.season}x{u.episode}" for u in p.units),
+            ),
         )
     )
     register(

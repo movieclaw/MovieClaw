@@ -78,6 +78,46 @@ export interface PrepareResult {
   candidates: ResolveCandidate[];
   /** 从豆瓣条目订阅、且豆瓣集数多于 TMDB 已录集数时给出（issue #640）；旧服务端没有 */
   douban_episodes?: DoubanEpisodes | null;
+  /** 智能选择摘要：按设置、记忆和作品信息解析出的结果与整句文案。旧服务端没有 */
+  smart?: SmartPlan | null;
+}
+
+/** 第一次碰到某种语言时问的那一句；文案由服务端生成。 */
+export interface SmartQuestion {
+  language: string;
+  prompt: string;
+  subtitles_label: string;
+  understood_label: string;
+}
+
+export interface SmartScopeOption {
+  /** 回传给创建接口的 smart_scope；only = 只这部 */
+  value: string;
+  label: string;
+}
+
+export interface SmartPlan {
+  configured: boolean;
+  profile_revision: number;
+  memory_revision: number;
+  resolution: SmartPreferences["resolution"] | null;
+  source: SmartPreferences["source"] | null;
+  /** 如「优先 4K WEB-DL」 */
+  quality_label: string | null;
+  /** 如「按「韩国的剧」的习惯」 */
+  quality_note: string | null;
+  /** 被更具体的习惯盖住的那条，如「「韩国的剧」是 1080p」 */
+  quality_shadow: string | null;
+  wait_label: string | null;
+  subtitle_language: string | null;
+  subtitle_language_label: string | null;
+  subtitle_understood: boolean | null;
+  /** 如「英语 · 只下带中文字幕的」；中文或未知语言为空 */
+  subtitle_line: string | null;
+  /** 仅管理员、且这种语言还没回答过时给出 */
+  question: SmartQuestion | null;
+  scope_options: SmartScopeOption[];
+  can_edit: boolean;
 }
 
 /** 订阅弹层的豆瓣集数提示：豆瓣说本季比 TMDB 录的多。 */
@@ -268,6 +308,17 @@ export interface SubscriptionDetail extends Subscription {
   episode_seasons?: EpisodeSeason[] | null;
   /** 待确认的集数提示；有提示时订阅不会判「已收齐」。旧服务端没有 */
   episode_hints?: EpisodeHint[] | null;
+  /** 智能订阅的字幕要求；中文、语言未知或规则模式为空。旧服务端没有 */
+  smart_subtitle?: SmartSubtitle | null;
+  /** 智能订阅的画质按哪条习惯 */
+  smart_quality_note?: string | null;
+}
+
+export interface SmartSubtitle {
+  language: string;
+  language_label: string;
+  line: string;
+  understood: boolean;
 }
 
 /** 规则组过滤条件（见 movieclaw_matcher.RuleSetSpec）：全部键可缺省=不限。 */
@@ -343,6 +394,14 @@ export interface SubscriptionTargetPreviewPayload {
 export interface CreateSubscriptionPayload {
   selection_mode?: "rules" | "smart";
   smart_profile_revision?: number;
+  /** 管理员对字幕问题的回答，写入「看得懂的语言」 */
+  smart_language_answer?: "subtitles" | "understood";
+  /** 管理员在弹层里改过的画质 */
+  smart_resolution?: SmartPreferences["resolution"];
+  smart_source?: SmartPreferences["source"];
+  /** 改过的画质记在哪：only=只这部，或 SmartPlan.scope_options 的 value */
+  smart_scope?: string;
+  smart_memory_revision?: number;
   /** Discover 返回或歧义候选确认后的稳定引用 */
   title_ref: string;
   /** 从豆瓣候选改选 TMDB 条目时保留原始豆瓣身份 */
@@ -1007,6 +1066,43 @@ export interface SmartSelectionState {
   following: string | null;
   target_reached: boolean;
   prediction?: { start: string; end: string; episodes: number[]; lag_seconds: number } | null;
+  /** 因字幕或音轨看不懂而跳过的资源数 */
+  subtitle_blocked?: number;
+}
+
+/** 智能设置只有一套：画质、洗版、最低要求共用，等待时间电影和剧集各一个。 */
+export interface SmartDefaults {
+  configured: boolean;
+  movie_revision: number;
+  tv_revision: number;
+  resolution: SmartPreferences["resolution"];
+  source: SmartPreferences["source"];
+  allow_upgrade: boolean;
+  strict_resolution: boolean;
+  movie_wait_seconds: number;
+  tv_wait_seconds: number;
+}
+export type SmartDefaultsInput = Omit<SmartDefaults, "configured">;
+
+export interface SmartMemory {
+  revision: number;
+  /** 看得懂的语言，中文在最前且不可移除 */
+  languages: { key: string; label: string; source_title: string | null; removable: boolean }[];
+  addable_languages: { key: string; label: string }[];
+  habits: { key: string; label: string; quality_label: string; source_title: string | null }[];
+}
+
+export function getSmartDefaults(): Promise<SmartDefaults> {
+  return unwrap(request<ApiEnvelope<SmartDefaults>>("/subscriptions/smart-defaults"));
+}
+export function saveSmartDefaults(input: SmartDefaultsInput): Promise<SmartDefaults> {
+  return unwrap(request<ApiEnvelope<SmartDefaults>>("/subscriptions/smart-defaults", { method: "PUT", body: JSON.stringify(input) }));
+}
+export function getSmartMemory(): Promise<SmartMemory> {
+  return unwrap(request<ApiEnvelope<SmartMemory>>("/subscriptions/smart-memory"));
+}
+export function updateSmartMemory(change: { revision: number; language?: string; understood?: boolean; remove_habit?: string }): Promise<SmartMemory> {
+  return unwrap(request<ApiEnvelope<SmartMemory>>("/subscriptions/smart-memory", { method: "PATCH", body: JSON.stringify(change) }));
 }
 export function getSmartProfile(kind: "movie" | "tv"): Promise<SmartProfile> {
   return unwrap(request<ApiEnvelope<SmartProfile>>(`/subscriptions/smart-profiles/${kind}`));

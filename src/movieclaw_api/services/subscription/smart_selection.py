@@ -537,6 +537,18 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
     await session.commit()
     if runtime.shadow_only:
         return [], {}
+    expired = [
+        unit
+        for unit, result in decisions.items()
+        if result.reason == "deadline_awaiting_subtitles"
+        and (saved.get(unit) is None or saved[unit].reason != "deadline_awaiting_subtitles")
+    ]
+    if expired:
+        from movieclaw_api.services.subscription.smart_memory import notify_awaiting_subtitles
+
+        await notify_awaiting_subtitles(
+            session, ctx.subscription, ctx.spec, {u: decisions[u].state for u in expired}
+        )
     allowed = {}
     for entry in usable:
         key = candidate_key(entry[0])

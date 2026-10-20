@@ -38,6 +38,7 @@ def test_preference_switches_follow_the_rule_table() -> None:
         "subscription.fulfilled",
         "subscription.download_started",
         "subscription.identity_skipped",
+        "subscription.awaiting_subtitles",
         "subscription.upgraded",
         "subscription.completed",
         "subscription.download_stuck",

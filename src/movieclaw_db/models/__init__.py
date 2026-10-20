@@ -86,6 +86,7 @@ from movieclaw_db.models.site_user_profile import SiteUserProfile
 from movieclaw_db.models.smart_subscription import (
     SmartCandidate,
     SmartDecisionRecord,
+    SmartMemoryRow,
     SmartProfile,
     SmartSeason,
 )
@@ -185,6 +186,7 @@ __all__ = [
     "ReelEvent",
     "RuleSet",
     "Subscription",
+    "SmartMemoryRow",
     "SmartProfile",
     "SmartCandidate",
     "SmartDecisionRecord",

@@ -55,6 +55,7 @@ from movieclaw_matcher import (
     evaluate_rules,
     match_identity,
 )
+from movieclaw_matcher.smart import SmartPolicy, watchable
 
 logger = logging.getLogger("movieclaw_api.subscription_replacement")
 
@@ -537,6 +538,8 @@ async def _try_candidates(
         verdict = evaluate_rules(candidate, spec, pack_episode_count=len(covered))
         if not verdict.accepted or not quality_not_lower(candidate, attempt.quality):
             continue
+        if isinstance(spec, SmartPolicy) and not watchable(candidate, spec):
+            continue  # 换源不能把带字幕的版本换成看不懂的原版
         accepted.append((candidate, covered, verdict, match))
     accepted.sort(
         key=lambda entry: (

@@ -75,6 +75,7 @@ from movieclaw_sdk.events.playback import (
 )
 from movieclaw_sdk.events.plugin import PLUGIN_EVENTS, PluginEventsApi, Publisher, plugin_event
 from movieclaw_sdk.events.subscription import (
+    SUBSCRIPTION_AWAITING_SUBTITLES,
     SUBSCRIPTION_CREATED,
     SUBSCRIPTION_DELETED,
     SUBSCRIPTION_DOWNLOAD_STARTED,
@@ -84,6 +85,7 @@ from movieclaw_sdk.events.subscription import (
     SUBSCRIPTION_MORE_EPISODES,
     SUBSCRIPTION_STATUS_CHANGED,
     SUBSCRIPTION_UPGRADED,
+    SubscriptionAwaitingSubtitles,
     SubscriptionChanged,
     SubscriptionDownloadStarted,
     SubscriptionDownloadStuck,
@@ -149,6 +151,7 @@ __all__ = [
     "Playback",
     "PlaybackMarked",
     "PlaybackStopped",
+    "SUBSCRIPTION_AWAITING_SUBTITLES",
     "SUBSCRIPTION_CREATED",
     "SUBSCRIPTION_DELETED",
     "SUBSCRIPTION_DOWNLOAD_STARTED",
@@ -158,6 +161,7 @@ __all__ = [
     "SUBSCRIPTION_MORE_EPISODES",
     "SUBSCRIPTION_STATUS_CHANGED",
     "SUBSCRIPTION_UPGRADED",
+    "SubscriptionAwaitingSubtitles",
     "SubscriptionChanged",
     "SubscriptionDownloadStarted",
     "SubscriptionDownloadStuck",

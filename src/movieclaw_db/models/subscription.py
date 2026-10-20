@@ -145,6 +145,10 @@ class Subscription(TimestampMixin, table=True):
     smart_policy: dict | None = Field(
         default=None, sa_column=Column(JSON(none_as_null=True), nullable=True)
     )
+    # 这部单独设的画质，或订阅时从同系列上一部沿用来的画质（smart_memory.QualityOverride）
+    smart_overrides: dict | None = Field(
+        default=None, sa_column=Column(JSON(none_as_null=True), nullable=True)
+    )
 
     status: str = Field(
         default=SubscriptionStatus.ACTIVE,
