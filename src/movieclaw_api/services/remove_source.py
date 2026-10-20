@@ -279,9 +279,13 @@ async def after_local_released(released: Any) -> None:
     （docs/design/cloud-storage.md §6.3）。
 
     保留的：设置里关了、不是 MovieClaw 投递的、有 H&R 考核的、下载器配置没了的、还供着库里别的
-    本地文件的。硬链接入库时这一步才让空间真正回来。删不掉发系统通知。
+    本地文件的、还没下完或名下还有没入库单元的（季包一集先腾空不代表整包干完，issue #943；
+    等最后一个文件腾空时再判一次）。硬链接入库时这一步才让空间真正回来。删不掉发系统通知。
     """
-    from movieclaw_api.services.download_tasks import delete_download_task
+    from movieclaw_api.services.download_tasks import (
+        delete_download_task,
+        download_task_finished,
+    )
     from movieclaw_api.services.system_notice import upsert_notice
     from movieclaw_api.settings import DriveReleaseSetting, get_setting_store
 
@@ -317,11 +321,17 @@ async def after_local_released(released: Any) -> None:
             continue
         try:
             async with db.session() as session:
+                if not await download_task_finished(
+                    session, downloader_id=torrent.downloader_id, info_hash=torrent.info_hash
+                ):
+                    logger.info("网盘库腾空本地，但下载任务还没干完，先保留：%s", _name(torrent))
+                    continue
                 await delete_download_task(
                     session,
                     downloader_id=torrent.downloader_id,
                     info_hash=torrent.info_hash,
                     delete_files=True,
+                    by_user=False,
                 )
             logger.info("网盘库腾空本地后删除下载任务：%s", _name(torrent))
         except AppException as exc:

@@ -2285,3 +2285,142 @@ def test_verify_without_mappings_reports_healthy(client) -> None:
     assert detail["status"] == "active"
     assert detail["paths_healthy"] is True
     assert detail["path_health"] is None
+
+
+def test_season_pack_is_kept_after_local_release_until_every_unit_lands(client) -> None:
+    """网盘库腾空本地后自动删种：季包一集先腾空时整包还在下，不能连数据删掉（issue #943）。
+
+    只有下载器确认下完、名下的集都入库了，最后一个文件腾空时才删；删的时候不说成用户操作。
+    """
+    from movieclaw_api.services.remove_source import after_local_released
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import (
+        DownloadAttemptStatus,
+        DownloadFileSource,
+        MediaItem,
+        RuleSet,
+        Subscription,
+        SubscriptionDownloadAttempt,
+        WantedItem,
+        WantedStatus,
+        utcnow,
+    )
+    from movieclaw_sdk.events import LocalReleased
+
+    c, _ = client
+    downloader_id = c.post("/api/v1/downloaders", json=_PAYLOAD).json()["data"]["id"]
+    info_hash = "a" * 40
+    ids: dict[str, int] = {}
+
+    def torrent(progress: float) -> TorrentStatus:
+        return TorrentStatus(
+            info_hash=info_hash,
+            name="Black.Island.S01.2160p",
+            progress=progress,
+            completed=progress >= 1.0,
+            save_path="/downloads",
+        )
+
+    async def seed() -> None:
+        async with get_database().session() as session:
+            media = MediaItem(
+                kind="tv", tmdb_id=9430, title="黑岛监狱", original_title="Black Island"
+            )
+            rule = RuleSet(name="季包规则")
+            session.add_all([media, rule])
+            await session.flush()
+            subscription = Subscription(
+                media_item_id=media.id, kind="tv", selected_seasons=[1], rule_set_id=rule.id
+            )
+            session.add(subscription)
+            await session.flush()
+            # 选择性下载只勾了 E01~E03：E01 先下完入库、传到网盘、本地腾空，其余还在下
+            for episode, status in (
+                (1, WantedStatus.IMPORTED),
+                (2, WantedStatus.GRABBED),
+                (3, WantedStatus.GRABBED),
+            ):
+                session.add(
+                    WantedItem(
+                        subscription_id=subscription.id,
+                        media_item_id=media.id,
+                        season_number=1,
+                        episode_number=episode,
+                        status=status,
+                        info_hash=info_hash,
+                    )
+                )
+            attempt = SubscriptionDownloadAttempt(
+                subscription_id=subscription.id,
+                downloader_id=downloader_id,
+                info_hash=info_hash,
+                units=[[1, 1], [1, 2], [1, 3]],
+                status=DownloadAttemptStatus.ACTIVE,
+                owned_by_movieclaw=True,
+                last_progress_at=utcnow(),
+            )
+            session.add(attempt)
+            session.add(
+                DownloadFileSource(
+                    library_file_id=101, info_hash=info_hash, downloader_id=downloader_id
+                )
+            )
+            await session.commit()
+            ids["attempt"] = attempt.id
+            ids["subscription"] = subscription.id
+
+    async def land(episode: int, status: WantedStatus) -> None:
+        async with get_database().session() as session:
+            row = (
+                await session.execute(
+                    select(WantedItem).where(
+                        WantedItem.subscription_id == ids["subscription"],
+                        WantedItem.episode_number == episode,
+                    )
+                )
+            ).scalar_one()
+            row.status = status
+            session.add(row)
+            await session.commit()
+
+    async def attempt_state() -> tuple[str, str | None]:
+        async with get_database().session() as session:
+            attempt = await session.get(SubscriptionDownloadAttempt, ids["attempt"])
+            assert attempt is not None
+            return attempt.status, attempt.cleanup_note
+
+    def release(file_id: int) -> None:
+        asyncio.run(
+            after_local_released(
+                LocalReleased(library_id=1, file_id=file_id, bytes=10, hardlinked=False)
+            )
+        )
+
+    asyncio.run(seed())
+
+    # 1. E01 腾空时整包只下了 30%：保留任务，工单不退回
+    _fake_statuses[info_hash] = torrent(0.3)
+    release(101)
+    assert _delete_calls == []
+    assert asyncio.run(attempt_state()) == (DownloadAttemptStatus.ACTIVE, None)
+
+    # 2. 下载器说下完了，但 E03 还停在「已下载、没入库」：数据还要用，照样保留
+    _fake_statuses[info_hash] = torrent(1.0)
+    asyncio.run(land(2, WantedStatus.IMPORTED))
+    asyncio.run(land(3, WantedStatus.DOWNLOADED))
+    release(101)
+    assert _delete_calls == []
+
+    # 3. 全部入库了，但下载器里查不到这个任务的状态：拿不准就不删
+    asyncio.run(land(3, WantedStatus.IMPORTED))
+    _fake_statuses.clear()
+    release(101)
+    assert _delete_calls == []
+
+    # 4. 全部入库、下载器确认下完：最后一个文件腾空时连数据删掉
+    _fake_statuses[info_hash] = torrent(1.0)
+    release(101)
+    assert _delete_calls == [(info_hash, True)]
+    status, note = asyncio.run(attempt_state())
+    assert status == DownloadAttemptStatus.CANCELLED
+    assert note is not None and "自动清理" in note and "用户" not in note

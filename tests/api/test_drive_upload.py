@@ -823,15 +823,28 @@ def test_download_tasks_are_removed_after_release_unless_kept(client, monkeypatc
 
     deleted: list[str] = []
 
-    async def fake_delete(_session, *, downloader_id, info_hash, delete_files):
+    async def fake_delete(_session, *, downloader_id, info_hash, delete_files, by_user):
         assert delete_files is True
+        assert by_user is False  # 系统清理，不说成用户删的
         deleted.append(info_hash)
+
+    unfinished: set[str] = set()
+
+    async def fake_finished(_session, *, downloader_id, info_hash):
+        return info_hash not in unfinished
 
     monkeypatch.setattr(remove_source, "torrents_for_files", fake_torrents)
     monkeypatch.setattr(download_tasks, "delete_download_task", fake_delete)
+    monkeypatch.setattr(download_tasks, "download_task_finished", fake_finished)
     event = LocalReleased(library_id=1, file_id=1, bytes=10, hardlinked=True)
     call(client, remove_source.after_local_released, event)
     assert deleted == ["plain", "pack"]
+
+    # 季包还没下完（或名下还有没入库的集）：先保留，等最后一个文件腾空再删（issue #943）
+    deleted.clear()
+    unfinished.add("pack")
+    call(client, remove_source.after_local_released, event)
+    assert deleted == ["plain"]
 
     # 设置里关掉：一个都不删
     deleted.clear()

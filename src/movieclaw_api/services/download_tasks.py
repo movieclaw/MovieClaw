@@ -966,18 +966,50 @@ async def plan_delete_download_task(
     )
 
 
+async def download_task_finished(
+    session: AsyncSession, *, downloader_id: int, info_hash: str
+) -> bool:
+    """这个任务的活儿是不是都干完了：下载器确认已下完，且名下没有还在途（未入库）的订阅单元。
+
+    多文件种子（季包、合集）里的文件先后入库，一集先腾空不代表整包下完（issue #943）。
+    下载器连不上、任务不在了都答「没干完」——拿不准就别删。
+    """
+    normalized_hash = info_hash.lower()
+    _, affected = await _affected(session, normalized_hash)
+    if any(target_rows for _, target_rows in affected):
+        return False
+    repository = DownloaderRepository(session)
+    row = await repository.get(downloader_id)
+    if row is None:
+        return False
+    adapter = _adapter_for(repository, row)
+    try:
+        status = await adapter.get_torrent(normalized_hash, include_files=False)
+    except DownloaderException:
+        return False
+    finally:
+        try:
+            await adapter.close()
+        except Exception:  # noqa: BLE001
+            logger.warning("关闭下载器「%s」连接失败", row.name, exc_info=True)
+    return status is not None and status.completed
+
+
 async def delete_download_task(
     session: AsyncSession,
     *,
     downloader_id: int,
     info_hash: str,
     delete_files: bool = False,
+    by_user: bool = True,
 ) -> None:
     """从指定下载器删除一个种子任务。
 
     下载器 ID 与 infohash 共同定位，避免多下载器场景误删同名任务。默认只
     移除任务；用户显式选择时才同时删除数据文件。底层删除保持幂等，因此
     用户确认期间任务恰好自行消失也返回成功。
+
+    ``by_user=False``：系统自动清理（网盘库腾空本地后），不把订阅动态说成用户的操作。
     """
     repository = DownloaderRepository(session)
     row = await repository.get(downloader_id)
@@ -1030,6 +1062,10 @@ async def delete_download_task(
         logger.info("已清理被删除手动任务的身份锚：hash=%s", normalized_hash)
 
     for attempt, target_rows in affected:
+        if target_rows and not by_user:
+            # 系统清理只在没有在途单元时才删（download_task_finished）；真撞上竞态就交给巡检，
+            # 它会按「任务消失」如实退回，而不是说成用户删的
+            continue
         if target_rows:
             # 工单仍在域内：用户亲手删掉了它的主源。"消失"在这里是确定事实，
             # 不必等巡检连续三次确认（约 15 分钟）——那段时间里任务中心会先冒出
@@ -1046,7 +1082,11 @@ async def delete_download_task(
             continue
         attempt.status = DownloadAttemptStatus.CANCELLED
         attempt.next_search_at = None
-        attempt.cleanup_note = "关联单元不在当前订阅范围；用户删除下载器任务后停止观察"
+        attempt.cleanup_note = (
+            "关联单元不在当前订阅范围；用户删除下载器任务后停止观察"
+            if by_user
+            else "下载任务已在文件传到网盘、本地腾空后自动清理，停止观察"
+        )
         attempt.updated_at = utcnow()
         session.add(attempt)
         changed = True
