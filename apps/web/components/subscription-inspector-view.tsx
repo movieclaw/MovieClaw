@@ -521,6 +521,7 @@ export function SubscriptionInspectorView({
               {detail.selection_mode === "smart" && detail.smart_policy && <>
                 <SubscriptionFact label="智能目标" value={smartSummary(detail.smart_policy)} />
                 <SubscriptionFact label="后续洗版" value={detail.smart_policy.allow_upgrade ? "逐集达标核验后停止" : "关闭"} />
+                {detail.smart_subtitle && <SubscriptionFact label="字幕" value={detail.smart_subtitle.understood ? "不需要" : detail.smart_subtitle.line.split(" · ")[1] ?? detail.smart_subtitle.line} />}
               </>}
               {canManageSubscriptions && detail.selection_mode !== "smart" && <SubscriptionFact label="规则组" value={ruleSetName} />}
             </div>

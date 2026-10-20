@@ -6,8 +6,7 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 
 import { BrandLoader } from "@/components/brand-loader";
-import { SmartProfileCard } from "@/components/smart-subscription-settings";
-import type { SmartProfile } from "@/lib/api/subscriptions";
+import { EMPTY_CHOICE, SmartPlanCard, smartChoicePayload, type SmartChoice } from "@/components/smart-plan-card";
 import { CheckIcon, ChevronRightIcon, ListIcon, PlusIcon, TrashIcon, UpgradeIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { PosterImage } from "@/components/poster-image";
@@ -42,6 +41,7 @@ import {
   type SubscriptionRemovalOptions,
   type UpgradeRunReport,
 } from "@/lib/api/subscriptions";
+import { HttpError } from "@/lib/http";
 import { imageUrl } from "@/lib/image-proxy";
 import type { MediaType } from "@/lib/media-types";
 import { usePermissions } from "@/lib/permissions";
@@ -104,7 +104,9 @@ export function SubscribeDialog({
   const [useDoubanEpisodes, setUseDoubanEpisodes] = useState(false);
   const [ruleSetId, setRuleSetId] = useState<number | null>(null);
   const [selectionMode, setSelectionMode] = useState<"smart" | "rules">("smart");
-  const [smartProfile, setSmartProfile] = useState<SmartProfile | null>(null);
+  // 智能选择里管理员做的选择（字幕回答、改过的画质与记住的范围），随创建请求提交
+  const [smartChoice, setSmartChoice] = useState<SmartChoice>(EMPTY_CHOICE);
+  const [smartEditing, setSmartEditing] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [rangeExpanded, setRangeExpanded] = useState(false);
   // 快捷新建规则组（编辑器叠在本弹窗之上，保存后自动选中新组）
@@ -152,7 +154,8 @@ export function SubscribeDialog({
   const runPrepare = useCallback(
     async (t: SubscribeTarget) => {
       setSelectionMode(t.upgradeIntent ? "rules" : "smart");
-      setSmartProfile(null);
+      setSmartChoice(EMPTY_CHOICE);
+      setSmartEditing(false);
       setOptionsOpen(!!t.upgradeIntent);
       setRangeExpanded(false);
       setPrepared(null);
@@ -283,7 +286,9 @@ export function SubscribeDialog({
         follow_future: followFuture,
         rule_set_id: selectionMode === "rules" && canManageSubscriptions ? ruleSetId : null,
         selection_mode: selectionMode,
-        smart_profile_revision: selectionMode === "smart" ? smartProfile?.revision : undefined,
+        ...(selectionMode === "smart" && prepared.smart
+          ? { smart_profile_revision: prepared.smart.profile_revision, ...smartChoicePayload(prepared.smart, smartChoice) }
+          : {}),
         library_id: canManageSubscriptions ? libraryId : null,
         ...(doubanEpisodes && useDoubanEpisodes
           ? { episode_floors: { [doubanEpisodes.season_number]: doubanEpisodes.douban_count } }
@@ -314,9 +319,19 @@ export function SubscribeDialog({
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "订阅失败，请稍后重试");
+      // 弹层打开期间别人改了设置或记忆：重新读一遍，按最新的再确认
+      if (e instanceof HttpError && e.status === 409) void refreshSmartPlan();
     } finally {
       setBusy(false);
     }
+  };
+
+  /** 智能设置保存或记忆冲突后，只刷新智能选择摘要，不动已选的季和库。 */
+  const refreshSmartPlan = async () => {
+    if (!prepared?.media) return;
+    const next = await previewSubscriptionTitle({ title_ref: `tmdb:${prepared.media.kind}:${prepared.media.tmdb_id}` });
+    setSmartChoice(EMPTY_CHOICE);
+    setPrepared((current) => (current ? { ...current, smart: next.smart ?? null } : current));
   };
 
   // 管理员的取消订阅先叠一层弹窗问"种子与媒体库资源要不要一起删"（与订阅
@@ -363,7 +378,7 @@ export function SubscribeDialog({
 
   const canSubmit = useMemo(() => {
     if (!prepared?.media || busy) return false;
-    if (selectionMode === "smart" && (!smartProfile?.preferences || smartProfile.kind !== prepared.media.kind)) return false;
+    if (selectionMode === "smart" && (!prepared.smart?.configured || smartEditing)) return false;
     // 洗版变体必须选中一个带洗版目标的组，否则触发一轮洗版会被后端拒绝；
     // 成员不选组（按订阅当前的规则组洗版），不受此约束
     if (
@@ -385,7 +400,7 @@ export function SubscribeDialog({
     selectableRules,
     ruleSetId,
     selectionMode,
-    smartProfile,
+    smartEditing,
   ]);
 
   if (!target) return null;
@@ -418,7 +433,7 @@ export function SubscribeDialog({
   // 桌面与手机共用同一份订阅信息层级，低频选项只在用户展开时显示。
   const subscriptionForm = <div className="space-y-4">
     {selectionMode === "smart" ? (
-      <SmartProfileCard kind={kind} onSaved={setSmartProfile} compact />
+      <SmartPlanCard plan={prepared?.smart ?? null} choice={smartChoice} setChoice={setSmartChoice} onSettingsSaved={() => void refreshSmartPlan()} onEditingChange={setSmartEditing} />
     ) : (
       <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface-inset)] p-4" aria-label="规则选择">
         <div className="flex items-center justify-between gap-3">

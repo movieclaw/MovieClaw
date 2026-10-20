@@ -52,14 +52,20 @@ function Choices({ name, legend, value, options, onChange }: {
   </fieldset>;
 }
 
-export function SmartPlanCard({ plan, choice, setChoice, onSettingsSaved }: {
+export function SmartPlanCard({ plan, choice, setChoice, onSettingsSaved, onEditingChange }: {
   plan: SmartPlan | null;
   choice: SmartChoice;
   setChoice: (choice: SmartChoice) => void;
   onSettingsSaved: () => void;
+  /** 正在改智能设置时不能提交订阅（还没保存的设置不算数） */
+  onEditingChange?: (editing: boolean) => void;
 }) {
   const id = useId();
-  const [editingDefaults, setEditingDefaults] = useState(false);
+  const [editingDefaults, setEditingDefaultsState] = useState(false);
+  const setEditingDefaults = (editing: boolean) => {
+    setEditingDefaultsState(editing);
+    onEditingChange?.(editing);
+  };
   const [editingQuality, setEditingQuality] = useState(false);
   const [editingSubtitle, setEditingSubtitle] = useState(false);
 

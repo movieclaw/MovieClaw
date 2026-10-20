@@ -479,3 +479,15 @@ test("身份不明是持续寻找的知会，不需要下载候选", () => {
   assert.equal(smartWantedPresentation(row).label, "寻找中");
   assert.match(smartWantedPresentation(row).note, /已跳过，继续寻找/);
 });
+
+
+test("只有看不懂的原版时显示等字幕，到期也不自动下载", () => {
+  const row = { status: "wanted", selection_state: { reason: "awaiting_subtitles", candidate_key: "a/raw", subtitle_blocked: 2 } };
+  assert.deepEqual(
+    [smartWantedPresentation(row).label, smartWantedPresentation(row).note],
+    ["等字幕", "已有 2 个原版，在等带字幕的版本"],
+  );
+  row.selection_state.reason = "deadline_awaiting_subtitles";
+  assert.equal(smartWantedPresentation(row).label, "等字幕");
+  assert.match(smartWantedPresentation(row).note, /不会自动下载/);
+});

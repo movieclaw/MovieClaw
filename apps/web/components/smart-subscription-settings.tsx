@@ -102,9 +102,12 @@ export function SmartDefaultsFields({ draft, setDraft, disabled = false }: {
   );
 }
 
-function inputOf(defaults: SmartDefaults): SmartDefaultsInput {
-  const { configured: _configured, ...input } = defaults;
-  return input;
+function inputOf(d: SmartDefaults): SmartDefaultsInput {
+  return {
+    movie_revision: d.movie_revision, tv_revision: d.tv_revision, resolution: d.resolution, source: d.source,
+    allow_upgrade: d.allow_upgrade, strict_resolution: d.strict_resolution,
+    movie_wait_seconds: d.movie_wait_seconds, tv_wait_seconds: d.tv_wait_seconds,
+  };
 }
 
 /**

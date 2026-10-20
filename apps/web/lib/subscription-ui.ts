@@ -414,6 +414,12 @@ export function smartWantedPresentation(row: WantedItem): { label: string; color
     observation_finished: ["选择中", "观察结束，正在选择当前合格版本"],
     target_available: ["选择中", "目标版本已出现，正在选择"],
   };
+  if (state.reason === "awaiting_subtitles") {
+    return { label: "等字幕", color: "var(--info)", note: `已有 ${state.subtitle_blocked ?? 1} 个原版，在等带字幕的版本` };
+  }
+  if (state.reason === "deadline_awaiting_subtitles") {
+    return { label: "等字幕", color: "var(--warn)", note: "等待期已过，仍没有字幕版；原版不会自动下载" };
+  }
   if (!state.candidate_key && !["identity_unconfirmed", "manual_candidate_unavailable", "reconciling", "submitting"].includes(state.reason)) return null;
   const [label, note] = state.reason === "user_extended" || (state.manual_extended && ["observing", "waiting_target", "waiting_series"].includes(state.reason))
     ? ["观察中", "按你延长的时间继续等待合适版本"]
