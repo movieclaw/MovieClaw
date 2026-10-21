@@ -142,7 +142,25 @@ def themes(settings: object, kernel: Any) -> list[Theme]:
 
 
 def find(settings: object, kernel: Any, theme_id: str) -> Theme | None:
-    return next((t for t in themes(settings, kernel) if t.id == theme_id), None)
+    """按 id 找一个主题（与 ``themes`` 同一套取舍）。每个主题文件请求都要查一次，只看这一个，
+    不扫整个目录。"""
+    from movieclaw_api.plugins import safe_mode
+    from movieclaw_api.plugins.bundled import bundled, canonical
+    from movieclaw_api.services import plugin_switches
+
+    if _disabled(theme_id, kernel):
+        return None
+    packages = {} if safe_mode.current().active else pkg.installed(settings)
+    record = packages.get(theme_id)
+    if record is not None:
+        directory = pkg.version_dir(settings, record.id, record.version)
+        return _theme(_manifest(directory), directory, "package", record.version)
+    item = bundled().get(theme_id)
+    if item is None or theme_id in plugin_switches.removed_ids(settings):
+        return None
+    if theme_id in {canonical(entry_id) for entry_id in packages}:
+        return None  # 被旧 id 的同名插件包替换了
+    return _theme(item.manifest, item.path, "bundled", item.manifest.plugin.version)
 
 
 def view(theme: Theme) -> dict[str, Any]:

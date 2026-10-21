@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from movieclaw_api.api.routes import themes as themes_routes
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.plugins import bundled as bundled_mod
 from movieclaw_api.plugins import packages as pkg
@@ -141,6 +142,9 @@ def start() -> tuple[TestClient, Who]:
     app.dependency_overrides[require_admin] = admin_only
     app.dependency_overrides[require_login] = login
     app.dependency_overrides[optional_login] = lambda: None if who.anonymous else who.current
+    app.dependency_overrides[themes_routes._script_viewer] = lambda: (
+        None if who.anonymous else who.current
+    )
     return TestClient(app), who
 
 
@@ -162,6 +166,7 @@ def test_theme_package_from_upload_to_catalog_and_uninstall(data_dir) -> None:
     with client:
         uploaded = upload(client, zipped(theme_files()))
         assert uploaded.status_code == 200, uploaded.text
+        assert uploaded.json()["data"]["entry"] == ""  # 没有后端代码：批准页据此不写「独立进程」
         preview = uploaded.json()["data"]["theme"]
         assert preview == {
             "label": "Acme",
@@ -356,3 +361,34 @@ def test_safe_mode_drops_package_themes(data_dir, monkeypatch) -> None:
         monkeypatch.setattr(safe_mode, "current", lambda: safe_mode.SafeMode(active=True))
         assert "calm-theme" not in catalog(client)
         assert client.get("/api/v1/ui/themes/calm-theme/theme.css").status_code == 404
+
+
+def test_only_subresource_types_are_served_and_sandboxed(data_dir) -> None:
+    """主题目录与主程序同源、样式免登录：能当页面打开的文件一律不给，给的都带沙箱 CSP。"""
+    files = theme_files("calm-theme", layout="panel", with_js=False)
+    files["theme/evil.html"] = "<script>fetch('/api/v1/app/plugins')</script>"
+    files["theme/icon.svg"] = (
+        '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    )
+    write_tree(data_dir / "bundled" / "calm", files)
+    client, _ = start()
+    with client:
+        assert client.get("/api/v1/ui/themes/calm-theme/evil.html").status_code == 404
+        svg = client.get("/api/v1/ui/themes/calm-theme/icon.svg")
+        assert svg.status_code == 200 and svg.headers["content-type"].startswith("image/svg+xml")
+        assert "sandbox" in svg.headers["content-security-policy"]
+        css = client.get("/api/v1/ui/themes/calm-theme/theme.css")
+        assert "sandbox" in css.headers["content-security-policy"]
+
+
+def test_stale_cookie_does_not_block_theme_styles(data_dir) -> None:
+    """浏览器带着过期 / 吊销的 Cookie 打开登录页：样式照常给，外框组件按未登录拒。"""
+    from movieclaw_api.app import create_app
+
+    write_tree(data_dir / "bundled" / "netflix", theme_files("netflix", label="Netflix"))
+    with TestClient(create_app()) as client:
+        client.cookies.set("movieclaw_session", "stale-or-revoked")
+        assert client.get("/api/v1/ui/themes.css").status_code == 200
+        assert client.get("/api/v1/ui/themes/netflix/theme.css").status_code == 200
+        assert client.get("/api/v1/ui/themes/netflix/assets/bg.png").status_code == 200
+        assert client.get("/api/v1/ui/themes/netflix/index.js").status_code == 401

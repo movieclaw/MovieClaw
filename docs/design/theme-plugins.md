@@ -254,8 +254,9 @@ html[data-theme="netflix"] {
 
 ### 5.2 SDK v1 的范围（按 Netflix 实际用到的收，顺手合并重复逻辑）
 
-> 落地（P3，2026-10-21）：门面在 `apps/web/theme-sdk/index.ts`，tsconfig 别名 `@movieclaw/theme-sdk`；ESLint 限定
-> `themes/*/**` 只能 import react / react-dom / next / next/link / next/navigation / SDK / 相对路径；出口快照
+> 落地（P3，2026-10-21）：门面在 `apps/web/theme-sdk/index.ts`，tsconfig 别名 `@movieclaw/theme-sdk`；主题只能
+> import react / react-dom / next / next/link / next/navigation / SDK / 相对路径（P3 时用 ESLint 守，P5 主题搬出
+> `apps/web` 后改由构建器守）；出口快照
 > `test/theme-sdk-surface.test.mjs`。实际合并了两处：`signOut()`（内核「更多」页、侧栏菜单与 Netflix 顶栏、「我的」页
 > 四处同一流程，Netflix 两份副本此前漏了切账号时的首帧缓存预热）、`useAppNavLinks()`（顶栏用的插件网页项，不跟个人
 > 排序）。下表是设计时的分组，实际出口以门面文件为准。

@@ -24,3 +24,16 @@ export function themeImportMap(): { imports: Record<string, string> } {
     ),
   };
 }
+
+/**
+ * 主题模块只认主程序自己托管的地址（同源、`/ui/themes/` 下）：地址来自服务端主题目录，
+ * 这里再守一道——不让被改过的本地缓存或别的来源把任意脚本当主题执行。
+ */
+export function isThemeModuleUrl(url: string, origin = globalThis.location?.origin ?? ""): boolean {
+  try {
+    const parsed = new URL(url, origin);
+    return parsed.origin === origin && /\/ui\/themes\/[a-z][a-z0-9-]{1,38}[a-z0-9]\/[^?#]+\.m?js$/.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}

@@ -122,6 +122,8 @@ def _view(
         "version": plugin.version,
         "description": plugin.description,
         "runtime": plugin.runtime,
+        # 入口模块；留空 = 没有后端代码（只带网页 / 主题）
+        "entry": plugin.entry,
         "operations": manifest.permissions.operations,
         "new_operations": [op for op in manifest.permissions.operations if op not in approved],
         "operation_details": operation_details(manifest.permissions.operations),

@@ -136,9 +136,10 @@ const NO_GLASS_THEMES = JSON.stringify(THEMES.filter((theme) => !theme.glass).ma
  * - data-theme / theme-color 只在非默认主题写（默认 = 无属性，与 ui-prefs
  *   的写入口径一致）；停用玻璃的主题同时写 data-glass="off"；
  * - 主题带外框组件时顺带挂 <link rel="modulepreload">：模块与登录态探测并行下载，
- *   外壳的就绪闸门（components/app-shell.tsx 的 ThemeGate）几乎不用等。
+ *   外壳的就绪闸门（components/app-shell.tsx 的 ThemeGate）几乎不用等。预加载只下载不执行，
+ *   地址仍只认站内 /ui/themes/ 下的（快照不可信）；真正执行要等服务端主题目录确认。
  */
-const RESTORE_THEME_SCRIPT = `try{var p=JSON.parse(localStorage.getItem("movieclaw.ui-prefs")||"null");var c=${THEME_COLOR_MAP};var g=${NO_GLASS_THEMES};var mobile=window.matchMedia&&matchMedia("(max-width:767px)").matches;var t=p?(mobile?(p.theme_mobile||p.theme):(p.theme_desktop||p.theme)):null;var d=document.documentElement;if(t&&t!=="${DEFAULT_THEME_ID}"){var e=null,k=JSON.parse(localStorage.getItem("${THEME_CATALOG_CACHE_KEY}")||"null");if(k&&k.length)for(var i=0;i<k.length;i++)if(k[i]&&k[i].id===t&&k[i].status==="ok")e=k[i];var col=e?e.theme_color:c[t];if(e||col){d.setAttribute("data-theme",t);if(e?e.glass===false:g.indexOf(t)>=0)d.setAttribute("data-glass","off");var m=document.querySelector('meta[name="theme-color"]');if(m&&col)m.setAttribute("content",col);if(e&&e.script){var l=document.createElement("link");l.rel="modulepreload";l.href=e.script;document.head.appendChild(l)}}}}catch(e){}`;
+const RESTORE_THEME_SCRIPT = `try{var p=JSON.parse(localStorage.getItem("movieclaw.ui-prefs")||"null");var c=${THEME_COLOR_MAP};var g=${NO_GLASS_THEMES};var mobile=window.matchMedia&&matchMedia("(max-width:767px)").matches;var t=p?(mobile?(p.theme_mobile||p.theme):(p.theme_desktop||p.theme)):null;var d=document.documentElement;if(t&&t!=="${DEFAULT_THEME_ID}"){var e=null,k=JSON.parse(localStorage.getItem("${THEME_CATALOG_CACHE_KEY}")||"null");if(k&&k.length)for(var i=0;i<k.length;i++)if(k[i]&&k[i].id===t&&k[i].status==="ok")e=k[i];var col=e?e.theme_color:c[t];if(e||col){d.setAttribute("data-theme",t);if(e?e.glass===false:g.indexOf(t)>=0)d.setAttribute("data-glass","off");var m=document.querySelector('meta[name="theme-color"]');if(m&&col)m.setAttribute("content",col);if(e&&e.script&&e.script.charAt(0)==="/"&&e.script.charAt(1)!=="/"&&e.script.indexOf("/ui/themes/")>0){var l=document.createElement("link");l.rel="modulepreload";l.href=e.script;document.head.appendChild(l)}}}}catch(e){}`;
 
 /**
  * 主题运行时（docs/design/theme-plugins.md §4.3）：

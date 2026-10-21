@@ -121,10 +121,11 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
     allowInline: boolean,
     allowMembers: boolean,
     web: WebConsent | null,
+    allowTheme: boolean,
   ) => {
     setApproving(true);
     try {
-      const result = await approvePackage(item, allowInline, allowMembers, web);
+      const result = await approvePackage(item, allowInline, allowMembers, web, allowTheme);
       setReviewing(null);
       if (result.status === "active") {
         toast.success(`「${item.title}」v${item.version} 已安装并运行`);
@@ -268,8 +269,8 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
         currentWeb={null}
         busy={approving}
         onClose={() => setReviewing(null)}
-        onApprove={(item, allowInline, allowMembers, web) =>
-          void approve(item, allowInline, allowMembers, web)
+        onApprove={(item, allowInline, allowMembers, web, allowTheme) =>
+          void approve(item, allowInline, allowMembers, web, allowTheme)
         }
         onDiscard={(item) => void discard(item)}
       />

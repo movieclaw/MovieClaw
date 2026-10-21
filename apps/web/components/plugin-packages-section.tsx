@@ -133,9 +133,10 @@ export function PluginPackagesSection({
     allowInline: boolean,
     allowMembers: boolean,
     web: WebConsent | null,
+    allowTheme: boolean,
   ) =>
     run(async () => {
-      const result = await approvePackage(item, allowInline, allowMembers, web);
+      const result = await approvePackage(item, allowInline, allowMembers, web, allowTheme);
       setReviewing(null);
       if (result.status === "active") {
         toast.success(`「${item.title}」v${item.version} 已安装并运行`);
@@ -338,8 +339,8 @@ export function PluginPackagesSection({
         currentWeb={installed?.find((p) => p.id === reviewing?.id)?.web ?? null}
         busy={busy}
         onClose={() => setReviewing(null)}
-        onApprove={(item, allowInline, allowMembers, web) =>
-          void approve(item, allowInline, allowMembers, web)
+        onApprove={(item, allowInline, allowMembers, web, allowTheme) =>
+          void approve(item, allowInline, allowMembers, web, allowTheme)
         }
         onDiscard={(item) =>
           void run(async () => {
@@ -369,6 +370,10 @@ function LocalRuntimeNote({ locals }: { locals: PluginInfo[] }) {
   );
 }
 
+/** 带外框组件的主题：后果说明（与网页插件的授信口径一致） */
+const THEME_CODE_RISK =
+  "这个主题带界面代码：会在每个页面里以正在使用它的人的身份运行，管理员打开时拥有管理员的全部权限。只同意你信任的主题。";
+
 /** 批准抽屉：逐项列出它要什么，升级时新增的申请高亮；申请主进程运行须单独勾选。
  * 上传与插件市场共用（市场下载核对后也进待批准）。 */
 export function ReviewDrawer({
@@ -389,6 +394,7 @@ export function ReviewDrawer({
     allowInline: boolean,
     allowMembers: boolean,
     web: WebConsent | null,
+    allowTheme: boolean,
   ) => void;
   onDiscard: (item: PackageRequest) => void;
 }) {
@@ -398,9 +404,12 @@ export function ReviewDrawer({
   const [allowWeb, setAllowWeb] = useState(false);
   const [webNav, setWebNav] = useState(true);
   const [webMembers, setWebMembers] = useState(false);
+  // 带外框组件的主题：代码在每个页面里以使用者的身份运行，须单独同意（docs/design/theme-plugins.md §4.6）
+  const [allowTheme, setAllowTheme] = useState(false);
   useEffect(() => {
     setAllowInline(false);
     setAllowMembers(false);
+    setAllowTheme(false);
     // 授信每个版本都重新问；加不加侧边栏、成员能不能看到沿用当前版本的选择
     setAllowWeb(false);
     setWebNav(currentWeb?.nav ?? true);
@@ -410,6 +419,10 @@ export function ReviewDrawer({
   if (!item) return null;
   const inline = item.runtime === "inline";
   const web = item.web ?? null;
+  const theme = item.theme ?? null;
+  const themeCode = theme?.has_code === true;
+  // 旧服务端没有 entry 字段：按有后端代码处理（沿用原来的说明）
+  const noBackend = item.entry === "" && item.runtime !== "exec";
   const notifiesMembers = item.notifies_members === true;
   const upgrade = item.installed_version !== null;
   const newBadge = (
@@ -450,7 +463,8 @@ export function ReviewDrawer({
               busy ||
               (inline && !allowInline) ||
               (notifiesMembers && !allowMembers) ||
-              (web !== null && !allowWeb)
+              (web !== null && !allowWeb) ||
+              (themeCode && !allowTheme)
             }
             onClick={() =>
               onApprove(
@@ -458,6 +472,7 @@ export function ReviewDrawer({
                 allowInline,
                 allowMembers,
                 web ? { nav: webNav, members: webMembers } : null,
+                themeCode && allowTheme,
               )
             }
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
@@ -473,7 +488,9 @@ export function ReviewDrawer({
           <dd className={inline ? "text-[var(--danger)]" : "text-[var(--text-muted)]"}>
             {inline
               ? "申请在主进程里运行：拥有与主程序相同的系统权限，崩溃会影响整个应用。"
-              : "独立进程、低权限用户：崩溃、卡死只影响它自己，拿不到主密钥与数据库。"}
+              : noBackend
+                ? "没有后端代码：只带网页或主题，不在服务器上运行任何程序。"
+                : "独立进程、低权限用户：崩溃、卡死只影响它自己，拿不到主密钥与数据库。"}
           </dd>
           {inline && (
             <label className="mt-2 flex items-center gap-2 text-[var(--danger)]">
@@ -486,6 +503,46 @@ export function ReviewDrawer({
             </label>
           )}
         </div>
+        {theme && (
+          <div>
+            <dt className="mb-1.5 font-medium text-[var(--text)]">网页主题</dt>
+            <dd className="space-y-2">
+              <div className="flex items-center gap-3">
+                <span
+                  aria-hidden="true"
+                  className="relative h-9 w-14 shrink-0 overflow-hidden rounded-md border border-white/10"
+                  style={{ background: theme.preview.bg }}
+                >
+                  <span
+                    className="absolute bottom-1.5 left-1.5 h-1.5 w-6 rounded-full"
+                    style={{ background: theme.preview.accent }}
+                  />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[var(--text)]">{theme.label}</span>
+                  <span className="block text-caption text-[var(--text-faint)]">
+                    {theme.layout === "cinema" ? "顶栏 + 大图首屏版式" : "侧栏版式"}
+                    {theme.description ? ` · ${theme.description}` : ""}
+                  </span>
+                </span>
+              </div>
+              <p className="text-[var(--text-muted)]">装上后在「设置 → 外观」里选用；每个人可以各选各的。</p>
+              {themeCode && (
+                <>
+                  <p className="text-[var(--danger)]">{THEME_CODE_RISK}</p>
+                  <label className="flex items-center gap-2 text-[var(--danger)]">
+                    <input
+                      type="checkbox"
+                      checked={allowTheme}
+                      onChange={(event) => setAllowTheme(event.target.checked)}
+                    />
+                    我信任这个主题的代码
+                  </label>
+                </>
+              )}
+            </dd>
+          </div>
+        )}
         {web && (
           <div>
             <dt className="mb-1.5 font-medium text-[var(--text)]">自带网页</dt>

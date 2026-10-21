@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import hashlib
-import mimetypes
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import FileResponse
@@ -24,17 +23,33 @@ from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import NotFoundException, UnauthorizedException
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.response import ApiResponse, ok
+from movieclaw_api.services import auth as auth_service
 from movieclaw_api.services import themes
 from movieclaw_api.services.auth import Principal
 
 router = APIRouter(prefix="/ui", tags=["ui"])
 
+#: 只托管这几类文件（docs/design/theme-plugins.md §4.6）：样式、外框组件、图片、字体。
+#: 主题目录与主程序同源、样式免登录，HTML 之类能当页面打开的一律不给——否则主题包里放一张
+#: 带脚本的页面就是同源存储型 XSS，还绕过了外框组件的授信同意
 _TYPES = {
+    ".css": "text/css",
     ".js": "text/javascript",
     ".mjs": "text/javascript",
-    ".css": "text/css",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".avif": "image/avif",
+    ".gif": "image/gif",
     ".svg": "image/svg+xml",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+    ".otf": "font/otf",
 }
+#: 主题文件只作为子资源用：被直接打开时不让执行任何脚本（SVG 里的脚本也一样）
+_SANDBOX = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; sandbox"
 _SCRIPTS = {".js", ".mjs"}
 #: 带版本号的地址内容不会变：一年强缓存
 _IMMUTABLE = "public, max-age=31536000, immutable"
@@ -100,6 +115,25 @@ def themes_stylesheet(request: Request) -> Response:
     return Response(text, media_type="text/css", headers=headers)
 
 
+async def _script_viewer(request: Request) -> Principal | None:
+    """只有取外框组件（JS）时才认登录；样式与资源不看凭据。
+
+    不能直接挂 ``optional_login``：它对过期 / 吊销的 Cookie 抛 401，浏览器带着旧 Cookie
+    打开登录页时，免登录的主题样式也会被拒（首帧已按缓存写了 data-theme，样式却加载不出来）。
+    过期凭据这里按未登录处理。
+    """
+    if not request.path_params.get("path", "").lower().endswith(tuple(_SCRIPTS)):
+        return None
+    try:
+        return await optional_login(
+            request,
+            session_token=request.cookies.get(auth_service.SESSION_COOKIE_NAME),
+            authorization=request.headers.get("authorization"),
+        )
+    except UnauthorizedException:
+        return None
+
+
 @router.get(
     "/themes/{theme_id}/{path:path}",
     summary="主题文件：样式与资源免登录，外框组件（JS）要求登录",
@@ -110,15 +144,15 @@ def theme_file(
     theme_id: str,
     path: str,
     request: Request,
-    principal: Principal | None = Depends(optional_login),
+    principal: Principal | None = Depends(_script_viewer),
 ) -> Response:
     theme = themes.find(get_settings(), _kernel(request), theme_id)
     if theme is None or theme.incompatible is not None:
         raise NotFoundException("没有这个主题")
     target = themes.resolve_file(theme, path)
-    if target is None:
+    suffix = target.suffix.lower() if target is not None else ""
+    if target is None or suffix not in _TYPES:
         raise NotFoundException("文件不存在")
-    suffix = target.suffix.lower()
     if suffix in _SCRIPTS and principal is None:
         raise UnauthorizedException("请先登录")
     stat = target.stat()
@@ -133,10 +167,7 @@ def theme_file(
     # 脚本按登录区分，别让共享缓存存
     if suffix in _SCRIPTS:
         cache = cache.replace("public", "private")
-    headers = {"Cache-Control": cache, "ETag": etag}
+    headers = {"Cache-Control": cache, "ETag": etag, "Content-Security-Policy": _SANDBOX}
     if etag in request.headers.get("if-none-match", ""):
         return Response(status_code=304, headers=headers)
-    media_type = (
-        _TYPES.get(suffix) or mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-    )
-    return FileResponse(target, media_type=media_type, headers=headers, stat_result=stat)
+    return FileResponse(target, media_type=_TYPES[suffix], headers=headers, stat_result=stat)

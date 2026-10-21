@@ -4,7 +4,7 @@
  *
  * 纪律：
  * - 主题代码只许 import react / react-dom / next/link / next/navigation / 本 SDK
- *   （eslint 的 no-restricted-imports 守着 themes/<id>/）；内核其余模块对主题不可见；
+ *   （主题构建器 theme-sdk/build.mjs 守着：引了别的直接构建失败）；内核其余模块对主题不可见；
  * - 这里只做转出口，不写实现：实现留在内核原处，内核自己也照常用；
  * - 加出口 = 契约次版本；删 / 改签名 = 主版本。出口按「主题外框真用到的」收，不预先铺开；
  * - 出口清单由导出快照测试守着（test/theme-sdk-surface.test.mjs），改这里要一并更新快照。

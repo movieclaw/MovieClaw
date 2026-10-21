@@ -17,6 +17,7 @@ import * as JsxRuntime from "react/jsx-runtime";
 import Link, { useLinkStatus } from "next/link";
 import * as Navigation from "next/navigation";
 
+import { isThemeModuleUrl } from "@/lib/theme-runtime-map";
 import type { ThemeDefinition } from "@/themes/types";
 
 export type ThemeLoadStatus = "idle" | "loading" | "ready" | "failed";
@@ -105,21 +106,31 @@ export function checkDefinition(value: unknown): string | null {
 }
 
 /**
- * 加载一个主题的外框组件。同一地址只加载一次；已失败的不自动重试（换了地址——主题升级——才重来）。
- * 返回是否就绪。
+ * 加载一个主题的外框组件，返回是否就绪。
+ * - 同一地址只加载一次；已失败的默认不再自动重试，`retry`（用户在设置里主动选这个主题）时重来；
+ * - 换了地址（主题升级）就重新加载，期间沿用旧定义；同一主题有几次加载交叠时，只有最新地址那次
+ *   能落定状态，旧的结果丢掉。
  */
-export function loadTheme(id: string, url: string): Promise<boolean> {
+export function loadTheme(id: string, url: string, { retry = false }: { retry?: boolean } = {}): Promise<boolean> {
   const current = entries.get(id);
   if (current && current.url === url) {
     if (current.status === "ready") return Promise.resolve(true);
-    if (current.status === "failed") return Promise.resolve(false);
     if (current.status === "loading") return pending.get(id) ?? Promise.resolve(false);
+    if (current.status === "failed" && !retry) return Promise.resolve(false);
   }
-  // 换了地址（主题升级）重新加载期间沿用旧定义，外壳不必卸下重来
+  if (!isThemeModuleUrl(url)) {
+    entries.set(id, { status: "failed", url, error: "不是主程序托管的主题模块地址" });
+    emit();
+    return Promise.resolve(false);
+  }
   entries.set(id, { status: "loading", url, definition: current?.definition });
   emit();
+  // 加载代数：交叠时只有最新一次能清掉 pending
+  const generation = (generations.get(id) ?? 0) + 1;
+  generations.set(id, generation);
   const task = (async () => {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let next: Entry;
     try {
       await installRuntime();
       const timeout = new Promise<never>((_, reject) => {
@@ -131,24 +142,58 @@ export function loadTheme(id: string, url: string): Promise<boolean> {
       ])) as { default?: unknown };
       const problem = checkDefinition(mod.default);
       if (problem) throw new Error(problem);
-      entries.set(id, { status: "ready", url, definition: mod.default as ThemeDefinition });
-      return true;
+      next = { status: "ready", url, definition: mod.default as ThemeDefinition };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[themes] 主题「${id}」的外框组件加载失败：${message}`);
-      entries.set(id, { status: "failed", url, error: message });
-      return false;
+      next = { status: "failed", url, error: message };
     } finally {
       clearTimeout(timer);
-      pending.delete(id);
+    }
+    // 期间又发起了新地址的加载：这次的结果作废，交给最新那次
+    if (entries.get(id)?.url === url) {
+      entries.set(id, next);
       emit();
     }
+    if (generations.get(id) === generation) pending.delete(id);
+    return next.status === "ready";
   })();
   pending.set(id, task);
   return task;
 }
 
 const pending = new Map<string, Promise<boolean>>();
+const generations = new Map<string, number>();
+
+/**
+ * 确保某个主题的样式表已在页面上：根布局的聚合样式表（/ui/themes.css）只含本页加载那一刻已装的主题，
+ * 之后新装 / 升级的主题要选用时在这里补挂一份，等它加载完再切换（不画出「有外框没样式」的一帧）。
+ */
+export function ensureThemeStylesheet(url: string): Promise<void> {
+  if (typeof document === "undefined") return Promise.resolve();
+  const target = new URL(url, location.origin).href;
+  const loaded = new Set<string>();
+  for (const sheet of Array.from(document.styleSheets)) {
+    try {
+      for (const rule of Array.from(sheet.cssRules)) {
+        if (rule instanceof CSSImportRule) loaded.add(new URL(rule.href, sheet.href ?? location.href).href);
+      }
+    } catch {
+      // 跨源样式表读不了规则，跳过
+    }
+  }
+  if (loaded.has(target)) return Promise.resolve();
+  const existing = document.querySelector<HTMLLinkElement>(`link[data-theme-stylesheet="${CSS.escape(target)}"]`);
+  if (existing) return Promise.resolve();
+  return new Promise((resolve) => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = target;
+    link.dataset.themeStylesheet = target;
+    link.onload = link.onerror = () => resolve();
+    document.head.appendChild(link);
+  });
+}
 
 export function themeLoadStatus(id: string): ThemeLoadStatus {
   return entries.get(id)?.status ?? "idle";

@@ -282,7 +282,7 @@ func devVersion(base string, now time.Time) string {
 
 func newPluginDevCommand() *cobra.Command {
 	var interval time.Duration
-	var allowInline, allowDeps, allowWeb, once bool
+	var allowInline, allowDeps, allowWeb, allowTheme, once bool
 	cmd := &cobra.Command{
 		Use:   "dev <插件目录>",
 		Short: "开发循环：改一次代码就重新打包、上传、批准、加载",
@@ -291,7 +291,8 @@ func newPluginDevCommand() *cobra.Command {
 
 批准等于授予插件申请的全部宿主操作与路径——只对自己的开发服务器用。插件带第三方依赖
 （清单 [dependencies]）时，看过要下载的包后加 --allow-dependencies 才会批准；带网页（web/）时，
-网页会以使用它的人的身份运行，用户同意后加 --allow-web 才会批准。看插件日志：
+网页会以使用它的人的身份运行，用户同意后加 --allow-web 才会批准；网页主题带外框组件（theme/index.js）时，
+代码会在每个页面里以使用者的身份运行，用户同意后加 --allow-theme 才会批准。看插件日志：
 mclaw logs tail -f
 
 示例：
@@ -304,9 +305,10 @@ mclaw logs tail -f
 	cmd.Flags().BoolVar(&allowInline, "allow-inline", false, "插件申请在主进程里运行时，确认允许")
 	cmd.Flags().BoolVar(&allowDeps, "allow-dependencies", false, "插件要下载安装第三方包时，确认允许")
 	cmd.Flags().BoolVar(&allowWeb, "allow-web", false, "插件带网页时，确认允许它以使用者的身份运行")
+	cmd.Flags().BoolVar(&allowTheme, "allow-theme", false, "网页主题带外框组件时，确认允许它的代码以使用者的身份运行")
 	cmd.Flags().BoolVar(&once, "once", false, "装一次就退出，不监视文件变化")
 
-	return withOverrides(cmd, []string{"interval", "allow-inline", "allow-dependencies", "allow-web", "once"},
+	return withOverrides(cmd, []string{"interval", "allow-inline", "allow-dependencies", "allow-web", "allow-theme", "once"},
 		func(s *Settings, _ *cobra.Command, args []string) error {
 			client, err := s.NewAPI()
 			if err != nil {
@@ -314,7 +316,7 @@ mclaw logs tail -f
 			}
 			dir := args[0]
 			if once {
-				return devInstall(client, dir, allowInline, allowDeps, allowWeb)
+				return devInstall(client, dir, allowInline, allowDeps, allowWeb, allowTheme)
 			}
 			stop := make(chan os.Signal, 1)
 			signal.Notify(stop, os.Interrupt)
@@ -329,7 +331,7 @@ mclaw logs tail -f
 				}
 				if current != last {
 					last = current
-					if err := devInstall(client, dir, allowInline, allowDeps, allowWeb); err != nil {
+					if err := devInstall(client, dir, allowInline, allowDeps, allowWeb, allowTheme); err != nil {
 						output.Info("✗ %v（改好后会自动重试）", err)
 					}
 				}
@@ -344,7 +346,7 @@ mclaw logs tail -f
 }
 
 // devInstall 打包 → 上传 → 按申请批准 → 报告结果。
-func devInstall(client *api.Client, dir string, allowInline, allowDeps, allowWeb bool) error {
+func devInstall(client *api.Client, dir string, allowInline, allowDeps, allowWeb, allowTheme bool) error {
 	data, manifest, err := buildPluginPackage(dir, devVersion(readVersion(dir), time.Now()))
 	if err != nil {
 		return err
@@ -375,6 +377,13 @@ func devInstall(client *api.Client, dir string, allowInline, allowDeps, allowWeb
 				"/apps/"+manifest.ID)
 		}
 		body["allow_web"] = true
+	}
+	if theme := jsonval.At(uploaded, "theme"); theme != nil && jsonval.At(theme, "has_code") == true {
+		if !allowTheme {
+			return clierr.Usagef("网页主题「%s」带外框组件：代码会在每个页面里以使用它的人的身份运行，管理员打开时拥有管理员的全部权限；用户同意后加 --allow-theme",
+				jsonval.Str(jsonval.At(theme, "label")))
+		}
+		body["allow_theme"] = true
 	}
 	if deps := jsonval.At(uploaded, "dependencies"); deps != nil {
 		digest := jsonval.Str(jsonval.At(deps, "lock_digest"))

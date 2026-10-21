@@ -1,4 +1,15 @@
 import { request } from "@/lib/http";
+import { refreshThemeCatalog } from "@/lib/theme-catalog-sync";
+
+/**
+ * 插件装卸 / 停用 / 恢复之后，主题目录可能变了（主题是插件，docs/design/theme-plugins.md §4.3）：
+ * 改动成功就顺手重拉，外观设置的主题卡与可用性跟着服务端走。重拉失败不影响这次操作的结果。
+ */
+async function thenRefreshThemes<T>(result: Promise<T>): Promise<T> {
+  const value = await result;
+  void refreshThemeCatalog().catch(() => {});
+  return value;
+}
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
 interface ApiEnvelope<T> {
@@ -278,6 +289,21 @@ export interface PackageRequest {
   dependency_progress?: DependencyProgress | null;
   /** 带网页：侧边栏入口预览（图标是内嵌的 SVG）；批准时须单独同意授信运行。旧服务端没有这个字段 */
   web?: PendingWebPage | null;
+  /** 入口模块；空串 = 没有后端代码（只带网页 / 主题）。旧服务端没有这个字段 */
+  entry?: string;
+  /** 网页主题：外观选择卡预览；带外框组件（has_code）的批准时须单独同意。旧服务端没有这个字段 */
+  theme?: PendingTheme | null;
+}
+
+/** 待批准的网页主题（docs/design/theme-plugins.md §4.6） */
+export interface PendingTheme {
+  label: string;
+  description: string;
+  preview: { bg: string; accent: string };
+  layout: string;
+  glass: boolean;
+  /** 带外框组件（JS）：代码以使用者的身份在每个页面里运行 */
+  has_code: boolean;
 }
 
 /** 插件网页的一项侧边栏入口（与 lib/plugin-apps.ts 的 PluginAppEntry 同形） */
@@ -396,31 +422,38 @@ export async function uploadPackage(file: File): Promise<PackageRequest> {
 }
 
 /** 批准：宿主操作与路径须与插件申请的完全一致（显式同意），进程内运行须 allowInline，
- * 会给普通成员发通知的须 allowMemberNotifications，带网页的须给 web（同意授信运行）；
+ * 会给普通成员发通知的须 allowMemberNotifications，带网页的须给 web（同意授信运行），
+ * 带外框组件的主题须 allowTheme；
  * 批准页列出了依赖，批准即同意那一份锁文件 */
 export async function approvePackage(
   pending: PackageRequest,
   allowInline: boolean,
   allowMemberNotifications = false,
   web: WebConsent | null = null,
+  allowTheme = false,
 ): Promise<PackageResult> {
-  return (
-    await request<ApiEnvelope<PackageResult>>(
-      `/app/plugins/packages/${encodeURIComponent(pending.id)}/approve`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          version: pending.version,
-          operations: pending.operations,
-          paths: pending.paths,
-          allow_inline: allowInline,
-          allow_member_notifications: allowMemberNotifications,
-          dependencies: pending.dependencies?.lock_digest ?? null,
-          ...(web ? { allow_web: true, web_nav: web.nav, web_members: web.members } : {}),
-        }),
-      },
-    )
-  ).data;
+  return thenRefreshThemes(
+    (async () => {
+      return (
+        await request<ApiEnvelope<PackageResult>>(
+          `/app/plugins/packages/${encodeURIComponent(pending.id)}/approve`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              version: pending.version,
+              operations: pending.operations,
+              paths: pending.paths,
+              allow_inline: allowInline,
+              allow_member_notifications: allowMemberNotifications,
+              dependencies: pending.dependencies?.lock_digest ?? null,
+              ...(web ? { allow_web: true, web_nav: web.nav, web_members: web.members } : {}),
+              ...(allowTheme ? { allow_theme: true } : {}),
+            }),
+          },
+        )
+      ).data;
+    })(),
+  );
 }
 
 export async function discardPackage(id: string): Promise<void> {
@@ -431,12 +464,16 @@ export async function discardPackage(id: string): Promise<void> {
 }
 
 export async function rollbackPackage(id: string): Promise<PackageResult> {
-  return (
-    await request<ApiEnvelope<PackageResult>>(
-      `/app/plugins/packages/${encodeURIComponent(id)}/rollback`,
-      { method: "POST" },
-    )
-  ).data;
+  return thenRefreshThemes(
+    (async () => {
+      return (
+        await request<ApiEnvelope<PackageResult>>(
+          `/app/plugins/packages/${encodeURIComponent(id)}/rollback`,
+          { method: "POST" },
+        )
+      ).data;
+    })(),
+  );
 }
 
 /** 依赖没装好（启动时补装失败）：按已批准的锁文件再装一次，装好即加载 */
@@ -450,12 +487,16 @@ export async function retryPackageDependencies(id: string): Promise<PackageResul
 }
 
 export async function uninstallPackage(id: string, purgeData: boolean): Promise<number> {
-  return (
-    await request<ApiEnvelope<{ purged_rows: number }>>(
-      `/app/plugins/packages/${encodeURIComponent(id)}?purge_data=${purgeData}`,
-      { method: "DELETE" },
-    )
-  ).data.purged_rows;
+  return thenRefreshThemes(
+    (async () => {
+      return (
+        await request<ApiEnvelope<{ purged_rows: number }>>(
+          `/app/plugins/packages/${encodeURIComponent(id)}?purge_data=${purgeData}`,
+          { method: "DELETE" },
+        )
+      ).data.purged_rows;
+    })(),
+  );
 }
 
 /* —— 插件详情（设置 → 插件 → 点一个插件） —— */
@@ -463,25 +504,37 @@ export async function uninstallPackage(id: string, purgeData: boolean): Promise<
 /** 装了这个插件，系统多了什么（已翻成人话） */
 /** 停用 / 启用插件（官方插件与插件包）：运行中生效，重启后保持；停用会取消它的后台任务 */
 export async function setPluginEnabled(id: string, enabled: boolean): Promise<void> {
-  await request(`/app/plugins/${encodeURIComponent(id)}/enabled`, {
-    method: "PUT",
-    body: JSON.stringify({ enabled }),
-  });
+  return thenRefreshThemes(
+    (async () => {
+      await request(`/app/plugins/${encodeURIComponent(id)}/enabled`, {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      });
+    })(),
+  );
 }
 
 /** 卸载官方插件（代码随应用携带，随时能恢复）；返回删除的数据行数 */
 export async function uninstallBundled(id: string, purgeData: boolean): Promise<number> {
-  return (
-    await request<ApiEnvelope<{ cancelled_jobs: number; purged_rows: number }>>(
-      `/app/plugins/${encodeURIComponent(id)}/bundled?purge_data=${purgeData}`,
-      { method: "DELETE" },
-    )
-  ).data.purged_rows;
+  return thenRefreshThemes(
+    (async () => {
+      return (
+        await request<ApiEnvelope<{ cancelled_jobs: number; purged_rows: number }>>(
+          `/app/plugins/${encodeURIComponent(id)}/bundled?purge_data=${purgeData}`,
+          { method: "DELETE" },
+        )
+      ).data.purged_rows;
+    })(),
+  );
 }
 
 /** 恢复卸载了的官方插件：当场加载 */
 export async function restoreBundled(id: string): Promise<void> {
-  await request(`/app/plugins/${encodeURIComponent(id)}/bundled/restore`, { method: "POST" });
+  return thenRefreshThemes(
+    (async () => {
+      await request(`/app/plugins/${encodeURIComponent(id)}/bundled/restore`, { method: "POST" });
+    })(),
+  );
 }
 
 export interface PluginAdded {

@@ -68,7 +68,8 @@ import { clearPlaybackHistory } from "@/lib/api/playback";
 import { DEFAULT_UI_PREFS } from "@/lib/api/ui";
 import { HttpError } from "@/lib/http";
 import { catalogTheme, subscribeThemeCatalog, themeCatalogVersion } from "@/lib/theme-catalog";
-import { loadTheme, themeLoadError } from "@/lib/theme-runtime";
+import { refreshThemeCatalog } from "@/lib/theme-catalog-sync";
+import { ensureThemeStylesheet, loadTheme, themeLoadError } from "@/lib/theme-runtime";
 import { availableThemes, normalizeThemeId } from "@/lib/themes";
 import { useSession } from "@/lib/session";
 import { appNavId, isAppNavId, pruneAppNavIds } from "@/lib/plugin-apps";
@@ -812,6 +813,10 @@ function ThemeGroup() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const current = normalizeThemeId(savedPrefs[field] ?? savedPrefs.theme);
+  // 打开外观设置就重拉一次主题目录：刚在插件页装上的主题立刻出卡
+  useEffect(() => {
+    refreshThemeCatalog().catch(() => {});
+  }, []);
 
   /** 选定当前端的主题。已是该值时跳过（比较覆盖字段本身而非生效值——生效值
    *  可能来自通用字段的回落，点了卡才真正落覆盖）。 */
@@ -823,10 +828,13 @@ function ThemeGroup() {
       // 带外框组件的主题先加载、成功了再保存：切换是原子的，不会出现「新配色 + 旧外框」，
       // 加载失败就留在原主题（docs/design/theme-plugins.md §4.3）
       const entry = catalogTheme(id);
-      if (entry?.script && !(await loadTheme(id, entry.script))) {
+      // 用户主动选：之前失败过的也再试一次（网络抖动、慢盘超时不该让它永远选不上）
+      if (entry?.script && !(await loadTheme(id, entry.script, { retry: true }))) {
         setError(`主题「${entry.label}」加载失败：${themeLoadError(id) ?? "未知原因"}`);
         return;
       }
+      // 本页加载后才装的主题不在聚合样式表里：先挂上样式，不画出「有外框没样式」的一帧
+      if (entry?.css) await ensureThemeStylesheet(entry.css);
       await savePrefs({ ...savedPrefs, [field]: id });
     } catch (err) {
       setError(err instanceof HttpError ? err.message : "保存失败，请稍后重试");

@@ -425,6 +425,7 @@ class PackageRequestView(BaseModel):
     version: str
     description: str
     runtime: str = Field(description="process：独立进程；inline：主进程里运行（须单独确认）")
+    entry: str = Field(default="", description="入口模块；留空 = 没有后端代码（只带网页 / 主题）")
     operations: list[str] = Field(description="插件申请的宿主操作")
     new_operations: list[str] = Field(description="相比当前已安装版本新增的申请")
     operation_details: list[OperationDetailView] = Field(default_factory=list)

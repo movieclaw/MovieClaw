@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 
-import { THEME_RUNTIME_BASE, THEME_RUNTIME_MODULES, themeImportMap } from "../lib/theme-runtime-map.ts";
+import { isThemeModuleUrl, THEME_RUNTIME_BASE, THEME_RUNTIME_MODULES, themeImportMap } from "../lib/theme-runtime-map.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -23,4 +23,15 @@ test("import map 覆盖每个垫片，垫片文件都在 public 下", () => {
     assert.equal(map[name], `${THEME_RUNTIME_BASE}/${file}`);
     assert.ok(fs.existsSync(path.join(ROOT, "public", THEME_RUNTIME_BASE, file)), file);
   }
+});
+
+test("主题模块只认主程序托管的地址（同源、/ui/themes/<id>/ 下的 .js）", () => {
+  const origin = "https://nas.example";
+  assert.equal(isThemeModuleUrl("/api/v1/ui/themes/netflix/index.js?v=1.0.0-abc", origin), true);
+  assert.equal(isThemeModuleUrl("https://nas.example/api/v1/ui/themes/netflix/index.js", origin), true);
+  assert.equal(isThemeModuleUrl("https://evil.example/api/v1/ui/themes/netflix/index.js", origin), false);
+  assert.equal(isThemeModuleUrl("//evil.example/api/v1/ui/themes/netflix/index.js", origin), false);
+  assert.equal(isThemeModuleUrl("/api/v1/ui/themes/netflix/theme.css", origin), false);
+  assert.equal(isThemeModuleUrl("/api/v1/plugins/acme/web/app.js", origin), false);
+  assert.equal(isThemeModuleUrl("javascript:alert(1)", origin), false);
 });

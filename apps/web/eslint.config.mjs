@@ -23,24 +23,6 @@ const eslintConfig = [
       "@next/next/no-img-element": "off",
     },
   },
-  {
-    // 主题目录只经主题 SDK 用内核能力（docs/design/theme-plugins.md §3 第 3 条）：
-    // 拆成插件包后，能解析到的外部模块只有这几个（import map 垫片），其余一律打进主题包
-    files: ["themes/*/**"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              regex: "^(?!react$|react-dom$|react/jsx-runtime$|next$|next/link$|next/navigation$|@movieclaw/theme-sdk$|\\.{1,2}/)",
-              message: "主题只能 import react / react-dom / next/link / next/navigation / @movieclaw/theme-sdk 与主题目录内的相对路径",
-            },
-          ],
-        },
-      ],
-    },
-  },
 ];
 
 export default eslintConfig;

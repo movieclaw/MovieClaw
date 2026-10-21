@@ -13,7 +13,6 @@ import {
 
 import { useToast } from "@/components/feedback";
 import {
-  fetchThemes,
   fetchUiPreferences,
   normalizeUiPreferences,
   updateUiPreferences,
@@ -21,12 +20,13 @@ import {
 } from "@/lib/api/ui";
 import {
   catalogTheme,
-  setThemeCatalog,
   subscribeThemeCatalog,
   themeCatalogFresh,
   themeCatalogVersion,
 } from "@/lib/theme-catalog";
+import { refreshThemeCatalog } from "@/lib/theme-catalog-sync";
 import {
+  ensureThemeStylesheet,
   loadedDefinition,
   loadTheme,
   subscribeThemeRuntime,
@@ -96,11 +96,18 @@ function resolveThemeId(prefs: UiPreferences, isMobile: boolean): string {
   return normalizeThemeId(override ?? prefs.theme);
 }
 
-/** 请求的主题能不能用：认得（内置或已装且契约兼容），且外框组件没加载失败。 */
-function effectiveThemeId(requested: string): string {
+/**
+ * 请求的主题能不能用：认得（内置或已装且契约兼容），且外框组件没加载失败。
+ * 外框组件只按服务端目录给的地址加载：本地快照只当首帧提示，服务端目录拉不到时，
+ * 带外框组件的主题按不可用处理（不执行快照里的地址）。
+ */
+function effectiveThemeId(requested: string, catalogSettled: boolean): string {
   if (!isKnownTheme(requested)) return DEFAULT_THEME_ID;
   const entry = catalogTheme(requested);
-  if (entry?.script && themeLoadStatus(requested) === "failed") return DEFAULT_THEME_ID;
+  if (entry?.script) {
+    if (!themeCatalogFresh()) return catalogSettled ? DEFAULT_THEME_ID : requested;
+    if (themeLoadStatus(requested) === "failed") return DEFAULT_THEME_ID;
+  }
   return requested;
 }
 
@@ -110,6 +117,7 @@ function themeIsPending(requested: string, catalogSettled: boolean): boolean {
   if (!isKnownTheme(requested)) return !catalogSettled;
   const entry = catalogTheme(requested);
   if (!entry?.script || loadedDefinition(requested)) return false;
+  if (!themeCatalogFresh()) return !catalogSettled;
   const status = themeLoadStatus(requested);
   return status === "idle" || status === "loading";
 }
@@ -151,8 +159,7 @@ export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
   const [catalogSettled, setCatalogSettled] = useState(themeCatalogFresh);
   useEffect(() => {
     let cancelled = false;
-    fetchThemes()
-      .then((themes) => !cancelled && setThemeCatalog(themes))
+    refreshThemeCatalog()
       .catch((err) => console.warn("读取主题目录失败，暂用上次的：", err))
       .finally(() => !cancelled && setCatalogSettled(true));
     return () => {
@@ -181,14 +188,21 @@ export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
   // catalogVersion / runtimeVersion 只为在目录、加载状态变化时重算这两个值
   void catalogVersion;
   void runtimeVersion;
-  const effectiveTheme = effectiveThemeId(requestedTheme);
+  const effectiveTheme = effectiveThemeId(requestedTheme, catalogSettled);
   const themePending = themeIsPending(requestedTheme, catalogSettled);
 
-  // 外框组件按需加载：请求的主题带外框组件就去取（同一地址只取一次）
+  // 外框组件按需加载：只按服务端目录给的地址取（同一地址只取一次）
+  const fresh = themeCatalogFresh();
   const requestedScript = catalogTheme(requestedTheme)?.script ?? null;
   useEffect(() => {
-    if (requestedScript) void loadTheme(requestedTheme, requestedScript);
-  }, [requestedTheme, requestedScript]);
+    if (fresh && requestedScript) void loadTheme(requestedTheme, requestedScript);
+  }, [fresh, requestedTheme, requestedScript]);
+
+  // 生效主题的样式表：本页加载后才装 / 升级的主题不在聚合样式表里，补挂一份
+  const effectiveCss = catalogTheme(effectiveTheme)?.css ?? null;
+  useEffect(() => {
+    if (effectiveCss) void ensureThemeStylesheet(effectiveCss);
+  }, [effectiveCss]);
 
   // 加载失败：外壳已整体回落默认主题，这里告诉用户一声（每个主题提示一次）
   const toast = useToast();
