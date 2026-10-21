@@ -87,6 +87,7 @@ from movieclaw_api.api.routes.storage import router as storage_router
 from movieclaw_api.api.routes.subscriptions import router as subscriptions_router
 from movieclaw_api.api.routes.subtitle_gen import router as subtitle_gen_router
 from movieclaw_api.api.routes.system_notices import router as system_notices_router
+from movieclaw_api.api.routes.themes import router as themes_router
 from movieclaw_api.api.routes.tips import router as tips_router
 from movieclaw_api.api.routes.transcode_worker import router as transcode_worker_router
 from movieclaw_api.api.routes.ui import router as ui_router
@@ -119,6 +120,9 @@ api_router.include_router(transcode_worker_router)
 
 # ---- 外观（读公开：登录页也要加载背景图；写在路由级挂 require_login）------
 api_router.include_router(appearance_router)
+# 网页主题（docs/design/theme-plugins.md §4.6）：样式免登录（登录页也按主题渲染），
+# 主题目录与外框组件（JS）在路由级要求登录
+api_router.include_router(themes_router)
 
 # ---- 成员区（挂载时统一注入登录鉴权；组内管理动作在路由级挂 require_admin）
 _MEMBER_ROUTERS = [

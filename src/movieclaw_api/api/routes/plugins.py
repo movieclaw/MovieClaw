@@ -462,6 +462,10 @@ class PackageRequestView(BaseModel):
         default=None,
         description="带网页：侧边栏入口预览。批准时须 allow_web（网页以使用者的身份运行）",
     )
+    theme: PendingThemeView | None = Field(
+        default=None,
+        description="网页主题：外观选择卡预览。带外框组件（has_code）的批准时须 allow_theme",
+    )
 
 
 class WebEntryView(BaseModel):
@@ -474,6 +478,20 @@ class WebEntryView(BaseModel):
     monochrome: bool = Field(
         default=False, description="manifest 标了 purpose: monochrome：按遮罩用当前文字颜色着色"
     )
+
+
+class PendingThemePreview(BaseModel):
+    bg: str
+    accent: str
+
+
+class PendingThemeView(BaseModel):
+    label: str = Field(description="设置 → 外观里的主题名")
+    description: str
+    preview: PendingThemePreview
+    layout: str = Field(description="版式：panel / cinema")
+    glass: bool = Field(description="是否用液态玻璃")
+    has_code: bool = Field(description="带外框组件（JS）：代码以使用者的身份运行，批准时须单独同意")
 
 
 class PendingWebView(BaseModel):
@@ -565,6 +583,10 @@ class PackageApprove(BaseModel):
     )
     web_nav: bool = Field(default=True, description="带网页时：加到侧边栏")
     web_members: bool = Field(default=False, description="带网页时：成员也能看到")
+    allow_theme: bool = Field(
+        default=False,
+        description="主题带外框组件时须显式确认：代码会在每个页面里以正在使用它的人的身份运行",
+    )
 
 
 class PackageResultView(BaseModel):
@@ -643,6 +665,7 @@ async def approve_package(
             allow_web=body.allow_web,
             web_nav=body.web_nav,
             web_members=body.web_members,
+            allow_theme=body.allow_theme,
         )
     except LookupError as exc:
         raise NotFoundException(str(exc)) from exc

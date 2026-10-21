@@ -72,6 +72,12 @@ ID_RULE = "小写字母开头，只用小写字母、数字和连字符，3～40
 
 #: 插件网页入口（docs/design/plugin-web-pages.md）：包里有它就带网页
 WEB_INDEX = "web/index.html"
+#: 网页主题（docs/design/theme-plugins.md §3）：外观必需，外框组件可选
+THEME_CSS = "theme/theme.css"
+THEME_JS = "theme/index.js"
+#: 主题契约名（movieclaw_sdk.theme）：带外框组件的主题须在 [requires] 里声明
+THEME_CONTRACT = "ui.theme"
+_HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 _VERSION = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 _MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -179,6 +185,47 @@ class _Dependencies(BaseModel):
         return value
 
 
+class _ThemePreview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bg: str
+    accent: str
+
+    @field_validator("bg", "accent")
+    @classmethod
+    def _color(cls, value: str) -> str:
+        if not _HEX_COLOR.match(value):
+            raise ValueError("须是 #rrggbb 颜色")
+        return value
+
+
+class _Theme(BaseModel):
+    """清单的 ``[theme]`` 段：主题的静态事实（docs/design/theme-plugins.md §3）。
+
+    主题 id 就是插件 id；名称、预览色、状态栏色、版式、玻璃都在这里，内核不执行主题代码就能
+    列出、校验、展示主题，首帧也只靠这些。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=20)
+    description: str = Field(default="", max_length=80)
+    preview: _ThemePreview
+    theme_color: str = "#000000"
+    """浏览器地址栏 / PWA 状态栏颜色"""
+    layout: Literal["panel", "cinema"] = "panel"
+    """版式：panel = 侧栏 + 居中面板；cinema = 顶栏 + 满出血（须带外框组件提供顶栏）"""
+    glass: bool = True
+    """是否用液态玻璃（WebGL 画布与玻璃材质）"""
+
+    @field_validator("theme_color")
+    @classmethod
+    def _theme_color(cls, value: str) -> str:
+        if not _HEX_COLOR.match(value):
+            raise ValueError("须是 #rrggbb 颜色")
+        return value
+
+
 class Manifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -191,6 +238,9 @@ class Manifest(BaseModel):
     """插件自己的事件（domain-events.md §7.2）：``{name, title}``，名字以插件 id 开头。"""
     notifications: list[dict[str, Any]] = Field(default_factory=list)
     """插件事件对应的通知规则：``{event, title, body, audience, level, default, open}``。"""
+    theme: _Theme | None = None
+    """网页主题（docs/design/theme-plugins.md）：有这一段就是主题包，
+    包里须有 ``theme/theme.css``。"""
 
     def declarations(self) -> Any:
         """解析事件 / 通知 / 敏感事件声明；不合规抛 ``DeclarationError``。"""
@@ -247,13 +297,15 @@ def read_archive(data: bytes) -> tuple[Manifest, zipfile.ZipFile]:
         raise PackageError(f"{MANIFEST} 的 {where} 不合规：{first['msg']}") from exc
     entry = manifest.plugin.entry
     names = set(archive.namelist())
+    check_theme(manifest, names)
     if manifest.plugin.runtime != "exec" and not entry:
-        if WEB_INDEX not in names:
+        if WEB_INDEX not in names and manifest.theme is None:
             raise PackageError(
-                f"entry 必填（入口模块名，如 group_blocklist）；只带网页的插件须有 {WEB_INDEX}"
+                f"entry 必填（入口模块名，如 group_blocklist）；只带网页的插件须有 {WEB_INDEX}，"
+                f"主题包须有 [theme] 段与 {THEME_CSS}"
             )
         if manifest.dependencies is not None:
-            raise PackageError("只带网页的插件（entry 留空）不能声明第三方依赖")
+            raise PackageError("只带网页或主题的插件（entry 留空）不能声明第三方依赖")
     elif manifest.plugin.runtime == "exec":
         if manifest.plugin.command not in names:
             raise PackageError(f"插件包里找不到可执行文件 {manifest.plugin.command}")
@@ -305,6 +357,7 @@ def current_platform() -> str:
 
 def check_compat(manifest: Manifest, *, reserved: set[str], operations: set[str]) -> None:
     """兼容性与权限声明检查：SDK、契约、条目 id 冲突、宿主操作是否存在。"""
+    import movieclaw_sdk.theme  # noqa: F401  # 登记 ui.theme 契约，主题包的 requires 按它检查
     from movieclaw_sdk import SDK_VERSION
 
     plugin = manifest.plugin
@@ -356,6 +409,26 @@ def lock_record(manifest: Manifest, lock: Any) -> dict[str, Any] | None:
         "digest": lock.digest,
         "packages": [{"name": p.name, "version": p.version} for p in lock.packages],
     }
+
+
+def check_theme(manifest: Manifest, names: set[str]) -> None:
+    """主题包的文件与声明要对得上（docs/design/theme-plugins.md §4.6）。
+
+    ``names`` 是包内相对路径。"""
+    has_css = THEME_CSS in names
+    if manifest.theme is None:
+        if has_css or THEME_JS in names:
+            raise PackageError("包里有 theme/ 目录，清单却没有 [theme] 段")
+        return
+    if not has_css:
+        raise PackageError(f"主题包须有 {THEME_CSS}")
+    has_js = THEME_JS in names
+    if has_js and THEME_CONTRACT not in manifest.requires:
+        raise PackageError(
+            f'带外框组件（{THEME_JS}）的主题须在 [requires] 里声明 "{THEME_CONTRACT}"'
+        )
+    if manifest.theme.layout == "cinema" and not has_js:
+        raise PackageError(f"cinema 版式要由主题提供顶栏，须带外框组件 {THEME_JS}")
 
 
 # ---------------------------------------------------------------------- 状态

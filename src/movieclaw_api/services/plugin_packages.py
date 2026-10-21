@@ -137,6 +137,22 @@ def _view(
         "dependency_progress": plugin_deps.progress(plugin.id) if lock is not None else None,
         # 带网页：批准页预览侧边栏入口，并须单独同意授信运行（plugin-web-pages.md §5）
         "web": plugin_web.pending_preview(path, plugin.id, plugin.title) if path else None,
+        # 主题：批准页预览选择卡；带外框组件的须单独同意（theme-plugins.md §4.6）
+        "theme": _theme_preview(manifest, path),
+    }
+
+
+def _theme_preview(manifest: pkg.Manifest, path: Any) -> dict[str, Any] | None:
+    theme = manifest.theme
+    if theme is None:
+        return None
+    return {
+        "label": theme.label,
+        "description": theme.description,
+        "preview": {"bg": theme.preview.bg, "accent": theme.preview.accent},
+        "layout": theme.layout,
+        "glass": theme.glass,
+        "has_code": bool(path) and (path / pkg.THEME_JS).is_file(),
     }
 
 
@@ -310,6 +326,7 @@ class PackageManager:
         allow_web: bool = False,
         web_nav: bool = True,
         web_members: bool = False,
+        allow_theme: bool = False,
     ) -> dict[str, Any]:
         """用户批准：安装并当场挂载；激活失败自动回滚。返回挂载结果。
 
@@ -348,6 +365,11 @@ class PackageManager:
             if has_web and not allow_web:
                 raise pkg.PackageError(
                     "这个插件带网页：网页会以正在使用它的人的身份运行"
+                    "（管理员打开时拥有管理员的全部权限），须单独确认"
+                )
+            if manifest.theme is not None and (path / pkg.THEME_JS).is_file() and not allow_theme:
+                raise pkg.PackageError(
+                    "这个主题带外框组件：代码会在每个页面里以正在使用它的人的身份运行"
                     "（管理员打开时拥有管理员的全部权限），须单独确认"
                 )
             lock = pkg.read_lock(manifest, path)

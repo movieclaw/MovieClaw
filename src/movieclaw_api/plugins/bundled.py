@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
-from movieclaw_api.plugins.packages import MANIFEST, Manifest
+from movieclaw_api.plugins.packages import MANIFEST, Manifest, web_only
 from movieclaw_kernel import Entry, Plugin
 
 logger = logging.getLogger("movieclaw_api.plugins.bundled")
@@ -95,6 +95,10 @@ def entry(package: Bundled) -> Entry:
             trusted=True,
         )
     )
+    if not package.manifest.plugin.entry:
+        # 只带网页 / 主题的随带包（如 Netflix 主题）：没有后端代码，挂空插件占位，
+        # 停用、卸载、重新安装与别的随带包一样（docs/design/theme-plugins.md §8）
+        return Entry(package.id, web_only(package.id, package.manifest.plugin.title))
     module = importlib.import_module(package.module)
     for value in vars(module).values():
         if isinstance(value, Plugin) and value.name == package.id:
