@@ -3,6 +3,11 @@
 发现服务缓存的是上游 TMDB/豆瓣卡片，库存则随扫描实时变化。此模块在
 API 边界按外部身份锚批量补齐库存摘要，避免领域服务依赖数据库，也不把
 逐文件规格带进列表响应。
+
+数据库连接只在查询的那一刻借用（每次投影开一个短会话、查完即还），不跟
+请求同生命周期：投影前后是等 TMDB/豆瓣的漫长时间（豆瓣全局限速 1 次/秒，
+发现页十来行并发时每行要等十几秒），请求级会话会一路占着连接等上游，十几行
+就把连接池占满、全站接口排队超时（#965）。
 """
 
 from __future__ import annotations
@@ -11,6 +16,7 @@ from sqlalchemy import func, or_, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_db.engine import Database
 from movieclaw_db.models import Library, LibraryFile, MediaItem
 from movieclaw_media.models import (
     MediaCard,
@@ -31,15 +37,13 @@ class DiscoverLibraryProjectionService:
     防止同名作品被误标为已入库。
     """
 
-    def __init__(
-        self, session: AsyncSession, *, visible_library_ids: set[int] | None = None
-    ) -> None:
+    def __init__(self, db: Database, *, visible_library_ids: set[int] | None = None) -> None:
         """``visible_library_ids``：成员的可见库集合（None=不受限，管理员语义）。
 
         过滤在此层做而非路由层，避免"卡片显示已入库、点进库内深链却 404"
         的割裂——徽标、计数与深链全部以可见库为口径。
         """
-        self._session = session
+        self._db = db
         self._visible_library_ids = visible_library_ids
 
     async def apply_cards(self, cards: list[MediaCard]) -> None:
@@ -63,7 +67,8 @@ class DiscoverLibraryProjectionService:
             else:
                 douban_anchors.add((kind, external_id))
 
-        statuses = await self._statuses(tmdb_anchors, douban_anchors)
+        async with self._db.session() as session:
+            statuses = await self._statuses(session, tmdb_anchors, douban_anchors)
         for card in cards:
             card.library_status = statuses.get(_anchor_for_card(card))
 
@@ -72,10 +77,15 @@ class DiscoverLibraryProjectionService:
         collection_cards = detail.collection.items if detail.collection is not None else []
         await self.apply_cards([detail.card, *collection_cards, *detail.related])
         status = detail.card.library_status
-        detail.library_links = [] if status is None else await self._links_for(status.media_item_id)
+        if status is None:
+            detail.library_links = []
+            return
+        async with self._db.session() as session:
+            detail.library_links = await self._links_for(session, status.media_item_id)
 
     async def _statuses(
         self,
+        session: AsyncSession,
         tmdb_anchors: set[tuple[str, int]],
         douban_anchors: set[tuple[str, str]],
     ) -> dict[_CardAnchor, MediaLibraryStatus]:
@@ -91,7 +101,7 @@ class DiscoverLibraryProjectionService:
         # 从 LibraryFile 起表让 missing_since 过滤与计数都走库存事实；整条
         # 查询只选身份、库 ID 和聚合计数，列表请求不会碰文件明细字段。
         rows = (
-            await self._session.execute(
+            await session.execute(
                 select(
                     MediaItem.id,
                     MediaItem.kind,
@@ -137,10 +147,10 @@ class DiscoverLibraryProjectionService:
                 _add_status(statuses, ambiguous, (MediaSource.DOUBAN, kind, douban_id), status)
         return statuses
 
-    async def _links_for(self, media_item_id: int) -> list[MediaLibraryLink]:
+    async def _links_for(self, session: AsyncSession, media_item_id: int) -> list[MediaLibraryLink]:
         """按用户媒体库排序返回一个条目在各库中的去重入口。"""
         rows = (
-            await self._session.execute(
+            await session.execute(
                 select(Library.id, Library.name)
                 .select_from(LibraryFile)
                 .join(Library, Library.id == LibraryFile.library_id)  # type: ignore[arg-type]
