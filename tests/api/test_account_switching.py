@@ -305,6 +305,9 @@ def test_avatar_of_saved_account_is_readable_only_from_its_bag(client: TestClien
 def test_tampered_bag_is_discarded_but_session_survives(client: TestClient) -> None:
     """账号袋签名被改：整袋当空，当前激活会话不受影响（它仍并进列表）。"""
     _setup(client)
+    # 先删掉服务端发的那份：否则请求里同名 cookie 有两份（有效的 + 篡改的），读到哪份看解析顺序；
+    # 浏览器里同名 cookie 只会被覆盖，只剩篡改后的这一份
+    client.cookies.delete(_ACCOUNTS)
     client.cookies.set(_ACCOUNTS, "garbage.not-a-signature")
 
     assert _me(client) == "family"
