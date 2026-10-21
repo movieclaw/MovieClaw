@@ -142,7 +142,7 @@ def _vaapi_ready(monkeypatch, tmp_path):
 def test_vaapi_prefers_low_power_encoding_when_it_works(monkeypatch, tmp_path):
     """issue #763：先试低功耗编码，跑通就用它，普通编码不再探（普通编码在那台机器上
     合成画面能过、真实片子挂 GPU，探了也说明不了问题）。低功耗探测要带上真实转码的
-    profile / level / 码率控制——VDEnc 支持的码率控制与普通编码不同。"""
+    profile / 码率控制——VDEnc 支持的码率控制与普通编码不同；level 与真实转码一样不钉（#964）。"""
     _vaapi_ready(monkeypatch, tmp_path)
     calls: list[list[str]] = []
 
@@ -157,7 +157,8 @@ def test_vaapi_prefers_low_power_encoding_when_it_works(monkeypatch, tmp_path):
     (argv,) = [a for a in calls if "h264_vaapi" in a]
     after = argv[argv.index("h264_vaapi") + 1 :]
     assert after[:2] == ["-low_power", "1"]
-    assert {"-profile:v", "-level:v", "-b:v", "-maxrate", "-bufsize"} <= set(after)
+    assert {"-profile:v", "-b:v", "-maxrate", "-bufsize"} <= set(after)
+    assert "-level:v" not in after
     assert encoder_options(HW_BACKENDS["vaapi"]) == ("-low_power", "1")
 
 

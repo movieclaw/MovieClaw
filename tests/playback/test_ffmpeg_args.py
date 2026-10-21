@@ -855,6 +855,22 @@ def test_videotoolbox_transcode_lets_encoder_choose_level_for_4k():
     assert pair(argv, "-pix_fmt") == "yuv420p"
 
 
+@pytest.mark.parametrize("backend", ["nvenc", "qsv", "vaapi", "videotoolbox"])
+def test_hardware_h264_transcode_lets_encoder_choose_level(backend):
+    """issue #964：输出只钉高度，宽银幕 1080p（2000×1080）与 1080p60 都超出 4.1 的
+    宏块上限，钉死 4.1 时 NVENC 以「Invalid Level」拒绝初始化，一段都不产出。"""
+    argv = argv_of(
+        plan(
+            PlaybackTier.HARDWARE_TRANSCODE,
+            video=VideoPlan(action="transcode", codec="h264", height=1080),
+        ),
+        hw_backend=backend,
+    )
+
+    assert pair(argv, "-profile:v") == "high"
+    assert "-level:v" not in argv
+
+
 def test_software_h264_transcode_keeps_level_4_1():
     argv = argv_of(
         plan(

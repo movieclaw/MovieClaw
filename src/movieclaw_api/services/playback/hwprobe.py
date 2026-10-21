@@ -60,12 +60,13 @@ _PROBE_FILTERS: dict[str, list[str]] = {
     "videotoolbox": ["-vf", "format=nv12"],
 }
 
-#: VAAPI 低功耗编码的探测参数：除了 ``-low_power 1``，把真实转码会带的 profile / level /
+#: VAAPI 低功耗编码的探测参数：除了 ``-low_power 1``，把真实转码会带的 profile /
 #: 码率控制也带上——VDEnc 支持的码率控制模式与普通编码不同，只探「能不能开」会探得通、
 #: 真用时再被码率参数拒掉。数值取 1080p 档的量级，探测源再小也照样走这套参数校验。
+#: level 与真实转码一样不钉，交给编码器选（issue #964）。
 _VAAPI_LOW_POWER_PROBE_ARGS: list[str] = [
     *VAAPI_LOW_POWER,
-    "-profile:v", "high", "-level:v", "4.1",
+    "-profile:v", "high",
     "-b:v", "0", "-maxrate", "8M", "-bufsize", "16M",
 ]  # fmt: skip
 
