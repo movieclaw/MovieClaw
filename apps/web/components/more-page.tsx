@@ -17,11 +17,10 @@ import {
 } from "@/components/icons";
 import { NoticeCenter } from "@/components/notice-center";
 import { usePluginNavItems } from "@/components/sidebar";
-import { reloadAfterAccountChange } from "@/lib/account-reload";
-import { logout } from "@/lib/api/auth";
+import { signOut } from "@/lib/account-reload";
 import { useAgentConversations } from "@/lib/agent-conversations";
 import { usePageChrome } from "@/lib/page-chrome";
-import { accessiblePathFor, roleLabel, usePermissions } from "@/lib/permissions";
+import { roleLabel, usePermissions } from "@/lib/permissions";
 import { useSession } from "@/lib/session";
 import type { TaskActivityBadge } from "@/lib/task-activity";
 
@@ -77,13 +76,7 @@ export function MorePage() {
    * 没有了才去登录页；整页跳转重置全部前端状态（与侧栏用户菜单同一套流程）。
    */
   const handleLogout = async () => {
-    let next: Awaited<ReturnType<typeof logout>> = null;
-    try {
-      next = await logout();
-    } catch {
-      // 即使请求失败（网络断开），也照常跳登录页；会话在后端仍会自然过期
-    }
-    await reloadAfterAccountChange(next ? accessiblePathFor(next, "/") : "/login", next != null);
+    await signOut();
   };
 
   return (

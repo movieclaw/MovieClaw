@@ -4,32 +4,29 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Route } from "next";
 import Link from "next/link";
-
-import { BrandLoader } from "@/components/brand-loader";
-import { ContentEmptyState } from "@/components/content-empty-state";
-import { HScroller } from "@/components/h-scroller";
-import { PosterImage } from "@/components/poster-image";
-import { MediaTypeSwitcher, SubscriptionCell } from "@/components/subscriptions-view";
-import { useSubscribeEntry } from "@/components/subscribe-entry";
 import {
+  BrandLoader,
   checkSubscriptionAutomationReadiness,
+  ContentEmptyState,
+  HScroller,
+  imageUrl,
+  MediaTypeSwitcher,
+  PosterImage,
   type Subscription,
-} from "@/lib/api/subscriptions";
-import { useDownloadTasks } from "@/lib/download-tasks";
-import { imageUrl } from "@/lib/image-proxy";
-import { usePageChrome } from "@/lib/page-chrome";
-import { usePermissions } from "@/lib/permissions";
-import type { SubscriptionFilter } from "@/lib/subscription-overview";
-import {
+  SubscriptionCell,
+  type SubscriptionFilter,
   subscriptionFullyCollected,
   type TodayArrivalGroup,
-} from "@/lib/subscription-ui";
-import {
+  useDownloadTasks,
+  useIsMobile,
+  usePageChrome,
+  usePermissions,
+  useScrollRestoration,
+  useSubscribeEntry,
   useTodayArrivalGroups,
   useTodaySubscriptionArrivals,
-} from "@/lib/use-today-arrivals";
-import { useIsMobile } from "@/lib/use-media-query";
-import { useScrollRestoration } from "@/lib/use-scroll-restoration";
+} from "@movieclaw/theme-sdk";
+
 
 /** 预告行的横版卡宽：与「继续观看」行同款（双端 16:9，触屏不回落竖版海报）。 */
 const COMING_CARD_W = "w-[224px] max-md:w-[168px]";

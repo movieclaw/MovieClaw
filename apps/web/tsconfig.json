@@ -30,6 +30,11 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      // 主题 SDK（docs/design/theme-plugins.md §4.1）：主题代码只经它用内核能力，
+      // 拆成插件包后同一个说明符由 import map 指向运行时垫片
+      "@movieclaw/theme-sdk": [
+        "./theme-sdk/index.ts"
       ]
     }
   },

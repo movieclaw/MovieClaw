@@ -2,9 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  BookmarkFillIcon,
+  LibraryStackIcon,
+  SparklesIcon,
+  usePermissions,
+  UserCircleIcon,
+} from "@movieclaw/theme-sdk";
 
-import { BookmarkFillIcon, SparklesIcon, LibraryStackIcon, UserCircleIcon } from "@/components/icons";
-import { usePermissions } from "@/lib/permissions";
 
 /**
  * Netflix 主题的移动端底部标签栏（<768px，docs/design/web-themes.md §5.2）。

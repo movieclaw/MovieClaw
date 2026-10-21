@@ -6,9 +6,8 @@ import { createPortal } from "react-dom";
 import { AccountSwitcherDialog } from "@/components/account-switcher-dialog";
 import { AvatarBadge } from "@/components/avatar-badge";
 import { GearIcon, LogoutIcon, UsersIcon } from "@/components/icons";
-import { reloadAfterAccountChange } from "@/lib/account-reload";
-import { logout } from "@/lib/api/auth";
-import { accessiblePathFor, roleLabel } from "@/lib/permissions";
+import { signOut } from "@/lib/account-reload";
+import { roleLabel } from "@/lib/permissions";
 import { useSession } from "@/lib/session";
 
 /**
@@ -64,13 +63,7 @@ export function UserMenu({ onOpenSettings, collapsed = false }: UserMenuProps) {
    */
   const handleLogout = async () => {
     setOpen(false);
-    let next: Awaited<ReturnType<typeof logout>> = null;
-    try {
-      next = await logout();
-    } catch {
-      // 即使请求失败（如网络断开），也照常跳登录页；会话在后端仍会自然过期
-    }
-    await reloadAfterAccountChange(next ? accessiblePathFor(next, "/") : "/login", next != null);
+    await signOut();
   };
 
   /** 打开菜单；折叠态下先按触发按钮的当前位置算好 fixed 坐标 */

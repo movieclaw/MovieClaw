@@ -1,10 +1,18 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import { fetchPluginApps } from "@/lib/api/ui";
-import type { PluginApp } from "@/lib/plugin-apps";
+import {
+  activeAppNavId,
+  appNavItems,
+  withoutHidden,
+  type PluginApp,
+  type PluginAppNavItem,
+} from "@/lib/plugin-apps";
 import { useSession } from "@/lib/session";
+import { useUiPrefs } from "@/lib/ui-prefs";
 
 interface PluginAppsContextValue {
   /** 当前用户可见的插件网页；首次拉取前为 null */
@@ -47,4 +55,19 @@ export function PluginAppsProvider({ children }: { children: React.ReactNode }) 
 
 export function usePluginApps(): PluginAppsContextValue {
   return useContext(PluginAppsContext);
+}
+
+/**
+ * 插件网页的导航入口与当前高亮项，给**不跟个人排序**的外框用（主题的顶栏等）：
+ * 只尊重「移出侧边栏」（nav.hidden），顺序按插件给的；侧栏要的是排过序的整表，
+ * 见 components/sidebar.tsx 的 usePluginNavItems。activeId 未命中任何插件网页时为 null。
+ */
+export function useAppNavLinks(): { items: PluginAppNavItem[]; activeId: string | null } {
+  const { apps } = usePluginApps();
+  const { prefs } = useUiPrefs();
+  const pathname = usePathname();
+  return {
+    items: withoutHidden(appNavItems(apps ?? []), prefs.nav.hidden),
+    activeId: activeAppNavId(pathname, apps ?? []),
+  };
 }

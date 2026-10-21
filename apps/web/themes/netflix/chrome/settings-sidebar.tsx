@@ -1,9 +1,13 @@
 "use client";
 
-import { AppUpdateDot, usePendingUpdate } from "@/components/app-update-entry";
-import { ChevronLeftIcon } from "@/components/icons";
-import { settingsSectionGroupsFor } from "@/lib/mock-data";
-import { useSession } from "@/lib/session";
+import {
+  AppUpdateDot,
+  ChevronLeftIcon,
+  settingsSectionGroupsFor,
+  usePendingUpdate,
+  useSession,
+} from "@movieclaw/theme-sdk";
+
 
 /**
  * Netflix 主题设置模式的左栏（桌面端专用，移动端走 /settings 分区列表页）。

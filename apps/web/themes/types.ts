@@ -89,9 +89,12 @@ export interface ThemePages {
   subscriptions?: ComponentType;
 }
 
-/** 一个主题的完整定义：主题目录的唯一出口（themes/<id>/theme.ts default export） */
+/**
+ * 一个主题的完整定义：主题目录的唯一出口（themes/<id>/theme.ts default export）。
+ * 只放组件；名称、版式、玻璃这类静态事实在主题元信息里（lib/themes.ts，插件化后是清单），
+ * 注册表按 id 补上（docs/design/theme-plugins.md §0 第 2 条）。
+ */
 export interface ThemeDefinition {
-  meta: ThemeMeta;
   slots: ThemeSlots;
   pages: ThemePages;
 }

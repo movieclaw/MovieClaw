@@ -83,7 +83,7 @@ if (process.env.NODE_ENV !== "production") {
   for (const def of Object.values(DEFINITIONS)) {
     for (const name of Object.keys(def.slots)) {
       if (!KNOWN_SLOT_NAMES.has(name)) {
-        console.error(`[themes] 主题「${def.meta.id}」注册了未知坑位「${name}」——检查拼写或先在 types.ts 立户`);
+        console.error(`[themes] 主题注册了未知坑位「${name}」——检查拼写或先在 types.ts 立户`);
       }
     }
   }
@@ -96,8 +96,9 @@ if (process.env.NODE_ENV !== "production") {
  * - 无定义的主题（如下载未就绪）→ 纯基础实现，页面照常渲染。
  */
 export function getResolvedTheme(id: string): ResolvedTheme {
-  const def = DEFINITIONS[normalizeThemeId(id)];
-  const meta = def?.meta ?? themeMeta(DEFAULT_THEME_ID);
+  const themeId = normalizeThemeId(id);
+  const def = DEFINITIONS[themeId];
+  const meta = themeMeta(def ? themeId : DEFAULT_THEME_ID);
   return {
     meta,
     capabilities: { glass: meta.glass },

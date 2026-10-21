@@ -3,21 +3,26 @@
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-import { InfoIcon, PlayIcon, SparkIcon } from "@/components/icons";
-import { PosterImage } from "@/components/poster-image";
-import { type LibraryItem, listLibraries, listLibraryItems } from "@/lib/api/libraries";
-import { listUpNext, type UpNextItem } from "@/lib/api/playback";
 import {
+  formatRelativeTime,
   IMAGE_ASPECT,
   imageUrl,
+  InfoIcon,
+  type LibraryItem,
+  listLibraries,
+  listLibraryItems,
+  listUpNext,
+  PlayIcon,
+  PosterImage,
   responsiveImage,
+  SparkIcon,
   tmdbImageForWidth,
+  type UpNextItem,
+  useElementCoverWidth,
+  usePermissions,
   withImageWidth,
-} from "@/lib/image-proxy";
-import { useElementCoverWidth } from "@/lib/image-resolution";
-import { usePermissions } from "@/lib/permissions";
-import { formatRelativeTime } from "@/lib/time";
+} from "@movieclaw/theme-sdk";
+
 
 /**
  * Netflix 主题媒体库页（/library）顶部的全出血 Billboard——即原「内容首页」

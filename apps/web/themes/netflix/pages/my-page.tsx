@@ -3,30 +3,30 @@
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-
-import { AccountSwitcherDialog } from "@/components/account-switcher-dialog";
-import { AvatarBadge } from "@/components/avatar-badge";
-import { MovieclawMark } from "@/components/brand";
 import {
+  AccountSwitcherDialog,
   ActivityIcon,
+  AppUpdateEntry,
+  AvatarBadge,
+  BookmarkFillIcon,
   ChevronRightIcon,
   GearIcon,
   LogoutIcon,
+  MovieclawMark,
+  NoticeCenter,
   PlusIcon,
-  BookmarkFillIcon,
+  signOut,
+  taskActivityBadge,
+  type TaskActivityBadge,
+  useAgentConversations,
+  usePermissions,
+  usePluginNavItems,
   UsersIcon,
-} from "@/components/icons";
-import { AppUpdateEntry } from "@/components/app-update-entry";
-import { NoticeCenter } from "@/components/notice-center";
-import { usePluginNavItems } from "@/components/sidebar";
-import { logout } from "@/lib/api/auth";
-import { clearBackdropCache } from "@/lib/backdrop-cache";
-import { useAgentConversations } from "@/lib/agent-conversations";
-import { accessiblePathFor, usePermissions } from "@/lib/permissions";
-import { useSession } from "@/lib/session";
-import { taskActivityBadge, useTaskActivity, type TaskActivityBadge } from "@/lib/task-activity";
-import { clearUiPrefsCache } from "@/lib/ui-prefs-cache";
-import { useThemeState } from "@/lib/ui-prefs";
+  useSession,
+  useTaskActivity,
+  useThemeState,
+} from "@movieclaw/theme-sdk";
+
 
 /**
  * Netflix 主题的「我的」页面（路由 /my，2026-09 修订）。
@@ -65,15 +65,7 @@ export function NetflixMyPage() {
    * 没有了才去登录页；整页跳转重置全部前端状态。
    */
   const handleLogout = async () => {
-    let next: Awaited<ReturnType<typeof logout>> = null;
-    try {
-      next = await logout();
-    } catch {
-      // 即使请求失败（网络断开），也照常跳登录页；会话在后端仍会自然过期
-    }
-    clearBackdropCache();
-    clearUiPrefsCache();
-    window.location.href = next ? accessiblePathFor(next, "/") : "/login";
+    await signOut();
   };
 
   // 偏好未落定时先占位（而不是 null）：本页是底栏页签的落点，渲染 null 会让

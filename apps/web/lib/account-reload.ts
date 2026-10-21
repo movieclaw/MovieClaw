@@ -1,6 +1,8 @@
 import { getAppearance } from "@/lib/api/appearance";
+import { logout } from "@/lib/api/auth";
 import { fetchUiPreferences } from "@/lib/api/ui";
 import { clearBackdropCache, writeBackdropCache } from "@/lib/backdrop-cache";
+import { accessiblePathFor } from "@/lib/permissions";
 import { clearUiPrefsCache, writeUiPrefsCache } from "@/lib/ui-prefs-cache";
 
 /**
@@ -34,6 +36,20 @@ export async function reloadAfterAccountChange(href: string, loggedIn: boolean):
     ]);
   }
   window.location.href = href;
+}
+
+/**
+ * 退出当前账号：本浏览器还有别的账号时后端自动切过去，没有了才去登录页；整页跳转
+ * 重置全部前端状态。请求失败（如网络断开）也照常跳登录页，会话在后端会自然过期。
+ */
+export async function signOut(): Promise<void> {
+  let next: Awaited<ReturnType<typeof logout>> = null;
+  try {
+    next = await logout();
+  } catch {
+    // 见上方说明：失败也照常离开
+  }
+  await reloadAfterAccountChange(next ? accessiblePathFor(next, "/") : "/login", next != null);
 }
 
 /** 备缓存的等待上限：切换请求已经成功，再慢也只多等这一小会儿 */

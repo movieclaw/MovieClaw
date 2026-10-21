@@ -4,26 +4,29 @@ import Link from "next/link";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import {
+  AccountSwitcherDialog,
+  AppUpdateEntry,
+  AvatarBadge,
+  ChevronDownIcon,
+  LogoutIcon,
+  MovieclawWordmark,
+  NoticeCenter,
+  SearchCommand,
+  type SearchScope,
+  type SearchSubmitOptions,
+  signOut,
+  taskActivityBadge,
+  type TaskActivityBadge,
+  useAgentConversations,
+  useAppNavLinks,
+  usePermissions,
+  UsersIcon,
+  useSearchAccess,
+  useSession,
+  useTaskActivity,
+} from "@movieclaw/theme-sdk";
 
-import { AccountSwitcherDialog } from "@/components/account-switcher-dialog";
-import { AvatarBadge } from "@/components/avatar-badge";
-import { MovieclawWordmark } from "@/components/brand";
-import { ChevronDownIcon, LogoutIcon, UsersIcon } from "@/components/icons";
-import { AppUpdateEntry } from "@/components/app-update-entry";
-import { NoticeCenter } from "@/components/notice-center";
-import { SearchCommand, type SearchSubmitOptions } from "@/components/search-command";
-import { logout } from "@/lib/api/auth";
-import { clearBackdropCache } from "@/lib/backdrop-cache";
-import type { SearchScope } from "@/lib/categories";
-import { useAgentConversations } from "@/lib/agent-conversations";
-import { accessiblePathFor, usePermissions } from "@/lib/permissions";
-import { activeAppNavId, appNavItems, withoutHidden } from "@/lib/plugin-apps";
-import { usePluginApps } from "@/lib/plugin-apps-context";
-import { useSearchAccess } from "@/lib/search-access";
-import { useSession } from "@/lib/session";
-import { taskActivityBadge, useTaskActivity, type TaskActivityBadge } from "@/lib/task-activity";
-import { clearUiPrefsCache } from "@/lib/ui-prefs-cache";
-import { useUiPrefs } from "@/lib/ui-prefs";
 
 /**
  * Netflix 主题的桌面顶栏（≥768px，docs/design/web-themes.md §5.1）。
@@ -70,8 +73,8 @@ export function NetflixTopNav({
   const { canSubscribe, isAdmin } = usePermissions();
   // 搜索入口按「任一搜索分区可用」露出（影视 / 资源 / 媒体库），不只看资源搜索开关
   const { canOpenSearch } = useSearchAccess();
-  const { apps } = usePluginApps();
-  const active = activeAppNavId(pathname, apps ?? []) ?? activeNavId(pathname);
+  const appNav = useAppNavLinks();
+  const active = appNav.activeId ?? activeNavId(pathname);
 
   // 顶栏透明 → 实底的滚动判定：全站页面都是「外壳固定 + 内部容器滚动」，
   // window 本身不滚，用 capture 监听才能收到各页面滚动容器的事件。
@@ -116,8 +119,7 @@ export function NetflixTopNav({
     return () => window.clearTimeout(resume);
   }, [pathname]);
 
-  const { prefs } = useUiPrefs();
-  const appLinks = withoutHidden(appNavItems(apps ?? []), prefs.nav.hidden).map((item) => ({
+  const appLinks = appNav.items.map((item) => ({
     id: item.id,
     label: item.label,
     href: item.href as Route,
@@ -322,15 +324,7 @@ function NetflixAvatarMenu({
    */
   const handleLogout = async () => {
     setOpen(false);
-    let next: Awaited<ReturnType<typeof logout>> = null;
-    try {
-      next = await logout();
-    } catch {
-      // 即使请求失败（如网络断开），也照常跳登录页；会话在后端仍会自然过期
-    }
-    clearBackdropCache();
-    clearUiPrefsCache();
-    window.location.href = next ? accessiblePathFor(next, "/") : "/login";
+    await signOut();
   };
 
   return (

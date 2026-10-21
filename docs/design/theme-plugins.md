@@ -25,8 +25,8 @@
    `[theme]` 段；外框组件在 `index.js`。内核不执行主题代码就能列出、校验、展示主题。
 3. **主题代码与主程序共用一份 React**：用 **import maps**（HTML 标准）把 `react`、`react/jsx-runtime`、`next/link`、
    `next/navigation`、`@movieclaw/theme-sdk` 映射到主程序提供的垫片模块。主题作者照常写 React，构建时把这几个包标成外部依赖即可。
-4. **`@movieclaw/theme-sdk` 是主题能碰到的全部内核能力**：一个门面文件、一份清单，按「外框真用到的」收（v1 ≈ Netflix 现在
-   用到的那些，合并后约 35 个出口），带版本（`requires."ui.theme"`）和导出快照测试。
+4. **`@movieclaw/theme-sdk` 是主题能碰到的全部内核能力**：一个门面文件、一份清单，按「外框真用到的」收（v1 = Netflix 实际
+   用到的那些，80 个出口，其中图标 15、类型 8），带版本（`requires."ui.theme"`）和导出快照测试。
 5. **主题坏了不能把站弄坏**：加载失败 / 版本不兼容 / 运行时报错 → 整体回落默认主题并提示；单个坑位报错 → 该坑位回落基础实现；
    安全模式下不加载任何主题。设置 → 外观永远可达。
 6. **卸载不动用户数据**：偏好里存的主题 id 原样保留，找不到对应主题时按默认主题渲染；重装后自动恢复。
@@ -240,6 +240,12 @@ html[data-theme="netflix"] {
 信任面与插件网页相同：同源 iframe 本来就能读写父页面和带着 Cookie 调接口，主题代码直接跑在主文档里没有多出新的权限。
 
 ### 5.2 SDK v1 的范围（按 Netflix 实际用到的收，顺手合并重复逻辑）
+
+> 落地（P3，2026-10-21）：门面在 `apps/web/theme-sdk/index.ts`，tsconfig 别名 `@movieclaw/theme-sdk`；ESLint 限定
+> `themes/*/**` 只能 import react / react-dom / next / next/link / next/navigation / SDK / 相对路径；出口快照
+> `test/theme-sdk-surface.test.mjs`。实际合并了两处：`signOut()`（内核「更多」页、侧栏菜单与 Netflix 顶栏、「我的」页
+> 四处同一流程，Netflix 两份副本此前漏了切账号时的首帧缓存预热）、`useAppNavLinks()`（顶栏用的插件网页项，不跟个人
+> 排序）。下表是设计时的分组，实际出口以门面文件为准。
 
 | 组 | 出口 |
 |---|---|

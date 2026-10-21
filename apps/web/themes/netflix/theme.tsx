@@ -1,8 +1,4 @@
-import { themeMeta } from "@/lib/themes";
-import { PageNav } from "@/components/page-nav";
-import { useIsMobile } from "@/lib/use-media-query";
 
-import type { DetailNavProps, ThemeDefinition } from "../types";
 import { NetflixBackButton, NetflixPageActions } from "./chrome/back-button";
 import { NetflixTabBar } from "./chrome/tab-bar";
 import { NetflixSettingsSidebar } from "./chrome/settings-sidebar";
@@ -10,6 +6,12 @@ import { NetflixTopNav } from "./chrome/top-nav";
 import { NetflixLibraryHero } from "./components/library-hero";
 import { NetflixMyPage } from "./pages/my-page";
 import { NetflixSubscriptionsPage } from "./pages/subscriptions-page";
+import {
+  type DetailNavProps,
+  PageNav,
+  type ThemeDefinition,
+  useIsMobile,
+} from "@movieclaw/theme-sdk";
 
 /**
  * Netflix 主题定义（docs/design/theme-framework/02）。
@@ -22,7 +24,6 @@ import { NetflixSubscriptionsPage } from "./pages/subscriptions-page";
  * 拉库列表与续播数据、订阅页自带数据层，均与本文件无关——这里只做装配。
  */
 const netflixTheme: ThemeDefinition = {
-  meta: themeMeta("netflix"),
   slots: {
     desktopTopNav: NetflixTopNav,
     mobileTabBar: NetflixTabBar,

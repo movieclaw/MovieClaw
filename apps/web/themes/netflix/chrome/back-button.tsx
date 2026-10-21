@@ -1,7 +1,10 @@
 "use client";
 
-import { ChevronLeftIcon } from "@/components/icons";
-import { PAGE_NAV_BUTTON_SIZE_CLASS } from "@/components/page-nav";
+import {
+  ChevronLeftIcon,
+  PAGE_NAV_BUTTON_SIZE_CLASS,
+} from "@movieclaw/theme-sdk";
+
 
 /**
  * Netflix 桌面详情页的返回键：裸的白色 chevron，fixed 悬浮在顶栏下方左上角。
