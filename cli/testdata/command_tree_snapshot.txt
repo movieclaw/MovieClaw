@@ -252,6 +252,8 @@ playback device revoke
 playback history
 playback stats qoe
 playback stats watch
+playback sync catalog
+playback sync import
 rules create
 rules default
 rules delete

@@ -104,6 +104,7 @@ from movieclaw_db.models.subscription_activity import ActivityType, Subscription
 from movieclaw_db.models.subtitle_auto_mute import SubtitleAutoMute
 from movieclaw_db.models.system_notice import NoticeSeverity, NoticeStatus, SystemNotice
 from movieclaw_db.models.tip import TipEvent, TipRecord
+from movieclaw_db.models.watch_record import WatchRecord
 
 __all__ = [
     "TimestampMixin",
@@ -173,6 +174,7 @@ __all__ = [
     "PlaybackMetric",
     "PlaybackPreference",
     "PlaybackState",
+    "WatchRecord",
     "PluginCallback",
     "PluginData",
     "MediaSeason",

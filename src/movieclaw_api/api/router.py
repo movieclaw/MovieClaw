@@ -68,6 +68,7 @@ from movieclaw_api.api.routes.offline import viewings_router as playback_viewing
 from movieclaw_api.api.routes.people import router as people_router
 from movieclaw_api.api.routes.playback import router as playback_router
 from movieclaw_api.api.routes.playback import stream_router as playback_stream_router
+from movieclaw_api.api.routes.playback_sync import router as playback_sync_router
 from movieclaw_api.api.routes.plugins import router as plugins_router
 from movieclaw_api.api.routes.push import admin_router as push_admin_router
 from movieclaw_api.api.routes.push import member_router as push_member_router
@@ -146,6 +147,7 @@ _MEMBER_ROUTERS = [
     collections_router,
     people_router,
     playback_router,
+    playback_sync_router,
     reels_router,
     # 我的通知（docs/design/cloud-push.md §7.3）：每个人只管自己的开关和设备；
     # App 登记只接受 App 类设备自己的凭证（服务层判定）
