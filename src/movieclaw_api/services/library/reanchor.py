@@ -19,10 +19,11 @@ import logging
 from collections.abc import Iterable
 from datetime import datetime
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_db.models import LibraryFile, PlaybackState, utcnow
+from movieclaw_db.models import LibraryFile, PlaybackState, WatchRecord, utcnow
 
 logger = logging.getLogger("movieclaw_api.library_reanchor")
 
@@ -32,6 +33,7 @@ Unit = tuple[int, int, int]
 async def migrate_watch_state(session: AsyncSession, old_unit: Unit, new_unit: Unit) -> int:
     """把旧单元的观看状态（每个成员一行）复制到新单元；返回处理的行数。
 
+    导入的 WatchRecord 原行随单元迁移，不复制源去重键；原日期和回执版本保留。
     目标单元已有状态时按"更靠后的进度赢"合并：``last_played_at`` 较晚的
     一份决定进度与轨道记忆，已看/收藏取并，播放次数取较大者。旧行不删
     ——旧条目若被孤儿清理删除，外键级联会带走它；若旧条目仍有别的文件
@@ -41,6 +43,22 @@ async def migrate_watch_state(session: AsyncSession, old_unit: Unit, new_unit: U
         return 0
     old_item, old_season, old_episode = old_unit
     new_item, new_season, new_episode = new_unit
+    # 观看事实随被更正的文件迁移；保留原行 id、源去重键与原写入回执版本。
+    # 即使旧 PlaybackState 已被清理，也不能让导入事实留在待删的旧条目上。
+    await session.execute(
+        update(WatchRecord)
+        .where(
+            WatchRecord.media_item_id == old_item,
+            WatchRecord.season_number == old_season,
+            WatchRecord.episode_number == old_episode,
+        )
+        .values(
+            media_item_id=new_item,
+            season_number=new_season,
+            episode_number=new_episode,
+            updated_at=utcnow(),
+        )
+    )
     rows = (
         (
             await session.execute(
@@ -124,8 +142,13 @@ async def reanchor_rows(
     now = utcnow()
     for row in rows:
         season, episode = unit_of(row)
-        if row.media_item_id is not None and row.media_item_id != new_item_id:
-            old_ids.add(row.media_item_id)
+        if row.media_item_id is not None and (
+            row.media_item_id,
+            row.season_number,
+            row.episode_number,
+        ) != (new_item_id, season, episode):
+            if row.media_item_id != new_item_id:
+                old_ids.add(row.media_item_id)
             await migrate_watch_state(
                 session,
                 (row.media_item_id, row.season_number, row.episode_number),

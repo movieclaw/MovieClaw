@@ -1707,7 +1707,13 @@ async def cleanup_orphan_items(media_item_ids: Iterable[int], *, defer_assets: b
     磁盘删除单独放线程池；某个目录删不掉只记日志，不阻断其余清理
     （宁可留点垃圾，也不能让删库这类操作半途失败）。
     """
-    from movieclaw_db.models import CollectionItem, MediaShare, PlaybackState, Subscription
+    from movieclaw_db.models import (
+        CollectionItem,
+        MediaShare,
+        PlaybackState,
+        Subscription,
+        WatchRecord,
+    )
 
     ids = list(dict.fromkeys(media_item_ids))
     if not ids:
@@ -1737,11 +1743,12 @@ async def cleanup_orphan_items(media_item_ids: Iterable[int], *, defer_assets: b
                     )
                 ).scalars()
             )
-            # 用户数据三张表：有任意一行就说明用户在这部作品上留下过痕迹
+            # 用户数据：有任意一行就说明用户在这部作品上留下过痕迹
             # （playback_state 只在真正开播/标已看/收藏时才建行），保留条目
             user_data: set[int] = set()
             for column in (
                 PlaybackState.media_item_id,
+                WatchRecord.media_item_id,
                 CollectionItem.media_item_id,
                 MediaShare.media_item_id,
             ):

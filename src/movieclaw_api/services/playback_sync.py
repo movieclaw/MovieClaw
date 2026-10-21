@@ -1,4 +1,4 @@
-"""按成员交换观看事实，不启动播放、不发布播放事件，不改收藏/轨道/续播位置。"""
+"""按成员交换观看事实，不启动播放、不发布播放事件，不改收藏/轨道；较新已看事实清除续播位置。"""
 
 from __future__ import annotations
 
@@ -275,7 +275,7 @@ async def import_records(
             async with session.begin_nested():
                 stamp = utcnow()
                 if state is not None:
-                    # 乐观锁：只改变已看与导入时间，不清续播/收藏/轨道，也不发布播放事件。
+                    # 乐观锁；旧历史不抹掉较新的续播，较新/同时的已看事实与手动标记一样清零。
                     result = await session.execute(
                         update(PlaybackState)
                         .where(
@@ -289,6 +289,9 @@ async def import_records(
                             if state.last_played_at
                             else when,
                             play_count=max(state.play_count, 1),
+                            position_ms=0
+                            if state.last_played_at is None or when >= state.last_played_at
+                            else state.position_ms,
                         )
                     )
                     if result.rowcount != 1:

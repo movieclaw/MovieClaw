@@ -465,3 +465,51 @@ async def test_status_endpoint_reports_batch_outcome(db, tmp_path) -> None:
     async with get_database().session() as session:
         mirrored = (await get_transfer_status(target_id, session=session)).data
     assert mirrored.moved_items == 1
+
+
+async def test_batch_transfer_keeps_imported_history_and_idempotency(db, tmp_path):
+    """真实批量搬运不改媒体主键；导入事实、日期和去重键都必须保留。"""
+    from movieclaw_api.schemas.playback_sync import SyncImportIn
+    from movieclaw_api.services.auth import Principal
+    from movieclaw_api.services.playback_sync import catalog, import_records
+    from movieclaw_db.models import FileState, WatchRecord
+
+    source_id, target_id, _, _, entries = await _setup(db, tmp_path, names=["甲", "乙"])
+    records = [
+        {
+            "media_item_id": item_id,
+            "kind": "movie",
+            "tmdb_id": 2001 + i,
+            "source_id": f"watch-{i}-{day}",
+            "watched_at": f"2020-01-0{day}T11:00:00Z",
+            "expected_updated_at": None,
+        }
+        for i, (item_id, _) in enumerate(entries.values())
+        for day in (1, 2, 3)
+    ]
+    payload = SyncImportIn(member_id=0, records=records)
+    admin = Principal(kind="admin", name="fixture")
+    async with db.session() as s:
+        for f in (await s.execute(select(LibraryFile))).scalars():
+            f.state = FileState.IN_PLACE
+            s.add(f)
+        await s.commit()
+        result = await import_records(s, admin, payload)
+        assert [r.status for r in result] == ["applied"] * 6
+        original = list((await s.execute(select(WatchRecord).order_by(WatchRecord.id))).scalars())
+        original_keys = [
+            (r.id, r.media_item_id, r.source_id, r.watched_at, r.state_version) for r in original
+        ]
+    await _start(source_id, BatchTransferPayload(target_library_id=target_id, all_items=True))
+    outcome = await _drain(source_id)
+    assert outcome["status"] is JobStatus.SUCCEEDED
+    async with db.session() as s:
+        current = list((await s.execute(select(WatchRecord).order_by(WatchRecord.id))).scalars())
+        assert [
+            (r.id, r.media_item_id, r.source_id, r.watched_at, r.state_version) for r in current
+        ] == original_keys
+        view = await catalog(s, admin, 0, None, 50)
+        assert len(view.items) == 2 and all(len(u.watches) == 3 for u in view.items)
+        assert [r.status for r in await import_records(s, admin, payload)] == ["already"] * 6
+        files = list((await s.execute(select(LibraryFile))).scalars())
+        assert all(f.library_id == target_id for f in files)

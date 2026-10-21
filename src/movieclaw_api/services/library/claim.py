@@ -128,7 +128,11 @@ async def claim_files(
             if season_override is not None:
                 season_number = season_override
         # 改挂：观看状态随文件迁到新单元（临时本地身份转正、错挂纠正都适用）
-        if row.media_item_id is not None and row.media_item_id != item.id:
+        if row.media_item_id is not None and (
+            row.media_item_id,
+            row.season_number,
+            row.episode_number,
+        ) != (item.id, season_number or 0, episode_number or 0):
             await migrate_watch_state(
                 session,
                 (row.media_item_id, row.season_number, row.episode_number),

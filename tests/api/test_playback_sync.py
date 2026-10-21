@@ -159,6 +159,7 @@ def test_rewatches_versions_and_non_playback_fields_are_preserved(client):
                     media_item_id=ids[0],
                     played=False,
                     position_ms=120000,
+                    last_played_at=datetime(2021, 1, 1),
                     is_favorite=True,
                     subtitle_track="off",
                     play_count=5,
@@ -399,3 +400,247 @@ def test_watch_record_migration_upgrade_downgrade(tmp_path, monkeypatch):
         command.upgrade(config, "head")
     finally:
         get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("kind", ["movie", "tv"])
+@pytest.mark.parametrize("local_day,expected_position", [(None, 0), (1, 0), (3, 0), (5, 120000)])
+def test_import_only_clears_resume_when_not_older_than_local_playback(
+    client, kind, local_day, expected_position
+):
+    c, _, ids = client
+    item_id = ids[0]
+    season, episode = (0, 0) if kind == "movie" else (1, 2)
+
+    async def initial():
+        async with get_database().session() as s:
+            m = await s.get(MediaItem, item_id)
+            m.kind = kind
+            f = (
+                await s.execute(select(LibraryFile).where(LibraryFile.media_item_id == item_id))
+            ).scalar_one()
+            f.season_number, f.episode_number = season, episode
+            s.add_all(
+                [
+                    m,
+                    f,
+                    PlaybackState(
+                        member_id=2,
+                        media_item_id=item_id,
+                        season_number=season,
+                        episode_number=episode,
+                        position_ms=120000,
+                        last_played_at=datetime(2020, 1, local_day, 12) if local_day else None,
+                        is_favorite=True,
+                        audio_track="1",
+                        subtitle_track="off",
+                        play_count=5,
+                    ),
+                ]
+            )
+            await s.commit()
+
+    c.portal.call(initial)
+    version = snapshot(c, 2)["items"][0]["updated_at"]
+    entry = record(
+        item_id,
+        kind=kind,
+        season=season,
+        episode=episode,
+        watched_at="2020-01-03T12:00:00Z",
+        expected_updated_at=version,
+    )
+    outcome = post(c, 2, [entry])[0]
+    assert outcome["status"] == "applied"
+    current = snapshot(c, 2)["items"][0]
+    assert current["played"] and current["position_ms"] == expected_position
+    states, logs, records = c.portal.call(facts)
+    state = states[0]
+    assert (
+        state.play_count == 5
+        and state.is_favorite
+        and state.audio_track == "1"
+        and state.subtitle_track == "off"
+    )
+    assert not logs and len(records) == 1
+
+    # A replay after the user starts another viewing cannot erase its new position.
+    async def replaying():
+        async with get_database().session() as s:
+            state = (await s.execute(select(PlaybackState))).scalar_one()
+            state.position_ms = 90000
+            state.last_played_at = datetime(2022, 1, 1)
+            state.updated_at = datetime(2022, 1, 2)
+            s.add(state)
+            await s.commit()
+
+    c.portal.call(replaying)
+    assert post(c, 2, [entry])[0]["status"] == "already"
+    assert snapshot(c, 2)["items"][0]["position_ms"] == 90000
+
+
+@pytest.mark.parametrize("target_watch", [False, True])
+def test_import_reidentify_cleanup_and_replay_keep_history(client, target_watch):
+    c, _, ids = client
+    entries = [record(ids[0], str(i), watched_at=f"2020-01-0{i}T12:00:00Z") for i in (1, 2, 3)]
+    outcomes = post(c, 2, entries)
+    assert all(r["status"] == "applied" for r in outcomes)
+
+    if target_watch:
+        assert (
+            post(c, 2, [record(ids[1], "target", tmdb_id=101, watched_at="2019-01-01T12:00:00Z")])[
+                0
+            ]["status"]
+            == "applied"
+        )
+
+    async def suggest():
+        async with get_database().session() as s:
+            f = (
+                await s.execute(select(LibraryFile).where(LibraryFile.media_item_id == ids[0]))
+            ).scalar_one()
+            f.review_suggestion = {"media_item_id": ids[1], "title": "Corrected identity"}
+            s.add(f)
+            await s.commit()
+            return f.id
+
+    file_id = c.portal.call(suggest)
+    r = c.post(
+        "/api/v1/libraries/identification/review-decisions",
+        json={"file_ids": [file_id], "decision": "accept_suggestion"},
+    )
+    assert r.status_code == 200, r.text
+    corrected = next(u for u in snapshot(c, 2)["items"] if u["media"]["id"] == ids[1])
+    assert len(corrected["watches"]) == 3 + target_watch
+    assert all(w["basis"] == "import" for w in corrected["watches"])
+
+    async def cleanup():
+        from sqlalchemy import delete
+
+        from movieclaw_api.services.media_scrape import cleanup_orphan_items
+
+        async with get_database().session() as s:
+            await s.execute(delete(PlaybackState).where(PlaybackState.media_item_id == ids[0]))
+            await s.commit()
+        assert await cleanup_orphan_items([ids[0]]) == 1
+        async with get_database().session() as s:
+            assert await s.get(MediaItem, ids[0]) is None
+
+    c.portal.call(cleanup)
+    replay = [{**e, "media_item_id": ids[1], "tmdb_id": 101} for e in entries]
+    repeated = post(c, 2, replay)
+    assert [r["status"] for r in repeated] == ["already"] * 3
+    assert [r["state_version"] for r in repeated] == [r["state_version"] for r in outcomes]
+    assert len(c.portal.call(facts)[2]) == 3 + target_watch
+
+
+@pytest.mark.parametrize("without_state", [False, True])
+def test_episode_reassignment_moves_all_members_and_keeps_source_keys(
+    client, monkeypatch, without_state
+):
+    c, _, ids = client
+    from movieclaw_api.services import media_scrape
+    from movieclaw_api.services.media_library import MediaLibraryService
+
+    async def initial():
+        async with get_database().session() as s:
+            m = await s.get(MediaItem, ids[0])
+            m.kind = "tv"
+            f = (
+                await s.execute(select(LibraryFile).where(LibraryFile.media_item_id == ids[0]))
+            ).scalar_one()
+            from movieclaw_db.models import Library
+
+            library = await s.get(Library, f.library_id)
+            library.kind = "tv"
+            s.add(library)
+            f.season_number, f.episode_number = 1, 1
+            s.add(
+                LibraryFile(
+                    library_id=f.library_id,
+                    media_item_id=ids[0],
+                    season_number=1,
+                    episode_number=2,
+                    file_path=f.file_path + ".sibling.mkv",
+                    size_bytes=1,
+                    source=FileSource.SCANNED,
+                    state=FileState.IN_PLACE,
+                )
+            )
+            s.add_all([m, f])
+            await s.commit()
+            return f.id
+
+    file_id = c.portal.call(initial)
+    entry = record(ids[0], kind="tv", season=1, episode=1)
+    for member in (0, 2):
+        assert post(c, member, [entry])[0]["status"] == "applied"
+    assert (
+        post(c, 2, [record(ids[0], "sibling", kind="tv", season=1, episode=2)])[0]["status"]
+        == "applied"
+    )
+    if without_state:
+
+        async def clear_state():
+            from sqlalchemy import delete
+
+            async with get_database().session() as s:
+                await s.execute(delete(PlaybackState))
+                await s.commit()
+
+        c.portal.call(clear_state)
+
+    async def existing(self, *args, **kwargs):
+        return await self._session.get(MediaItem, ids[0])
+
+    async def no_assets(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr(MediaLibraryService, "ensure_media_item", existing)
+    monkeypatch.setattr(media_scrape, "ensure_assets", no_assets)
+    response = c.post(
+        f"/api/v1/libraries/identification/files/{file_id}/title-assignment",
+        json={"title_ref": "tmdb:tv:100", "season_number": 2, "episode_number": 3},
+    )
+    assert response.status_code == 200, response.text
+    for member in (0, 2):
+        current = next(
+            u
+            for u in snapshot(c, member)["items"]
+            if u["media"]["id"] == ids[0] and (u["season"], u["episode"]) == (2, 3)
+        )
+        assert (current["season"], current["episode"]) == (2, 3)
+        assert len(current["watches"]) == 1 and current["watches"][0]["basis"] == "import"
+        assert post(c, member, [{**entry, "season": 2, "episode": 3}])[0]["status"] == "already"
+    sibling = next(
+        u
+        for u in snapshot(c, 2)["items"]
+        if u["media"]["id"] == ids[0] and (u["season"], u["episode"]) == (1, 2)
+    )
+    assert len(sibling["watches"]) == 1
+    assert (
+        post(c, 2, [record(ids[0], "sibling", kind="tv", season=1, episode=2)])[0]["status"]
+        == "already"
+    )
+    assert len(c.portal.call(facts)[2]) == 3
+
+
+def test_orphan_cleanup_retains_imported_facts_without_state(client):
+    c, _, ids = client
+    assert post(c, 2, [record(ids[0])])[0]["status"] == "applied"
+
+    async def cleanup():
+        from sqlalchemy import delete
+
+        from movieclaw_api.services.media_scrape import cleanup_orphan_items
+
+        async with get_database().session() as s:
+            await s.execute(delete(LibraryFile).where(LibraryFile.media_item_id == ids[0]))
+            await s.execute(delete(PlaybackState).where(PlaybackState.media_item_id == ids[0]))
+            await s.commit()
+        assert await cleanup_orphan_items([ids[0]]) == 0
+        async with get_database().session() as s:
+            assert await s.get(MediaItem, ids[0]) is not None
+
+    c.portal.call(cleanup)
+    assert len(c.portal.call(facts)[2]) == 1
+    assert post(c, 2, [record(ids[0])])[0]["status"] == "already"
