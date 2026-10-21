@@ -139,6 +139,30 @@ func TestWebOnlyPluginNeedsNoEntry(t *testing.T) {
 	}
 }
 
+func TestThemeOnlyPluginNeedsNoEntry(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "movieclaw-plugin.toml"),
+		[]byte("[plugin]\nid = \"ocean\"\nversion = \"1.0.0\"\n\n[theme]\nlabel = \"海蓝\"\n"), 0o644)
+	os.MkdirAll(filepath.Join(dir, "theme"), 0o755)
+	os.WriteFile(filepath.Join(dir, "theme", "theme.css"), []byte(`html[data-theme="ocean"] {}`), 0o644)
+	manifest, err := readPluginManifest(dir)
+	if err != nil || manifest.ID != "ocean" {
+		t.Fatalf("只带主题的插件不需要入口模块，实际：%+v %v", manifest, err)
+	}
+	data, _, err := buildPluginPackage(dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, _ := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	found := false
+	for _, f := range archive.File {
+		found = found || f.Name == "theme/theme.css"
+	}
+	if !found {
+		t.Fatal("theme/ 要打进包里")
+	}
+}
+
 func TestDirFingerprintChangesWithContent(t *testing.T) {
 	dir := writePluginDir(t)
 	first, err := dirFingerprint(dir)

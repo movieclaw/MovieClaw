@@ -217,6 +217,12 @@
      外壳高度减掉它（见 app-shell.tsx），键盘弹出时整个界面收缩到键盘之上。
      没有键盘时恒为 0，桌面端永不改动。 */
   --keyboard-inset: 0px;
+
+  /* —— 背景色调（主题用）——
+     玻璃版式下大面积的颜色来自背景大图 + 全局蒙版 + 透出它们的玻璃，--bg 只在图没铺上时露出。
+     主题要整体换色调就改这两个：蒙版的颜色（三个通道，空格分隔）与罩在大图上的一层色。 */
+  --scrim-rgb: 0 0 0;
+  --backdrop-tint: transparent;
 }
 
 /*
@@ -500,6 +506,8 @@ body::before {
   z-index: 0;
   pointer-events: none;
   background:
+    /* 主题给背景大图罩一层色调（--backdrop-tint，默认透明），用户上传的图同样被罩 */
+    linear-gradient(var(--backdrop-tint), var(--backdrop-tint)),
     linear-gradient(180deg, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0.32) 100%),
     /* --backdrop-image 由 BackdropProvider 按用户上传的图动态写入；未设置时回退到内置色调底图。
        顶部对齐（center top）而不是居中：与影片详情页的沉浸覆盖层同一口径
@@ -620,7 +628,8 @@ body::before {
 
 .page-scrim,
 .search-palette-overlay {
-  background: rgb(0 0 0 / var(--scrim-dark, 0.69));
+  /* 压暗的颜色由主题定（--scrim-rgb，默认纯黑），深浅仍归用户偏好 --scrim-dark */
+  background: rgb(var(--scrim-rgb) / var(--scrim-dark, 0.69));
   backdrop-filter: blur(var(--scrim-blur, 13px));
 }
 

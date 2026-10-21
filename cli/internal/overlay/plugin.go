@@ -100,7 +100,9 @@ func readPluginManifest(dir string) (pluginManifest, error) {
 		}
 	}
 	required := map[string]string{"id": manifest.ID, "version": manifest.Version}
-	webOnly := manifest.Runtime != "exec" && manifest.Entry == "" && fileExists(filepath.Join(dir, "web", "index.html"))
+	// 只带网页（web/index.html）或只带主题（theme/theme.css）的插件没有后端代码
+	webOnly := manifest.Runtime != "exec" && manifest.Entry == "" &&
+		(fileExists(filepath.Join(dir, "web", "index.html")) || fileExists(filepath.Join(dir, "theme", "theme.css")))
 	if manifest.Runtime == "exec" {
 		required["command"] = manifest.Command
 	} else if !webOnly {
@@ -118,7 +120,7 @@ func readPluginManifest(dir string) (pluginManifest, error) {
 		return manifest, nil
 	}
 	if webOnly {
-		// 只带网页的插件（docs/design/plugin-web-pages.md）：没有后端代码
+		// docs/design/plugin-web-pages.md、docs/design/theme-plugins.md
 		return manifest, nil
 	}
 	module := filepath.Join(dir, manifest.Entry+".py")

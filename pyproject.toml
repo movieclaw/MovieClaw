@@ -121,6 +121,8 @@ movieclaw_api = ["data/spec.json"]
 movieclaw_agent = ["builtin-skills/**/*"]
 # 随应用携带的插件包（docs/design/plugin-channels.md §7）：清单是加载与打包的依据
 movieclaw_plugins = ["*/movieclaw-plugin.toml"]
+# 网页主题的 CSS 契约表（docs/design/theme-plugins.md §4.4）
+movieclaw_sdk = ["theme_css.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

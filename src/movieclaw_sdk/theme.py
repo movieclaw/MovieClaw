@@ -10,11 +10,25 @@
 
 from __future__ import annotations
 
+import json
+from importlib import resources
+
 from movieclaw_kernel.contracts import Contract, Stability
 
 THEME_CONTRACT = Contract(
     "ui.theme",
-    version="1.0",
+    version="1.1",
     stability=Stability.EXPERIMENTAL,
     doc="网页主题：外框坑位、主题 SDK、CSS 契约与版式（docs/design/theme-plugins.md）",
 )
+
+_CSS_CONTRACT = json.loads(
+    resources.files(__package__).joinpath("theme_css.json").read_text("utf-8")
+)
+
+PUBLIC_VARIABLES: dict[str, str] = _CSS_CONTRACT["variables"]
+"""主题可以覆盖的内核变量 → 用途（CSS 契约，theme_css.json）"""
+READONLY_VARIABLES: dict[str, str] = _CSS_CONTRACT["readonly"]
+"""内核按设备实时算出的变量：主题只读不写"""
+PUBLIC_PARTS: frozenset[str] = frozenset(_CSS_CONTRACT["parts"])
+"""主题可以依赖的内核类名（公开部件）"""

@@ -4,14 +4,15 @@ import path from "node:path";
 import { test } from "node:test";
 
 /**
- * CSS 契约的公开部件（docs/design/theme-plugins.md §4.4）：主题可以依赖的内核类名清单
- * （theme-sdk/parts.json）。两条守护：
- * 1. 清单里的类在内核里都还在——内核改名 / 删类会在这里被拦下（那是契约主版本变更）；
- * 2. 第一方主题引用的内核类都在清单里——主题新依赖一个内核类，要有意识地登记。
+ * CSS 契约（docs/design/theme-plugins.md §4.4）：主题可以覆盖的内核变量与可以依赖的内核类名
+ * （src/movieclaw_sdk/theme_css.json，随服务端发布，插件开发技能的检查脚本也读它）。守护：
+ * 1. 表里的变量、类在内核里都还在——内核改名 / 删除会在这里被拦下（那是契约主版本变更）；
+ * 2. 第一方主题引用的内核类都在表里——主题新依赖一个内核类，要有意识地登记。
  */
 const WEB = path.resolve(import.meta.dirname, "..");
 const REPO = path.resolve(WEB, "../..");
-const { parts } = JSON.parse(fs.readFileSync(path.join(WEB, "theme-sdk/parts.json"), "utf8"));
+const contract = JSON.parse(fs.readFileSync(path.join(REPO, "src/movieclaw_sdk/theme_css.json"), "utf8"));
+const { parts } = contract;
 
 function walk(dir, exts, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -30,6 +31,16 @@ const kernelSource = ["app", "components", "lib", "vendor"]
 
 test("公开部件在内核里都还在", () => {
   const missing = parts.filter((cls) => !new RegExp(`(?<![\\w-])${cls.replace(/[-]/g, "\\-")}(?![\\w-])`).test(kernelSource));
+  assert.deepEqual(missing, []);
+});
+
+test("公开变量与只读变量在内核里都有定义", () => {
+  // 圆角档来自 Tailwind 默认主题（rounded-* 工具类读它们），其余在 globals.css 的 :root / @theme
+  const defined = new Set(
+    [fs.readFileSync(path.join(WEB, "app/globals.css"), "utf8"), fs.readFileSync(path.join(WEB, "node_modules/tailwindcss/theme.css"), "utf8")]
+      .flatMap((css) => [...css.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1])),
+  );
+  const missing = [...Object.keys(contract.variables), ...Object.keys(contract.readonly)].filter((name) => !defined.has(name));
   assert.deepEqual(missing, []);
 });
 
