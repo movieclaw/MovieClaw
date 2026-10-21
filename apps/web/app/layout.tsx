@@ -4,6 +4,8 @@ import localFont from "next/font/local";
 import { ViewportKeyboard } from "@/components/viewport-keyboard";
 import { appleStartupImages } from "@/lib/apple-splash";
 import { publicEnv } from "@/lib/env";
+import { THEME_CATALOG_CACHE_KEY } from "@/lib/theme-catalog";
+import { themeImportMap } from "@/lib/theme-runtime-map";
 import { DEFAULT_THEME_ID, THEMES } from "@/lib/themes";
 
 // 先引入液态玻璃组件自带的样式，再引入本项目的全局深色主题（后者可覆盖前者）。
@@ -126,12 +128,27 @@ const NO_GLASS_THEMES = JSON.stringify(THEMES.filter((theme) => !theme.glass).ma
  * - 主题按**版式**解析：移动端（<768px）优先取 theme_mobile 覆盖、桌面端优先
  *   theme_desktop，都没有（老账号 / 未单独设置）回落 theme——与
  *   lib/ui-prefs.tsx 的 resolveThemeId 同一份语义，改一处要看另一处；
+ * - 认得的主题才写属性：内置注册表（上面两张表）或已装主题目录的本地快照
+ *   （lib/theme-catalog.ts，状态 ok 的）。认不出的（没装、卸载了、首次登录还没拉过目录）
+ *   不写，按默认主题画首帧，登录后由 ui-prefs 按服务端目录校正；
  * - 外壳几何（--mobile-topbar-h / --mobile-tabbar-h）由各主题 CSS 在自己的
  *   data-theme 作用域里声明，属性就位即生效，脚本不必认识具体主题的几何；
  * - data-theme / theme-color 只在非默认主题写（默认 = 无属性，与 ui-prefs
- *   的写入口径一致）；停用玻璃的主题同时写 data-glass="off"。
+ *   的写入口径一致）；停用玻璃的主题同时写 data-glass="off"；
+ * - 主题带外框组件时顺带挂 <link rel="modulepreload">：模块与登录态探测并行下载，
+ *   外壳的就绪闸门（components/app-shell.tsx 的 ThemeGate）几乎不用等。
  */
-const RESTORE_THEME_SCRIPT = `try{var p=JSON.parse(localStorage.getItem("movieclaw.ui-prefs")||"null");var c=${THEME_COLOR_MAP};var g=${NO_GLASS_THEMES};var mobile=window.matchMedia&&matchMedia("(max-width:767px)").matches;var t=p?(mobile?(p.theme_mobile||p.theme):(p.theme_desktop||p.theme)):null;var d=document.documentElement;if(t&&c[t]){d.setAttribute("data-theme",t);if(g.indexOf(t)>=0)d.setAttribute("data-glass","off");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",c[t])}}catch(e){}`;
+const RESTORE_THEME_SCRIPT = `try{var p=JSON.parse(localStorage.getItem("movieclaw.ui-prefs")||"null");var c=${THEME_COLOR_MAP};var g=${NO_GLASS_THEMES};var mobile=window.matchMedia&&matchMedia("(max-width:767px)").matches;var t=p?(mobile?(p.theme_mobile||p.theme):(p.theme_desktop||p.theme)):null;var d=document.documentElement;if(t&&t!=="${DEFAULT_THEME_ID}"){var e=null,k=JSON.parse(localStorage.getItem("${THEME_CATALOG_CACHE_KEY}")||"null");if(k&&k.length)for(var i=0;i<k.length;i++)if(k[i]&&k[i].id===t&&k[i].status==="ok")e=k[i];var col=e?e.theme_color:c[t];if(e||col){d.setAttribute("data-theme",t);if(e?e.glass===false:g.indexOf(t)>=0)d.setAttribute("data-glass","off");var m=document.querySelector('meta[name="theme-color"]');if(m&&col)m.setAttribute("content",col);if(e&&e.script){var l=document.createElement("link");l.rel="modulepreload";l.href=e.script;document.head.appendChild(l)}}}}catch(e){}`;
+
+/**
+ * 主题运行时（docs/design/theme-plugins.md §4.3）：
+ * - import map：主题模块里的 react / next / @movieclaw/theme-sdk 指到运行时垫片，必须先于
+ *   任何模块脚本出现（Next 自己的 chunk 不走原生 ESM，不受影响）；
+ * - 聚合样式表：每个已装主题一行 @import（服务端生成，免登录），各自挂在
+ *   html[data-theme="<id>"] 作用域下，一起加载互不影响。
+ */
+const THEME_IMPORT_MAP = JSON.stringify(themeImportMap());
+const THEMES_STYLESHEET = `${publicEnv.apiBaseUrl.replace(/\/$/, "")}/ui/themes.css`;
 
 /**
  * iOS 主屏网页必须显式撑满根画布，不能依赖 height:100% 的初始包含块。
@@ -153,7 +170,11 @@ export default function RootLayout({
     // 用它抑制这一处预期内的告警（只作用于 <html> 自身属性，不影响子树里真正的
     // 水合问题被暴露）。
     <html lang="zh-CN" className={inter.variable} suppressHydrationWarning>
+      <head>
+        <link rel="stylesheet" href={THEMES_STYLESHEET} />
+      </head>
       <body>
+        <script type="importmap" dangerouslySetInnerHTML={{ __html: THEME_IMPORT_MAP }} />
         {/* 必须是 body 最前的同步内联脚本：解析即执行，赶在首帧绘制之前 */}
         <script dangerouslySetInnerHTML={{ __html: RESTORE_BACKDROP_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: RESTORE_THEME_SCRIPT }} />

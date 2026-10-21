@@ -1,6 +1,7 @@
 import { request } from "@/lib/http";
 import type { HomeUiPrefs } from "@/lib/home-rows";
 import type { PluginApp } from "@/lib/plugin-apps";
+import type { CatalogTheme } from "@/lib/theme-catalog";
 import { isValidThemeId, normalizeThemeId } from "@/lib/themes";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
@@ -139,6 +140,11 @@ export async function updateUiPreferences(prefs: UiPreferences): Promise<UiPrefe
 // ---------------------------------------------------------------------------
 
 /** 当前用户可见的插件网页与它们的侧边栏入口。失败时抛错，由调用方决定沿用上一份还是当作没有。 */
+/** 已安装的网页主题（docs/design/theme-plugins.md §4.6）：设置页选择卡与加载器都认它。 */
+export async function fetchThemes(): Promise<CatalogTheme[]> {
+  return unwrap(request<ApiEnvelope<CatalogTheme[]>>("/ui/themes"));
+}
+
 export async function fetchPluginApps(): Promise<PluginApp[]> {
   return unwrap(request<ApiEnvelope<PluginApp[]>>("/ui/apps"));
 }

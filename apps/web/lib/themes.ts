@@ -9,11 +9,12 @@
  *   2. Tailwind v4 主题变量层：同一覆盖组里的 `--radius-*` 换档（全站圆角）；
  *   3. 结构层：内核按版式（ThemeLayout）排布页面，主题经坑位注册表替换外框组件。
  *
- * 新增主题的步骤：
- *   - 这里注册一份 ThemeMeta；
- *   - globals.css 加对应该 id 的变量覆盖组（纯换肤主题只需第 1 层）；
- *   - 设置 → 外观的「主题」卡片自动出现（消费方遍历 THEMES 渲染）。
+ * 主题来源两处：这里的内置注册表（默认主题）与已安装主题的目录（lib/theme-catalog.ts，
+ * 服务端 GET /ui/themes——主题是插件，docs/design/theme-plugins.md）。消费方一律经
+ * availableThemes / themeMeta / isKnownTheme 取，不直接遍历 THEMES。
  */
+import { catalogTheme, themeCatalog, type CatalogTheme } from "./theme-catalog.ts";
+
 /**
  * 版式：页面在什么样的外框里排布（docs/design/theme-plugins.md §4.2）。
  * 版式归内核，主题只声明用哪一种——内核组件按版式分叉，不认识具体主题。
@@ -73,24 +74,55 @@ export const THEMES: ThemeMeta[] = [
 
 export const DEFAULT_THEME_ID = "silver";
 
-const THEME_ID_SET = new Set(THEMES.map((theme) => theme.id));
+/** 主题 id 的写法（= 插件 id 的规则，src/movieclaw_api/plugins/packages.py 的 _ID）。 */
+const THEME_ID_PATTERN = /^[a-z][a-z0-9-]{1,38}[a-z0-9]$/;
 
 /**
- * 未知值兜底为默认主题：偏好可能来自老后端（不认识该字段）、手改的
- * localStorage 缓存或未来被下线的主题 id，消费方拿到的必须是注册表里的
- * 合法 id，绝不能把垃圾值写到 <html> 的 data-theme 上。
+ * 偏好里存的主题 id 是否合法——**只看写法，不看装没装**。
+ *
+ * 偏好要原样保留没装（或暂时卸载、停用、加载失败）的主题 id：卸载后重装能自动回到原主题，
+ * 用户在此期间改别的设置也不会把它覆盖成默认主题（docs/design/theme-plugins.md §7 第 6 条）。
+ * 渲染时认不认得由 themeMeta / isKnownTheme 决定。
  */
-export function normalizeThemeId(value: unknown): string {
-  return typeof value === "string" && THEME_ID_SET.has(value) ? value : DEFAULT_THEME_ID;
-}
-
-/** 是否为注册表里的合法主题 id：按端主题的覆盖字段用——非法值按「未设置」处理
- *  （回落通用主题），而不是像 normalizeThemeId 那样兜成默认主题。 */
 export function isValidThemeId(value: unknown): value is string {
-  return typeof value === "string" && THEME_ID_SET.has(value);
+  return typeof value === "string" && THEME_ID_PATTERN.test(value);
 }
 
-/** 按 id 取主题元数据；未知 id（理论上传入前已 normalize）回落默认主题。 */
+/** 偏好的主题 id 兜底：写法不对（老后端、手改的缓存）才换成默认主题，没装的照样保留。 */
+export function normalizeThemeId(value: unknown): string {
+  return isValidThemeId(value) ? value : DEFAULT_THEME_ID;
+}
+
+function fromCatalog(theme: CatalogTheme): ThemeMeta {
+  return {
+    id: theme.id,
+    label: theme.label,
+    description: theme.description,
+    preview: theme.preview,
+    themeColor: theme.theme_color,
+    layout: theme.layout,
+    glass: theme.glass,
+  };
+}
+
+/** 当前认得的主题：内置注册表 + 已安装主题目录（契约不兼容的不算）。 */
+export function availableThemes(): ThemeMeta[] {
+  const known = new Set(THEMES.map((theme) => theme.id));
+  const installed = (themeCatalog() ?? [])
+    .filter((theme) => theme.status === "ok" && !known.has(theme.id))
+    .map(fromCatalog);
+  return [...THEMES, ...installed];
+}
+
+/** 渲染层认不认得这个主题（内置或已安装且契约兼容） */
+export function isKnownTheme(id: string): boolean {
+  return THEMES.some((theme) => theme.id === id) || catalogTheme(id) !== undefined;
+}
+
+/** 按 id 取主题元数据；不认得的（没装、卸载了、契约不兼容）回落默认主题。 */
 export function themeMeta(id: string): ThemeMeta {
-  return THEMES.find((theme) => theme.id === id) ?? THEMES[0];
+  const builtin = THEMES.find((theme) => theme.id === id);
+  if (builtin) return builtin;
+  const installed = catalogTheme(id);
+  return installed ? fromCatalog(installed) : THEMES[0];
 }

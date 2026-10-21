@@ -140,7 +140,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
  * ``leaving`` 时整层淡出（工作台已在底下），淡出期间不拦点击。
  * z 取 100：要压过外壳、底栏、顶栏与全部弹层，启动期间屏幕上只有它。
  */
-function SplashLayer({ leaving = false }: { leaving?: boolean }) {
+export function SplashLayer({ leaving = false }: { leaving?: boolean }) {
   return (
     <div
       aria-hidden="true"

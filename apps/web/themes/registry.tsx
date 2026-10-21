@@ -4,7 +4,9 @@ import { MorePage } from "@/components/more-page";
 import { PageNav } from "@/components/page-nav";
 import { SettingsIndex } from "@/components/settings-index";
 import { SettingsSidebar } from "@/components/settings-view";
-import { DEFAULT_THEME_ID, normalizeThemeId, themeMeta } from "@/lib/themes";
+import { guardSlot } from "@/components/theme-slot-boundary";
+import { loadedDefinition } from "@/lib/theme-runtime";
+import { themeMeta } from "@/lib/themes";
 import { useTheme } from "@/lib/ui-prefs";
 
 import type {
@@ -91,20 +93,33 @@ if (process.env.NODE_ENV !== "production") {
 
 /**
  * 解析主题：capabilities / slots / pages 全部归并基础缺省。
- * - 未知主题 id → normalizeThemeId 兜底为默认主题（缓存被改坏也不崩）；
- * - 缺失坑位 / 整页 → BASE_SLOTS / BASE_PAGES 基础实现；
- * - 无定义的主题（如下载未就绪）→ 纯基础实现，页面照常渲染。
+ * - 传入的是生效主题 id（lib/ui-prefs.tsx 已把认不得、加载失败的换成默认主题）；
+ * - 主题定义：编进包里的（DEFINITIONS）或运行时加载好的插件主题（lib/theme-runtime.ts）；
+ *   还没加载好的按纯基础实现渲染（外壳此时显示启动画面，见 ui-prefs 的 themePending）；
+ * - 缺失坑位 / 整页 → BASE_SLOTS / BASE_PAGES 基础实现；主题的坑位与整页都套错误边界，
+ *   渲染出错只让那一处回落基础实现。
  */
 export function getResolvedTheme(id: string): ResolvedTheme {
-  const themeId = normalizeThemeId(id);
-  const def = DEFINITIONS[themeId];
-  const meta = themeMeta(def ? themeId : DEFAULT_THEME_ID);
+  const def = DEFINITIONS[id] ?? loadedDefinition(id);
+  const meta = themeMeta(id);
   return {
     meta,
     capabilities: { glass: meta.glass },
-    slots: { ...BASE_SLOTS, ...def?.slots } as ResolvedSlots,
-    pages: { ...BASE_PAGES, ...def?.pages },
+    slots: { ...BASE_SLOTS, ...guardAll(id, def?.slots, BASE_SLOTS) } as ResolvedSlots,
+    pages: { ...BASE_PAGES, ...guardAll(id, def?.pages, BASE_PAGES) },
   };
+}
+
+function guardAll<T extends object>(themeId: string, own: T | undefined, base: Partial<T>): Partial<T> {
+  if (!own) return {};
+  const out: Record<string, unknown> = {};
+  for (const [name, Slot] of Object.entries(own)) {
+    if (!Slot) continue;
+    const Fallback = (base as Record<string, unknown>)[name];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 各坑位 props 不同，这里只做透传
+    out[name] = guardSlot(themeId, name, Slot as any, Fallback as any);
+  }
+  return out as Partial<T>;
 }
 
 /** 便捷钩子：当前主题的解析结果（组件层统一从这里拿坑位与能力） */

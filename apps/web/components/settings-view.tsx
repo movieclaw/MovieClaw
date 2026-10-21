@@ -2,7 +2,7 @@
 
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { LiquidGlassButton } from "@/components/liquid-glass";
 
@@ -67,7 +67,9 @@ import { listLoginDevices } from "@/lib/api/devices";
 import { clearPlaybackHistory } from "@/lib/api/playback";
 import { DEFAULT_UI_PREFS } from "@/lib/api/ui";
 import { HttpError } from "@/lib/http";
-import { normalizeThemeId, THEMES } from "@/lib/themes";
+import { catalogTheme, subscribeThemeCatalog, themeCatalogVersion } from "@/lib/theme-catalog";
+import { loadTheme, themeLoadError } from "@/lib/theme-runtime";
+import { availableThemes, normalizeThemeId } from "@/lib/themes";
 import { useSession } from "@/lib/session";
 import { appNavId, isAppNavId, pruneAppNavIds } from "@/lib/plugin-apps";
 import { usePluginApps } from "@/lib/plugin-apps-context";
@@ -818,6 +820,13 @@ function ThemeGroup() {
     setBusyId(id);
     setError(null);
     try {
+      // 带外框组件的主题先加载、成功了再保存：切换是原子的，不会出现「新配色 + 旧外框」，
+      // 加载失败就留在原主题（docs/design/theme-plugins.md §4.3）
+      const entry = catalogTheme(id);
+      if (entry?.script && !(await loadTheme(id, entry.script))) {
+        setError(`主题「${entry.label}」加载失败：${themeLoadError(id) ?? "未知原因"}`);
+        return;
+      }
       await savePrefs({ ...savedPrefs, [field]: id });
     } catch (err) {
       setError(err instanceof HttpError ? err.message : "保存失败，请稍后重试");
@@ -856,9 +865,11 @@ function ThemeCards({
   busyId: string | null;
   onPick: (id: string) => void;
 }) {
+  // 已装主题的目录变了（拉到服务端的整表）就重画：内置主题之外，装了的插件主题也出卡
+  useSyncExternalStore(subscribeThemeCatalog, themeCatalogVersion, () => 0);
   return (
     <div className="grid grid-cols-2 gap-3 max-[420px]:grid-cols-1">
-      {THEMES.map((theme) => {
+      {availableThemes().map((theme) => {
         const active = theme.id === current;
         const busy = busyId === theme.id;
         return (

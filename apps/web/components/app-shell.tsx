@@ -28,7 +28,8 @@ import {
 } from "@/lib/page-chrome";
 import { SearchPrefsProvider } from "@/lib/search-prefs";
 import { buildSearchPath } from "@/lib/search-url";
-import { UiPrefsProvider, useLayout } from "@/lib/ui-prefs";
+import { UiPrefsProvider, useLayout, useUiPrefs } from "@/lib/ui-prefs";
+import { SplashLayer } from "@/components/auth-gate";
 import { useResolvedTheme } from "@/themes/registry";
 import { useIsMobile } from "@/lib/use-media-query";
 import { settingsSectionGroupsFor, settingsSections } from "@/lib/mock-data";
@@ -77,7 +78,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     {/* SubscribeEntryProvider：海报卡片「订阅影片」按钮的全站入口，
       订阅弹层只在这里挂一份（见 components/subscribe-entry.tsx）。 */}
     <SubscribeEntryProvider>
+    <ThemeGate>
     <AppShellBody>{children}</AppShellBody>
+    </ThemeGate>
     </SubscribeEntryProvider>
     </AgentConversationsProvider>
     </UiPrefsProvider>
@@ -85,6 +88,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </FeedbackProvider>
     </BackdropProvider>
   );
+}
+
+/**
+ * 主题就绪前不渲染外壳（docs/design/theme-plugins.md §4.3）：所选主题的外框组件还在加载、
+ * 或还不知道它装没装时，先显示与启动页同一副画面，免得先画默认外框再整体换掉。
+ * 有本地快照、模块预加载时几乎无感；加载失败或超时由 ui-prefs 回落默认主题并放行。
+ */
+function ThemeGate({ children }: { children: React.ReactNode }) {
+  const { themePending } = useUiPrefs();
+  return themePending ? <SplashLayer /> : children;
 }
 
 function AppShellBody({ children }: { children: React.ReactNode }) {
