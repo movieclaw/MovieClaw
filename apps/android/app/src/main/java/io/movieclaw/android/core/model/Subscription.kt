@@ -35,6 +35,130 @@ data class PrepareView(
     val existingSubscriptionId: Long? = null,
     val movieOwned: Boolean = false,
     val suggestedSeasons: List<Int> = emptyList(),
+    /** 智能选择摘要：服务端按设置、记忆和作品信息解析好的结果与整句文案；旧服务端没有 */
+    val smart: SmartPlanView? = null,
+)
+
+/** 第一次碰到某种语言时问的那一句（文案由服务端生成） */
+@Serializable
+data class SmartQuestionView(
+    val language: String = "",
+    val prompt: String = "",
+    val subtitlesLabel: String = "",
+    val understoodLabel: String = "",
+)
+
+@Serializable
+data class SmartScopeOptionView(
+    /** 回传给创建接口的 smart_scope；only = 只这部 */
+    val value: String = "only",
+    val label: String = "",
+)
+
+/** `PrepareView.smart`（docs/design/smart-subscription-memory.md） */
+@Serializable
+data class SmartPlanView(
+    val configured: Boolean = false,
+    val profileRevision: Long = 0,
+    val memoryRevision: Long = 0,
+    val resolution: String? = null,
+    val source: String? = null,
+    /** 如「优先 4K WEB-DL」 */
+    val qualityLabel: String? = null,
+    /** 如「按「韩国的剧」的习惯」 */
+    val qualityNote: String? = null,
+    /** 被更具体的习惯盖住的那条，如「「韩国的剧」是 1080p」 */
+    val qualityShadow: String? = null,
+    val waitLabel: String? = null,
+    val subtitleLanguage: String? = null,
+    val subtitleLanguageLabel: String? = null,
+    val subtitleUnderstood: Boolean? = null,
+    /** 如「英语 · 只下带中文字幕的」；中文或未知语言为空 */
+    val subtitleLine: String? = null,
+    /** 仅管理员、且这种语言还没回答过时给出 */
+    val question: SmartQuestionView? = null,
+    val scopeOptions: List<SmartScopeOptionView> = emptyList(),
+    val canEdit: Boolean = false,
+)
+
+/** 智能设置只有一套：画质、洗版、最低要求共用，等待时间电影和剧集各一个 */
+@Serializable
+data class SmartDefaultsView(
+    val configured: Boolean = false,
+    val movieRevision: Long = 0,
+    val tvRevision: Long = 0,
+    val resolution: String = "2160p",
+    val source: String = "web-dl",
+    val allowUpgrade: Boolean = true,
+    val strictResolution: Boolean = false,
+    val movieWaitSeconds: Int = 86400,
+    val tvWaitSeconds: Int = 10800,
+)
+
+@Serializable
+data class SmartDefaultsPayload(
+    val movieRevision: Long,
+    val tvRevision: Long,
+    val resolution: String,
+    val source: String,
+    val allowUpgrade: Boolean,
+    val strictResolution: Boolean,
+    val movieWaitSeconds: Int,
+    val tvWaitSeconds: Int,
+)
+
+@Serializable
+data class SmartLanguageView(
+    val key: String = "",
+    val label: String = "",
+    val sourceTitle: String? = null,
+    val removable: Boolean = true,
+)
+
+@Serializable
+data class SmartLanguageOptionView(val key: String = "", val label: String = "")
+
+@Serializable
+data class SmartHabitView(
+    val key: String = "",
+    val label: String = "",
+    val qualityLabel: String = "",
+    val sourceTitle: String? = null,
+)
+
+/** 智能订阅记住的东西：看得懂的语言与画质习惯 */
+@Serializable
+data class SmartMemoryView(
+    val revision: Long = 0,
+    val languages: List<SmartLanguageView> = emptyList(),
+    val addableLanguages: List<SmartLanguageOptionView> = emptyList(),
+    val habits: List<SmartHabitView> = emptyList(),
+)
+
+/** 设一种语言看不看得懂，或删一条画质习惯（null 字段不发送） */
+@Serializable
+data class SmartMemoryPatch(
+    val revision: Long,
+    val language: String? = null,
+    val understood: Boolean? = null,
+    val removeHabit: String? = null,
+)
+
+/** 智能等待的人工操作：立即下载某个候选，或延长等待 */
+@Serializable
+data class SmartWaitPayload(
+    val version: Long,
+    val extendSeconds: Int? = null,
+    val candidateKey: String? = null,
+)
+
+/** 订阅详情：这部作品的字幕要求 */
+@Serializable
+data class SmartSubtitleView(
+    val language: String = "",
+    val languageLabel: String = "",
+    val line: String = "",
+    val understood: Boolean = false,
 )
 
 /**
@@ -87,6 +211,14 @@ data class SubscriptionCreateRequest(
     val followFuture: Boolean = false,
     val ruleSetId: Long? = null,
     val libraryId: Long? = null,
+    /** null = 不发送（旧服务端按规则模式处理） */
+    val selectionMode: String? = null,
+    val smartProfileRevision: Long? = null,
+    val smartLanguageAnswer: String? = null,
+    val smartResolution: String? = null,
+    val smartSource: String? = null,
+    val smartScope: String? = null,
+    val smartMemoryRevision: Long? = null,
 )
 
 @Serializable
@@ -145,6 +277,14 @@ data class SubscriptionView(
     val canManage: Boolean = true,
     /** 资源发布时间预测正在后台刷新（创建 / 调整 / 恢复后的几秒内）；稍后重取即可 */
     val forecastPending: Boolean = false,
+    /** smart = 智能选择（rule_set_id 为 0，以本字段为准） */
+    val selectionMode: String = "rules",
+    val smartPolicy: kotlinx.serialization.json.JsonObject? = null,
+    /** invalid_policy / disabled / shadow / active */
+    val smartStatus: String? = null,
+    /** 详情接口：智能订阅的字幕要求 */
+    val smartSubtitle: SmartSubtitleView? = null,
+    val smartQualityNote: String? = null,
 )
 
 /** `PATCH /subscriptions/{id}/follow-future`：服务端字段名是 `enabled`（以前发 follow_future → 422） */
@@ -242,6 +382,9 @@ data class WantedView(
     val grabTitle: String? = null,
     /** 洗版派生状态；规则组未配洗版目标或单元未入库时为 null */
     val upgrade: WantedUpgradeView? = null,
+    /** 智能选择的等待状态（reason / deadline / candidate_key …）；规则模式为 null */
+    val selectionState: kotlinx.serialization.json.JsonObject? = null,
+    val selectionVersion: Long = 0,
 )
 
 /** 单元的洗版派生状态（docs/design/quality-upgrade.md §8.3/§9）：标签由后端生成，前端零拼接 */

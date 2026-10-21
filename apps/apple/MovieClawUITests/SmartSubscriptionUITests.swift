@@ -42,6 +42,8 @@ final class SmartSubscriptionUITests: XCTestCase {
         tap(app, id); let item = app.buttons[label].firstMatch
         XCTAssertTrue(item.waitForExistence(timeout: 5), label); item.tap()
     }
+    /// Label plus value: menu pickers and steppers expose their current choice in either one.
+    @MainActor private func describe(_ item: XCUIElement) -> String { item.label + " " + String(describing: item.value ?? "") }
     private func subscription(_ tmdb: Int) async throws -> [String: Any] {
         let all = try await request("/api/v1/subscriptions") as! [[String: Any]]
         return try XCTUnwrap(all.first { ($0["media"] as? [String: Any])?["tmdb_id"] as? Int == tmdb })
@@ -53,23 +55,26 @@ final class SmartSubscriptionUITests: XCTestCase {
         if !existing.contains(where: { ($0["media"] as? [String: Any])?["title"] as? String == "排序电影search" }) {
             _ = try await request("/__lab/subscription-order", method: "POST")
         }
+        // Earlier tests in this class share the server and add their own movies, which can sit between the
+        // fixture's cards and push some off the home shelf. Check the fixture cards' order among themselves.
+        let states = ["pipeline", "mixed", "search", "upgrade"]
         for (kind, noun) in [("movie", "电影"), ("tv", "剧集")] {
+            let fixture = { (cards: XCUIElementQuery) in
+                cards.allElementsBoundByIndex.map(\.label).filter { $0.contains("排序\(noun)") && !$0.contains("paused") && !$0.contains("done") }
+            }
             let app = launch()
             let home = element(app, "section-\(kind)")
             XCTAssertTrue(home.waitForExistence(timeout: 30), app.debugDescription)
-            let homeCards = home.buttons.matching(identifier: "subscription-cell")
-            for (index, state) in ["pipeline", "mixed", "search", "upgrade"].enumerated() {
-                XCTAssertTrue(homeCards.element(boundBy: index).label.contains("排序\(noun)\(state)"), app.debugDescription)
-            }
+            let homeLabels = fixture(home.buttons.matching(identifier: "subscription-cell"))
+            XCTAssertFalse(homeLabels.isEmpty, app.debugDescription)
+            for (label, state) in zip(homeLabels, states) { XCTAssertTrue(label.contains("排序\(noun)\(state)"), "\(homeLabels)") }
             tap(app, "shelf-more-\(kind)")
             let active = element(app, "wall-active")
             XCTAssertTrue(active.waitForExistence(timeout: 30), app.debugDescription)
-            let cards = active.buttons.matching(identifier: "subscription-cell")
-            XCTAssertEqual(cards.count, 4)
-            for (index, state) in ["pipeline", "mixed", "search", "upgrade"].enumerated() {
-                XCTAssertTrue(cards.element(boundBy: index).label.contains("排序\(noun)\(state)"), app.debugDescription)
-            }
-            XCTAssertTrue(cards.element(boundBy: 3).label.contains("洗版中"))
+            let labels = fixture(active.buttons.matching(identifier: "subscription-cell"))
+            XCTAssertEqual(labels.count, 4, "\(labels)")
+            for (label, state) in zip(labels, states) { XCTAssertTrue(label.contains("排序\(noun)\(state)"), "\(labels)") }
+            XCTAssertTrue(labels.last?.contains("洗版中") == true, "\(labels)")
             snapshot("order-\(kind)")
             app.terminate()
         }
@@ -101,12 +106,13 @@ final class SmartSubscriptionUITests: XCTestCase {
 
     @MainActor func testMovieOnboardingReuseCustomDaysAndRules() async throws {
         try await login()
+        // Fresh server: the sheet pushes the one shared settings editor (movies and TV) for the admin.
         let app = launch(subscribe: "tmdb:movie:100")
         XCTAssertTrue(app.buttons["smart-save"].waitForExistence(timeout: 35))
         XCTAssertFalse(app.buttons["subscribe-submit"].exists)
         XCTAssertFalse(element(app, "subscribe-library").exists)
-        XCTAssertTrue(app.navigationBars["电影偏好"].buttons["smart-save"].exists)
-        XCTAssertFalse(app.staticTexts["选择说明与最低要求"].exists)
+        XCTAssertTrue(app.navigationBars["智能设置"].buttons["smart-save"].exists)
+        XCTAssertTrue(app.staticTexts["只需设置一次，电影和剧集都按它来。"].exists, app.debugDescription)
         let upgrade = app.switches["smart-upgrade"].firstMatch
         XCTAssertEqual(upgrade.value as? String, "1")
         snapshot("movie-settings-green")
@@ -114,19 +120,30 @@ final class SmartSubscriptionUITests: XCTestCase {
         XCTAssertEqual(upgrade.value as? String, "0")
         snapshot("movie-settings-off")
         upgrade.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
-        choose(app, "smart-wait", "自定义")
-        let days = app.textFields["smart-days"]
-        XCTAssertTrue(days.waitForExistence(timeout: 5))
-        days.doubleTap()
-        days.typeText(XCUIKeyboardKey.delete.rawValue + "0")
-        snapshot("movie-invalid-days")
-        XCTAssertEqual(days.value as? String, "0", app.debugDescription)
-        XCTAssertFalse(app.buttons["smart-save"].isEnabled, app.debugDescription)
-        days.typeText(XCUIKeyboardKey.delete.rawValue + "7")
-        XCTAssertTrue(app.steppers["smart-days-stepper"].buttons.allElementsBoundByIndex.contains { !$0.isEnabled })
+        choose(app, "smart-movie-wait", "自定义")
+        // Custom days are a 1–7 stepper now (the free-text day field is gone, so "0" can no longer be
+        // typed): it starts at the lower bound with decrement disabled and stops at 7.
+        let days = app.steppers["smart-movie-wait-days"]
+        XCTAssertTrue(days.waitForExistence(timeout: 5), app.debugDescription)
+        for _ in 0..<5 where !days.isHittable { app.swipeUp() }
+        let decrement = days.buttons.element(boundBy: 0), increment = days.buttons.element(boundBy: 1)
+        XCTAssertTrue(describe(days).contains("1 天"), describe(days))
+        XCTAssertFalse(decrement.isEnabled, app.debugDescription)
+        snapshot("movie-custom-days-min")
+        for _ in 0..<6 { increment.tap() }
+        XCTAssertTrue(describe(days).contains("7 天"), describe(days))
+        XCTAssertFalse(increment.isEnabled, app.debugDescription)
+        XCTAssertTrue(decrement.isEnabled)
+        XCTAssertFalse(element(app, "smart-tv-wait-days").exists)
+        snapshot("movie-custom-days-max")
         tap(app, "smart-save")
         XCTAssertTrue(app.buttons["smart-edit"].waitForExistence(timeout: 15), app.debugDescription)
-        XCTAssertTrue(app.buttons["smart-edit"].label.contains("最多等 7 天"))
+        XCTAssertTrue(app.buttons["smart-edit"].label.contains("最多等 7 天"), app.buttons["smart-edit"].label)
+        // One save configures both kinds; TV keeps its own default wait.
+        let defaults = try await request("/api/v1/subscriptions/smart-defaults") as! [String: Any]
+        XCTAssertEqual(defaults["configured"] as? Bool, true)
+        XCTAssertEqual(defaults["movie_wait_seconds"] as? Int, 604800)
+        XCTAssertEqual(defaults["tv_wait_seconds"] as? Int, 10800)
         snapshot("movie-ready")
         tap(app, "smart-edit")
         XCTAssertTrue(app.buttons["smart-save"].waitForExistence(timeout: 15), app.debugDescription)
@@ -149,9 +166,10 @@ final class SmartSubscriptionUITests: XCTestCase {
         XCTAssertFalse(second.buttons["smart-save"].exists)
         tap(second, "subscribe-options"); choose(second, "subscribe-mode", "规则模式")
         XCTAssertTrue(element(second, "subscribe-ruleset").exists)
-        XCTAssertFalse(element(second, "smart-summary").exists)
         snapshot("rules-options")
         second.navigationBars["更多选项"].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(second.staticTexts["规则模式"].waitForExistence(timeout: 5), second.debugDescription)
+        XCTAssertFalse(second.buttons["smart-edit"].exists)
         tap(second, "subscribe-submit")
         XCTAssertTrue(second.buttons["subscribe-submit"].waitForNonExistence(timeout: 20))
         let rule = try await subscription(101)
@@ -168,33 +186,50 @@ final class SmartSubscriptionUITests: XCTestCase {
         _ = try await request("/api/v1/subscriptions", method: "POST", body: ["title_ref": "tmdb:movie:102", "selection_mode": "smart", "smart_profile_revision": saved["revision"]!])
         let app = launch(subscribe: "tmdb:movie:103")
         XCTAssertTrue(app.buttons["smart-edit"].waitForExistence(timeout: 30), app.debugDescription)
-        XCTAssertTrue(app.buttons["smart-edit"].label.contains("最多等 6 小时"))
+        XCTAssertTrue(app.buttons["smart-edit"].label.contains("最多等 6 小时"), app.buttons["smart-edit"].label)
         tap(app, "smart-edit")
         XCTAssertTrue(app.buttons["smart-save"].waitForExistence(timeout: 15), app.debugDescription)
-        XCTAssertTrue(element(app, "smart-wait").label.contains("原有设置"))
+        // The shared editor keeps the legacy whole-hour movie wait as its own choice instead of snapping to a preset.
+        XCTAssertTrue(describe(element(app, "smart-movie-wait")).contains("原有设置 · 6 小时"), describe(element(app, "smart-movie-wait")))
         snapshot("legacy-hour-settings")
         preferences["wait_seconds"] = 86400
         _ = try await request("/api/v1/subscriptions/smart-profiles/movie", method: "PUT", body: ["revision": saved["revision"]!, "preferences": preferences])
+        // Another client saved first: the stale revision fails visibly and the editor stays open.
         tap(app, "smart-save")
-        XCTAssertTrue(app.buttons["smart-reload"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["smart-reload"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(app.buttons["subscribe-submit"].exists)
         tap(app, "smart-reload")
         XCTAssertTrue(app.buttons["smart-save"].waitForExistence(timeout: 15))
-        tap(app, "smart-cancel-edit")
-        XCTAssertTrue(app.buttons["smart-edit"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.buttons["smart-edit"].label.contains("最多等 1 天"))
+        XCTAssertFalse(app.buttons["smart-reload"].exists)
+        // After reloading, the picker shows the other client's 1-day wait, which is what saving now writes.
+        XCTAssertTrue(describe(element(app, "smart-movie-wait")).contains("更有耐心 · 最多 1 天"), describe(element(app, "smart-movie-wait")))
+        snapshot("conflict-reloaded")
+        tap(app, "smart-save")
+        XCTAssertTrue(app.buttons["smart-edit"].waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(app.buttons["smart-edit"].label.contains("最多等 1 天"), app.buttons["smart-edit"].label)
+        // Smart subscriptions follow the current settings (since e52ab4f7), so the existing subscription
+        // created on the legacy 6 hours stays smart and now runs on the newer 1-day wait.
         let movie = try await subscription(102)
-        XCTAssertEqual((movie["smart_policy"] as? [String: Any])?["wait_seconds"] as? Int, 21600)
+        XCTAssertEqual(movie["selection_mode"] as? String, "smart")
+        XCTAssertEqual((movie["smart_policy"] as? [String: Any])?["wait_seconds"] as? Int, 86400)
         app.terminate()
     }
 
     @MainActor func testTVWaitActionsAndUnifiedEpisodeStatus() async throws {
         try await login()
+        // Settings are one shared set now, so there is no separate first TV setup: TV reuses what the
+        // movie onboarding saved. Save the defaults here only when this test runs on its own.
+        let defaults = try await request("/api/v1/subscriptions/smart-defaults") as! [String: Any]
+        if defaults["configured"] as? Bool != true {
+            let keys = ["movie_revision", "tv_revision", "resolution", "source", "allow_upgrade", "strict_resolution", "movie_wait_seconds", "tv_wait_seconds"]
+            _ = try await request("/api/v1/subscriptions/smart-defaults", method: "PUT", body: defaults.filter { keys.contains($0.key) })
+        }
         let app = launch(subscribe: "tmdb:tv:200")
-        XCTAssertTrue(app.buttons["smart-save"].waitForExistence(timeout: 35))
-        snapshot("tv-first-settings"); tap(app, "smart-save")
-        XCTAssertTrue(app.buttons["smart-edit"].waitForExistence(timeout: 15), app.debugDescription)
-        XCTAssertTrue(app.buttons["smart-edit"].label.contains("最多等 3 小时"))
+        XCTAssertTrue(app.buttons["smart-edit"].waitForExistence(timeout: 35), app.debugDescription)
+        XCTAssertFalse(app.buttons["smart-save"].exists)
+        XCTAssertTrue(app.buttons["smart-edit"].label.contains("最多等 3 小时"), app.buttons["smart-edit"].label)
+        XCTAssertTrue(app.buttons["subscribe-submit"].isEnabled)
+        snapshot("tv-reuses-settings")
         XCTAssertFalse(app.buttons["season-1"].exists)
         tap(app, "subscribe-range")
         XCTAssertTrue(app.buttons["season-1"].waitForExistence(timeout: 10), app.debugDescription)

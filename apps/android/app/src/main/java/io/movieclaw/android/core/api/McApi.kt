@@ -16,6 +16,11 @@ import io.movieclaw.android.core.model.ChangePasswordRequest
 import io.movieclaw.android.core.model.DeviceRenameRequest
 import io.movieclaw.android.core.model.LoginDevice
 import io.movieclaw.android.core.model.UpgradeRunView
+import io.movieclaw.android.core.model.SmartDefaultsPayload
+import io.movieclaw.android.core.model.SmartDefaultsView
+import io.movieclaw.android.core.model.SmartMemoryPatch
+import io.movieclaw.android.core.model.SmartMemoryView
+import io.movieclaw.android.core.model.SmartWaitPayload
 import io.movieclaw.android.core.model.PlaybackPolicy
 import io.movieclaw.android.core.model.PlaybackPolicyPatchFull
 import io.movieclaw.android.core.model.UpdateProfileRequest
@@ -925,6 +930,28 @@ interface McApi {
 
     @POST("subscriptions")
     suspend fun createSubscription(@Body body: SubscriptionCreateRequest): McEnvelope<SubscriptionCreateView>
+
+    /** 智能设置（一套，管理员）：画质、洗版、最低要求共用，等待时间电影和剧集各一个 */
+    @GET("subscriptions/smart-defaults")
+    suspend fun smartDefaults(): McEnvelope<SmartDefaultsView>
+
+    @PUT("subscriptions/smart-defaults")
+    suspend fun saveSmartDefaults(@Body body: SmartDefaultsPayload): McEnvelope<SmartDefaultsView>
+
+    /** 智能订阅记住的东西（管理员）：看得懂的语言与画质习惯 */
+    @GET("subscriptions/smart-memory")
+    suspend fun smartMemory(): McEnvelope<SmartMemoryView>
+
+    @PATCH("subscriptions/smart-memory")
+    suspend fun updateSmartMemory(@Body body: SmartMemoryPatch): McEnvelope<SmartMemoryView>
+
+    /** 智能等待的人工操作：立即下载某个候选（含「这次先下原版」），或延长等待 */
+    @POST("subscriptions/{subscriptionId}/wanted/{wantedId}/smart-wait")
+    suspend fun changeSmartWait(
+        @Path("subscriptionId") subscriptionId: Long,
+        @Path("wantedId") wantedId: Long,
+        @Body body: SmartWaitPayload,
+    ): McEnvelope<kotlinx.serialization.json.JsonObject>
 
     @GET("subscriptions/{subscriptionId}")
     suspend fun subscription(@Path("subscriptionId") subscriptionId: Long): McEnvelope<SubscriptionView>

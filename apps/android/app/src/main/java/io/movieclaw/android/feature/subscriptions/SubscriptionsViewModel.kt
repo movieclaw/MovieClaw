@@ -144,6 +144,16 @@ class SubscribeViewModel @Inject constructor(
         val libraryId: Long? = null,
         /** 投递路由预检（管理员）：抽屉里的「自动选库：…」与预警都来自它 */
         val routing: io.movieclaw.android.core.model.DispatchPreviewView? = null,
+        /** smart = 智能选择（默认，同网页与 iOS）/ rules = 规则模式 */
+        val selectionMode: String = "smart",
+        /** 智能选择里管理员做的选择，随创建请求提交 */
+        val smartChoice: SmartChoice = SmartChoice(),
+        /** 智能设置抽屉：草稿、是否已保存过、记忆 */
+        val smartDraft: io.movieclaw.android.core.model.SmartDefaultsPayload? = null,
+        val smartConfigured: Boolean = false,
+        val smartMemory: io.movieclaw.android.core.model.SmartMemoryView? = null,
+        val smartBusy: Boolean = false,
+        val smartError: String? = null,
     )
 
     private val _ui = MutableStateFlow(UiState())
@@ -191,6 +201,8 @@ class SubscribeViewModel @Inject constructor(
                             }.toSet(),
                             // 自动续订默认只给还在播的剧（网页同口径）：完结剧追新集没有意义
                             followFuture = preview.media?.kind == "tv" && preview.media?.status == "Returning Series",
+                            // 旧服务端不给智能摘要：没有智能选择可用，按规则模式订阅
+                            selectionMode = if (preview.smart == null) "rules" else "smart",
                         )
                     }
                     // 已经订阅过：把订阅本体也取回来，弹层切成管理态（iOS：已订阅也打开弹层，
@@ -236,6 +248,86 @@ class SubscribeViewModel @Inject constructor(
     }
 
     fun setFollowFuture(value: Boolean) = _ui.update { it.copy(followFuture = value) }
+
+    fun setSelectionMode(mode: String) = _ui.update { it.copy(selectionMode = mode) }
+
+    fun setSmartChoice(choice: SmartChoice) = _ui.update { it.copy(smartChoice = choice) }
+
+    /** 打开智能设置：读一套默认值与记忆（都只有管理员能读） */
+    fun loadSmartSettings() {
+        _ui.update { it.copy(smartDraft = null, smartMemory = null, smartError = null) }
+        viewModelScope.launch {
+            val api = apiFactory.forOrigin(origin ?: return@launch)
+            runCatching { api.smartDefaults().dataOrThrow() to api.smartMemory().dataOrThrow() }
+                .onSuccess { (d, memory) ->
+                    _ui.update {
+                        it.copy(
+                            smartConfigured = d.configured,
+                            smartMemory = memory,
+                            smartDraft = io.movieclaw.android.core.model.SmartDefaultsPayload(
+                                movieRevision = d.movieRevision, tvRevision = d.tvRevision,
+                                resolution = d.resolution, source = d.source,
+                                allowUpgrade = d.allowUpgrade, strictResolution = d.strictResolution,
+                                movieWaitSeconds = d.movieWaitSeconds, tvWaitSeconds = d.tvWaitSeconds,
+                            ),
+                        )
+                    }
+                }
+                .onFailure { e -> _ui.update { it.copy(smartError = friendlyMessage(e)) } }
+        }
+    }
+
+    fun setSmartDraft(draft: io.movieclaw.android.core.model.SmartDefaultsPayload) = _ui.update { it.copy(smartDraft = draft) }
+
+    fun saveSmartDefaults(onDone: () -> Unit) {
+        val draft = _ui.value.smartDraft ?: return
+        _ui.update { it.copy(smartBusy = true, smartError = null) }
+        viewModelScope.launch {
+            val api = apiFactory.forOrigin(origin ?: return@launch)
+            runCatching { api.saveSmartDefaults(draft).dataOrThrow() }
+                .onSuccess {
+                    _ui.update { it.copy(smartBusy = false) }
+                    refreshSmartPlan()
+                    onDone()
+                }
+                .onFailure { e -> _ui.update { it.copy(smartBusy = false, smartError = friendlyMessage(e)) } }
+        }
+    }
+
+    /** 改记忆：一种语言看不看得懂，或删一条画质习惯；新订阅和还在等的订阅立即按新的来 */
+    fun changeSmartMemory(language: String? = null, understood: Boolean? = null, removeHabit: String? = null) {
+        val memory = _ui.value.smartMemory ?: return
+        _ui.update { it.copy(smartBusy = true, smartError = null) }
+        viewModelScope.launch {
+            val api = apiFactory.forOrigin(origin ?: return@launch)
+            runCatching {
+                api.updateSmartMemory(
+                    io.movieclaw.android.core.model.SmartMemoryPatch(memory.revision, language, understood, removeHabit)
+                ).dataOrThrow()
+            }
+                .onSuccess { next ->
+                    _ui.update { it.copy(smartBusy = false, smartMemory = next) }
+                    refreshSmartPlan()
+                }
+                .onFailure { e ->
+                    _ui.update { it.copy(smartBusy = false, smartError = friendlyMessage(e)) }
+                    runCatching { api.smartMemory().dataOrThrow() }.onSuccess { m -> _ui.update { it.copy(smartMemory = m) } }
+                }
+        }
+    }
+
+    /** 智能设置保存、记忆改动或提交冲突后：只刷新智能选择摘要，不动已选的季和库 */
+    fun refreshSmartPlan() {
+        val media = _ui.value.preview?.media ?: return
+        viewModelScope.launch {
+            val api = apiFactory.forOrigin(origin ?: return@launch)
+            runCatching {
+                api.titlePreview(io.movieclaw.android.core.model.TitlePreviewRequest("tmdb:${media.kind}:${media.tmdbId}")).dataOrThrow()
+            }.onSuccess { next ->
+                _ui.update { it.copy(preview = it.preview?.copy(smart = next.smart), smartChoice = SmartChoice()) }
+            }
+        }
+    }
 
     fun setRuleSet(id: Long?) {
         _ui.update { it.copy(ruleSetId = id) }
@@ -303,14 +395,24 @@ class SubscribeViewModel @Inject constructor(
             // （member-permissions-v2 §3.7；即便带上也会被忽略，不如不带）
             val canManage = io.movieclaw.android.core.session.Permissions
                 .of(sessionRepository.ui.value.session).canManageSubscriptions
+            val plan = state.preview?.smart.takeIf { state.selectionMode == "smart" }
+            val smart = plan?.let { smartFields(it, state.smartChoice) }
             runCatching {
                 apiFactory.forOrigin(origin).createSubscription(
                     SubscriptionCreateRequest(
                         titleRef = currentRef,
                         selectedSeasons = state.selectedSeasons.sorted(),
                         followFuture = state.followFuture,
-                        ruleSetId = state.ruleSetId.takeIf { canManage },
+                        // 智能模式不能带规则组（服务端 422）
+                        ruleSetId = state.ruleSetId.takeIf { canManage && plan == null },
                         libraryId = state.libraryId.takeIf { canManage },
+                        selectionMode = if (plan != null) "smart" else "rules",
+                        smartProfileRevision = plan?.profileRevision,
+                        smartLanguageAnswer = smart?.language,
+                        smartResolution = smart?.resolution,
+                        smartSource = smart?.source,
+                        smartScope = smart?.scope,
+                        smartMemoryRevision = smart?.memoryRevision,
                     )
                 ).dataOrThrow()
             }
@@ -321,7 +423,15 @@ class SubscribeViewModel @Inject constructor(
                 .onFailure { e ->
                     // 客户端异常（序列化 / 参数）不走 HTTP 拦截器，日志里看不到——这里补一条
                     android.util.Log.w("McSubs", "订阅创建失败：${e::class.java.simpleName} ${e.message}", e)
-                    _ui.update { it.copy(creating = false, error = friendlyMessage(e)) }
+                    val conflict = (e as? io.movieclaw.android.core.network.ApiException)?.code == "SMART_VERSION_CONFLICT" ||
+                        (e as? retrofit2.HttpException)?.code() == 409
+                    if (conflict) {
+                        // 弹层打开期间别人改了设置或记忆：重新读一遍，按最新的再确认（不清空表单）
+                        _ui.update { it.copy(creating = false, smartError = friendlyMessage(e)) }
+                        refreshSmartPlan()
+                    } else {
+                        _ui.update { it.copy(creating = false, error = friendlyMessage(e)) }
+                    }
                 }
         }
     }
@@ -334,6 +444,10 @@ class SubscribeViewModel @Inject constructor(
  */
 internal fun submitBlockReason(state: SubscribeViewModel.UiState): String? {
     val media = state.preview?.media ?: return null
+    val smart = state.preview.smart
+    if (state.existing == null && state.selectionMode == "smart" && smart != null && !smart.configured) {
+        return if (smart.canEdit) "请先完成智能设置" else "请管理员先完成智能设置，或选择规则模式"
+    }
     if (media.kind != "tv" || state.existing != null || state.selectedSeasons.isNotEmpty()) return null
     if (media.status == "Ended" || media.status == "Canceled") return "该剧已完结，没有新集可追，请至少勾选一季"
     return if (state.followFuture) null else "请选择至少一季，或开启自动续订"

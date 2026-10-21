@@ -152,13 +152,20 @@ struct SmartDefaultsEditor: View {
     @State private var memory: API.SmartMemoryView?
     @State private var busy = false
     @State private var error: String?
+    @State private var reloads = 0
 
     var body: some View {
         Form {
             if let error {
                 Section {
                     SubsNoticeRow(text: error, tone: .error)
-                    Button("重新读取设置") { Task { await load() } }.accessibilityIdentifier("smart-reload")
+                    Button("重新读取设置") {
+                        Task {
+                            await load()
+                            // 订阅页的摘要也跟着刷新，取消回去看到的是最新设置
+                            onSaved()
+                        }
+                    }.accessibilityIdentifier("smart-reload")
                 }
             }
             if let draft = Binding($draft) {
@@ -169,8 +176,11 @@ struct SmartDefaultsEditor: View {
                     Picker("优先片源", selection: draft.source) {
                         Text("WEB-DL").tag("web-dl"); Text("蓝光").tag("blu-ray"); Text("Remux").tag("remux")
                     }.accessibilityIdentifier("smart-source")
+                    // 选择器的状态在创建时取自草稿；重新读取设置后按新版本重建，显示的就是要保存的值
                     SmartWaitPicker(title: "电影最多等", identifier: "smart-movie-wait", seconds: draft.movieWaitSeconds)
+                        .id("movie-\(defaults?.movieRevision ?? 0)-\(reloads)")
                     SmartWaitPicker(title: "剧集每集最多等", identifier: "smart-tv-wait", seconds: draft.tvWaitSeconds)
+                        .id("tv-\(defaults?.tvRevision ?? 0)-\(reloads)")
                     Toggle("允许后续洗版", isOn: Binding(mcGet: { draft.wrappedValue.allowUpgrade ?? true }, set: { draft.wrappedValue.allowUpgrade = $0 }))
                         .toggleStyle(SystemSwitchStyle()).accessibilityIdentifier("smart-upgrade")
                 } footer: {
@@ -271,6 +281,7 @@ struct SmartDefaultsEditor: View {
             let (value, remembered) = try await (defaultsTask, memoryTask)
             defaults = value
             memory = remembered
+            reloads += 1
             draft = .init(
                 movieRevision: value.movieRevision, tvRevision: value.tvRevision,
                 resolution: value.resolution, source: value.source,

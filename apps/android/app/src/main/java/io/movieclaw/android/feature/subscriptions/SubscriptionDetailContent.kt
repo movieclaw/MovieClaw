@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -49,6 +50,7 @@ import io.movieclaw.android.core.designsystem.LineSoft
 import io.movieclaw.android.core.designsystem.McMetrics
 import io.movieclaw.android.core.designsystem.McNavButton
 import io.movieclaw.android.core.designsystem.McType
+import io.movieclaw.android.core.designsystem.Accent
 import io.movieclaw.android.core.designsystem.Ok
 import io.movieclaw.android.core.designsystem.RemoteImage
 import io.movieclaw.android.core.designsystem.TextFaint
@@ -125,6 +127,9 @@ internal fun SubscriptionDetailContent(
     onSearchNow: () -> Unit,
     onManual: () -> Unit,
     onMore: () -> Unit,
+    smartActionable: Boolean = false,
+    onSmartDownload: (WantedView, String) -> Unit = { _, _ -> },
+    onSmartExtend: (WantedView, Int) -> Unit = { _, _ -> },
 ) {
     val scroll = rememberScrollState()
     Box(Modifier.fillMaxSize().background(Bg)) {
@@ -154,6 +159,35 @@ internal fun SubscriptionDetailContent(
                 ProgressCard(sub, activities)
                 Spacer(Modifier.height(12.dp))
                 FactsCard(sub)
+                // 智能选择：只列有智能等待状态的单元（等字幕、观察中…），其余沿用原有明细
+                val smartUnits = wanted.mapNotNull { w -> smartPresentation(w.selectionState, w.status)?.let { w to it } }
+                if (sub.selectionMode == "smart" && smartUnits.isNotEmpty()) {
+                    SectionTitle("智能选择")
+                    Card {
+                        smartUnits.forEach { (w, presentation) ->
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        if (sub.media.kind == "movie") "正片" else "S%02dE%02d".format(w.seasonNumber, w.episodeNumber),
+                                        style = McType.sub, fontWeight = FontWeight.Medium, color = TextPrimary,
+                                    )
+                                    Spacer(Modifier.weight(1f))
+                                    Text(presentation.first, style = McType.sub, color = Accent, modifier = Modifier.testTag("smart-label"))
+                                }
+                                Text(presentation.second, style = McType.sub, color = TextMuted, modifier = Modifier.testTag("smart-note"))
+                                SmartWantedPanel(
+                                    state = w.selectionState!!,
+                                    kind = sub.media.kind,
+                                    subtitleLine = sub.smartSubtitle?.line,
+                                    actionable = smartActionable && w.status == "wanted",
+                                    busy = busy,
+                                    onDownload = { key -> onSmartDownload(w, key) },
+                                    onExtend = { seconds -> onSmartExtend(w, seconds) },
+                                )
+                            }
+                        }
+                    }
+                }
                 if (wanted.isNotEmpty() && sub.media.kind == "tv") {
                     SectionTitle("追踪明细")
                     wanted.groupBy { it.seasonNumber }.toSortedMap().forEach { (season, items) ->
@@ -349,7 +383,18 @@ private fun FactsCard(sub: SubscriptionView) {
     val rows = buildList {
         add("收录范围" to scopeLabel(sub))
         if (sub.media.kind == "tv") add("自动续订" to if (sub.followFuture) "已开启" else "已关闭")
-        sub.ruleSetId?.let { add("规则组" to "#$it") }
+        if (sub.selectionMode == "smart") {
+            val policy = sub.smartPolicy
+            val resolution = (policy?.get("resolution") as? kotlinx.serialization.json.JsonPrimitive)?.content
+            val source = (policy?.get("source") as? kotlinx.serialization.json.JsonPrimitive)?.content
+            if (resolution != null) add("智能目标" to qualityText(resolution, source))
+            val upgrade = (policy?.get("allow_upgrade") as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
+            add("后续洗版" to if (upgrade) "达标核验后停止" else "关闭")
+            sub.smartSubtitle?.let { add("字幕" to if (it.understood) "不需要" else it.line.substringAfter(" · ")) }
+        } else {
+            // 智能订阅的 rule_set_id 是 0（兼容旧客户端的整数契约），不是一个真实的规则组
+            sub.ruleSetId?.takeIf { it > 0 }?.let { add("规则组" to "#$it") }
+        }
         shortTime(sub.createdAt)?.let { add("订阅于" to (sub.createdAt!!.take(4) + "-" + it)) }
     }
     Column(Modifier.fillMaxWidth().clip(CardShape).background(FillCard).border(1.dp, LineSoft, CardShape)) {

@@ -38,6 +38,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -94,6 +96,8 @@ data class SubDetailState(
     val activities: List<SubActivityView> = emptyList(),
     /** 在途种子的实时下载快照（按 info_hash 索引；5 秒轮询，无在途时为零请求） */
     val downloads: Map<String, io.movieclaw.android.core.model.SubscriptionDownloadView> = emptyMap(),
+    /** 「这次先下原版」之后追问看不看得懂这种语言（只问管理员） */
+    val askUnderstood: io.movieclaw.android.core.model.SmartSubtitleView? = null,
 )
 
 @HiltViewModel
@@ -264,6 +268,44 @@ class SubscriptionDetailViewModel @Inject constructor(
     }
 
     fun consumeNotice() { _notice.value = null }
+
+    /** 智能等待：立即下载某个候选（含「这次先下原版」）或延长等待；成功或冲突都重新读取 */
+    fun changeSmartWait(wanted: WantedView, candidateKey: String? = null, extendSeconds: Int? = null) {
+        val awaiting = wanted.selectionState?.text("reason")?.endsWith("awaiting_subtitles") == true
+        viewModelScope.launch {
+            val origin = origin ?: return@launch
+            _ui.update { it.copy(busy = true) }
+            runCatching {
+                apiFactory.forOrigin(origin).changeSmartWait(
+                    id, wanted.id,
+                    io.movieclaw.android.core.model.SmartWaitPayload(wanted.selectionVersion, extendSeconds, candidateKey),
+                ).dataOrThrow()
+            }
+                .onSuccess {
+                    val subtitle = _ui.value.sub?.smartSubtitle
+                    val admin = io.movieclaw.android.core.session.Permissions.of(repository.ui.value.session).isAdmin
+                    if (candidateKey != null && awaiting && admin && subtitle != null && !subtitle.understood) {
+                        _ui.update { it.copy(askUnderstood = subtitle) }
+                    }
+                }
+                .onFailure { e -> _notice.value = McNotice(friendlyMessage(e), FeedbackTone.Error) }
+            _ui.update { it.copy(busy = false) }
+            load()
+        }
+    }
+
+    fun dismissUnderstood() = _ui.update { it.copy(askUnderstood = null) }
+
+    /** 「看得懂」：把这种语言加进看得懂的语言，以后同语言作品直接下原版 */
+    fun markUnderstood() {
+        val subtitle = _ui.value.askUnderstood ?: return
+        _ui.update { it.copy(askUnderstood = null) }
+        act { api ->
+            val memory = api.smartMemory().dataOrThrow()
+            api.updateSmartMemory(io.movieclaw.android.core.model.SmartMemoryPatch(memory.revision, subtitle.language, true)).dataOrThrow()
+            "以后的${subtitle.languageLabel}作品都直接下原版"
+        }
+    }
 }
 
 @Composable
@@ -298,7 +340,9 @@ fun SubscriptionDetailScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Bg)) {
+    @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+    val exposeTags = Modifier.semantics { testTagsAsResourceId = true }
+    Box(Modifier.fillMaxSize().background(Bg).then(exposeTags)) {
         if (sub != null) {
             // 调整类动作（立即搜索 / 手动选种）只给发起人与超管——后端按同一口径下发
             // `can_manage`，只关注的成员只剩取消关注（member-permissions-v2 §3.7；授权仍以服务端校验为准）。
@@ -320,7 +364,19 @@ fun SubscriptionDetailScreen(
                 onSearchNow = { vm.searchNow() },
                 onManual = { onOpenSearch(sub.media.title, sub.media.kind) },
                 onMore = { menuOpen = true },
+                smartActionable = canTune && sub.status == "active" && sub.smartStatus == "active",
+                onSmartDownload = { w, key -> vm.changeSmartWait(w, candidateKey = key) },
+                onSmartExtend = { w, seconds -> vm.changeSmartWait(w, extendSeconds = seconds) },
             )
+            state.askUnderstood?.let { subtitle ->
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { vm.dismissUnderstood() },
+                    title = { Text("已开始下载原版。你看得懂${subtitle.languageLabel}吗？") },
+                    text = { Text("选「看得懂」，以后的${subtitle.languageLabel}作品都直接下原版。") },
+                    confirmButton = { TextButton(onClick = { vm.markUnderstood() }) { Text("看得懂", color = TextPrimary) } },
+                    dismissButton = { TextButton(onClick = { vm.dismissUnderstood() }) { Text("只这次", color = TextMuted) } },
+                )
+            }
         } else {
             Column(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp)) {

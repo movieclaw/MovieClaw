@@ -22,7 +22,8 @@ import kotlinx.coroutines.launch
  *
  * `-f 0x20000000`（SINGLE_TOP）不能省：MainActivity 是 standard 启动模式，不带它参数到不了已在前台的实例。
  * 播放中再发：`--el mc_seek_ms <文件时间毫秒>`、`--es mc_audio embedded:1`、`--es mc_subtitle embedded:0|off`。
- * `mc_route` 只认 `/play/` 开头的值，其余仍按通知路由处理（见 MainActivity）。
+ * `mc_route` 以 `/play/` 开头时起播；其余值在带了账号时先登录再按页面路由打开，不带账号仍按通知路由处理
+ * （见 MainActivity）。`--es mc_subscribe tmdb:movie:701` 登录后直接打开该作品的订阅抽屉。
  */
 @Singleton
 class DebugLaunch @Inject constructor(
@@ -40,11 +41,29 @@ class DebugLaunch @Inject constructor(
         intent.getLongExtra("mc_seek_ms", -1).takeIf { it >= 0 }?.let { active?.seekTo(it, exact = true, source = "lab") }
         intent.getStringExtra("mc_audio")?.let { active?.selectAudio(it) }
         intent.getStringExtra("mc_subtitle")?.let { ref -> active?.selectSubtitle(ref.takeIf { it != "off" }) }
-        val route = intent.getStringExtra("mc_route")?.let(::playRoute) ?: return false
-        holder.labScenario = intent.getStringExtra("mc_lab").orEmpty()
         val server = intent.getStringExtra("mc_server")
         val user = intent.getStringExtra("mc_user")
         val pass = intent.getStringExtra("mc_pass")
+        val rawRoute = intent.getStringExtra("mc_route")
+        val subscribe = intent.getStringExtra("mc_subscribe")
+        val route = rawRoute?.let(::playRoute)
+        if (route == null) {
+            // 非起播直达：带了账号就先登录，再落到页面路由（如 subscription/12）或打开订阅抽屉
+            // （`--es mc_subscribe tmdb:movie:701`，iOS `-mcSubscribe` 同款；模拟器验收用）
+            if (server == null || user == null || pass == null || (rawRoute == null && subscribe == null)) return false
+            scope.launch {
+                if (!signedIn(server, user)) {
+                    runCatching { repository.login(server, user, pass) }.onFailure {
+                        Log.w(TAG, "调试直达登录失败：${it.message}")
+                        return@launch
+                    }
+                }
+                rawRoute?.let(NotifyRouteBus::publish)
+                subscribe?.let { io.movieclaw.android.feature.subscriptions.SubscribeSheetHost.open(it) }
+            }
+            return true
+        }
+        holder.labScenario = intent.getStringExtra("mc_lab").orEmpty()
         scope.launch {
             if (server != null && user != null && pass != null && !signedIn(server, user)) {
                 runCatching { repository.login(server, user, pass) }.onFailure {
