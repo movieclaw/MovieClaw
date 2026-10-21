@@ -2562,7 +2562,8 @@ async def list_library_item_index(
     sort: Literal["title", "release_date", "rating"] = Query(
         default="title",
         description=(
-            "title=首字母档；release_date=月份档（图片库/其他库时间线）；rating=评分档。"
+            "title=首字母档；release_date=月份档（图片库/其他库时间线，"
+            "granularity=year 时为年份档）；rating=评分档。"
             "其余排序没有有意义的分档，索引条不显示"
         ),
     ),
@@ -2571,6 +2572,15 @@ async def list_library_item_index(
     order: Annotated[
         Literal["asc", "desc"] | None,
         Query(description="排序方向，与 /items 的 order 同义；两边必须传同一个值，offset 才对得上"),
+    ] = None,
+    granularity: Annotated[
+        Literal["month", "year"] | None,
+        Query(
+            description=(
+                "按内容时间排序时的分档粒度：month=按月（默认，图片库时间线）/ "
+                "year=按年（电视端年份跳转）。其余排序忽略"
+            )
+        ),
     ] = None,
     filters: Annotated[LibraryFilter, Depends(_filter_params)] = None,  # type: ignore[assignment]
     session: AsyncSession = Depends(get_session),
@@ -2593,6 +2603,7 @@ async def list_library_item_index(
         member_id=member_id,
         content_limit=await content_limit_for(session, principal),
         order=order,
+        granularity=granularity or "month",
     )
     return ok(
         [

@@ -329,6 +329,10 @@ WallSort = Literal[
 #: 与加方向之前逐字等价——老调用方、合集的 sort、首页「最近添加」都不受影响。
 WallOrder = Literal["asc", "desc"]
 
+#: 按内容时间排序时索引条的分档粒度：month=按月（图片库/其他库的时间线）/
+#: year=按年（电视大库的年份跳转）
+IndexGranularity = Literal["month", "year"]
+
 #: 各档的自然方向是不是升序：标题 A→Z、片长短→长、上映正序档是升序；
 #: 其余都是「大的 / 新的 / 近的在前」。补探序是临时接管，方向无意义
 _NATURAL_ASC: dict[str, bool] = {
@@ -749,6 +753,7 @@ async def build_library_index(
     member_id: int | None = None,
     content_limit: ContentLimit | None = None,
     order: WallOrder | None = None,
+    granularity: IndexGranularity = "month",
 ) -> list[tuple[str, int, int]]:
     """海报墙跳转索引：[(档, 条目数, 起始 offset)]，只回非空档。
 
@@ -756,7 +761,8 @@ async def build_library_index(
     - ``sort=rating``：评分档（9+ / 8+ / 7+ / 更低 / 未评分）；
     - ``sort=release_date``：按内容时间倒序下的月份分档（``2026-08``），缺日期的
       归到 ``未知`` 档并排在最后——图片库/其他库的时间线靠它按月分组与跳转
-      （docs/design/library-photo-kind.md 2.6）。
+      （docs/design/library-photo-kind.md 2.6）。``granularity="year"`` 时改为按年
+      分档（``2026``）：几千部的电影库按月有上百档，电视上的索引条选不过来。
 
     起始 offset 就是海报墙 ``?sort=<同一排序>&offset=`` 的取值——前端点一下
     档名即可跳到该档第一格；两种排序与分页共用同一份排序，口径天然一致。
@@ -790,7 +796,8 @@ async def build_library_index(
         ).all()
         for index, (_, measure) in enumerate(r for r in rows if r[0] is not None):
             if sort == "release_date":
-                label = measure.strftime("%Y-%m") if measure else "未知"
+                fmt = "%Y" if granularity == "year" else "%Y-%m"
+                label = measure.strftime(fmt) if measure else "未知"
             elif measure is None:
                 label = "未评分"
             elif measure >= 9:

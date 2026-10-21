@@ -1501,10 +1501,11 @@ nonisolated extension APIClient {
 
     /// 海报墙的跳转索引（按标题：A-Z 首字母档；按内容时间：月份档）
     /// `GET /libraries/{library_id}/item-index`
-    func uiLibraryItemsIndex(libraryId: Int, sort: String? = nil, order: String? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil) async throws -> [API.LibraryIndexEntryView] {
+    func uiLibraryItemsIndex(libraryId: Int, sort: String? = nil, order: String? = nil, granularity: String? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil) async throws -> [API.LibraryIndexEntryView] {
         var query: [URLQueryItem] = []
         if let sort { query.append(URLQueryItem(name: "sort", value: "\(sort)")) }
         if let order { query.append(URLQueryItem(name: "order", value: "\(order)")) }
+        if let granularity { query.append(URLQueryItem(name: "granularity", value: "\(granularity)")) }
         if let g { query.append(URLQueryItem(name: "g", value: "\(g)")) }
         if let c { query.append(URLQueryItem(name: "c", value: "\(c)")) }
         if let d { query.append(URLQueryItem(name: "d", value: "\(d)")) }

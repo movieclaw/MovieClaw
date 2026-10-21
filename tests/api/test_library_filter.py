@@ -487,6 +487,18 @@ def test_facets_endpoint_is_wired(tmp_path, monkeypatch) -> None:
         # /items 与 /item-index 吃同一组参数，不能因为多带筛选就 422
         assert client.get(f"/api/v1/libraries/{library_id}/items?g=16&c=JP").status_code == 200
         assert client.get(f"/api/v1/libraries/{library_id}/item-index?g=16&c=JP").status_code == 200
+        # 年份粒度是可选参数：带上照常 200，乱填被拒（不会悄悄退回按月）
+        by_year = client.get(
+            f"/api/v1/libraries/{library_id}/item-index?sort=release_date&granularity=year"
+        )
+        assert by_year.status_code == 200, by_year.text
+        assert by_year.json()["data"] == []
+        assert (
+            client.get(
+                f"/api/v1/libraries/{library_id}/item-index?sort=release_date&granularity=week"
+            ).status_code
+            == 422
+        )
 
     get_settings.cache_clear()
 
@@ -684,6 +696,84 @@ async def test_reversed_index_is_the_natural_index_backwards(db) -> None:
             assert [start for _, _, start in backwards] == [
                 total - start - count for _, count, start in reversed(natural)
             ], sort
+
+
+async def _add_movie(session, library_id, title, tmdb_id, released) -> None:
+    item = MediaItem(
+        kind="movie", tmdb_id=tmdb_id, title=title, original_title=title, year=int(released[:4])
+    )
+    session.add(item)
+    await session.flush()
+    assert item.id is not None
+    session.add(
+        MediaMetadata(
+            media_item_id=item.id,
+            genre_ids=[18],
+            origin_countries=["US"],
+            release_date=date.fromisoformat(released),
+            scraped_at=utcnow(),
+        )
+    )
+    session.add(_file(library_id, item.id))
+    await session.flush()
+
+
+async def test_release_index_by_year_merges_months(db) -> None:
+    """按年分档（电视端的年份索引条）：同一年不同月份并成一档，起点仍是该年在墙里的第一格。
+
+    不传粒度时仍按月分档，图片库时间线的老口径一个字不变。
+    """
+    async with db.session() as session:
+        library_id, _ = await _seed(session)
+        await _add_movie(session, library_id, "釜山行", 406, "2016-07-20")
+
+        wall = await _order(session, library_id, "release_date")
+        months = await build_library_index(session, library_id, "release_date", member_id=_ME)
+        years = await build_library_index(
+            session, library_id, "release_date", member_id=_ME, granularity="year"
+        )
+
+        assert wall == ["寄生虫", "你的名字", "釜山行", "盗梦空间", "千与千寻", "霸王别姬"]
+        assert [label for label, _, _ in months] == [
+            "2019-05",
+            "2016-08",
+            "2016-07",
+            "2010-07",
+            "2001-07",
+            "1993-01",
+        ]
+        assert years == [
+            ("2019", 1, 0),
+            ("2016", 2, 1),
+            ("2010", 1, 3),
+            ("2001", 1, 4),
+            ("1993", 1, 5),
+        ]
+
+
+async def test_title_index_buckets_chinese_by_pinyin_initial(db) -> None:
+    """按标题的索引条：中文按拼音首字母归档、与英文片名同档交错排，数字开头归 # 且排最后。
+
+    电视端右侧的 A–Z 条直接拿这些档位跳转，档错一个字母就跳到别人家去。
+    """
+    async with db.session() as session:
+        library_id, _ = await _seed(session)
+        await _add_movie(session, library_id, "Dune", 407, "2021-10-22")
+        await _add_movie(session, library_id, "2046", 408, "2004-09-29")
+
+        wall = await _order(session, library_id, "title")
+        buckets = await build_library_index(session, library_id, "title", member_id=_ME)
+
+        # 盗梦空间（dao…）与 Dune（dune）同在 D 档，按拼音串比较排在前面
+        assert wall == ["霸王别姬", "盗梦空间", "Dune", "寄生虫", "你的名字", "千与千寻", "2046"]
+        assert buckets == [
+            ("B", 1, 0),
+            ("D", 2, 1),
+            ("J", 1, 3),
+            ("N", 1, 4),
+            ("Q", 1, 5),
+            ("#", 1, 6),
+        ]
 
 
 # ---------------------------------------------------------------------------
