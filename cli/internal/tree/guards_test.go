@@ -30,6 +30,10 @@ var knownNonGenerated = []string{
 	"skills.list",
 	// 插件网页（docs/design/plugin-web-pages.md）：侧边栏数据源与 iframe 加载的静态文件，
 	// 都是 Web 基础设施；命令行看插件网页走 app plugins pages list
+	// 网页主题（docs/design/theme-plugins.md）：前端加载器与设置页的数据源，CLI 场景无消费方
+	"ui.themes.list",
+	"ui.themes.stylesheet",
+	"ui.themes.file",
 	"ui.apps.list",
 	"ui.apps.root",
 	"ui.apps.file",

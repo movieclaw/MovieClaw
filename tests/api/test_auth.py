@@ -318,6 +318,11 @@ _PUBLIC_ALLOWLIST = {
     ("POST", "/api/v1/auth/device/token"),
     ("GET", "/api/v1/appearance"),  # 登录页需要背景图地址
     ("GET", "/api/v1/appearance/backdrops/{backdrop_id}"),  # 登录页背景图文件
+    # 网页主题的样式与资源（docs/design/theme-plugins.md §4.6）：登录页、初始化页也要按所选
+    # 主题渲染，样式表挂在根布局的 <head> 里、没有登录态可带；只托管样式 / 图片 / 字体并带沙箱 CSP。
+    # 主题的外框组件（JS）在路由里单独要求登录，主题目录 /ui/themes 同样要登录
+    ("GET", "/api/v1/ui/themes.css"),
+    ("GET", "/api/v1/ui/themes/{theme_id}/{path}"),
     # 影片分享的访客通道（docs/design/media-share.md §4.3）：访客没有账号，
     # 每个端点自带 require_share_access（slug 有效 + 密码已解锁）。匿名请求
     # 一个不存在的 slug 得到 404 而不是 401，与「分享不存在」不可区分。
@@ -356,6 +361,7 @@ def fill_path_params(path: str) -> str:
         .replace("{site_id}", "mteam")
         .replace("{history_id}", "1")
         .replace("{backdrop_id}", "f" * 32)
+        .replace("{theme_id}", "nope-theme")
         .replace("{attachment_id}", "f" * 32)
         .replace("{downloader_id}", "1")
         .replace("{category}", "anime")

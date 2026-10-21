@@ -488,6 +488,11 @@ _MEMBER_ALLOWLIST = {
     # 真正的闸在批准那一步：人要在网页或 App 里核对配对码；转码器只有超管批得了。
     ("POST", "/api/v1/auth/device/authorize"),
     ("POST", "/api/v1/auth/device/token"),
+    # 网页主题（docs/design/theme-plugins.md §4.6）：每个人各选各的主题，成员要能读主题目录；
+    # 样式与资源是公开区（匿名可访问，成员自然可访问）；装卸主题是插件管理，仍只有管理员
+    ("GET", "/api/v1/ui/themes"),
+    ("GET", "/api/v1/ui/themes.css"),
+    ("GET", "/api/v1/ui/themes/{theme_id}/{path}"),
     # 个人信息自助（按 Principal 分流到成员表）
     ("GET", "/api/v1/auth/me"),
     ("PUT", "/api/v1/auth/profile"),
@@ -760,6 +765,7 @@ _MEMBER_ALLOWLIST = {
 
 # 路径参数哑值（与 test_auth.py 的匿名守护测试保持一致）
 _PATH_DUMMIES = {
+    "{theme_id}": "nope-theme",
     "{product}": "x",  # 客户端更新：不存在的客户端名（422，不联网）
     "{letter_id}": "1",  # 可靠事件死信
     "{start_ms}": "0",  # 预切片段的起点
