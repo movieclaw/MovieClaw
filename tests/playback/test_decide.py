@@ -1969,3 +1969,63 @@ def test_failure_history_without_a_degrade_keeps_the_audio():
     assert decision.tier is PlaybackTier.HARDWARE_TRANSCODE
     assert decision.degraded_from is None
     assert (decision.audio.action, decision.audio.codec) == ("copy", "ac3")
+
+
+# ---------------------------------------------------------------------------
+# MP4 样本表上限（#962）：ExoPlayer 解析 moov 时把每条轨的每个样本都建进 Java 堆
+# ---------------------------------------------------------------------------
+
+#: Android 引擎在 512 MB 堆上申报的上限（堆的四分之一 / 每样本 32 字节）
+EXO_512MB_SAMPLE_LIMIT = 4_194_304
+DV_TV_TRUEHD = _replace(
+    DV_TV, audio=ANDROID_TRUEHD.audio, mp4_sample_limit=EXO_512MB_SAMPLE_LIMIT
+)
+#: #962 的片源：144 分钟 4K60 杜比视界 P5 MP4，TrueHD 7.1 + DTS + 两条 E-AC-3 + 两条 AAC
+NEZHA_MP4 = media(
+    container="mp4", video_codec="hevc", resolution="2160p",
+    hdr="Dolby Vision", dv_profile=5, dv_bl_compatible=False,
+    duration_ms=144 * 60_000, frame_rate=60.0,
+    audio_tracks=(
+        AudioTrack(ref="embedded:1", codec="truehd", channels=8, is_default=True),
+        AudioTrack(ref="embedded:2", codec="dts", channels=6),
+        AudioTrack(ref="embedded:3", codec="eac3", channels=6),
+        AudioTrack(ref="embedded:4", codec="eac3", channels=6),
+        AudioTrack(ref="embedded:5", codec="aac", channels=6),
+        AudioTrack(ref="embedded:6", codec="aac", channels=2),
+    ),
+)
+
+
+def test_mp4_whose_sample_table_overflows_the_player_heap_is_remuxed():
+    """TrueHD 每秒 1200 个样本：两个多小时的 MP4 光样本表就三百多 MB，Exo 直出原文件起播十来秒
+    内存溢出闪退（#962）。换封装成 HLS 分片（没有整片样本表），视频照旧 copy、杜比视界不丢。"""
+    decision = decide_playback(NEZHA_MP4, DV_TV_TRUEHD, WITH_GPU)
+    assert decision.tier is PlaybackTier.REMUX, decision.reason
+    assert decision.video.action == "copy"
+    assert "样本表" in decision.reason
+    assert needs_keyframe_probe(NEZHA_MP4, DV_TV_TRUEHD, WITH_GPU)
+
+
+def test_sample_limit_only_applies_to_players_that_declare_it():
+    """不申报上限的客户端（老 App、Apple 的自研引擎）照旧直出原文件。"""
+    no_limit = _replace(DV_TV_TRUEHD, mp4_sample_limit=None)
+    assert decide_playback(NEZHA_MP4, no_limit, WITH_GPU).tier is PlaybackTier.DIRECT_PLAY
+
+
+@pytest.mark.parametrize(
+    "profile",
+    [
+        # 同一部片的 MKV：Matroska 解析器只读索引，不建整片样本表
+        _replace(NEZHA_MP4, container="mkv"),
+        # 普通 MP4 电影：三小时 24 帧、DTS 加三条 AAC，约 270 万个样本
+        media(container="mp4", duration_ms=180 * 60_000, frame_rate=23.976,
+              audio_tracks=(DTS_51, AAC_51, AAC_51, AAC_STEREO)),
+        # 一集 45 分钟、24 帧、TrueHD 加一条 AAC 的 MP4，约 344 万个样本
+        _replace(NEZHA_MP4, duration_ms=45 * 60_000, frame_rate=23.976,
+                 audio_tracks=NEZHA_MP4.audio_tracks[::5]),
+        # 时长不明：无从估算，不拦
+        _replace(NEZHA_MP4, duration_ms=None),
+    ],
+)
+def test_sample_limit_leaves_files_within_it_alone(profile):
+    assert decide_playback(profile, DV_TV_TRUEHD, WITH_GPU).tier is PlaybackTier.DIRECT_PLAY

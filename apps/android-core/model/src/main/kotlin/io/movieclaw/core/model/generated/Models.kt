@@ -171,6 +171,7 @@ data class ClientCapabilityIn(
     @SerialName("dolby_vision_profiles") val dolbyVisionProfiles: List<Long>? = null,
     @SerialName("dolby_vision_base_layer_profiles") val dolbyVisionBaseLayerProfiles: List<Long>? = null,
     @SerialName("dolby_vision_record_audit") val dolbyVisionRecordAudit: Boolean? = null,
+    @SerialName("mp4_sample_limit") val mp4SampleLimit: Long? = null,
 )
 
 /**

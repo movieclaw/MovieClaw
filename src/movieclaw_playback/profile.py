@@ -60,6 +60,7 @@ def media_profile_from_file(
         color_space=file.color_space,
         bit_depth=file.bit_depth,
         duration_ms=(file.duration_seconds * 1000) if file.duration_seconds else None,
+        frame_rate=file.frame_rate,
         audio_tracks=_audio_tracks(file, audio_choice),
         subtitle_tracks=_subtitle_tracks(file, subtitle_choice),
         keyframe_interval_s=keyframe_interval_s,

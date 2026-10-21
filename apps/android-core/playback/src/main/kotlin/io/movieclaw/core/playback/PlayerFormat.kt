@@ -101,4 +101,14 @@ object BufferBudget {
 
     /** 堆上限的四分之一，夹在 16～128 MB（128 MB ≈ Exo 默认的视频缓冲上限） */
     fun targetBytes(maxHeapBytes: Long): Int = (maxHeapBytes / 4).coerceIn(MIN_BYTES.toLong(), MAX_BYTES.toLong()).toInt()
+
+    /** Exo 的 MP4 样本表每个样本占的堆（偏移、大小、时间戳、标记；JVM 实测约 31 字节） */
+    const val MP4_BYTES_PER_SAMPLE = 32
+
+    /**
+     * 直出 MP4 / MOV 原文件放得下的样本表（各轨样本数合计，随能力申报给服务端）：同样占堆的四分之一，与缓冲合起来不过半。
+     * Exo 解析 moov 时把所有轨的样本表整个建进 Java 堆，两个多小时的 TrueHD 光这一条轨就三百多 MB，加上缓冲起播
+     * 十来秒就内存溢出闪退（#962）；估算超出的片服务端改给换封装
+     */
+    fun mp4SampleLimit(maxHeapBytes: Long): Long = maxHeapBytes / 4 / MP4_BYTES_PER_SAMPLE
 }

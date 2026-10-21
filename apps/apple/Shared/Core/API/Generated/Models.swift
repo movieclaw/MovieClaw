@@ -1172,6 +1172,7 @@ nonisolated extension API {
         var dolbyVisionProfiles: [Int]?
         var dolbyVisionBaseLayerProfiles: [Int]?
         var dolbyVisionRecordAudit: Bool?
+        var mp4SampleLimit: Int?
 
         enum CodingKeys: String, CodingKey {
             case video
@@ -1189,6 +1190,7 @@ nonisolated extension API {
             case dolbyVisionProfiles = "dolby_vision_profiles"
             case dolbyVisionBaseLayerProfiles = "dolby_vision_base_layer_profiles"
             case dolbyVisionRecordAudit = "dolby_vision_record_audit"
+            case mp4SampleLimit = "mp4_sample_limit"
         }
     }
 

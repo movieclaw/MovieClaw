@@ -45,6 +45,7 @@ class CapabilityProbe(
             localTracks = true,
             dolbyVisionProfiles = dolbyVision.map(Int::toLong).sorted(),
             dolbyVisionBaseLayerProfiles = baseLayer.map(Int::toLong).sorted(),
+            mp4SampleLimit = BufferBudget.mp4SampleLimit(Runtime.getRuntime().maxMemory()),
         )
     }
 

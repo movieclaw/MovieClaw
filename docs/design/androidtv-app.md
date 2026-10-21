@@ -116,6 +116,14 @@ mkv / ts / webm 一律重封装成 HLS（`containers` 字段服务端从没读�
 现有客户端只申报 mp4 / hls-fmp4、不带 `local_tracks`，行为不变（`tests/playback/test_decide.py` 锁住）。
 老服务端会忽略 `local_tracks`、照旧重封装——能播，只是多走一路 HLS。
 
+**MP4 样本表上限（#962）**：Exo 解析 MP4 / MOV 的 moov 时，把所有轨（没选中的也算）每个样本的偏移、大小、时间戳
+整个建进 Java 堆，约 31～34 字节 / 样本。TrueHD 每秒 1200 个样本：144 分钟、带 TrueHD 与五条其它音轨的 MP4 共约
+1300 万个样本，JVM 实测解析完常驻 426 MB、峰值 631 MB；512 MB 的堆再叠上 128 MB 播放缓冲，起播十几秒就内存溢出、
+整个 App 闪退——不报播放错误，降档回路也接不住，再点几次都一样。因此能力里申报 `mp4_sample_limit`（堆的四分之一 /
+每样本 32 字节，512 MB 堆约 419 万；`BufferBudget.mp4SampleLimit`），服务端按时长 × （帧率 + 各音轨每秒样本数）估算，
+超出的 MP4 / MOV 不给原文件、改换封装（`decide._overflows_mp4_sample_limit`）：HLS 分片各自只带几秒的样本表，视频
+照旧 copy，杜比视界不丢。MKV 不受影响（Matroska 解析器只读索引）。老客户端不带这个字段 = 不受限，行为不变。
+
 ### 4.3 补短板
 
 | 短板 | 方案 | 许可 |

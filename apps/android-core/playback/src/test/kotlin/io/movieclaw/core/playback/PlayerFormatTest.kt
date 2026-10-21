@@ -109,4 +109,11 @@ class BufferBudgetTest {
         org.junit.Assert.assertEquals(48 * mb, BufferBudget.targetBytes(192 * mb).toLong())
         org.junit.Assert.assertEquals(16 * mb, BufferBudget.targetBytes(48 * mb).toLong())
     }
+
+    @org.junit.Test
+    fun mp4SampleTableFollowsTheHeap() {
+        // 512 MB 的堆放得下约 419 万个样本：两小时 24 帧的普通电影（约 140 万）直出，144 分钟带 TrueHD 的（一千多万）不行（#962）
+        org.junit.Assert.assertEquals(4_194_304L, BufferBudget.mp4SampleLimit(512 * mb))
+        org.junit.Assert.assertEquals(1_572_864L, BufferBudget.mp4SampleLimit(192 * mb))
+    }
 }

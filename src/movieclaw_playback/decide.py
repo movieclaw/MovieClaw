@@ -42,6 +42,14 @@ MAX_KEYFRAME_INTERVAL_S = 15.0
 #: 能被 ``<video src>`` 直接消费的容器。其余（mkv/ts/m2ts…）都要 remux。
 DIRECT_PLAY_CONTAINERS = frozenset({"mp4", "m4v", "mov"})
 
+#: MP4 里音轨每秒的样本数（48 kHz，见 ``_overflows_mp4_sample_limit``）。TrueHD 每个访问单元
+#: 1/1200 秒，是唯一的大头；没列的按 100 估上限。视频按帧率，不知道按 60
+_AUDIO_SAMPLES_PER_S = {
+    "truehd": 1200, "dts": 94, "aac": 47, "ac3": 32, "eac3": 32, "mp3": 42, "opus": 50, "flac": 12,
+}
+_OTHER_AUDIO_SAMPLES_PER_S = 100
+_UNKNOWN_FRAME_RATE = 60
+
 #: 归一化分辨率标签 → 高度。media_probe 只落标签不落 width/height。
 _RESOLUTION_HEIGHT = {
     "4320p": 4320, "2160p": 2160, "1440p": 1440,
@@ -143,6 +151,7 @@ class MediaProfile:
     color_space: str | None = None
     bit_depth: int | None = None
     duration_ms: int | None = None
+    frame_rate: float | None = None
     audio_tracks: tuple[AudioTrack, ...] = ()
     subtitle_tracks: tuple[SubtitleTrack, ...] = ()
     keyframe_interval_s: float | None = None
@@ -714,6 +723,25 @@ def _takes_universal_shortcut(media: MediaProfile, capability: ClientCapability)
     return not media.dolby_vision_ignored or capability.dolby_vision_record_audit
 
 
+def _overflows_mp4_sample_limit(media: MediaProfile, capability: ClientCapability) -> bool:
+    """MP4 / MOV 原文件的样本表估算超出播放器申报的上限（#962）。
+
+    ExoPlayer 解析 moov 时把所有轨的样本表整个建进 Java 堆（约 31 字节 / 样本，JVM 实测）。
+    144 分钟的 TrueHD 轨有一千多万个样本，起播后缓冲一涨就内存溢出、整个 App 闪退——不报错，
+    降档回路也接不住。换封装出来的 HLS 分片各自只带几秒的样本表，视频照旧 copy。
+    """
+    limit = capability.mp4_sample_limit
+    if not limit or not media.duration_ms:
+        return False
+    if (media.container or "").lower() not in DIRECT_PLAY_CONTAINERS:
+        return False
+    per_second = (media.frame_rate or _UNKNOWN_FRAME_RATE) + sum(
+        _AUDIO_SAMPLES_PER_S.get((t.codec or "").lower(), _OTHER_AUDIO_SAMPLES_PER_S)
+        for t in media.audio_tracks
+    )
+    return media.duration_ms / 1000 * per_second > limit
+
+
 def _no_hardware(policy: PlaybackPolicy) -> str:
     """「没有可用硬件」的那半句：远程转码器在线但正忙时说清楚是暂时的。"""
     if policy.hardware_busy:
@@ -1042,6 +1070,9 @@ def _resolve_tier(
             # P7 原文件只有杜比视界解码器放得了；换封装的流剥掉了增强层与 RPU
             tier = PlaybackTier.REMUX
             reason += "；原文件带杜比视界增强层、播放器放不了，已重封装为只含 HDR10 基础层的流"
+        elif direct and _overflows_mp4_sample_limit(media, capability):
+            tier = PlaybackTier.REMUX
+            reason += "；原文件的样本表太大、播放器内存装不下，已重封装为分片流"
         elif direct and (not audio.needs_remap or capability.local_tracks):
             tier = PlaybackTier.DIRECT_PLAY
         elif audio.needs_remap:

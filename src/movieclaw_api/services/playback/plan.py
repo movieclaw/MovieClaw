@@ -363,4 +363,5 @@ def capability_from_request(payload) -> ClientCapability:  # noqa: ANN001
         dolby_vision_profiles=frozenset(payload.dolby_vision_profiles),
         dolby_vision_base_layer_profiles=frozenset(payload.dolby_vision_base_layer_profiles),
         dolby_vision_record_audit=payload.dolby_vision_record_audit,
+        mp4_sample_limit=payload.mp4_sample_limit,
     )
