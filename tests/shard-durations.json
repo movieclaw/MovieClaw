@@ -177,6 +177,7 @@
  "tests/api/test_plugin_diagnostics.py": 2.1,
  "tests/api/test_plugin_files.py": 31.2,
  "tests/api/test_plugin_isolation.py": 3.8,
+ "tests/api/test_plugin_market.py": 12.0,
  "tests/api/test_plugin_net.py": 1.1,
  "tests/api/test_plugin_new_ops.py": 2.1,
  "tests/api/test_plugin_packages.py": 31.4,

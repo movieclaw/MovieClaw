@@ -170,6 +170,8 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
     带第三方依赖（清单 `[dependencies]`）的：上传结果的 `dependencies` 列出要下载的包、大小、是否含本机代码；
     `needs_consent` 为真时**先把这份清单原样告诉用户、得到同意**，再加 `--dependencies <dependencies.lock_digest>` 批准。
     锁文件没变的升级不用再加。
+   官方插件仓库里已经发布的插件（`app plugins market list` 里有的）不用打包：
+    `app plugins market install <id> --version <版本>` 让服务器下载核对后进待批准，再照上面 `approve`；升级、换回旧版都是同一条命令。
 11. **卸载**：`app plugins packages uninstall <id> --yes`（默认保留插件数据；用户要求清数据才加 `--purge-data`，它只删 `plugin_data` 里该 id 的行，不删设置文件和私有目录）。卸载后再查一次 `app plugins list`，确认条目已消失；替换内置插件的包卸载后内置版本自动回来。
     回到上一版：`app plugins packages rollback <id> --yes`。
 12. **停用 / 官方插件**：插件包与官方插件（随应用提供的，如通道、下载器、网盘规格预探）都能临时停用：

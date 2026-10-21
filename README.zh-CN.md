@@ -186,7 +186,7 @@ MovieClaw 把一个自主的通用 Agent 装进了影音服务器。打理片库
 ### 插件
 
 - 主程序只做通用能力，个性化玩法交给插件：消息通道、下载器、网盘直链这类插件都在
-  [movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins) 插件仓库，下载 `.mcplugin` 在设置里的「插件」页上传即可安装。
+  [movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins) 插件仓库，在「设置 → 插件 → 插件市场」里直接安装；也可以手动上传 `.mcplugin`。
 - 想自己写一个？看插件仓库的 `example/GUIDE.md`，或者直接让 AI 助手帮你写。
 
 <a id="boundaries"></a>
@@ -560,7 +560,7 @@ Web 控制台 `http://127.0.0.1:3000`，API 文档 `http://127.0.0.1:8000/docs`�
 
 第三方插件，以及每个插件旁边的商店元数据（`store.json`），在
 [movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins)。怎么写见该仓库的 `example/GUIDE.md`。
-服务器现在仍然只通过上传 `.mcplugin` 安装插件。
+应用内的插件市场读这个仓库的签名索引；手动上传 `.mcplugin` 也照样能装。
 
 有问题、有建议、发现 Bug，都欢迎开
 [Issue](https://github.com/movieclaw/movieclaw/issues)。

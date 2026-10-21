@@ -5,11 +5,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Banner, ErrorBanner, LINK_CLASS, StatusPill } from "@/components/cloud-push-ui";
 import { ChevronRightIcon } from "@/components/icons";
+import { PluginMarket } from "@/components/plugin-market";
 import { PluginPackagesSection } from "@/components/plugin-packages-section";
-import { SETTINGS_BUTTON_CLASS, SettingsList, SettingsRow, SettingsSection } from "@/components/settings-ui";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SettingsList,
+  SettingsRow,
+  SettingsSection,
+  SettingsTabs,
+} from "@/components/settings-ui";
 import { useToast } from "@/components/feedback";
 import {
   exitSafeMode,
+  listMarket,
   listPlugins,
   type PluginInfo,
   type PluginsOverview,
@@ -35,6 +43,7 @@ import {
   systemModules,
   systemModulesLine,
 } from "@/lib/plugins-display";
+import { useTabParam } from "@/lib/use-tab-param";
 
 /**
  * 设置 → 插件（系统组）：只放真正的插件（docs/design/plugin-page-tiers.md）。不为了插件而插件：
@@ -44,10 +53,17 @@ import {
  *   - 第三方插件 / 本地插件：插件包的上传、批准、回滚、卸载（PluginPackagesSection）；
  *   - 系统模块：应用运行所需，平时只在页面底部留一行入口；出问题时浮到页面顶部。
  *
+ * 两个页签：已安装（上面这些）与插件市场（?tab=market，官方插件仓库的签名索引，PluginMarket）。
+ *
  * 深链：?module=<条目 id> 定位到那一行（系统模块会先展开）；旧链接 ?tab=builtin 展开系统模块。
  * 安全模式影响整页（本地 / 第三方插件都被跳过），横幅放在最上面。
  */
+const PAGE_TABS = ["installed", "market"] as const;
+
 export function PluginsPage() {
+  const [tab, setTab] = useTabParam(PAGE_TABS, "installed");
+  // 页签上的「有更新」数：服务器缓存着索引，这一下不打 GitHub；取不到就不显示
+  const [updates, setUpdates] = useState(0);
   const [overview, setOverview] = useState<PluginsOverview | null>(null);
   const [exiting, setExiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +82,14 @@ export function PluginsPage() {
   useEffect(() => {
     reload();
   }, [reload]);
+  const reloadUpdates = useCallback(() => {
+    listMarket()
+      .then((market) => setUpdates(market.updates))
+      .catch(() => setUpdates(0));
+  }, []);
+  useEffect(() => {
+    reloadUpdates();
+  }, [reloadUpdates]);
 
   // 地址栏只在挂载时读一次（SSR 阶段没有 window，同 useTabParam）
   useEffect(() => {
@@ -106,8 +130,45 @@ export function PluginsPage() {
   const system = plugins ? systemModules(plugins) : [];
   const systemProblems = system.filter(needsAttention);
 
+  const tabs = (
+    <SettingsTabs
+      tabs={[
+        { id: "installed", label: "已安装" },
+        {
+          id: "market",
+          label: (
+            <>
+              插件市场
+              {updates > 0 && (
+                <span className="rounded-full bg-[var(--accent)] px-1.5 text-caption font-semibold tabular-nums text-[#141821]">
+                  {updates}
+                </span>
+              )}
+            </>
+          ),
+        },
+      ]}
+      value={tab}
+      onChange={setTab}
+    />
+  );
+  if (tab === "market") {
+    return (
+      <div className="space-y-8">
+        {tabs}
+        <PluginMarket
+          onChanged={() => {
+            reload();
+            reloadUpdates();
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-10">
+      {tabs}
       {error && <ErrorBanner>{error}</ErrorBanner>}
       {safeMode?.active && (
         <Banner

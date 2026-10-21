@@ -259,6 +259,7 @@ C1 与 C2 互不依赖，可以先做 C1；C3、C4 依赖 C2；C5 依赖 C2；C6
    这是 NAS 内核 4.4 上唯一能真正强制的边界；C6 按此实现。
 2. **依赖只能随包携带**（`vendor/`），安装时不联网、不跑 pip。打包工具不替作者解包依赖，也不校验平台标签。
 3. **安装来源只支持手动上传插件包**（管理页或 `mclaw`）；第三阶段不做插件市场 / 远程仓库 / 填网址安装。
+   （后续：插件市场已做，从官方仓库的签名索引安装，仍走这里的待批准与批准，见 [plugin-market.md](plugin-market.md)。）
    第三方插件目录和索引元数据（`store.json`）后来放到 <https://github.com/movieclaw/movieclaw-plugins>，
    服务器安装时仍然只收上传的 `.mcplugin`，不按索引里的 `min_app` 或签名决定能不能装。
 4. **成员区路由已开放**（`plugin-phase2b.md` §8）：`routes.mount(..., zone="member")` 用登录成员鉴权，

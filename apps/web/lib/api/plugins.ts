@@ -665,3 +665,125 @@ export async function savePluginSettings(
     )
   ).data;
 }
+
+// ---------------------------------------------------------------------------
+// 插件市场（设置 → 插件 → 插件市场；services/plugin_market.py）
+// 数据来自 movieclaw-plugins 仓库的签名索引；安装 = 服务器下载核对后放进待批准，批准沿用上面那套。
+// ---------------------------------------------------------------------------
+
+export type MarketCategory = "storage" | "downloader" | "messaging" | "sites" | "library" | "tools";
+
+export interface MarketPermissions {
+  operations: string[];
+  paths: PathGrant[];
+  network: boolean;
+  callbacks: string[];
+  /** 要订阅的敏感事件（谁在什么时候看了什么） */
+  events: string[];
+}
+
+export interface MarketVersion {
+  version: string;
+  prerelease: boolean;
+  released_at: string | null;
+  /** 已撤回：原因 */
+  yanked: string | null;
+  /** 这一版的更新说明（markdown） */
+  notes: string;
+  changelog_url: string | null;
+  source_url: string | null;
+  runtime: string;
+  requires: Record<string, string>;
+  permissions: MarketPermissions;
+  web: boolean;
+  dependencies: { name: string; version: string; native: boolean }[];
+  /** 这台服务器要下载的插件包字节数 */
+  size: number | null;
+  compatible: boolean;
+  incompatible_reason: string | null;
+}
+
+export interface MarketInstalled {
+  version: string;
+  /** package：插件包；bundled：随应用提供 */
+  source: "package" | "bundled";
+  state: string;
+  previous_version: string | null;
+  yanked: string | null;
+}
+
+export interface MarketPlugin {
+  id: string;
+  name: string;
+  summary: string;
+  description: string;
+  category: MarketCategory | string;
+  author: { name: string; url: string | null };
+  homepage: string | null;
+  repository: string | null;
+  license: string;
+  icon_url: string | null;
+  deprecated: { reason: string; replaced_by: string | null } | null;
+  latest: string | null;
+  /** 该装的那一版（能装、没撤回的最新正式版；装着测试版或没有正式版时含测试版） */
+  recommended: string | null;
+  installed: MarketInstalled | null;
+  /** 有更新时是要升到的版本 */
+  update: string | null;
+  /** 不能安装的原因 */
+  blocked: string | null;
+  versions: MarketVersion[];
+}
+
+export interface MarketPluginDetail extends MarketPlugin {
+  selected: string | null;
+  readme: string | null;
+  readme_error: string | null;
+  dependencies: PackageDependencies | null;
+}
+
+export interface MarketSource {
+  url: string;
+  repository: string | null;
+  generated_at: string | null;
+  signed: boolean;
+  checked_at: string;
+  /** 最近一次检查失败：用的是旧索引 */
+  error: string | null;
+}
+
+export interface MarketOverview {
+  source: MarketSource;
+  plugins: MarketPlugin[];
+  updates: number;
+}
+
+export async function listMarket(): Promise<MarketOverview> {
+  return (await request<ApiEnvelope<MarketOverview>>("/app/plugins/market")).data;
+}
+
+/** 立即重新获取索引（检查更新）；GitHub 连不上时报错 */
+export async function refreshMarket(): Promise<MarketOverview> {
+  return (
+    await request<ApiEnvelope<MarketOverview>>("/app/plugins/market/refresh", { method: "POST" })
+  ).data;
+}
+
+export async function getMarketPlugin(id: string, version?: string): Promise<MarketPluginDetail> {
+  const query = version ? `?version=${encodeURIComponent(version)}` : "";
+  return (
+    await request<ApiEnvelope<MarketPluginDetail>>(
+      `/app/plugins/market/${encodeURIComponent(id)}${query}`,
+    )
+  ).data;
+}
+
+/** 服务器下载并核对这一版，放进待批准；返回值直接交给批准抽屉 */
+export async function installFromMarket(id: string, version: string): Promise<PackageRequest> {
+  return (
+    await request<ApiEnvelope<PackageRequest>>(
+      `/app/plugins/market/${encodeURIComponent(id)}/install`,
+      { method: "POST", body: JSON.stringify({ version }) },
+    )
+  ).data;
+}

@@ -223,7 +223,7 @@ movies released by the Blender Foundation and others (CC BY).
 ### Plugins
 
 - The core stays general; personal setups are plugins. Messaging channels, downloaders, cloud-drive direct links and more live in the
-  [movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins) repo. Download a `.mcplugin` and upload it on the **Plugins** page in Settings.
+  [movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins) repo. Install them from **Settings → Plugins → Plugin market**; you can still upload a `.mcplugin` by hand.
 - Want to write one? Start with that repo's `example/GUIDE.md`, or ask the AI assistant to write it for you.
 
 ## Boundaries
@@ -669,7 +669,7 @@ The reasoning behind this README's own structure is in
 
 Third-party plugins, and the store metadata next to each of them (`store.json`), live in
 [movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins). How to write one is in that
-repo's `example/GUIDE.md`. This server still installs a plugin only by uploading a `.mcplugin` file.
+repo's `example/GUIDE.md`. The in-app plugin market reads that repo's signed catalog; uploading a `.mcplugin` file works too.
 
 Questions, ideas, bug reports — please
 [open an issue](https://github.com/movieclaw/movieclaw/issues).

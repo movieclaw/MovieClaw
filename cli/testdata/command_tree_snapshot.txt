@@ -11,6 +11,10 @@ app plugins callbacks rotate
 app plugins dead-letters dismiss
 app plugins dead-letters replay
 app plugins list
+app plugins market install
+app plugins market list
+app plugins market refresh
+app plugins market show
 app plugins packages approve
 app plugins packages discard
 app plugins packages list

@@ -369,8 +369,9 @@ function LocalRuntimeNote({ locals }: { locals: PluginInfo[] }) {
   );
 }
 
-/** 批准抽屉：逐项列出它要什么，升级时新增的申请高亮；申请主进程运行须单独勾选。 */
-function ReviewDrawer({
+/** 批准抽屉：逐项列出它要什么，升级时新增的申请高亮；申请主进程运行须单独勾选。
+ * 上传与插件市场共用（市场下载核对后也进待批准）。 */
+export function ReviewDrawer({
   item,
   currentWeb,
   busy,

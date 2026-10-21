@@ -312,6 +312,17 @@ class Settings(BaseSettings):
     # 发布侧配套：scripts/gen-release-signing-key.sh 生成密钥对，CI 配置
     # RELEASE_SIGNING_KEY 机密后自动随 Release 上传签名。
     update_manifest_pubkey: str = Field(default="", alias="UPDATE_MANIFEST_PUBKEY")
+    # 插件市场的索引（movieclaw-plugins 仓库的 catalog Release，schema 2）。旁边的
+    # index.json.sig 用随应用发布的公钥校验（services/plugin_market.py）；下载走
+    # UPDATE_DOWNLOAD_MIRROR 加速时同样安全，因为包与图片都按签名索引里的 sha256 核对。
+    plugin_catalog_url: str = Field(
+        default="https://github.com/movieclaw/movieclaw-plugins/releases/download/catalog/index.json",
+        alias="PLUGIN_CATALOG_URL",
+    )
+    # 只给自建 / 开发用的索引：允许加载没有签名的索引（市场里标「未签名」）。
+    plugin_catalog_allow_unsigned: bool = Field(
+        default=False, alias="PLUGIN_CATALOG_ALLOW_UNSIGNED"
+    )
 
     # ------------------------------------------------------------------
     # MovieClaw Cloud（docs/design/cloud-push.md）
