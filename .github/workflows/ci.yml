@@ -90,6 +90,8 @@ jobs:
             web:
               - *all
               - "apps/web/**"
+              # 网页主题插件（docs/design/theme-plugins.md）：源码在 plugins/<id>/
+              - "plugins/netflix/**"
               - "package.json"
               - "pnpm-lock.yaml"
               - "pnpm-workspace.yaml"
@@ -272,6 +274,13 @@ jobs:
 
       - name: typecheck
         run: pnpm web:typecheck
+
+      # 主题插件：类型检查 + 构建（构建器会拦「写了没生成」的工具类与越界 import）
+      - name: theme typecheck
+        run: pnpm --filter @movieclaw/theme-netflix typecheck
+
+      - name: theme build
+        run: pnpm theme:build
 
   # macOS Worker 的构建门禁。开发者多数在 Linux/容器里改代码，Swift 侧的
   # 编译错误在本地完全暴露不出来，只能靠这里拦。

@@ -11,14 +11,13 @@ import {
   themeMeta,
 } from "../lib/themes.ts";
 
-test("注册表内置银玻璃与 Netflix 两个主题", () => {
-  const ids = THEMES.map((theme) => theme.id);
-  assert.deepEqual(ids, ["silver", "netflix"]);
-  // 版式：银玻璃 = 侧栏面板，Netflix = 顶栏影院；Netflix 停用液态玻璃
-  assert.equal(THEMES.find((t) => t.id === "silver")?.layout, "panel");
-  assert.equal(THEMES.find((t) => t.id === "netflix")?.layout, "cinema");
-  assert.equal(THEMES.find((t) => t.id === "silver")?.glass, true);
-  assert.equal(THEMES.find((t) => t.id === "netflix")?.glass, false);
+test("内置注册表只有默认主题：其余主题都是插件（docs/design/theme-plugins.md）", () => {
+  assert.deepEqual(
+    THEMES.map((theme) => theme.id),
+    ["silver"],
+  );
+  assert.equal(THEMES[0].layout, "panel");
+  assert.equal(THEMES[0].glass, true);
 });
 
 test("normalizeThemeId：只看写法——没装的主题 id 原样保留，写法不对才兜底为默认主题", () => {
@@ -36,8 +35,8 @@ test("normalizeThemeId：只看写法——没装的主题 id 原样保留，写
   assert.equal(normalizeThemeId("Netflix"), DEFAULT_THEME_ID);
 });
 
-test("themeMeta：未知 id 回落默认主题元数据", () => {
-  assert.equal(themeMeta("netflix").label, "Netflix");
+test("themeMeta：没装的主题回落默认主题元数据", () => {
+  assert.equal(themeMeta("netflix").id, DEFAULT_THEME_ID);
   assert.equal(themeMeta("nope").id, DEFAULT_THEME_ID);
 });
 

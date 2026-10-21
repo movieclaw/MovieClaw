@@ -290,7 +290,12 @@ def provided(client) -> set[str]:
     return {c["id"] for c in channels} | {t["type"] for t in types} | owners
 
 
-@pytest.mark.parametrize("entry_id", sorted(bundled.bundled()), ids=str)
+# 主题包（如 Netflix）没有后端代码、不提供通道：替换与恢复由 test_theme_packages.py 覆盖
+@pytest.mark.parametrize(
+    "entry_id",
+    sorted(i for i, p in bundled.bundled().items() if p.manifest.theme is None),
+    ids=str,
+)
 def test_every_bundled_package_installs_out_of_process_and_restores(env, entry_id) -> None:
     """每个随带插件包都能原样打包、作为插件包在独立进程里跑起来（替换随带版本），卸载即恢复。"""
     package = bundled.bundled()[entry_id]

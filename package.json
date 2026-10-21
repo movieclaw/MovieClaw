@@ -14,7 +14,9 @@
   },
   "scripts": {
     "web:dev": "pnpm --filter web dev",
-    "web:build": "pnpm --filter web build",
+    "web:build": "pnpm theme:build && pnpm --filter web build",
+    "theme:build": "pnpm --filter @movieclaw/theme-netflix build",
+    "theme:pack": "pnpm --filter @movieclaw/theme-netflix run pack:plugin",
     "web:lint": "pnpm --filter web lint",
     "web:typecheck": "pnpm --filter web exec tsc --noEmit",
     "ext:dev": "pnpm --filter extension dev",

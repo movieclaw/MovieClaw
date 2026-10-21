@@ -1,0 +1,23 @@
+{
+  "name": "@movieclaw/theme-netflix",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MovieClaw 网页的 Netflix 主题插件（docs/design/theme-plugins.md）",
+  "scripts": {
+    "build": "node ../../apps/web/theme-sdk/build.mjs --prefix nf --out ../../src/movieclaw_plugins/netflix",
+    "pack:plugin": "node ../../apps/web/theme-sdk/build.mjs --prefix nf --pack ../../dist/plugins",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.12",
+    "@types/react": "^19.1.11",
+    "@types/react-dom": "^19.1.7",
+    "esbuild": "0.27.7",
+    "next": "^15.5.27",
+    "postcss": "^8.5.27",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "tailwindcss": "^4.1.12",
+    "typescript": "^5.9.2"
+  }
+}

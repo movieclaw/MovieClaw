@@ -7,7 +7,7 @@ import type { MediaImage } from "@/lib/api/discover";
 
 const ROTATE_INTERVAL_MS = 8000;
 const FADE_MS = 1600;
-// 与 themes/netflix/tokens.css 的 .detail-slideshow img 起步延迟（700ms）同源：
+// 与 plugins/netflix/src/theme.css 的 .detail-slideshow img 起步延迟（700ms）同源：
 // 每张图挂载后先静止这么久才开始推镜，改两处必须一起改。
 const KB_START_DELAY_MS = 700;
 // 换底接续延迟的兜底换算值：仅在顶层动画读不到时使用（正常路径直接读顶层

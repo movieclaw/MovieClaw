@@ -1,0 +1,23 @@
+{
+  // 只做类型检查（构建走 apps/web/theme-sdk/build.mjs）。主题只经 @movieclaw/theme-sdk 用内核能力；
+  // SDK 的类型来自主程序源码，所以 @/* 也要能解析——仅限类型，构建时 SDK 是外部模块。
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@movieclaw/theme-sdk": ["../../apps/web/theme-sdk/index.ts"],
+      "@/*": ["../../apps/web/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

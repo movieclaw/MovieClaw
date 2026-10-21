@@ -40,7 +40,7 @@ import type { TaskActivityBadge } from "@/lib/task-activity";
  * 新会话与 AI 会话是 Agent 能力，管理员专属——与侧栏的 memberNavItems 同口径
  * （安全边界在后端 require_admin，这里是界面裁剪）。
  *
- * Netflix 主题有自己的「我的」页（themes/netflix/pages/my-page），会覆盖本页。
+ * Netflix 主题有自己的「我的」页（plugins/netflix/src/pages/my-page），会覆盖本页。
  */
 export function MorePage() {
   const router = useRouter();

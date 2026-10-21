@@ -237,7 +237,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   // 页面内部的有限高度剧照，并由自身渐变保证内容可读。新增路由无需登记，
   // 自动继承蒙版。Netflix 主题是纯色平铺设计，蒙版整体不渲染（§3.5）。
   // Netflix 主题的 /library 顶部是原内容首页并入的全出血 Billboard
-  // （themes/netflix/components/library-hero.tsx），同为大图直出的氛围页：
+  // （plugins/netflix/src/components/library-hero.tsx），同为大图直出的氛围页：
   // 不加顶栏让位，让画面从透明顶栏底下穿过（银玻璃的 /library 不在此列）。
   // 判定本体抽在 lib/page-chrome.tsx 的 isHomeRoute：PageNav 的渲染入口要用
   // 同一份判定短路（Netflix 桌面全出血页渲染 PageNav 会被 z-40 顶栏盖住），
@@ -318,7 +318,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   // （Netflix 主题下玻璃已停用，但侧栏仍只在设置模式出现，同样单实例。）
   const sidebarNode = isSettings ? (
     // 设置分区菜单走主题坑位：Netflix = 黑底文字菜单
-    // （themes/netflix/chrome/settings-sidebar），银玻璃 = 玻璃面板 + 胶囊行
+    // （plugins/netflix/src/chrome/settings-sidebar），银玻璃 = 玻璃面板 + 胶囊行
     // 的 SaaS 菜单；两者分区/选中语义同源，由注册表按主题解析
     <SettingsNav
       active={activeSettings}

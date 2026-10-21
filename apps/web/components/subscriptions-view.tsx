@@ -52,7 +52,7 @@ import { useSubscriptionsHome } from "@/lib/use-subscriptions-home";
 
 /**
  * 订阅页的银玻璃布局「我的订阅」：流媒体式版式（2026-09-27 对齐原生 App 的
- * SubscriptionsView.swift；Netflix 主题走 themes/netflix/pages/subscriptions-page.tsx，
+ * SubscriptionsView.swift；Netflix 主题走 plugins/netflix/src/pages/subscriptions-page.tsx，
  * 入口分流见 components/subscriptions-page.tsx）。
  *
  * 页面按时间与意图拆，而不是按「全部 / 剧集 / 电影」拆：

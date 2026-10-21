@@ -1,10 +1,5 @@
 @import "tailwindcss";
 
-/* Netflix 主题覆盖组：全部规则挂 html[data-theme="netflix"] 作用域，
-   特异性高于基础同类规则，置于 tailwind 之后不构成级联依赖。
-   （迁移说明 docs/design/theme-framework/） */
-@import "../themes/netflix/tokens.css";
-
 @theme {
   --text-micro: 10px;
   --text-caption: 11px;
@@ -2758,6 +2753,12 @@ html:has(.player-root) {
 
 .brand-loader {
   animation: brand-loader-breath 1.4s ease-in-out infinite;
+}
+
+/* 品牌资产的两种形态（components/brand-loader.tsx 双渲染）：默认显示 rotor 图片，
+   字标形态（.brand-loader--mark）由主题在自己的作用域里切换（公开部件，theme-plugins.md §4.4） */
+.brand-loader--mark {
+  display: none;
 }
 
 @keyframes brand-loader-breath {

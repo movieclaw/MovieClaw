@@ -2,6 +2,8 @@
 packages:
   - "apps/web"
   - "apps/extension"
+  # 网页主题插件（docs/design/theme-plugins.md）：源码在 plugins/<id>/，构建进随带插件包
+  - "plugins/netflix"
 allowBuilds:
   "@tailwindcss/oxide": true
   esbuild: true

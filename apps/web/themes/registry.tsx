@@ -13,24 +13,19 @@ import type {
   DetailNavProps,
   ResolvedSlots,
   ResolvedTheme,
-  ThemeDefinition,
   ThemePages,
   ThemeSlots,
 } from "./types";
-import netflixTheme from "./netflix/theme";
 
 /**
- * 主题坑位注册表（docs/design/theme-framework/01–02）。
+ * 主题坑位注册表（docs/design/theme-framework/01–02、theme-plugins.md §4.3）。
  *
  * 主题知识在全站的唯一合法出口：业务组件消费 `useResolvedTheme()` 拿坑位与能力，
  * 不允许再出现 `theme.id === "<主题名>"` 的私下判断。依赖方向：
  *
- *   themes/<id>/** ──注册──▶ registry ──解析──▶ 业务组件
- *                                    （业务组件与主题目录互不 import）
+ *   主题插件（theme/index.js）──运行时加载──▶ lib/theme-runtime ──▶ registry ──解析──▶ 业务组件
  *
- * 「下载主题」预留：DEFINITIONS 本期静态 import（打包进 bundle）；落地下载时在
- * 这里增加动态 import 段，getResolvedTheme 的同步签名与兜底路径不变
- * （下载未就绪 / 加载失败 → 回落基础实现，见下方解析语义）。
+ * 主题全部是插件，内核不 import 任何主题；默认主题（银玻璃）没有定义，用的就是基础实现。
  */
 
 /**
@@ -64,43 +59,15 @@ function PageNavAdapter({ title, fallback, actions, className }: DetailNavProps)
 }
 
 /**
- * 主题定义注册表。约定：键 = 主题 id，值 = 主题目录的 default export。
- * dev 模式下对未知坑位名做断言（拼写错误在开发期暴露，不带进生产）。
- */
-const DEFINITIONS: Record<string, ThemeDefinition> = {
-  netflix: netflixTheme,
-};
-
-const KNOWN_SLOT_NAMES = new Set([
-  "desktopTopNav",
-  "mobileTabBar",
-  "mobileSettingsNav",
-  "settingsNav",
-  "detailNav",
-  "pageActions",
-  "libraryHero",
-]);
-
-if (process.env.NODE_ENV !== "production") {
-  for (const def of Object.values(DEFINITIONS)) {
-    for (const name of Object.keys(def.slots)) {
-      if (!KNOWN_SLOT_NAMES.has(name)) {
-        console.error(`[themes] 主题注册了未知坑位「${name}」——检查拼写或先在 types.ts 立户`);
-      }
-    }
-  }
-}
-
-/**
  * 解析主题：capabilities / slots / pages 全部归并基础缺省。
  * - 传入的是生效主题 id（lib/ui-prefs.tsx 已把认不得、加载失败的换成默认主题）；
- * - 主题定义：编进包里的（DEFINITIONS）或运行时加载好的插件主题（lib/theme-runtime.ts）；
+ * - 主题定义：运行时加载好的插件主题（lib/theme-runtime.ts）；默认主题没有定义；
  *   还没加载好的按纯基础实现渲染（外壳此时显示启动画面，见 ui-prefs 的 themePending）；
  * - 缺失坑位 / 整页 → BASE_SLOTS / BASE_PAGES 基础实现；主题的坑位与整页都套错误边界，
  *   渲染出错只让那一处回落基础实现。
  */
 export function getResolvedTheme(id: string): ResolvedTheme {
-  const def = DEFINITIONS[id] ?? loadedDefinition(id);
+  const def = loadedDefinition(id);
   const meta = themeMeta(id);
   return {
     meta,

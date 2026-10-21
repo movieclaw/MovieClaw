@@ -35,26 +35,26 @@ export function NetflixSettingsSidebar({
   const pendingUpdate = usePendingUpdate(session.role !== "member");
 
   return (
-    <div className="flex h-full flex-col pr-3">
+    <div className="nf:flex nf:h-full nf:flex-col nf:pr-3">
       {/* 顶部返回：纯文字链接形态（Netflix 帮助中心的「‹ 返回」语言，
           不再是银玻璃的玻璃胶囊按钮） */}
-      <div className="px-2 pb-2 pt-6">
+      <div className="nf:px-2 nf:pb-2 nf:pt-6">
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-1.5 rounded-[4px] px-1 py-1 text-ui font-medium text-[var(--text-muted)] transition-colors hover:text-white"
+          className="nf:flex nf:items-center nf:gap-1.5 nf:rounded-[4px] nf:px-1 nf:py-1 nf:text-ui nf:font-medium nf:text-[var(--text-muted)] nf:transition-colors nf:hover:text-white"
         >
-          <ChevronLeftIcon className="size-4" />
+          <ChevronLeftIcon className="nf:size-4" />
           <span>返回工作台</span>
         </button>
       </div>
 
-      <nav className="scroll-thin flex-1 overflow-y-auto px-2 pb-6">
+      <nav className="scroll-thin nf:flex-1 nf:overflow-y-auto nf:px-2 nf:pb-6">
         {sectionGroups.map((group) => (
           // 概览组不设标题（label 为空串），空标题不渲染小节头；key 落到首个分区 id
-          <div key={group.label || group.items[0]?.id} className="mt-5 first:mt-3">
-            {group.label && <h3 className="group-label mb-1.5 px-2.5">{group.label}</h3>}
-            <div className="space-y-0.5">
+          <div key={group.label || group.items[0]?.id} className="nf:mt-5 nf:first:mt-3">
+            {group.label && <h3 className="group-label nf:mb-1.5 nf:px-2.5">{group.label}</h3>}
+            <div className="nf:space-y-0.5">
               {group.items.map((section) => {
                 const Icon = section.icon;
                 const isActive = active === section.id;
@@ -64,19 +64,19 @@ export function NetflixSettingsSidebar({
                     type="button"
                     data-active={isActive}
                     onClick={() => onSelect(section.id)}
-                    className={`relative flex w-full items-center gap-2.5 rounded-[4px] px-2.5 py-[7px] text-left text-ui transition-colors hover:bg-white/[0.06] hover:text-white ${
-                      isActive ? "font-bold text-white" : "font-medium text-[var(--text-muted)]"
+                    className={`nf:relative nf:flex nf:w-full nf:items-center nf:gap-2.5 nf:rounded-[4px] nf:px-2.5 nf:py-[7px] nf:text-left nf:text-ui nf:transition-colors nf:hover:bg-white/[0.06] nf:hover:text-white ${
+                      isActive ? "nf:font-bold nf:text-white" : "nf:font-medium nf:text-[var(--text-muted)]"
                     }`}
                   >
                     {/* 激活指示：左缘品牌红短条（整站唯一直接用红的导航态） */}
                     {isActive && (
                       <span
                         aria-hidden="true"
-                        className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-[var(--accent)]"
+                        className="nf:absolute nf:left-0 nf:top-1/2 nf:h-4 nf:w-[3px] nf:-translate-y-1/2 nf:rounded-full nf:bg-[var(--accent)]"
                       />
                     )}
-                    <Icon className="size-4 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">{section.label}</span>
+                    <Icon className="nf:size-4 nf:shrink-0" />
+                    <span className="nf:min-w-0 nf:flex-1 nf:truncate">{section.label}</span>
                     {section.id === "app" && pendingUpdate && <AppUpdateDot />}
                   </button>
                 );

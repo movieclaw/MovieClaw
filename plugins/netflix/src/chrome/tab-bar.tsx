@@ -58,19 +58,19 @@ export function NetflixTabBar() {
   return (
     <nav
       aria-label="主导航"
-      className="nf-tabbar fixed inset-x-0 bottom-0 z-40 flex h-[calc(var(--mobile-tabbar-h)+var(--safe-bottom))] items-stretch border-t border-white/[0.06] pb-[var(--safe-bottom)]"
+      className="nf-tabbar nf:fixed nf:inset-x-0 nf:bottom-0 nf:z-40 nf:flex nf:h-[calc(var(--mobile-tabbar-h)+var(--safe-bottom))] nf:items-stretch nf:border-t nf:border-white/[0.06] nf:pb-[var(--safe-bottom)]"
     >
       {tabs.map(({ id, label, href, Icon }) => (
         <Link
           key={id}
           href={href}
           aria-current={active === id ? "page" : undefined}
-          className={`flex flex-1 flex-col items-center justify-center gap-0.5 ${
-            active === id ? "text-white" : "text-[var(--text-faint)]"
+          className={`nf:flex nf:flex-1 nf:flex-col nf:items-center nf:justify-center nf:gap-0.5 ${
+            active === id ? "nf:text-white" : "nf:text-[var(--text-faint)]"
           }`}
         >
-          <Icon className="size-6" />
-          <span className="text-micro font-medium leading-none">{label}</span>
+          <Icon className="nf:size-6" />
+          <span className="nf:text-micro nf:font-medium nf:leading-none">{label}</span>
         </Link>
       ))}
     </nav>

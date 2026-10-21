@@ -60,16 +60,6 @@ export const THEMES: ThemeMeta[] = [
     layout: "panel",
     glass: true,
   },
-  {
-    id: "netflix",
-    label: "Netflix",
-    description: "纯色平铺 · 品牌红 · 顶栏与横版卡片行的影院浏览形态",
-    preview: { bg: "#141414", accent: "#e50914" },
-    themeColor: "#000000",
-    layout: "cinema",
-    // 纯色平铺设计：整体停用液态玻璃
-    glass: false,
-  },
 ];
 
 export const DEFAULT_THEME_ID = "silver";

@@ -130,7 +130,7 @@ export function NetflixTopNav({
   ];
 
   return (
-    <header ref={rootRef} className="nf-topnav fixed inset-x-0 top-0 z-40">
+    <header ref={rootRef} className="nf-topnav nf:fixed nf:inset-x-0 nf:top-0 nf:z-40">
       {/* 两层背景随 --nf-nav-dim 连续叠合：底部永远铺「向下渐隐的黑雾」
           （页面顶端时黑字标在亮图上可读），黑实底层按滚动进度淡入盖过它。
           变量已注册（@property <number>），过渡写在变量自身上（.nf-topnav），
@@ -138,35 +138,35 @@ export function NetflixTopNav({
           PageNav --nav-reveal 的既知结论）。 */}
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.72),rgba(0,0,0,0)_100%)]"
+        className="nf:absolute nf:inset-0 nf:bg-[linear-gradient(180deg,rgba(0,0,0,0.72),rgba(0,0,0,0)_100%)]"
       />
-      <div aria-hidden="true" className="absolute inset-0 bg-black" style={{ opacity: "var(--nf-nav-dim, 0)" }} />
-      <div className="relative flex h-[68px] items-center gap-6 px-[4vw]">
+      <div aria-hidden="true" className="nf:absolute nf:inset-0 nf:bg-black" style={{ opacity: "var(--nf-nav-dim, 0)" }} />
+      <div className="nf:relative nf:flex nf:h-[68px] nf:items-center nf:gap-6 nf:px-[4vw]">
         {/* 品牌字标：回媒体库（Netflix 主题没有首页——内容首页与媒体库合并；
             内容可点区拉满高度，与导航链接同标准） */}
         <Link
           href="/library"
           aria-label="回到媒体库"
-          className="flex shrink-0 items-center transition-opacity hover:opacity-80"
+          className="nf:flex nf:shrink-0 nf:items-center nf:transition-opacity nf:hover:opacity-80"
         >
           {/* 字标高度 = 大写高，宽度由字形比例推导（≈6.25 : 1）。22px 高 ≈ 137px
               宽，在 68px 顶栏里约占 1/3 高——原先的 h-7（28px / 175px 宽）把
               右边四条 14px 的导航链接整个压住了。MOVIECLAW 是 9 个字母，比
               NETFLIX 的 7 个天然更宽，同样的大写高会显著更抢眼，因此取比
               Netflix 官方字标（约 25px 高）更小的一档。 */}
-          <MovieclawWordmark className="h-[22px] w-auto" />
+          <MovieclawWordmark className="nf:h-[22px] nf:w-auto" />
         </Link>
 
         {/* 导航链接：≥1100px 全量展开 */}
-        <nav className="hidden min-w-0 items-center gap-5 min-[1100px]:flex">
+        <nav className="nf:hidden nf:min-w-0 nf:items-center nf:gap-5 nf:min-[1100px]:flex">
           {visibleLinks.map((link) => (
             <Link
               key={link.id}
               href={link.href}
-              className={`shrink-0 text-[14px] transition-colors ${
+              className={`nf:shrink-0 nf:text-[14px] nf:transition-colors ${
                 active === link.id
-                  ? "font-bold text-[var(--accent)]"
-                  : "font-normal text-[#e5e5e5] hover:text-white"
+                  ? "nf:font-bold nf:text-[var(--accent)]"
+                  : "nf:font-normal nf:text-[#e5e5e5] nf:hover:text-white"
               }`}
             >
               {link.label}
@@ -177,7 +177,7 @@ export function NetflixTopNav({
         {/* <1100px：链接收敛为「浏览 ▾」下拉 */}
         <BrowseDropdown links={visibleLinks} active={active} />
 
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        <div className="nf:ml-auto nf:flex nf:shrink-0 nf:items-center nf:gap-1.5">
           {/* ＋ 新任务：白底黑字主操作（§4 用色纪律：红只给品牌字标 / 进度条 /
               匹配度 / 激活指示，主按钮走 Netflix 生产主键语言——白底黑字，
               三态透明度 1 / hover 0.75 / 按下 0.5，与 .btn-accent 的主题覆盖
@@ -188,7 +188,7 @@ export function NetflixTopNav({
             <button
               type="button"
               onClick={() => router.push("/new")}
-              className="flex h-9 items-center gap-1.5 rounded-[4px] bg-white px-3 text-[14px] font-semibold text-black transition-colors hover:bg-white/75 active:bg-white/50"
+              className="nf:flex nf:h-9 nf:items-center nf:gap-1.5 nf:rounded-[4px] nf:bg-white nf:px-3 nf:text-[14px] nf:font-semibold nf:text-black nf:transition-colors nf:hover:bg-white/75 nf:active:bg-white/50"
             >
               <PlusGlyph />
               新任务
@@ -206,7 +206,7 @@ export function NetflixTopNav({
 /** 「＋」字符字形：与文本基线对齐的一次性加号，不为此引入图标档位 */
 function PlusGlyph() {
   return (
-    <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2.4} aria-hidden="true">
+    <svg viewBox="0 0 24 24" className="nf:size-4" fill="none" stroke="currentColor" strokeWidth={2.4} aria-hidden="true">
       <path d="M12 5v14M5 12h14" strokeLinecap="round" />
     </svg>
   );
@@ -242,19 +242,19 @@ function BrowseDropdown({
   const currentLabel = links.find((link) => link.id === active)?.label ?? "浏览";
 
   return (
-    <div ref={rootRef} className="relative min-[1100px]:hidden">
+    <div ref={rootRef} className="nf:relative nf:min-[1100px]:hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex h-9 items-center gap-1 rounded-[4px] px-2 text-[14px] font-medium text-[#e5e5e5] transition-colors hover:text-white"
+        className="nf:flex nf:h-9 nf:items-center nf:gap-1 nf:rounded-[4px] nf:px-2 nf:text-[14px] nf:font-medium nf:text-[#e5e5e5] nf:transition-colors nf:hover:text-white"
       >
         {currentLabel}
-        <ChevronDownIcon className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDownIcon className={`nf:size-4 nf:transition-transform ${open ? "nf:rotate-180" : ""}`} />
       </button>
       {open && (
         <div
-          className="menu-surface absolute left-0 top-full z-50 mt-2 w-44 p-1.5"
+          className="menu-surface nf:absolute nf:left-0 nf:top-full nf:z-50 nf:mt-2 nf:w-44 nf:p-1.5"
           // .menu-surface 的无层 CSS position:relative 会压过 absolute 工具类
           // （无层规则优先于 @layer utilities），菜单因此脱离按钮锚点、被顶栏
           // flex 居中推出窗口——内联覆盖才能赢（同 composer.tsx / user-menu.tsx）
@@ -265,11 +265,11 @@ function BrowseDropdown({
               key={link.id}
               href={link.href}
               onClick={() => setOpen(false)}
-              className={`glass-row px-2.5 py-2 text-ui font-medium ${
-                active === link.id ? "font-bold text-[var(--accent)]" : ""
+              className={`glass-row nf:px-2.5 nf:py-2 nf:text-ui nf:font-medium ${
+                active === link.id ? "nf:font-bold nf:text-[var(--accent)]" : ""
               }`}
             >
-              <span className="flex-1">{link.label}</span>
+              <span className="nf:flex-1">{link.label}</span>
             </Link>
           ))}
         </div>
@@ -328,29 +328,29 @@ function NetflixAvatarMenu({
   };
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="nf:relative">
       {open && (
         <div
           ref={menuRef}
-          className="menu-surface absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden p-1.5"
+          className="menu-surface nf:absolute nf:right-0 nf:top-full nf:z-50 nf:mt-2 nf:w-64 nf:overflow-hidden nf:p-1.5"
           // 同 BrowseDropdown：内联覆盖 .menu-surface 的无层 position:relative，
           // 否则菜单脱离按钮锚点、被顶栏 flex 布局推出窗口顶
           style={{ position: "absolute" }}
         >
-          <div className="flex items-center gap-3 px-2.5 pb-2.5 pt-2">
+          <div className="nf:flex nf:items-center nf:gap-3 nf:px-2.5 nf:pb-2.5 nf:pt-2">
             <AvatarBadge
               nickname={session.nickname}
               avatarUrl={session.avatar_url}
-              className="size-9 text-ui"
+              className="nf:size-9 nf:text-ui"
             />
-            <div className="min-w-0">
-              <p className="truncate text-ui font-semibold text-[var(--text)]">
+            <div className="nf:min-w-0">
+              <p className="nf:truncate nf:text-ui nf:font-semibold nf:text-[var(--text)]">
                 {session.nickname}
               </p>
-              <p className="truncate text-caption text-[var(--text-muted)]">@{session.username}</p>
+              <p className="nf:truncate nf:text-caption nf:text-[var(--text-muted)]">@{session.username}</p>
             </div>
           </div>
-          <div className="my-1 h-px bg-white/[0.08]" />
+          <div className="nf:my-1 nf:h-px nf:bg-white/[0.08]" />
           {/* 更新入口：侧栏在 Netflix 主题下退役，常驻更新徽标由头像菜单承接
               （组件自轮询自鉴权，无更新时整行不渲染），一跳直达更新分区 */}
           <AppUpdateEntry
@@ -371,8 +371,8 @@ function NetflixAvatarMenu({
           )}
           {isAdmin && conversations.length > 0 && (
             <>
-              <p className="group-label px-3 pb-1 pt-2.5">AI 会话</p>
-              <div className="scroll-thin max-h-56 overflow-y-auto">
+              <p className="group-label nf:px-3 nf:pb-1 nf:pt-2.5">AI 会话</p>
+              <div className="scroll-thin nf:max-h-56 nf:overflow-y-auto">
                 {conversations.map((c) => (
                   <MenuRow
                     key={c.id}
@@ -387,10 +387,10 @@ function NetflixAvatarMenu({
               </div>
             </>
           )}
-          <div className="my-1 h-px bg-white/[0.08]" />
+          <div className="nf:my-1 nf:h-px nf:bg-white/[0.08]" />
           <MenuRow
             label="切换账号"
-            icon={<UsersIcon className="size-[18px]" />}
+            icon={<UsersIcon className="nf:size-[18px]" />}
             onClick={() => {
               setOpen(false);
               setSwitcherOpen(true);
@@ -399,7 +399,7 @@ function NetflixAvatarMenu({
           <MenuRow
             label="退出登录"
             danger
-            icon={<LogoutIcon className="size-[18px]" />}
+            icon={<LogoutIcon className="nf:size-[18px]" />}
             onClick={() => void handleLogout()}
           />
         </div>
@@ -420,7 +420,7 @@ function NetflixAvatarMenu({
         <AvatarBadge
           nickname={session.nickname}
           avatarUrl={session.avatar_url}
-          className="size-8 text-ui"
+          className="nf:size-8 nf:text-ui"
           style={{ borderRadius: 4 }}
         />
       </button>
@@ -464,21 +464,21 @@ function MenuRow({
       type="button"
       onClick={onClick}
       title={badge?.hint ?? label}
-      className={`glass-row px-3 py-2 text-ui font-medium max-md:py-2.5 ${
-        danger ? "!text-[var(--danger)] hover:!bg-[rgba(255,107,107,0.12)]" : ""
+      className={`glass-row nf:px-3 nf:py-2 nf:text-ui nf:font-medium nf:max-md:py-2.5 ${
+        danger ? "nf:!text-[var(--danger)] nf:hover:!bg-[rgba(255,107,107,0.12)]" : ""
       }`}
     >
       {running && (
-        <span aria-hidden="true" className="size-1.5 shrink-0 animate-pulse rounded-full bg-[var(--info)]" />
+        <span aria-hidden="true" className="nf:size-1.5 nf:shrink-0 nf:animate-pulse nf:rounded-full nf:bg-[var(--info)]" />
       )}
-      {icon && <span className="shrink-0 opacity-80">{icon}</span>}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {icon && <span className="nf:shrink-0 nf:opacity-80">{icon}</span>}
+      <span className="nf:min-w-0 nf:flex-1 nf:truncate">{label}</span>
       {badge && badge.count > 0 && (
         <span
-          className={`shrink-0 rounded-full px-1.5 py-0.5 text-micro font-semibold leading-none ${
+          className={`nf:shrink-0 nf:rounded-full nf:px-1.5 nf:py-0.5 nf:text-micro nf:font-semibold nf:leading-none ${
             badge.alert
-              ? "bg-[var(--danger-solid)] text-white"
-              : "bg-[var(--info)]/20 text-[var(--info)]"
+              ? "nf:bg-[var(--danger-solid)] nf:text-white"
+              : "nf:bg-[var(--info)]/20 nf:text-[var(--info)]"
           }`}
         >
           {badge.count}

@@ -1,0 +1,16 @@
+[plugin]
+id = "netflix"
+title = "Netflix 主题"
+version = "1.0.0"
+description = "纯色平铺、品牌红、顶栏导航与大图首屏的影院浏览形态（网页）。"
+
+[requires]
+"ui.theme" = "^1.0"
+
+[theme]
+label = "Netflix"
+description = "纯色平铺 · 品牌红 · 顶栏与横版卡片行的影院浏览形态"
+preview = { bg = "#141414", accent = "#e50914" }
+theme_color = "#000000"
+layout = "cinema"
+glass = false

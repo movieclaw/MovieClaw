@@ -15,17 +15,6 @@ import { test } from "node:test";
 const ROOT = path.resolve(import.meta.dirname, "..");
 const SCAN = ["app", "components", "lib", "vendor", "themes/registry.tsx", "themes/types.ts", "middleware.ts"];
 const ALLOW_NETFLIX = new Set(["lib/platforms.ts", "components/device-approval.tsx"]);
-/**
- * 编进包里的主题注册入口：Netflix 拆成独立插件包之前（theme-plugins.md §6 的 P5），主题仍经
- * 这几行登记进内核。拆出后整组删除——内核里就再也没有主题名了。
- */
-const IN_TREE_REGISTRATION = [
-  ["app/globals.css", '@import "../themes/netflix/tokens.css";'],
-  ["themes/registry.tsx", 'import netflixTheme from "./netflix/theme";'],
-  ["themes/registry.tsx", "netflix: netflixTheme,"],
-  ["lib/themes.ts", 'id: "netflix",'],
-  ["lib/themes.ts", 'label: "Netflix",'],
-];
 
 function files(rel) {
   const abs = path.join(ROOT, rel);
@@ -48,8 +37,7 @@ test("内核代码不出现主题名、structural 与 nf- 前缀", () => {
   for (const rel of SCAN.flatMap(files)) {
     const code = stripComments(fs.readFileSync(path.join(ROOT, rel), "utf8"));
     code.split("\n").forEach((line, i) => {
-      const registered = IN_TREE_REGISTRATION.some(([f, text]) => f === rel && line.trim() === text);
-      if (/netflix/i.test(line) && !ALLOW_NETFLIX.has(rel) && !registered) hits.push(`${rel}:${i + 1} netflix: ${line.trim()}`);
+      if (/netflix/i.test(line) && !ALLOW_NETFLIX.has(rel)) hits.push(`${rel}:${i + 1} netflix: ${line.trim()}`);
       if (/\bstructural\b/.test(line)) hits.push(`${rel}:${i + 1} structural: ${line.trim()}`);
       if (/(^|[^\w-])-{0,2}nf-[a-z]/.test(line)) hits.push(`${rel}:${i + 1} nf-: ${line.trim()}`);
     });

@@ -41,6 +41,8 @@ WORKDIR /build
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY patches ./patches
 COPY apps ./apps
+# 网页主题插件（工作区成员）：pnpm web:build 先把它编进 src/movieclaw_plugins/netflix/
+COPY plugins/netflix ./plugins/netflix
 RUN pnpm config set registry "$NPM_REGISTRY" && pnpm install --frozen-lockfile
 
 # 浏览器扩展单独成阶段（设置页「浏览器插件」提供下载）。
@@ -280,6 +282,8 @@ WORKDIR /app
 # 后端：venv + 源码布局（src / alembic / alembic.ini 的相对位置必须保持）
 COPY --from=py-deps /venv /venv
 COPY src ./src
+# 随带的网页主题插件（前端构建阶段编好；docs/design/theme-plugins.md §8）
+COPY --from=web-builder /build/src/movieclaw_plugins/netflix ./src/movieclaw_plugins/netflix
 COPY alembic ./alembic
 COPY alembic.ini ./
 

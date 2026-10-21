@@ -29,7 +29,7 @@ import {
 
 
 /** 预告行的横版卡宽：与「继续观看」行同款（双端 16:9，触屏不回落竖版海报）。 */
-const COMING_CARD_W = "w-[224px] max-md:w-[168px]";
+const COMING_CARD_W = "nf:w-[224px] nf:max-md:w-[168px]";
 
 /**
  * Netflix 主题的订阅页（/subscriptions，docs/design/web-themes.md §5.7 的
@@ -208,16 +208,16 @@ export function NetflixSubscriptionsPage() {
     <div
       ref={scrollRef}
       data-scroll-root
-      className="scroll-thin scroll-safe flex-1 overflow-y-auto pb-10"
+      className="scroll-thin scroll-safe nf:flex-1 nf:overflow-y-auto nf:pb-10"
     >
       {/* 页头：与媒体库首页同规格的大标题 + 统计行；行栅格对齐 4vw（与发现页
           的行内边距同一写法——--nf-inset 只在 .nf-row 作用域内定义，页级
           元素必须写字面量） */}
-      <div className="px-[4vw] pt-7 max-md:pt-4">
-        <h2 className="text-on-image text-[26px] font-bold leading-tight tracking-[-0.02em] text-white max-md:text-[21px]">
+      <div className="nf:px-[4vw] nf:pt-7 nf:max-md:pt-4">
+        <h2 className="text-on-image nf:text-[26px] nf:font-bold nf:leading-tight nf:tracking-[-0.02em] nf:text-white nf:max-md:text-[21px]">
           我的订阅
         </h2>
-        <p className="text-on-image mt-1.5 text-ui text-[var(--text-muted)] max-md:mt-1 max-md:text-sub">
+        <p className="text-on-image nf:mt-1.5 nf:text-ui nf:text-[var(--text-muted)] nf:max-md:mt-1 nf:max-md:text-sub">
           {mediaType === "all"
             ? `共 ${subs.length} 部 · ${tvCount} 部剧集 · ${movieCount} 部电影`
             : `共 ${visibleCount} 部${mediaType === "movie" ? "电影" : "剧集"}`}
@@ -227,7 +227,7 @@ export function NetflixSubscriptionsPage() {
       {/* 桌面类型胶囊：fixed 悬浮视口右上（顶栏下方），发现页同款安放方式，
           top 与页头标题带垂直对齐。calc 任意值 +/- 两侧必须空白（下划线转义）。 */}
       {!isMobile && (
-        <div className="fixed right-[4vw] top-[calc(var(--nf-nav-h)_+_26px)] z-20">
+        <div className="nf:fixed nf:right-[4vw] nf:top-[calc(var(--nf-nav-h)_+_26px)] nf:z-20">
           <MediaTypeSwitcher value={mediaType} onChange={switchMediaType} />
         </div>
       )}
@@ -238,9 +238,9 @@ export function NetflixSubscriptionsPage() {
       {canManageSubscriptions && healthIssue && (
         <Link
           href={"/settings/overview" as Route}
-          className="mx-[4vw] mt-4 block rounded-[4px] border border-[var(--warn)]/40 bg-[#181818] px-4 py-3 text-sub leading-relaxed text-white/80 transition hover:border-[var(--warn)]/70"
+          className="nf:mx-[4vw] nf:mt-4 nf:block nf:rounded-[4px] nf:border nf:border-[var(--warn)]/40 nf:bg-[#181818] nf:px-4 nf:py-3 nf:text-sub nf:leading-relaxed nf:text-white/80 nf:transition nf:hover:border-[var(--warn)]/70"
         >
-          <span className="font-semibold text-[var(--warn)]">订阅链路有待修复：</span>
+          <span className="nf:font-semibold nf:text-[var(--warn)]">订阅链路有待修复：</span>
           {healthIssue.libraryErrors > 0
             ? `${healthIssue.libraryErrors} 个媒体库的入库链路有问题，相关订阅暂时无法自动下载入库（已下达的任务会自动重试）`
             : "订阅链路尚未就绪（缺少可用的资源站点或下载器），订阅暂时只能记录意愿"}
@@ -249,19 +249,19 @@ export function NetflixSubscriptionsPage() {
       )}
 
       {subscriptions === null && !failed && (
-        <div className="mt-16 flex items-center justify-center gap-2.5 text-ui text-[var(--text-muted)]">
-          <BrandLoader className="size-5" />
+        <div className="nf:mt-16 nf:flex nf:items-center nf:justify-center nf:gap-2.5 nf:text-ui nf:text-[var(--text-muted)]">
+          <BrandLoader className="nf:size-5" />
           正在加载订阅…
         </div>
       )}
 
       {failed && (
-        <div className="mt-16 flex flex-col items-center gap-3 text-center">
-          <p className="text-ui text-[var(--text-muted)]">订阅列表加载失败</p>
+        <div className="nf:mt-16 nf:flex nf:flex-col nf:items-center nf:gap-3 nf:text-center">
+          <p className="nf:text-ui nf:text-[var(--text-muted)]">订阅列表加载失败</p>
           <button
             type="button"
             onClick={reload}
-            className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]"
+            className="btn-glass nf:px-4 nf:py-2 nf:text-ui nf:font-medium nf:text-[var(--text)]"
           >
             重试
           </button>
@@ -288,7 +288,7 @@ export function NetflixSubscriptionsPage() {
             canSubscribe ? (
               <Link
                 href={`/discover/${mediaType === "movie" ? "movie" : "tv"}` as Route}
-                className="btn-accent flex items-center gap-1.5 rounded-full px-4 py-2 text-ui font-semibold"
+                className="btn-accent nf:flex nf:items-center nf:gap-1.5 nf:rounded-full nf:px-4 nf:py-2 nf:text-ui nf:font-semibold"
               >
                 去发现{mediaType === "movie" ? "电影" : "剧集"}
               </Link>
@@ -355,26 +355,26 @@ function ComingSoonSection({
   canSubscribe: boolean;
   canOpenTasks: boolean;
 }) {
-  const inset = "px-[4vw]";
+  const inset = "nf:px-[4vw]";
   const daysAhead = groups[0]?.daysAhead ?? 0;
 
   if (loading) {
     return (
-      <p className={`${inset} mt-7 text-sub text-[var(--text-faint)] max-md:mt-6`}>
+      <p className={`${inset} nf:mt-7 nf:text-sub nf:text-[var(--text-faint)] nf:max-md:mt-6`}>
         正在计算预计入库时间…
       </p>
     );
   }
   if (failed) {
     return (
-      <p className={`${inset} mt-7 text-sub text-[var(--text-faint)] max-md:mt-6`}>
+      <p className={`${inset} nf:mt-7 nf:text-sub nf:text-[var(--text-faint)] nf:max-md:mt-6`}>
         入库预告暂时不可用
       </p>
     );
   }
   if (groups.length === 0) {
     return (
-      <p className={`${inset} mt-7 text-sub text-[var(--text-faint)] max-md:mt-6`}>
+      <p className={`${inset} nf:mt-7 nf:text-sub nf:text-[var(--text-faint)] nf:max-md:mt-6`}>
         {trackingCount === 0
           ? "订阅都已收齐或暂停了"
           : hasTvInView
@@ -388,19 +388,19 @@ function ComingSoonSection({
   return (
     <section
       aria-label={daysAhead === 0 ? "今日可能入库" : "即将入库"}
-      className="mt-7 [content-visibility:auto] [contain-intrinsic-size:auto_260px] max-md:mt-6"
+      className="nf:mt-7 nf:[content-visibility:auto] nf:[contain-intrinsic-size:auto_260px] nf:max-md:mt-6"
     >
-      <div className={`mb-3 flex items-baseline justify-between gap-4 max-md:mb-2 ${inset}`}>
-        <h3 className="text-on-image text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
+      <div className={`nf:mb-3 nf:flex nf:items-baseline nf:justify-between nf:gap-4 nf:max-md:mb-2 ${inset}`}>
+        <h3 className="text-on-image nf:text-body-lg nf:font-semibold nf:tracking-[-0.01em] nf:text-[var(--text)]">
           {daysAhead === 0
             ? "今日可能入库"
             : `即将入库 · ${daysAhead === 1 ? "明天" : `${daysAhead} 天后`}`}
         </h3>
-        <span className="tnum shrink-0 text-caption text-[var(--text-faint)]">
+        <span className="tnum nf:shrink-0 nf:text-caption nf:text-[var(--text-faint)]">
           {groups.length} 部
         </span>
       </div>
-      <HScroller className={`gap-2 pb-1 pt-1 ${inset}`}>
+      <HScroller className={`nf:gap-2 nf:pb-1 nf:pt-1 ${inset}`}>
         {groups.map((group) => (
           <ComingSoonCard
             key={group.subscriptionId}
@@ -415,7 +415,7 @@ function ComingSoonSection({
       {canOpenTasks && groups.some((g) => g.presentation.statusLabel === "下载中") && (
         <Link
           href={"/activity?view=active" as Route}
-          className={`mt-1.5 inline-flex text-caption text-[var(--text-faint)] transition hover:text-white ${inset}`}
+          className={`nf:mt-1.5 nf:inline-flex nf:text-caption nf:text-[var(--text-faint)] nf:transition nf:hover:text-white ${inset}`}
         >
           查看下载中的任务 ›
         </Link>
@@ -426,10 +426,10 @@ function ComingSoonSection({
 
 /** 预告行的状态色：与银玻璃时间轨道同一语义（中性 → 警示 → 下载 → 收尾）。 */
 const comingStatusColor: Record<TodayArrivalGroup["presentation"]["statusLabel"], string> = {
-  预计入库: "text-[var(--text-muted)]",
-  等待资源: "text-[var(--warn)]",
-  下载中: "text-[var(--info)]",
-  整理中: "text-[var(--ok)]",
+  预计入库: "nf:text-[var(--text-muted)]",
+  等待资源: "nf:text-[var(--warn)]",
+  下载中: "nf:text-[var(--info)]",
+  整理中: "nf:text-[var(--ok)]",
 };
 
 /**
@@ -455,11 +455,11 @@ function ComingSoonCard({
   return (
     <Link
       href={`/subscriptions/${group.subscriptionId}` as Route}
-      className={`group block shrink-0 cursor-pointer outline-none ${COMING_CARD_W}`}
+      className={`nf:group nf:block nf:shrink-0 nf:cursor-pointer nf:outline-none ${COMING_CARD_W}`}
       aria-label={`查看《${group.mediaTitle}》的订阅详情，${dayLabel}${group.episodeLabel ? ` ${group.episodeLabel}` : ""}`}
     >
       {/* 6px 与全站卡片同一档（rounded-* 换档后的卡角；4px 是控件档） */}
-      <div className="relative aspect-video overflow-hidden rounded-[6px] bg-[#181818] ring-1 ring-white/[0.06] transition-all duration-150 group-hover:ring-white/30">
+      <div className="nf:relative nf:aspect-video nf:overflow-hidden nf:rounded-[6px] nf:bg-[#181818] nf:ring-1 nf:ring-white/[0.06] nf:transition-all nf:duration-150 nf:group-hover:ring-white/30">
         {posterUrl ? (
           <>
             {/* 模糊铺底与中央海报同一宽度（海报约 72 宽 = 卡高 126 × 86% × 2/3），
@@ -468,46 +468,46 @@ function ComingSoonCard({
               src={imageUrl(posterUrl)}
               width={72}
               alt=""
-              className="absolute inset-0 size-full scale-125 object-cover opacity-45 blur-xl"
+              className="nf:absolute nf:inset-0 nf:size-full nf:scale-125 nf:object-cover nf:opacity-45 nf:blur-xl"
             />
-            <div className="absolute inset-0 bg-black/30" />
-            <div className="absolute inset-0 flex items-center justify-center px-6">
-              <div className="aspect-[2/3] h-[86%] overflow-hidden rounded-[2px] shadow-[0_0_24px_rgba(0,0,0,0.6)]">
+            <div className="nf:absolute nf:inset-0 nf:bg-black/30" />
+            <div className="nf:absolute nf:inset-0 nf:flex nf:items-center nf:justify-center nf:px-6">
+              <div className="nf:aspect-[2/3] nf:h-[86%] nf:overflow-hidden nf:rounded-[2px] nf:shadow-[0_0_24px_rgba(0,0,0,0.6)]">
                 <PosterImage
                   src={imageUrl(posterUrl)}
                   width={72}
                   alt={`${group.mediaTitle} 海报`}
-                  className="size-full"
+                  className="nf:size-full"
                 />
               </div>
             </div>
           </>
         ) : (
-          <span className="flex size-full items-center justify-center px-4 text-center text-ui font-semibold text-white/25">
+          <span className="nf:flex nf:size-full nf:items-center nf:justify-center nf:px-4 nf:text-center nf:text-ui nf:font-semibold nf:text-white/25">
             {group.mediaTitle}
           </span>
         )}
         {/* 日期徽标：黑底白字的实底小签，不与状态色争语义 */}
-        <span className="tnum absolute left-2 top-2 rounded-[2px] bg-black/75 px-1.5 py-0.5 text-caption font-bold text-white backdrop-blur-sm">
+        <span className="tnum nf:absolute nf:left-2 nf:top-2 nf:rounded-[2px] nf:bg-black/75 nf:px-1.5 nf:py-0.5 nf:text-caption nf:font-bold nf:text-white nf:backdrop-blur-sm">
           {dayLabel}
         </span>
         {percent != null && (
-          <span className="absolute inset-x-0 bottom-0 h-[3px] bg-white/25">
-            <span className="block h-full bg-[var(--accent)]" style={{ width: `${percent}%` }} />
+          <span className="nf:absolute nf:inset-x-0 nf:bottom-0 nf:h-[3px] nf:bg-white/25">
+            <span className="nf:block nf:h-full nf:bg-[var(--accent)]" style={{ width: `${percent}%` }} />
           </span>
         )}
       </div>
-      <p className="mt-1.5 truncate text-sub font-medium text-white/90 transition-colors group-hover:text-white">
+      <p className="nf:mt-1.5 nf:truncate nf:text-sub nf:font-medium nf:text-white/90 nf:transition-colors nf:group-hover:text-white">
         {group.mediaTitle}
       </p>
-      <p className="tnum mt-0.5 flex min-w-0 items-center gap-x-1.5 truncate text-caption">
+      <p className="tnum nf:mt-0.5 nf:flex nf:min-w-0 nf:items-center nf:gap-x-1.5 nf:truncate nf:text-caption">
         {group.episodeLabel && (
-          <span className="shrink-0 text-[var(--text-muted)]">{group.episodeLabel}</span>
+          <span className="nf:shrink-0 nf:text-[var(--text-muted)]">{group.episodeLabel}</span>
         )}
-        <span className={`shrink-0 font-medium ${comingStatusColor[group.presentation.statusLabel]}`}>
+        <span className={`nf:shrink-0 nf:font-medium ${comingStatusColor[group.presentation.statusLabel]}`}>
           {group.presentation.statusLabel}
         </span>
-        <span className="min-w-0 truncate text-[var(--text-faint)]">
+        <span className="nf:min-w-0 nf:truncate nf:text-[var(--text-faint)]">
           {group.presentation.timeLabel}
         </span>
       </p>
@@ -532,25 +532,26 @@ function SubscriptionPosterRow({
   return (
     <section
       aria-label={title}
-      className="mt-8 [content-visibility:auto] [contain-intrinsic-size:auto_330px] max-md:mt-6"
+      className="nf:mt-8 nf:[content-visibility:auto] nf:[contain-intrinsic-size:auto_330px] nf:max-md:mt-6"
     >
-      <div className="mb-3 flex items-baseline justify-between gap-4 px-[4vw] max-md:mb-2">
-        <h3 className="text-on-image text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
+      <div className="nf:mb-3 nf:flex nf:items-baseline nf:justify-between nf:gap-4 nf:px-[4vw] nf:max-md:mb-2">
+        <h3 className="text-on-image nf:text-body-lg nf:font-semibold nf:tracking-[-0.01em] nf:text-[var(--text)]">
           {title}
         </h3>
-        <span className="tnum shrink-0 text-caption text-[var(--text-faint)]">
+        <span className="tnum nf:shrink-0 nf:text-caption nf:text-[var(--text-faint)]">
           {subscriptions.length} 部
         </span>
       </div>
       {/* pt-2：海报卡悬停上浮 6px 的头部余量（media-row 同一规矩），缺了会削顶角 */}
-      <HScroller className="m-row gap-4 px-[4vw] pb-1 pt-2 max-md:gap-3">
+      <HScroller className="m-row nf:gap-4 nf:px-[4vw] nf:pb-1 nf:pt-2 nf:max-md:gap-3">
         {subscriptions.map((sub) => (
           <div
             key={sub.id}
             data-subscription-id={sub.id}
-            className={`w-[152px] shrink-0 max-md:w-[126px] xl:w-[164px]${
+            // 插值前留空格：类名紧贴 ${ 时 Tailwind 扫描不到（实测漏生成了 xl 档宽度）
+            className={`nf:w-[152px] nf:shrink-0 nf:max-md:w-[126px] nf:xl:w-[164px] ${
               dim
-                ? " opacity-[0.72] transition-opacity duration-200 focus-within:opacity-100 hover:opacity-100"
+                ? "nf:opacity-[0.72] nf:transition-opacity nf:duration-200 nf:focus-within:opacity-100 nf:hover:opacity-100"
                 : ""
             }`}
           >

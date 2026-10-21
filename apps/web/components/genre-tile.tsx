@@ -59,7 +59,7 @@ export function GenreTile({
       <span aria-hidden className="absolute inset-0 -z-10 backdrop-saturate-[1.2] [mask-image:linear-gradient(0deg,#000_25%,transparent_60%)]" />
       {/* 文字保护只压该压的地方：全宽一层很轻的底 + 文字所在左下的椭圆暗区，都走缓动曲线 */}
       <span aria-hidden className="absolute inset-0 -z-10" style={{ backgroundImage: SCRIM }} />
-      {/* 顶边内高光往下淡出，卡片有厚度（genre-tile-sheen：Netflix 主题下去白边时整体不渲染，见 themes/netflix/tokens.css） */}
+      {/* 顶边内高光往下淡出，卡片有厚度（genre-tile-sheen：Netflix 主题下去白边时整体不渲染，见 plugins/netflix/src/theme.css） */}
       <span aria-hidden className="genre-tile-sheen pointer-events-none absolute inset-0 rounded-[inherit] shadow-[inset_0_.5px_0_#ffffff1f,inset_0_0_0_.5px_#ffffff06]" />
       <span className="absolute bottom-[calc(38px*var(--genre-scale))] left-[calc(18px*var(--genre-scale))] right-[calc(34px*var(--genre-scale))] truncate text-[length:calc(24px*var(--genre-scale))] font-semibold leading-[1.22] tracking-[.2px] [text-shadow:0_1px_4px_#00000052]">
         {label}

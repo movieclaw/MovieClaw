@@ -548,7 +548,7 @@ html[data-theme="netflix"] .detail-ambient::-webkit-scrollbar-track {
 }
 
 @media (min-width: 768px) {
-  html.hero-live .backdrop-override {
+  html[data-theme="netflix"].hero-live .backdrop-override {
     left: 25%;
     mask-image: var(--hero-blend);
     -webkit-mask-image: var(--hero-blend);
@@ -560,7 +560,7 @@ html[data-theme="netflix"] .detail-ambient::-webkit-scrollbar-track {
      之下，叠加顺序不变。动画随标记类起跑，起跑时刻由详情视图记入 ref 传给
      轮换层换算负延迟做相位锁定（见 detail-backdrop-slideshow 的 pushAnchor），
      接管瞬间两层缩放逐像素一致。 */
-  html.hero-live .backdrop-override::before {
+  html[data-theme="netflix"].hero-live .backdrop-override::before {
     content: "";
     position: absolute;
     inset: 0;
@@ -578,7 +578,7 @@ html[data-theme="netflix"] .detail-ambient::-webkit-scrollbar-track {
    渐变区亮度 = 2m − m²（m=50% 处亮 33%）；覆盖层一隐藏亮度骤降回 m——
    这就是「图片开始动之后渐变区突然变暗」的根源。隐藏后入场只剩一条路径：
    黑场 → 轮换层（原图）一次性淡入，中途没有任何层切换。 */
-html.hero-live:has(.detail-slideshow) .backdrop-override {
+html[data-theme="netflix"].hero-live:has(.detail-slideshow) .backdrop-override {
   visibility: hidden;
 }
 
@@ -589,8 +589,8 @@ html.hero-live:has(.detail-slideshow) .backdrop-override {
    45% 保证前景文字始终可读。
    背景轮换层（DetailBackdropSlideshow）与覆盖层同一构图（右移 46% + 左缘
    渐隐），两处规则必须一起改。 */
-html.hero-live .backdrop-override,
-html.hero-live .detail-slideshow {
+html[data-theme="netflix"].hero-live .backdrop-override,
+html[data-theme="netflix"].hero-live .detail-slideshow {
   filter: blur(calc(var(--hero-recede, 0) * 12px))
     brightness(calc(1 - var(--hero-recede, 0) * 0.55));
   /* 注册属性的过渡（见下方 @property）：滚轮一次甩几百像素时，进度变量
@@ -601,8 +601,8 @@ html.hero-live .detail-slideshow {
 /* 纵向渐隐画在图片层自己身上（::after 渐到纯黑、与画布同色）：hero 以下的
    正文行依然落在黑底上，而变暗来源从「内容层全宽渐变」变成图片层的一部分，
    视觉上不再多出一层遮罩。 */
-html.hero-live .backdrop-override::after,
-html.hero-live .detail-slideshow::after {
+html[data-theme="netflix"].hero-live .backdrop-override::after,
+html[data-theme="netflix"].hero-live .detail-slideshow::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -614,7 +614,7 @@ html.hero-live .detail-slideshow::after {
    可读。此前移动端完全没有渐变（净效果 = 亮图直压白字），桌面专属的
    「左黑右图」又与竖屏无关——这是移动端详情页观感「不成体系」的主因。 */
 @media (max-width: 767px) {
-  html.hero-live .backdrop-override::after {
+  html[data-theme="netflix"].hero-live .backdrop-override::after {
     background:
       linear-gradient(180deg, rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0) 15%),
       linear-gradient(
@@ -629,11 +629,11 @@ html.hero-live .detail-slideshow::after {
 
 /* 滚动退场的另一半：整层随进度淡出（此前纵向渐变随内容滚上来兜底，
    移除后改由这里接手）——深层滚动时图片只剩微光，正文完全主导。 */
-html.hero-live .detail-slideshow {
+html[data-theme="netflix"].hero-live .detail-slideshow {
   opacity: calc(1 - var(--hero-recede, 0) * 0.85);
 }
 
-.detail-slideshow img {
+html[data-theme="netflix"] .detail-slideshow img {
   transition: opacity 1600ms ease-in-out;
   /* Ken Burns 缓推：与发现页 Hero 同速（9s 线性推 6%，scale 1→1.06），
      「叠变」的另一半——溶解时两层各自在动，是融接不是硬切。
@@ -654,8 +654,8 @@ html.hero-live .detail-slideshow {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .detail-slideshow img,
-  html.hero-live .backdrop-override::before {
+  html[data-theme="netflix"] .detail-slideshow img,
+  html[data-theme="netflix"].hero-live .backdrop-override::before {
     animation: none;
   }
 }
@@ -667,10 +667,6 @@ html.hero-live .detail-slideshow {
  * 品牌资产随主题分叉（组件里双渲染）：银玻璃 = rotor 图片；
  * Netflix = 红色 SVG M 字标——加载中的一抹品牌红。
  */
-.brand-loader--mark {
-  display: none;
-}
-
 html[data-theme="netflix"] .brand-loader--silver {
   display: none;
 }
@@ -810,7 +806,7 @@ html[data-theme="netflix"] .sub-hero-card > .sub-hero-tint {
  *     档位另在顶部压一抹暗，让透明顶栏下的画面上缘更稳；
  *   - 下滚退场：billboard 跟随媒体库页滚动容器滚走时渐暗 + 模糊
  *     （--hero-recede 由组件按滚动进度写在 section 上，与详情页同名
- *     变量同一套公式；此处只作用于本子树，不挂 html.hero-live）。
+ *     变量同一套公式；此处只作用于本子树，不挂 html[data-theme="netflix"].hero-live）。
  * 图床走高清原图（TMDB original / 本地资产原图），组件按「宁黑勿糊」等
  * 解码完成才显示——此前 landscape-card（480×270）拉伸到全出血明显发虚。 */
 .nf-billboard-art {

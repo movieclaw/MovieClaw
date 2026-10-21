@@ -70,35 +70,35 @@ export function NetflixMyPage() {
 
   // 偏好未落定时先占位（而不是 null）：本页是底栏页签的落点，渲染 null 会让
   // 页面在这一两帧里空掉、底栏浮在纯黑上闪一下
-  if (loading) return <div className="h-full" aria-busy="true" />;
+  if (loading) return <div className="nf:h-full" aria-busy="true" />;
   if (theme.id !== "netflix") return null;
 
   return (
-    <div className="scroll-thin scroll-safe h-full overflow-y-auto">
-      <div className="mx-auto w-full max-w-2xl px-4 pb-16 pt-6 md:px-6 md:pt-10">
+    <div className="scroll-thin scroll-safe nf:h-full nf:overflow-y-auto">
+      <div className="nf:mx-auto nf:w-full nf:max-w-2xl nf:px-4 nf:pb-16 nf:pt-6 nf:md:px-6 nf:md:pt-10">
         {/* 用户头：头像 + 昵称 + 用户名（My Netflix 的门面） */}
-        <header className="flex items-center gap-4 px-1">
+        <header className="nf:flex nf:items-center nf:gap-4 nf:px-1">
           {/* 圆角走 style（见 AvatarBadge 说明）：className 里的 rounded-[4px]
               压不过组件内部的 rounded-full，实测渲染成正圆 */}
           <AvatarBadge
             nickname={session.nickname}
             avatarUrl={session.avatar_url}
-            className="size-14 text-title-lg"
+            className="nf:size-14 nf:text-title-lg"
             style={{ borderRadius: 4 }}
           />
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-title-lg font-bold tracking-[-0.01em] text-[var(--text)]">
+          <div className="nf:min-w-0 nf:flex-1">
+            <h1 className="nf:truncate nf:text-title-lg nf:font-bold nf:tracking-[-0.01em] nf:text-[var(--text)]">
               {session.nickname}
             </h1>
-            <p className="mt-0.5 truncate text-ui text-[var(--text-muted)]">
+            <p className="nf:mt-0.5 nf:truncate nf:text-ui nf:text-[var(--text-muted)]">
               @{session.username}
             </p>
           </div>
-          <MovieclawMark className="h-5 w-auto shrink-0 opacity-90" aria-hidden="true" />
+          <MovieclawMark className="nf:h-5 nf:w-auto nf:shrink-0 nf:opacity-90" aria-hidden="true" />
         </header>
 
         {/* 快捷入口 */}
-        <nav aria-label="我的入口" className="mt-6 space-y-0.5">
+        <nav aria-label="我的入口" className="nf:mt-6 nf:space-y-0.5">
           {/* 待处理事项：Netflix 主题没有侧栏，银玻璃侧栏里的告警入口由本行
               承接（组件自轮询自鉴权，无事时整行不渲染） */}
           <NoticeCenter collapsed={false} />
@@ -133,10 +133,10 @@ export function NetflixMyPage() {
 
         {/* AI 会话：与原「我的」面板同源（管理员可见），点击直达会话页 */}
         {isAdmin && (
-          <nav aria-label="AI 会话" className="mt-6 space-y-0.5">
-            <p className="group-label px-3 pb-1.5">AI 会话</p>
+          <nav aria-label="AI 会话" className="nf:mt-6 nf:space-y-0.5">
+            <p className="group-label nf:px-3 nf:pb-1.5">AI 会话</p>
             {conversations.length === 0 ? (
-              <p className="px-3 py-1.5 text-caption leading-5 text-[var(--text-faint)]">
+              <p className="nf:px-3 nf:py-1.5 nf:text-caption nf:leading-5 nf:text-[var(--text-faint)]">
                 还没有会话，从「新任务」开始。
               </p>
             ) : (
@@ -154,7 +154,7 @@ export function NetflixMyPage() {
 
         {/* 账号操作 */}
         {pluginItems.length > 0 && (
-          <nav aria-label="插件页面" className="mt-6 space-y-0.5">
+          <nav aria-label="插件页面" className="nf:mt-6 nf:space-y-0.5">
             {pluginItems.map((item) => (
               <MyRow
                 key={item.id}
@@ -166,7 +166,7 @@ export function NetflixMyPage() {
           </nav>
         )}
 
-        <nav aria-label="账号操作" className="mt-6 space-y-0.5">
+        <nav aria-label="账号操作" className="nf:mt-6 nf:space-y-0.5">
           <MyRow Icon={UsersIcon} label="切换账号" onClick={() => setSwitcherOpen(true)} />
           <MyRow Icon={LogoutIcon} label="退出登录" danger onClick={() => void handleLogout()} />
         </nav>
@@ -214,27 +214,27 @@ function MyRow({
       type="button"
       onClick={onClick}
       title={badge?.hint}
-      className={`glass-row w-full px-3 py-2 max-md:py-2.5 text-ui font-medium ${
-        danger ? "!text-[var(--danger)] hover:!bg-[rgba(255,107,107,0.12)]" : ""
+      className={`glass-row nf:w-full nf:px-3 nf:py-2 nf:max-md:py-2.5 nf:text-ui nf:font-medium ${
+        danger ? "nf:!text-[var(--danger)] nf:hover:!bg-[rgba(255,107,107,0.12)]" : ""
       }`}
     >
       {running && (
-        <span aria-hidden="true" className="size-1.5 shrink-0 animate-pulse rounded-full bg-[var(--info)]" />
+        <span aria-hidden="true" className="nf:size-1.5 nf:shrink-0 nf:animate-pulse nf:rounded-full nf:bg-[var(--info)]" />
       )}
-      {Icon && <Icon className="size-[18px] max-md:size-[22px] shrink-0" />}
-      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+      {Icon && <Icon className="nf:size-[18px] nf:max-md:size-[22px] nf:shrink-0" />}
+      <span className="nf:min-w-0 nf:flex-1 nf:truncate nf:text-left">{label}</span>
       {badge && badge.count > 0 && (
         <span
-          className={`shrink-0 rounded-full px-1.5 py-0.5 text-micro font-semibold leading-none ${
+          className={`nf:shrink-0 nf:rounded-full nf:px-1.5 nf:py-0.5 nf:text-micro nf:font-semibold nf:leading-none ${
             badge.alert
-              ? "bg-[var(--danger-solid)] text-white"
-              : "bg-[var(--info)]/20 text-[var(--info)]"
+              ? "nf:bg-[var(--danger-solid)] nf:text-white"
+              : "nf:bg-[var(--info)]/20 nf:text-[var(--info)]"
           }`}
         >
           {badge.count}
         </span>
       )}
-      <ChevronRightIcon className="size-4 shrink-0 text-[var(--text-faint)]" />
+      <ChevronRightIcon className="nf:size-4 nf:shrink-0 nf:text-[var(--text-faint)]" />
     </button>
   );
 }

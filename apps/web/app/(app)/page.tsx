@@ -11,7 +11,7 @@ import { useResolvedTheme } from "@/themes/registry";
  * 路由 / 按主题分支（docs/design/web-themes.md §0 决策 3）：
  *   - 银玻璃（默认）：AI 新任务输入台——全站唯一不铺蒙版的「氛围页」门面；
  *   - Netflix：**没有首页**（2026-09 修订：内容首页与媒体库合并成页，
- *     Billboard 移入 /library 页顶，见 themes/netflix/components/library-hero.tsx），
+ *     Billboard 移入 /library 页顶，见 plugins/netflix/src/components/library-hero.tsx），
  *     / 仅剩老书签与历史链接会到达，replace 到 /library；
  *   - 银玻璃移动端：replace 到底栏首个页签 /library（2026-10-06，
  *     docs/design/web-themes-mobile/04）——手机上新会话不是高频操作，收进

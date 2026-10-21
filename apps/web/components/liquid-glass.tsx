@@ -9,7 +9,7 @@ import { useResolvedTheme } from "@/themes/registry";
  *
  * 把主题的 capabilities.glass 翻译成 vendor 的 glassEnabled prop——vendor 只认
  * prop、不感知主题名。纯色平铺主题（capabilities.glass = false）下不创建 WebGL
- * 渲染层，外观由主题 CSS 覆盖接管（见 themes/netflix/tokens.css 的
+ * 渲染层，外观由主题 CSS 覆盖接管（见 plugins/netflix/src/theme.css 的
  * .lg-button / .lg-icon-button 组）。
  *
  * 业务组件请从这里 import 玻璃控件；直接 import vendor 仅限不需要主题能力的场景。
