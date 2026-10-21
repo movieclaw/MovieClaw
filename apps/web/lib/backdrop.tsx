@@ -65,7 +65,7 @@ const BackdropContext = createContext<BackdropContextValue | null>(null);
  * cachedImageUrl 收口）要先拆开代理层再剥——否则正则打不穿外层，同一张图
  * 换尺寸档（列表 w775 → 详情 w1280/original 的标准升清路径）会被判成两张图，
  * 覆盖层走「换图」协议整层闪黑一次：Netflix 详情页的覆盖层 transition 被主题
- * 层接管（tokens.css 的 nf-hero-live 规则），连渐变都没有，直接硬切——就是
+ * 层接管（tokens.css 的 hero-live 规则），连渐变都没有，直接硬切——就是
  * 详情页推镜约 1 秒处的「回退叠影」（2026-09-21 实测定位）。
  */
 function backdropPathOf(url: string): string {
@@ -237,15 +237,15 @@ export function BackdropProvider({ children }: { children: React.ReactNode }) {
            底边，否则 iOS 独立 App 下底部会漏出一条底色（见 globals.css 的说明）。
            backgroundImage 始终渲染最近一张就绪图：同图升清期间旧图持续显示、
            新图就位瞬间替换（路径一致，肉眼无感）。backdrop-override：Netflix
-           详情页滚动退场的 filter 钩子（globals.css 的 html.nf-hero-live
-           .backdrop-override 规则按 --nf-hero-recede 给这层加渐暗 + 模糊；
+           详情页滚动退场的 filter 钩子（globals.css 的 html.hero-live
+           .backdrop-override 规则按 --hero-recede 给这层加渐暗 + 模糊；
            其他页面无标记类、零开销） */
         className="backdrop-override pointer-events-none fixed inset-0 z-[1] [bottom:calc(-1*var(--vp-overshoot))] transition-opacity duration-700 ease-out"
         style={{
           opacity: overrideVisible ? 1 : 0,
           backgroundImage: overrideReady ? `url("${overrideReady}")` : undefined,
           /* 尺寸/定位都不在内联样式写死（内联会压过 globals.css 的类级规则）：
-             默认 cover + center top；Netflix 详情页（nf-hero-live）由类级规则
+             默认 cover + center top；Netflix 详情页（hero-live）由类级规则
              改为「左黑右图」构图（left:25% + 左缘渐隐 mask，见 globals.css） */
           backgroundRepeat: "no-repeat",
         }}

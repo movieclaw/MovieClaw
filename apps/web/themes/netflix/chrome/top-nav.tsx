@@ -192,7 +192,7 @@ export function NetflixTopNav({
               新任务
             </button>
           )}
-          {canOpenSearch && <SearchCommand onSearch={onSearch} triggerClassName="nf-icon-btn" />}
+          {canOpenSearch && <SearchCommand onSearch={onSearch} triggerClassName="icon-btn" />}
           <NoticeCenter collapsed variant="bell" />
           <NetflixAvatarMenu onOpenSettings={onOpenSettings} isAdmin={isAdmin} />
         </div>
@@ -418,7 +418,7 @@ function NetflixAvatarMenu({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-label="账号菜单"
-        className="nf-icon-btn"
+        className="icon-btn"
       >
         {/* rounded-* 要经 style 才压得过 AvatarBadge 内部硬写的 rounded-full
             （同特异度的工具类拼在一起，胜负取决于生成 CSS 的先后，实测是

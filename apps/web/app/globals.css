@@ -2707,12 +2707,12 @@ html:has(.player-root) {
    0.2~0.8 过渡带约 14→20 档），起止区间与构图不动，只把过渡抻匀。
    移动端不做左移/mask（竖屏没有「左文右图」的横向分区），改为全幅 + 纵向
    渐隐（见下方 ::after 的移动端档）。 */
-/* 渐变曲线定义在 :root 上（原挂在 html.nf-hero-live）：消费者有三处——详情页
+/* 渐变曲线定义在 :root 上（原挂在 html.hero-live）：消费者有三处——详情页
    沉浸覆盖层与轮换层（body 的子节点、不是彼此的后代，必须从根继承）与
    /library 的 billboard 画面层（.nf-billboard-art）。定义在任何单一消费者上，
    其余都只能拿到 undefined，mask 整个失效成硬边（实测踩过）。 */
 :root {
-  --nf-blend: linear-gradient(
+  --hero-blend: linear-gradient(
     90deg,
     rgba(0, 0, 0, 0) 0%,
     rgba(0, 0, 0, 0.07) 4%,
@@ -2736,79 +2736,23 @@ html:has(.player-root) {
   opacity: 0;
   transition:
     opacity 700ms ease-out,
-    --nf-hero-recede 450ms linear;
-  mask-image: var(--nf-blend);
-  -webkit-mask-image: var(--nf-blend);
+    --hero-recede 450ms linear;
+  mask-image: var(--hero-blend);
+  -webkit-mask-image: var(--hero-blend);
 }
 
 .detail-slideshow[data-ready="true"] {
-  opacity: calc(1 - var(--nf-hero-recede, 0) * 0.85);
-}
-
-/* —— /library 顶部的 Netflix Billboard 画面层（library-hero.tsx） ——
- * 与详情页沉浸剧照同一套画面语言（「media 那样的样式」）：
- *   - 桌面：左侧多段缓变黑遮罩（--nf-blend，与详情页「左黑右图」同一条曲线）
- *     护住左下文案块；移动端竖屏没有左文右图的横向分区，不 mask；
- *   - 纵向渐隐画在 ::after 上（渐到画布纯黑，与下方内容无缝衔接），移动端
- *     档位另在顶部压一抹暗，让透明顶栏下的画面上缘更稳；
- *   - 下滚退场：billboard 跟随媒体库页滚动容器滚走时渐暗 + 模糊
- *     （--nf-hero-recede 由组件按滚动进度写在 section 上，与详情页同名
- *     变量同一套公式；此处只作用于本子树，不挂 html.nf-hero-live）。
- * 图床走高清原图（TMDB original / 本地资产原图），组件按「宁黑勿糊」等
- * 解码完成才显示——此前 landscape-card（480×270）拉伸到全出血明显发虚。 */
-.nf-billboard-art {
-  filter: blur(calc(var(--nf-hero-recede, 0) * 12px))
-    brightness(calc(1 - var(--nf-hero-recede, 0) * 0.55));
-  transition: --nf-hero-recede 450ms linear;
-}
-
-@media (min-width: 768px) {
-  .nf-billboard-art {
-    mask-image: var(--nf-blend);
-    -webkit-mask-image: var(--nf-blend);
-  }
-}
-
-.nf-billboard-art::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 58%, #000 88%);
-}
-
-@media (max-width: 767px) {
-  .nf-billboard-art::after {
-    background:
-      linear-gradient(180deg, rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0) 15%),
-      linear-gradient(
-        180deg,
-        rgba(0, 0, 0, 0) 20%,
-        rgba(0, 0, 0, 0.5) 36%,
-        rgba(0, 0, 0, 0.85) 50%,
-        #000 62%
-      );
-  }
+  opacity: calc(1 - var(--hero-recede, 0) * 0.85);
 }
 
 /* 滚动进度变量注册成 <number> 类型：Chromium 只对注册属性做插值过渡，
    未注册的自定义属性变化永远瞬时生效（这也是 PageNav 的 --nav-reveal
    不加 transition 的原因）。顶栏黑底层与剧照退场都靠这一机制消化
    「滚轮大幅甩动」的跳变。 */
-@property --nf-nav-dim {
+@property --hero-recede {
   syntax: "<number>";
   inherits: true;
   initial-value: 0;
-}
-
-@property --nf-hero-recede {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 0;
-}
-
-/* 顶栏黑底层的缓动（变量由 components/netflix/top-nav.tsx 按滚动进度写入） */
-.nf-topnav {
-  transition: --nf-nav-dim 450ms linear;
 }
 
 
@@ -2837,14 +2781,7 @@ html:has(.player-root) {
 
 
 
-:root {
-  --nf-nav-h: 68px;
-}
-
-/* ============================ Netflix 结构组件 ============================ */
-/* 顶栏高度：外壳与各页面让位的统一基准（§5.1，社区共识值 68px） */
-
-.nf-icon-btn {
+.icon-btn {
   display: grid;
   place-items: center;
   width: 36px;
@@ -2856,7 +2793,7 @@ html:has(.player-root) {
 }
 
 /* 顶栏图标按钮（搜索 / 铃 / 头像下拉箭头等共用） */
-.nf-icon-btn:hover {
+.icon-btn:hover {
   background: var(--glass-fill-hover);
 }
 
@@ -2864,74 +2801,9 @@ html:has(.player-root) {
    控件、PageNav 的 pointer-coarse 分档同一原则：触控尺寸看指针能力而不是
    视口宽度，视口分档会让 iPad 与横屏手机回落到鼠标档的 36px。 */
 @media (pointer: coarse) {
-  .nf-icon-btn {
+  .icon-btn {
     width: 44px;
     height: 44px;
-  }
-}
-
-/* 桌面外壳：主区为绝对定位画布，非氛围页为顶栏让位（氛围页全出血、
-   内容从顶栏底下穿过，观感即 Netflix 的 billboard / 详情 hero） */
-
-.nf-row {
-  --nf-cols: 5;
-  --nf-inset: 4vw;
-  --nf-gap: 8px;
-}
-
-/*
- * 横版卡片行的宽度体系（§5.4 断点表）：行左右内边距 4vw、卡间距 8px，
- * 每行张数按断点换档，卡宽由 CSS 变量推导——组件里不写魔法宽度。
- */
-@media (min-width: 1400px) {
-  .nf-row {
-    --nf-cols: 6;
-  }
-}
-
-@media (max-width: 950px) {
-  .nf-row {
-    --nf-cols: 4;
-  }
-}
-
-.nf-card-land {
-  width: calc(
-    (100vw - 2 * var(--nf-inset) - (var(--nf-cols) - 1) * var(--nf-gap)) / var(--nf-cols)
-  );
-}
-
-
-.nf-tabbar {
-  background: #0a0a0a;
-}
-
-
-.nf-hovercard {
-  z-index: 500;
-  transform-origin: center top;
-  /* 官方技术博客《Delivering Meaning with Previews on Web》：展开画布 400ms */
-  animation: nf-expand 400ms cubic-bezier(0, 0, 0.2, 1) both;
-}
-
-/* hover 展开卡（Portal + fixed，§5.4）：z 取 500 档——高于内容行、
-   低于全局浮层（菜单 70 / 抽屉 60 / 命令面板 50 档是外壳内的；
-   Portal 到 body 后与它们同层比较，取 500 稳压内容与外壳浮层） */
-@keyframes nf-expand {
-  from {
-    transform: scale(1);
-    opacity: 0.4;
-  }
-  to {
-    transform: scale(1.5);
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .nf-hovercard {
-    animation: none;
-    transform: scale(1.5);
   }
 }
 
@@ -2987,9 +2859,9 @@ html:has(.player-root) {
 /* —— 顶栏圆钮（PAGE_NAV_BUTTON_CLASS 的 .page-nav-btn 钩子）与底栏同一种玻璃（银玻璃）——
    iOS 26 导航栏按钮与标签栏是同一块液态玻璃：材质取 --glass-tint / --glass-backdrop，
    轮廓是一根上亮下暗的 1px 高光细线（圆钮小，用内阴影画，不占 ::before——按钮可能是
-   absolute 定位的，不能强加 position:relative）。Netflix 主题的实底圆钮见
-   themes/netflix/tokens.css，这里用 :not 排除，不相互覆盖。 */
-html:not([data-theme="netflix"]) .page-nav-btn {
+   absolute 定位的，不能强加 position:relative）。玻璃材质只在主题启用玻璃时生效
+   （停用玻璃的主题 <html> 带 data-glass="off"，自己的实底圆钮写在主题 CSS 里）。 */
+html:not([data-glass="off"]) .page-nav-btn {
   border-color: transparent;
   background: var(--glass-tint);
   -webkit-backdrop-filter: var(--glass-backdrop);
@@ -3002,11 +2874,11 @@ html:not([data-theme="netflix"]) .page-nav-btn {
   color: rgba(255, 255, 255, 0.92);
 }
 
-html:not([data-theme="netflix"]) .page-nav-btn svg {
+html:not([data-glass="off"]) .page-nav-btn svg {
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
 }
 
-html:not([data-theme="netflix"]) .page-nav-btn:hover {
+html:not([data-glass="off"]) .page-nav-btn:hover {
   background: rgba(62, 66, 74, 0.46);
 }
 

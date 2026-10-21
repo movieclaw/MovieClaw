@@ -8,7 +8,7 @@ import { ChevronLeftIcon } from "@/components/icons";
 import { SearchCommand } from "@/components/search-command";
 import { useBackNavigation } from "@/lib/back-navigation";
 import { isHomeRoute, usePageChrome } from "@/lib/page-chrome";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useResolvedTheme } from "@/themes/registry";
 import { useIsMobile } from "@/lib/use-media-query";
 
@@ -36,7 +36,7 @@ const REVEAL_END = 82;
  * 36px 的键在触屏上会显得局促难点）；鼠标 36px（精度高，44px 反而笨重）。
  * 分档按指针能力（pointer-coarse）而不是视口宽度——iPad 竖屏 / 手机横屏
  * 都会越过 md 断点，按视口分档会让触屏设备吃到鼠标档（与播放器控件、
- * .nf-icon-btn 的同一结论，2026-09 移动端审查统一）。
+ * .icon-btn 的同一结论，2026-09 移动端审查统一）。
  * 图标同比例缩放（约为键径的一半），改动时两档要一起看。
  */
 /** 尺寸档单拎出来导出：NetflixBackButton（裸键，不吃玻璃材质）与本类共享
@@ -120,7 +120,7 @@ export function PageNav({
   const rootRef = useRef<HTMLDivElement>(null);
   const chrome = usePageChrome();
   // ☰ 键只在银玻璃渲染（开抽屉）；Netflix 的导航在底部页签，详见下方控件组注释
-  const isNetflix = useTheme().structural;
+  const cinema = useLayout() === "cinema";
   const isMobile = useIsMobile();
   const pathname = usePathname();
   const { slots } = useResolvedTheme();
@@ -185,7 +185,7 @@ export function PageNav({
   // 详情页的 PageNav 照常保留；银玻璃两端的顶栏都不是 fixed，同样不受限。
   // 现状零行为变化：isHome 页面在 Netflix 桌面本就各自分支改用了
   // NetflixBackButton，没有任何页面在会触发本短路的状态下向本组件要过渲染。
-  if (isNetflix && !isMobile && isHomeRoute(pathname, slots.libraryHero != null)) {
+  if (cinema && !isMobile && isHomeRoute(pathname, slots.libraryHero != null)) {
     return null;
   }
 

@@ -15,7 +15,7 @@ import {
   updateUiPreferences,
   type UiPreferences,
 } from "@/lib/api/ui";
-import { DEFAULT_THEME_ID, normalizeThemeId, themeMeta, type ThemeMeta } from "@/lib/themes";
+import { DEFAULT_THEME_ID, normalizeThemeId, themeMeta, type ThemeLayout, type ThemeMeta } from "@/lib/themes";
 import { useIsMobile } from "@/lib/use-media-query";
 import { readUiPrefsCache, writeUiPrefsCache } from "@/lib/ui-prefs-cache";
 
@@ -51,16 +51,6 @@ interface UiPrefsContextValue {
 }
 
 const UiPrefsContext = createContext<UiPrefsContextValue | null>(null);
-
-/**
- * 浏览器 UI 框（移动端地址栏 / PWA 状态栏）随主题取的画布色：与 <meta
- * name="theme-color"> 同步写入。manifest 的静态 theme_color 保持银玻璃
- * （只影响安装过渡帧，动态化需 cookie 路由，不值得）。
- */
-const THEME_BROWSER_CHROME: Record<string, string> = {
-  netflix: "#000000",
-  [DEFAULT_THEME_ID]: "#000000",
-};
 
 /**
  * 按版式解析生效主题（2026-09-24 起桌面 / 移动端可分别选主题）：
@@ -116,31 +106,22 @@ export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
   // 主题同步：把生效主题（含设置页的预览草稿——点主题卡实时预览就靠它）写到
   // <html> 的 data-theme 属性上。token 层与圆角换档都挂在这个作用域，属性一改
   // 全站换肤；结构层（外壳分支）由 useTheme() 的消费方跟随同一份值渲染。
-  // 默认主题移除属性而不是写 data-theme="silver"，与防闪烁脚本（只认 netflix）
-  // 的落点保持一致，SSR 首屏也无需任何属性。
-  // 同一个 effect 里顺带把外壳让位契约（ThemeMeta.chrome 声明的几何）写到
-  // <html> 上（--mobile-topbar-h / --mobile-tabbar-h / --mobile-tabbar-offset /
-  // data-tabbar-mode）：首帧值由 layout.tsx 的防闪烁脚本按 localStorage 缓存
-  // 写入，这里负责设置页切主题（含实时预览）后的即时跟随。两处是同一份逻辑
-  // 的两个副本，改一处要看另一处。
+  // 默认主题移除属性而不是写 data-theme="silver"，与防闪烁脚本（只认非默认
+  // 主题）的落点保持一致，SSR 首屏也无需任何属性。外壳几何由主题 CSS 在
+  // data-theme 作用域里声明，属性一改就跟着换，这里不必另写。
   const isMobile = useIsMobile();
   const effectiveTheme = resolveThemeId(preview ?? prefs, isMobile);
   useEffect(() => {
     const root = document.documentElement;
     if (effectiveTheme === DEFAULT_THEME_ID) root.removeAttribute("data-theme");
     else root.setAttribute("data-theme", effectiveTheme);
-    const chrome = themeMeta(effectiveTheme).chrome;
-    root.style.setProperty("--mobile-topbar-h", `${chrome.mobileTopBarHeight}px`);
-    root.style.setProperty("--mobile-tabbar-h", `${chrome.mobileTabBar.height}px`);
-    root.style.setProperty("--mobile-tabbar-offset", chrome.mobileTabBar.bottomOffset);
-    if (chrome.mobileTabBar.mode === "docked") root.setAttribute("data-tabbar-mode", "docked");
-    else root.removeAttribute("data-tabbar-mode");
+    if (themeMeta(effectiveTheme).glass) root.removeAttribute("data-glass");
+    else root.setAttribute("data-glass", "off");
     // 浏览器 UI 框颜色与画布同源跟随（含设置页实时预览切主题的瞬间）。
     // Next 的路由元数据机制可能在客户端导航时把 viewport 导出的静态
     // themeColor（银玻璃值）写回 meta——用观察器持续断言当前主题的画布色，
     // 无论被谁改写都拉回，避免主题与浏览器框颜色脱节。
-    const desired =
-      THEME_BROWSER_CHROME[effectiveTheme] ?? THEME_BROWSER_CHROME[DEFAULT_THEME_ID];
+    const desired = themeMeta(effectiveTheme).themeColor;
     const apply = () => {
       const meta = document.querySelector('meta[name="theme-color"]');
       if (meta && meta.getAttribute("content") !== desired) {
@@ -218,6 +199,11 @@ export function useTheme(): ThemeMeta {
  * 冷的时候出现，非常难查。纯换肤的分支没有这个问题（渲染错一帧会自愈），
  * 换路由的分支不会自愈：路由已经跳了。
  */
+/** 当前生效主题的版式（docs/design/theme-plugins.md §4.2）：内核组件按它分叉排布，不认识具体主题。 */
+export function useLayout(): ThemeLayout {
+  return useTheme().layout;
+}
+
 export function useThemeState(): { theme: ThemeMeta; loading: boolean } {
   const ctx = useContext(UiPrefsContext);
   const isMobile = useIsMobile();

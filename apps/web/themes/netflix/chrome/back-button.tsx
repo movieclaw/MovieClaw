@@ -11,7 +11,7 @@ import { PAGE_NAV_BUTTON_SIZE_CLASS } from "@/components/page-nav";
  *
  * Netflix 桌面返回语言一套：全出血(isHome)详情页用 NetflixBackButton；带
  * PageNav 工具条的页面用 PageNav 内返回键；两者同图标 / 同尺寸档 / 同 4vw
- * 基线 / 同 useBackNavigation 行为。isHome 全出血页（外壳不加 nf-nav-offset
+ * 基线 / 同 useBackNavigation 行为。isHome 全出血页（外壳不加 topnav-offset
  * 让位）不能渲染 PageNav——sticky z-30 会被 fixed z-40 的顶栏整个盖住，
  * 返回键看得见点不到；这是防遮挡硬约束（page-nav.tsx 渲染入口也按同源判定
  * 短路，见 lib/page-chrome.tsx 的 isHomeRoute），银玻璃与移动端仍用 PageNav。

@@ -74,7 +74,7 @@ import { usePluginApps } from "@/lib/plugin-apps-context";
 import { applyNavOrder, mergeNavOrder, sameNavOrder } from "@/lib/sidebar-nav";
 import { settingsSectionGroupsFor, settingsSections } from "@/lib/mock-data";
 import { useActiveExtensionPoints } from "@/lib/use-extension-points";
-import { useTheme, useUiPrefs } from "@/lib/ui-prefs";
+import { useLayout, useUiPrefs } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useResolvedTheme } from "@/themes/registry";
 import { useTabParam } from "@/lib/use-tab-param";
@@ -177,7 +177,7 @@ export function SettingsPanel({ active, item }: SettingsPanelProps) {
   // 内容列在设置 main 区（右侧分区菜单之后的剩余空间）内水平居中，两主题一致；
   // 银玻璃无分区菜单，居中即全宽居中（mx-auto px-6）。分区菜单固定 300px 宽
   // （见 app-shell 的设置分支），列不与菜单重叠
-  const isNf = useTheme().structural;
+  const cinema = useLayout() === "cinema";
   const allowed = settingsSectionGroupsFor(session.role, "all").flatMap((g) => g.items);
   const section =
     allowed.find((s) => s.id === active) ?? allowed[0] ?? settingsSections[0];
@@ -205,7 +205,7 @@ export function SettingsPanel({ active, item }: SettingsPanelProps) {
           路径映射对照表，同给 3xl；其余表单类分区维持 2xl 的舒适阅读宽度 */}
       <div
         className={`w-full pb-20 pt-12 max-md:pb-12 max-md:pt-6 ${
-          isNf ? "mx-auto pl-12 pr-12 max-md:px-4" : "mx-auto px-6 max-md:px-4"
+          cinema ? "mx-auto pl-12 pr-12 max-md:px-4" : "mx-auto px-6 max-md:px-4"
         } ${
           section.id === "logs" || section.id === "mcp"
             ? "max-w-4xl"
@@ -765,11 +765,12 @@ function AppearanceSection() {
 }
 
 /**
- * 「仅银玻璃主题生效」的置灰壳：Netflix 主题下包住背景图 / 界面质感两组设置。
+ * 「仅银玻璃主题生效」的置灰壳：停用玻璃的主题下包住背景图 / 界面质感两组设置。
  * 置灰 + 挡指针（不只是禁用单个控件——整组交互都无意义），对应偏好字段保留，
  * 切回银玻璃后原样恢复可调。
  */
 function DisabledGlassGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  const themeLabel = useResolvedTheme().meta.label;
   return (
     <div>
       {/* inert 而不是只有 pointer-events-none：后者只挡鼠标，键盘 Tab 照样能
@@ -779,7 +780,7 @@ function DisabledGlassGroup({ label, children }: { label: string; children: Reac
         {children}
       </div>
       <p className="mt-2.5 px-1 text-caption text-[var(--text-faint)]">
-        {label}仅「银玻璃」主题生效——Netflix 主题是纯色平铺设计，没有背景大图与玻璃质感。
+        {label}仅「银玻璃」主题生效——{themeLabel} 主题是纯色平铺设计，没有背景大图与玻璃质感。
       </p>
     </div>
   );

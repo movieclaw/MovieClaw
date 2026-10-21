@@ -24,7 +24,7 @@ import { usePageChrome } from "@/lib/page-chrome";
 import { useSearchPrefs } from "@/lib/search-prefs";
 import { useSearchAccess } from "@/lib/search-access";
 import { buildSearchPath, parseSearchQuery } from "@/lib/search-url";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { usePageTitle } from "@/lib/use-page-title";
 
@@ -161,8 +161,8 @@ function SearchVerticals({
   const browsing = !query.keyword;
   // 银玻璃手机端：关键词胶囊 + 范围菜单挂进外壳顶栏（Netflix 主题与桌面维持原样）
   const chrome = usePageChrome();
-  const isNf = useTheme().structural;
-  const silverMobile = useIsMobile() && !isNf;
+  const cinema = useLayout() === "cinema";
+  const panelMobile = useIsMobile() && !cinema;
   // 各垂直是否已被访问过：访问过才挂载、之后保活
   const [visited, setVisited] = useState<Record<SearchVertical, boolean>>(() => ({
     media: vertical === "media",
@@ -198,7 +198,7 @@ function SearchVerticals({
   const setTopBarLeading = chrome?.setTopBarLeading;
   const keywordCapsule = useMemo(
     () =>
-      silverMobile ? (
+      panelMobile ? (
         <KeywordCapsule
           keyword={query.keyword}
           onClick={() =>
@@ -210,7 +210,7 @@ function SearchVerticals({
           }
         />
       ) : null,
-    [query, silverMobile, vertical],
+    [query, panelMobile, vertical],
   );
   useEffect(() => {
     if (!keywordCapsule || !setTopBarLeading) return;
@@ -226,7 +226,7 @@ function SearchVerticals({
   const switchScope = useCallback((scope: SearchScope) => scopeSwitchRef.current(scope), []);
   const setTopBarActions = chrome?.setTopBarActions;
   const showsScopeMenu =
-    silverMobile && vertical === "torrent" && visibleVerticalTabs.some((t) => t.id === "torrent");
+    panelMobile && vertical === "torrent" && visibleVerticalTabs.some((t) => t.id === "torrent");
   const scopeMenu = useMemo(
     () =>
       showsScopeMenu ? (
@@ -286,7 +286,7 @@ function SearchVerticals({
           </div>
 
           {/* 分类是真实搜索范围而非结果筛选：点击后更新 URL，并按该配置重新请求站点。 */}
-          {vertical === "torrent" && !silverMobile && (
+          {vertical === "torrent" && !panelMobile && (
             <div
               role="radiogroup"
               aria-label="站点资源搜索分类"

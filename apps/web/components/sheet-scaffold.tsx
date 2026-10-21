@@ -26,13 +26,13 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { CheckIcon, ChevronRightIcon, XIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { useIsMobile } from "@/lib/use-media-query";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 
-/** 是否走表单弹层形态：银玻璃主题（非 structural）+ 手机版式。 */
+/** 是否走表单弹层形态：panel 版式 + 手机。 */
 export function useSheetForm(): boolean {
   const isMobile = useIsMobile();
-  const isNf = useTheme().structural;
-  return isMobile && !isNf;
+  const cinema = useLayout() === "cinema";
+  return isMobile && !cinema;
 }
 
 /** 右上角确认键：界面上是 ✓，label 作读屏名；busy 时换成转圈。 */

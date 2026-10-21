@@ -7,7 +7,7 @@
  * 生效机制分三层（同文档 §3.3）：
  *   1. token 层：globals.css 里 `html[data-theme="<id>"]` 下的语义变量覆盖组；
  *   2. Tailwind v4 主题变量层：同一覆盖组里的 `--radius-*` 换档（全站圆角）；
- *   3. 结构层：外壳按 `structural` 标记分支渲染（NetflixTopNav / NetflixTabBar）。
+ *   3. 结构层：内核按版式（ThemeLayout）排布页面，主题经坑位注册表替换外框组件。
  *
  * 新增主题的步骤：
  *   - 这里注册一份 ThemeMeta；
@@ -15,39 +15,15 @@
  *   - 设置 → 外观的「主题」卡片自动出现（消费方遍历 THEMES 渲染）。
  */
 /**
- * 主题的外壳几何声明（「让位契约」，2026-09-24）。
- *
- * 外壳与全局 CSS 不再为具体主题写让位规则，只消费这里声明、由防闪烁脚本
- * （layout.tsx）与 UiPrefsProvider（lib/ui-prefs.tsx）写到 <html> 上的三个
- * CSS 变量：--mobile-topbar-h / --mobile-tabbar-h / --mobile-tabbar-offset，
- * 以及 data-tabbar-mode 属性。作者优化基础主题的几何只改自己的声明，
- * 不会波及其他主题；全局规则里也不再出现 html:not([data-theme=…]) 这类
- * 反向排除选择器。
+ * 版式：页面在什么样的外框里排布（docs/design/theme-plugins.md §4.2）。
+ * 版式归内核，主题只声明用哪一种——内核组件按版式分叉，不认识具体主题。
+ * - panel：侧栏 + 居中内容面板 + iOS 式移动端顶栏 / 悬浮底栏（银玻璃）；
+ * - cinema：全局顶栏（主题的 desktopTopNav 坑位）+ 满出血内容 + 大图首屏 +
+ *   实底移动顶栏 / 停靠底栏。
+ * 外壳几何（移动顶栏让位高度、底栏高度）不在这里：由主题 CSS 以变量声明
+ * （--mobile-topbar-h / --mobile-tabbar-h），首帧随 data-theme 一起生效。
  */
-export interface ThemeChrome {
-  /**
-   * 移动端顶栏让位高度（px）：顶栏浮在内容之上（雾层或悬浮胶囊），主区的
-   * padding-top = safe-top + 此值。消费方：globals.css 的 .app-shell > main。
-   */
-  mobileTopBarHeight: number;
-  /** 移动端底栏的让位形态与几何。 */
-  mobileTabBar: {
-    /**
-     * docked = 实底停靠栏：main 整层让位（栏高 + safe-bottom），滚动容器
-     * 末尾不留白；floating = 悬浮玻璃栏：内容从栏底穿过、一直滚到物理底边，
-     * 滚动容器末尾按「offset + height + 12px」留白（.scroll-safe::after）；
-     * none = 无底栏。
-     */
-    mode: "docked" | "floating" | "none";
-    /** 底栏自身高度（px）。 */
-    height: number;
-    /**
-     * 悬浮底栏距视口底边的偏移（CSS 长度表达式，可引用 --safe-bottom 等
-     * 变量；仅 floating 消费）。
-     */
-    bottomOffset: string;
-  };
-}
+export type ThemeLayout = "panel" | "cinema";
 
 export interface ThemeMeta {
   id: string;
@@ -63,21 +39,15 @@ export interface ThemeMeta {
    * <meta name="theme-color">——新增主题自动被脚本认识，无需改脚本。
    */
   themeColor: string;
+  /** 版式（见上方 ThemeLayout）。纯换肤主题恒为 panel。 */
+  layout: ThemeLayout;
   /**
-   * 结构级差异标记：true = 该主题会更换应用外壳（顶栏 / 底部标签栏 / 内容首页），
-   * AppShell 据此走独立的结构分支；纯换肤主题恒为 false。
+   * 是否启用液态玻璃（WebGL 画布与玻璃材质）。纯色平铺主题 = false：外壳不建
+   * WebGL 画布，<html> 带 data-glass="off"，玻璃材质规则（globals.css 里挂
+   * html:not([data-glass="off"]) 的那些）不生效。首帧由防闪烁脚本写入。
    */
-  structural: boolean;
-  /** 外壳几何声明（让位契约，见上方 ThemeChrome）。新主题必须声明；漏了由
-   *  themeChrome() 兜底为默认主题的声明。 */
-  chrome: ThemeChrome;
+  glass: boolean;
 }
-
-/** 银玻璃（默认主题）的悬浮底栏距底偏移：距物理底边约 22px——有 Home 指示条时
- *  = safe-bottom − 12px。只按视口算，不减 --vp-overshoot：#442 真机（iOS 26
- *  PWA）实测视口底边就是屏幕物理底边，减了会把整条底栏推出屏幕、只剩一条边
- *  可见（该补偿量只给铺底层用，与 globals.css 的 --tabbar-bottom 同式）。 */
-const FLOATING_TABBAR_BOTTOM_OFFSET = "max(22px, calc(var(--safe-bottom) - 12px))";
 
 export const THEMES: ThemeMeta[] = [
   {
@@ -86,12 +56,8 @@ export const THEMES: ThemeMeta[] = [
     description: "液态玻璃 · 冷银高光的控制台质感（默认）",
     preview: { bg: "#111113", accent: "#cdd6e6" },
     themeColor: "#000000",
-    structural: false,
-    chrome: {
-      mobileTopBarHeight: 52,
-      // 纯图标底栏 54px（2026-09-25 去掉页签文字后收窄；银玻璃 CSS 的 --tabbar-h 同值）
-      mobileTabBar: { mode: "floating", height: 54, bottomOffset: FLOATING_TABBAR_BOTTOM_OFFSET },
-    },
+    layout: "panel",
+    glass: true,
   },
   {
     id: "netflix",
@@ -99,13 +65,9 @@ export const THEMES: ThemeMeta[] = [
     description: "纯色平铺 · 品牌红 · 顶栏与横版卡片行的影院浏览形态",
     preview: { bg: "#141414", accent: "#e50914" },
     themeColor: "#000000",
-    structural: true,
-    chrome: {
-      // 雾层顶栏让位 52px；实底标签栏 49px 停靠，main 整层让位（不含 safe-bottom，
-      // 消费方自加）——与 NetflixTabBar / tokens.css 的既有几何一致
-      mobileTopBarHeight: 52,
-      mobileTabBar: { mode: "docked", height: 49, bottomOffset: "0px" },
-    },
+    layout: "cinema",
+    // 纯色平铺设计：整体停用液态玻璃
+    glass: false,
   },
 ];
 

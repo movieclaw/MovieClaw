@@ -61,7 +61,7 @@ import { cachedImageUrl, coverWidth, fullScreenImageWidth, screenImageWidth } fr
 import { layoutPosterGrid } from "@/lib/wall-window";
 import { usePermissions } from "@/lib/permissions";
 import { formatDateTime, formatRelativeTime } from "@/lib/time";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
 
@@ -798,8 +798,8 @@ export function SearchResults({
     isAdmin: pageIsAdmin,
   } = usePermissions();
   // 银玻璃手机端：条件胶囊行 / 去掉关键词标题 / 站点详情走底部弹层（见文件头注释）
-  const isNf = useTheme().structural;
-  const silverMobile = useIsMobile() && !isNf;
+  const cinema = useLayout() === "cinema";
+  const panelMobile = useIsMobile() && !cinema;
   const scrollRef = useScrollRestoration(
     `search:torrent:${query.keyword}:${(query.also ?? []).join("|")}:${query.scope.label ?? "all"}:${query.scope.categories.join(",")}:${query.scope.siteIds.join(",")}:${query.snapshotId ?? "live"}`,
   );
@@ -1179,7 +1179,7 @@ export function SearchResults({
       <header className={`relative z-20 shrink-0 pb-3 pt-4 page-inset max-md:pt-3`}>
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
           {/* 银玻璃手机不重复关键词与范围：顶栏的关键词胶囊与范围菜单已写着 */}
-          {!silverMobile && (
+          {!panelMobile && (
             <h1 className="text-on-image text-title-lg font-semibold tracking-[-0.01em] text-white">
               {/* 浏览模式（无关键词）标题落在动作上，具体范围由右边的分类药丸交代 */}
               {query.keyword ? `“${query.keyword}”` : "最新资源"}
@@ -1194,7 +1194,7 @@ export function SearchResults({
               另含 {alsoSearched.join(" · ")}
             </span>
           )}
-          {!silverMobile && query.scope.label && (
+          {!panelMobile && query.scope.label && (
             <span className="rounded-full bg-black/30 px-2.5 py-0.5 text-caption text-[var(--accent)] backdrop-blur-sm">
               {query.scope.label}
             </span>
@@ -1246,7 +1246,7 @@ export function SearchResults({
                 )}
               </>
             )}
-            {silverMobile && siteProgress.length > 0 && (
+            {panelMobile && siteProgress.length > 0 && (
               <ViewModeMenu view={view} onChange={setView} />
             )}
             <SiteStatusSummary
@@ -1254,7 +1254,7 @@ export function SearchResults({
               streaming={streaming}
               onRetrySite={snapshotAt ? undefined : retrySite}
               totalElapsedMs={totalElapsedMs}
-              asSheet={silverMobile}
+              asSheet={panelMobile}
             />
           </div>
         </div>
@@ -1263,7 +1263,7 @@ export function SearchResults({
             当前没有「已启用且验证通过」的站点，请先在设置里配置站点。
           </p>
         )}
-        {siteProgress.length > 0 && silverMobile && (
+        {siteProgress.length > 0 && panelMobile && (
           <ConditionChips
             sites={settledStatuses}
             facets={facets}
@@ -1274,7 +1274,7 @@ export function SearchResults({
             onSortChange={setSort}
           />
         )}
-        {siteProgress.length > 0 && !silverMobile && (
+        {siteProgress.length > 0 && !panelMobile && (
           <>
             <FilterToolbar
               sites={settledStatuses}

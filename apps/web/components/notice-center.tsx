@@ -198,7 +198,7 @@ function NoticeCenterInner({
           onClick={() => setOpen(true)}
           aria-label={`待处理事项（${visible.length}）`}
           title={`待处理事项（${visible.length}）`}
-          className="nf-icon-btn relative"
+          className="icon-btn relative"
         >
           <BellIcon className="size-[20px]" />
           {/* 红点即状态信号：顶栏密度高，只点一颗点、不摆计数徽标。无需条件

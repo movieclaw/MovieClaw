@@ -45,7 +45,7 @@ import {
   subscriptionCollectionMeta,
   subscriptionRibbon,
 } from "@/lib/subscription-ui";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
 import { useSubscriptionsHome } from "@/lib/use-subscriptions-home";
@@ -117,8 +117,8 @@ export function SubscriptionsView() {
   const setTopBarTitle = chrome?.setTopBarTitle;
   const setTopBarActions = chrome?.setTopBarActions;
   const isMobile = useIsMobile();
-  const structural = useTheme().structural;
-  const mobileChrome = isMobile && !structural;
+  const cinema = useLayout() === "cinema";
+  const mobileChrome = isMobile && !cinema;
   const showHealth = canManageSubscriptions && healthErrors !== null;
   useEffect(() => {
     if (!mobileChrome || !setTopBarTitle) return;
@@ -139,7 +139,7 @@ export function SubscriptionsView() {
   const currentSlide = hasHero ? slides[Math.min(heroIndex, slides.length - 1)] : null;
   const tint = useHeroAmbientColor(currentSlide ? heroImageOf(currentSlide) : null);
   // 桌面沉浸：窗口背景换成当前这张剧照，侧栏玻璃与四周缝隙都透出同一部片（手机不需要，本来就铺满）
-  useHeroWindowBackdrop(!isMobile && !structural && currentSlide ? heroImageOf(currentSlide) : null);
+  useHeroWindowBackdrop(!isMobile && !cinema && currentSlide ? heroImageOf(currentSlide) : null);
 
   return (
     <div

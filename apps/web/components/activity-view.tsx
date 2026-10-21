@@ -15,7 +15,7 @@ import {
 import { TaskCenterView } from "@/components/task-center-view";
 import { usePageChrome } from "@/lib/page-chrome";
 import { usePermissions } from "@/lib/permissions";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { taskActivityBadge, useTaskActivity } from "@/lib/task-activity";
 import type {
   ActivityPageName,
@@ -54,7 +54,7 @@ export function ActivityView({
   const pathname = usePathname();
   // 页面左右留白随主题走栅格：Netflix 主题放弃居中窄栏、整幅铺开并对齐全站
   // 4vw 左基线（与订阅页/媒体库首页同一条线）；银玻璃维持居中 1180px 栏
-  const isNf = useTheme().structural;
+  const cinema = useLayout() === "cinema";
   const [scope, setScope] = useState<ActivityScope>(initialScope);
   const [view, setView] = useState<TaskCenterViewName>(initialView);
   const [watchView, setWatchView] = useState<WatchViewName>(initialWatchView);
@@ -143,7 +143,7 @@ export function ActivityView({
   const isMobile = useIsMobile();
   // 银玻璃：一页总览（大字标题 + 实时摘要），不再有「观看 / 任务」切换器。手机与桌面
   // 同一套交互（对齐原生 App），只有标题与页面操作的位置不同（见 ActivityPages）
-  const overview = !isNf;
+  const overview = !cinema;
   const setTopBarActions = chrome?.setTopBarActions;
   useEffect(() => {
     if (!isMobile || overview || !setTopBarActions) return;
@@ -170,7 +170,7 @@ export function ActivityView({
     <div className="scroll-thin scroll-safe h-full overflow-y-auto pb-10">
       <div
         className={
-          isNf
+          cinema
             ? "w-full page-inset pt-7 max-md:pt-4"
             : "mx-auto w-full max-w-[1180px] page-inset pt-7 max-md:pt-4"
         }

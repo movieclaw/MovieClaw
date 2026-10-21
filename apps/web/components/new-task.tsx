@@ -17,7 +17,7 @@ import {
 } from "@/lib/composer-prefs";
 import { resolveModelOption, useLlmModelOptions } from "@/lib/llm-thinking";
 import { usePageChrome } from "@/lib/page-chrome";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 
 /* —— 新任务（路由 / 与 /new）：仅一个居中输入框，大图氛围页直出。
@@ -36,8 +36,8 @@ export function NewTask({ flat = false }: { flat?: boolean } = {}) {
   const [input, setInput] = useState("");
   // 会话页形态：银玻璃手机专用；Netflix 手机与桌面仍是居中输入台
   const isMobile = useIsMobile();
-  const theme = useTheme();
-  const chatPage = isMobile && !theme.structural;
+  const panel = useLayout() === "panel";
+  const chatPage = isMobile && panel;
   // 顶栏标题「新会话」+ 返回键，返回落点与会话页一致（/my：手机上会话列表在「我的」）；
   // 右上角什么都不放（同原生 App 的新会话页：搜索在这里用不上）
   const chrome = usePageChrome();

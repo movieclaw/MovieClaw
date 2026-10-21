@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DiscoveryFilterChips, useDiscoveryGenres } from "@/components/discovery-filter-dialog";
 import { PosterCard } from "@/components/poster-card";
 import { fetchFilteredDiscovery } from "@/lib/api/discover";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import {
   discoveryFilterCount,
   discoveryFilterLabels,
@@ -50,9 +50,9 @@ export function FilteredDiscoveryView({
   const firstQueryRef = useRef(true);
   // 页面左右留白随主题走栅格：Netflix 主题放弃居中栏、与发现页内容行同走全幅
   // 4vw 左基线；银玻璃维持居中 1500px 栏 + px-6
-  const isNf = useTheme().structural;
+  const cinema = useLayout() === "cinema";
   // 类型清单：银玻璃的胶囊菜单要列全部类型；Netflix 只在选了类型时拿来翻译名字
-  const genres = useDiscoveryGenres(mediaType, !isNf || filters.genreIds.length > 0);
+  const genres = useDiscoveryGenres(mediaType, !cinema || filters.genreIds.length > 0);
 
   const loadPage = useCallback(async (page: number) => {
     if (loadingRef.current) return;
@@ -143,7 +143,7 @@ export function FilteredDiscoveryView({
   return (
     <main
       className={
-        isNf ? "w-full page-inset pb-12" : "mx-auto w-full max-w-[1500px] page-inset pb-12"
+        cinema ? "w-full page-inset pb-12" : "mx-auto w-full max-w-[1500px] page-inset pb-12"
       }
     >
       <header className="mb-7 max-md:mb-5">
@@ -160,7 +160,7 @@ export function FilteredDiscoveryView({
                 ? `找到 ${totalResults.toLocaleString("zh-CN")} 部，已加载 ${items.length} 部`
                 : `已启用 ${activeCount} 项筛选`}
             </p>
-            {isNf && (
+            {cinema && (
               <div className="mt-3 flex flex-wrap gap-2" aria-label="当前筛选条件">
                 {filterLabels.map((label) => (
                   <span
@@ -173,7 +173,7 @@ export function FilteredDiscoveryView({
               </div>
             )}
           </div>
-          {isNf ? (
+          {cinema ? (
             <button
               type="button"
               onClick={clearAll}
@@ -192,7 +192,7 @@ export function FilteredDiscoveryView({
           )}
         </div>
         {/* 银玻璃：六颗可点的条件胶囊，就地改条件、本页原地重查 */}
-        {!isNf && (
+        {!cinema && (
           <div className="mt-4">
             <DiscoveryFilterChips
               mediaType={mediaType}
@@ -228,7 +228,7 @@ export function FilteredDiscoveryView({
       <div ref={loadMoreRef} className="h-px" aria-hidden="true" />
       {/* 加载进度的读屏播报；银玻璃把「已加载全部」做成可见页脚（同 iOS），告诉用户到底了 */}
       <p
-        className={allLoaded && !isNf ? "mt-8 text-center text-caption text-[var(--text-faint)]" : "sr-only"}
+        className={allLoaded && !cinema ? "mt-8 text-center text-caption text-[var(--text-faint)]" : "sr-only"}
         role="status"
       >
         {loading && items.length > 0

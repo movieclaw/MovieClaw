@@ -64,7 +64,7 @@ import { usePageChrome } from "@/lib/page-chrome";
 import { usePermissions } from "@/lib/permissions";
 import { buildRecentAdditionOverlay } from "@/lib/recent-addition";
 import { formatRelativeTime } from "@/lib/time";
-import { useTheme, useUiPrefs } from "@/lib/ui-prefs";
+import { useLayout, useUiPrefs } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
@@ -161,8 +161,8 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
   const chrome = usePageChrome();
   const router = useRouter();
   const isMobile = useIsMobile();
-  const isNf = useTheme().structural;
-  const actionsInTopBar = isMobile && !isNf;
+  const cinema = useLayout() === "cinema";
+  const actionsInTopBar = isMobile && !cinema;
   const setTopBarActions = chrome?.setTopBarActions;
   const setTopBarTitle = chrome?.setTopBarTitle;
   useEffect(() => {
@@ -622,7 +622,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
             银玻璃手机上它们已挂进全局顶栏，页头不再重复；「我的收藏」兜底入口按用户
             要求在银玻璃下撤掉（收藏行在场时行内自带「查看全部」），Netflix 保留。 */}
         <div className="flex shrink-0 items-center gap-2">
-          {favoritesEntryInHeader && isNf && (
+          {favoritesEntryInHeader && cinema && (
             <Link
               href={"/library/favorites" as Route}
               className="shrink-0 text-ui text-[var(--text-faint)] transition hover:text-[var(--text)]"

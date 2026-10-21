@@ -9,6 +9,12 @@
 html[data-theme="netflix"] {
   color-scheme: dark;
 
+  /* —— 外壳几何（docs/design/theme-plugins.md §4.5）：实底标签栏 49px 停靠；
+     移动顶栏让位沿用 :root 的 52px —— */
+  --mobile-tabbar-h: 49px;
+  /* 桌面顶栏高度：外壳让位（.topnav-offset）与各页面的统一基准（§5.1，社区共识值 68px） */
+  --nf-nav-h: 68px;
+
   /* —— 分层表面（§4） —— */
   /* Netflix 画布是纯黑 #000（官网 body 直出纯黑），#141414 只做卡片/行悬浮面 —— */
   --bg: #000000;
@@ -501,7 +507,7 @@ html[data-theme="netflix"] .detail-ambient {
  * 滚动条轨道必须给实色：剧照是 fixed 全屏覆盖层，而轨道默认透明——透明轨道
  * 会在页面右缘漏出一整条未压暗的原图（轨道不被元素自身 background 覆盖）。
  * 轨道色取画布纯黑、滑块维持全局同款半透明白。
- * 内容层**不画任何遮罩**：横向过渡是图片层的 `--nf-blend` mask，纵向渐隐
+ * 内容层**不画任何遮罩**：横向过渡是图片层的 `--hero-blend` mask，纵向渐隐
  * 是图片层的 ::after（见下方）——内容层的背景画在图片层之上（z-10 > z-2），
  * 在这里铺渐变就是第二重视觉遮罩，且出现时机与图片不同步（实测两次踩坑）。
  * hero 以下的正文可读性：图片层自身在纵向渐隐到纯黑 + 滚动时渐暗模糊。 */
@@ -542,24 +548,24 @@ html[data-theme="netflix"] .detail-ambient::-webkit-scrollbar-track {
 }
 
 @media (min-width: 768px) {
-  html.nf-hero-live .backdrop-override {
+  html.hero-live .backdrop-override {
     left: 25%;
-    mask-image: var(--nf-blend);
-    -webkit-mask-image: var(--nf-blend);
+    mask-image: var(--hero-blend);
+    -webkit-mask-image: var(--hero-blend);
   }
-  /* 首帧覆盖层的 Ken Burns 缓推（与轮换层同一条 nf-kenburns：9s 线性推 6%）：
+  /* 首帧覆盖层的 Ken Burns 缓推（与轮换层同一条 backdrop-kenburns：9s 线性推 6%）：
      进页即动，消灭「首图静止期」。背景借 ::before 的 background:inherit 复制
      一份来推——mask 留在父层静止，左缘渐隐带不随缩放漂移（与轮换层同构：
      mask 在 .detail-slideshow、img 在推）；::before 画在 ::after（纵向渐隐）
      之下，叠加顺序不变。动画随标记类起跑，起跑时刻由详情视图记入 ref 传给
      轮换层换算负延迟做相位锁定（见 detail-backdrop-slideshow 的 pushAnchor），
      接管瞬间两层缩放逐像素一致。 */
-  html.nf-hero-live .backdrop-override::before {
+  html.hero-live .backdrop-override::before {
     content: "";
     position: absolute;
     inset: 0;
     background: inherit;
-    animation: nf-kenburns 9s linear both;
+    animation: backdrop-kenburns 9s linear both;
   }
 }
 
@@ -572,31 +578,31 @@ html[data-theme="netflix"] .detail-ambient::-webkit-scrollbar-track {
    渐变区亮度 = 2m − m²（m=50% 处亮 33%）；覆盖层一隐藏亮度骤降回 m——
    这就是「图片开始动之后渐变区突然变暗」的根源。隐藏后入场只剩一条路径：
    黑场 → 轮换层（原图）一次性淡入，中途没有任何层切换。 */
-html.nf-hero-live:has(.detail-slideshow) .backdrop-override {
+html.hero-live:has(.detail-slideshow) .backdrop-override {
   visibility: hidden;
 }
 
 /* 滚动退场：详情页下滚时剧照渐暗 + 模糊（媒体详情视图把滚动进度写在根节点
-   的 --nf-hero-recede 上）。filter 只挂在标记类 nf-hero-live 存在时——即
+   的 --hero-recede 上）。filter 只挂在标记类 hero-live 存在时——即
    Netflix 详情页挂载期间——其他页面不给全屏覆盖层强加零值 filter（那会白白
    提升一个全屏合成层）。blur 让退场像「失焦」而不是「推走」，brightness 压到
    45% 保证前景文字始终可读。
    背景轮换层（DetailBackdropSlideshow）与覆盖层同一构图（右移 46% + 左缘
    渐隐），两处规则必须一起改。 */
-html.nf-hero-live .backdrop-override,
-html.nf-hero-live .detail-slideshow {
-  filter: blur(calc(var(--nf-hero-recede, 0) * 12px))
-    brightness(calc(1 - var(--nf-hero-recede, 0) * 0.55));
+html.hero-live .backdrop-override,
+html.hero-live .detail-slideshow {
+  filter: blur(calc(var(--hero-recede, 0) * 12px))
+    brightness(calc(1 - var(--hero-recede, 0) * 0.55));
   /* 注册属性的过渡（见下方 @property）：滚轮一次甩几百像素时，进度变量
      不再一帧跳到目标，而是按固定时长缓动过去——退场观感是连续的 */
-  transition: --nf-hero-recede 450ms linear;
+  transition: --hero-recede 450ms linear;
 }
 
 /* 纵向渐隐画在图片层自己身上（::after 渐到纯黑、与画布同色）：hero 以下的
    正文行依然落在黑底上，而变暗来源从「内容层全宽渐变」变成图片层的一部分，
    视觉上不再多出一层遮罩。 */
-html.nf-hero-live .backdrop-override::after,
-html.nf-hero-live .detail-slideshow::after {
+html.hero-live .backdrop-override::after,
+html.hero-live .detail-slideshow::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -608,7 +614,7 @@ html.nf-hero-live .detail-slideshow::after {
    可读。此前移动端完全没有渐变（净效果 = 亮图直压白字），桌面专属的
    「左黑右图」又与竖屏无关——这是移动端详情页观感「不成体系」的主因。 */
 @media (max-width: 767px) {
-  html.nf-hero-live .backdrop-override::after {
+  html.hero-live .backdrop-override::after {
     background:
       linear-gradient(180deg, rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0) 15%),
       linear-gradient(
@@ -623,8 +629,8 @@ html.nf-hero-live .detail-slideshow::after {
 
 /* 滚动退场的另一半：整层随进度淡出（此前纵向渐变随内容滚上来兜底，
    移除后改由这里接手）——深层滚动时图片只剩微光，正文完全主导。 */
-html.nf-hero-live .detail-slideshow {
-  opacity: calc(1 - var(--nf-hero-recede, 0) * 0.85);
+html.hero-live .detail-slideshow {
+  opacity: calc(1 - var(--hero-recede, 0) * 0.85);
 }
 
 .detail-slideshow img {
@@ -635,10 +641,10 @@ html.nf-hero-live .detail-slideshow {
      首帧覆盖层的第一张图由组件换成负延迟（与覆盖层锁同一条时间线，见
      detail-backdrop-slideshow 的 pushAnchor）——覆盖层自己也在推，若首图
      仍从 scale 1 起步，交接时会看到画面「缩回去」一下。 */
-  animation: nf-kenburns 9s linear 700ms both;
+  animation: backdrop-kenburns 9s linear 700ms both;
 }
 
-@keyframes nf-kenburns {
+@keyframes backdrop-kenburns {
   from {
     transform: scale(1);
   }
@@ -649,7 +655,7 @@ html.nf-hero-live .detail-slideshow {
 
 @media (prefers-reduced-motion: reduce) {
   .detail-slideshow img,
-  html.nf-hero-live .backdrop-override::before {
+  html.hero-live .backdrop-override::before {
     animation: none;
   }
 }
@@ -661,7 +667,7 @@ html.nf-hero-live .detail-slideshow {
  * 品牌资产随主题分叉（组件里双渲染）：银玻璃 = rotor 图片；
  * Netflix = 红色 SVG M 字标——加载中的一抹品牌红。
  */
-.brand-loader--netflix {
+.brand-loader--mark {
   display: none;
 }
 
@@ -669,7 +675,7 @@ html[data-theme="netflix"] .brand-loader--silver {
   display: none;
 }
 
-html[data-theme="netflix"] .brand-loader--netflix {
+html[data-theme="netflix"] .brand-loader--mark {
   display: block;
 }
 
@@ -686,14 +692,11 @@ html[data-theme="netflix"] .ambient-fallback {
 }
 
 
-html[data-theme="netflix"] .nf-nav-offset {
+html[data-theme="netflix"] .topnav-offset {
   padding-top: var(--nf-nav-h);
 }
 
-/* 移动端底部标签栏的主区让位不再写在这里：底栏几何走「让位契约」
-   （ThemeMeta.chrome 声明 → <html> 的 --mobile-tabbar-h 与
-   data-tabbar-mode="docked"，globals.css 统一消费），主题不再自带
-   全局布局规则（2026-09-24 让位契约数据化）。 */
+/* 移动端底栏高度见文件顶部的外壳几何变量（--mobile-tabbar-h）。 */
 
 
 
@@ -792,4 +795,85 @@ html[data-theme="netflix"] .sub-hero-card > .sub-hero-tint {
   html[data-theme="netflix"] .m-row-skel {
     width: clamp(100px, 30vw, 156px);
   }
+}
+
+
+/* ============================ Netflix 自有组件 ============================
+   以下规则只服务主题目录里的组件（nf- 前缀），2026-10-21 从 globals.css 迁来
+   （docs/design/theme-plugins.md §4.3：内核不认识具体主题）。 */
+
+/* —— /library 顶部的 Netflix Billboard 画面层（library-hero.tsx） ——
+ * 与详情页沉浸剧照同一套画面语言（「media 那样的样式」）：
+ *   - 桌面：左侧多段缓变黑遮罩（--hero-blend，与详情页「左黑右图」同一条曲线）
+ *     护住左下文案块；移动端竖屏没有左文右图的横向分区，不 mask；
+ *   - 纵向渐隐画在 ::after 上（渐到画布纯黑，与下方内容无缝衔接），移动端
+ *     档位另在顶部压一抹暗，让透明顶栏下的画面上缘更稳；
+ *   - 下滚退场：billboard 跟随媒体库页滚动容器滚走时渐暗 + 模糊
+ *     （--hero-recede 由组件按滚动进度写在 section 上，与详情页同名
+ *     变量同一套公式；此处只作用于本子树，不挂 html.hero-live）。
+ * 图床走高清原图（TMDB original / 本地资产原图），组件按「宁黑勿糊」等
+ * 解码完成才显示——此前 landscape-card（480×270）拉伸到全出血明显发虚。 */
+.nf-billboard-art {
+  filter: blur(calc(var(--hero-recede, 0) * 12px))
+    brightness(calc(1 - var(--hero-recede, 0) * 0.55));
+  transition: --hero-recede 450ms linear;
+}
+
+@media (min-width: 768px) {
+  .nf-billboard-art {
+    mask-image: var(--hero-blend);
+    -webkit-mask-image: var(--hero-blend);
+  }
+}
+
+.nf-billboard-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 58%, #000 88%);
+}
+
+@media (max-width: 767px) {
+  .nf-billboard-art::after {
+    background:
+      linear-gradient(180deg, rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0) 15%),
+      linear-gradient(
+        180deg,
+        rgba(0, 0, 0, 0) 20%,
+        rgba(0, 0, 0, 0.5) 36%,
+        rgba(0, 0, 0, 0.85) 50%,
+        #000 62%
+      );
+  }
+}
+
+@property --nf-nav-dim {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+/* 顶栏黑底层的缓动（变量由 chrome/top-nav.tsx 按滚动进度写入） */
+.nf-topnav {
+  transition: --nf-nav-dim 450ms linear;
+}
+
+.nf-tabbar {
+  background: #0a0a0a;
+}
+
+/* —— 公开部件的 Netflix 形态（docs/design/theme-plugins.md §4.4）—— */
+/* 设置分区页签：选中态白底黑字（品牌语言），银玻璃默认灰底白字 */
+html[data-theme="netflix"] .settings-tab[aria-pressed="true"] {
+  background-color: #fff;
+  color: #000;
+}
+
+/* 详情页「展开全文」：维持灰字，银玻璃默认 accent 色 */
+html[data-theme="netflix"] .detail-more-toggle {
+  color: color-mix(in oklab, #fff 55%, transparent);
+}
+
+html[data-theme="netflix"] .detail-more-toggle:hover {
+  color: color-mix(in oklab, #fff 85%, transparent);
 }

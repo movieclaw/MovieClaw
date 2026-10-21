@@ -100,13 +100,13 @@ const RESTORE_BACKDROP_SCRIPT = `try{if(location.pathname.indexOf("/sessions/")=
  * 的 localStorage 首帧缓存（lib/ui-prefs-cache.ts），把主题 id 写上 <html> 的
  * data-theme 属性。token 层（globals.css 的变量覆盖组）与 Tailwind 圆角换档
  * 都挂在 html[data-theme] 作用域上，属性就位即全站换肤，强刷不会先画银玻璃
- * 再跳成 Netflix。白名单由主题注册表生成（DEFAULT_THEME_ID 除外——默认主题 =
+ * 再跳成别的主题。白名单由主题注册表生成（DEFAULT_THEME_ID 除外——默认主题 =
  * 无属性，与 ui-prefs 的写入口径一致），缓存被改坏也注入不了任意属性值；
  * 新增主题自动被脚本认识，无需改这里。登录后服务端偏好拉回、以及设置页
  * 切换主题时的后续同步由 lib/ui-prefs.tsx 的 effect 负责（AppShell 只在登录后渲染）。
  *
  * /play/*、/s/[slug] 不套 AppShell，同样吃到这段脚本与 token 层（结构层除外）。
- * Netflix 命中时顺带把 <meta name="theme-color"> 改成纯黑——强刷后浏览器地址
+ * 非默认主题命中时顺带把 <meta name="theme-color"> 改成主题声明的颜色——强刷后浏览器地址
  * 栏 / PWA 状态栏不先闪一段银玻璃色（meta 由 viewport 导出注入，head 同步
  * 解析、脚本执行时已在；找不到时静默跳过。默认主题不命中映射，meta 维持
  * layout.tsx viewport 导出的原值，无需恢复动作）。
@@ -119,36 +119,19 @@ const THEME_COLOR_MAP = JSON.stringify(
     THEMES.filter((theme) => theme.id !== DEFAULT_THEME_ID).map((theme) => [theme.id, theme.themeColor]),
   ),
 );
+/** 停用液态玻璃的主题 id 清单（ThemeMeta.glass = false）：首帧随 data-theme 写 data-glass="off"。 */
+const NO_GLASS_THEMES = JSON.stringify(THEMES.filter((theme) => !theme.glass).map((theme) => theme.id));
 /**
- * 外壳让位契约的序列化（ThemeMeta.chrome →「id → 几何」JSON）：首帧绘制前按
- * 当前主题把 --mobile-topbar-h / --mobile-tabbar-h / --mobile-tabbar-offset 与
- * data-tabbar-mode 写到 <html> 上——globals.css 的让位规则只消费变量，主题
- * 不再自带全局布局规则（见 lib/themes.ts 的 ThemeChrome）。压缩成短键以省
- * 内联体积：t=顶栏让位高、m=底栏形态、b=底栏高、o=距底偏移表达式。
- */
-const THEME_CHROME_MAP = JSON.stringify(
-  Object.fromEntries(
-    THEMES.map((theme) => [
-      theme.id,
-      {
-        t: theme.chrome.mobileTopBarHeight,
-        m: theme.chrome.mobileTabBar.mode,
-        b: theme.chrome.mobileTabBar.height,
-        o: theme.chrome.mobileTabBar.bottomOffset,
-      },
-    ]),
-  ),
-);
-/**
- * 首帧主题与外壳几何的落位（同一份脚本，避免两个脚本的先后歧义）：
+ * 首帧主题的落位：
  * - 主题按**版式**解析：移动端（<768px）优先取 theme_mobile 覆盖、桌面端优先
  *   theme_desktop，都没有（老账号 / 未单独设置）回落 theme——与
  *   lib/ui-prefs.tsx 的 resolveThemeId 同一份语义，改一处要看另一处；
- * - 几何按解析出的主题查 chrome 映射，未知 id（缓存被改坏）回落银玻璃；
+ * - 外壳几何（--mobile-topbar-h / --mobile-tabbar-h）由各主题 CSS 在自己的
+ *   data-theme 作用域里声明，属性就位即生效，脚本不必认识具体主题的几何；
  * - data-theme / theme-color 只在非默认主题写（默认 = 无属性，与 ui-prefs
- *   的写入口径一致）。
+ *   的写入口径一致）；停用玻璃的主题同时写 data-glass="off"。
  */
-const RESTORE_THEME_SCRIPT = `try{var p=JSON.parse(localStorage.getItem("movieclaw.ui-prefs")||"null");var c=${THEME_COLOR_MAP};var k=${THEME_CHROME_MAP};var mobile=window.matchMedia&&matchMedia("(max-width:767px)").matches;var t=p?(mobile?(p.theme_mobile||p.theme):(p.theme_desktop||p.theme)):null;var ch=(t&&k[t])||k.silver;var d=document.documentElement;var s=d.style;s.setProperty("--mobile-topbar-h",ch.t+"px");s.setProperty("--mobile-tabbar-h",ch.b+"px");s.setProperty("--mobile-tabbar-offset",ch.o);if(ch.m==="docked")d.setAttribute("data-tabbar-mode","docked");else d.removeAttribute("data-tabbar-mode");if(t&&c[t]){d.setAttribute("data-theme",t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",c[t])}}catch(e){}`;
+const RESTORE_THEME_SCRIPT = `try{var p=JSON.parse(localStorage.getItem("movieclaw.ui-prefs")||"null");var c=${THEME_COLOR_MAP};var g=${NO_GLASS_THEMES};var mobile=window.matchMedia&&matchMedia("(max-width:767px)").matches;var t=p?(mobile?(p.theme_mobile||p.theme):(p.theme_desktop||p.theme)):null;var d=document.documentElement;if(t&&c[t]){d.setAttribute("data-theme",t);if(g.indexOf(t)>=0)d.setAttribute("data-glass","off");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",c[t])}}catch(e){}`;
 
 /**
  * iOS 主屏网页必须显式撑满根画布，不能依赖 height:100% 的初始包含块。

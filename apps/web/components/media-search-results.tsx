@@ -7,7 +7,7 @@ import { PosterCardVisual } from "@/components/poster-card";
 import type { MediaSearchItem } from "@/lib/api/discover";
 import { getTitleSearchHistoryResults, searchTitles } from "@/lib/api/search";
 import { formatRelativeTime } from "@/lib/time";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
 
@@ -45,8 +45,8 @@ export function MediaSearchResults({
 }) {
   const scrollRef = useScrollRestoration(`search:media:${keyword}:${snapshotId ?? "live"}`);
   // 银玻璃手机端不重复关键词大标题：结果页顶栏的关键词胶囊已写着（同原生 App）
-  const isNf = useTheme().structural;
-  const hideKeyword = useIsMobile() && !isNf;
+  const cinema = useLayout() === "cinema";
+  const hideKeyword = useIsMobile() && !cinema;
   // 每个来源各自三态：null = 加载中；[] = 无结果；error 非空 = 该分区失败
   const [douban, setDouban] = useState<MediaSearchItem[] | null>(null);
   const [doubanError, setDoubanError] = useState<string | null>(null);

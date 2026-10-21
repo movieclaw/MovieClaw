@@ -97,9 +97,10 @@ if (process.env.NODE_ENV !== "production") {
  */
 export function getResolvedTheme(id: string): ResolvedTheme {
   const def = DEFINITIONS[normalizeThemeId(id)];
+  const meta = def?.meta ?? themeMeta(DEFAULT_THEME_ID);
   return {
-    meta: def?.meta ?? themeMeta(DEFAULT_THEME_ID),
-    capabilities: { glass: def?.capabilities.glass ?? true },
+    meta,
+    capabilities: { glass: meta.glass },
     slots: { ...BASE_SLOTS, ...def?.slots } as ResolvedSlots,
     pages: { ...BASE_PAGES, ...def?.pages },
   };

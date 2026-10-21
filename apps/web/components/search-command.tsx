@@ -38,7 +38,7 @@ import {
 import { useSearchAccess } from "@/lib/search-access";
 import { useSearchPrefs } from "@/lib/search-prefs";
 import { formatRelativeTime } from "@/lib/time";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 
 /**
@@ -301,9 +301,9 @@ function SearchPalette({
   const toast = useToast();
   // 银玻璃：最近搜索用 iOS 式分组行；手机上面板改成全屏搜索页（SearchHomeView 的版式）。
   // Netflix 主题沿用原来的浮层与可折叠分组，展示不动。
-  const silver = !useTheme().structural;
+  const panel = useLayout() === "panel";
   const isMobile = useIsMobile();
-  const fullPage = silver && isMobile;
+  const fullPage = panel && isMobile;
   const [keyword, setKeyword] = useState(draft?.keyword ?? "");
   // 面板每次重新挂载，但模式与资源分类从浏览器级记忆恢复；带草稿打开时以草稿为准。
   const [rememberedState] = useState(readSearchPaletteState);
@@ -523,7 +523,7 @@ function SearchPalette({
       // ←→ 收起 / 展开分组只属于 Netflix 主题的可折叠分组；银玻璃的分组永远展开
       case "ArrowRight": {
         const group = filteredGroups[sel];
-        if (silver || !group || group.items.length === 1) break;
+        if (panel || !group || group.items.length === 1) break;
         event.preventDefault();
         setCollapsedGroups((prev) => {
           const next = new Set(prev);
@@ -534,7 +534,7 @@ function SearchPalette({
       }
       case "ArrowLeft": {
         const group = filteredGroups[sel];
-        if (silver || !group || group.items.length === 1) break;
+        if (panel || !group || group.items.length === 1) break;
         event.preventDefault();
         setCollapsedGroups((prev) => new Set(prev).add(group.key));
         break;
@@ -635,7 +635,7 @@ function SearchPalette({
   const historyList = filteredGroups.length > 0 && (
     <ul aria-label="最近搜索">
       {filteredGroups.map((group, index) =>
-        silver ? (
+        panel ? (
           <SilverHistoryGroup
             key={group.key}
             group={group}

@@ -13,7 +13,7 @@ import {
   type LibrarySearchPerson,
 } from "@/lib/api/search";
 import { imageUrl } from "@/lib/image-proxy";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
 import { useTapGuard } from "@/lib/use-tap-guard";
@@ -48,8 +48,8 @@ export function LibrarySearchResults({
   const scrollRef = useScrollRestoration(`search:library:${keyword}`);
   // 银玻璃手机端不重复关键词大标题：结果页顶栏的关键词胶囊已写着（同原生 App）；
   // 页头留空作与垂直选项卡之间的间距
-  const isNf = useTheme().structural;
-  const hideKeyword = useIsMobile() && !isNf;
+  const cinema = useLayout() === "cinema";
+  const hideKeyword = useIsMobile() && !cinema;
   // null = 加载中；[] = 无结果；error 非空 = 请求失败
   const [hits, setHits] = useState<LibrarySearchHit[] | null>(null);
   const [people, setPeople] = useState<LibrarySearchPerson[]>([]);

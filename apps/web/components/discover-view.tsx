@@ -57,7 +57,7 @@ import { useHeroAmbientColor } from "@/lib/hero-ambient-color";
 import { useMediaDetail } from "@/lib/media-detail";
 import { TOP_BAR_LARGE_TITLE_CLASS, usePageChrome } from "@/lib/page-chrome";
 import { usePermissions } from "@/lib/permissions";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
 import { useIsMobile } from "@/lib/use-media-query";
 import { IMAGE_ASPECT } from "@/lib/image-proxy";
@@ -167,9 +167,9 @@ export function DiscoverView({
   currentYear: number;
 }) {
   const router = useRouter();
-  const isNf = useTheme().structural;
+  const cinema = useLayout() === "cinema";
   const cacheKey = `${mediaType}:${source}`;
-  const { filters, changeFilters } = useUrlSyncedFilters(urlFilters, mediaType, isNf);
+  const { filters, changeFilters } = useUrlSyncedFilters(urlFilters, mediaType, cinema);
   const filtering = source === "tmdb" && discoveryFilterCount(filters) > 0;
   // 滚动位置按「首页 / 结果页」两档记：条件在结果页里就地改，不该每改一次就跳去另一份位置
   const scrollRef = useScrollRestoration(`discover:${cacheKey}:${filtering ? "filtered" : "home"}`);
@@ -307,7 +307,7 @@ export function DiscoverView({
   // 类型与数据源在同一个发现入口内切换，切类型保留数据源视角。
   const chrome = usePageChrome();
   const isMobile = useIsMobile();
-  // Netflix 主题（isNf，见上）：工具栏悬浮在 Hero 上（不自占一条）、Hero 全出血（§5.3 构图）
+  // Netflix 主题（cinema，见上）：工具栏悬浮在 Hero 上（不自占一条）、Hero 全出血（§5.3 构图）
   const PageActions = useResolvedTheme().slots.pageActions;
   const switchMediaType = useCallback(
     (next: MediaType) => {
@@ -324,7 +324,7 @@ export function DiscoverView({
         {isMobile && <MediaTypeSwitcher value={mediaType} onChange={switchMediaType} />}
         {isMobile && <SourceSwitcher value={source} onChange={switchSource} />}
         {/* 银玻璃与手机一致，仅 TMDB 显示筛选；Netflix 沿用禁用态与组合筛选弹窗。 */}
-        {isNf ? (
+        {cinema ? (
           <DiscoveryFilterControl
             mediaType={mediaType}
             filters={filters}
@@ -343,7 +343,7 @@ export function DiscoverView({
         ) : null}
       </div>
     ),
-    [changeFilters, currentYear, filters, isMobile, isNf, mediaType, source, switchMediaType, switchSource],
+    [changeFilters, currentYear, filters, isMobile, cinema, mediaType, source, switchMediaType, switchSource],
   );
 
   // 手机控件挂进全局顶栏，桌面在页内工具栏复用标题菜单。
@@ -353,23 +353,23 @@ export function DiscoverView({
   //   - 左上角是标题菜单：大字「电影 / 剧集」+ 小字数据源 + ⌄，点开切类型与数据源；
   //   - 右上角只剩筛选键（仅 TMDB），最右是外壳挂的搜索。
   // 原先挂在液态玻璃底栏「底部附件」位的电影 / 剧集分段与顶栏的数据源胶囊一并退役。
-  const silverMobile = isMobile && !isNf;
+  const panelMobile = isMobile && !cinema;
   const titleMenu = useMemo(
     () =>
-      !isMobile || silverMobile ? (
+      !isMobile || panelMobile ? (
         <DiscoverTitleMenu
           mediaType={mediaType}
           source={source}
           onMediaTypeChange={switchMediaType}
           onSourceChange={switchSource}
-          variant={isMobile ? "mobile" : isNf ? "compact" : "desktop"}
+          variant={isMobile ? "mobile" : cinema ? "compact" : "desktop"}
         />
       ) : null,
-    [isMobile, isNf, mediaType, silverMobile, source, switchMediaType, switchSource],
+    [isMobile, cinema, mediaType, panelMobile, source, switchMediaType, switchSource],
   );
   const silverFilterMenu = useMemo(
     () =>
-      silverMobile && source === "tmdb" ? (
+      panelMobile && source === "tmdb" ? (
         <DiscoveryFilterMenu
           mediaType={mediaType}
           filters={filters}
@@ -378,25 +378,25 @@ export function DiscoverView({
           compact
         />
       ) : null,
-    [changeFilters, currentYear, filters, mediaType, silverMobile, source],
+    [changeFilters, currentYear, filters, mediaType, panelMobile, source],
   );
   const setTopBarActions = chrome?.setTopBarActions;
   useEffect(() => {
     if (!isMobile || !setTopBarActions) return;
-    return setTopBarActions(silverMobile ? silverFilterMenu : controls);
-  }, [controls, isMobile, setTopBarActions, silverFilterMenu, silverMobile]);
+    return setTopBarActions(panelMobile ? silverFilterMenu : controls);
+  }, [controls, isMobile, setTopBarActions, silverFilterMenu, panelMobile]);
   const setTopBarLeading = chrome?.setTopBarLeading;
   useEffect(() => {
-    if (!silverMobile || !titleMenu || !setTopBarLeading) return;
+    if (!panelMobile || !titleMenu || !setTopBarLeading) return;
     return setTopBarLeading(titleMenu);
-  }, [setTopBarLeading, silverMobile, titleMenu]);
+  }, [setTopBarLeading, panelMobile, titleMenu]);
 
   // 银玻璃手机的沉浸式 Hero：只在本页**真的会画 Hero** 时才把页面提到顶栏底下
   // ——展示清单声明了 Hero 且数据不是「无/失败」（undefined = 还在加载、骨架占位）。
   // 豆瓣视角的清单没有 Hero，若照样上提，第一行海报就钻进顶栏雾层里
   // （2026-09-23 用户截图）；这种页面按普通页排，顶部留呼吸位。
   const immersiveHero =
-    !isNf &&
+    !cinema &&
     Boolean(page?.sections.some((section) => section.presentation === "hero")) &&
     (hero === undefined || hero.length > 0);
   // 氛围底（银玻璃有 Hero 时，桌面与手机同订阅首页）：取当前那张剧照的主色
@@ -410,7 +410,7 @@ export function DiscoverView({
   useHeroScrollVar(scrollRootRef, heroRootRef, `${Boolean(page)}:${filtering}:${Boolean(error)}`);
 
   // 桌面工具栏（手机的控件在全局顶栏里）
-  const toolbar = isMobile ? null : isNf ? (
+  const toolbar = isMobile ? null : cinema ? (
     // Netflix：fixed 悬浮在视口右上（顶栏下方），不随页面滚动移位——发现页
     // 一滚数屏，筛选/数据源入口跟着内容滚走后想换源就得滚回顶部。
     // 页面悬浮操作簇走主题坑位（与详情页 ⋯ 菜单同一规格）而不是手写一份
@@ -481,22 +481,22 @@ export function DiscoverView({
         />
       </div>
     );
-    return isNf ? results : silverFrame(results, false);
+    return cinema ? results : silverFrame(results, false);
   }
 
   if (error) {
     const failure = (
-      <div className={`flex flex-1 flex-col ${isNf ? "relative" : "max-md:pt-4"}`}>
+      <div className={`flex flex-1 flex-col ${cinema ? "relative" : "max-md:pt-4"}`}>
         {toolbar}
         <DiscoverError error={error} onRetry={() => setReloadKey((k) => k + 1)} />
       </div>
     );
-    return isNf ? failure : silverFrame(failure, false);
+    return cinema ? failure : silverFrame(failure, false);
   }
   if (!page) {
     // 银玻璃：与下方正式页面同一副外框（手机顶到屏幕物理顶边、桌面同一张卡片），
     // 骨架 Hero 与真实 Hero 原位替换、不跳版；Netflix 维持原样
-    return isNf ? (
+    return cinema ? (
       <div className="relative flex flex-1 flex-col">
         {toolbar}
         <DiscoverSkeleton fullBleed />
@@ -518,18 +518,18 @@ export function DiscoverView({
         // 银玻璃手机：Hero 是沉浸式通栏大图，要从屏幕物理顶边开始、从状态栏与
         // 顶栏雾层底下穿过——上提由外层页面根承担（见下方 silver 分支）；没有 Hero
         // 的页面顶部留 16px 呼吸位。Netflix 主题（两端）一律不动。
-        immersiveHero || isNf ? "" : "max-md:pt-4"
+        immersiveHero || cinema ? "" : "max-md:pt-4"
       }`}
     >
       {toolbar}
       {/* Hero 区：展示清单声明 Hero 时先占位，数据到达后换成轮播（两个主题都铺满页面宽度） */}
       {page.sections.some((section) => section.presentation === "hero") && hero === undefined && (
         <HeroBleed>
-          <HeroSkeleton fullBleed={isNf} />
+          <HeroSkeleton fullBleed={cinema} />
         </HeroBleed>
       )}
       {hero && hero.length > 0 &&
-        (isNf ? (
+        (cinema ? (
           <HeroBanner items={hero} />
         ) : (
           <HeroBleed>
@@ -542,7 +542,7 @@ export function DiscoverView({
       {/* 银玻璃手机行间距 28px（同原生 App 发现页），Netflix 与桌面维持 32px */}
       <div
         className={`mt-8 space-y-8 ${
-          immersiveHero ? "max-md:mt-3 max-md:space-y-7" : isNf ? "" : "max-md:mt-0 max-md:space-y-7"
+          immersiveHero ? "max-md:mt-3 max-md:space-y-7" : cinema ? "" : "max-md:mt-0 max-md:space-y-7"
         }`}
       >
         {page.sections.filter((section) => section.presentation !== "hero").map((section) => {
@@ -570,7 +570,7 @@ export function DiscoverView({
       )}
     </div>
   );
-  if (isNf) return scrollBody;
+  if (cinema) return scrollBody;
   return silverFrame(scrollBody);
 }
 

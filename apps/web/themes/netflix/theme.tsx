@@ -23,11 +23,6 @@ import { NetflixSubscriptionsPage } from "./pages/subscriptions-page";
  */
 const netflixTheme: ThemeDefinition = {
   meta: themeMeta("netflix"),
-  capabilities: {
-    // 纯色平铺设计：整体停用液态玻璃（WebGL 画布不创建，globals.css 的
-    // netflix 覆盖组把玻璃控件换成实色形态）
-    glass: false,
-  },
   slots: {
     desktopTopNav: NetflixTopNav,
     mobileTabBar: NetflixTabBar,

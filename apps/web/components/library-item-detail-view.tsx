@@ -102,7 +102,7 @@ import {
   rangeEntry,
   seasonAnchor,
 } from "@/lib/episode-ranges";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { usePageTitle } from "@/lib/use-page-title";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 
@@ -361,29 +361,29 @@ export function LibraryItemDetailView({
   // 的 setOverrideBackdrop。没有横幅剧照时退回海报，覆盖层自己会铺满作氛围色。
   const { setOverrideBackdrop } = useBackdrop();
   const isMobile = useIsMobile();
-  const isNf = useTheme().structural;
-  const isNfDesktop = isNf && !isMobile;
-  // Netflix 桌面的滚动退场（与发现详情页同一套）：挂 html.nf-hero-live 标记类，
-  // 把滚动进度写进 --nf-hero-recede，globals.css 据此给沉浸覆盖层加渐暗 + 模糊、
+  const cinema = useLayout() === "cinema";
+  const cinemaDesktop = cinema && !isMobile;
+  // Netflix 桌面的滚动退场（与发现详情页同一套）：挂 html.hero-live 标记类，
+  // 把滚动进度写进 --hero-recede，globals.css 据此给沉浸覆盖层加渐暗 + 模糊、
   // 左侧纯黑遮罩护住上移后的标题。仅桌面启用——手机的剧照是页内 Hero
   // （showMobileHero），滚动容器铺黑已把全站背景层整个挡住，标记类无处生效。
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasDetail = detail !== null;
   useEffect(() => {
-    if (!isNfDesktop) return;
+    if (!cinemaDesktop) return;
     const root = document.documentElement;
-    root.classList.add("nf-hero-live");
+    root.classList.add("hero-live");
     const el = scrollRef.current;
     if (!el) return () => {
-      root.classList.remove("nf-hero-live");
-      root.style.removeProperty("--nf-hero-recede");
+      root.classList.remove("hero-live");
+      root.style.removeProperty("--hero-recede");
     };
     let frame = 0;
     const sync = () => {
       frame = 0;
       const range = Math.max(320, el.clientHeight * 0.75);
       const progress = Math.min(1, Math.max(0, el.scrollTop / range));
-      root.style.setProperty("--nf-hero-recede", progress.toFixed(3));
+      root.style.setProperty("--hero-recede", progress.toFixed(3));
     };
     const onScroll = () => {
       if (!frame) frame = window.requestAnimationFrame(sync);
@@ -393,10 +393,10 @@ export function LibraryItemDetailView({
     return () => {
       el.removeEventListener("scroll", onScroll);
       if (frame) window.cancelAnimationFrame(frame);
-      root.classList.remove("nf-hero-live");
-      root.style.removeProperty("--nf-hero-recede");
+      root.classList.remove("hero-live");
+      root.style.removeProperty("--hero-recede");
     };
-  }, [isNfDesktop, hasDetail]);
+  }, [cinemaDesktop, hasDetail]);
   // 大图宽度按公式算（桌面整窗铺满、手机按页内 Hero 框铺满，见 useDetailHeroImageWidth）；
   // 量到之前先不取图，免得白拉一张错档的
   const heroWidth = useDetailHeroImageWidth(
@@ -411,7 +411,7 @@ export function LibraryItemDetailView({
   // Logo 靠固有尺寸撑开（max-w 420 / 手机 260、高 120 / 96 封顶），不能用 srcset
   // （w 描述符会改它的固有尺寸），按最大显示宽 × 屏幕倍率拼一个固定 w
   const logoSrc =
-    detail?.logo_url && !isNf && detail.logo_url !== failedLogo
+    detail?.logo_url && !cinema && detail.logo_url !== failedLogo
       ? imageUrl(detail.logo_url, { width: screenImageWidth(isMobile ? 260 : 420) })
       : "";
   // 手机也换全站背景，但页面本身不靠它显示：横版剧照铺满又高又窄的整屏只能按高度放大、
@@ -434,9 +434,9 @@ export function LibraryItemDetailView({
   const showMobileHero = isMobile && mobileHeroSrc !== "";
   // 银玻璃手机：整页底色取大图露出部分的底边色，Hero 底部渐变到同一个颜色
   // （lib/hero-edge-color.ts，与影片详情页、原生 App 同一套）；Netflix 维持纯黑
-  const silverHero = showMobileHero && !isNf;
+  const panelHero = showMobileHero && !cinema;
   const [heroEl, setHeroEl] = useState<HTMLDivElement | null>(null);
-  const edgeColor = useHeroEdgeColor(silverHero ? mobileHeroSrc : undefined, heroEl);
+  const edgeColor = useHeroEdgeColor(panelHero ? mobileHeroSrc : undefined, heroEl);
 
   // 待回收行的恢复 / 立即清理（library-file-recycle.md §7）。
   // 恢复是可逆动作直接执行；清理真删磁盘，原地待回收的额外讲清断种风险
@@ -780,7 +780,7 @@ export function LibraryItemDetailView({
       className={`detail-ambient scroll-thin scroll-safe relative isolate h-full overflow-y-auto rounded-2xl max-md:rounded-none ${
         showMobileHero ? "detail-ambient--hero" : ""
       }`}
-      style={silverHero && edgeColor ? ({ "--detail-page-color": edgeColor } as CSSProperties) : undefined}
+      style={panelHero && edgeColor ? ({ "--detail-page-color": edgeColor } as CSSProperties) : undefined}
     >
       {/* 没有任何 Hero 图层：全站背景此刻就是本片剧照（沉浸覆盖 + 本页豁免
           全局蒙版，见 app-shell 的 isHome），大图直出、零边界；.detail-ambient
@@ -801,7 +801,7 @@ export function LibraryItemDetailView({
         >
           <img src={mobileHeroSrc} alt="" decoding="async" className="size-full object-cover object-center" />
           <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/45 to-transparent" />
-          {silverHero ? (
+          {panelHero ? (
             <div className="detail-hero-fade absolute inset-x-0 bottom-0 h-[260px]" />
           ) : (
             <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent via-black/55 to-black" />

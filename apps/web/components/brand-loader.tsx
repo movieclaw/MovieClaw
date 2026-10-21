@@ -24,7 +24,7 @@ export function BrandLoader({ className = "size-5" }: { className?: string }) {
         draggable={false}
         className="brand-loader--silver size-full object-contain"
       />
-      <MovieclawMark className="brand-loader--netflix size-full" />
+      <MovieclawMark className="brand-loader--mark size-full" />
     </span>
   );
 }

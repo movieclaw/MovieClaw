@@ -28,7 +28,7 @@ import {
 } from "@/lib/page-chrome";
 import { SearchPrefsProvider } from "@/lib/search-prefs";
 import { buildSearchPath } from "@/lib/search-url";
-import { UiPrefsProvider, useTheme } from "@/lib/ui-prefs";
+import { UiPrefsProvider, useLayout } from "@/lib/ui-prefs";
 import { useResolvedTheme } from "@/themes/registry";
 import { useIsMobile } from "@/lib/use-media-query";
 import { settingsSectionGroupsFor, settingsSections } from "@/lib/mock-data";
@@ -95,10 +95,9 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   useAppNavigationTracking(pathname);
   // 移动端（< 768px）走另一套骨架：单栏 + 顶栏 + 底部标签栏，见文件末尾的分支渲染
   const isMobile = useIsMobile();
-  // 结构层主题：解析自主题注册表（换外壳 = 提供桌面顶栏 / 底部标签栏等坑位）。
-  // isNetflix 局部名沿用，语义 = 当前主题是结构级主题
-  const theme = useTheme();
-  const isNetflix = theme.structural;
+  // 版式（lib/themes.ts 的 ThemeLayout）：cinema = 顶栏 + 满出血骨架，外框组件
+  // 由主题坑位提供（桌面顶栏 / 底部标签栏等）
+  const cinema = useLayout() === "cinema";
   const { slots } = useResolvedTheme();
   const SettingsNav = slots.settingsNav;
   const MobileSettingsNav = slots.mobileSettingsNav;
@@ -237,7 +236,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   // + 返回、空白正文、贴底输入条，见 components/new-task.tsx），发出第一条后
   // 原地变成 /sessions/[id]，两页外观必须同构才不会跳变。
   const isImmersive =
-    pathname.startsWith("/sessions/") || (isMobile && !isNetflix && pathname === "/new");
+    pathname.startsWith("/sessions/") || (isMobile && !cinema && pathname === "/new");
 
   // 沉浸路由标记：强刷时由 layout.tsx 的内联脚本在首帧绘制前打上（避免闪出
   // 背景大图），这里负责客户端路由切换时的双向同步——进入 /sessions/[id] 关掉背景
@@ -251,7 +250,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   const showMobileTopBar = isMobile && pageNavCount === 0;
   // 银玻璃移动端的液态玻璃底栏：Agent 会话页（沉浸路由）不显示——页底是会话
   // 输入行，底栏压上去就挡住了；iOS 信息的会话页同样收起标签栏。
-  const showGlassTabBar = isMobile && !isNetflix && !isImmersive;
+  const showGlassTabBar = isMobile && !cinema && !isImmersive;
   const pageChrome = useMemo(
     () => ({
       registerPageNav,
@@ -287,13 +286,13 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
           // 银玻璃的「个人信息」从「我的」页头像卡进（设置列表里不再单列，同原生 App），
           // 返回直接回「我的」，不垫一层设置列表
           backHref={
-            (isSettingsIndex || (!isNetflix && activeSettings === "profile")
+            (isSettingsIndex || (!cinema && activeSettings === "profile")
               ? "/my"
               : pathname.split("/")[3]
                 ? `/settings/${activeSettings}`
                 : "/settings") as Route
           }
-          historyBack={isSettingsIndex && !isNetflix}
+          historyBack={isSettingsIndex && !cinema}
         />
         <div className="min-h-0 flex-1">{children}</div>
       </div>
@@ -326,7 +325,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   );
 
   // ============ Netflix 主题的结构层分支（§3.3 第 3 层） ============
-  if (isNetflix) {
+  if (cinema) {
     return (
       <PageChromeProvider value={pageChrome}>
         {isMobile ? (
@@ -351,14 +350,14 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
         ) : (
           /* —— Netflix 桌面：顶栏 + 全宽内容 ——
              氛围页（首页 billboard / 详情 hero）全出血、内容从透明顶栏底下穿过；
-             其余页面由 .nf-nav-offset 为顶栏让位。设置模式保留「分区菜单 + 内容」
+             其余页面由 .topnav-offset 为顶栏让位。设置模式保留「分区菜单 + 内容」
              的信息架构（§0 决策 2：控制台页只换皮肤、不重排）。 */
           <div className="app-shell viewport-app-height relative z-10 w-full">
             {slots.desktopTopNav && (
               <slots.desktopTopNav onSearch={handleSearch} onOpenSettings={openSettings} />
             )}
             {isSettings ? (
-              <div className="nf-nav-offset absolute inset-0 flex">
+              <div className="topnav-offset absolute inset-0 flex">
                 {/* 分区菜单贴全站 4vw 左基线（与顶栏字标同一条线），内容区随后左锚定 */}
                 <aside className="h-full w-[300px] shrink-0 pl-[var(--page-inset)]">
                   {sidebarNode}
@@ -366,7 +365,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
                 <main className="h-full min-w-0 flex-1">{children}</main>
               </div>
             ) : (
-              <main className={`absolute inset-0 ${isHome ? "" : "nf-nav-offset"}`}>
+              <main className={`absolute inset-0 ${isHome ? "" : "topnav-offset"}`}>
                 {children}
               </main>
             )}
@@ -531,19 +530,19 @@ function MobileTopBar({
   // 搜索入口按「任一搜索分区可用」露出（影视 / 资源 / 媒体库），不只看资源搜索开关
   const { canOpenSearch } = useSearchAccess();
   // 雾层色由 globals.css 的 html[data-theme="netflix"] .mobile-topbar 覆盖，组件里不用管。
-  const isNetflix = useTheme().structural;
-  const large = titleOptions?.large && !isNetflix;
+  const cinema = useLayout() === "cinema";
+  const large = titleOptions?.large && !cinema;
   return (
     <header className="mobile-topbar pointer-events-none absolute inset-x-0 top-0 z-40">
       <div className="pointer-events-auto flex h-[52px] items-center gap-2 px-3">
-        {leading && !isNetflix ? (
+        {leading && !cinema ? (
           <div className="flex min-w-0 shrink items-center pl-1">{leading}</div>
         ) : title ? (
           <>
             {/* 返回键（银玻璃）：会话页这类深层页在手机上底栏收起，
                 顶栏是唯一能离开的地方；能回就按历史回，回不了落到页面给的地址。
                 Netflix 主题的顶栏形态不动。 */}
-            {backHref && !isNetflix && (
+            {backHref && !cinema && (
               <button
                 type="button"
                 onClick={back}
@@ -565,7 +564,7 @@ function MobileTopBar({
               {title}
             </h1>
           </>
-        ) : isNetflix ? (
+        ) : cinema ? (
           /* 字标可点区拉到 44px 高（与图标键同标准）——红色内联 SVG 本身保持
              h-7 的视觉大小，命中区靠按钮撑起，否则 28px 高的字标在触屏上很难点中。
              Netflix 主题没有首页：字标回媒体库（原内容首页已并入）。 */
@@ -588,12 +587,12 @@ function MobileTopBar({
           {actions}
           {/* 搜索固定在最右（右上角）。SearchCommand 自带全局 ⌘K 监听，全站只能挂一份：
               详情页的 PageNav 认领顶栏时本组件不渲染，搜索键改由 PageNav 挂 */}
-          {canOpenSearch && !(titleOptions?.hideSearch && !isNetflix) && (
+          {canOpenSearch && !(titleOptions?.hideSearch && !cinema) && (
             <div className="shrink-0">
               <SearchCommand
                 onSearch={onSearch}
                 triggerClassName={PAGE_NAV_BUTTON_CLASS}
-                preferredMode={isNetflix ? undefined : searchModeForPath(pathname)}
+                preferredMode={cinema ? undefined : searchModeForPath(pathname)}
               />
             </div>
           )}

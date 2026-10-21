@@ -47,7 +47,7 @@ import { useHeroEdgeColor } from "@/lib/hero-edge-color";
 import { getMediaSeed } from "@/lib/media-detail";
 import { useTapGuard } from "@/lib/use-tap-guard";
 import { usePageTitle } from "@/lib/use-page-title";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { usePermissions } from "@/lib/permissions";
 import type { MediaSource, MediaType } from "@/lib/media-types";
@@ -250,8 +250,8 @@ export function MediaDetailView({
   // chevron（见 NetflixBackButton）。移动端仍保留 PageNav：它要向外壳登记
   // 「本页自带顶栏」并充当返回入口（见 app-shell）。
   // 这些 hook 必须无条件调用（短路写法会触发 rules-of-hooks）。
-  const isNf = useTheme().structural;
-  const isNfDesktop = isNf && !isMobile;
+  const cinema = useLayout() === "cinema";
+  const cinemaDesktop = cinema && !isMobile;
   const { slots } = useResolvedTheme();
   const DetailNav = slots.detailNav;
   const showMobileHero = isMobile && mobileHeroSrc !== "";
@@ -259,16 +259,16 @@ export function MediaDetailView({
   //   - 整页底色取大图露出部分的底边色，Hero 底部渐变到同一个颜色（lib/hero-edge-color.ts）；
   //   - 顶栏的小标题与雾层等剧照上的大标题滚出视野才出现（PageNav 的 revealAfter）。
   // Netflix 维持纯黑底与原顶栏。
-  const silverHero = showMobileHero && !isNf;
+  const panelHero = showMobileHero && !cinema;
   const [heroEl, setHeroEl] = useState<HTMLDivElement | null>(null);
   const [titleEl, setTitleEl] = useState<HTMLHeadingElement | null>(null);
-  const edgeColor = useHeroEdgeColor(silverHero ? mobileHeroSrc : undefined, heroEl);
+  const edgeColor = useHeroEdgeColor(panelHero ? mobileHeroSrc : undefined, heroEl);
   // 银玻璃手机操作键：34px 高、最小宽 120px（同原生 App 的 HeroActionButton）
-  const actionSize = isNf ? "" : "max-md:h-[34px] max-md:min-w-[120px] max-md:justify-center max-md:px-4";
+  const actionSize = cinema ? "" : "max-md:h-[34px] max-md:min-w-[120px] max-md:justify-center max-md:px-4";
 
   // 滚动退场：详情页下滚时剧照不是被机械地推出屏幕，而是随滚动进度渐暗 +
-  // 模糊（Netflix 海报墙的观感）。进度写到根节点 CSS 变量 --nf-hero-recede
-  // （0→1），沉浸覆盖层（globals.css 的 html.nf-hero-live .backdrop-override）
+  // 模糊（Netflix 海报墙的观感）。进度写到根节点 CSS 变量 --hero-recede
+  // （0→1），沉浸覆盖层（globals.css 的 html.hero-live .backdrop-override）
   // 用它驱动 filter——滚动过程零 React 重渲染。rAF 合帧：一次滚动会派发多次
   // scroll 事件，只保留最后一帧的写入。**只在桌面启用**：手机上画面由页内
   // Hero 承担、滚动容器已铺黑把全站背景整个挡住，标记类无处生效（与媒体库
@@ -281,25 +281,25 @@ export function MediaDetailView({
   // 重跑不得重置（同帧内的类摘除重挂不会重启 CSS 动画，锚点也必须不动）。
   const kbAnchorRef = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (!isNfDesktop) return;
+    if (!cinemaDesktop) return;
     const root = document.documentElement;
     if (kbAnchorRef.current === undefined) {
       // 首跑：先摘再挂并跨一次 reflow。detail→detail 直跳时新旧视图在同一
       // 个 commit 里交接，同帧内的类切换不会触发样式重算、动画不会重启；
       // 强制 reflow 让新一片详情的推镜确定性地从头起跑，锚点才对得上。
-      root.classList.remove("nf-hero-live");
+      root.classList.remove("hero-live");
       void root.offsetWidth;
-      root.classList.add("nf-hero-live");
+      root.classList.add("hero-live");
       kbAnchorRef.current = performance.now();
-    } else if (!root.classList.contains("nf-hero-live")) {
-      root.classList.add("nf-hero-live");
+    } else if (!root.classList.contains("hero-live")) {
+      root.classList.add("hero-live");
     }
     const el = scrollRef.current;
     if (!el) {
       // 兜底态（数据未到）没有滚动容器：只挂标记类，清理时照常摘除
       return () => {
-        root.classList.remove("nf-hero-live");
-        root.style.removeProperty("--nf-hero-recede");
+        root.classList.remove("hero-live");
+        root.style.removeProperty("--hero-recede");
       };
     }
     let frame = 0;
@@ -309,7 +309,7 @@ export function MediaDetailView({
       // 变量注册了 <number> 类型并挂了过渡，滚轮大幅甩动时也是缓动跟随
       const range = Math.max(320, el.clientHeight * 0.75);
       const progress = Math.min(1, Math.max(0, el.scrollTop / range));
-      root.style.setProperty("--nf-hero-recede", progress.toFixed(3));
+      root.style.setProperty("--hero-recede", progress.toFixed(3));
     };
     const onScroll = () => {
       if (!frame) frame = window.requestAnimationFrame(sync);
@@ -319,10 +319,10 @@ export function MediaDetailView({
     return () => {
       el.removeEventListener("scroll", onScroll);
       if (frame) window.cancelAnimationFrame(frame);
-      root.classList.remove("nf-hero-live");
-      root.style.removeProperty("--nf-hero-recede");
+      root.classList.remove("hero-live");
+      root.style.removeProperty("--hero-recede");
     };
-  }, [isNfDesktop, hasItem]);
+  }, [cinemaDesktop, hasItem]);
 
   // 兜底态也必须渲染 PageNav——它向外壳登记「本页自带顶栏」，否则移动端的
   // 全局顶栏（☰ + logo）会在数据到达前先显示、随后又消失，顶部闪一下；
@@ -387,14 +387,14 @@ export function MediaDetailView({
       className={`detail-ambient scroll-thin scroll-safe relative isolate h-full overflow-y-auto rounded-2xl max-md:rounded-none ${
         showMobileHero ? "detail-ambient--hero" : ""
       }`}
-      style={silverHero && edgeColor ? ({ "--detail-page-color": edgeColor } as CSSProperties) : undefined}
+      style={panelHero && edgeColor ? ({ "--detail-page-color": edgeColor } as CSSProperties) : undefined}
     >
       {/* 桌面没有任何 Hero 图层：全站背景此刻就是本片剧照（沉浸覆盖 + 本页
           豁免全局蒙版，见 app-shell 的 isHome），大图直出、零边界；
           .detail-ambient 在滚动容器上铺「透明 → 纯黑」的渐变板托住下方内容
           （见 globals.css，Netflix 主题另有左侧渐变遮罩护住标题区）。
           手机上竖屏放不下横版剧照，改由下面的页内 Hero 呈现。 */}
-      {isNf ? (
+      {cinema ? (
         <DetailNav title={item.title} fallback={navFallback} onBack={back} />
       ) : (
         <PageNav title={item.title} fallback={navFallback} revealAfter={titleEl} />
@@ -402,7 +402,7 @@ export function MediaDetailView({
       {/* 背景轮换：Netflix 桌面且剧照多于一张时，按序叠变（见组件说明）。
           首帧传主 backdrop 原图——与覆盖层当前显示的是同一张照片，轮换层
           淡入接管时没有构图/内容跳变。 */}
-      {isNfDesktop && detail && detail.backdrops.length > 1 && backdropWidth > 0 && (
+      {cinemaDesktop && detail && detail.backdrops.length > 1 && backdropWidth > 0 && (
         <DetailBackdropSlideshow
           // 轮换层同样铺满整窗，与覆盖层取同一档宽度（首帧因此与覆盖层是同一个地址）
           images={detail.backdrops.map((img) => ({ ...img, fullUrl: withImageWidth(img.fullUrl, backdropWidth) }))}
@@ -424,7 +424,7 @@ export function MediaDetailView({
         >
           <img src={mobileHeroSrc} alt="" decoding="async" className="size-full object-cover object-center" />
           <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/45 to-transparent" />
-          {silverHero ? (
+          {panelHero ? (
             <div className="detail-hero-fade absolute inset-x-0 bottom-0 h-[260px]" />
           ) : (
             <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent via-black/55 to-black" />
@@ -687,8 +687,7 @@ export function MediaDetailView({
  * 异步回填或页内切换作品时恢复折叠并重新测量，避免沿用上一部影片的状态。
  */
 function ExpandablePlot({ text }: { text: string }) {
-  // 银玻璃的「展开全文」用 accent 色（同原生 App），Netflix 维持灰字
-  const isNf = useTheme().structural;
+  // 「展开全文」默认 accent 色（同原生 App）；主题可经公开部件 .detail-more-toggle 换色
   const paragraphRef = useRef<HTMLParagraphElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [hasOverflow, setHasOverflow] = useState(false);
@@ -731,9 +730,7 @@ function ExpandablePlot({ text }: { text: string }) {
           type="button"
           aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
-          className={`mt-1.5 inline-flex items-center gap-1 text-sub font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-2)] ${
-            isNf ? "text-white/55 hover:text-white/85" : "text-[var(--accent)] hover:text-white"
-          }`}
+          className="detail-more-toggle mt-1.5 inline-flex items-center gap-1 text-sub font-medium text-[var(--accent)] transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-2)]"
         >
           {expanded ? "收起" : "展开全文"}
           <ChevronRightIcon
@@ -804,13 +801,13 @@ function TrailerCard({
   onPlay: () => void;
 }) {
   const tapGuard = useTapGuard(onPlay);
-  const isNf = useTheme().structural;
+  const cinema = useLayout() === "cinema";
   return (
     <button
       type="button"
       {...tapGuard}
       // 手机卡宽：银玻璃 240（同原生 App），Netflix 维持 208
-      className={`group/trailer w-[264px] shrink-0 text-left ${isNf ? "max-md:w-[208px]" : "max-md:w-[240px]"}`}
+      className={`group/trailer w-[264px] shrink-0 text-left ${cinema ? "max-md:w-[208px]" : "max-md:w-[240px]"}`}
     >
       <div className="relative aspect-video overflow-hidden rounded-xl bg-[var(--poster-placeholder)] ring-1 ring-white/[0.08] transition-all duration-300 ease-out group-hover/trailer:-translate-y-1 group-hover/trailer:shadow-[0_16px_40px_rgba(0,0,0,0.55)] group-hover/trailer:ring-white/30">
         {/* YouTube 封面是 4:3（上下带黑边），object-cover 裁进 16:9 恰好只剩画面 */}

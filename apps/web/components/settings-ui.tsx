@@ -18,7 +18,6 @@ import { Fragment, type ReactNode } from "react";
 
 import { CheckIcon, ChevronRightIcon, MoreIcon, XIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
-import { useTheme } from "@/lib/ui-prefs";
 
 /** 设置页文本输入框：聚焦环由 .field-shell 承载 */
 export const SETTINGS_INPUT_CLASS =
@@ -181,7 +180,7 @@ export function SettingsCard({
 
 /**
  * 分区内的页签（胶囊）。配合 useTabParam 用：?tab= 深链、切换写回地址栏。
- * Netflix 的选中态是白底黑字（品牌语言），银玻璃是灰底白字。
+ * 选中态默认灰底白字；主题可经公开部件 .settings-tab[aria-pressed="true"] 换形态。
  */
 export function SettingsTabs<T extends string>({
   tabs,
@@ -192,7 +191,6 @@ export function SettingsTabs<T extends string>({
   value: T;
   onChange: (id: T) => void;
 }) {
-  const activeCls = useTheme().structural ? "bg-white text-black" : "bg-white/[0.14] text-white";
   return (
     <div className="flex flex-wrap gap-1.5">
       {tabs.map((t) => (
@@ -201,9 +199,9 @@ export function SettingsTabs<T extends string>({
           type="button"
           aria-pressed={t.id === value}
           onClick={() => onChange(t.id)}
-          className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sub font-medium transition-colors ${
+          className={`settings-tab flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sub font-medium transition-colors ${
             t.id === value
-              ? activeCls
+              ? "bg-white/[0.14] text-white"
               : "text-[var(--text-muted)] hover:bg-white/[0.07] hover:text-[var(--text)]"
           }`}
         >

@@ -38,7 +38,7 @@ import { deliveryColor, deliveryDetail, deviceLabel } from "@/lib/activity-overv
 import { formatBytes } from "@/lib/format";
 import { imageUrl } from "@/lib/image-proxy";
 import { WATCH_VIEW_LABELS, type WatchViewName } from "@/lib/task-center";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 
 /** 实时会话的轮询节奏：比下载快照（10s）稍快，速率读数才跟得上直觉。 */
@@ -394,7 +394,7 @@ interface SessionCardProps {
  * - 进度条下左右两端是已看到的时刻与剩余时长，比「1:23:16 / 2:21:06」更好读。
  *
  * `variant="row"`：活动总览（银玻璃）里作为分组列表的一行，去掉卡片描边与底色。
- * Netflix 主题仍用 NfSessionCard，版式不动。
+ * cinema 版式仍用 CinemaSessionCard，版式不动。
  */
 export function SessionCard({
   session,
@@ -490,7 +490,7 @@ export function SessionCard({
 }
 
 /** 正在播放（Netflix 主题）：原有版式，不随银玻璃改版。 */
-function NfSessionCard({ session, onEnd, onRevoke, busy }: SessionCardProps) {
+function CinemaSessionCard({ session, onEnd, onRevoke, busy }: SessionCardProps) {
   const media = session.media;
   const percent = session.progress_percent;
   const specParts = [
@@ -797,7 +797,7 @@ export function MediaActivityPanel({
   view: WatchViewName;
   onViewChange: (view: WatchViewName) => void;
 }) {
-  const isNf = useTheme().structural;
+  const cinema = useLayout() === "cinema";
   const devices = useDeviceActions(refresh);
   const [memberId, setMemberId] = useState<number | null>(null);
   const [days, setDays] = useState(30);
@@ -823,7 +823,7 @@ export function MediaActivityPanel({
   );
 
   // 银玻璃用新版正在播放卡（播放方式小标、剩余时长），Netflix 主题保持原版式
-  const Session = isNf ? NfSessionCard : SessionCard;
+  const Session = cinema ? CinemaSessionCard : SessionCard;
 
   const scopeFilter = (
     <FilterMenu label="范围" value={scope} options={SCOPE_OPTIONS} onChange={setScope} />

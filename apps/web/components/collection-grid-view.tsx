@@ -17,7 +17,7 @@ import { PosterCard } from "@/components/poster-card";
 import { browseDiscoveryCollection } from "@/lib/api/discover";
 import type { MediaItem } from "@/lib/media-types";
 import { createSessionSnapshots } from "@/lib/session-snapshot";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
 
 const TMDB_PAGE_SIZE = 20;
@@ -58,8 +58,8 @@ export function CollectionGridView({
 }) {
   const initialSnapshot = getCollectionGridSnapshot(collectionRef);
   const scrollRef = useScrollRestoration(`collection:${collectionRef}`);
-  const isNf = useTheme().structural;
-  const fullGrid = isNf ? "mt-8" : "mx-auto mt-8 max-w-[1500px]";
+  const cinema = useLayout() === "cinema";
+  const fullGrid = cinema ? "mt-8" : "mx-auto mt-8 max-w-[1500px]";
   const [items, setItems] = useState<MediaItem[] | null>(() => initialSnapshot?.items ?? null);
   const [title, setTitle] = useState(() => initialSnapshot?.title ?? "影视片单");
   const [query, setQuery] = useState("");
@@ -269,7 +269,7 @@ export function CollectionGridView({
         }}
         className="page-inset-bleed"
       />
-      <header className={isNf ? undefined : "mx-auto max-w-[1500px]"}>
+      <header className={cinema ? undefined : "mx-auto max-w-[1500px]"}>
         <div className="mt-1 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
           <div>
             <p className="text-sub font-semibold tracking-[0.18em] text-[var(--accent-2)]">
@@ -398,11 +398,11 @@ export function CollectionGridView({
 
 function CollectionSkeleton() {
   // 与正文网格同一套主题栅格：Netflix 全幅、银玻璃居中 1500px
-  const isNf = useTheme().structural;
+  const cinema = useLayout() === "cinema";
   return (
     <div
       className={
-        isNf
+        cinema
           ? "mt-8 grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8"
           : "mx-auto mt-8 grid max-w-[1500px] grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8"
       }

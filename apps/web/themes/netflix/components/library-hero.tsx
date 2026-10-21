@@ -195,10 +195,10 @@ function NetflixBillboard({
   }, [hdUrl, fallbackSrc]);
   const artSrc = artState === "ok" ? hdUrl : artState === "failed" ? fallbackSrc : "";
 
-  // 滚动退场（详情页 --nf-hero-recede 的 billboard 版）：billboard 跟随媒体库
+  // 滚动退场（详情页 --hero-recede 的 billboard 版）：billboard 跟随媒体库
   // 页的滚动容器滚走，下滚时画面渐暗 + 模糊。进度写在 section 元素上，只有
   // 本组件的子树消费它（.nf-billboard-art，见 globals.css），不挂
-  // html.nf-hero-live——那会牵连全站沉浸覆盖层的规则。
+  // html.hero-live——那会牵连全站沉浸覆盖层的规则。
   const sectionRef = useRef<HTMLElement | null>(null);
   // 同一个元素既给滚动退场用（ref），也要量尺寸算取图宽度（state，量到后重渲染）
   const attachSection = useCallback((el: HTMLElement | null) => {
@@ -228,7 +228,7 @@ function NetflixBillboard({
       // 缓出区间相应收短
       const range = Math.max(240, section.clientHeight * 0.8);
       const progress = Math.min(1, Math.max(0, scroller.scrollTop / range));
-      section.style.setProperty("--nf-hero-recede", progress.toFixed(3));
+      section.style.setProperty("--hero-recede", progress.toFixed(3));
     };
     const onScroll = () => {
       if (!frame) frame = window.requestAnimationFrame(sync);
