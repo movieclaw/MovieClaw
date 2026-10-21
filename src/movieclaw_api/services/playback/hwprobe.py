@@ -75,12 +75,14 @@ _VAAPI_LOW_POWER_PROBE_ARGS: list[str] = [
 #:
 #: 探测链与真实转码链**同构**——上传到显存 → tone-map → 硬件缩放 → 硬件编码，
 #: 否则会出现「探得通、真用炸」。输入要合成成 HDR10（PQ 曲线 + BT.2020 三件套）：
-#: tone-map 滤镜拒绝非 HDR 输入，拿 testsrc2 直接喂它必然失败。
+#: tone-map 滤镜拒绝非 HDR 输入，拿 testsrc2 直接喂它必然失败。``setparams`` 的
+#: 矩阵名取 ``AVColorSpace`` 枚举（``bt2020nc``），不是 ``colorspace`` 滤镜的
+#: ``bt2020ncl``——写错了整条链在上传显存前就解析失败，能用的卡被判成没有（#963）。
 _NATIVE_TONEMAP_PROBES: dict[str, tuple[str, str]] = {
     "nvenc": (
         NVENC_TONEMAP,
         "format=p010le,setparams=color_primaries=bt2020:color_trc=smpte2084"
-        ":colorspace=bt2020ncl,hwupload_cuda,{filter},scale_cuda=format=yuv420p:w=-2:h=240",
+        ":colorspace=bt2020nc,hwupload_cuda,{filter},scale_cuda=format=yuv420p:w=-2:h=240",
     ),
 }
 

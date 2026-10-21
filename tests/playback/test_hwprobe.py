@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -285,6 +286,28 @@ def test_native_tonemap_failure_keeps_hardware_transcoding(monkeypatch, tmp_path
     monkeypatch.setattr(hwprobe, "_run_probe", fake_probe)
     assert status_of(hwprobe.probe_backends(), "nvenc").available is True
     assert native_tonemap_filter(HW_BACKENDS["nvenc"]) is None
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="需要 ffmpeg")
+@pytest.mark.parametrize("name", sorted(hwprobe._NATIVE_TONEMAP_PROBES))
+def test_native_tonemap_probe_source_parses_on_real_ffmpeg(name):
+    """探测链上传显存之前的那段（合成 HDR10 源）与显卡无关，任何 ffmpeg 都该跑得通。
+
+    上面的用例都替身了 ffmpeg，参数写错照样绿；而写错的后果是能用的卡被静默判成
+    没有原生 tone-map、HDR 转码全压到 CPU（#963：``setparams`` 的矩阵名写成了
+    ``colorspace`` 滤镜的 ``bt2020ncl``）。这里用真 ffmpeg 把这段跑一遍。"""
+    filter_expr, chain = hwprobe._NATIVE_TONEMAP_PROBES[name]
+    software_part = chain.format(filter=filter_expr).split(",hwupload", 1)[0]
+    proc = subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-v", "error",
+            "-f", "lavfi", "-i", hwprobe._PROBE_SOURCE,
+            "-vf", software_part, "-f", "null", "-",
+        ],
+        capture_output=True,
+        timeout=60,
+    )  # fmt: skip
+    assert proc.returncode == 0, proc.stderr.decode(errors="replace")
 
 
 def test_result_is_cached_until_forced(monkeypatch):
