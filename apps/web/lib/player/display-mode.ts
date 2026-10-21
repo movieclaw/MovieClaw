@@ -7,6 +7,11 @@ export const DISPLAY_MODES = [
 ] as const;
 
 export type DisplayMode = (typeof DISPLAY_MODES)[number]["id"];
+export type DisplaySelection = { unit: string; file: number | null; mode: DisplayMode };
+
+export function currentDisplaySelection(selection: DisplaySelection | null, unit: string, file: number | null): DisplaySelection | null {
+  return selection?.unit === unit && (file === null || selection.file === file) ? selection : null;
+}
 
 export function nextDisplayMode(mode: DisplayMode): DisplayMode {
   return DISPLAY_MODES[(DISPLAY_MODES.findIndex((option) => option.id === mode) + 1) % DISPLAY_MODES.length].id;

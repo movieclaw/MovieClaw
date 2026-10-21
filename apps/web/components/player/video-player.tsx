@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { DISPLAY_MODES, nextDisplayMode, type DisplayMode } from "@/lib/player/display-mode";
+import { DISPLAY_MODES, currentDisplaySelection, nextDisplayMode, type DisplayMode, type DisplaySelection } from "@/lib/player/display-mode";
 import { MediaController } from "media-chrome/react";
 
 import { ChevronLeftIcon, LockIcon, PlayIcon, XIcon } from "@/components/icons";
@@ -423,10 +423,12 @@ export function VideoPlayer(props: VideoPlayerProps) {
   apiRef.current = api;
 
   const [state, dispatch] = useReducer(playerReducer, initialPlayerState);
-  const [displaySelection, setDisplaySelection] = useState<{ unit: string; file: number | null; mode: DisplayMode } | null>(null);
+  const [displaySelection, setDisplaySelection] = useState<DisplaySelection | null>(null);
   const displayFile = state.session?.decision.file_id ?? null;
-  const displayMode = displaySelection?.unit === unitKey && (displayFile === null || displaySelection.file === displayFile)
-    ? displaySelection.mode : "fit";
+  const currentDisplay = currentDisplaySelection(displaySelection, unitKey, displayFile);
+  // 换集/换文件就忘掉旧选择，切回来也不能复活上一次的裁切；同文件重建会话保留。
+  if (currentDisplay !== displaySelection) setDisplaySelection(currentDisplay);
+  const displayMode = currentDisplay?.mode ?? "fit";
 
   const [resume, setResume] = useState<PlaybackWatchState | null>(null);
   const [positionMs, setPositionMs] = useState(0);

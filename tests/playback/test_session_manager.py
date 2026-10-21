@@ -1818,7 +1818,9 @@ def test_behind_request_ready_only_holds_probe_like_requests(manager, tmp_path):
     """宽限只留给「像探测」的落后请求：起播窗口内的列表头、以及挂号之后客户端又去
     要了别处的过时请求；紧跟着它的顺序预取不算「别处」。"""
     session = _vod_session(tmp_path, head=317, completed=set())
-    now = time.monotonic()
+    # 只测传入时间的逻辑；固定到可精确表示的值，避免真实 monotonic 的
+    # 小数在「恰好 3 秒」处相减后变成 2.999999999999986。
+    now = 100.0
     session.created_at = now - 1.0  # 会话刚开 1 秒，还在探测窗口里
 
     session.pending_since[0] = now

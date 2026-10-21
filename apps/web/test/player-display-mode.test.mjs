@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DISPLAY_MODES, displayLayout, nextDisplayMode } from "../lib/player/display-mode.ts";
+import { DISPLAY_MODES, currentDisplaySelection, displayLayout, nextDisplayMode } from "../lib/player/display-mode.ts";
+
+test("同文件重建保留选择，换集或换文件后再回来也恢复完整显示", () => {
+  const selected = { unit: "episode-1", file: 1, mode: "fill" };
+  assert.equal(currentDisplaySelection(selected, "episode-1", null), selected);
+  assert.equal(currentDisplaySelection(selected, "episode-1", 1), selected);
+  for (const [unit, file] of [["episode-2", 1], ["episode-1", 2]]) {
+    let selection = currentDisplaySelection(selected, unit, file);
+    assert.equal(selection, null);
+    selection = currentDisplaySelection(selection, "episode-1", 1);
+    assert.equal(selection?.mode ?? "fit", "fit");
+  }
+});
 
 test("四个模式循环回完整显示", () => {
   let mode = "fit";
