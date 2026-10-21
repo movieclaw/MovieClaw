@@ -1,0 +1,18 @@
+[plugin]
+id = "__PLUGIN_ID__"
+title = "__PLUGIN_TITLE__"
+version = "0.1.0"
+sdk = "^1.0"
+description = "__PLUGIN_DESCRIPTION__"
+# 只带主题：没有 entry，外观写在 theme/theme.css（设置 → 外观 里选用）
+
+[requires]
+"ui.theme" = "^1.1"              # 主题契约：内核的公开变量 / 部件变了主版本，装的时候会提示不兼容
+
+[theme]
+label = "__PLUGIN_TITLE__"       # 外观卡片上的名字，20 字以内
+description = "__PLUGIN_DESCRIPTION__"
+preview = { bg = "#000000", accent = "#cdd6e6" }   # 外观卡片缩略：取 theme.css 的 --bg 与 --accent
+theme_color = "#000000"          # 浏览器地址栏 / 手机状态栏颜色
+layout = "panel"                 # 版式：panel = 侧栏 + 居中面板（纯 CSS 主题只能用它）
+glass = true                     # 液态玻璃：false 时内核改用实底面板

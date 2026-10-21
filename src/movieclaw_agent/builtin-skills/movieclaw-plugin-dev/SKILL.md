@@ -1,6 +1,6 @@
 ---
 name: movieclaw-plugin-dev
-description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时使用，不管用户有没有说「插件」。典型说法：「做一个企业微信 / 钉钉 / Slack / Bark 通道」「接入某某平台」「能不能支持某某站点」「下载完 / 入库后 / 删片后自动做某事」「按订阅规则组表达不了的规则淘汰种子」「定时去拉某个片单」「给 AI 助手加个查某某的能力」「给外部系统开个接口」「做个页面 / 看板放左边」。这类需求先判断现有功能能否做到，做不到的靠写插件（.mcplugin）实现；本技能覆盖从判断、开发、打包、安装、验证到卸载的全过程，也用于升级、回滚、排查已装的插件，以及回答「插件是什么、要批准什么、安不安全」这类问题。
+description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时使用，不管用户有没有说「插件」。典型说法：「做一个企业微信 / 钉钉 / Slack / Bark 通道」「接入某某平台」「能不能支持某某站点」「下载完 / 入库后 / 删片后自动做某事」「按订阅规则组表达不了的规则淘汰种子」「定时去拉某个片单」「给 AI 助手加个查某某的能力」「给外部系统开个接口」「做个页面 / 看板放左边」「换一套网页配色 / 做个主题 / 皮肤」。这类需求先判断现有功能能否做到，做不到的靠写插件（.mcplugin）实现；本技能覆盖从判断、开发、打包、安装、验证到卸载的全过程，也用于升级、回滚、排查已装的插件，以及回答「插件是什么、要批准什么、安不安全」这类问题。
 ---
 
 # MovieClaw 插件开发
@@ -50,6 +50,7 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 | 删影片 / 删文件的弹窗里加一个「顺带清理」的勾选项（默认不勾，先预览后果，勾了才执行） | 注册表 `library.delete-participants` |
 | 给 AI 助手加一个能力（查天气、查某个外部服务）、给外部系统开接口 | 插件接口：自动成为 mclaw 命令，AI 助手直接能调 |
 | 用户自己的页面（看板、统计、片单、管理页），出现在网页左侧栏 | 插件网页：`web/` 里一个普通网页，同源调接口（`references/web-pages.md`） |
+| 网页换一套外观：配色、圆角、字号、字体、部件形状，在「设置 → 外观」里选用 | 网页主题：`theme/theme.css`，只改外观不改页面（`references/themes.md`） |
 | 接收外部平台推过来的消息（企业微信自建应用回调、GitHub / Slack 推送、Telegram Webhook） | 回调端点：宿主发地址，请求原样交给插件，插件自己验签 |
 | 做事与存东西：调用系统操作（与 mclaw 同一份）、存状态、读写批准的目录、报告健康 | 服务 |
 
@@ -104,6 +105,7 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 | 接收外部平台的回调 | `references/recipes.md` 第 14 节 |
 | 开接口（含给 AI 助手加能力）、读写文件 | `references/recipes.md` 第 5、8、10 节、`templates/starter/`、`references/examples/cloud_strm.py` |
 | 做一个页面（看板、统计、管理页） | `references/web-pages.md`（只带网页的用 `new_plugin.py --web` 生成骨架） |
+| 换网页外观（主题、配色、皮肤） | `references/themes.md`（用 `new_plugin.py --theme` 生成骨架），示例 `references/examples/ocean-theme/` |
 | 插件需要用户填的配置或凭据（账号、地址、Key） | `references/recipes.md` 第 13 节 |
 | 站点 | `references/recipes.md` 第 12 节、`references/examples/site_pack/` |
 | 一个插件里放好几件事、替换内置的东西 | `references/composition.md`（替换随带通道：把 `$SRC/movieclaw_plugins/<名>/` 复制到 `plugins/<同 id>/` 再改，id 不含点） |
@@ -133,7 +135,8 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
    要不要管理员，用 `python <本技能>/scripts/api.py <操作 id>` 查（`ops.call` 的参数、网页里 `fetch` 的地址都看它）。
 3. **生成骨架**：
    `python <本技能>/scripts/new_plugin.py plugins/<id> --id <id> --title "<中文标题>"`
-   生成清单与入口模块，再按需求改。只带网页的插件加 `--web`（生成清单与 `web/`，没有 Python 代码，见 `references/web-pages.md`）。
+   生成清单与入口模块，再按需求改。只带网页的插件加 `--web`（生成清单与 `web/`，没有 Python 代码，见 `references/web-pages.md`）；
+   网页主题加 `--theme`（生成带 `[theme]` 段的清单与 `theme/theme.css`，见 `references/themes.md`）。
 4. **写代码**：遵守第 4 节规范。
 5. **本地检查**：`python <本技能>/scripts/check_plugin.py plugins/<id>`。它用服务器同一套逻辑校验清单、契约、
    宿主操作，并真的导入入口模块找 `@plugin`。**有 ✗ 必须先修好**；⚠ 要逐条判断。
@@ -142,7 +145,7 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
    （反例 = 看着像但不该命中的，如片名里恰好含这几个字母）。钩子在热路径上、误判会直接影响下载，这步不能省。
    插件网页的判断逻辑（时间范围、过滤条件）同理：写成独立的 JS 函数，用 `node -e` 跑几条正反例（`references/web-pages.md` 第 5 节）。
 6. **征得用户同意再安装**（第 5 节）。问完就结束这一轮、等用户回答；同一轮里提问又接着安装，不算征得同意。
-7. **安装并加载**：`mclaw` 工具执行 `plugin dev plugins/<id> --once`（带网页的、用户同意后加 `--allow-web`）。它会打包（版本自动加 `-dev.<时间戳>`）、
+7. **安装并加载**：`mclaw` 工具执行 `plugin dev plugins/<id> --once`（带网页的、用户同意后加 `--allow-web`；纯 CSS 主题不加授信参数，见 `references/themes.md` 第 5 节）。它会打包（版本自动加 `-dev.<时间戳>`）、
    上传、按清单申请批准、当场加载，成功打印 `✓ … 已加载`。**必须带 `--once`**，否则它会一直监视文件、卡到超时。
 8. **验证**（不验证不算完成）：
    - `mclaw app plugins packages list`：插件在 `installed` 里，版本对（`watching: true` 是装好后两分钟的观察期：这期间崩溃会自动回滚，不是 `plugin dev` 还在监视文件）；
@@ -230,6 +233,7 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 
 - 安装前向用户列出：条目 id、要做什么、申请的宿主操作（标出危险操作）、路径、是否联网、运行方式；
   带网页的还要说清「网页会以打开它的人的身份运行，管理员打开时拥有管理员的全部权限」和左侧栏会多出哪几项。
+  主题要说清它只改网页外观、每个人在「设置 → 外观」里自己选用，装上不会改任何人当前的外观。
   **用户明确同意后才执行第 3 节第 7、10 步**。用户在本次对话里已经明确说过「直接装」的，视为同意。
 - 申请最小权限：只列真正会调用的操作；能用演练（`dry_run`）验证的危险操作先演练。
 - 不可恢复、又有取舍的行为（删种时连数据文件一起删会影响做种和分享率、覆盖文件、批量改订阅）不要替用户定默认值，
@@ -250,9 +254,10 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 | `references/composition.md` | 一个插件组合多个扩展点、何时拆分、替换内置、插件之间配合 |
 | `references/recipes.md` | 每种扩展点的写法片段（第 11 节含 IM 通道的接入方式选择） |
 | `references/web-pages.md` | 插件网页：标准网页 + Web App Manifest，同源调接口，进左侧栏 |
+| `references/themes.md` | 网页主题：`[theme]` 段、theme.css 的作用域规则、公开变量与部件 |
 | `references/manifest.md` | 清单字段、权限、版本区间、安装 / 升级 / 回滚 / 卸载命令 |
 | `references/architecture.md` | 原理：生命周期、进程外运行、权限模型、源码位置 |
 | `references/explaining-to-users.md` | 给用户解释插件、权限、安全、卸载的标准说法 |
 | `references/troubleshooting.md` | 按报错查原因 |
-| `references/examples/` | 8 个经过测试的真实插件（先读 README） |
-| `templates/starter/`、`templates/web/`、`scripts/` | 骨架；生成骨架、查契约、查接口（`api.py`）、安装前检查的脚本 |
+| `references/examples/` | 9 个经过测试的真实插件（先读 README） |
+| `templates/starter/`、`templates/web/`、`templates/theme/`、`scripts/` | 骨架；生成骨架、查契约、查接口（`api.py`）、安装前检查的脚本 |

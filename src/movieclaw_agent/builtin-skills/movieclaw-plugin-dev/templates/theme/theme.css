@@ -1,0 +1,31 @@
+/*
+ * __PLUGIN_TITLE__ 主题。
+ *
+ * 规则：
+ * - 所有改内核的规则都挂在 html[data-theme="__PLUGIN_ID__"] 底下——所有已装主题的 CSS
+ *   对每个用户都会加载，不挂会改坏别的主题（check_plugin.py 会拦）；
+ * - 优先只改变量（公开变量表见技能 references/themes.md）；变量表达不了的才改公开部件；
+ * - 自己新加的类名带主题前缀，别和内核撞名。
+ */
+
+html[data-theme="__PLUGIN_ID__"] {
+  /* 整体色调：玻璃版式下页面大面积的颜色来自背景大图 + 全局蒙版，--bg 只在图没铺上时露出 */
+  --bg: #000000;
+  --scrim-rgb: 0 0 0;             /* 全局蒙版的颜色（三个通道） */
+  --backdrop-tint: transparent;   /* 罩在背景大图上的一层色 */
+
+  /* 浮层：菜单、卡片、弹窗 */
+  --surface-raised: rgba(32, 32, 35, 0.74);
+
+  /* 文字 */
+  --text: #f3f5f9;
+  --text-muted: rgba(243, 245, 249, 0.62);
+  --text-faint: rgba(243, 245, 249, 0.36);
+
+  /* 强调色 */
+  --accent: #cdd6e6;
+  --accent-strong: #eef2f8;
+  --accent-2: #9fb0c9;
+  --accent-soft: rgba(205, 214, 230, 0.14);
+  --accent-ring: rgba(200, 218, 255, 0.55);
+}

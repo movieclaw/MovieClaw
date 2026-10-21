@@ -341,6 +341,82 @@ def test_scaffolded_web_page_checks_installs_and_is_served(data_dir) -> None:
         assert page.status_code == 200 and "本周看板" in page.text
 
 
+def test_scaffolded_theme_checks_installs_and_is_served(data_dir) -> None:
+    """网页主题骨架（new_plugin.py --theme）：检查通过、装上后进主题目录、样式能取到、卸载后消失；
+    漏出作用域改内核的规则被检查脚本拦下。"""
+    work = data_dir / "workspace"
+    work.mkdir()
+    made = _run(
+        "new_plugin.py", "plugins/ocean", "--id", "ocean", "--title", "海蓝", "--theme", cwd=work
+    )
+    assert made.returncode == 0, made.stdout + made.stderr
+    plugin_dir = work / "plugins" / "ocean"
+    css = plugin_dir / "theme" / "theme.css"
+    assert css.is_file() and not list(plugin_dir.glob("*.py"))
+    checked = _run("check_plugin.py", "plugins/ocean", cwd=work)
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert "✗" not in checked.stdout and "纯 CSS" in checked.stdout
+    # 典型错误：改内核变量 / 部件 / 全局元素的规则没挂在 html[data-theme="ocean"] 底下
+    good = css.read_text("utf-8")
+    css.write_text(
+        good + ":root { --bg: #000; }\n.glass-panel { border-radius: 0 }\nbody { color: red }\n",
+        "utf-8",
+    )
+    leaked = _run("check_plugin.py", "plugins/ocean", cwd=work)
+    assert leaked.returncode == 1
+    assert (
+        "改了内核变量 --bg" in leaked.stdout
+        and ".glass-panel" in leaked.stdout
+        and "body" in leaked.stdout
+    )
+    # 只用自己类名的规则、Tailwind 式的自定义属性初值不算
+    css.write_text(good + ".oc-wave { color: red }\n*, :before { --tw-x: 0 }\n", "utf-8")
+    assert _run("check_plugin.py", "plugins/ocean", cwd=work).returncode == 0
+
+    from movieclaw_api.api.deps import require_admin, require_login
+    from movieclaw_api.app import create_app
+    from movieclaw_api.services.auth import Principal
+
+    app = create_app()
+    admin = Principal(kind="admin", name="tester", is_admin=True)
+    app.dependency_overrides[require_admin] = lambda: admin
+    app.dependency_overrides[require_login] = lambda: admin
+    with TestClient(app) as client:
+        reply = client.post(
+            "/api/v1/app/plugins/packages",
+            files={"file": ("ocean.mcplugin", _zip(plugin_dir), "application/zip")},
+        )
+        assert reply.status_code == 200, reply.text
+        result = client.post(
+            "/api/v1/app/plugins/packages/ocean/approve",
+            json={"version": "0.1.0", "operations": []},
+        ).json()["data"]
+        assert result["status"] == "active", result
+        themes = {t["id"]: t for t in client.get("/api/v1/ui/themes").json()["data"]}
+        assert themes["ocean"]["label"] == "海蓝" and themes["ocean"]["layout"] == "panel"
+        assert themes["ocean"]["script"] is None
+        assert "/ui/themes/ocean/" in client.get("/api/v1/ui/themes.css").text
+        served = client.get("/api/v1/ui/themes/ocean/theme.css")
+        assert served.status_code == 200 and '[data-theme="ocean"]' in served.text
+        assert client.delete("/api/v1/app/plugins/packages/ocean").status_code == 200
+        assert "ocean" not in {t["id"] for t in client.get("/api/v1/ui/themes").json()["data"]}
+
+
+def test_theme_doc_lists_the_whole_css_contract(tmp_path) -> None:
+    """references/themes.md 的变量表与部件表覆盖整张契约表（movieclaw_sdk/theme_css.json）；
+    示例主题检查通过。"""
+    from movieclaw_sdk.theme import PUBLIC_PARTS, PUBLIC_VARIABLES, READONLY_VARIABLES
+
+    doc = (_SKILL / "references" / "themes.md").read_text("utf-8")
+    listed = set(re.findall(r"`(--[\w-]+)`", doc))
+    assert set(PUBLIC_VARIABLES) | set(READONLY_VARIABLES) <= listed
+    documented_parts = set(re.findall(r"`\.([\w-]+)`", doc))
+    assert documented_parts >= PUBLIC_PARTS
+    example = _SKILL / "references" / "examples" / "ocean-theme"
+    checked = _run("check_plugin.py", str(example), cwd=tmp_path)
+    assert checked.returncode == 0 and "✗" not in checked.stdout, checked.stdout + checked.stderr
+
+
 def test_check_script_wants_callbacks_declared(tmp_path) -> None:
     made = _run("new_plugin.py", "plugins/hooky", "--id", "hooky", "--title", "回调", cwd=tmp_path)
     assert made.returncode == 0, made.stdout + made.stderr

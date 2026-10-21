@@ -1,0 +1,54 @@
+/*
+ * 海蓝：纯 CSS 主题示例（技能 references/themes.md）。
+ * 只改公开变量，外加主按钮一个公开部件；全部挂在 html[data-theme="ocean"] 底下。
+ */
+
+html[data-theme="ocean"] {
+  /* 表面：深海蓝 */
+  --bg: #03101c;
+  --surface-raised: rgba(12, 38, 58, 0.8);
+  --surface-inset: rgba(140, 200, 235, 0.06);
+  --poster-placeholder: #0b2335;
+
+  /* 文字与描边：带一点青的白 */
+  --text: #eaf4fa;
+  --text-muted: rgba(234, 244, 250, 0.64);
+  --text-faint: rgba(234, 244, 250, 0.38);
+  --line: rgba(140, 200, 235, 0.1);
+  --line-strong: rgba(140, 200, 235, 0.2);
+
+  /* 强调色：青色，成组换（聚焦环、浅底一起） */
+  --accent: #5fb3d9;
+  --accent-strong: #a8dcf2;
+  --accent-2: #3f8db5;
+  --accent-soft: rgba(95, 179, 217, 0.16);
+  --accent-ring: rgba(95, 179, 217, 0.6);
+
+  /* 可点击行 */
+  --glass-fill: rgba(140, 200, 235, 0.05);
+  --glass-fill-hover: rgba(140, 200, 235, 0.09);
+  --glass-fill-active: rgba(140, 200, 235, 0.14);
+
+  /* 整体色调：玻璃版式下大面积的颜色来自背景大图 + 全局蒙版（玻璃透出的就是它们），
+     --bg 只在图没铺上时露出——所以染蓝要改这两个 */
+  --scrim-rgb: 3 16 28;
+  --backdrop-tint: rgba(4, 34, 60, 0.55);
+
+  /* 玻璃材质染成蓝，吸顶雾跟着底色走 */
+  --glass-tint: rgba(20, 60, 90, 0.42);
+  --page-fog: linear-gradient(
+    180deg,
+    rgba(3, 16, 28, 0.78) 0%,
+    rgba(3, 16, 28, 0.5) 46%,
+    rgba(3, 16, 28, 0) 100%
+  );
+}
+
+/* 主按钮：默认是银色渐变，变量管不到，改公开部件 .btn-accent */
+html[data-theme="ocean"] .btn-accent {
+  background: linear-gradient(145deg, #a8dcf2 0%, #5fb3d9 100%);
+  color: #03111c;
+  box-shadow:
+    0 6px 18px rgba(95, 179, 217, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}

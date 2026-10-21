@@ -10,7 +10,8 @@
 2. 兼容与权限：服务器的 ``check_compat``（SDK、契约、宿主操作是否存在、路径授权写法、id 是否被占用）；
 3. 入口模块：在独立子进程里导入，找到名字等于清单 id 的 ``@plugin``，核对 inject / permissions / 用到的契约；
 4. 其他：全部 .py 能编译、危险操作是否逐个列出、inline 运行、包大小；
-5. 第三方依赖（``[dependencies] lock``）：钉死、哈希、只接受轮子、不与主程序重名，缺哪个平台的轮子。
+5. 第三方依赖（``[dependencies] lock``）：钉死、哈希、只接受轮子、不与主程序重名，缺哪个平台的轮子；
+6. 网页主题（``[theme]``）：theme.css 的规则不能漏出本主题的作用域去改内核变量、内核部件或全局元素。
 """
 
 from __future__ import annotations
@@ -189,7 +190,8 @@ def main(argv: list[str]) -> int:
         return _finish()
     web_only = not plugin.entry and plugin.runtime != "exec"
     if web_only:
-        ok(f"清单合规：{plugin.id} v{plugin.version}，只带网页（没有后端代码）")
+        kind = "只带主题" if manifest.theme is not None else "只带网页"
+        ok(f"清单合规：{plugin.id} v{plugin.version}，{kind}（没有后端代码）")
     else:
         ok(f"清单合规：{plugin.id} v{plugin.version}，入口 {plugin.entry}，运行方式 {plugin.runtime}")
     size_kb = len(data) // 1024
@@ -281,6 +283,8 @@ def main(argv: list[str]) -> int:
 
     # 网页（docs/design/plugin-web-pages.md）
     _check_web(directory, plugin.id, plugin.title)
+    # 网页主题（docs/design/theme-plugins.md）
+    _check_theme(directory, plugin.id, manifest.theme)
 
     # 4. 导入入口模块
     if web_only:
@@ -398,6 +402,139 @@ def _check_web(directory: Path, entry_id: str, title: str) -> None:
                 f"web/{path.relative_to(web)} 里的链接 {href} 没写 target=\"_top\"："
                 "跳主程序的页面要加上它；插件自己的页面用相对地址（不带开头的 /）"
             )
+
+
+def _check_theme(directory: Path, theme_id: str, theme: object) -> None:
+    """网页主题：theme.css 按 CSS 契约（movieclaw_sdk/theme_css.json）检查作用域。
+
+    所有已装主题的 CSS 对每个用户都会加载（不管选的是哪个主题），所以改内核变量、内核部件、
+    全局元素的规则必须挂在 ``html[data-theme="<id>"]`` 底下，否则会改坏别的主题。
+    只用主题自己类名的规则（如 ``.oc-hero``、带前缀的 Tailwind 工具类）不用挂。
+    """
+    import re
+
+    from movieclaw_sdk.theme import PUBLIC_PARTS, PUBLIC_VARIABLES, READONLY_VARIABLES
+
+    if theme is None:
+        return
+    label, layout = theme.label, theme.layout  # type: ignore[attr-defined]
+    has_js = (directory / "theme" / "index.js").is_file()
+    ok(
+        f"主题「{label}」：版式 {layout}，{'液态玻璃' if theme.glass else '不用玻璃'}，"  # type: ignore[attr-defined]
+        + ("带外框组件（theme/index.js）" if has_js else "纯 CSS")
+    )
+    if has_js:
+        warn(
+            "带外框组件：主题代码在主程序页面里运行，拥有使用者的全部权限。"
+            "安装前要告诉用户并得到同意，同意后 mclaw plugin dev 加 --allow-theme"
+        )
+    css = (directory / "theme" / "theme.css").read_text("utf-8", errors="replace")
+    scope = re.compile(r"\[data-theme=([\"']?)" + re.escape(theme_id) + r"\1\]")
+    leaks: list[str] = []
+    readonly: set[str] = set()
+    for chain, body in _css_rules(css):
+        declared = set(re.findall(r"(?:^|;)\s*(--[\w-]+)\s*:", body))
+        readonly |= declared & set(READONLY_VARIABLES)
+        if any(scope.search(selector) for selector in chain[:-1]):
+            continue
+        for part in _split_selectors(chain[-1]):
+            if scope.search(part):
+                continue
+            classes = {c.replace("\\", "") for c in re.findall(r"\.((?:[\w-]|\\.)+)", part)}
+            # 只设自定义属性（Tailwind 的 --tw-* 初值、主题自己的变量）不算改全局元素
+            properties = re.findall(r"(?:^|;)\s*([a-zA-Z][a-zA-Z-]*)\s*:", body)
+            if classes & PUBLIC_PARTS:
+                leaks.append(f"{part}（改了内核部件 .{'、.'.join(sorted(classes & PUBLIC_PARTS))}）")
+            elif declared & (set(PUBLIC_VARIABLES) | set(READONLY_VARIABLES)):
+                leaks.append(f"{part}（改了内核变量 {'、'.join(sorted(declared & set(PUBLIC_VARIABLES)))}）")
+            elif not classes and properties:
+                leaks.append(f"{part}（改了全局元素）")
+    if leaks:
+        shown = "\n    ".join(leaks[:8]) + (f"\n    ……共 {len(leaks)} 处" if len(leaks) > 8 else "")
+        fail(
+            f'theme/theme.css 有规则没挂在 html[data-theme="{theme_id}"] 底下，会改坏别的主题'
+            f"（所有已装主题的 CSS 对每个用户都会加载）：\n    {shown}"
+        )
+    else:
+        ok(f'theme.css 的作用域：改内核的规则都挂在 html[data-theme="{theme_id}"] 底下')
+    root = re.search(r"html\[data-theme=([\"']?)" + re.escape(theme_id) + r"\1\]\s*\{([^{}]*)\}", css)
+    if root:
+        for name, picked in (("bg", theme.preview.bg), ("accent", theme.preview.accent)):  # type: ignore[attr-defined]
+            value = re.search(rf"--{name}\s*:\s*(#[0-9a-fA-F]{{6}})\b", root.group(2))
+            if value and value.group(1).lower() != picked.lower():
+                warn(
+                    f"清单 [theme] preview.{name} 是 {picked}，theme.css 的 --{name} 是 {value.group(1)}："
+                    "外观卡片的缩略图会和实际不一样"
+                )
+    if readonly:
+        warn(f"theme.css 写了只读变量 {'、'.join(sorted(readonly))}：它们由内核按设备实时算出，主题只读不写")
+
+
+def _css_rules(css: str) -> list[tuple[list[str], str]]:
+    """粗解析 CSS：每条普通规则给出（外层到本层的选择器链，声明文本）。
+
+    跳过 @keyframes / @font-face / @property 之类的内部块；@media / @supports / @layer 只是容器。
+    嵌套规则（CSS nesting）的选择器链带上外层选择器，用来判断作用域。
+    """
+    import re
+
+    css = re.sub(r"/\*[\s\S]*?\*/", "", css)
+    opaque = ("@keyframes", "@-webkit-keyframes", "@font-face", "@property", "@counter-style", "@page")
+    stack: list[str] = []
+    rules: list[tuple[list[str], str]] = []
+    buf: list[str] = []
+    i = 0
+    while i < len(css):
+        ch = css[i]
+        if ch == "\\":
+            buf.append(css[i : i + 2])
+            i += 2
+            continue
+        if ch in "\"'":
+            end = css.find(ch, i + 1)
+            end = len(css) - 1 if end < 0 else end
+            buf.append(css[i : end + 1])
+            i = end + 1
+            continue
+        if ch == "{":
+            stack.append("".join(buf).rpartition(";")[2].strip())
+            buf = []
+        elif ch == "}":
+            body = "".join(buf)
+            buf = []
+            prelude = stack.pop() if stack else ""
+            if prelude and not prelude.startswith("@") and not any(p.startswith(opaque) for p in stack):
+                rules.append(([p for p in stack if not p.startswith("@")] + [prelude], body))
+        else:
+            buf.append(ch)
+        i += 1
+    return rules
+
+
+def _split_selectors(selector: str) -> list[str]:
+    """按顶层逗号拆选择器列表（括号、方括号、转义里的逗号不算）。"""
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    i = 0
+    while i < len(selector):
+        ch = selector[i]
+        if ch == "\\":
+            current.append(selector[i : i + 2])
+            i += 2
+            continue
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+        i += 1
+    parts.append("".join(current).strip())
+    return [p for p in parts if p]
 
 
 def _check_dependencies(directory: Path, manifest: object) -> None:

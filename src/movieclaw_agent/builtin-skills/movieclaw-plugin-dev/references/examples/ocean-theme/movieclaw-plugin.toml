@@ -1,0 +1,17 @@
+[plugin]
+id = "ocean"
+title = "海蓝"
+version = "1.0.0"
+sdk = "^1.0"
+description = "深海蓝底、青色强调的网页主题（纯 CSS 示例）"
+
+[requires]
+"ui.theme" = "^1.1"
+
+[theme]
+label = "海蓝"
+description = "深海蓝底，青色强调"
+preview = { bg = "#03101c", accent = "#5fb3d9" }
+theme_color = "#03101c"
+layout = "panel"
+glass = true
