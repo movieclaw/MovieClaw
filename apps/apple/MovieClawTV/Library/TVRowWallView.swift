@@ -31,7 +31,7 @@ enum TVWallSource: Hashable {
     }
 }
 
-/// 首页一行的「查看全部」（docs/design/tvos-app.md §3.4）：行标题 + 海报墙（`TVPosterWall`），分页加载、滚到底接着取。
+/// 首页一行的「查看全部」（docs/design/tvos-app.md §3.4）：行标题 + 海报墙（`TVPosterWall`），窗口式分页、快到底就接着取。
 ///
 /// 首页每行只取前 20 部（`LibraryHomeStore.rowCount`），这一页把整行取全，取数参数与行完全一样
 /// （同 iPhone 首页各行的「查看全部」）。不另给排序：排序跟着这一行走，在网页上自定义首页时设定。
@@ -42,10 +42,10 @@ struct TVRowWallView: View {
 
     @Environment(\.api) private var api
     @Environment(TVLibraryDirectory.self) private var directory
-    @State private var wall = TVWallLoader()
+    @State private var pager = LibraryWallPager<API.LibraryItemView>(pageSize: TVWallLayout.pageSize)
 
     var body: some View {
-        TVPosterWall(title: title, subtitle: total.map { "\($0) 部" }, wall: wall, fallbackLibrary: fallbackLibrary,
+        TVPosterWall(title: title, subtitle: total.map { "\($0) 部" }, pager: pager, fallbackLibrary: fallbackLibrary, total: total,
                      retry: { await reload() })
             .task { await reload() }
             .accessibilityIdentifier("tv-row-wall")
@@ -78,33 +78,34 @@ struct TVRowWallView: View {
             // 「最近观看」行只要播过的（w=seen），同首页取数
             let watch: String? = sort == "last_played" ? "seen" : unwatched ? "unwatched" : nil
             let order = HomeRows.preset(sort).direction?.orderParam(reversed: reversed)
-            await wall.reset { offset, limit in
+            await pager.reset { offset, limit in
                 try await api.libraryItemsList(libraryId: id, sort: sort, order: order, limit: limit, offset: offset, w: watch)
             }
         case let .mediaKind(kind, sort, reversed, unwatched):
             let watch: String? = sort == "last_played" ? "seen" : unwatched ? "unwatched" : nil
             let order = HomeRows.preset(sort).direction?.orderParam(reversed: reversed)
-            await wall.reset { offset, limit in
+            await pager.reset { offset, limit in
                 try await api.uiLibraryKindItems(kind: kind, sort: sort, order: order, limit: limit, offset: offset, w: watch)
             }
         case let .collection(id, sort, reversed):
             let order = HomeRows.preset(sort).direction?.orderParam(reversed: reversed)
-            await wall.reset { offset, limit in
+            await pager.reset { offset, limit in
                 try await api.collectionItemsList(collectionId: id, limit: limit, offset: offset, sort: sort, order: order)
             }
         case let .genre(kind, genre, _):
             let g = String(genre)
-            await wall.reset { offset, limit in
+            await pager.reset { offset, limit in
                 try await api.uiLibraryKindItems(kind: kind, sort: "added_at", limit: limit, offset: offset, g: g)
             }
         case let .favorites(sort, reversed):
             // 「未看优先」是首页收藏行的一档：同首页取数，进来的顺序与行里一致
             let unwatchedFirst = sort == "unwatched_first"
             let order = HomeRows.favoritesPreset(sort).direction?.orderParam(reversed: reversed)
-            await wall.reset { offset, limit in
-                try await api.playbackFavorites(limit: limit, offset: offset, unwatchedFirst: unwatchedFirst,
-                                                sort: unwatchedFirst ? "favorited_at" : sort, order: order)
-                    .items.map(\.asLibraryItem)
+            await pager.reset { offset, limit in
+                let page = try await api.playbackFavorites(limit: limit, offset: offset, unwatchedFirst: unwatchedFirst,
+                                                           sort: unwatchedFirst ? "favorited_at" : sort, order: order)
+                // 收藏条目转成库存条目的那个属性是主线程隔离的，取数闭包可能在别的线程上跑
+                return await MainActor.run { page.items.map(\.asLibraryItem) }
             }
         }
     }

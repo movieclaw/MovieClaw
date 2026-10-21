@@ -298,11 +298,12 @@ nonisolated extension APIClient {
     }
 
     /// 海报墙跳转索引（`GET /libraries/{id}/item-index`）；order 必须与取墙时同一个值，offset 才对得上。
+    /// granularity：按上映排序时的分档粒度（nil = 按月；"year" = 按年，电视的年份索引条用，旧服务端忽略它、照旧按月）。
     func libraryIndexFiltered(
-        libraryId: Int, filter: LibraryFilter, sort: String?, order: String?
+        libraryId: Int, filter: LibraryFilter, sort: String?, order: String?, granularity: String? = nil
     ) async throws -> [API.LibraryIndexEntryView] {
         try await uiLibraryItemsIndex(
-            libraryId: libraryId, sort: sort, order: order,
+            libraryId: libraryId, sort: sort, order: order, granularity: granularity,
             g: filter.qG, c: filter.qC, d: filter.qD, w: filter.watch, ratingGte: filter.ratingGte,
             rt: filter.qRt, lang: filter.qLang, res: filter.qRes, hdr: filter.hdr, stock: filter.qStock,
             seriesKeys: filter.qSeries

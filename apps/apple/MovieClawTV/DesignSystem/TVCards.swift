@@ -71,6 +71,10 @@ enum TVCardCaption {
     /// 不预留位置——「片名 · 年份」合成一行，浮在卡片下方的行间空隙里（同系统 Apple TV App 的紧凑行距；
     /// 预留时每排海报底下常年空着一截，2026-10-04 用户嫌行与行之间空出一块）
     case focused
+    /// 只有焦点所在的那张显示，「片名 · 年份」浮在海报底部的暗带里（同影人页的焦点暗带）：海报墙用。
+    /// 海报墙上下两排挨得近，片名浮在行间会压到下一排；收进图里不占排版，网格也不变。
+    /// 很多海报只印英文、艺术字甚至没字，大库里一张张认不出来是哪部（#942），聚焦时得把库里的片名写出来
+    case band
     /// 不显示
     case hidden
 }
@@ -431,6 +435,13 @@ private struct TVCardLabel<Art: View>: View {
                     }
                 }
                 .overlay(alignment: .bottom) {
+                    if caption == .band {
+                        focusBand
+                            .opacity(isFocused ? 1 : 0)
+                            .animation(.easeOut(duration: 0.2), value: isFocused)
+                    }
+                }
+                .overlay(alignment: .bottom) {
                     if let focusDetail {
                         Text(focusDetail)
                             .font(.system(size: 22, weight: .semibold))
@@ -487,6 +498,35 @@ private struct TVCardLabel<Art: View>: View {
             }
         }
         .preference(key: TVRowFocusKey.self, value: isFocused)
+    }
+
+    /// `.band` 的暗带：一行放得下就写「片名 · 年份」；放不下时片名折成两行（再长才截断），年份另起一行——
+    /// 截断只落在片名上，年份永远看得见（合成一行截断时被截掉的正是末尾的年份）
+    private var focusBand: some View {
+        ViewThatFits(in: .horizontal) {
+            Text("\(Text(title))\(Text(subtitle.map { " · \($0)" } ?? "").foregroundStyle(.white.opacity(0.7)))")
+                .lineLimit(1)
+                .fixedSize()
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .lineLimit(2)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            }
+        }
+        .font(.system(size: 24, weight: .semibold))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 18)
+        .padding(.top, 60)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            LinearGradient(colors: [.clear, .black.opacity(0.55), .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+        }
+        .allowsHitTesting(false)
     }
 
     /// `.focused` 的片名：不占排版，从图的底边再往下让出焦点放大的余量（放大约 1.1 倍，
