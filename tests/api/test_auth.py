@@ -378,6 +378,7 @@ def fill_path_params(path: str) -> str:
         .replace("{media_item_id}", "1")
         .replace("{rule_id}", "1")
         .replace("{entry_id}", "1")
+        .replace("{plugin_id}", "1")
         .replace("{file_id}", "1")
         .replace("{token_id}", "1")
         .replace("{notice_id}", "1")
