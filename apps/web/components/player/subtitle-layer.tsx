@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { fetchEmbeddedFonts } from "@/lib/api/playback";
+import { displayLayout, type DisplayMode } from "@/lib/player/display-mode";
 import { plainCueText } from "@/lib/player/subtitles";
 import type { SubtitleOption, SubtitleStyle } from "@/lib/player/subtitles";
 
@@ -25,6 +26,7 @@ import type { SubtitleOption, SubtitleStyle } from "@/lib/player/subtitles";
 
 export interface SubtitleLayerProps {
   video: HTMLVideoElement | null;
+  displayMode?: DisplayMode;
   /** 当前选中的轨；null = 关闭字幕 */
   track: SubtitleOption | null;
   style: SubtitleStyle;
@@ -40,11 +42,8 @@ export interface SubtitleLayerProps {
  * 的黑边中间，观感脱节；字号同理——原来用 cqh 号称「跟随画面高度」，其实
  * cqh 是容器高，竖屏时字会大得离谱。
  */
-export function useVideoContentBox(video: HTMLVideoElement | null): {
-  bottomInset: number;
-  height: number;
-} {
-  const [box, setBox] = useState({ bottomInset: 0, height: 0 });
+export function useVideoContentBox(video: HTMLVideoElement | null, displayMode: DisplayMode = "fit") {
+  const [box, setBox] = useState(() => displayLayout(displayMode, 0, 0, 0, 0));
   useEffect(() => {
     if (!video) return;
     const measure = () => {
@@ -52,12 +51,7 @@ export function useVideoContentBox(video: HTMLVideoElement | null): {
       const ch = video.clientHeight;
       const vw = video.videoWidth;
       const vh = video.videoHeight;
-      if (!vw || !vh || !cw || !ch) {
-        setBox({ bottomInset: 0, height: ch });
-        return;
-      }
-      const height = vh * Math.min(cw / vw, ch / vh);
-      setBox({ bottomInset: (ch - height) / 2, height });
+      setBox(displayLayout(displayMode, cw, ch, vw, vh));
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -72,7 +66,7 @@ export function useVideoContentBox(video: HTMLVideoElement | null): {
       video.removeEventListener("resize", measure);
       video.removeEventListener("loadedmetadata", measure);
     };
-  }, [video]);
+  }, [video, displayMode]);
   return box;
 }
 
@@ -278,6 +272,7 @@ function useJassub(
 
 export function SubtitleLayer({
   video,
+  displayMode = "fit",
   track,
   style,
   baseOffsetSeconds,
@@ -288,7 +283,7 @@ export function SubtitleLayer({
   // JASSUB / libbitsub：查表时间 = 播放时间 + timeOffset，方向与上面相反
   useJassub(video, track, baseOffsetSeconds - style.offsetSeconds);
   usePgs(video, track, baseOffsetSeconds - style.offsetSeconds);
-  const contentBox = useVideoContentBox(video);
+  const contentBox = useVideoContentBox(video, displayMode);
 
   if (!track || track.kind !== "vtt" || vttLines.length === 0) return null;
 

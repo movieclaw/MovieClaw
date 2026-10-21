@@ -110,6 +110,10 @@ final class NativeEngine: NSObject, PlayerEngine {
     }
 
     var view: NativeView { core.view }
+    var displayMode: PlayerDisplayMode {
+        get { core.displayMode }
+        set { core.displayMode = newValue }
+    }
 
     /// 建自研引擎前的全局准备：接管引擎日志、读开发期开关。刷片页（Features/Reels）自己管引擎实例，
     /// 建之前也调它，与播放器页同一口径

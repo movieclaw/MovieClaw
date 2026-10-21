@@ -319,6 +319,7 @@ private struct PlayerContent: View {
                         url: controller.overlaySubtitleURL,
                         style: controller.subtitleStyle,
                         videoSize: engine.videoSize,
+                        displayMode: controller.displayMode,
                         time: { Double(controller.originMs) / 1000 + (controller.engine?.currentTime ?? 0) },
                         session: controller.scope.api.session
                     )

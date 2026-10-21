@@ -70,7 +70,20 @@ final class PlaybackController {
 
     // MARK: 引擎
 
-    private(set) var engine: (any PlayerEngine)?
+    private(set) var engine: (any PlayerEngine)? {
+        didSet { engine?.displayMode = displayMode }
+    }
+    private var displayFileId: Int?
+    /// 只属于当前播放单元；换片/换集恢复完整显示，换引擎保留。
+    var displayMode: PlayerDisplayMode = .fit {
+        didSet { engine?.displayMode = displayMode }
+    }
+
+    func selectDisplayMode(_ mode: PlayerDisplayMode) {
+        displayMode = mode
+        noteUserActivity()
+        flash(mode.label)
+    }
     /// 当前会话在服务端的 id（自研引擎直出原文件时会立即释放服务端会话，此时为 nil）
     private(set) var activeSessionId: String?
     private(set) var playsOriginalFile = false
@@ -446,6 +459,7 @@ final class PlaybackController {
     /// 开始播放一个单元（首次进入、上一集/下一集）
     func startUnit(_ next: PlaybackUnit) {
         let seasonChanged = next.season != unit.season
+        if next != unit { displayMode = .fit }
         endRecord()
         if engine != nil || session != nil { leaveUnit() }
         unit = next
@@ -990,6 +1004,8 @@ final class PlaybackController {
             fail("服务端没有给出可播放的文件", suggestion: nil)
             return
         }
+        if let previous = displayFileId, previous != fileId { displayMode = .fit }
+        displayFileId = fileId
 
         // 旧会话（换轨/换画质/降档之前那条）：新会话已就位，释放它
         if let old = activeSessionId, old != session.sessionId {

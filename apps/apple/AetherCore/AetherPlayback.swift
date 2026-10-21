@@ -166,7 +166,10 @@ public final class AetherPlayback {
         engine.videoGravity = .resizeAspect
         // 后台继续出声音（与系统播放器一致）；画中画时引擎保持管线不拆
         engine.backgroundPlaybackEnabled = true
-        container.onLayout = { [weak self] in self?.refreshSubtitles() }
+        container.onLayout = { [weak self] in
+            self?.layoutVideo()
+            self?.refreshSubtitles()
+        }
         observe()
         // 软件通路逐帧回调在解码线程上、不能阻塞：只计数，换代时切回主线程通知一次
         let counter = frameCounter
@@ -582,8 +585,29 @@ public final class AetherPlayback {
 
     /// 画面铺满裁切：大图预告铺满整屏（宽银幕片裁掉两边、不留黑边）；默认完整显示
     public var fillsFrame: Bool {
-        get { engine.videoGravity == .resizeAspectFill }
-        set { engine.videoGravity = newValue ? .resizeAspectFill : .resizeAspect }
+        get { displayMode == .fill }
+        set { displayMode = newValue ? .fill : .fit }
+    }
+
+    public var displayMode: VideoDisplayMode = .fit {
+        didSet {
+            engine.videoGravity = displayMode == .stretch ? .resize : (displayMode == .fill ? .resizeAspectFill : .resizeAspect)
+            layoutVideo()
+            refreshSubtitles()
+        }
+    }
+
+    private func layoutVideo() {
+        // 只有「适应宽度」需要让视频表面超过容器；字幕层仍留在屏幕内。
+        let frame = displayMode == .fitWidth ? displayMode.rect(in: view.bounds, videoSize: videoSize) : view.bounds
+        if playerView.frame != frame {
+            playerView.frame = frame
+            #if canImport(UIKit)
+            playerView.layoutIfNeeded()
+            #else
+            playerView.layoutSubtreeIfNeeded()
+            #endif
+        }
     }
 
 
@@ -1033,8 +1057,9 @@ public final class AetherPlayback {
     // MARK: - 字幕
 
     private func refreshSubtitles() {
+        layoutVideo()
         guard !subtitleView.cues.isEmpty || subtitleView.hasVisibleCues else { return }
-        subtitleView.update(time: subtitleClock - subtitleDelay, videoRect: videoRect())
+        subtitleView.update(time: subtitleClock - subtitleDelay, videoRect: videoRect(), visibleBounds: displayMode == .fit ? nil : view.bounds)
     }
 
     /// 字幕对的是哪根时间轴：内封字幕的时间是容器的源时间轴（TS / 蓝光的 PTS 从几百几千秒起），
@@ -1051,6 +1076,9 @@ public final class AetherPlayback {
     /// 画面在容器里的矩形：主力通路直接问 AVPlayerLayer，软件通路按显示尺寸 aspect-fit
     private func videoRect() -> CGRect {
         let bounds = view.bounds
+        // 暂停时旋转/换模式没有新视频帧，AVPlayerLayer.videoRect 可能还停在上一轮布局。
+        // 新缩放模式直接用同一套几何计算，字幕立即跟上；完整显示保留原有原生读数。
+        if displayMode != .fit { return displayMode.rect(in: bounds, videoSize: videoSize) }
         if engine.videoRoute != .software, let layer = engine.nativePlayerLayer {
             let rect = layer.videoRect
             if rect.width > 1, rect.height > 1 {
@@ -1063,9 +1091,7 @@ public final class AetherPlayback {
         }
         let size = videoSize
         guard size.width > 0, size.height > 0, bounds.width > 0, bounds.height > 0 else { return bounds }
-        let scale = min(bounds.width / size.width, bounds.height / size.height)
-        let fitted = CGSize(width: size.width * scale, height: size.height * scale)
-        return CGRect(x: (bounds.width - fitted.width) / 2, y: (bounds.height - fitted.height) / 2, width: fitted.width, height: fitted.height)
+        return displayMode.rect(in: bounds, videoSize: size)
     }
 }
 
@@ -1145,6 +1171,7 @@ private final class PlaybackContainerView: AetherPlatformView {
         super.init(frame: .zero)
         #if canImport(UIKit)
         backgroundColor = .black
+        clipsToBounds = true
         for child in [playerView, subtitleView] {
             child.frame = bounds
             child.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -1253,7 +1280,7 @@ final class SubtitleLayerView: AetherPlatformView {
     /// 开发期（-mcAetherCues YES）：上一次记下的上屏字幕，变了才记一笔
     private var loggedActiveIDs: [Int] = []
 
-    func update(time: Double, videoRect: CGRect) {
+    func update(time: Double, videoRect: CGRect, visibleBounds: CGRect? = nil) {
         let active = cues.filter { $0.start <= time && time < $0.end }
         if AetherPlayback.logsCues, active.map(\.id) != loggedActiveIDs {
             // 真机无人值守验证时确认字幕确实画上了屏（[AetherCue] 只说明拿到了字幕）
@@ -1264,7 +1291,9 @@ final class SubtitleLayerView: AetherPlatformView {
             }.joined(separator: " ")
             FileHandle.standardError.write(Data("[AetherShow] \(String(format: "%.2f", time)) \(shown)\n".utf8))
         }
-        updateImages(active, videoRect: videoRect)
+        updateImages(active, videoRect: videoRect, visibleBounds: visibleBounds)
+        // 普通对白锚定可见区域，不能随放大后的画面移到屏幕外；定位特效字仍跟画面走。
+        let textRect = visibleBounds.map { videoRect.intersection($0) } ?? videoRect
         var bottom: [String] = [], top: [String] = []
         var anchored: [(id: Int, text: String, alignment: Int, anchor: CGPoint)] = []
         for cue in active {
@@ -1284,13 +1313,13 @@ final class SubtitleLayerView: AetherPlatformView {
             anchoredBlocks = [:]
             return
         }
-        let fontSize = max(12, videoRect.height * textStyle.fontScale / 100)
-        let margin = videoRect.height * textStyle.bottomPercent / 100 + fontSize
+        let fontSize = max(12, textRect.height * textStyle.fontScale / 100)
+        let margin = textRect.height * textStyle.bottomPercent / 100 + fontSize
         // 与 SwiftUI 叠加层一致：底部块的中心在「画面底边往上 bottomPercent，再上移一个字号」处
         bottomBlock.show(Array(bottom.prefix(3)).joined(separator: "\n"), style: textStyle, fontSize: fontSize,
-                         maxWidth: videoRect.width * 0.9, anchor: CGPoint(x: videoRect.midX, y: videoRect.maxY - margin), alignment: 5)
+                         maxWidth: textRect.width * 0.9, anchor: CGPoint(x: textRect.midX, y: textRect.maxY - margin), alignment: 5)
         topBlock.show(Array(top.prefix(3)).joined(separator: "\n"), style: textStyle, fontSize: fontSize,
-                      maxWidth: videoRect.width * 0.9, anchor: CGPoint(x: videoRect.midX, y: videoRect.minY + margin), alignment: 5)
+                      maxWidth: textRect.width * 0.9, anchor: CGPoint(x: textRect.midX, y: textRect.minY + margin), alignment: 5)
         let anchoredIDs = Set(anchored.map(\.id))
         for (id, block) in anchoredBlocks where !anchoredIDs.contains(id) {
             block.removeFromSuperview()
@@ -1311,7 +1340,7 @@ final class SubtitleLayerView: AetherPlatformView {
         }
     }
 
-    private func updateImages(_ active: [OverlayCue], videoRect: CGRect) {
+    private func updateImages(_ active: [OverlayCue], videoRect: CGRect, visibleBounds: CGRect?) {
         let activeIDs = Set(active.compactMap { cue -> Int? in
             if case .image = cue.content { return cue.id }
             return nil
@@ -1340,9 +1369,20 @@ final class SubtitleLayerView: AetherPlatformView {
                 #endif
                 imageLayers[cue.id] = layer
             }
-            layer.frame = Self.frame(position: position, canvas: canvas, in: videoRect)
+            let frame = Self.frame(position: position, canvas: canvas, in: videoRect)
+            layer.frame = visibleBounds.map { Self.visibleFrame(frame, in: $0) } ?? frame
         }
         CATransaction.commit()
+    }
+
+    /// 缩放时将位图字幕完整保留在可见区域，仍保持字幕自身比例。
+    static func visibleFrame(_ frame: CGRect, in bounds: CGRect) -> CGRect {
+        guard frame.width > 0, frame.height > 0, bounds.width > 0, bounds.height > 0 else { return frame }
+        let scale = min(1, min(bounds.width / frame.width, bounds.height / frame.height))
+        let size = CGSize(width: frame.width * scale, height: frame.height * scale)
+        return CGRect(x: min(max(frame.midX - size.width / 2, bounds.minX), bounds.maxX - size.width),
+                      y: min(max(frame.midY - size.height / 2, bounds.minY), bounds.maxY - size.height),
+                      width: size.width, height: size.height)
     }
 
     static func frame(position: CGRect, canvas: CGSize, in videoRect: CGRect) -> CGRect {

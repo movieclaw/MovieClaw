@@ -79,6 +79,7 @@ struct SubtitleOverlay: View {
     let url: URL?
     let style: SubtitleStyle
     let videoSize: CGSize
+    var displayMode: PlayerDisplayMode = .fit
     /// 当前文件时间（秒）
     let time: () -> Double
     let session: URLSession
@@ -114,9 +115,8 @@ struct SubtitleOverlay: View {
 
     private func videoRect(in size: CGSize) -> CGRect {
         guard videoSize.width > 0, videoSize.height > 0 else { return CGRect(origin: .zero, size: size) }
-        let scale = min(size.width / videoSize.width, size.height / videoSize.height)
-        let fitted = CGSize(width: videoSize.width * scale, height: videoSize.height * scale)
-        return CGRect(x: (size.width - fitted.width) / 2, y: (size.height - fitted.height) / 2, width: fitted.width, height: fitted.height)
+        let bounds = CGRect(origin: .zero, size: size)
+        return displayMode.rect(in: bounds, videoSize: videoSize).intersection(bounds)
     }
 
     private func load() async {

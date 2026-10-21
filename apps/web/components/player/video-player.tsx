@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { DISPLAY_MODES, nextDisplayMode, type DisplayMode } from "@/lib/player/display-mode";
 import { MediaController } from "media-chrome/react";
 
 import { ChevronLeftIcon, LockIcon, PlayIcon, XIcon } from "@/components/icons";
@@ -422,6 +423,11 @@ export function VideoPlayer(props: VideoPlayerProps) {
   apiRef.current = api;
 
   const [state, dispatch] = useReducer(playerReducer, initialPlayerState);
+  const [displaySelection, setDisplaySelection] = useState<{ unit: string; file: number | null; mode: DisplayMode } | null>(null);
+  const displayFile = state.session?.decision.file_id ?? null;
+  const displayMode = displaySelection?.unit === unitKey && (displayFile === null || displaySelection.file === displayFile)
+    ? displaySelection.mode : "fit";
+
   const [resume, setResume] = useState<PlaybackWatchState | null>(null);
   const [positionMs, setPositionMs] = useState(0);
   const [bufferedEndMs, setBufferedEndMs] = useState<number | null>(null);
@@ -1058,7 +1064,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
   // 矩形后用 CSS 变量双管齐下——位置抬到画面下沿再留 8% 安全边距（Apple/
   // Netflix caption safe area），字号按画面高 5.2% 显式指定（与自绘层同一
   // 标准；PiP/全屏由系统基于小窗渲染，本来就对，页面 CSS 也够不着）。
-  const contentBox = useVideoContentBox(systemSubtitles ? video : null);
+  const contentBox = useVideoContentBox(video, displayMode);
   const cueFontPx = systemSubtitles ? Math.max(16, contentBox.height * 0.052) : 0;
   // 服务端已给 cue 加 line:84%（系统层用它定位），内联的 WebKit 同样会把
   // cue 顶放在**元素高**的 84% 处——竖屏时那还在黑边里。目标：cue 顶落在
@@ -4387,6 +4393,11 @@ export function VideoPlayer(props: VideoPlayerProps) {
   const overrideMs =
     seekPreview && !seekPreview.leaving ? seekPreview.targetMs : pendingSeekMs;
 
+  const selectDisplayMode = (selected: DisplayMode) => {
+    setDisplaySelection({ unit: unitKey, file: displayFile, mode: selected });
+    flashNotice(DISPLAY_MODES.find((option) => option.id === selected)!.label);
+  };
+
   return (
     <div
       ref={containerRef}
@@ -4448,7 +4459,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
           poster={posterUrl ?? undefined}
           onClick={onSurfaceClick}
           onDoubleClick={onSurfaceDoubleClick}
-          className="size-full object-contain"
+          className="size-full"
+          style={{ objectFit: contentBox.objectFit }}
         >
           {pipSubtitleUrl ? (
             // key 让换轨时整个 <track> 重建——改 src 复用元素时 Safari 不重载 cue。
@@ -4469,7 +4481,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
           ref={freezeCanvasRef}
           {...{ noautohide: "" }}
           aria-hidden
-          className={`pointer-events-none absolute inset-0 size-full object-contain ${
+          style={{ objectFit: contentBox.objectFit }}
+          className={`pointer-events-none absolute inset-0 size-full ${
             frozen ? "" : "hidden"
           }`}
         />
@@ -4489,6 +4502,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
 
         <SubtitleLayer
           video={video}
+          displayMode={displayMode}
           // 烧录中的轨绝不旁挂——画面里已经有了，再挂一层是双字幕。
           // system-track（iOS 原生 HLS）时文本轨交系统渲染、自绘层闲置；
           // 但 PGS 位图轨进不了 HLS 字幕组，内联播放仍由 canvas 层负责
@@ -4540,6 +4554,18 @@ export function VideoPlayer(props: VideoPlayerProps) {
             aria-label={landscape ? "退出横屏" : "退出播放"}
           >
             <ChevronLeftIcon className="size-[18px] pointer-coarse:size-[22px]" />
+          </button>
+          <button
+            type="button"
+            data-testid="player-display-mode"
+            aria-label={`画面缩放：${DISPLAY_MODES.find((option) => option.id === displayMode)!.label}`}
+            title={DISPLAY_MODES.find((option) => option.id === displayMode)!.hint}
+            onClick={() => selectDisplayMode(nextDisplayMode(displayMode))}
+            className={`grid size-9 shrink-0 place-items-center rounded-full border border-white/[0.09] bg-black/30 text-white/85 backdrop-blur-md pointer-coarse:size-11 ${chromeVisible ? "pointer-events-auto" : "pointer-events-none"}`}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-[18px] pointer-coarse:size-[22px]" aria-hidden="true">
+              <path d="M7 3v14h14M3 7h14v14" />
+            </svg>
           </button>
           <div className="min-w-0">
             <h1 className="truncate text-[17px] font-semibold text-white drop-shadow">{title}</h1>
@@ -4956,6 +4982,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
             systemSubtitles={systemSubtitles}
             quality={quality}
             onSelectQuality={selectQuality}
+            displayMode={displayMode}
+            onSelectDisplayMode={selectDisplayMode}
             fullscreen={fullscreen}
             onToggleFullscreen={toggleFullscreen}
             onMenuOpenChange={setMenuOpen}

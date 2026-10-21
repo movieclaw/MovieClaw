@@ -13,6 +13,7 @@ import { ActivityIcon, CheckIcon, ExpandIcon, MoreIcon, ShrinkIcon } from "@/com
 import type { PlaybackChapterMark } from "@/lib/api/playback";
 import type { AudioOption } from "@/lib/player/audio-tracks";
 import { SUBTITLE_OFFSET_STEP, clampSubtitleOffset } from "@/lib/player/subtitles";
+import { DISPLAY_MODES, type DisplayMode } from "@/lib/player/display-mode";
 import { QUALITY_OPTIONS } from "@/lib/player/quality";
 import {
   SCRUB_INPUT_STEP_MS,
@@ -293,6 +294,8 @@ export interface PlayerControlsProps {
   systemSubtitles: boolean;
   /** 画质上限（max_height）；null = 自动 */
   quality: number | null;
+  displayMode: DisplayMode;
+  onSelectDisplayMode: (mode: DisplayMode) => void;
   onSelectQuality: (maxHeight: number | null) => void;
   /** 菜单展开时要顶住控制条的自动隐藏，否则菜单会连着控制条一起淡掉 */
   onMenuOpenChange: (open: boolean) => void;
@@ -343,6 +346,8 @@ export function PlayerControls(props: PlayerControlsProps) {
     onToggleFullscreen,
     systemSubtitles,
     quality,
+    displayMode,
+    onSelectDisplayMode,
     onSelectQuality,
     onMenuOpenChange,
     trickplay,
@@ -1053,6 +1058,17 @@ export function PlayerControls(props: PlayerControlsProps) {
                 </IconButton>
                 {menu === "settings" ? (
                   <MenuPanel title="设置" onClose={() => openMenu("none")}>
+                    <div className="px-4 pb-1 pt-0.5 text-[12px] font-medium text-white/45">画面缩放</div>
+                    {DISPLAY_MODES.map((option) => (
+                      <MenuItem key={option.id} active={displayMode === option.id} onClick={() => {
+                        onSelectDisplayMode(option.id);
+                        openMenu("none");
+                      }}>
+                        {option.label}
+                        <span className="ml-2 text-[12px] text-white/40">{option.hint}</span>
+                      </MenuItem>
+                    ))}
+                    <div className="my-1.5 h-px bg-white/10" />
                     {/* 画质：语义是上限——源不超所选档就照常直通（无损），
                         超了才转码降下去。弱网选低档换低带宽（§10）。 */}
                     <div className="px-4 pb-1 pt-0.5 text-[12px] font-medium text-white/45">画质</div>
