@@ -233,6 +233,10 @@ _BT709_OUTPUT_TAGS = [
     "-color_range", "tv",
 ]
 
+#: 硬件帧链路末端给帧打的 BT.709 标签。ffmpeg 7.1 起 ``-colorspace`` 参与滤镜格式协商：帧上
+#: 标签与它不符时自动插软件 scale 去转换，而软件 scale 接不了硬件帧，整条命令失败（实测）。
+_BT709_FRAME_TAGS = "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709"
+
 #: 多声道降混系数：提升中置声道权重。不带它，对白会明显偏小——
 #: 「音效很响但听不清台词」是用户投诉第一名（§7-⑤）。
 #: 不用 ``-af volume=2`` 那种 hack，那会削顶失真。
@@ -965,7 +969,7 @@ def _videotoolbox_gpu_chain(plan: PlaybackPlan) -> str:
         return f"scale_vt={size}format=p010le,{_tonemap_step(VIDEOTOOLBOX_TONEMAP, plan)}"
     chain = f"scale_vt={size}format=nv12"
     if _outputs_bt709(plan):
-        chain += ",setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709"
+        chain += f",{_BT709_FRAME_TAGS}"
     return chain
 
 
@@ -1011,6 +1015,17 @@ def _filter_chain(
             parts.append(f"scale=-2:{height}")
             if backend is not None and backend.name == "videotoolbox" and not software_filters:
                 parts.append("format=yuv420p")
+    if (
+        backend is not None
+        and backend.scale_filter
+        and not software_filters
+        and _outputs_bt709(plan)
+    ):
+        # 整条链留在显卡上（VAAPI / QSV / NVENC）时，帧标签同样要先打好（issue #958）：
+        # tonemap_vaapi、vpp_qsv、scale_* 在格式协商里把源的色彩空间原样往下传，HDR10 的
+        # bt2020nc（或无标签片的 unknown）撞上 -colorspace bt709，ffmpeg 就在硬件帧后面插一个
+        # 接不上的软件 scale，起步即退出。setparams 在协商里声明输出是 BT.709，链子才接得上
+        parts.append(_BT709_FRAME_TAGS)
     return ",".join(parts)
 
 

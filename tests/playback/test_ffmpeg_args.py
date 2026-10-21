@@ -543,6 +543,45 @@ def test_hardware_scale_pins_eight_bit_output(backend, expected):
     assert expected in (pair(argv, "-vf") or "")
 
 
+@pytest.mark.parametrize("backend", ["vaapi", "qsv", "nvenc"])
+@pytest.mark.parametrize(
+    "video",
+    [
+        VideoPlan(action="transcode", codec="h264", height=1080, tone_map=True),
+        # 无标签的 HD 源：决策层按高度认定 BT.709，帧上却是 unknown
+        VideoPlan(action="transcode", codec="h264", height=720, source_color="BT.709"),
+    ],
+    ids=["hdr10", "untagged-hd"],
+)
+def test_hardware_frame_chain_labels_bt709_before_the_encoder_asks_for_it(
+    backend, video, probed_nvenc_tonemap
+):
+    """issue #958：输出要 BT.709 时，硬件帧链路的末端必须先给帧打上 BT.709 标签。
+
+    ``-colorspace bt709`` 参与滤镜格式协商（ffmpeg 7.1 起），而 ``tonemap_vaapi`` / ``vpp_qsv``
+    / ``scale_*`` 把源的色彩空间原样往下传：HDR10 的 bt2020nc、无标签片的 unknown 对不上，
+    ffmpeg 在硬件帧后面插一个软件 scale，报「Impossible to convert ... 'Parsed_scale_vaapi_1'
+    and 'auto_scale_0'」起步即退出——HDR 片因此整部放不了。"""
+    argv = argv_of(plan(PlaybackTier.HARDWARE_TRANSCODE, video=video), hw_backend=backend)
+    assert pair(argv, "-hwaccel_output_format")  # 全程硬件帧
+    vf = pair(argv, "-vf") or ""
+    assert vf.endswith(",setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709")
+    assert pair(argv, "-colorspace") == "bt709"
+
+
+def test_hardware_frame_chain_leaves_uncertain_colors_unlabelled():
+    """产物不确定是 BT.709 时不写输出标签，也就不打帧标签：标没把握的值比留空更糟。"""
+    argv = argv_of(
+        plan(
+            PlaybackTier.HARDWARE_TRANSCODE,
+            video=VideoPlan(action="transcode", codec="h264", height=480, source_color="BT.601"),
+        ),
+        hw_backend="vaapi",
+    )
+    assert pair(argv, "-vf") == "scale_vaapi=format=nv12:w=-2:h=480"
+    assert "-colorspace" not in argv
+
+
 @pytest.mark.parametrize("backend", ["vaapi", "qsv", "nvenc", "videotoolbox"])
 def test_color_convert_never_feeds_software_filter_hardware_frames(backend):
     """``colorspace`` 是软件滤镜，绝不能排在硬件帧前面。
