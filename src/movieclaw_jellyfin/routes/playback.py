@@ -30,7 +30,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import select
 
 from movieclaw_api.api.routes.playback import get_session_segment
@@ -38,6 +38,7 @@ from movieclaw_api.exceptions import NotFoundException
 from movieclaw_api.services import network_side
 from movieclaw_api.services.library import skip_segments
 from movieclaw_api.services.library.access import member_content_limit, member_visible_ids
+from movieclaw_api.services.playback import trickplay
 from movieclaw_api.services.playback import watch as playback_watch
 from movieclaw_api.services.playback.adaptive import adapt_to_downlink
 from movieclaw_api.services.playback.disc_source import disc_source_for_file
@@ -689,6 +690,10 @@ async def video_stream(
     if not selected:
         raise not_found()
     f = selected[0]
+    if request.method == "GET":
+        # 进度条预览图：与自家播放器开会话同一套后台生成（延迟 90 秒让开起播窗口），
+        # 下次打开就有预览；HEAD 只是探测，不算开播
+        trickplay.schedule(f, delay_s=90)
 
     path = Path(f.file_path)
     file_container = f.container
@@ -848,6 +853,36 @@ async def _member_may_download(member_id: int) -> bool:
     async with get_database().session() as session:
         member = await session.get(Member, member_id)
     return member is not None and bool(member.allow_video_download)
+
+
+@router.get("/Videos/{item_id}/Trickplay/{width}/{index}.jpg")
+async def trickplay_tile(
+    request: Request,
+    item_id: str,
+    width: int,
+    index: int,
+    identity: RequestIdentity = Depends(require_device),
+) -> Response:
+    """进度条预览图的第 ``index`` 张雪碧图（#955，形态对齐 Jellyfin 10.9+）。
+
+    条目 ``Trickplay`` 字段只列已生成的版本与宽度，这里同样只认它们：版本按
+    ``mediaSourceId`` 选（缺省第一个），宽度对不上、张数越界都是 404。
+    """
+    ref = decode_guid(item_id)
+    if ref is None or ref.kind not in (EntityKind.ITEM, EntityKind.EPISODE):
+        raise not_found()
+    files = await _files_for_ref(ref, identity.device.member_id)
+    selected = _select_source(files, request.query_params.get("mediaSourceId"), item_id)
+    if not selected or selected[0].id is None:
+        raise not_found()
+    file_id = selected[0].id
+    tiles = trickplay.load_index(file_id)
+    if tiles is None or tiles.tile_width != width or not 0 <= index < len(tiles.sheets):
+        raise not_found()
+    target = trickplay.trickplay_dir(file_id) / tiles.sheets[index]
+    if not target.is_file():
+        raise not_found()
+    return FileResponse(target, media_type="image/jpeg")
 
 
 @router.get("/Items/{item_id}/Download")
@@ -1131,6 +1166,7 @@ async def video_hls_master(
     except (SessionLimitError, DiskQuotaError, SessionStartError) as exc:
         logger.warning("Jellyfin HLS 会话启动失败：%s（%s）", f.file_path, exc)
         raise not_found() from None
+    trickplay.schedule(f, delay_s=90)
     if params.play_session_id:
         # 播放器停播/换清晰度时按 PlaySessionId 精确停这一个会话
         register_play_session(

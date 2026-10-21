@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import random
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -28,6 +29,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from movieclaw_api.services.library.access import ContentLimit
 from movieclaw_api.services.library.chapters import chapter_image_map, effective_chapters
 from movieclaw_api.services.library.thumbs import primary_aspect
+from movieclaw_api.services.playback import trickplay
 from movieclaw_api.services.playback.disc_source import DiscSource, disc_source_for_file
 from movieclaw_db.models import (
     Collection,
@@ -49,6 +51,7 @@ from movieclaw_jellyfin.ids import (
     episode_guid,
     item_guid,
     library_guid,
+    media_source_guid,
     person_guid,
     root_guid,
     season_guid,
@@ -1434,6 +1437,45 @@ def _apply_chapters(
     dto["Chapters"] = rows
 
 
+def _apply_trickplay(dto: dict[str, Any], files: list[LibraryFile], options: DtoOptions) -> None:
+    """``Trickplay``（#955）：进度条预览图清单，受 fields 门控，单条目全开。
+
+    形状对齐 Jellyfin 10.9+：外层键是媒体源 id，内层键是单格像素宽度；
+    ``TileWidth``/``TileHeight`` 是每张雪碧图一行/一列的格数，``Width``/``Height``
+    才是单格像素。只列已生成的版本——还没生成好的不出现，客户端只显示时间。
+    ``Bandwidth`` 按 Jellyfin 的算法取各张雪碧图每格每秒的最大比特数。
+    """
+    if not options.has("Trickplay"):
+        return
+    manifest: dict[str, dict[str, dict[str, int]]] = {}
+    for f in files:
+        file_id = f.id or 0
+        index = trickplay.load_index(file_id)
+        if index is None:
+            continue
+        directory = trickplay.trickplay_dir(file_id)
+        per_tile_s = index.columns * index.rows * index.interval_ms / 1000
+        bandwidth = 0
+        for name in index.sheets:
+            try:
+                size = (directory / name).stat().st_size
+            except OSError:
+                continue
+            bandwidth = max(bandwidth, math.ceil(size * 8 / per_tile_s))
+        manifest[media_source_guid(file_id)] = {
+            str(index.tile_width): {
+                "Width": index.tile_width,
+                "Height": index.tile_height,
+                "TileWidth": index.columns,
+                "TileHeight": index.rows,
+                "ThumbnailCount": index.count,
+                "Interval": index.interval_ms,
+                "Bandwidth": bandwidth,
+            }
+        }
+    dto["Trickplay"] = manifest
+
+
 def _apply_leaf_media_fields(
     dto: dict[str, Any], files: list[LibraryFile], options: DtoOptions
 ) -> None:
@@ -1513,6 +1555,7 @@ def movie_dto(ctx: DtoContext, bundle: ItemBundle, options: DtoOptions) -> dict[
         if options.has("MediaStreams") and sources:
             dto["MediaStreams"] = sources[0]["MediaStreams"]
     _apply_chapters(dto, bundle.files.get((0, 0), []), options, bundle.chapter_library_ids)
+    _apply_trickplay(dto, bundle.files.get((0, 0), []), options)
     if options.enable_user_data:
         dto["UserData"] = _leaf_user_data(bundle, 0, 0, guid)
     return dto
@@ -1681,6 +1724,7 @@ def episode_dto(
     _apply_chapters(
         dto, bundle.files.get((season, episode), []), options, bundle.chapter_library_ids
     )
+    _apply_trickplay(dto, bundle.files.get((season, episode), []), options)
     _apply_people(dto, bundle, options)
     if options.enable_user_data:
         dto["UserData"] = _leaf_user_data(bundle, season, episode, guid)
