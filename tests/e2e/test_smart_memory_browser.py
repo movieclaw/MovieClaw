@@ -211,7 +211,8 @@ def test_memory_follows_the_whole_household_journey(stack, browser):
     card.get_by_text("按《沙丘》的设置").wait_for()
     shot(page, "09-series-carry-over")
     confirm(page)
-    assert detail(context, base, subscription_id(context, base, 704))["smart_policy"]["source"] == "remux"
+    sequel = detail(context, base, subscription_id(context, base, 704))
+    assert sequel["smart_policy"]["source"] == "remux"
 
     # 8 设置页：所有记忆在一个列表里，写明来源，可以删；删了就回到默认
     page.goto(f"{base}/settings/subscription")

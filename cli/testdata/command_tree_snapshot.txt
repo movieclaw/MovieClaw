@@ -300,6 +300,8 @@ subscriptions delete
 subscriptions dismiss-episode-hint
 subscriptions download-selected-torrent
 subscriptions get
+subscriptions get-smart-defaults
+subscriptions get-smart-memory
 subscriptions get-smart-profile
 subscriptions list
 subscriptions list-active-downloads
@@ -308,11 +310,13 @@ subscriptions list-today-arrivals
 subscriptions preview-download-routing
 subscriptions preview-removal
 subscriptions search-missing-resources
+subscriptions save-smart-defaults
 subscriptions save-smart-profile
 subscriptions set-follow-future
 subscriptions set-tracking-state
 subscriptions unsubscribe
 subscriptions update
+subscriptions update-smart-memory
 subscriptions update-smart-wait
 subscriptions upgrade-run
 transcode config set
