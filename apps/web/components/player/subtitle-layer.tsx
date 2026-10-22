@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { fetchEmbeddedFonts } from "@/lib/api/playback";
-import { displayLayout, type DisplayMode } from "@/lib/player/display-mode";
+import { displayLayout, subtitleCanvasTransform, type DisplayMode } from "@/lib/player/display-mode";
 import { plainCueText } from "@/lib/player/subtitles";
 import type { SubtitleOption, SubtitleStyle } from "@/lib/player/subtitles";
 
@@ -223,12 +223,28 @@ function useJassub(
   video: HTMLVideoElement | null,
   track: SubtitleOption | null,
   timeOffset: number,
+  displayMode: DisplayMode,
 ): void {
+  const mode = useRef(displayMode);
+  mode.current = displayMode;
+  const align = useRef<(() => void) | null>(null);
+  useEffect(() => { align.current?.(); }, [displayMode]);
   const instance = useRef<{ timeOffset: number; destroy(): Promise<void> } | null>(null);
 
   useEffect(() => {
     if (!video || !track || track.kind !== "ass") return;
     let disposed = false;
+    let canvas: HTMLCanvasElement | null = null;
+    const alignCanvas = () => {
+      if (!canvas) return;
+      canvas.style.transformOrigin = "center";
+      canvas.style.transform = subtitleCanvasTransform(mode.current, video.clientWidth, video.clientHeight, video.videoWidth, video.videoHeight);
+    };
+    align.current = alignCanvas;
+    const observer = new ResizeObserver(alignCanvas);
+    observer.observe(video);
+    video.addEventListener("resize", alignCanvas);
+    video.addEventListener("loadedmetadata", alignCanvas);
 
     // 动态 import：只有真的遇到 ASS 轨才付这几 MB 的 WASM 代价（§6.1 打包预算）
     // 内嵌字体与 WASM 并行拿：字体抽取要通读整个容器，串行会让字幕晚出来。
@@ -241,8 +257,8 @@ function useJassub(
       const created = new JASSUB({
         video,
         subUrl: track.url,
-        // worker 与 wasm 必须是独立 URL，由 scripts/copy-jassub.mjs 放进 public/
-        workerUrl: "/jassub/jassub-worker.js",
+        // v2 的模块 worker 由打包器生成；public/jassub-worker.js 是
+        // Emscripten 子 worker，不能拿它替代接收 JASSUB 消息的主 worker。
         wasmUrl: "/jassub/jassub-worker.wasm",
         modernWasmUrl: "/jassub/jassub-worker-modern.wasm",
         // 兜底字体放最后：字幕指定的字体在内嵌字体里找不到时才用它，
@@ -253,11 +269,17 @@ function useJassub(
       instance.current = created;
       // JASSUB 把渲染 canvas 插在 video 旁边，也在 media-controller 的
       // 自动淡出范围内——同样要豁免，理由同上面 VTT 层的 noautohide
-      (created as { _canvas?: HTMLElement })._canvas?.setAttribute("noautohide", "");
+      canvas = created._canvas;
+      canvas.setAttribute("noautohide", "");
+      alignCanvas();
     });
 
     return () => {
       disposed = true;
+      observer.disconnect();
+      video.removeEventListener("resize", alignCanvas);
+      video.removeEventListener("loadedmetadata", alignCanvas);
+      align.current = null;
       void instance.current?.destroy();
       instance.current = null;
     };
@@ -281,7 +303,7 @@ export function SubtitleLayer({
   // VTT：cue 时间（文件绝对）→ 会话相对，再加上用户微调（正数 = 字幕延后）
   const vttLines = useVttCues(video, track, -baseOffsetSeconds + style.offsetSeconds);
   // JASSUB / libbitsub：查表时间 = 播放时间 + timeOffset，方向与上面相反
-  useJassub(video, track, baseOffsetSeconds - style.offsetSeconds);
+  useJassub(video, track, baseOffsetSeconds - style.offsetSeconds, displayMode);
   usePgs(video, track, baseOffsetSeconds - style.offsetSeconds);
   const contentBox = useVideoContentBox(video, displayMode);
 

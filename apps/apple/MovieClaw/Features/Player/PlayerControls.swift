@@ -58,20 +58,6 @@ struct PlayerTopBar: View {
                     label: controller.clip != nil ? "退出全屏" : (landscape && PlayerOrientation.appControlsRotation ? "退出横屏" : "退出播放"),
                     identifier: "player-close", scale: .large, action: onBack
                 )
-                GlassIconButton(
-                    systemImage: controller.displayMode.symbol,
-                    label: "画面缩放：\(controller.displayMode.label)",
-                    identifier: "player-display-mode",
-                    action: { controller.selectDisplayMode(controller.displayMode.next) }
-                )
-                .accessibilityValue(controller.displayMode.label)
-                .contextMenu {
-                    ForEach(PlayerDisplayMode.allCases, id: \.self) { mode in
-                        Button { controller.selectDisplayMode(mode) } label: {
-                            Label(mode.label, systemImage: controller.displayMode == mode ? "checkmark" : mode.symbol)
-                        }
-                    }
-                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(controller.title)
                         .font(.headline)

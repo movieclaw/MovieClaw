@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { DISPLAY_MODES, currentDisplaySelection, nextDisplayMode, type DisplayMode, type DisplaySelection } from "@/lib/player/display-mode";
+import { DISPLAY_MODES, currentDisplaySelection, type DisplayMode, type DisplaySelection } from "@/lib/player/display-mode";
 import { MediaController } from "media-chrome/react";
 
 import { ChevronLeftIcon, LockIcon, PlayIcon, XIcon } from "@/components/icons";
@@ -424,9 +424,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
 
   const [state, dispatch] = useReducer(playerReducer, initialPlayerState);
   const [displaySelection, setDisplaySelection] = useState<DisplaySelection | null>(null);
-  const displayFile = state.session?.decision.file_id ?? null;
-  const currentDisplay = currentDisplaySelection(displaySelection, unitKey, displayFile);
-  // 换集/换文件就忘掉旧选择，切回来也不能复活上一次的裁切；同文件重建会话保留。
+  const currentDisplay = currentDisplaySelection(displaySelection, unit.media_item_id);
+  // 同一部剧的连播/选集/换版本保留选择；切换到其他影片才恢复默认。
   if (currentDisplay !== displaySelection) setDisplaySelection(currentDisplay);
   const displayMode = currentDisplay?.mode ?? "fit";
 
@@ -4396,7 +4395,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     seekPreview && !seekPreview.leaving ? seekPreview.targetMs : pendingSeekMs;
 
   const selectDisplayMode = (selected: DisplayMode) => {
-    setDisplaySelection({ unit: unitKey, file: displayFile, mode: selected });
+    setDisplaySelection({ mediaItemId: unit.media_item_id, mode: selected });
     flashNotice(DISPLAY_MODES.find((option) => option.id === selected)!.label);
   };
 
@@ -4451,7 +4450,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
         // 打开时 chromeMustStayVisible 钉住）。不禁的话菜单开着等几秒会被它
         // 淡掉，绕过我们的 menuOpen 钉住逻辑（真机反馈的根因）。
         {...{ gesturesdisabled: "", autohide: "-1" }}
-        className="size-full"
+        className="size-full overflow-hidden"
         style={{ width: "100%", height: "100%", backgroundColor: "#000" }}
       >
         <video
@@ -4556,18 +4555,6 @@ export function VideoPlayer(props: VideoPlayerProps) {
             aria-label={landscape ? "退出横屏" : "退出播放"}
           >
             <ChevronLeftIcon className="size-[18px] pointer-coarse:size-[22px]" />
-          </button>
-          <button
-            type="button"
-            data-testid="player-display-mode"
-            aria-label={`画面缩放：${DISPLAY_MODES.find((option) => option.id === displayMode)!.label}`}
-            title={DISPLAY_MODES.find((option) => option.id === displayMode)!.hint}
-            onClick={() => selectDisplayMode(nextDisplayMode(displayMode))}
-            className={`grid size-9 shrink-0 place-items-center rounded-full border border-white/[0.09] bg-black/30 text-white/85 backdrop-blur-md pointer-coarse:size-11 ${chromeVisible ? "pointer-events-auto" : "pointer-events-none"}`}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-[18px] pointer-coarse:size-[22px]" aria-hidden="true">
-              <path d="M7 3v14h14M3 7h14v14" />
-            </svg>
           </button>
           <div className="min-w-0">
             <h1 className="truncate text-[17px] font-semibold text-white drop-shadow">{title}</h1>

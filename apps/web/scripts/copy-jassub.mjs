@@ -24,7 +24,8 @@ const targetDir = join(import.meta.dirname, "..", "public", "jassub");
 mkdirSync(targetDir, { recursive: true });
 
 const assets = [
-  // worker 与两份 wasm：modern 版走 SIMD，运行时按浏览器能力二选一
+  // Emscripten 子 worker 与两份 wasm（不是 JASSUB v2 的模块主 worker）；
+  // modern 版走 SIMD，运行时按浏览器能力二选一
   ["dist/wasm/jassub-worker.js", "jassub-worker.js"],
   ["dist/wasm/jassub-worker.wasm", "jassub-worker.wasm"],
   ["dist/wasm/jassub-worker-modern.wasm", "jassub-worker-modern.wasm"],

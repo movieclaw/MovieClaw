@@ -60,7 +60,10 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
     var displayMode: PlayerDisplayMode = .fit {
         didSet {
             #if canImport(UIKit)
-            layerView.displayMode = displayMode
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layerView.playerLayer.videoGravity = displayMode == .stretch ? .resize : (displayMode == .fill ? .resizeAspectFill : .resizeAspect)
+            CATransaction.commit()
             #endif
         }
     }
@@ -391,11 +394,6 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
     }
 
     private func observeItem(_ item: AVPlayerItem) {
-        #if canImport(UIKit)
-        observations.append(item.observe(\.presentationSize, options: [.new]) { @Sendable [weak self] _, _ in
-            Task { @MainActor in self?.layerView.setNeedsLayout() }
-        })
-        #endif
         observations.append(item.observe(\.status, options: [.new]) { @Sendable [weak self] item, _ in
             let status = item.status
             let error = item.error
@@ -422,9 +420,6 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
     private func itemStatusChanged(_ status: AVPlayerItem.Status, error: Error?) {
         switch status {
         case .readyToPlay:
-            #if canImport(UIKit)
-            layerView.setNeedsLayout()
-            #endif
             guard !didPrepare else { return }
             didPrepare = true
             onEvent?(.milestone(.ready))
@@ -536,24 +531,13 @@ extension AVPlayerEngine: AVPictureInPictureControllerDelegate {
 /// 以 AVPlayerLayer 为底层图层的视图（尺寸随布局自动跟随）
 #if canImport(UIKit)
 final class PlayerLayerView: UIView {
-    let playerLayer = AVPlayerLayer()
-    var displayMode: PlayerDisplayMode = .fit { didSet { setNeedsLayout() } }
+    override static var layerClass: AnyClass { AVPlayerLayer.self }
+    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .black
         clipsToBounds = true
-        layer.addSublayer(playerLayer)
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        let size = playerLayer.player?.currentItem?.presentationSize ?? .zero
-        playerLayer.frame = displayMode == .fitWidth ? displayMode.rect(in: bounds, videoSize: size) : bounds
-        playerLayer.videoGravity = displayMode == .stretch ? .resize : (displayMode == .fill ? .resizeAspectFill : .resizeAspect)
-        CATransaction.commit()
     }
 
     @available(*, unavailable)

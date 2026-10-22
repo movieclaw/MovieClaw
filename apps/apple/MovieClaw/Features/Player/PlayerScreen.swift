@@ -393,6 +393,14 @@ private struct PlayerContent: View {
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
+            // 放在共同父层：控制条可见时，两指也能在画面中央捏合；
+            // 原始触摸层遇到第二指会取消拖进度/倍速，不与捏合争抢。
+            .simultaneousGesture(MagnifyGesture(minimumScaleDelta: 0.08).onEnded { value in
+                // 系统设置菜单自行接管触摸，关闭后的标记可能晚于原生菜单消失。
+                guard !locked, !isModal, menu == .none || menu == .settings else { return }
+                let mode = controller.displayMode.pinched(scale: value.magnification)
+                if mode != controller.displayMode { controller.selectDisplayMode(mode) }
+            })
             .animation(.easeInOut(duration: 0.25), value: chromeVisible)
             .animation(.easeInOut(duration: 0.2), value: controller.notice)
             .animation(.easeInOut(duration: 0.25), value: controller.qualityOffer)

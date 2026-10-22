@@ -166,10 +166,7 @@ public final class AetherPlayback {
         engine.videoGravity = .resizeAspect
         // 后台继续出声音（与系统播放器一致）；画中画时引擎保持管线不拆
         engine.backgroundPlaybackEnabled = true
-        container.onLayout = { [weak self] in
-            self?.layoutVideo()
-            self?.refreshSubtitles()
-        }
+        container.onLayout = { [weak self] in self?.refreshSubtitles() }
         observe()
         // 软件通路逐帧回调在解码线程上、不能阻塞：只计数，换代时切回主线程通知一次
         let counter = frameCounter
@@ -592,21 +589,7 @@ public final class AetherPlayback {
     public var displayMode: VideoDisplayMode = .fit {
         didSet {
             engine.videoGravity = displayMode == .stretch ? .resize : (displayMode == .fill ? .resizeAspectFill : .resizeAspect)
-            layoutVideo()
             refreshSubtitles()
-        }
-    }
-
-    private func layoutVideo() {
-        // 只有「适应宽度」需要让视频表面超过容器；字幕层仍留在屏幕内。
-        let frame = displayMode == .fitWidth ? displayMode.rect(in: view.bounds, videoSize: videoSize) : view.bounds
-        if playerView.frame != frame {
-            playerView.frame = frame
-            #if canImport(UIKit)
-            playerView.layoutIfNeeded()
-            #else
-            playerView.layoutSubtreeIfNeeded()
-            #endif
         }
     }
 
@@ -1057,7 +1040,6 @@ public final class AetherPlayback {
     // MARK: - 字幕
 
     private func refreshSubtitles() {
-        layoutVideo()
         guard !subtitleView.cues.isEmpty || subtitleView.hasVisibleCues else { return }
         subtitleView.update(time: subtitleClock - subtitleDelay, videoRect: videoRect(), visibleBounds: displayMode == .fit ? nil : view.bounds)
     }
