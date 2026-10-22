@@ -65,6 +65,8 @@ internal object WallLayout {
     const val COLUMN_SPACING = 24
     const val ROW_SPACING = 40
     const val POSTER_WIDTH = (1920f - 80 * 2 - (COLUMNS - 1) * COLUMN_SPACING) / COLUMNS
+    /** 一排占的高度（海报 2:3 + 行距）：往上补页时按它补滚动量 */
+    const val ROW_STRIDE = POSTER_WIDTH * 1.5f + ROW_SPACING
 }
 
 @Stable

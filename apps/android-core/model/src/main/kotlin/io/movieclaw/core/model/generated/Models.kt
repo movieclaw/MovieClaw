@@ -1143,6 +1143,25 @@ data class LibraryFileView(
 )
 
 /**
+ * 海报墙 A-Z 索引条的一档（按标题排序下的首字母分组）。
+ */
+@Serializable
+data class LibraryIndexEntryView(
+    /**
+     * 首字母档：A-Z，落不进的（数字/符号/假名等）为 #
+     */
+    @SerialName("initial") val initial: String = "",
+    /**
+     * 该档的条目数
+     */
+    @SerialName("count") val count: Long = 0,
+    /**
+     * 该档第一格在按标题排序中的位置——即 /items?sort=title&offset= 的取值
+     */
+    @SerialName("offset") val offset: Long = 0,
+)
+
+/**
  * 剧集库海报 hover 的在位库存完整度摘要。
  */
 @Serializable
@@ -1424,6 +1443,24 @@ data class LibraryRecentAdditionView(
      * 本批是否完整覆盖该季 TMDB 已知集数
      */
     @SerialName("complete_season") val completeSeason: Boolean = false,
+)
+
+/**
+ * 筛空之后的出路。
+ * 不渲染空墙，而是告诉用户「放宽哪一条能救回多少部」。**只列救得回内容的
+ * 条件**——多维交叉时经常出现"去掉它还是 0 部"的剔除项，把它们摆出来是
+ * 噪音不是建议；一条都救不回时 suggestions 为空，前端只留「清空全部条件」。
+ */
+@Serializable
+data class LibraryRelaxView(
+    /**
+     * 当前条件下的命中数（调用方通常在它为 0 时才用本接口）
+     */
+    @SerialName("total") val total: Long = 0,
+    /**
+     * 按能救回的数量倒序，最多三条
+     */
+    @SerialName("suggestions") val suggestions: List<RelaxSuggestionView> = emptyList(),
 )
 
 @Serializable
@@ -2517,6 +2554,33 @@ data class RefreshActiveView(
      * 当前阶段：拉取 TMDB 档案 / 写入元数据 / 下载图片 / …
      */
     @SerialName("phase") val phase: String = "",
+)
+
+/**
+ * 筛空时的一条放宽建议（docs/design/library-filtering.md 3.3）。
+ */
+@Serializable
+data class RelaxSuggestionView(
+    /**
+     * 维度：genres / countries / decades / watch
+     */
+    @SerialName("dim") val dim: String = "",
+    /**
+     * 维度展示名：类型 / 地区 / 年代 / 观看
+     */
+    @SerialName("dim_label") val dimLabel: String = "",
+    /**
+     * 要去掉的那个取值
+     */
+    @SerialName("value") val value: String = "",
+    /**
+     * 该取值的展示名
+     */
+    @SerialName("label") val label: String = "",
+    /**
+     * 去掉它之后能找回多少部（恒 > 0）
+     */
+    @SerialName("count") val count: Long = 0,
 )
 
 /**

@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -33,6 +34,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
@@ -46,8 +48,12 @@ import io.movieclaw.androidtv.ui.theme.McMetrics
 import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt
 
-/** 卡片下的说明：常驻 / 只在焦点时淡入（不占位）/ 不显示（TVCards.swift CaptionMode） */
-enum class CaptionMode { Always, Focused, Hidden }
+/**
+ * 卡片下的说明：常驻 / 只在焦点时淡入（不占位）/ 焦点时浮在海报底部的暗带里 / 不显示（TVCards.swift CaptionMode）。
+ * Band 是海报墙用的：上下两排挨得近，片名浮在行间会压到下一排；收进图里不占排版。很多海报只印英文、艺术字甚至没字，
+ * 大库里一张张认不出来是哪部（#942），聚焦时得把库里的片名写出来
+ */
+enum class CaptionMode { Always, Focused, Band, Hidden }
 
 /**
  * 卡片焦点效果：对齐 tvOS `.hoverEffect(.highlight)` 的观感——放大 1.1、投影、白色细边光。
@@ -162,13 +168,50 @@ fun PosterCard(
                 badge?.let { CardBadge(it, Modifier.align(Alignment.TopStart)) }
                 if (progress > 0f) ProgressStrip(progress, Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(12.pt))
                 if (focusDetail != null) FocusDetailBand(focused, focusDetail, Modifier.align(Alignment.BottomStart))
+                if (caption == CaptionMode.Band) FocusTitleBand(focused, title, subtitle, Modifier.align(Alignment.BottomStart))
                 if (dimmed) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)))
             }
         }
         when (caption) {
             CaptionMode.Always -> AlwaysCaption(title, subtitle, note, noteIcon)
             CaptionMode.Focused -> FocusedCaption(focused, title, subtitle, width)
-            CaptionMode.Hidden -> Unit
+            CaptionMode.Band, CaptionMode.Hidden -> Unit
+        }
+    }
+}
+
+/**
+ * [CaptionMode.Band] 的暗带：一行放得下就写「片名 · 年份」；放不下时片名折成两行（再长才截断），年份另起一行——
+ * 截断只落在片名上，年份永远看得见（合成一行截断时被截掉的正是末尾的年份）
+ */
+@Composable
+private fun FocusTitleBand(visible: Boolean, title: String, subtitle: String?, modifier: Modifier) {
+    AnimatedVisibility(visible, modifier = modifier.fillMaxWidth(), enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
+        BoxWithConstraints(
+            Modifier
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f), Color.Black.copy(alpha = 0.85f))))
+                .padding(start = 18.pt, end = 18.pt, top = 60.pt, bottom = 16.pt),
+        ) {
+            val style = McType.size(24, FontWeight.SemiBold)
+            val line = buildAnnotatedString {
+                append(title)
+                if (!subtitle.isNullOrEmpty()) withStyle(SpanStyle(color = Color.White.copy(alpha = 0.7f))) { append(" · $subtitle") }
+            }
+            val measurer = rememberTextMeasurer()
+            val maxWidth = constraints.maxWidth
+            // 量的时候与 Text 实际画的字重一致（半粗按粗画）
+            val fits = remember(line, maxWidth) {
+                measurer.measure(line, style.copy(fontWeight = tvWeight(style.fontWeight)), maxLines = 1, softWrap = false).size.width <= maxWidth
+            }
+            if (fits) {
+                Text(line, style = style, color = Color.White, maxLines = 1)
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(2.pt)) {
+                    Text(title, style = style, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    subtitle?.let { Text(it, style = McType.size(22, FontWeight.Medium), color = Color.White.copy(alpha = 0.7f), maxLines = 1) }
+                }
+            }
         }
     }
 }
@@ -239,7 +282,7 @@ fun LandscapeCard(
         when (caption) {
             CaptionMode.Always -> AlwaysCaption(title, subtitle, null, null)
             CaptionMode.Focused -> FocusedCaption(focused, title, subtitle, width)
-            CaptionMode.Hidden -> Unit
+            CaptionMode.Band, CaptionMode.Hidden -> Unit
         }
     }
 }

@@ -198,6 +198,45 @@ class McApi(private val transport: ApiTransport) {
         return transport.send("GET", "/libraries/${libraryId}/facets", query, null, serializer<LibraryFacetsView>(), enveloped = true)
     }
 
+    /** 海报墙的跳转索引（按标题：A-Z 首字母档；按内容时间：月份档）（`GET /libraries/{library_id}/item-index`） */
+    suspend fun uiLibraryItemsIndex(libraryId: Long, sort: String? = null, order: String? = null, granularity: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null): List<LibraryIndexEntryView> {
+        val query = buildList<Pair<String, String>> {
+            sort?.let { add("sort" to it.toString()) }
+            order?.let { add("order" to it.toString()) }
+            granularity?.let { add("granularity" to it.toString()) }
+            g?.let { add("g" to it.toString()) }
+            c?.let { add("c" to it.toString()) }
+            d?.let { add("d" to it.toString()) }
+            w?.let { add("w" to it.toString()) }
+            ratingGte?.let { add("rating_gte" to it.toString()) }
+            rt?.let { add("rt" to it.toString()) }
+            lang?.let { add("lang" to it.toString()) }
+            res?.let { add("res" to it.toString()) }
+            hdr?.let { add("hdr" to it.toString()) }
+            stock?.let { add("stock" to it.toString()) }
+            seriesKeys?.let { add("series_keys" to it.toString()) }
+        }
+        return transport.send("GET", "/libraries/${libraryId}/item-index", query, null, serializer<List<LibraryIndexEntryView>>(), enveloped = true)
+    }
+
+    /** 筛空时的放宽建议（只列救得回内容的条件）（`GET /libraries/{library_id}/relax`） */
+    suspend fun libraryItemsRelax(libraryId: Long, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null): LibraryRelaxView {
+        val query = buildList<Pair<String, String>> {
+            g?.let { add("g" to it.toString()) }
+            c?.let { add("c" to it.toString()) }
+            d?.let { add("d" to it.toString()) }
+            w?.let { add("w" to it.toString()) }
+            ratingGte?.let { add("rating_gte" to it.toString()) }
+            rt?.let { add("rt" to it.toString()) }
+            lang?.let { add("lang" to it.toString()) }
+            res?.let { add("res" to it.toString()) }
+            hdr?.let { add("hdr" to it.toString()) }
+            stock?.let { add("stock" to it.toString()) }
+            seriesKeys?.let { add("series_keys" to it.toString()) }
+        }
+        return transport.send("GET", "/libraries/${libraryId}/relax", query, null, serializer<LibraryRelaxView>(), enveloped = true)
+    }
+
     /** 条目详情：基本信息 + NFO 本地刮削元数据 + 逐文件真实介质规格（`GET /libraries/{library_id}/items/{media_item_id}`） */
     suspend fun libraryItemsGet(libraryId: Long, mediaItemId: Long): LibraryItemDetailView {
         val query = emptyList<Pair<String, String>>()

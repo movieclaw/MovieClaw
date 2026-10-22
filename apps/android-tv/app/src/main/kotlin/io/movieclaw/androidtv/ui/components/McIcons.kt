@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.PlayCircleFilled
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.material.icons.outlined.ContactPage
 import androidx.compose.material.icons.outlined.FolderOff
 import androidx.compose.material.icons.outlined.Info
@@ -91,6 +93,10 @@ object McIcons {
     val Filter = Icons.Filled.FilterList
     /** ‹ */
     val Back = Icons.Filled.ChevronLeft
+    /** chevron.right（菜单里的二级菜单） */
+    val Forward = Icons.Filled.ChevronRight
+    /** xmark.circle（清除筛选） */
+    val ClearCircle = Icons.Outlined.Cancel
     /** globe（搜索键盘换输入法） */
     val Globe = Icons.Filled.Language
     /** delete.left.fill */

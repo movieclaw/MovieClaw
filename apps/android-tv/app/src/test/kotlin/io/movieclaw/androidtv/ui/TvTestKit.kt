@@ -31,7 +31,10 @@ import java.io.IOException
 /** 电视 1920×1080（1pt = 1px，同 McMetrics 的画布） */
 const val TV_QUALIFIERS = "w960dp-h540dp-land-television-xhdpi"
 
-/** 假服务端：按路径给现成的对象，其余请求一律当断网 */
+/**
+ * 假服务端：按路径给现成的对象，其余请求一律当断网。
+ * 值也可以是 [Responder]：按这次请求的查询参数现算（按 offset 切片的海报墙、按筛选条件变的计数）
+ */
 class FakeTransport(private val routes: Map<String, Any>) : ApiTransport {
     /** 收到过的请求路径（按先后） */
     val requested = java.util.Collections.synchronizedList(mutableListOf<String>())
@@ -45,8 +48,14 @@ class FakeTransport(private val routes: Map<String, Any>) : ApiTransport {
     ): T {
         requested += path
         queries += path to query
-        return (routes[path] ?: throw IOException("offline: $method $path")) as T
+        val route = routes[path] ?: throw IOException("offline: $method $path")
+        return (if (route is Responder) route.respond(query.toMap()) else route) as T
     }
+}
+
+/** 按查询参数现算的假响应 */
+fun interface Responder {
+    fun respond(query: Map<String, String>): Any
 }
 
 /** 摆好的电视界面：依赖图（开关设置用）与假服务端（看发了哪些请求） */

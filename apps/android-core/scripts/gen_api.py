@@ -70,6 +70,8 @@ ENDPOINTS = [
     # 海报墙与详情
     "GET /libraries/{library_id}/items",
     "GET /libraries/{library_id}/facets",
+    "GET /libraries/{library_id}/item-index",
+    "GET /libraries/{library_id}/relax",
     "GET /libraries/{library_id}/items/{media_item_id}",
     "GET /libraries/{library_id}/items/{media_item_id}/episodes",
     "GET /libraries/{library_id}/items/{media_item_id}/similar",
