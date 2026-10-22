@@ -182,6 +182,17 @@ def test_floor_ignored_for_untracked_season_and_not_above_tmdb() -> None:
     ]
 
 
+def test_follow_floor_skips_seasons_before_aired_episode() -> None:
+    """issue #974：后面的季已经开播，前面未勾季的占位集是旧集，追新不纳入。"""
+    episodes = _episodes(2, 3) + _episodes(3, 2)
+    episodes[-2].air_date = utcnow().date() - timedelta(days=3)  # S3E1 已播
+    units = expected_units(MediaKind.TV, episodes, [3], True, {2: 5, 3: 4})
+    assert [(u.season_number, u.episode_number) for u in units if u.provisional] == [
+        (3, 3),
+        (3, 4),
+    ]
+
+
 def test_placeholder_is_searched_immediately() -> None:
     from movieclaw_api.services.subscription import schedule_for
 

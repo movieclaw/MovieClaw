@@ -122,6 +122,36 @@ _ROUTES = {
             {"episode_number": 3, "name": "E3", "air_date": None},
         ],
     },
+    # issue #974：旧季 S3 的后半段 TMDB 没填播出日期（实为已播），S4 正在播
+    "/3/tv/204": {
+        "id": 204,
+        "name": "旧季缺日期剧集",
+        "original_name": "Undated Old Season Show",
+        "first_air_date": "2023-01-01",
+        "status": "Returning Series",
+        "external_ids": {},
+        "alternative_titles": {"results": []},
+        "translations": {"translations": []},
+        "seasons": [{"season_number": 3}, {"season_number": 4}],
+    },
+    "/3/tv/204/season/3": {
+        "name": "第 3 季",
+        "air_date": "2025-10-25",
+        "episodes": [
+            {"episode_number": 1, "name": "E1", "air_date": "2025-10-25"},
+            {"episode_number": 2, "name": "E2", "air_date": None},
+            {"episode_number": 3, "name": "E3", "air_date": None},
+        ],
+    },
+    "/3/tv/204/season/4": {
+        "name": "第 4 季",
+        "air_date": _AIRED,
+        "episodes": [
+            {"episode_number": 1, "name": "E1", "air_date": _AIRED},
+            {"episode_number": 2, "name": "E2", "air_date": _FUTURE},
+            {"episode_number": 3, "name": "E3", "air_date": None},
+        ],
+    },
 }
 
 
@@ -282,6 +312,51 @@ async def test_follow_future_only_excludes_aired(db) -> None:
         wanted = _key_map(await _wanted_of(session, sub.id))
 
     assert set(wanted) == {(2, 2), (2, 3)}
+
+
+async def test_follow_future_skips_undated_episodes_of_aired_past(db) -> None:
+    """issue #974：只勾 S4 + 追新，S3 里 TMDB 漏填日期的集不算「未定档新集」。
+
+    之后已有集播出过，说明这些集早播完了，只是 TMDB 没录日期；S4 末尾真正
+    未定档的集照追。
+    """
+    async with db.session() as session:
+        sub = await _service(session).create(
+            MediaKind.TV, 204, selected_seasons=[4], follow_future=True
+        )
+        wanted = _key_map(await _wanted_of(session, sub.id))
+        assert set(wanted) == {(4, 1), (4, 2), (4, 3)}
+
+        only_future = await _service(session).create(
+            MediaKind.TV, 200, selected_seasons=[], follow_future=True
+        )
+        assert set(_key_map(await _wanted_of(session, only_future.id))) == {(2, 2), (2, 3)}
+
+
+async def test_update_drops_legacy_undated_old_season_units(db) -> None:
+    """#974 修复前已落库的旧季缺日期工单：下次修改订阅时退出范围，不再被种子覆盖。"""
+    async with db.session() as session:
+        service = _service(session)
+        sub = await service.create(
+            MediaKind.TV, 204, selected_seasons=[4], follow_future=True
+        )
+        if (3, 2) not in _key_map(await _wanted_of(session, sub.id)):
+            session.add(
+                WantedItem(
+                    subscription_id=sub.id,
+                    media_item_id=sub.media_item_id,
+                    season_number=3,
+                    episode_number=2,
+                    status=WantedStatus.WANTED,
+                    air_date=None,
+                )
+            )
+            await session.commit()
+
+        await service.update(sub.id, rule_set_id=None)  # 无关修改
+        rows = _key_map(await _wanted_of(session, sub.id))
+        assert rows[(3, 2)].in_scope is False
+        assert all(rows[(4, n)].in_scope for n in (1, 2, 3))
 
 
 async def test_create_is_idempotent_per_media_item(db) -> None:

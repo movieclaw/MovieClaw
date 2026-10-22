@@ -214,6 +214,20 @@ def _forecast_predicted_at(wanted: WantedItem) -> datetime | None:
     return _payload_time(forecast.get("predicted_at"))
 
 
+def last_aired_key(episodes: list[MediaEpisode], on: date) -> tuple[int, int] | None:
+    """``on`` 当天及之前已播出的最后一集 (季, 集)，特别季不计。
+
+    排在它前面却没有播出日期的集，是 TMDB 漏填了日期的旧集（issue #974：
+    旧季后半段常年空着），不是"未定档的新集"——追新不该纳入它们。
+    """
+    keys = [
+        (e.season_number, e.episode_number)
+        for e in episodes
+        if e.season_number != 0 and e.air_date is not None and e.air_date <= on
+    ]
+    return max(keys) if keys else None
+
+
 def expected_units(
     kind: MediaKind,
     episodes: list[MediaEpisode],
@@ -236,6 +250,11 @@ def expected_units(
 
     today = utcnow().date()
     selected_set = set(selected)
+    last_aired = last_aired_key(episodes, today)
+
+    def _unaired(key: tuple[int, int]) -> bool:
+        return last_aired is None or key > last_aired
+
     units: list[ExpectedUnit] = []
     for episode in episodes:
         in_selected = episode.season_number in selected_set
@@ -244,8 +263,12 @@ def expected_units(
         air = episode.air_date
         if in_selected:
             units.append(ExpectedUnit(episode.season_number, episode.episode_number, air))
-        elif episode.season_number != 0 and (air is None or air > today):
-            # 追新贡献：未勾季里"尚未播出/未定档"的集；特别季不自动追
+        elif episode.season_number != 0 and (
+            (air is None and _unaired((episode.season_number, episode.episode_number)))
+            or (air is not None and air > today)
+        ):
+            # 追新贡献：未勾季里"尚未播出/未定档"的集；特别季不自动追。
+            # 没日期且排在已播集之前的是 TMDB 漏填日期的旧集，不算未定档
             units.append(ExpectedUnit(episode.season_number, episode.episode_number, air))
     # 集数下限：TMDB 已录的最大集号之后、到下限为止补占位单元。占位集没有
     # 播出日期，与追新的"未定档集"同属一类，所以追新开着时未勾的季也纳入
@@ -255,10 +278,12 @@ def expected_units(
             known_max.get(episode.season_number, 0), episode.episode_number
         )
     for season, floor in sorted((floors or {}).items()):
-        if season not in selected_set and not (follow_future and season != 0):
+        in_selected = season in selected_set
+        if not in_selected and not (follow_future and season != 0):
             continue
         for number in range(known_max.get(season, 0) + 1, floor + 1):
-            units.append(ExpectedUnit(season, number, None, provisional=True))
+            if in_selected or _unaired((season, number)):
+                units.append(ExpectedUnit(season, number, None, provisional=True))
     return units
 
 
@@ -682,13 +707,18 @@ class SubscriptionService:
         # 播出日期区分血统：air_date 晚于订阅创建（或未定档）的单元视作追新进入，
         # 开关开着即受保护；早于创建的只可能来自勾选季，季被取消即出域。
         created_date = subscription.created_at.date()
+        # 未定档单元同理按创建时刻判：创建时已有更靠后的集播出，说明它是 TMDB
+        # 漏填日期的旧集，不是追新进来的（#974 修复前会被误建成工单）
+        aired_at_creation = last_aired_key(episodes, created_date)
 
         def _protected_by_follow(w: WantedItem) -> bool:
-            return (
-                subscription.follow_future
-                and w.season_number != 0
-                and (w.air_date is None or w.air_date > created_date)
-            )
+            if not subscription.follow_future or w.season_number == 0:
+                return False
+            if w.air_date is None:
+                return aired_at_creation is None or (
+                    (w.season_number, w.episode_number) > aired_at_creation
+                )
+            return w.air_date > created_date
 
         def _should_be_in_scope(w: WantedItem) -> bool:
             key = (w.season_number, w.episode_number)
