@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -90,6 +91,8 @@ fun MainShell(args: LaunchArgs) {
     val pageFocus = remember { FocusRequester() }
     val sidebarFocus = remember { FocusRequester() }
     val saveable = rememberSaveableStateHolder()
+    /** 各页签导航栈里现有各页的保存状态 key：页被弹出时据此清掉 */
+    val shownKeys = remember { HashMap<MainTab, List<String>>() }
     val graph = io.movieclaw.androidtv.LocalGraph.current
     val session = io.movieclaw.androidtv.LocalSession.current
     val homeStore = remember(session.key) { io.movieclaw.androidtv.ui.home.HomeStore(session.api) }
@@ -201,6 +204,13 @@ fun MainShell(args: LaunchArgs) {
                 // 导航栈里每一页都保持存活（同 tvOS 导航栈）：只摆出栈顶那页，压在下面的不摆放、不参与方向键找焦点，
                 // 退回时焦点回到原来那颗（LayerFocusMemory）
                 val layers = listOf<Route?>(null) + stack
+                // 弹出栈的页清掉它保存的状态：同一深度再压进同一页是新的实例（同 tvOS 的导航栈），
+                // 不接着用上次的窗口、筛选与焦点。切页签时别的页签的栈不算弹出，保留
+                val keys = stack.mapIndexed { index, route -> "${router.tab}:${index + 1}:$route" }
+                SideEffect {
+                    shownKeys[router.tab].orEmpty().filterNot { it in keys }.forEach(saveable::removeState)
+                    shownKeys[router.tab] = keys
+                }
                 layers.forEachIndexed { index, route ->
                     val visible = index == layers.lastIndex
                     val key = if (route == null) "root:${router.tab}" else "${router.tab}:$index:$route"
