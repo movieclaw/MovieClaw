@@ -20,7 +20,7 @@ iPhone/iPad 可在播放画面上双指放大切到「铺满裁切」、双指�
 
 ## 字幕、旋转与系统播放面
 
-iOS 的 AVPlayer 通路保持原来的根 AVPlayerLayer 结构，只切换 videoGravity；无新增视频子图层、无手动改视频表面 frame。暂停旋转时，新增模式的字幕用当前容器尺寸计算，避免读到上一轮 AVPlayerLayer.videoRect。
+iOS 的 AVPlayer 通路保持原来的根 AVPlayerLayer 结构，只切换 videoGravity；无新增视频子图层、无手动改视频表面 frame。暂停旋转时，三个模式的字幕都用当前容器尺寸与片源显示比例计算，避免读到上一轮 AVPlayerLayer.videoRect。
 
 普通文字字幕锚定画面可见部分；Apple 位图字幕缩放后保持自身比例并移回可见范围。画面定位的特效文字仍按视频坐标放置。Web ASS 使用默认 contain 画布，但施加与视频一致的居中缩放（裁切等比例，拉伸分别缩放横纵坐标），切模式、旋转、元数据尺寸更新时同步，不重建渲染器。JASSUB v2 的主 worker 由打包器生成，public 中的 Emscripten 子 worker 不能替代它。Web PGS 维持独立渲染器布局。
 

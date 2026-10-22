@@ -1055,26 +1055,12 @@ public final class AetherPlayback {
         return engine.sourceTime
     }
 
-    /// 画面在容器里的矩形：主力通路直接问 AVPlayerLayer，软件通路按显示尺寸 aspect-fit
+    /// 采用当前容器与片源显示比例（videoSize 已包含像素宽高比）。
+    /// 暂停旋转时没有新帧，AVPlayerLayer.videoRect 可能仍是上一方向的尺寸。
     private func videoRect() -> CGRect {
-        let bounds = view.bounds
-        // 暂停时旋转/换模式没有新视频帧，AVPlayerLayer.videoRect 可能还停在上一轮布局。
-        // 新缩放模式直接用同一套几何计算，字幕立即跟上；完整显示保留原有原生读数。
-        if displayMode != .fit { return displayMode.rect(in: bounds, videoSize: videoSize) }
-        if engine.videoRoute != .software, let layer = engine.nativePlayerLayer {
-            let rect = layer.videoRect
-            if rect.width > 1, rect.height > 1 {
-                #if canImport(UIKit)
-                return view.layer.convert(rect, from: layer)
-                #else
-                if let host = view.layer { return host.convert(rect, from: layer) }
-                #endif
-            }
-        }
-        let size = videoSize
-        guard size.width > 0, size.height > 0, bounds.width > 0, bounds.height > 0 else { return bounds }
-        return displayMode.rect(in: bounds, videoSize: size)
+        displayMode.rect(in: view.bounds, videoSize: videoSize)
     }
+
 }
 
 /// 播放容器：底下是引擎的画面视图，上面叠字幕层，两者都铺满
