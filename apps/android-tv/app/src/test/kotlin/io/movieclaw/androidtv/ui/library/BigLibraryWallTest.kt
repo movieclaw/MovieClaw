@@ -56,12 +56,15 @@ class BigLibraryWallTest {
 
     /** 按片名排好的 3000 部：每个字母约 125 部，I、U、V、X 开头的没有 */
     private val letters = "ABCDEFGHJKLMNOPQRSTWYZ#"
-    private val perLetter = 3000 / letters.length + 1
-    private val catalog = (0 until 3000).map { i ->
+    /** 每个字母多少部：默认约 131；改小了相邻字母的跳转窗口会重叠 */
+    private var perLetter = 3000 / letters.length + 1
+    /** 库里共几部（默认 3000，受每档部数所限） */
+    private var size = 3000
+    private val catalog get() = (0 until minOf(size, letters.length * perLetter)).map { i ->
         val letter = letters[i / perLetter]
         LibraryItemView(mediaItemId = i + 1L, libraryId = 1, title = "${if (letter == '#') "1" else letter.toString()}片 $i", year = 1990L + i % 35)
     }
-    private val index = letters.mapIndexed { n, c ->
+    private val index get() = letters.mapIndexed { n, c ->
         LibraryIndexEntryView(c.toString(), catalog.count { it.title.startsWith(if (c == '#') "1" else c.toString()) }.toLong(), (n * perLetter).toLong())
     }
 
@@ -141,6 +144,23 @@ class BigLibraryWallTest {
         val aligned = sOffset - sOffset % 5
         assertTrue("跳转请求：$offsets", aligned in offsets && (aligned - 60) in offsets)
         assertTrue("没有一页页追过去：$offsets", offsets.count { it in 120 until aligned - 60 } == 0)
+
+        // 再跳一次（两个窗口一样大，都是前一页 + 这一页）：仍然是目标那一排在顶上
+        repeat(4 - sOffset % 5) { rule.press(KeyEvent.KEYCODE_DPAD_RIGHT) }
+        rule.press(KeyEvent.KEYCODE_DPAD_RIGHT)
+        assertEquals("S", rule.focusedText())
+        while (rule.focusedText() != "D") rule.press(KeyEvent.KEYCODE_DPAD_UP, settleMs = 100)
+        rule.press(KeyEvent.KEYCODE_DPAD_CENTER, settleMs = 1_000)
+        val dOffset = letters.indexOf('D') * perLetter
+        assertPosterFocused(dOffset + 1L)
+        val dTop = rule.onNodeWithTag("poster:${dOffset + 1L}", useUnmergedTree = true).getBoundsInRoot().top
+        assertTrue("第二次跳转后那一排的顶：$dTop", dTop < Dp(100f))
+        // 回到 S 接着往下验
+        repeat(4 - dOffset % 5) { rule.press(KeyEvent.KEYCODE_DPAD_RIGHT) }
+        rule.press(KeyEvent.KEYCODE_DPAD_RIGHT)
+        while (rule.focusedText() != "S") rule.press(KeyEvent.KEYCODE_DPAD_DOWN, settleMs = 100)
+        rule.press(KeyEvent.KEYCODE_DPAD_CENTER, settleMs = 1_000)
+        assertPosterFocused(sOffset + 1L)
 
         // 往上一排：前一页已经补上，焦点落在上一排同一列
         rule.press(KeyEvent.KEYCODE_DPAD_UP)
@@ -256,5 +276,47 @@ class BigLibraryWallTest {
         assertEquals("title", env.transport.queries.last { it.first == "/collections/5/items" }.second.toMap()["sort"])
         assertEquals(WallSort("title"), WallLogic.decodeSort(env.graph.store.string(WallLogic.collectionSortKey(5)), WallLogic.COLLECTION_SORTS))
         rule.onNodeWithTag("wall-rail", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    /** 字母档很小（每个 20 部）时，相邻两档的跳转窗口互相重叠：连着跳仍然落在目标那一排、目标排在顶上 */
+    @Test
+    fun jumpsBetweenNearbyLettersWithOverlappingWindows() {
+        perLetter = 20
+        open()
+        // 先跳 M，再跳 N（窗口起点差 20 部，两个窗口大半重叠）
+        fun jumpTo(letter: Char) {
+            // 一路往右进索引条（索引条上的字是单个字母）
+            while (rule.focusedText()?.length != 1) rule.press(KeyEvent.KEYCODE_DPAD_RIGHT, settleMs = 100)
+            while (rule.focusedText() != letter.toString()) {
+                val down = letters.indexOf(rule.focusedText()!!.single()) < letters.indexOf(letter)
+                rule.press(if (down) KeyEvent.KEYCODE_DPAD_DOWN else KeyEvent.KEYCODE_DPAD_UP, settleMs = 100)
+            }
+            rule.press(KeyEvent.KEYCODE_DPAD_CENTER, settleMs = 1_000)
+            val offset = letters.indexOf(letter) * perLetter
+            assertPosterFocused(offset + 1L)
+            val top = rule.onNodeWithTag("poster:${offset + 1L}", useUnmergedTree = true).getBoundsInRoot().top
+            assertTrue("跳到 $letter 后那一排的顶：$top", top < Dp(100f))
+        }
+        jumpTo('M')
+        jumpTo('N')
+        jumpTo('L')
+        jumpTo('O')
+    }
+
+    /** 只有一排的墙（筛得只剩几部）：往下不会掉进右边的索引条，索引条只能从最右一张按右键进去（同 tvOS） */
+    @Test
+    fun railIsOnlyEnteredFromTheRight() {
+        size = 3
+        open()
+        assertPosterFocused(1)
+        rule.press(KeyEvent.KEYCODE_DPAD_DOWN)
+        assertPosterFocused(1)
+        rule.press(KeyEvent.KEYCODE_DPAD_RIGHT)
+        rule.press(KeyEvent.KEYCODE_DPAD_RIGHT)
+        assertPosterFocused(3)
+        rule.press(KeyEvent.KEYCODE_DPAD_DOWN)
+        assertPosterFocused(3)
+        rule.press(KeyEvent.KEYCODE_DPAD_RIGHT)
+        assertEquals("A", rule.focusedText())
     }
 }

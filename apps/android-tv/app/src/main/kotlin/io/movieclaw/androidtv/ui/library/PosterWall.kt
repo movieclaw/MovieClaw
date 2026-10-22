@@ -52,6 +52,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -103,9 +104,11 @@ import io.movieclaw.core.model.generated.LibraryItemView
 import io.movieclaw.core.network.ImageUrls
 import io.movieclaw.core.network.generated.McApi
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.max
 
 /** 墙上的一张海报（库存条目、收藏条目都转成它） */
@@ -215,12 +218,15 @@ internal class WallPager(val pageSize: Int = PAGE_SIZE) {
         val current = items ?: return
         if (!hasMore || loading) return
         val gen = generation
+        val from = start + current.size
         loading = true
         try {
-            val page = f((start + current.size).toLong(), pageSize.toLong())
-            if (gen != generation) return
-            val known = current.mapTo(HashSet()) { it.id }
-            items = current + page.filter { it.id !in known }
+            val page = f(from.toLong(), pageSize.toLong())
+            // 按拿到时的窗口拼：等待期间上面可能补进了一页（窗口尾巴不变），拼到最新的列表后面，别用发请求前的那份覆盖掉
+            val now = items ?: return
+            if (gen != generation || start + now.size != from) return
+            val known = now.mapTo(HashSet()) { it.id }
+            items = now + page.filter { it.id !in known }
             hasMore = page.size >= pageSize
         } catch (e: CancellationException) {
             throw e
@@ -234,24 +240,27 @@ internal class WallPager(val pageSize: Int = PAGE_SIZE) {
     /** 墙顶还有上文时补上一页（跳转之后仍然能往上走）；返回补进来几部 */
     suspend fun loadPrevious(): Int {
         val f = fetch ?: return 0
-        val current = items ?: return 0
-        if (start <= 0 || loadingPrev) return 0
+        if (items == null || start <= 0 || loadingPrev) return 0
         val gen = generation
+        val origin = start
         loadingPrev = true
         try {
-            val from = max(0, start - pageSize)
+            val from = max(0, origin - pageSize)
             val page = try {
-                f(from.toLong(), (start - from).toLong())
+                f(from.toLong(), (origin - from).toLong())
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 return 0
             }
-            if (gen != generation || page.isEmpty()) return 0
-            val known = current.mapTo(HashSet()) { it.id }
-            start -= page.size
-            items = page.filter { it.id !in known } + current
-            return page.size
+            // 按拿到时的窗口拼：等待期间下面可能接上了一页，前面拼到最新的列表上；窗口起点变了（换了窗口）就作废
+            val now = items ?: return 0
+            if (gen != generation || start != origin || page.isEmpty()) return 0
+            val known = now.mapTo(HashSet()) { it.id }
+            val added = page.filter { it.id !in known }
+            start -= added.size
+            items = added + now
+            return added.size
         } finally {
             loadingPrev = false
         }
@@ -396,6 +405,9 @@ internal fun PosterWall(
         if (added > 0 && headerFirst) grid.scrollBy(added / cols * WallLayout.ROW_STRIDE * ptPx)
     }
 
+    /** 正在进行的那次跳转 */
+    var jumpJob by remember { mutableStateOf<Job?>(null) }
+
     fun onItemFocused(id: Long) {
         focusedId = id
         val now = SystemClock.uptimeMillis()
@@ -429,7 +441,9 @@ internal fun PosterWall(
      */
     fun jump(entry: WallIndexEntry) {
         val offset = entry.offset ?: return
-        scope.launch {
+        // 上一次跳转还没走完（连按确认）：作废它，免得它拿这一次的窗口去交焦点
+        jumpJob?.cancel()
+        jumpJob = scope.launch {
             pager.jump(offset - offset % cols)
             pager.loadPrevious()
             val list = pager.items?.takeIf { it.isNotEmpty() } ?: return@launch
@@ -437,8 +451,13 @@ internal fun PosterWall(
             val target = list[position].id
             focusedId = target
             showHud(WallHud(entry.title, positionDetail(offset)))
-            // 等网格按新窗口量过一遍再滚：同一帧里滚，网格会按旧列表的 key 把位置挪走（标题行 + 海报 + 状态行）
-            snapshotFlow { grid.layoutInfo.totalItemsCount }.first { it == list.size + 2 }
+            // 等网格按新窗口量过一遍再滚：赶在重新测量之前滚，网格测量时会按旧列表里首个可见条目的 key 把位置挪走——
+            // 新旧窗口重叠时（相邻两档离得近），那个 key 在新窗口里换了下标，目标排就被挪出屏幕。
+            // 至少等两帧（新列表这一帧才重组、测量），再确认量到的条目数对得上现在的窗口（标题行 + 海报 + 状态行）；最多等一秒
+            withTimeoutOrNull(1_000) {
+                repeat(2) { withFrameNanos {} }
+                snapshotFlow { grid.layoutInfo.totalItemsCount == (pager.items?.size ?: -1) + 2 }.first { it }
+            }
             // 网格第 0 项是标题行：海报的下标要加 1
             grid.scrollToItem(1 + position - position % cols)
             // 目标在这一帧才组合出来，请求焦点可能落空：没接住就稍等再交

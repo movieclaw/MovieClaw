@@ -4,6 +4,8 @@ import io.movieclaw.core.model.generated.FacetValueView
 import io.movieclaw.core.model.generated.LibraryFacetsView
 import io.movieclaw.core.model.generated.LibraryIndexEntryView
 import io.movieclaw.core.model.generated.RelaxSuggestionView
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -165,5 +167,55 @@ class WallIndexTest {
         assertEquals(emptyList<WallItem>(), pager.items)
         assertEquals("断网", pager.failed)
         assertEquals("other", pager.loadedKey)
+    }
+
+    /** 数据源里请求可以被扣住：按 offset 放行，模拟两页同时在路上、先后不定 */
+    private class HeldSource {
+        val held = HashMap<Long, kotlinx.coroutines.CompletableDeferred<Unit>>()
+        var holding = false
+        val fetch: suspend (Long, Long) -> List<WallItem> = { offset, limit ->
+            if (holding) held.getOrPut(offset) { kotlinx.coroutines.CompletableDeferred() }.await()
+            (offset until minOf(offset + limit, 3000L)).map { WallItem(it, 1, "片 $it", null, null, null) }
+        }
+    }
+
+    @Test
+    fun pagerKeepsBothPagesWhenUpAndDownLoadsOverlap() = runBlocking {
+        val source = HeldSource()
+        val pager = WallPager()
+        pager.reset("k", source.fetch)
+        pager.jump(1200)
+        source.holding = true
+        // 往下与往上同时在路上：先回往下的那页，再回往上的那页
+        val down = launch { pager.loadMore() }
+        val up = async { pager.loadPrevious() }
+        kotlinx.coroutines.yield()
+        source.held.getValue(1260).complete(Unit)
+        down.join()
+        source.held.getValue(1140).complete(Unit)
+        assertEquals(60, up.await())
+        assertEquals(1140, pager.start)
+        assertEquals((1140L until 1320L).toList(), pager.items?.map { it.id })
+    }
+
+    @Test
+    fun pagerDropsAnEarlierPageThatArrivesAfterAJump() = runBlocking {
+        val source = HeldSource()
+        val pager = WallPager()
+        pager.reset("k", source.fetch)
+        pager.jump(1200)
+        source.holding = true
+        val up = async { pager.loadPrevious() }
+        kotlinx.coroutines.yield()
+        // 补页还没回来就跳到了别处：晚到的那页作废，新窗口的起点不被挪动
+        val jump = launch { pager.jump(600) }
+        kotlinx.coroutines.yield()
+        source.held.getValue(600).complete(Unit)
+        jump.join()
+        source.held.getValue(1140).complete(Unit)
+        assertEquals(0, up.await())
+        assertEquals(600, pager.start)
+        assertEquals(600L, pager.items?.first()?.id)
+        assertEquals(60, pager.items?.size)
     }
 }
