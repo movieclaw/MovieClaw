@@ -41,7 +41,10 @@ struct SmartPlanSection: View {
                     }
                 }
             } else {
-                HStack { ProgressView(); Text("正在读取智能设置…") }
+                // 只在预检完成后渲染：没有摘要说明服务器早于 0.42.0
+                Text("服务器尚未支持智能选择，请在更多选项中使用规则模式。")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("smart-unsupported")
             }
         }
         if let plan, plan.configured, let language = plan.subtitleLanguageLabel, let line = plan.subtitleLine {

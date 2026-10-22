@@ -79,7 +79,22 @@ final class SmartMemoryUITests: XCTestCase {
         back(app, "画质")
     }
 
+    /// 服务器早于 0.42.0（启动器带 MC_LAB_LEGACY_SERVER=1）：预检没有智能摘要，弹层改按规则模式订阅
+    @MainActor func testOlderServerSubscribesWithRules() async throws {
+        guard env["MC_SMART_LEGACY"] == "1" else { throw XCTSkip("Requires MC_LAB_LEGACY_SERVER=1 server") }
+        try await signIn(admin)
+        let app = launch(subscribe: "tmdb:movie:701")
+        wait(app.buttons["subscribe-submit"], app, "submit")
+        XCTAssertFalse(text(app, "正在读取智能设置").exists, app.debugDescription)
+        XCTAssertTrue(app.buttons["subscribe-submit"].isEnabled, app.debugDescription)
+        snapshot("legacy-rules")
+        submit(app)
+        let detail = try await subscription(701)
+        XCTAssertEqual(detail["selection_mode"] as? String, "rules")
+    }
+
     @MainActor func testHouseholdJourney() async throws {
+        guard env["MC_SMART_LEGACY"] != "1" else { throw XCTSkip("Needs a current server") }
         try await signIn(admin)
 
         // 1 首次设置：管理员直接进设置页；保存后回到订阅，第一次碰到英语就问一次

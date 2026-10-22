@@ -5,6 +5,7 @@
 出现资源、时间过去。
 """
 
+import os
 from datetime import timedelta
 
 from tests.api.smart_memory_fixture import MOVIES, ROUTES, SHOWS
@@ -21,6 +22,14 @@ media_discover.get_media_service = lambda: MediaDiscoverService(
     _fake_tmdb(ROUTES), image_base_url="https://image.tmdb.org/t/p"
 )
 app = create_app()
+
+if os.environ.get("MC_LAB_LEGACY_SERVER") == "1":
+    # 装成 0.42.0 之前的服务器：预检不带智能摘要，验新客户端的降级
+
+    async def _no_smart_plan(*_args, **_kwargs):
+        return None
+
+    subscriptions._smart_plan_view = _no_smart_plan
 
 
 @app.post("/__lab/release/{kind}/{tmdb_id}")

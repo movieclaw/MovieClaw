@@ -531,6 +531,8 @@ struct SubscribeSheet: View {
             }
             selectedSeasons = Set(defaultSeasons)
             followFuture = !upgradeMode && resolvedKind == "tv" && result.media?.status == "Returning Series"
+            // 服务器早于 0.42.0 的预检不带智能摘要：按规则模式订阅（同 Android），否则弹层卡在「正在读取」
+            if result.status == "ready", result.smart == nil { selectionMode = "rules" }
             prepared = result
         } catch is CancellationError {
         } catch {
