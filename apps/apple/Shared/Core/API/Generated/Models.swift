@@ -2052,7 +2052,7 @@ nonisolated extension API {
     /// 刻意**没有权限字段**：客户端只声明自己是什么形态、叫什么名字，
     /// 能做什么由批准者决定。
     struct DeviceAuthorizeRequest: Codable, Hashable, Sendable {
-        /// 客户端形态：worker（转码 Worker）、cli（命令行 / Agent）、tvos（Apple TV App）、macos（Mac App）、androidtv（Android TV App）
+        /// 客户端形态：worker（转码 Worker）、cli（命令行 / Agent）、tvos（Apple TV App）、macos（Mac App）、windows（Windows App）、androidtv（Android TV App）
         var clientType: String
         /// 设备名，批准页上给人看的，如 'Yi的Mac-mini'
         var clientName: String

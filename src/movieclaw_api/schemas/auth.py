@@ -152,7 +152,7 @@ class DeviceAuthorizeRequest(BaseModel):
     client_type: str = Field(
         description=(
             "客户端形态：worker（转码 Worker）、cli（命令行 / Agent）、tvos（Apple TV App）、"
-            "macos（Mac App）、androidtv（Android TV App）"
+            "macos（Mac App）、windows（Windows App）、androidtv（Android TV App）"
         )
     )
     client_name: str = Field(

@@ -30,7 +30,7 @@ const NOW = Date.parse("2026-08-29T12:00:00Z");
 const ago = (ms) => new Date(NOW - ms).toISOString();
 
 test("权限说明说人话，不出现内部权限名", () => {
-  for (const type of ["worker", "cli", "manual", "androidtv", "什么鬼"]) {
+  for (const type of ["worker", "cli", "manual", "androidtv", "windows", "什么鬼"]) {
     for (const role of ["admin", "member"]) {
       const { title, body } = grantSummary(type, role);
       const text = `${title}${body}`;
@@ -39,6 +39,24 @@ test("权限说明说人话，不出现内部权限名", () => {
       }
     }
   }
+});
+
+test("Windows 配对按批准者身份说明电脑登录，并要求核对本机显示的码", () => {
+  assert.equal(clientTypeLabel("windows"), "Windows");
+  const admin = grantSummary("windows", "admin");
+  const member = grantSummary("windows", "member");
+  assert.ok(admin.title.includes("Windows 电脑") && admin.title.includes("超级管理员"));
+  assert.ok(member.title.includes("以你的身份登录") && !member.title.includes("超级管理员"));
+  for (const summary of [admin, member]) {
+    assert.ok(summary.body.includes("输入账号密码登录"));
+    assert.ok(summary.body.includes("只批准你面前这台 Windows 电脑上显示的配对码"));
+    assert.ok(!summary.body.includes("这台机器上的程序"));
+  }
+  assert.equal(deviceGroupKey("windows"), "app");
+  assert.equal(deviceGlyph("windows", "full"), "computer");
+  const groups = groupDevices([{ kind: "windows" }, { kind: "cli" }]);
+  assert.deepEqual(groups.find(g => g.key === "app").devices, [{ kind: "windows" }]);
+  assert.deepEqual(groups.find(g => g.key === "paired").devices, [{ kind: "cli" }]);
 });
 
 test("转码器的说明必须点明它碰不到订阅与媒体库", () => {

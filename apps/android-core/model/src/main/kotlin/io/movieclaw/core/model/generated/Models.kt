@@ -430,7 +430,7 @@ data class CollectionView(
 @Serializable
 data class DeviceAuthorizeRequest(
     /**
-     * 客户端形态：worker（转码 Worker）、cli（命令行 / Agent）、tvos（Apple TV App）、macos（Mac App）、androidtv（Android TV App）
+     * 客户端形态：worker（转码 Worker）、cli（命令行 / Agent）、tvos（Apple TV App）、macos（Mac App）、windows（Windows App）、androidtv（Android TV App）
      */
     @SerialName("client_type") val clientType: String,
     /**
