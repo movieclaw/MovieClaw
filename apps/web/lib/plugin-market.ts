@@ -1,6 +1,7 @@
 /**
  * 插件市场的展示口径（设置 → 插件 → 插件市场）。纯逻辑，单独成文件好用测试锁住
- * （test/plugin-market.test.mjs）：分类与筛选、一张卡片该给什么按钮、版本的标记、权限翻成人话。
+ * （test/plugin-market.test.mjs）：分类与筛选、一张卡片该给什么按钮、版本的标记、权限翻成人话、
+ * 下载次数怎么念、反馈链接怎么拼。
  * 这里的措辞直接上屏。
  *
  * 推荐哪一版、有没有更新、能不能装由服务端算（MarketPlugin.recommended / update / blocked、
@@ -9,7 +10,7 @@
 
 import type { MarketPlugin, MarketVersion, PluginState } from "./api/plugins";
 import type { Tone } from "./cloud-push-display";
-import { formatBytes } from "./format.ts";
+import { formatBytes, formatCompact } from "./format.ts";
 import { pluginStateLabel, pluginStateTone } from "./plugins-display.ts";
 
 export const CATEGORY_LABELS: Record<string, string> = {
@@ -216,12 +217,86 @@ export function permissionLines(version: MarketVersion): PermissionLine[] {
   return lines;
 }
 
-/** 卡片底部的一行：版本 · 大小 */
-export function versionMeta(version: MarketVersion | null): string {
+/** 卡片底部的一行：版本 · 大小 · 下载次数（没有下载数就不写） */
+export function versionMeta(version: MarketVersion | null, downloads?: number | null): string {
   if (!version) return "";
   const parts = [`v${version.version}`];
   if (version.size) parts.push(formatBytes(version.size));
+  const count = formatDownloadCount(downloads);
+  if (count) parts.push(count);
   return parts.join(" · ");
+}
+
+/**
+ * 累计下载次数。万以下用分组数字（1,200），再往上用中文紧凑格式（1.2万），和全站魔力值同一套。
+ * 没有这个数（旧索引）返回 null，调用方什么都不显示。
+ */
+export function formatDownloadCount(count: number | null | undefined): string | null {
+  if (typeof count !== "number" || !Number.isFinite(count) || count < 0) return null;
+  const rounded = Math.floor(count);
+  const formatted =
+    rounded >= 10000 ? formatCompact(rounded) : new Intl.NumberFormat("zh-CN").format(rounded);
+  return `${formatted} 次下载`;
+}
+
+const MOVIECLAW_PLUGINS_ISSUE_FORM = "/movieclaw/movieclaw-plugins/issues/new";
+
+function safeHttpUrl(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text) return null;
+  try {
+    const url = new URL(text);
+    if ((url.protocol !== "https:" && url.protocol !== "http:") || !url.hostname) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+/** 官方插件仓库的 issue 表单：要补上正在用的插件版本和 MovieClaw 版本。 */
+export function isMovieclawPluginsIssueForm(href: string): boolean {
+  try {
+    const url = new URL(href);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+    if (url.hostname.toLowerCase() !== "github.com") return false;
+    return url.pathname.replace(/\/+$/, "") === MOVIECLAW_PLUGINS_ISSUE_FORM;
+  } catch {
+    return false;
+  }
+}
+
+/** homepage 正好是一个 GitHub 仓库时，反馈可以落到该仓库的新建 issue。 */
+export function githubIssuesFallback(homepage: string | null | undefined): string | null {
+  const text = safeHttpUrl(homepage);
+  if (!text) return null;
+  const url = new URL(text);
+  if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "github.com") return null;
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (parts.length !== 2) return null;
+  const [owner, repoRaw] = parts;
+  const repo = repoRaw.replace(/\.git$/, "");
+  if (!/^[\w.-]+$/.test(owner) || !repo || !/^[\w.-]+$/.test(repo)) return null;
+  return `https://github.com/${owner}/${repo}/issues/new`;
+}
+
+/**
+ * 详情页「反馈问题」要打开的地址。
+ * 有 feedback_url 就用它；没有、且 homepage 是 GitHub 仓库时，打开 `<仓库>/issues/new`。
+ * 官方仓库的 issue 表单再带上 plugin_version（装着的版本，否则最新版）和 movieclaw_version。
+ */
+export function feedbackLink(
+  plugin: Pick<MarketPlugin, "feedback_url" | "homepage" | "installed" | "latest">,
+  movieclawVersion: string | null,
+): string | null {
+  const base = safeHttpUrl(plugin.feedback_url) ?? githubIssuesFallback(plugin.homepage);
+  if (!base || !isMovieclawPluginsIssueForm(base)) return base;
+  const url = new URL(base);
+  const pluginVersion = plugin.installed?.version?.trim() || plugin.latest?.trim() || "";
+  if (pluginVersion) url.searchParams.set("plugin_version", pluginVersion);
+  const appVersion = movieclawVersion?.trim() ?? "";
+  if (appVersion) url.searchParams.set("movieclaw_version", appVersion);
+  return url.toString();
 }
 
 /** 「可更新」一节：装着、有更新的插件 */

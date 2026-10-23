@@ -1133,6 +1133,16 @@ class MarketPluginView(BaseModel):
     author: MarketAuthorView
     homepage: str | None
     repository: str | None
+    feedback_url: str | None = Field(
+        default=None,
+        description="反馈问题的地址（作者的 issue 页，或官方仓库预填的表单）；索引没写时为空",
+    )
+    downloads: int | None = Field(
+        default=None, description="累计下载次数；索引没写、或写了没法当次数用的值时为空"
+    )
+    screenshots: list[str] = Field(
+        default_factory=list, description="经本服务器代理的截图地址；没有截图时为空列表"
+    )
     license: str
     icon_url: str | None = Field(description="经本服务器代理的图标地址；没有图标为空")
     deprecated: MarketDeprecatedView | None
@@ -1258,6 +1268,31 @@ async def market_icon(plugin_id: str) -> Response:
         media_type=media_type,
         headers={
             # 地址带内容哈希（?v=），可以长缓存；SVG 不许跑脚本、不许当页面打开
+            "Cache-Control": "private, max-age=604800, immutable",
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get(
+    "/market/{plugin_id}/screenshots/{index}",
+    summary="插件市场：插件截图（按索引里的 sha256 核对后返回）",
+    operation_id="app.plugins.market.screenshot",
+    response_class=Response,
+    openapi_extra={"x-cli-hidden": True},
+)
+async def market_screenshot(plugin_id: str, index: int) -> Response:
+    from movieclaw_api.services import plugin_market
+
+    try:
+        data, media_type = await plugin_market.screenshot(plugin_id, index)
+    except plugin_market.MarketError as exc:
+        raise _market_error(exc) from exc
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={
             "Cache-Control": "private, max-age=604800, immutable",
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
             "X-Content-Type-Options": "nosniff",

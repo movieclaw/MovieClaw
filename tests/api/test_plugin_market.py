@@ -335,6 +335,85 @@ def test_detail_readme_icon_and_yanked(github) -> None:
         assert client.get(plugin["icon_url"]).content == ICON
 
 
+def test_optional_catalog_fields_ignore_garbage() -> None:
+    assert plugin_market._download_count(None) is None
+    assert plugin_market._download_count(0) == 0
+    assert plugin_market._download_count(12) == 12
+    assert plugin_market._download_count(-1) is None
+    assert plugin_market._download_count(True) is None
+    assert plugin_market._download_count("12") is None
+    assert plugin_market._download_count(1.5) is None
+    assert plugin_market._http_url(None) is None
+    assert plugin_market._http_url("  ") is None
+    assert plugin_market._http_url("javascript:alert(1)") is None
+    assert plugin_market._http_url("/issues/new") is None
+    kept = "https://github.com/acme/x/issues"
+    assert plugin_market._http_url(f"  {kept}  ") == kept
+
+
+def test_downloads_feedback_and_screenshots_pass_through_signed_index(
+    github, monkeypatch
+) -> None:
+    """新字段在签名覆盖的原文里：旧索引可以没有，坏值不当次数或链接，改一个字节就拒。"""
+    document = publish(github)
+    shot_bytes = b'<svg xmlns="http://www.w3.org/2000/svg"/>'
+    shot = _asset(f"{REL}/catalog/acme-shot.svg", shot_bytes)
+    github.files[shot["url"]] = shot_bytes
+    featured = document["plugins"][0]
+    featured["downloads"] = 12847
+    featured["feedback_url"] = (
+        "https://github.com/movieclaw/movieclaw-plugins/issues/new?template=plugin.yml&plugin=acme-pkg"
+    )
+    featured["screenshots"] = [
+        shot,
+        {"url": "https://example.com/nope.txt", "sha256": "abc", "size": 1},
+    ]
+    quiet = json.loads(json.dumps(featured))
+    quiet["id"] = "quiet-pkg"
+    quiet["name"] = "没有这些字段"
+    quiet.pop("downloads")
+    quiet.pop("feedback_url")
+    quiet.pop("screenshots")
+    junk = json.loads(json.dumps(featured))
+    junk["id"] = "junk-pkg"
+    junk["name"] = "坏数据"
+    junk["downloads"] = "12847"
+    junk["feedback_url"] = "javascript:alert(1)"
+    junk["screenshots"] = []
+    document["plugins"] = [featured, quiet, junk]
+    raw = json.dumps(document, ensure_ascii=False).encode()
+    github.files[INDEX_URL] = raw
+    github.files[INDEX_URL + ".sig"] = base64.b64encode(github.key.sign(raw)) + b"\n"
+    plugin_market.reset_for_tests()
+
+    _app, client = start()
+    with client:
+        by_id = {item["id"]: item for item in market(client)["plugins"]}
+        assert by_id["acme-pkg"]["downloads"] == 12847
+        assert "template=plugin.yml" in by_id["acme-pkg"]["feedback_url"]
+        assert len(by_id["acme-pkg"]["screenshots"]) == 1
+        assert by_id["quiet-pkg"]["downloads"] is None
+        assert by_id["quiet-pkg"]["feedback_url"] is None
+        assert by_id["quiet-pkg"]["screenshots"] == []
+        assert by_id["junk-pkg"]["downloads"] is None
+        assert by_id["junk-pkg"]["feedback_url"] is None
+
+        detail = client.get("/api/v1/app/plugins/market/acme-pkg").json()["data"]
+        assert detail["downloads"] == 12847 and detail["feedback_url"]
+        reply = client.get(by_id["acme-pkg"]["screenshots"][0])
+        assert reply.status_code == 200 and reply.content == shot_bytes
+        assert reply.headers["content-type"].startswith("image/svg+xml")
+        assert "sandbox" in reply.headers["content-security-policy"]
+
+        # 刚取到的索引在新鲜期内不会回源，这里强制再取一次，并禁止失败时退回旧索引
+        monkeypatch.setattr(plugin_market, "FRESH_SECONDS", 0)
+        monkeypatch.setattr(plugin_market, "STALE_SECONDS", 0)
+        github.files[INDEX_URL] = github.files[INDEX_URL].replace(b"12847", b"12848")
+        plugin_market.reset_for_tests()
+        reply = client.get("/api/v1/app/plugins/market")
+        assert reply.status_code == 400 and "签名校验失败" in reply.json()["message"]
+
+
 def test_version_key_follows_semver() -> None:
     key = plugin_market.version_key
     assert key("1.0.0") > key("1.0.0-rc.1") > key("1.0.0-beta.10") > key("1.0.0-beta.2")

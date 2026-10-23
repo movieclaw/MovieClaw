@@ -10,6 +10,8 @@ import {
   pendingUpdates,
   permissionLines,
   shownVersion,
+  feedbackLink,
+  formatDownloadCount,
   versionBadges,
   versionMeta,
 } from "../lib/plugin-market.ts";
@@ -164,5 +166,67 @@ test("卡片版本与可更新列表", () => {
   });
   assert.equal(shownVersion(p).version, "1.1.0");
   assert.equal(versionMeta(shownVersion(p)), "v1.1.0 · 2.00 KB");
+  assert.equal(versionMeta(shownVersion(p), 12800), "v1.1.0 · 2.00 KB · 1.3万 次下载");
   assert.deepEqual(pendingUpdates([p, plugin()]).map((x) => x.id), ["cloud-115"]);
+});
+
+test("下载次数：没有就不显示，万以下分组，再往上紧凑", () => {
+  assert.equal(formatDownloadCount(null), null);
+  assert.equal(formatDownloadCount(undefined), null);
+  assert.equal(formatDownloadCount(-1), null);
+  assert.equal(formatDownloadCount(0), "0 次下载");
+  assert.equal(formatDownloadCount(1200), "1,200 次下载");
+  assert.equal(formatDownloadCount(12800), "1.3万 次下载");
+});
+
+test("反馈链接：官方表单补版本，作者仓库原样打开，没有地址就藏起来", () => {
+  const form =
+    "https://github.com/movieclaw/movieclaw-plugins/issues/new?template=plugin.yml&plugin=cloud-115";
+  const installed = { version: "1.2.3", source: "package", state: "active", previous_version: null, yanked: null };
+  const href = feedbackLink(
+    plugin({ feedback_url: form, latest: "9.9.9", installed }),
+    "0.42.0",
+  );
+  const url = new URL(href);
+  assert.equal(url.searchParams.get("template"), "plugin.yml");
+  assert.equal(url.searchParams.get("plugin"), "cloud-115");
+  assert.equal(url.searchParams.get("plugin_version"), "1.2.3");
+  assert.equal(url.searchParams.get("movieclaw_version"), "0.42.0");
+
+  const latest = feedbackLink(plugin({ feedback_url: form, latest: "2.0.0", installed: null }), null);
+  const latestUrl = new URL(latest);
+  assert.equal(latestUrl.searchParams.get("plugin_version"), "2.0.0");
+  assert.equal(latestUrl.searchParams.get("movieclaw_version"), null);
+
+  assert.equal(
+    feedbackLink(plugin({ feedback_url: "https://github.com/acme/cloud-115/issues", homepage: null }), "0.42.0"),
+    "https://github.com/acme/cloud-115/issues",
+  );
+  assert.equal(
+    feedbackLink(
+      plugin({ feedback_url: null, homepage: "https://github.com/acme/cloud-115" }),
+      "0.42.0",
+    ),
+    "https://github.com/acme/cloud-115/issues/new",
+  );
+  assert.equal(
+    feedbackLink(
+      plugin({
+        feedback_url: null,
+        homepage: "https://github.com/movieclaw/movieclaw-plugins",
+        latest: "1.0.0",
+      }),
+      "0.42.0",
+    ),
+    "https://github.com/movieclaw/movieclaw-plugins/issues/new?plugin_version=1.0.0&movieclaw_version=0.42.0",
+  );
+  assert.equal(
+    feedbackLink(
+      plugin({ feedback_url: null, homepage: "https://github.com/acme/cloud-115/tree/main" }),
+      "0.42.0",
+    ),
+    null,
+  );
+  assert.equal(feedbackLink(plugin({ feedback_url: "javascript:alert(1)", homepage: null }), "0.42.0"), null);
+  assert.equal(feedbackLink(plugin({ feedback_url: null, homepage: null }), "0.42.0"), null);
 });

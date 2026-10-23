@@ -774,6 +774,12 @@ export interface MarketPlugin {
   author: { name: string; url: string | null };
   homepage: string | null;
   repository: string | null;
+  /** 反馈问题的地址；索引没写时为空 */
+  feedback_url: string | null;
+  /** 累计下载次数；索引没写时为空 */
+  downloads: number | null;
+  /** 经本服务器代理的截图；没有时为空列表 */
+  screenshots: string[];
   license: string;
   icon_url: string | null;
   deprecated: { reason: string; replaced_by: string | null } | null;

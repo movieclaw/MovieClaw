@@ -7,7 +7,7 @@
 - 索引 ``index.json`` 旁边是 ``index.json.sig``（Ed25519，签原始字节），公钥随应用发布
   （``CATALOG_KEYS``）。没签名、签名不对、密钥不认识一律不加载；只有自建索引可以用
   ``PLUGIN_CATALOG_ALLOW_UNSIGNED`` 放行。
-- 插件包、README、依赖锁文件、图标都按索引里的 sha256 与字节数核对，所以下载可以走
+- 插件包、README、依赖锁文件、图标、截图都按索引里的 sha256 与字节数核对，所以下载可以走
   ``UPDATE_DOWNLOAD_MIRROR`` 加速镜像（与应用内更新同一个设置）。
 - 只下载索引里登记的地址。核对通过的包交给 ``PackageManager.upload``：之后的批准、依赖、
   宽限期回滚与上传安装完全一样，市场不另开安装通道，也从不跳过批准。
@@ -51,7 +51,14 @@ INDEX_MAX_BYTES = 4 * 1024 * 1024
 README_MAX_BYTES = 512 * 1024
 LOCK_MAX_BYTES = 1024 * 1024
 IMAGE_MAX_BYTES = 256 * 1024
-IMAGE_TYPES = {".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp"}
+SCREENSHOT_MAX_BYTES = 2 * 1024 * 1024
+IMAGE_TYPES = {
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+}
 _TIMEOUT = httpx.Timeout(30.0, connect=15.0)
 _MIRRORED_HOSTS = {"github.com", "raw.githubusercontent.com", "objects.githubusercontent.com"}
 
@@ -435,6 +442,65 @@ def _icon_url(plugin: dict[str, Any]) -> str | None:
     return f"/api/v1/app/plugins/market/{plugin['id']}/icon?v={str(icon['sha256'])[:12]}"
 
 
+def _download_count(value: Any) -> int | None:
+    """累计下载次数。缺、写错、负数都当没有，一条坏数据不拖垮整个市场。"""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _http_url(value: Any) -> str | None:
+    """只要 http(s) 地址。空串、相对路径和 javascript: 不当链接用。"""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    parts = urlsplit(text)
+    if parts.scheme not in {"http", "https"} or not parts.netloc:
+        return None
+    return text
+
+
+def _image_type(asset: dict[str, Any]) -> str | None:
+    suffix = "." + str(asset.get("url", "")).rsplit(".", 1)[-1].lower()
+    return IMAGE_TYPES.get(suffix)
+
+
+def _usable_screenshot(shot: Any) -> dict[str, Any] | None:
+    """能代理的截图：有校验值、声明的大小在限额内、格式是图片。"""
+    if not isinstance(shot, dict):
+        return None
+    sha = str(shot.get("sha256") or "")
+    size = shot.get("size")
+    if (
+        isinstance(size, bool)
+        or not isinstance(size, int)
+        or size <= 0
+        or size > SCREENSHOT_MAX_BYTES
+        or not re.fullmatch(r"[0-9a-f]{64}", sha)
+        or _image_type(shot) is None
+    ):
+        return None
+    return shot
+
+
+def _screenshot_urls(plugin: dict[str, Any]) -> list[str]:
+    """截图走本服务器代理（和标图标同一条核对链）。不合格的不出现在列表里。"""
+    shots = plugin.get("screenshots")
+    if not isinstance(shots, list):
+        return []
+    plugin_id = plugin.get("id")
+    urls: list[str] = []
+    for index, shot in enumerate(shots):
+        usable = _usable_screenshot(shot)
+        if usable is None:
+            continue
+        sha = str(usable["sha256"])
+        urls.append(f"/api/v1/app/plugins/market/{plugin_id}/screenshots/{index}?v={sha[:12]}")
+    return urls
+
+
 def plugin_view(
     plugin: dict[str, Any],
     *,
@@ -478,6 +544,9 @@ def plugin_view(
         "author": {"name": str(author.get("name") or ""), "url": author.get("url")},
         "homepage": plugin.get("homepage"),
         "repository": plugin.get("repository"),
+        "feedback_url": _http_url(plugin.get("feedback_url")),
+        "downloads": _download_count(plugin.get("downloads")),
+        "screenshots": _screenshot_urls(plugin),
         "license": str(plugin.get("license") or ""),
         "icon_url": _icon_url(plugin),
         "deprecated": plugin.get("deprecated"),
@@ -608,11 +677,24 @@ async def icon(plugin_id: str) -> tuple[bytes, str]:
     asset = plugin.get("icon")
     if not isinstance(asset, dict):
         raise MarketError(f"{plugin_id} 没有图标", status=404)
-    suffix = "." + str(asset.get("url", "")).rsplit(".", 1)[-1].lower()
-    media = IMAGE_TYPES.get(suffix)
+    media = _image_type(asset)
     if media is None:
         raise MarketError("图标格式不支持", status=404)
     return await _fetch_asset(asset, limit=IMAGE_MAX_BYTES, what="图标"), media
+
+
+async def screenshot(plugin_id: str, index: int) -> tuple[bytes, str]:
+    catalog = await load_catalog()
+    plugin = _find(catalog, plugin_id)
+    shots = plugin.get("screenshots")
+    asset = None
+    if isinstance(shots, list) and 0 <= index < len(shots):
+        asset = _usable_screenshot(shots[index])
+    if asset is None:
+        raise MarketError(f"{plugin_id} 没有这张截图", status=404)
+    media = _image_type(asset)
+    assert media is not None  # _usable_screenshot 已检查
+    return await _fetch_asset(asset, limit=SCREENSHOT_MAX_BYTES, what="截图"), media
 
 
 async def download(plugin_id: str, version: str, kernel: Any) -> bytes:

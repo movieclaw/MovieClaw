@@ -53,6 +53,7 @@
 | `POST /app/plugins/market/refresh` | 检查更新（强制回源） |
 | `GET /app/plugins/market/{id}?version=` | 详情：README、这台服务器要下载的依赖（锁文件 + 本机平台算大小） |
 | `GET /app/plugins/market/{id}/icon` | 图标（核对后返回，`?v=<哈希>` 可长缓存；SVG 带 `sandbox` CSP） |
+| `GET /app/plugins/market/{id}/screenshots/{index}` | 截图，核对方式与图标相同 |
 | `POST /app/plugins/market/{id}/install` `{version}` | 下载核对 → 待批准，返回值与上传相同；升级、降级都走它 |
 
 CLI：`mclaw app plugins market list|show|refresh|install`（图标不生成命令）。
@@ -60,9 +61,17 @@ CLI：`mclaw app plugins market list|show|refresh|install`（图标不生成命�
 ## 6. 网页
 
 插件页两个页签：「已安装」（原有内容）与「插件市场」（`?tab=market`，有更新时页签带数字）。市场页：来源行
-（仓库链接、签名状态、检查时间、检查更新）→「可更新」→ 搜索与分类 → 卡片。详情抽屉分「介绍 / 权限 / 版本」，
-主按钮安装或更新，已安装的有「管理」去插件详情页停用 / 卸载。安装下载完成后打开与上传共用的批准抽屉
-（`ReviewDrawer`）。只做网页端（插件界面的既定范围）。
+（仓库链接、签名状态、检查时间、检查更新）→「可更新」→ 搜索与分类 → 卡片。详情抽屉的第一屏是一行简介、
+截图（索引里有才显示）和页脚的安装按钮；这一版的更新说明紧跟在下面。版本、运行方式、许可证收成一行弱化的
+说明。再往下仍是「介绍 / 权限 / 版本」。主按钮安装或更新，已安装的有「管理」去插件详情页停用 / 卸载。
+安装下载完成后打开与上传共用的批准抽屉（`ReviewDrawer`）。只做网页端（插件界面的既定范围）。
+
+索引里两个可选字段，旧索引没有就当没有，不另加设置：
+
+- `downloads`：累计下载次数，跟在作者或版本旁边（如「1.2万 次下载」）。没有这个数就不显示。
+- `feedback_url`：详情里的「反馈问题」，新标签页打开。是官方仓库的 issue 表单时，带上 `plugin_version`
+  （装着的版本，否则最新版）和 `movieclaw_version`。没有 `feedback_url`、但 `homepage` 是 GitHub 仓库时，
+  打开该仓库的新建 issue。
 
 ## 7. 插件仓库侧（movieclaw-plugins #13）
 

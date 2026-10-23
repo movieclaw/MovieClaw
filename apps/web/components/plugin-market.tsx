@@ -41,11 +41,14 @@ import {
   type PackageRequest,
   type WebConsent,
 } from "@/lib/api/plugins";
+import { getHealth } from "@/lib/api/health";
 import { formatBytes } from "@/lib/format";
 import {
   canInstallVersion,
   categoryLabel,
+  feedbackLink,
   filterMarket,
+  formatDownloadCount,
   installedStatus,
   installVerb,
   marketAction,
@@ -78,6 +81,7 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
   const [downloading, setDownloading] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState<PackageRequest | null>(null);
   const [approving, setApproving] = useState(false);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     listMarket()
@@ -90,6 +94,11 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
   useEffect(() => {
     reload();
   }, [reload]);
+  useEffect(() => {
+    getHealth()
+      .then((health) => setAppVersion(health.version?.trim() || null))
+      .catch(() => setAppVersion(null));
+  }, []);
 
   const check = () => {
     setChecking(true);
@@ -259,6 +268,7 @@ export function PluginMarket({ onChanged }: { onChanged: () => void }) {
       {open && (
         <PluginDrawer
           plugin={open}
+          appVersion={appVersion}
           downloading={downloading}
           onClose={() => setOpenId(null)}
           onInstall={(version) => void install(open, version)}
@@ -447,7 +457,7 @@ function MarketCard({
       </p>
       <div className="mt-auto flex items-center justify-between gap-3">
         <span className="min-w-0 truncate text-caption tabular-nums text-[var(--text-faint)]">
-          {versionMeta(version)}
+          {versionMeta(version, plugin.downloads)}
         </span>
         <ActionButton plugin={plugin} downloading={downloading} onInstall={onInstall} />
       </div>
@@ -459,11 +469,13 @@ type DetailTab = "about" | "permissions" | "versions";
 
 function PluginDrawer({
   plugin,
+  appVersion,
   downloading,
   onClose,
   onInstall,
 }: {
   plugin: MarketPlugin;
+  appVersion: string | null;
   downloading: string | null;
   onClose: () => void;
   onInstall: (version: string) => void;
@@ -482,6 +494,9 @@ function PluginDrawer({
   const version = shownVersion(plugin);
   const action = marketAction(plugin);
   const installed = plugin.installed;
+  const downloads = formatDownloadCount(plugin.downloads);
+  const feedback = feedbackLink(plugin, appVersion);
+  const shots = plugin.screenshots ?? [];
   return (
     <SettingsDrawer
       open
@@ -516,11 +531,13 @@ function PluginDrawer({
               ) : (
                 plugin.author.name
               )}
-              <span className="text-[var(--text-faint)]"> · {plugin.id}</span>
+              {downloads && (
+                <span className="tabular-nums text-[var(--text-faint)]">
+                  {plugin.author.name ? " · " : ""}
+                  {downloads}
+                </span>
+              )}
             </p>
-            {plugin.description && plugin.description !== plugin.summary && (
-              <p className="text-sub leading-6 text-[var(--text-muted)]">{plugin.description}</p>
-            )}
             <div className="flex flex-wrap gap-1.5">
               {version?.prerelease && <StatusPill tone="warn" label="测试版" />}
               {installed && (
@@ -550,15 +567,32 @@ function PluginDrawer({
           </Banner>
         )}
 
+        {shots.length > 0 && <ScreenshotStrip urls={shots} name={plugin.name} />}
+
+        {version?.notes.trim() && (
+          <section className="space-y-2">
+            <h3 className="text-caption text-[var(--text-faint)]">v{version.version} 更新说明</h3>
+            <Markdown text={version.notes} compact />
+          </section>
+        )}
+
+        {feedback && (
+          <a
+            href={feedback}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-plugin-feedback
+            className="css-glass flex min-h-[56px] items-center justify-between gap-4 !rounded-xl px-4 py-3 text-body font-medium text-[var(--text)] transition-colors hover:bg-white/[0.04]"
+          >
+            反馈问题
+            <span aria-hidden className="text-caption text-[var(--text-faint)]">
+              ↗
+            </span>
+          </a>
+        )}
+
         {version && (
-          <dl className="css-glass grid grid-cols-2 !rounded-xl sm:grid-cols-3">
-            <Fact label="版本" value={`v${version.version}`} />
-            <Fact label="发布于" value={formatDateTime(version.released_at)} />
-            <Fact label="大小" value={version.size ? formatBytes(version.size) : "—"} />
-            <Fact label="运行方式" value={runtimeLabel(version.runtime)} />
-            <Fact label="分类" value={categoryLabel(plugin.category)} />
-            <Fact label="许可证" value={plugin.license} />
-          </dl>
+          <p className="text-caption leading-5 text-[var(--text-faint)]">{technicalLine(plugin, version)}</p>
         )}
 
         <SettingsTabs
@@ -582,11 +616,39 @@ function PluginDrawer({
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+function technicalLine(plugin: MarketPlugin, version: MarketVersion): string {
+  const released = version.released_at ? formatDateTime(version.released_at) : "";
+  return [
+    `v${version.version}`,
+    released === "—" ? "" : released,
+    version.size ? formatBytes(version.size) : "",
+    runtimeLabel(version.runtime),
+    categoryLabel(plugin.category),
+    plugin.license,
+    plugin.id,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function ScreenshotStrip({ urls, name }: { urls: string[]; name: string }) {
+  const [broken, setBroken] = useState<Record<number, boolean>>({});
+  const visible = urls.some((_, index) => !broken[index]);
+  if (!visible) return null;
   return (
-    <div className="min-w-0 border-[var(--line)] px-4 py-2.5 [&:nth-child(n+3)]:border-t sm:[&:nth-child(n+3)]:border-t-0 sm:[&:nth-child(n+4)]:border-t">
-      <dt className="text-caption text-[var(--text-faint)]">{label}</dt>
-      <dd className="mt-0.5 break-words text-sub font-medium text-[var(--text)]">{value}</dd>
+    <div className="flex gap-2 overflow-x-auto scroll-thin">
+      {urls.map((url, index) =>
+        broken[index] ? null : (
+          <img
+            key={url}
+            src={url}
+            alt={`${name} 截图 ${index + 1}`}
+            decoding="async"
+            onError={() => setBroken((current) => ({ ...current, [index]: true }))}
+            className="h-40 w-auto max-w-[85%] shrink-0 rounded-xl bg-white/[0.04] object-cover shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
+          />
+        ),
+      )}
     </div>
   );
 }
@@ -602,14 +664,17 @@ function AboutTab({
 }) {
   if (error) return <p className="text-sub text-[var(--danger)]">{error}</p>;
   if (!detail) return <p className="text-sub text-[var(--text-muted)]">正在读取说明…</p>;
+  const blurb =
+    plugin.description && plugin.description !== plugin.summary ? plugin.description : "";
   return (
     <div className="space-y-3">
+      {blurb && <p className="text-sub leading-6 text-[var(--text-muted)]">{blurb}</p>}
       {detail.readme ? (
         <Markdown text={detail.readme} compact />
+      ) : detail.readme_error ? (
+        <p className="text-sub leading-6 text-[var(--danger)]">{detail.readme_error}</p>
       ) : (
-        <p className="text-sub leading-6 text-[var(--text-muted)]">
-          {detail.readme_error ?? (plugin.description || "作者没有写说明。")}
-        </p>
+        !blurb && <p className="text-sub leading-6 text-[var(--text-muted)]">作者没有写说明。</p>
       )}
       {plugin.repository && (
         <a
