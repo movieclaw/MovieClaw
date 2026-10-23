@@ -38,8 +38,9 @@ var knownNonGenerated = []string{
 	"ui.apps.root",
 	"ui.apps.file",
 	"ui.apps.errors.report",
-	// 插件市场的图标：网页 <img> 用的二进制，命令行看市场走 app plugins market list / show
+	// 插件市场的图标和截图：网页 <img> 用的二进制，命令行看市场走 app plugins market list / show
 	"app.plugins.market.icon",
+	"app.plugins.market.screenshot",
 	"auth.device.authorize",
 	"auth.device.token",
 	// 原生 App 的账号密码登录：客户端之间的协议端点，mclaw 走配对码
