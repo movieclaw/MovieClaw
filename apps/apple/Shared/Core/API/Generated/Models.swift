@@ -733,9 +733,12 @@ nonisolated extension API {
     /// 首次初始化状态：前端据此决定进引导页（/setup）还是登录页（/login）。
     struct BootstrapStatus: Codable, Hashable, Sendable {
         var initialized: Bool
+        /// 服务端接受的原生 App 设备类型；旧服务端可能不提供
+        var nativeDeviceKinds: [String]?
 
         enum CodingKeys: String, CodingKey {
             case initialized
+            case nativeDeviceKinds = "native_device_kinds"
         }
     }
 

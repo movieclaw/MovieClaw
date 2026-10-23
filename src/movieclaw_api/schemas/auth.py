@@ -14,8 +14,8 @@ class BootstrapStatus(BaseModel):
     """首次初始化状态及公开的原生设备登录能力，不包含账号或凭据信息。"""
 
     initialized: bool
-    native_device_kinds: list[str] = Field(
-        default_factory=list, description="服务端接受的原生 App 设备类型"
+    native_device_kinds: list[str] | None = Field(
+        default=None, description="服务端接受的原生 App 设备类型；旧服务端可能不提供"
     )
 
 
