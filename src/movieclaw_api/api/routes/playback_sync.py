@@ -1,4 +1,4 @@
-"""管理员批准的观看历史交换，亦进入插件宿主操作目录。"""
+"""管理员批准的观看历史与状态交换，亦进入插件宿主操作目录。"""
 
 from typing import Annotated
 
@@ -6,7 +6,13 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.api.deps import require_admin
-from movieclaw_api.schemas.playback_sync import SyncCatalog, SyncImportIn, SyncImportResult
+from movieclaw_api.schemas.playback_sync import (
+    SyncCatalog,
+    SyncImportIn,
+    SyncImportResult,
+    SyncStateIn,
+    SyncStateResult,
+)
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services import playback_sync
 from movieclaw_api.services.auth import Principal
@@ -45,4 +51,21 @@ async def import_records(
 ):
     return ok(
         SyncImportResult(outcomes=await playback_sync.import_records(session, principal, payload))
+    )
+
+
+@router.post(
+    "/state",
+    response_model=ApiResponse[SyncStateResult],
+    operation_id="playback.sync.state",
+    summary="按单元写回指定成员的已看、续播和收藏，不发播放事件",
+    openapi_extra={"x-cli-dangerous": "confirm"},
+)
+async def apply_state(
+    payload: SyncStateIn,
+    principal: Principal = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    return ok(
+        SyncStateResult(outcomes=await playback_sync.apply_state(session, principal, payload))
     )

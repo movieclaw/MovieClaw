@@ -509,6 +509,7 @@ func TestDangerousAndLongTaskAnnotations(t *testing.T) {
 	for id, want := range map[string]string{
 		"library.items.delete":                     "destructive",
 		"playback.sync.import":                     "confirm",
+		"playback.sync.state":                      "confirm",
 		"site.boost-pool.cleanup":                  "destructive",
 		"site.proxy.request":                       "confirm",
 		"subscriptions.cleanup-seasons":            "confirm",

@@ -254,6 +254,7 @@ playback stats qoe
 playback stats watch
 playback sync catalog
 playback sync import
+playback sync state
 rules create
 rules default
 rules delete

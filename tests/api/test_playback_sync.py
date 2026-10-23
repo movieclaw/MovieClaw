@@ -644,3 +644,235 @@ def test_orphan_cleanup_retains_imported_facts_without_state(client):
     c.portal.call(cleanup)
     assert len(c.portal.call(facts)[2]) == 1
     assert post(c, 2, [record(ids[0])])[0]["status"] == "already"
+
+
+def change(item, expected=None, **fields):
+    return {
+        "media_item_id": item,
+        "kind": "movie",
+        "tmdb_id": 100,
+        "expected_updated_at": expected,
+        **fields,
+    }
+
+
+def put_state(c, member, changes):
+    r = c.post(BASE + "/state", json={"member_id": member, "changes": changes})
+    assert r.status_code == 200, r.text
+    return r.json()["data"]["outcomes"]
+
+
+def unit_of(c, member, item, season=0, episode=0):
+    return next(
+        u
+        for u in snapshot(c, member)["items"]
+        if (u["media"]["id"], u["season"], u["episode"]) == (item, season, episode)
+    )
+
+
+def test_state_writes_resume_unwatch_favorite_without_events(client, monkeypatch):
+    c, _, ids = client
+    from movieclaw_api import events
+
+    published = []
+
+    async def spy(*args, **kwargs):
+        published.append(args)
+
+    monkeypatch.setattr(events, "publish", spy)
+    item = ids[0]
+    assert unit_of(c, 2, item)["is_favorite"] is False
+
+    # 设续播点：不翻已看，最近播放时间取请求给的。
+    out = put_state(
+        c, 2, [change(item, position_ms=1_520_000, last_played_at="2024-05-01T08:00:00Z")]
+    )[0]
+    assert out["status"] == "applied"
+    unit = unit_of(c, 2, item)
+    assert (unit["played"], unit["position_ms"]) == (False, 1_520_000)
+    assert unit["last_played_at"].startswith("2024-05-01T08:00:00")
+    v1 = unit["updated_at"]
+    assert out["state_version"] == v1
+
+    # 值没变：unchanged，版本不动——同步插件互相回写到这里就停。
+    again = put_state(c, 2, [change(item, v1, position_ms=1_520_000)])[0]
+    assert again == {"status": "unchanged", "state_version": v1}
+    # 过期版本：conflict，不覆盖。
+    assert put_state(c, 2, [change(item, None, played=True)])[0]["status"] == "conflict"
+
+    # 已看：位置清零、次数至少 1。
+    v2 = put_state(c, 2, [change(item, v1, played=True)])[0]["state_version"]
+    states, logs, records = c.portal.call(facts)
+    (row,) = states
+    assert (row.played, row.position_ms, row.play_count) == (True, 0, 1)
+    assert not logs and not records  # 不伪造播放过程，也不写观看事实
+
+    # 取消已看 = 全部清零；同一批里再收藏，共用扫描时的版本。
+    outs = put_state(c, 2, [change(item, v2, played=False), change(item, v2, is_favorite=True)])
+    assert [o["status"] for o in outs] == ["applied", "applied"]
+    (row,), _, _ = c.portal.call(facts)
+    assert (row.played, row.position_ms, row.play_count, row.last_played_at) == (
+        False,
+        0,
+        0,
+        None,
+    )
+    assert row.is_favorite and row.favorited_at is not None
+    assert unit_of(c, 2, item)["is_favorite"] is True
+    # 别的成员不受影响
+    assert unit_of(c, 1, item)["is_favorite"] is False
+    assert published == []
+
+
+def test_state_rejects_bad_shapes_identity_and_hidden_units(client):
+    c, _, ids = client
+
+    def status(payload):
+        return c.post(BASE + "/state", json={"member_id": 2, "changes": [payload]}).status_code
+
+    assert status(change(ids[0])) == 422  # 什么都不改
+    assert status(change(ids[0], played=True, position_ms=5)) == 422
+    assert status(change(ids[0], season=1, episode=2, played=True)) == 422
+    assert status({**change(ids[0], played=True), "watched_at": "2020-01-01T00:00:00Z"}) == 422
+    assert status(change(ids[0], played=True, last_played_at="2020-01-01T00:00:00")) == 422
+    assert status(change(ids[0], played=True, last_played_at="2999-01-01T00:00:00Z")) == 422
+    tv = {"kind": "tv", "tmdb_id": 200}
+    assert status(change(ids[0], played=True, season=1, **tv)) == 422  # 整季只能写收藏
+    assert status(change(ids[0], is_favorite=True, episode=1, **tv)) == 422
+    assert (
+        c.post(BASE + "/state", json={"member_id": 9, "changes": [change(ids[0], played=True)]})
+    ).status_code == 404
+
+    outs = put_state(
+        c,
+        2,
+        [
+            change(ids[0], played=True, tmdb_id=999),  # 编号对不上
+            change(ids[0], played=True, kind="tv", tmdb_id=100, season=1, episode=1),
+            change(9999, played=True),
+        ],
+    )
+    assert [o["status"] for o in outs] == ["mismatch", "mismatch", "mismatch"]
+
+    async def restrict():
+        async with get_database().session() as s:
+            member = await s.get(Member, 2)
+            member.all_libraries = False
+            s.add(member)
+            await s.commit()
+
+    c.portal.call(restrict)
+    assert put_state(c, 2, [change(ids[0], played=True)])[0]["status"] == "not_found"
+    states, _, _ = c.portal.call(facts)
+    assert states == []
+
+
+def test_state_series_and_season_favorites_round_trip(client):
+    c, _, _ = client
+
+    async def seed():
+        from movieclaw_db.models import Library
+
+        async with get_database().session() as s:
+            lib = (await s.execute(select(Library))).scalars().first()
+            show = MediaItem(kind="tv", title="Series", original_title="Series", tmdb_id=200)
+            s.add(show)
+            await s.flush()
+            for season, episode in ((1, 1), (1, 2), (2, 1)):
+                s.add(
+                    LibraryFile(
+                        library_id=lib.id,
+                        media_item_id=show.id,
+                        season_number=season,
+                        episode_number=episode,
+                        file_path=f"/fixture/s{season}e{episode}.mkv",
+                        size_bytes=1,
+                        source=FileSource.SCANNED,
+                        state=FileState.IN_PLACE,
+                    )
+                )
+            await s.commit()
+            return show.id
+
+    show = c.portal.call(seed)
+    tv = {"kind": "tv", "tmdb_id": 200}
+    media = unit_of(c, 2, show, 1, 1)["media"]
+    assert media["favorite"] is None and media["season_favorites"] == []
+
+    outs = put_state(
+        c,
+        2,
+        [
+            change(show, is_favorite=True, **tv),  # 整剧
+            change(show, is_favorite=True, season=2, **tv),  # 整季
+            change(show, is_favorite=True, season=3, **tv),  # 没有这一季的文件
+            change(show, played=True, season=1, episode=2, **tv),  # 单集
+        ],
+    )
+    assert [o["status"] for o in outs] == ["applied", "applied", "not_found", "applied"]
+    media = unit_of(c, 2, show, 2, 1)["media"]
+    assert media["favorite"]["is_favorite"] is True
+    assert [(f["season"], f["is_favorite"]) for f in media["season_favorites"]] == [(2, True)]
+    assert unit_of(c, 2, show, 1, 2)["played"] is True
+    assert unit_of(c, 2, show, 1, 1)["is_favorite"] is False  # 整剧收藏不落到集上
+
+    # 落点与详情页的心同一份数据（marks 服务读的就是哨兵行）
+    from movieclaw_api.services.playback import marks
+
+    async def read():
+        async with get_database().session() as s:
+            series = await marks.get_state(s, marks.MarkTarget(show), member_id=2)
+            season = await marks.get_state(s, marks.MarkTarget(show, 2), member_id=2)
+            return series.is_favorite, season.is_favorite
+
+    assert c.portal.call(read) == (True, True)
+
+    # 取消整剧收藏需要哨兵行的版本
+    version = media["favorite"]["updated_at"]
+    assert put_state(c, 2, [change(show, is_favorite=False, **tv)])[0]["status"] == "conflict"
+    assert (
+        put_state(c, 2, [change(show, version, is_favorite=False, **tv)])[0]["status"] == "applied"
+    )
+    assert unit_of(c, 2, show, 1, 1)["media"]["favorite"]["is_favorite"] is False
+
+
+def test_state_operation_is_a_grantable_host_op(client):
+    c, app, ids = client
+    import tomllib
+
+    from movieclaw_api.plugins import packages as pkg
+    from movieclaw_api.services.host_ops import HostOps
+    from movieclaw_api.services.plugin_packages import _operations
+
+    # 插件包安装检查用的就是这份目录：声明该操作的包能通过 check_compat。
+    text = (
+        '[plugin]\nid = "emby-sync"\ntitle = "Emby"\nversion = "0.1.0"\nentry = "emby_sync"\n\n'
+        '[permissions]\noperations = ["playback.sync.catalog", "playback.sync.state"]\n'
+    )
+    pkg.check_compat(
+        pkg.Manifest.model_validate(tomllib.loads(text)), reserved=set(), operations=_operations()
+    )
+
+    app.dependency_overrides.clear()
+    ops = HostOps(app)
+    ctx = SimpleNamespace(
+        entry_id="emby-sync",
+        third_party=True,
+        permissions=("playback.sync.catalog", "playback.sync.state"),
+        effect=lambda *a, **kw: None,
+    )
+    ops.configure("emby-sync", grants=["playback.sync.catalog", "playback.sync.import"])
+
+    async def probe():
+        reader = await ops.client(ctx)
+        payload = {"member_id": 2, "changes": [change(ids[0], is_favorite=True)]}
+        with pytest.raises(OpsError, match="PLUGIN_OPERATION_DENIED"):
+            await reader.call("playback.sync.state", payload)
+        ops.configure("emby-sync", grants=ctx.permissions)
+        writer = await ops.client(ctx)
+        result = await writer.call("playback.sync.state", payload)
+        assert result["outcomes"][0]["status"] == "applied"
+        data = await writer.call("playback.sync.catalog", {"member_id": 2})
+        assert [u["is_favorite"] for u in data["items"]].count(True) == 1
+
+    c.portal.call(probe)

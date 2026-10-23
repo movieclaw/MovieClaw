@@ -359,6 +359,7 @@ playback stats watch
 playback sync
 playback sync catalog
 playback sync import
+playback sync state
 plugin
 plugin dev
 plugin pack
