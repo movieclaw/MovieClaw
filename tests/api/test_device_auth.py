@@ -361,6 +361,7 @@ def test_member_can_pair_a_cli_that_acts_as_the_member(client: TestClient) -> No
         ("tvos", "客厅 Apple TV", "Apple TV App"),
         ("macos", "书房的 MacBook", "Mac App"),
         ("androidtv", "客厅 BRAVIA", "Android TV App"),
+        ("windows", "书房 Windows", "Windows App"),
     ],
 )
 def test_app_pairs_by_code_and_signs_in_as_the_approver(

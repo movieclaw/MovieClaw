@@ -101,6 +101,79 @@ def _pair_cli(approver: TestClient, *, name: str = "mclaw@mac") -> str:
 # ---------------------------------------------------------------------------
 
 
+def test_windows_device_password_replacement_and_revocation(client: TestClient) -> None:
+    assert "windows" in client.get(f"{_AUTH}/bootstrap").json()["data"]["native_device_kinds"]
+    payload = {
+        **_ADMIN,
+        "client": {
+            "kind": "windows",
+            "installation_id": "windows-install-0001",
+            "name": "客厅 Windows",
+            "platform": "Windows 11 · x86_64",
+            "client_version": "0.1.2",
+        },
+    }
+    anonymous = TestClient(client.app)
+    first = anonymous.post(f"{_AUTH}/device/login", json=payload)
+    assert first.status_code == 200, first.text
+    old = first.json()["data"]
+    device = old["device"]
+    assert (device["kind"], device["kind_label"], device["family"]) == (
+        "windows",
+        "Windows App",
+        "login",
+    )
+    logged = _as(client, old["token"])
+    assert logged.get(f"{_AUTH}/me").json()["data"]["device"]["kind"] == "windows"
+    assert logged.get(f"{_AUTH}/devices").status_code == 200
+    fresh = anonymous.post(f"{_AUTH}/device/login", json=payload).json()["data"]
+    assert logged.get(f"{_AUTH}/me").status_code == 401
+    active = _as(client, fresh["token"])
+    # The first-party Windows device can approve, but its own revocation is final.
+    grant = anonymous.post(
+        f"{_AUTH}/device/authorize",
+        json={
+            "client_type": "cli",
+            "client_name": "CLI approved by Windows",
+        },
+    ).json()["data"]
+    assert active.post(f"{_AUTH}/devices/requests/{grant['user_code']}/approve").status_code == 200
+    assert active.delete(f"{_AUTH}/devices/current").status_code == 200
+    assert active.get(f"{_AUTH}/me").status_code == 401
+
+
+def test_windows_pairing_is_a_password_family_device_and_password_change_revokes_it(
+    client: TestClient,
+) -> None:
+    anonymous = TestClient(client.app)
+    grant = anonymous.post(
+        f"{_AUTH}/device/authorize",
+        json={
+            "client_type": "windows",
+            "client_name": "Windows paired",
+            "installation_id": "windows-pair-0001",
+            "platform": "Windows 11",
+        },
+    )
+    assert grant.status_code == 200, grant.text
+    receipt = grant.json()["data"]
+    approved = client.post(f"{_AUTH}/devices/requests/{receipt['user_code']}/approve")
+    assert approved.status_code == 200
+    token = anonymous.post(f"{_AUTH}/device/token", json={"device_code": receipt["device_code"]})
+    assert token.status_code == 200, token.text
+    active = _as(client, token.json()["data"]["token"])
+    assert active.get(f"{_AUTH}/me").json()["data"]["device"]["kind"] == "windows"
+    changed = client.put(
+        f"{_AUTH}/password",
+        json={
+            "old_password": _ADMIN["password"],
+            "new_password": "changed-windows-pass",
+        },
+    )
+    assert changed.status_code == 200, changed.text
+    assert active.get(f"{_AUTH}/me").status_code == 401
+
+
 def test_app_login_issues_a_long_lived_device_token(client: TestClient) -> None:
     data = _app_login(client, _ADMIN)
     assert data["token"].startswith("mclaw_")
