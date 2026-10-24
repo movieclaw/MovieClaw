@@ -161,6 +161,7 @@ from movieclaw_api.services.media_library import MediaLibraryService
 from movieclaw_api.services.media_probe import (
     PROBE_SCHEMA_VERSION,
     ffprobe_available,
+    probe_found_unreadable,
     probe_media,
 )
 from movieclaw_db.engine import get_database
@@ -353,6 +354,22 @@ class IngestSourceChanged(Exception):
 def _has_parser_gap(record: IngestEntry | None) -> bool:
     """台账是否仍有因季集解析失败而未入库的文件。"""
     return bool(record and any(marker in (record.message or "") for marker in _PARSER_GAP_MARKERS))
+
+
+def _blocked_code(record: IngestEntry | None, parser_gap: bool) -> str:
+    """挂起任务的原因码：季集解析 > 文件内容不可识别 > 身份待认领。"""
+    if parser_gap:
+        return "INGEST_EPISODE_PARSE_REQUIRED"
+    if _has_unreadable_file(record):
+        return "INGEST_FILE_UNREADABLE"
+    return "INGEST_IDENTITY_REQUIRED"
+
+
+def _blocked_label(record: IngestEntry | None, parser_gap: bool) -> str:
+    # 坏文件等的是换源/继续下载，不是认领身份——别把人引去「认领」
+    if parser_gap or _has_unreadable_file(record):
+        return "查看监听导入"
+    return "去监听导入认领"
 
 
 def _has_new_file_claim(record: IngestEntry) -> bool:
@@ -1467,6 +1484,24 @@ def _probe_for_ingest(file: Path):
     return None if _is_strm(file) else probe_media(file)
 
 
+# 文件内容不可识别的台账文案片段（issue #1006）。确定性失败：指纹不变时
+# 重试必然同一结论，所以归 pending 而不是 failed——不再按小时重试、不挂
+# 全局红灯；文件一变（继续下载、换源）指纹随之变化，自动重新处理
+_UNREADABLE_MARKER = "内容无法识别"
+
+
+def _unreadable_note(file: Path, *, main: bool = False) -> str:
+    who = f"主视频「{file.name}」" if main else f"「{file.name}」"
+    return (
+        f"{who}{_UNREADABLE_MARKER}（文件已损坏或未下载完整），原样重试不会成功，未入库；"
+        "继续下载或换源后自动重新处理"
+    )
+
+
+def _has_unreadable_file(record: IngestEntry | None) -> bool:
+    return bool(record and _UNREADABLE_MARKER in (record.message or ""))
+
+
 def _strm_problem(file: Path) -> str | None:
     """strm 的完整性门禁（代替 ffprobe 门禁）：内容解析不出播放源时返回原因——
     还没写完、写坏了、指向的挂载没上线。不是 strm 返回 None。"""
@@ -1738,6 +1773,8 @@ async def _ingest_entry(
             IngestStatus.FAILED, f"「{main.name}」用不了：{strm_problem}；文件变化后自动重试"
         )
     if spec is None and ffprobe_available() and not _is_strm(main):
+        if probe_found_unreadable(main):
+            return await conclude(IngestStatus.PENDING, _unreadable_note(main, main=True))
         return await conclude(
             IngestStatus.FAILED,
             f"主视频「{main.name}」探测失败——可能尚未下载完成或已损坏，文件变化后自动重试",
@@ -2145,6 +2182,7 @@ async def _ingest_entry(
     env_error = False
     parser_gap = False
     conflict = False
+    unreadable = False
     dup_skipped = 0
     pilot_skipped: list[str] = []
     if kind is MediaKind.MOVIE and len(snap.videos) > 1:
@@ -2248,6 +2286,12 @@ async def _ingest_entry(
             env_error = True
             continue
         if file_spec is None and ffprobe_available() and not _is_strm(file):
+            if probe_found_unreadable(file):
+                # 内容不可识别是确定性的：与同名冲突同档（pending 等文件变化），
+                # 不能当环境故障按小时无限重试（issue #1006）
+                notes.append(_unreadable_note(file))
+                unreadable = True
+                continue
             notes.append(f"「{file.name}」探测失败（可能不完整），未入库；文件变化后自动重试")
             env_error = True
             continue
@@ -2486,7 +2530,7 @@ async def _ingest_entry(
             IngestStatus.FAILED
             if env_error
             else IngestStatus.PENDING
-            if parser_gap or conflict
+            if parser_gap or conflict or unreadable
             else IngestStatus.IMPORTED
         )
         return await conclude(status, message, imported)
@@ -2609,6 +2653,8 @@ async def _ingest_raw_drop(
             ),
         )
     if spec is None and ffprobe_available() and not _is_strm(main):
+        if probe_found_unreadable(main):
+            return None, 0, (IngestStatus.PENDING, _unreadable_note(main, main=True))
         return (
             None,
             0,
@@ -4056,13 +4102,11 @@ async def _execute_ingest_job(
                 parser_gap = _has_parser_gap(record)
                 raise jobs.JobBlocked(
                     record.message or "无法自动识别该条目，请到监听导入清单认领",
-                    code="INGEST_EPISODE_PARSE_REQUIRED"
-                    if parser_gap
-                    else "INGEST_IDENTITY_REQUIRED",
+                    code=_blocked_code(record, parser_gap),
                     actions=[
                         {
                             "type": "open_settings",
-                            "label": "查看监听导入" if parser_gap else "去监听导入认领",
+                            "label": _blocked_label(record, parser_gap),
                             "target": "import-watch",
                         }
                     ],
@@ -4090,11 +4134,11 @@ async def _execute_ingest_job(
         parser_gap = _has_parser_gap(record)
         raise jobs.JobBlocked(
             record.message or "监听条目需要人工确认",
-            code="INGEST_EPISODE_PARSE_REQUIRED" if parser_gap else "INGEST_IDENTITY_REQUIRED",
+            code=_blocked_code(record, parser_gap),
             actions=[
                 {
                     "type": "open_settings",
-                    "label": "查看监听导入" if parser_gap else "去监听导入认领",
+                    "label": _blocked_label(record, parser_gap),
                     "target": "import-watch",
                 }
             ],

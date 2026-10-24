@@ -42,6 +42,7 @@ from movieclaw_db.models import (
     LibraryFile,
     ManualDownloadIntent,
     MediaItem,
+    SystemNotice,
 )
 from movieclaw_db.models.base import utcnow
 from movieclaw_db.models.downloader_client import ClientType
@@ -2391,6 +2392,93 @@ async def test_probe_gate_applies_per_file(db, tmp_path, monkeypatch):
     assert record.status == IngestStatus.FAILED
     assert record.imported_count == 1
     assert "探测失败" in (record.message or "")
+
+
+@pytest.mark.asyncio
+async def test_unreadable_episode_goes_pending_without_hourly_retry(db, tmp_path, monkeypatch):
+    """issue #1006：季包里一集内容不可识别（容器头被抹成全零，指纹稳定不会自愈）
+    是确定性失败——其余集照常入库，条目归 pending 并如实说明，不再当环境故障
+    每小时重试、不挂全局红灯；文件变化（换源/继续下载）后自动重新处理。"""
+    root, watch = tmp_path / "tv", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.TV, root=root)
+    item = await _make_item(db, kind=MediaKind.TV, title="测试剧集", year=2024)
+    _stub_identify(monkeypatch, item)
+    monkeypatch.setattr(ingest_mod, "ffprobe_available", lambda: True)
+    broken = {"ok": False}
+    monkeypatch.setattr(
+        ingest_mod,
+        "probe_media",
+        lambda p: None if "ep2" in str(p) and not broken["ok"] else _FAKE_SPEC,
+    )
+    monkeypatch.setattr(
+        ingest_mod, "probe_found_unreadable", lambda p: "ep2" in str(p) and not broken["ok"]
+    )
+    _stub_unit(monkeypatch, lambda file: (1, int(file.stem.removeprefix("ep"))))
+
+    entry = watch / "测试剧集 S01"
+    entry.mkdir()
+    (entry / "ep1.mkv").write_bytes(b"full-episode")
+    (entry / "ep2.mkv").write_bytes(b"\0" * 7)
+
+    await _sweep_twice(db, library_id, watch)
+
+    season_dir = root / "测试剧集 (2024)" / "Season 01"
+    assert (season_dir / "测试剧集 (2024) - S01E01.mkv").exists()
+    assert not (season_dir / "测试剧集 (2024) - S01E02.mkv").exists()
+    async with db.session() as session:
+        record = (await session.execute(select(IngestEntry))).scalar_one()
+        notices = (await session.execute(select(SystemNotice))).scalars().all()
+    assert record.status == IngestStatus.PENDING
+    assert record.imported_count == 1
+    assert "ep2.mkv」内容无法识别" in (record.message or "")
+    assert "可能不完整" not in (record.message or "")
+    assert not ingest_mod._failed_retry  # 不进失败退避表
+    assert not [n for n in notices if n.resolved_at is None]  # 不挂红灯
+
+    # 一天后指纹没变：不重试（attempted_at 不动）
+    async with db.session() as session:
+        row = (await session.execute(select(IngestEntry))).scalar_one()
+        row.attempted_at = row.attempted_at - timedelta(days=1)
+        stale = row.attempted_at
+        await session.commit()
+    await _sweep_twice(db, library_id, watch)
+    async with db.session() as session:
+        row = (await session.execute(select(IngestEntry))).scalar_one()
+    assert row.attempted_at == stale
+
+    # 换源：文件变化 → 指纹变化 → 自动重新处理并补齐
+    broken["ok"] = True
+    (entry / "ep2.mkv").write_bytes(b"fixed-episode-2")
+    await _sweep_twice(db, library_id, watch)
+    assert (season_dir / "测试剧集 (2024) - S01E02.mkv").exists()
+    async with db.session() as session:
+        row = (await session.execute(select(IngestEntry))).scalar_one()
+    assert row.status == IngestStatus.IMPORTED
+
+
+@pytest.mark.asyncio
+async def test_unreadable_main_video_goes_pending(db, tmp_path, monkeypatch):
+    """主视频内容不可识别：同样归 pending 如实说明，而不是 failed 无限重试。"""
+    root, watch = tmp_path / "movies", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    monkeypatch.setattr(ingest_mod, "probe_media", lambda p: None)
+    monkeypatch.setattr(ingest_mod, "probe_found_unreadable", lambda p: True)
+    monkeypatch.setattr(ingest_mod, "ffprobe_available", lambda: True)
+
+    entry = watch / "某电影 (2020)"
+    entry.mkdir()
+    (entry / "movie.mkv").write_bytes(b"\0" * 16)
+
+    await _sweep_twice(db, library_id, watch)
+
+    assert not (root / "某电影 (2020)").exists()
+    async with db.session() as session:
+        record = (await session.execute(select(IngestEntry))).scalar_one()
+    assert record.status == IngestStatus.PENDING
+    assert "主视频「movie.mkv」内容无法识别" in (record.message or "")
+    assert not ingest_mod._failed_retry
 
 
 @pytest.mark.asyncio

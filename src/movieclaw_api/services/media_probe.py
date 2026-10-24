@@ -126,6 +126,8 @@ def probe_media(path: str | Path, *, input_args: Sequence[str] = ()) -> MediaSpe
 def _ffprobe(target: str | Path, input_args: Sequence[str] = ()) -> dict | None:
     """跑一次 ffprobe（流、容器、章节），返回它的 JSON；缺失 / 超时 / 失败返回 None。"""
     global _missing_warned
+    # 只记最近一次的失败性质：先清掉旧结论，超时/缺失/成功都不该沿用上一次的判断
+    _unreadable.discard(str(target))
     try:
         proc = subprocess.run(
             [
@@ -157,14 +159,46 @@ def _ffprobe(target: str | Path, input_args: Sequence[str] = ()) -> dict | None:
         logger.warning("ffprobe 探测超时（%s 秒）：%s", _PROBE_TIMEOUT, target)
         return None
     if proc.returncode != 0:
-        logger.warning(
-            "ffprobe 探测失败：%s（%s）", target, proc.stderr.decode(errors="replace")[:200]
-        )
+        stderr = proc.stderr.decode(errors="replace")
+        logger.warning("ffprobe 探测失败：%s（%s）", target, stderr[:200])
+        if _INVALID_DATA_MARKER in stderr:
+            _note_unreadable(target)
         return None
     try:
-        return json.loads(proc.stdout)
+        payload = json.loads(proc.stdout)
     except json.JSONDecodeError:
         return None
+    return payload
+
+
+# --- 内容不可识别（确定性失败）记忆 -------------------------------------------
+#
+# ``probe_media`` 失败只回 None，上层分不清「挂载抖动 / 超时」与「ffprobe 读到
+# 了字节，但这些字节根本不是一个可识别的媒体文件」（容器头被抹掉、头部全零、
+# 截断的 mp4 缺 moov）。后者在文件不变时每探一次都是同一个结论——监听导入
+# 若仍把它当环境故障按小时重试，就会无限重试、告警永不消退（issue #1006）。
+#
+# ffprobe 打开输入失败时把 libavformat 的 AVERROR_INVALIDDATA 打成这句固定
+# 文案；超时、I/O 错误、文件不存在走的是别的错误码，不会命中。进程内小表，
+# 键是探测目标路径，探测成功即清除；只记最近一次失败的性质，不做持久化。
+_INVALID_DATA_MARKER = "Invalid data found when processing input"
+_UNREADABLE_MAX = 4096
+_unreadable: set[str] = set()
+
+
+def _note_unreadable(target: str | Path) -> None:
+    if len(_unreadable) >= _UNREADABLE_MAX:
+        _unreadable.clear()  # 几千个坏文件几乎不可能；宁可遗忘也不无限膨胀
+    _unreadable.add(str(target))
+
+
+def probe_found_unreadable(path: str | Path) -> bool:
+    """最近一次探测失败是否因为「内容不可识别」（而非超时、I/O 等环境故障）。
+
+    只在 ``probe_media`` 刚返回 None 后有意义：调用方据此判断失败是否确定性的——
+    同一份字节再探多少次都一样，等的是文件变化（继续下载、换源），不是时间。
+    """
+    return str(path) in _unreadable
 
 
 def _probe_disc_image(path: str | Path) -> MediaSpec | None:
