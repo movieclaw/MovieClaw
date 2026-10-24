@@ -27,7 +27,6 @@ def test_only_last_three_and_no_archive_or_extra_files():
         ["Complete.zip"],
         FILES[:-1],
         ["S01E16-E18.mkv"],
-        FILES + ["unknown.mkv"],
         FILES + [FILES[-1]],
     ],
 )
@@ -152,3 +151,42 @@ def test_missing_episodes_are_a_definite_verdict_naming_the_units():
     assert "S01E09" in str(exc.value) and "S01E13" in str(exc.value)
     plan = plan_strict_file_selection(STAIRCASE, {(1, n) for n in range(1, 9)}, known_seasons=[1])
     assert plan.keep_indices == list(range(8))
+
+
+def test_unclear_files_are_skipped_not_fatal_when_needed_units_are_all_present():
+    """#996：认不出的文件只是不选，不连累整颗候选；需要的集仍须一一落在确定文件上。"""
+    files = FILES + ["unknown.mkv", "Cold.Hunt.S01E01-E02.mkv", "Cold.Hunt.S01E00.mkv"]
+    plan = plan_strict_file_selection(files, NEEDED, known_seasons=[1])
+    assert plan.keep_indices == [15, 16, 17]
+    assert {18, 19, 20} <= set(plan.skip_indices)
+    with pytest.raises(UnsatisfiableSelection) as exc:
+        plan_strict_file_selection(FILES[:-1] + ["unknown.mkv"], NEEDED, known_seasons=[1])
+    assert exc.value.units == {(1, 18)}
+    assert "1 个视频文件无法确定季集" in str(exc.value) and "unknown.mkv" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "path,unit",
+    [
+        ("海绵宝宝 国语 12季/海绵宝宝第10季 第3集_3840x2160_H265_23.20_886.39MB.mp4", (10, 3)),
+        ("海绵宝宝/海绵宝宝 - 第01季 第01集 国英双语 1080p.mkv", (1, 1)),
+        ("海绵宝宝/海绵宝宝.第十季.第三集.mkv", (10, 3)),
+        ("海绵宝宝/海绵宝宝 第1季第01集.mkv", (1, 1)),
+        ("海绵宝宝/海绵宝宝 第一季 第一集.mkv", (1, 1)),
+        ("海绵宝宝/第1季/海绵宝宝 第01集.mkv", (1, 1)),
+        ("海绵宝宝/第1季/海绵宝宝 第01话.mkv", (1, 1)),
+    ],
+)
+def test_chinese_season_episode_names_are_selectable(path, unit):
+    """#996 验收表：中文「第N季 第N集」与季目录下的「第N集/话」。多季合辑不借单季台账猜季。"""
+    other = "海绵宝宝/海绵宝宝 第2季 第5集.mkv"
+    plan = plan_strict_file_selection([other, path], {unit}, known_seasons=[1, 2, 10])
+    assert plan.keep_indices == [1]
+
+
+@pytest.mark.parametrize(
+    "name", ["海绵宝宝 第1季 第01-02集.mkv", "海绵宝宝 第1季 第01集-第02集.mkv", "第38集团军.mkv"]
+)
+def test_chinese_ranges_are_never_selected(name):
+    with pytest.raises(UnsatisfiableSelection):
+        plan_strict_file_selection([name], {(1, 1)}, known_seasons=[1])

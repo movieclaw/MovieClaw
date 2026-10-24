@@ -142,7 +142,12 @@ def plan_strict_file_selection(
     *,
     known_seasons: Collection[int] | None = None,
 ) -> FileSelectionPlan:
-    """智能补缺：只选可确定映射的独立正片文件，未知不回落全量。"""
+    """智能补缺：只选可确定映射的独立正片文件，未知不回落全量。
+
+    认不出季集、合并多集或集号为 0 的文件一律**不选**（issue #996）——它们
+    不会被下载，也不会被当成任何一集；裁决只看每个需要的单元是否恰好落在
+    一个可确定的文件上。合辑包里个别怪命名文件不再连累整颗候选。
+    """
     import re
 
     from movieclaw_api.services.library.layout import (
@@ -155,7 +160,7 @@ def plan_strict_file_selection(
     paths = [Path(p) for p in file_paths]
     seasons = set(known_seasons or ()) - {0}
     sole_season = next(iter(seasons)) if len(seasons) == 1 else None
-    selected, found = [], set()
+    selected, found, unclear = [], set(), []
     for index, path in enumerate(paths):
         if path.suffix.lower() not in VIDEO_EXTS:
             continue  # 压缩包和其他非视频文件不自动下载。
@@ -172,9 +177,8 @@ def plan_strict_file_selection(
         )
         multiple = len(re.findall(r"S\d+E\d+|\d+x\d+", path.stem, re.I)) > 1
         if combined or multiple or key is None or key[1] <= 0:
-            raise UnsatisfiableSelection(
-                f"无法安全选择文件：{path.name} 的季集范围不明确或不可拆分", needed_units
-            )
+            unclear.append(path.name)  # 季集不明确或不可拆分：不选，也不算作任何一集
+            continue
         if key in needed_units:
             if key in found:
                 raise UnsatisfiableSelection(
@@ -186,5 +190,10 @@ def plan_strict_file_selection(
         raise ValueError("没有需要选择的集")
     if found != needed_units:
         missing = needed_units - found
-        raise UnsatisfiableSelection(f"种子文件里没有 {_unit_labels(missing)}", missing)
+        note = (
+            f"（另有 {len(unclear)} 个视频文件无法确定季集或为多集合并，如 {unclear[0]}）"
+            if unclear
+            else ""
+        )
+        raise UnsatisfiableSelection(f"种子文件里没有 {_unit_labels(missing)}{note}", missing)
     return FileSelectionPlan(selected, [i for i in range(len(paths)) if i not in selected], 0)

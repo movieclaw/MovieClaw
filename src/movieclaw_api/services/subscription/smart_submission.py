@@ -1,5 +1,6 @@
 """智能投递的数据库意图。网络失败只能重放同一意图。"""
 
+import logging
 from datetime import timedelta
 from uuid import uuid4
 
@@ -20,6 +21,8 @@ from movieclaw_db.models import (
 )
 from movieclaw_matcher import TorrentCandidate
 from movieclaw_matcher.smart import series_key
+
+logger = logging.getLogger("movieclaw_api.download_dispatch")
 
 # 恢复失败的退避：1 分钟起翻倍，封顶 1 小时。下载器离线等真故障仍会自愈，
 # 但不会每 30 秒刷一次日志
@@ -333,7 +336,8 @@ async def settle_unsatisfiable(session, intent, targets, exc):
 
     满足不了的单元退回重找，并在意图上记负面记忆（``content_missing``），
     选种不会再拿这份发布补它们；其余仍在途的单元保留在意图里，下一轮恢复
-    只为它们选文件。没有剩余在途单元时意图失败——下载器里的任务原样保留。
+    只为它们选文件。没有剩余在途单元时意图失败，并清理本次投递自己新建、
+    尚未开始下载的暂停任务（``remove_own_paused_task``，issue #997）。
     返回被退回的工单。
     """
     payload = dict(intent.submission or {})
@@ -377,7 +381,74 @@ async def settle_unsatisfiable(session, intent, targets, exc):
     else:
         intent.status = DownloadAttemptStatus.FAILED
         payload["stage"] = "rejected"
-        intent.cleanup_note = f"{exc}；已退回重找，下载器中的任务保留未删除"
+        removed = await remove_own_paused_task(session, intent)
+        kept = "本次新建的暂停任务已从下载器移除" if removed else "下载器中的任务保留未删除"
+        intent.cleanup_note = f"{exc}；已退回重找，{kept}"
     intent.submission = payload
     intent.updated_at = now
     return released
+
+
+async def remove_own_paused_task(session, intent) -> bool:
+    """意图确定失败后，删掉它自己新建且从未开始下载的暂停任务（保留数据）。
+
+    暂停态本是留给重试找回同一任务的；意图一旦终结就再没有流程会碰它，
+    会变成永久 0% 的孤儿任务（issue #997）。只删同时满足以下条件的任务：
+    带本意图的所有权标签（下载器对已存在的任务不加标签，标签即证明是本次
+    新建）、未完成、进度为 0、没有其他在途投递记录指向同一 hash。任何一条
+    不满足或删除失败都原样保留，返回 False。
+    """
+    owner = (intent.submission or {}).get("selection_owner")
+    info_hash = intent.info_hash
+    if not owner or not intent.downloader_id or not info_hash or info_hash.startswith("pending:"):
+        return False
+    shared = (
+        await session.execute(
+            select(SubscriptionDownloadAttempt.id).where(
+                SubscriptionDownloadAttempt.info_hash == info_hash,
+                SubscriptionDownloadAttempt.id != intent.id,
+                SubscriptionDownloadAttempt.status != DownloadAttemptStatus.FAILED,
+            )
+        )
+    ).first()
+    if shared:
+        return False
+    from movieclaw_db.models import DownloaderClient
+    from movieclaw_db.repositories.downloader_repo import DownloaderRepository
+    from movieclaw_downloader.factory import create_downloader
+    from movieclaw_downloader.models import DownloaderConfig
+
+    row = await session.get(DownloaderClient, intent.downloader_id)
+    if row is None:
+        return False
+    try:
+        adapter = create_downloader(
+            DownloaderConfig(
+                type=row.client_type,
+                url=row.url,
+                username=row.username,
+                password=DownloaderRepository.decrypted_password(row),
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 -- 清理失败只记录，不改变意图结论
+        logger.warning("智能投递 #%s 的暂停任务清理失败：%s", intent.id, exc)
+        return False
+    try:
+        status = await adapter.get_torrent(info_hash)
+        if (
+            status is None
+            or owner not in status.tags
+            or status.completed
+            or (status.progress or 0) > 0
+        ):
+            return False
+        await adapter.delete_torrent(info_hash, delete_files=False)
+        logger.info("智能投递 #%s 无法满足，已移除本次新建的暂停任务 hash=%s", intent.id, info_hash)
+        return True
+    except Exception as exc:  # noqa: BLE001 -- 清理失败只记录，不改变意图结论
+        logger.warning(
+            "智能投递 #%s 的暂停任务清理失败：hash=%s error=%s", intent.id, info_hash, exc
+        )
+        return False
+    finally:
+        await adapter.close()

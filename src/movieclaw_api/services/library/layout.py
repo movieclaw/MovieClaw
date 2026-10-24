@@ -175,6 +175,27 @@ _EXPLICIT_NXMM = re.compile(r"(?<![0-9A-Za-z])(\d{1,2})[xX](\d{2,3})(?![0-9])")
 # 吃成集号（误命中 7 → 22）。
 _EXPLICIT_EPISODE = re.compile(r"(?:^|[ ._\-])(?:[Ee][Pp]?)(\d{1,4})(?!\d)")
 
+# 中文集号「第01集」「第十二集」「第3话」（issue #996）。国内资源的单集文件名
+# 普遍这么写，语义与 E01 同样确定。号码后必须紧跟 集/话：「第01-02集」这类
+# 区间整体不中（宁可交回上层，也不从区间里挑一个）；「集」后挡住「集团」「集结」。
+_CN_NUMBER = r"\d{1,4}|[一二两三四五六七八九十]{1,3}"
+_CN_EPISODE = re.compile(rf"第\s*({_CN_NUMBER})\s*[集话話](?![团結结])")
+# 中文季集组合「第10季 第3集」「第01季 第01集」「第十季.第三集」「第1季第01集」。
+# 季与集之间只允许短间隔且不再出现「第」，挡住「第2季 花絮 第3部分…」式的远距拼接
+_CN_UNIT = re.compile(
+    rf"第\s*({_CN_NUMBER})\s*季(?!度)[^第]{{0,12}}?第\s*({_CN_NUMBER})\s*[集话話](?![团結结])"
+)
+
+
+def _cn_episodes(stem: str) -> set[int]:
+    values = set()
+    for match in _CN_EPISODE.finditer(stem):
+        value = _season_int(match.group(1))
+        if value is None:
+            return {-1, -2}  # 认不出的中文数字：按歧义处理
+        values.add(value)
+    return values
+
 
 def trailing_index_episode(stem: str) -> int | None:
     """裸尾号命名声明的集号；解析不出（或为 0）返回 None。
@@ -190,7 +211,9 @@ def trailing_index_episode(stem: str) -> int | None:
 
 
 def explicit_unit(stem: str) -> tuple[int, int] | None:
-    """文件名显式 SxxEyy（或 NxMM）标记声明的 (季号, 集号)；没有该标记返回 None。
+    """文件名显式季集标记声明的 (季号, 集号)；没有该标记返回 None。
+
+    认 SxxEyy、NxMM 与中文「第N季 第M集」（issue #996）。
 
     NER 模型面向种子标题训练，对纯场景命名的单集文件名会漏抽/错标集号
     （torrent-ner-v2 把 "S06E01" 的 01 标成季号的线上病例），而显式标记的
@@ -199,13 +222,20 @@ def explicit_unit(stem: str) -> tuple[int, int] | None:
     显式声明的第 0 集"并按占位跳过，而不是误报解析失败。
     """
     match = _EXPLICIT_SXXEYY.search(stem) or _EXPLICIT_NXMM.search(stem)
-    if match is None:
+    if match is not None:
+        return int(match.group(1)), int(match.group(2))
+    # 中文「第N季 第M集」：名字里只能有一个集号，「第01集-第02集」这类合集不算
+    match = _CN_UNIT.search(stem)
+    if match is None or len(_cn_episodes(stem)) != 1:
         return None
-    return int(match.group(1)), int(match.group(2))
+    season, episode = _season_int(match.group(1)), _season_int(match.group(2))
+    if season is None or episode is None:
+        return None
+    return season, episode
 
 
 def explicit_episode(stem: str) -> int | None:
-    """文件名裸 E/EP 标记声明的集号；没有该标记或标记自相矛盾时返回 None。
+    """文件名裸 E/EP 或中文「第N集」标记声明的集号；没有或自相矛盾时返回 None。
 
     只出集号、不猜季号——这正是它与 ``explicit_unit`` 的分工：``E01`` 里没有
     季号信息，硬猜就是幻觉。季号交给 ``units.resolve_units`` 的证据链。
@@ -216,6 +246,7 @@ def explicit_episode(stem: str) -> int | None:
     特辑占位跳过，而不是误报解析失败）。
     """
     values = {int(match.group(1)) for match in _EXPLICIT_EPISODE.finditer(stem)}
+    values |= _cn_episodes(stem)
     return values.pop() if len(values) == 1 else None
 
 
