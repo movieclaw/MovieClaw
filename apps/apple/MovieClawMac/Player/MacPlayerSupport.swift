@@ -30,6 +30,8 @@ final class MacPlayerWindow {
     /// 控制层在窄窗口里自己精简（`MacPlayerTransport`）。实际下限再按画面比例换算
     static let playerMinimumSize = CGSize(width: 480, height: 270)
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    /// 盯着窗口的全屏属性（见 `attach`）
+    @ObservationIgnored private var behaviorObservation: NSKeyValueObservation?
 
     /// 「播放时置顶」开关（菜单栏「窗口」里），播放器读出来设给这里
     static let floatsOnTopKey = "movieclaw.mac.player.floatsOnTop"
@@ -41,6 +43,15 @@ final class MacPlayerWindow {
         guard let window, window !== self.window else { return }
         detachObservers()
         self.window = window
+        // 置顶（.floating）期间 SwiftUI 每逢窗口最小 / 最大尺寸变动（贴合画面就会变）重算全屏属性，给成 .fullScreenNone，
+        // 全屏按钮、F 键、双击、绿灯都静默无效。它一改就标回可全屏的主窗口
+        behaviorObservation = window.observe(\.collectionBehavior, options: [.initial]) { window, _ in
+            MainActor.assumeIsolated {
+                guard window.collectionBehavior.contains(.fullScreenNone) else { return }
+                window.collectionBehavior.remove(.fullScreenNone)
+                window.collectionBehavior.insert(.fullScreenPrimary)
+            }
+        }
         isFullScreen = window.styleMask.contains(.fullScreen)
         wasFullScreenBeforePlayer = isFullScreen
         let center = NotificationCenter.default
@@ -153,6 +164,8 @@ final class MacPlayerWindow {
     private func detachObservers() {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
+        behaviorObservation?.invalidate()
+        behaviorObservation = nil
     }
 }
 

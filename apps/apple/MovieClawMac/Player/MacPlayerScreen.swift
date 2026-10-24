@@ -113,6 +113,8 @@ private struct MacPlayerContent: View {
     @State private var pointer: CGPoint?
     @State private var size: CGSize = .zero
     @State private var panel: MacPlayerPanelKind?
+    /// ⋯ 的系统菜单正开着：指针移进菜单时追踪区报的「指针离开」不作数，否则控制层连同菜单本身一起被收掉
+    @State private var menuOpen = false
     @State private var scrubMs: Int?
     @State private var trickplay = TrickplayImages()
     @State private var flash: MacPlayerFlash?
@@ -220,6 +222,9 @@ private struct MacPlayerContent: View {
             pointerMoved(MacPlayerDebug.point(from: String(raw.dropLast(MacPlayerDebug.directory.count + 1))))
         }
         #endif
+        // 只认 App 里有菜单开着，不细分是哪个（菜单栏的菜单开着时控制层多留一会儿无妨）
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in menuOpen = true }
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)) { _ in menuOpen = false }
         .onDisappear {
             sleepGuard.update(playing: false)
         }
@@ -404,9 +409,9 @@ private struct MacPlayerContent: View {
         controller.paused && !controller.wantsPlay && !controller.phase.isBusy && controller.session != nil
     }
 
-    /// 控制层必须常显：暂停时用户在找进度；正在拖；面板开着；鼠标停在控件上；正在起播 / 缓冲（看得到进度与返回键）；播完了
+    /// 控制层必须常显：暂停时用户在找进度；正在拖；面板或菜单开着；鼠标停在控件上；正在起播 / 缓冲（看得到进度与返回键）；播完了
     private var chromeMustStayVisible: Bool {
-        userPaused || scrubMs != nil || panel != nil || pointerOnChrome || isModal || controller.phase.isBusy
+        userPaused || scrubMs != nil || panel != nil || menuOpen || pointerOnChrome || isModal || controller.phase.isBusy
             || controller.phase == .ended
     }
 
@@ -474,9 +479,9 @@ private struct MacPlayerContent: View {
         pointer = point
         if point != nil {
             showChrome()
-        } else if chromeVisible, scrubMs == nil, panel == nil, !isModal, !controller.phase.isBusy, controller.phase != .ended {
+        } else if chromeVisible, scrubMs == nil, panel == nil, !menuOpen, !isModal, !controller.phase.isBusy, controller.phase != .ended {
             // 指针离开播放器：控制层（含左上角返回）立刻淡出，不等 3 秒无操作。
-            // 拖进度条拖出窗口、面板或对话框开着、起播中、播完时照旧留着
+            // 拖进度条拖出窗口、面板 / 菜单或对话框开着、起播中、播完时照旧留着
             chromeVisible = false
         }
     }
