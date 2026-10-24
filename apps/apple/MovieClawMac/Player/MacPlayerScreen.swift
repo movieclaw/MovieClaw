@@ -288,6 +288,7 @@ private struct MacPlayerContent: View {
             VStack(spacing: 0) {
                 HStack {
                     MacPlayerTopBar(controller: controller, showsWindowControls: !window.isFullScreen, close: close)
+                        .onTapGesture(perform: doubleClickToggleFullScreen)
                     Spacer(minLength: 0)
                 }
                 // 窗口模式：红绿灯落在系统标题栏原来的位置（左 19、中线距顶 26），打开播放器时不跳
@@ -299,6 +300,9 @@ private struct MacPlayerContent: View {
                     pointer: pointer, scrubMs: $scrubMs, panel: $panel, togglePlay: { togglePlay(flashes: false) },
                     skip: { seek(by: $0, flashes: false) }, toggleFullScreen: toggleFullScreen
                 )
+                // 双击控制面板的空白处也全屏（同 Infuse：双击播放器任意位置）；按钮、进度条、音量自己接点击，不受影响
+                .contentShape(.rect(cornerRadius: MacPlayerMetrics.panelCorner))
+                .onTapGesture(perform: doubleClickToggleFullScreen)
                 .overlay(alignment: .bottomTrailing) {
                     // 面板从胶囊右上角往左上长：宽不超出窗口左边，高不顶出窗口（小窗口里列表自己滚）
                     panelView(maxWidth: (size.width + panelWidth(size)) / 2 - 12,
@@ -505,6 +509,11 @@ private struct MacPlayerContent: View {
         controller.seek(by: seconds, source: flashes ? .remote : .button)
         showChrome()
         if flashes { flash = MacPlayerFlash(symbol: seconds < 0 ? "gobackward.10" : "goforward.10") }
+    }
+
+    /// 控件之间的空白处：单击不做事，双击全屏（连击数按 AppKit 事件认，同画面上的双击）
+    private func doubleClickToggleFullScreen() {
+        if (NSApp.currentEvent?.clickCount ?? 1) >= 2 { toggleFullScreen() }
     }
 
     private func toggleFullScreen() {
