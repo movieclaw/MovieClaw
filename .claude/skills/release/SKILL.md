@@ -17,7 +17,7 @@ description: 发布 movieclaw 新版本。当用户要求发版、发布新版�
 | 服务器 | `vX.Y.Z` | `pyproject.toml` + `src/movieclaw_api/__init__.py` | `release.yml` | MovieClaw Server X.Y.Z | 设置页一键更新 / Docker 镜像 |
 | iPhone / iPad | `ios-vX.Y.Z` | `apps/apple/project.yml` 的 `MARKETING_VERSION` | `apple-release.yml` | MovieClaw for iPhone and iPad X.Y.Z | TestFlight；未签名 IPA 侧载 |
 | Apple TV | `tvos-vX.Y.Z` | 同上 | `apple-release.yml`（只建说明，无附件） | MovieClaw for Apple TV X.Y.Z | TestFlight |
-| Mac 版 | `macos-vX.Y.Z` | 同上 | `apple-release.yml` | MovieClaw for Mac X.Y.Z | 官网下载公证 zip |
+| Mac 版 | `macos-vX.Y.Z` | 同上 | `apple-release.yml` | MovieClaw for Mac X.Y.Z | 官网下载公证 DMG（zip 给自动更新） |
 | Mac 转码器 | `transcoder-vX.Y.Z` | `macos/MovieClawTranscoder/Resources/Info.plist` | `apple-release.yml` | MovieClaw Transcoder X.Y.Z | 官网下载公证 zip |
 | Android | `android-vX.Y.Z` | `apps/android/version.properties` | `android-release.yml` | MovieClaw for Android X.Y.Z | `movieclaw.io/download/android.apk` |
 | Android TV | `androidtv-vX.Y.Z` | `apps/android-tv/version.properties` | `android-release.yml` | MovieClaw for Android TV X.Y.Z | `movieclaw.io/download/androidtv.apk` |
@@ -239,7 +239,8 @@ ffmpeg 版本，发版前按下表逐项过一遍。
   `apps/apple/scripts/build-unsigned-ipa.sh` 或
   `MOVIECLAW_SIGNING_IDENTITY="Developer ID Application: …" MOVIECLAW_NOTARY_PROFILE=<凭证名> apps/apple/scripts/package-mac-app.sh`，
   再 `gh release upload <tag> <产物> --clobber` 补传，并手动转正（`gh release edit <tag> --draft=false --latest=false`）。
-  人工补传 Mac 版或转码器 ZIP 后，在 macOS 上运行 `bash scripts/publish-download-manifest.sh <tag>` 刷新官网清单。
+  本机打包要先装 dmgbuild（`python3 -m pip install -r apps/apple/scripts/dmg/requirements.txt`），Mac 版要补传 DMG 和 zip 两个。
+  人工补传 Mac 版或转码器安装包后，在 macOS 上运行 `bash scripts/publish-download-manifest.sh <tag>` 刷新官网清单。
 - **mac-app / transcoder 公证失败**，按报错对仓库密钥：
   - `--issuer … must be a valid UUID` → `APPLE_API_ISSUER_ID` 值不对（常见多带空格 / 换行）
   - `HTTP status code: 401` → `APPLE_API_KEY_ID` 与 `APPLE_API_KEY_P8` 不是同一把，或密钥已撤销

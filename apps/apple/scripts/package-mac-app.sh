@@ -17,17 +17,21 @@
 #
 # 可选环境变量：MC_BUILD_NUMBER（构建号）、MC_MAC_OUT（输出目录，默认 build-macapp，已被 git 忽略）、
 #   MC_SPM（共享的 Swift 包缓存目录，同 build-unsigned-ipa.sh）
-# 产物：$MC_MAC_OUT/MovieClaw-macos-arm64.zip（文件名固定，官网下载清单按它识别）
+# 产物（文件名固定，官网下载清单按它识别）：
+#   $MC_MAC_OUT/MovieClaw-macos-arm64.dmg  给人下载安装：打开是「拖到应用程序」的窗口（布局见 scripts/dmg/），DMG 本身也签名、公证
+#   $MC_MAC_OUT/MovieClaw-macos-arm64.zip  给 App 自动更新用的更新包（不用挂载，替换更快）
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 command -v xcodegen >/dev/null || { echo "错误：需要 XcodeGen（brew install xcodegen）" >&2; exit 1; }
+command -v dmgbuild >/dev/null || { echo "错误：需要 dmgbuild（python3 -m pip install -r scripts/dmg/requirements.txt）" >&2; exit 1; }
 scripts/prepare-project.py
 
 out="${MC_MAC_OUT:-build-macapp}"
 build="${MC_BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
 identity="${MOVIECLAW_SIGNING_IDENTITY:--}"
 zip_name="MovieClaw-macos-arm64.zip"
+dmg_name="MovieClaw-macos-arm64.dmg"
 mkdir -p "$out"
 echo "编译 Mac 版（构建号 $build，提交 $(git rev-parse --short HEAD)，完整日志：$out/build.log）…"
 
@@ -46,7 +50,7 @@ fi
 
 built="$out/DerivedData/Build/Products/Release/MovieClaw.app"
 app="$out/MovieClaw.app"
-rm -rf "$app" "$out/$zip_name"
+rm -rf "$app" "$out/$zip_name" "$out/$dmg_name"
 ditto "$built" "$app"
 
 # App 的权限声明：Mac 版的沙盒与网络进出写在构建设置里（project.yml 的 ENABLE_APP_SANDBOX 等），
@@ -102,7 +106,8 @@ codesign "${sign_args[@]}" --sign "$identity" --entitlements "$entitlements" "$a
 codesign --verify --strict --deep --verbose=2 "$app"
 echo "已签名：$app（$( [ "$identity" = "-" ] && echo "ad-hoc" || echo "$identity" )）"
 
-# 公证（可选），做法与转码器一致：提交 zip → 等结果 → 票据钉进 .app → 按 Gatekeeper 的口径复核
+# 公证（可选），做法与转码器一致：提交 → 等结果 → 票据钉进去 → 按 Gatekeeper 的口径复核。
+# App 和 DMG 各公证一次：App 钉了票据，从更新包（zip）里装出来的才能离线通过；DMG 钉了票据，断网打开安装盘也不会被拦
 notarize=0
 if [ -n "${MOVIECLAW_NOTARY_PROFILE:-}" ]; then
   notarize=1
@@ -113,17 +118,19 @@ elif [ -n "${MOVIECLAW_NOTARY_KEY_PATH:-}" ]; then
     --key-id "${MOVIECLAW_NOTARY_KEY_ID:?配置了 MOVIECLAW_NOTARY_KEY_PATH 但缺少 MOVIECLAW_NOTARY_KEY_ID}"
     --issuer "${MOVIECLAW_NOTARY_ISSUER:?配置了 MOVIECLAW_NOTARY_KEY_PATH 但缺少 MOVIECLAW_NOTARY_ISSUER}")
 fi
-if [ "$notarize" = 1 ]; then
-  if [ "$identity" = "-" ]; then
-    echo "错误：配置了公证凭证，但当前是 ad-hoc 签名。公证要求 Developer ID 签名（MOVIECLAW_SIGNING_IDENTITY）" >&2
-    exit 1
-  fi
-  notary_dir="$(mktemp -d)"
-  trap 'rm -rf "$notary_dir"' EXIT
-  ditto -c -k --keepParent "$app" "$notary_dir/submit.zip"
-  echo "正在提交 Apple 公证（通常几分钟，最长等 60 分钟）…"
+if [ "$notarize" = 1 ] && [ "$identity" = "-" ]; then
+  echo "错误：配置了公证凭证，但当前是 ad-hoc 签名。公证要求 Developer ID 签名（MOVIECLAW_SIGNING_IDENTITY）" >&2
+  exit 1
+fi
+notary_dir="$(mktemp -d)"
+trap 'rm -rf "$notary_dir"' EXIT
+
+# 提交一个文件（zip 或 dmg）公证并等结果，没通过就打出逐条原因并退出
+submit_notary() {
+  echo "正在提交 Apple 公证：$(basename "$1")（通常几分钟，最长等 60 分钟）…"
   # 结果为 Invalid 时 --wait 的退出码不一定非零，以 JSON 里的 status 为准
-  result="$(xcrun notarytool submit "$notary_dir/submit.zip" "${notary_auth[@]}" \
+  local result notary_status submission
+  result="$(xcrun notarytool submit "$1" "${notary_auth[@]}" \
     --wait --timeout 60m --output-format json 2>"$notary_dir/stderr")" || true
   notary_status="$(plutil -extract status raw -o - - <<<"$result" 2>/dev/null || true)"
   submission="$(plutil -extract id raw -o - - <<<"$result" 2>/dev/null || true)"
@@ -137,9 +144,15 @@ if [ "$notarize" = 1 ]; then
     fi
     exit 1
   fi
+  echo "公证通过（提交 ID：$submission）"
+}
+
+if [ "$notarize" = 1 ]; then
+  ditto -c -k --keepParent "$app" "$notary_dir/submit.zip"
+  submit_notary "$notary_dir/submit.zip"
   xcrun stapler staple "$app"
   spctl --assess --type execute --verbose=2 "$app"
-  echo "已公证并钉入票据（提交 ID：$submission）"
+  echo "App 已公证并钉入票据"
 elif [ "$identity" = "-" ]; then
   echo "⚠️  ad-hoc 签名：只能在本机用，别人下载后会被系统拦下。发行请给 MOVIECLAW_SIGNING_IDENTITY 与公证凭证" >&2
 else
@@ -148,4 +161,28 @@ fi
 
 # 必须用 ditto：App Bundle 里有符号链接与扩展属性，普通 zip 解开后可能无法启动
 ditto -c -k --keepParent "$app" "$out/$zip_name"
-echo "✅ 已生成 $out/$zip_name（$(du -h "$out/$zip_name" | cut -f1)，版本 $(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")（$build））"
+version="$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")"
+
+# 安装盘：dmgbuild 按 scripts/dmg/settings.py 排版（直接写 .DS_Store，流水线上没有 Finder 也行）。
+# 背景图 1x / 2x 合成一张多分辨率 TIFF，Retina 屏上不糊
+tiffutil -cathidpicheck scripts/dmg/background.png scripts/dmg/background@2x.png -out "$notary_dir/background.tiff" >/dev/null
+dmgbuild -s scripts/dmg/settings.py \
+  -D app="$app" -D background="$notary_dir/background.tiff" -D icon="$app/Contents/Resources/AppIcon.icns" \
+  "MovieClaw $version" "$out/$dmg_name" >"$out/dmg.log" 2>&1 || { cat "$out/dmg.log" >&2; echo "错误：生成 DMG 失败" >&2; exit 1; }
+if [ "$identity" != "-" ]; then
+  # DMG 只签名不加 Hardened Runtime（那是给可执行文件的）
+  dmg_sign=(--force --timestamp --sign "$identity")
+  if [ -n "${SIGNING_KEYCHAIN:-}" ]; then dmg_sign+=(--keychain "$SIGNING_KEYCHAIN"); fi
+  codesign "${dmg_sign[@]}" "$out/$dmg_name"
+  codesign --verify --verbose=2 "$out/$dmg_name"
+fi
+if [ "$notarize" = 1 ]; then
+  submit_notary "$out/$dmg_name"
+  xcrun stapler staple "$out/$dmg_name"
+  spctl --assess --type open --context context:primary-signature --verbose=2 "$out/$dmg_name"
+  echo "DMG 已公证并钉入票据"
+fi
+
+echo "✅ 已生成（版本 $version（$build））："
+echo "   $out/$dmg_name（$(du -h "$out/$dmg_name" | cut -f1)，给人下载安装）"
+echo "   $out/$zip_name（$(du -h "$out/$zip_name" | cut -f1)，自动更新用）"

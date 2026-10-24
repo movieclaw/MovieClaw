@@ -22,9 +22,16 @@ struct MovieClawMacApp: App {
 
     var body: some Scene {
         WindowGroup("MovieClaw", id: "main") {
-            MacRootView()
-                .environment(model)
-                .preferredColorScheme(.dark)
+            // GitHub 下载的版本没装进「应用程序」时，先引导安装（MacInstallGate.swift），不进主界面
+            if let problem = MacInstallLocation.problem {
+                MacInstallGateView(problem: problem)
+                    .frame(minWidth: 640, minHeight: 480)
+                    .preferredColorScheme(.dark)
+            } else {
+                MacRootView()
+                    .environment(model)
+                    .preferredColorScheme(.dark)
+            }
         }
         .defaultSize(width: 1320, height: 860)
         .windowResizability(.contentMinSize)

@@ -59,7 +59,7 @@ struct SubtitleDisplayTests {
         let forced = try #require(options.first { $0.ref == "embedded:5" })
         #expect(forced.displayTitle == "简英特效")
         #expect(forced.isForced)
-        let host = NSHostingView(rootView: MacTracksPanel(controller: controller, maxHeight: 420, close: {}).frame(width: 286))
+        let host = NSHostingView(rootView: MacTracksPanel(controller: controller, maxWidth: 286, maxHeight: 420, close: {}).frame(width: 286))
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 286, height: 480), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host
         window.orderFront(nil)

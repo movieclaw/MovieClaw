@@ -5,7 +5,7 @@
 # （latest 只能是服务器版本）：
 #   - ios-vX.Y.Z        MovieClaw for iPhone and iPad：未签名 IPA，给侧载用户；商店版走 TestFlight
 #   - tvos-vX.Y.Z       MovieClaw for Apple TV：只有更新说明，App 只走 TestFlight
-#   - macos-vX.Y.Z      MovieClaw for Mac：Developer ID 签名并公证的 zip + downloads.json
+#   - macos-vX.Y.Z      MovieClaw for Mac：Developer ID 签名并公证的安装盘（dmg）与更新包（zip）+ downloads.json
 #   - transcoder-vX.Y.Z MovieClaw Transcoder：签名公证的 zip + downloads.json
 # tag 版本必须等于 App 自己的版本：前三者是 apps/apple/project.yml 的 MARKETING_VERSION
 # （三端共用，同一版本每个平台只能发一次，已发过就先递增），转码器是
@@ -134,6 +134,10 @@ jobs:
       - name: 准备工具链
         run: |
           brew install xcodegen
+          # 生成安装盘的 dmgbuild，版本钉在 scripts/dmg/requirements.txt；装进独立虚拟环境，不碰系统 Python
+          python3 -m venv "$RUNNER_TEMP/dmgbuild"
+          "$RUNNER_TEMP/dmgbuild/bin/pip" install --quiet -r apps/apple/scripts/dmg/requirements.txt
+          echo "$RUNNER_TEMP/dmgbuild/bin" >> "$GITHUB_PATH"
           xcodebuild -version
 
       # 证书导入临时钥匙串，作业结束即删
@@ -194,6 +198,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            apps/apple/build-macapp/MovieClaw-macos-arm64.dmg \
             apps/apple/build-macapp/MovieClaw-macos-arm64.zip
 
   # Mac 转码器（macos/MovieClawTranscoder）：与 Mac 版 App 同一套 Developer ID 签名与公证密钥。
@@ -295,7 +300,7 @@ jobs:
     needs: [prepare, ios-ipa, mac-app, transcoder]
     # Apple TV 没有构建作业；其余产品要求对应作业成功
     if: ${{ !cancelled() && needs.prepare.result == 'success' && !contains(needs.*.result, 'failure') }}
-    # 官网清单从实际 ZIP 读取，macOS runner 还能复核签名和公证
+    # 官网清单从实际安装包读取，macOS runner 还能复核签名和公证
     runs-on: macos-26
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
@@ -313,16 +318,19 @@ jobs:
       - name: 校验附件并生成官网下载清单
         run: |
           case "$PRODUCT" in
-            ios) asset=MovieClaw-iOS-unsigned.ipa ;;
-            macos) asset=MovieClaw-macos-arm64.zip ;;
-            transcoder) asset=MovieClawTranscoder-macos-arm64.zip ;;
+            ios) assets=MovieClaw-iOS-unsigned.ipa ;;
+            # Mac 版：安装盘给人下载，zip 给自动更新
+            macos) assets="MovieClaw-macos-arm64.dmg MovieClaw-macos-arm64.zip" ;;
+            transcoder) assets=MovieClawTranscoder-macos-arm64.zip ;;
             *) exit 0 ;;
           esac
-          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets \
-              --jq '.assets[].name' | grep -qx "$asset"; then
-            echo "::error::缺少 $asset，拒绝转正"
-            exit 1
-          fi
+          uploaded="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          for asset in $assets; do
+            if ! grep -qx "$asset" <<<"$uploaded"; then
+              echo "::error::缺少 $asset，拒绝转正"
+              exit 1
+            fi
+          done
           # 脚本校验包与 tag 是同一个产品、同一个版本
           bash scripts/publish-download-manifest.sh "$RELEASE_TAG"
 
