@@ -34,7 +34,6 @@ from movieclaw_db.models import (
     DownloadAttemptStatus,
     DownloaderClient,
     FileState,
-    Library,
     LibraryFile,
     ManualDownloadIntent,
     MediaItem,
@@ -121,27 +120,38 @@ def _delivery_plan_resolver(session: AsyncSession):
     在这里另抄一份迟早出现"卡片说好、投递却挂"的口径漂移（见
     SavePathDecision 的文档）。折中办法是按 (库, 类型, 片名, 年份) 记忆化：
     同一部作品的多条任务只算一次，组合数被在途作品数封顶。
+
+    选库同理：订阅没定格库（library_id 为 NULL）时，真实投递经
+    ``resolve_for_subscription`` 按条目收藏范围路由（兜底默认库），这里必须
+    走同一个入口，否则会把"未手动指定库"误报成"未配置媒体库、不会自动入库"
+    （#994）。轮询视图只读本地刮削档案做路由事实，不打 TMDB。
     """
+    from movieclaw_api.services.library.config import LibraryConfigService
     from movieclaw_api.services.library.routing import resolve_save_path
 
-    libraries: dict[int, Library] = {}
-    cache: dict[tuple[int | None, str, str | None, int | None], dict[str, Any] | None] = {}
+    libraries = LibraryConfigService(session)
+    PlanKey = tuple[int | None, int | None, str, str | None, int | None]
+    cache: dict[PlanKey, dict[str, Any] | None] = {}
 
     async def resolve(
-        library_id: int | None, kind: str | None, title: str | None, year: int | None
+        library_id: int | None,
+        kind: str | None,
+        title: str | None,
+        year: int | None,
+        item: MediaItem | None = None,
     ) -> dict[str, Any] | None:
         if not kind:
             return None
-        key = (library_id, kind, title, year)
+        # 库未定格时选库取决于条目本身（收藏范围），缓存键要带上条目
+        routed_item_id = item.id if library_id is None and item is not None else None
+        key = (library_id, routed_item_id, kind, title, year)
         if key in cache:
             return cache[key]
-        if library_id is not None and library_id not in libraries:
-            row = await session.get(Library, library_id)
-            if row is not None:
-                libraries[library_id] = row
-        library = libraries.get(library_id) if library_id is not None else None
+        library = await libraries.resolve_for_subscription(
+            library_id, kind, item=item, remote_facts=False
+        )
         decision = await resolve_save_path(
-            session, library, kind=kind, title=title, year=year
+            session, library, kind=kind, title=title, year=year, item=item
         )
         rule = decision.rule
         # 自定义目录规则：整理改名后落规则目录、**不进任何库**，后续由库根
@@ -160,7 +170,8 @@ def _delivery_plan_resolver(session: AsyncSession):
             "strategy": rule.strategy if rule is not None else None,
             "library_name": None if custom_dir else (library.name if library else None),
             "dest_path": dest_path,
-            "enters_library": not custom_dir,
+            # 落下载器默认目录时谁也搬不动它，不能同时宣称"会入库"
+            "enters_library": not custom_dir and decision.mode != "downloader_default",
         }
         cache[key] = plan
         return plan
@@ -206,6 +217,7 @@ async def _relations(
             "_library_id": subscription.library_id,
             "_kind": subscription.kind,
             "_year": media.year,
+            "_media": media,
         }
         subscription_meta[key] = meta
         base_meta_by_subscription[subscription.id] = meta
@@ -325,6 +337,7 @@ async def _relations(
             "_library_id": subscription.library_id,
             "_kind": subscription.kind,
             "_year": media.year,
+            "_media": media,
         }
         subscription_meta[key] = {
             **base_meta,
@@ -382,6 +395,7 @@ async def _relations(
                     meta.get("_kind") or meta.get("media_kind"),
                     meta.get("media_title"),
                     meta.get("_year"),
+                    meta.get("_media"),
                 ),
                 "units": [
                     {
@@ -425,7 +439,7 @@ async def _relations(
             "media_kind": media.kind,
             "poster_url": _poster_url(media),
             "_plan": await resolve_plan(
-                intent.library_id, media.kind, media.title, media.year
+                intent.library_id, media.kind, media.title, media.year, media
             ),
         }
         for intent, media in manual_rows

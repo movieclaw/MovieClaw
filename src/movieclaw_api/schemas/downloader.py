@@ -189,7 +189,7 @@ class DownloadTaskPlanView(BaseModel):
         default=True,
         description=(
             "整理后是否进入媒体库。自定义目录规则为 false——文件落规则目录后"
-            "不写库台账，需外部流转后由库根扫描收尾"
+            "不写库台账，需外部流转后由库根扫描收尾；downloader_default 同样为 false"
         ),
     )
 

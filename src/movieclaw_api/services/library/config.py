@@ -114,13 +114,14 @@ class LibraryConfigService:
         return row
 
     async def resolve_for_subscription(
-        self, library_id: int | None, kind: str, *, item=None
+        self, library_id: int | None, kind: str, *, item=None, remote_facts: bool = True
     ) -> Library | None:
         """解析订阅/投递实际使用的库：显式指定 → 收藏范围路由 → 该类型默认库。
 
         ``library_id`` 为 NULL（老订阅/定格库已被删除）且给了 ``item`` 时按
         收藏范围路由（route 内含默认库兜底）；不给 item 维持默认库语义。
         类型没有任何库时返回 None——调用方回落到下载器默认目录，不阻断投递。
+        ``remote_facts=False`` 时路由只读本地刮削档案、不打 TMDB（见 gather_facts）。
         """
         if library_id is not None:
             row = await self._repo.get(library_id)
@@ -129,7 +130,9 @@ class LibraryConfigService:
         if item is not None:
             from movieclaw_api.services.library.routing import route_for_item
 
-            return (await route_for_item(self._session, kind, item)).library
+            return (
+                await route_for_item(self._session, kind, item, remote=remote_facts)
+            ).library
         return await self._repo.get_default(kind)
 
     # -- 写入 --------------------------------------------------------------

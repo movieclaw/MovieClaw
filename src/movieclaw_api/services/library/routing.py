@@ -144,11 +144,16 @@ async def route(session: AsyncSession, kind: str, facts: RoutingFacts | None) ->
     return RouteDecision(library=default, matched=False, reason=reason)
 
 
-async def gather_facts(session: AsyncSession, item: MediaItem) -> RoutingFacts | None:
+async def gather_facts(
+    session: AsyncSession, item: MediaItem, *, remote: bool = True
+) -> RoutingFacts | None:
     """装配作品事实：刮削档案 → TMDB 轻量详情 → None（兜底默认库）。
 
     第二级几乎不会失败：能走到路由说明识别/建档刚与 TMDB 打过交道；
     单次请求失败的瞬间窗口落默认库 + 写明理由已是正确行为，不做重试队列。
+
+    ``remote=False`` 只读本地刮削档案、不打 TMDB：给轮询类只读视图（任务中心
+    的去向预告）用，不能让每次轮询都对未刮削条目发外网请求。
     """
     if item.id is not None:
         meta = (
@@ -161,6 +166,8 @@ async def gather_facts(session: AsyncSession, item: MediaItem) -> RoutingFacts |
                 genre_ids=tuple(meta.genre_ids),
                 origin_countries=tuple(meta.origin_countries or []),
             )
+    if not remote:
+        return None
 
     from movieclaw_api.services.media_discover import get_tmdb_client
     from movieclaw_api.services.scrape_config import effective_language
@@ -178,9 +185,11 @@ async def gather_facts(session: AsyncSession, item: MediaItem) -> RoutingFacts |
         return None
 
 
-async def route_for_item(session: AsyncSession, kind: str, item: MediaItem) -> RouteDecision:
+async def route_for_item(
+    session: AsyncSession, kind: str, item: MediaItem, *, remote: bool = True
+) -> RouteDecision:
     """便捷入口：装配事实 + 选库（订阅创建定格、监听导入 auto 模式共用）。"""
-    facts = await gather_facts(session, item)
+    facts = await gather_facts(session, item, remote=remote)
     decision = await route(session, kind, facts)
     return replace(decision, item=item, facts=facts)
 
