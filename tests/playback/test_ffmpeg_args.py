@@ -24,6 +24,7 @@ from movieclaw_api.services.playback.ffmpeg_args import (
     build_hls_command,
     effective_hw_backend,
     register_encoder_options,
+    register_hevc_encoder,
     register_native_tonemap,
 )
 from movieclaw_playback.decide import (
@@ -1318,7 +1319,7 @@ def test_remote_disc_reads_the_concat_list_over_http():
 
 
 # ---------------------------------------------------------------------------
-# 离线导出的 HEVC 输出（offline-download.md §5.1）：只在 VideoToolbox 上出
+# 离线导出的 HEVC 输出（offline-download.md §5.1）：VideoToolbox 与自检过 HEVC 的 NAS 显卡
 # ---------------------------------------------------------------------------
 
 
@@ -1357,11 +1358,35 @@ def test_hevc_export_on_the_mac_gpu_chain_keeps_hardware_frames():
 
 @pytest.mark.parametrize("backend", [None, "vaapi"])
 def test_hevc_plan_without_a_hevc_encoder_stays_h264(backend):
-    """没有 HEVC 编码器的后端（NAS 软件、其他显卡）：照旧出 H.264，不会报错。"""
+    """没有 HEVC 编码器的后端（NAS 软件、自检没过 HEVC 的显卡）：照旧出 H.264，不会报错。"""
     argv = argv_of(_hevc_plan(), hw_backend=backend, start_number=0)
     assert pair(argv, "-c:v") in {"libx264", "h264_vaapi"}
     assert pair(argv, "-tag:v") == "avc1"
     assert pair(argv, "-maxrate") == "6M"  # 码率也按 H.264 给
+
+
+@pytest.mark.parametrize(
+    ("backend", "encoder", "options"),
+    [
+        ("vaapi", "hevc_vaapi", ("-low_power", "1")),
+        ("qsv", "hevc_qsv", ()),
+        ("nvenc", "hevc_nvenc", ()),
+    ],
+)
+def test_hevc_export_on_nas_gpus_after_self_test(backend, encoder, options):
+    """issue #1008：自检真编过 HEVC 的 NAS 显卡出 HEVC。帧留在显存里（硬件 scale 已钉 8-bit），
+    不能再要 -pix_fmt；自检探出的参数紧跟编码器。"""
+    register_hevc_encoder(backend, options)
+    try:
+        argv = argv_of(_hevc_plan(), hw_backend=backend, start_number=0)
+    finally:
+        register_hevc_encoder(backend, None)
+    at = argv.index(encoder)
+    assert argv[at - 1] == "-c:v"
+    assert tuple(argv[at + 1 : at + 1 + len(options)]) == options
+    assert pair(argv, "-profile:v") == "main" and pair(argv, "-tag:v") == "hvc1"
+    assert pair(argv, "-maxrate") == "4M" and pair(argv, "-bufsize") == "8M"
+    assert "-pix_fmt" not in argv and "-a53cc" not in argv
 
 
 # ---------------------------------------------------------------------------

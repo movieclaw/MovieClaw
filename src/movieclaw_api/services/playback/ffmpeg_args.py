@@ -346,7 +346,8 @@ class HwBackend:
     #: 这两家直接退软件编码（用户选烧录已经接受了转码代价）。
     sw_frames_ok: bool = False
     #: 同一后端的 HEVC 编码器；None = 这个后端不出 HEVC。目前只有离线下载的转码导出要
-    #: HEVC（见 ``HEVC_BITRATE_LADDER``），播放一律 H.264。
+    #: HEVC（见 ``HEVC_BITRATE_LADDER``），播放一律 H.264。VideoToolbox 以外的要自检真编
+    #: 通过才用（``hevc_encoder``）：有 H.264 硬编不等于有 HEVC 硬编（老核显、老驱动）。
     hevc_encoder: str | None = None
 
 
@@ -354,6 +355,7 @@ HW_BACKENDS: dict[str, HwBackend] = {
     "vaapi": HwBackend(
         name="vaapi",
         encoder="h264_vaapi",
+        hevc_encoder="hevc_vaapi",
         hwaccel="vaapi",
         hwaccel_output_format="vaapi",
         scale_filter="scale_vaapi",
@@ -369,6 +371,7 @@ HW_BACKENDS: dict[str, HwBackend] = {
     "qsv": HwBackend(
         name="qsv",
         encoder="h264_qsv",
+        hevc_encoder="hevc_qsv",
         hwaccel="qsv",
         hwaccel_output_format="qsv",
         scale_filter="scale_qsv",
@@ -382,6 +385,7 @@ HW_BACKENDS: dict[str, HwBackend] = {
     "nvenc": HwBackend(
         name="nvenc",
         encoder="h264_nvenc",
+        hevc_encoder="hevc_nvenc",
         hwaccel="cuda",
         hwaccel_output_format="cuda",
         scale_filter="scale_cuda",
@@ -485,6 +489,31 @@ def register_encoder_options(backend: str, options: tuple[str, ...]) -> None:
 def encoder_options(backend: HwBackend) -> tuple[str, ...]:
     """该后端这次编码要追加的参数。"""
     return _PROBED_ENCODER_OPTIONS.get(backend.name, ())
+
+
+#: 后端名 → 经自检真编通过的 HEVC 编码器要追加的参数（键在 = HEVC 可用）。VideoToolbox 不登记：
+#: Apple 芯片全系有 HEVC 硬编，远程转码器在连接时自己声明编码器（``remote_workers_have_encoder``）。
+_PROBED_HEVC_OPTIONS: dict[str, tuple[str, ...]] = {}
+
+
+def register_hevc_encoder(backend: str, options: tuple[str, ...] | None) -> None:
+    """自检确认某后端的 HEVC 编码器能用（``options`` 是要追加的参数）或不能用（None）。
+    与 ``register_encoder_options`` 同理：只由 ``hwprobe`` 写。"""
+    if options is None:
+        _PROBED_HEVC_OPTIONS.pop(backend, None)
+    else:
+        _PROBED_HEVC_OPTIONS[backend] = options
+
+
+def hevc_encoder(backend: HwBackend) -> str | None:
+    """该后端这次能用的 HEVC 编码器；None = 只能出 H.264。"""
+    if backend.name == "videotoolbox" or backend.name in _PROBED_HEVC_OPTIONS:
+        return backend.hevc_encoder
+    return None
+
+
+def hevc_encoder_options(backend: HwBackend) -> tuple[str, ...]:
+    return _PROBED_HEVC_OPTIONS.get(backend.name, ())
 
 
 def _needs_software_filters(
@@ -863,15 +892,19 @@ def _video_args(
         # 变化时，ffmpeg 重建滤镜图会按上次输出尺寸插入软件 scaler_out；它接不了
         # videotoolbox_vld，导致 -78 退出。关闭这层自动缩放，保持整条链使用硬件帧。
         args += ["-noautoscale"]
-    hevc = bool(is_hevc_output(plan.video) and backend is not None and backend.hevc_encoder)
+    hevc_codec = hevc_encoder(backend) if backend is not None else None
+    hevc = bool(is_hevc_output(plan.video) and hevc_codec)
     # 码率阶梯按**实际**出的编码选：要 HEVC 但后端没有 HEVC 编码器时照旧出 H.264，码率也按 H.264
     maxrate = maxrate_for_video(plan.video, hevc=hevc)
     bufsize = f"{float(maxrate[:-1]) * 2:g}M"
-    if backend is not None and hevc:
-        # 离线导出的 HEVC：8-bit Main（输出恒为 SDR BT.709，iPhone 全系硬解），hvc1 标签
-        # 理由同直通档。没有 H.264 那几条：hevc_videotoolbox 不认 -a53cc，High@4.1 是 H.264 的
-        args += ["-c:v", backend.hevc_encoder, *encoder_options(backend), "-profile:v", "main"]
-        if vt_mode != VT_GPU:
+    if backend is not None and hevc_codec and hevc:
+        # 离线导出的 HEVC：8-bit Main（输出恒为 SDR BT.709，iPhone 全系硬解；硬件 scale 已钉
+        # nv12 / yuv420p），hvc1 标签理由同直通档。没有 H.264 那几条：hevc_videotoolbox 不认
+        # -a53cc，High@4.1 是 H.264 的
+        args += ["-c:v", hevc_codec, *hevc_encoder_options(backend), "-profile:v", "main"]
+        if backend.name == "videotoolbox" and vt_mode != VT_GPU:
+            # 同 H.264：只有 VideoToolbox 吃软件帧时要钉；VAAPI / QSV / NVENC 的帧是硬件帧，
+            # 再要 yuv420p 会逼 ffmpeg 插一个接不上硬件帧的软件格式转换
             args += ["-pix_fmt", "yuv420p"]
         args += ["-tag:v", "hvc1", "-b:v", "0", "-maxrate", maxrate, "-bufsize", bufsize]
     elif backend is not None:

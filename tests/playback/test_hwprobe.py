@@ -15,7 +15,12 @@ from pathlib import Path
 import pytest
 
 from movieclaw_api.services.playback import hwprobe
-from movieclaw_api.services.playback.ffmpeg_args import HW_BACKENDS, encoder_options
+from movieclaw_api.services.playback.ffmpeg_args import (
+    HW_BACKENDS,
+    encoder_options,
+    hevc_encoder,
+    hevc_encoder_options,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -194,6 +199,90 @@ def test_reprobe_drops_a_stale_low_power_conclusion(monkeypatch, tmp_path):
     monkeypatch.setattr(hwprobe, "Path", lambda _p: tmp_path / "gone")
     assert status_of(hwprobe.probe_backends(force=True), "vaapi").available is False
     assert encoder_options(HW_BACKENDS["vaapi"]) == ()
+
+
+def _hevc_ready(monkeypatch, tmp_path):
+    _vaapi_ready(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        hwprobe, "_list_encoders", lambda: frozenset({"h264_vaapi", "hevc_vaapi"})
+    )
+
+
+def test_hevc_is_enabled_only_after_a_real_hevc_run(monkeypatch, tmp_path):
+    """issue #1008：H.264 能编不等于 HEVC 能编。HEVC 真编一秒通过才让离线导出出 HEVC；
+    探测带上导出真实会用的 profile 与码率控制，并沿用 H.264 探出的低功耗。"""
+    _hevc_ready(monkeypatch, tmp_path)
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(hwprobe.subprocess, "run", fake_run)
+    vaapi = status_of(hwprobe.probe_backends(), "vaapi")
+    assert vaapi.available is True and "HEVC" in vaapi.detail
+    (argv,) = [a for a in calls if "hevc_vaapi" in a]
+    after = argv[argv.index("hevc_vaapi") + 1 :]
+    assert after[:2] == ["-low_power", "1"]
+    assert after[after.index("-profile:v") + 1] == "main"
+    assert {"-b:v", "-maxrate", "-bufsize"} <= set(after)
+    assert hevc_encoder(HW_BACKENDS["vaapi"]) == "hevc_vaapi"
+    assert hevc_encoder_options(HW_BACKENDS["vaapi"]) == ("-low_power", "1")
+
+
+def test_hevc_follows_normal_encoding_when_low_power_is_unsupported(monkeypatch, tmp_path):
+    """H.264 退回了普通编码，HEVC 也只探普通编码。"""
+    _hevc_ready(monkeypatch, tmp_path)
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(argv)
+        failed = "-low_power" in argv
+        return subprocess.CompletedProcess(argv, 1 if failed else 0, b"", b"")
+
+    monkeypatch.setattr(hwprobe.subprocess, "run", fake_run)
+    hwprobe.probe_backends()
+    assert [("-low_power" in a) for a in calls if "hevc_vaapi" in a] == [False]
+    assert hevc_encoder(HW_BACKENDS["vaapi"]) == "hevc_vaapi"
+    assert hevc_encoder_options(HW_BACKENDS["vaapi"]) == ()
+
+
+def test_hevc_failure_keeps_h264_hardware_transcoding(monkeypatch, tmp_path):
+    """HEVC 探不通（老核显）：硬件转码照常可用，只是导出照旧出 H.264。"""
+    _hevc_ready(monkeypatch, tmp_path)
+
+    def fake_run(argv, **_kwargs):
+        failed = "hevc_vaapi" in argv
+        return subprocess.CompletedProcess(argv, 1 if failed else 0, b"", b"unsupported")
+
+    monkeypatch.setattr(hwprobe.subprocess, "run", fake_run)
+    vaapi = status_of(hwprobe.probe_backends(), "vaapi")
+    assert vaapi.available is True and "HEVC" not in vaapi.detail
+    assert hevc_encoder(HW_BACKENDS["vaapi"]) is None
+
+
+def test_hevc_is_not_probed_without_the_encoder_or_h264(monkeypatch, tmp_path):
+    """构建里没有 hevc_vaapi，或 H.264 本身不可用：不探 HEVC，也不登记。"""
+    _vaapi_ready(monkeypatch, tmp_path)  # 只有 h264_vaapi
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(hwprobe.subprocess, "run", fake_run)
+    hwprobe.probe_backends()
+    assert not [a for a in calls if "hevc_vaapi" in a]
+    assert hevc_encoder(HW_BACKENDS["vaapi"]) is None
+    # 上次探到 HEVC、这次设备没了：旧结论要撤
+    monkeypatch.setattr(
+        hwprobe, "_list_encoders", lambda: frozenset({"h264_vaapi", "hevc_vaapi"})
+    )
+    hwprobe.probe_backends(force=True)
+    assert hevc_encoder(HW_BACKENDS["vaapi"]) == "hevc_vaapi"
+    monkeypatch.setattr(hwprobe, "Path", lambda _p: tmp_path / "gone")
+    hwprobe.probe_backends(force=True)
+    assert hevc_encoder(HW_BACKENDS["vaapi"]) is None
 
 
 def test_qsv_probe_initialises_its_device_before_hwupload(monkeypatch, tmp_path):

@@ -12,8 +12,10 @@
 from __future__ import annotations
 
 import itertools
+import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -928,3 +930,119 @@ def test_queued_export_says_what_it_is_waiting_for(client, tmp_path) -> None:
     finally:
         manager._queue.clear()
         manager._current_id = None
+
+
+# ---------------------------------------------------------------------------
+# NAS 显卡出 HEVC（issue #1008）：测试机没有显卡，PATH 里包一层 ffmpeg 把 VAAPI 命令换成
+# 软件编码（hevc_vaapi → libx265、h264_vaapi → libx264）。自检结论直接登记；其余全是真代码
+# ---------------------------------------------------------------------------
+
+_FAKE_VAAPI_FFMPEG = r'''#!{python}
+import os, re, sys
+argv = sys.argv[1:]
+with open(os.environ["FAKE_FFMPEG_LOG"], "a") as log:
+    log.write(" ".join(argv) + "\n")
+if "hevc_vaapi" in argv and os.environ.get("FAKE_HEVC_FAIL"):
+    if os.environ["FAKE_HEVC_FAIL"] == "late":
+        import time
+        time.sleep(1.2)  # #763 现场：起来了、约一秒后退出，一段不产出
+    sys.stderr.write("[hevc_vaapi] Failed to map output buffers: 24 (internal encoding error)\n")
+    sys.exit(1)
+out = []
+skip = 0
+for i, arg in enumerate(argv):
+    if skip:
+        skip -= 1
+        continue
+    if arg in ("-hwaccel", "-hwaccel_output_format", "-hwaccel_device", "-low_power"):
+        skip = 1
+        continue
+    if arg == "-vf" and "scale_vaapi=" in argv[i + 1]:
+        def soft(m):
+            keep = [kv for kv in m.group(1).split(":") if kv.split("=")[0] in ("w", "h")]
+            return "scale=" + ":".join(keep) + ",format=yuv420p"
+        out += ["-vf", re.sub(r"scale_vaapi=([^,]*)", soft, argv[i + 1])]
+        skip = 1
+        continue
+    if arg == "h264_vaapi":
+        out += ["libx264", "-preset", "ultrafast"]
+        continue
+    if arg == "hevc_vaapi":
+        out += ["libx265", "-preset", "ultrafast", "-x265-params", "log-level=error"]
+        continue
+    out.append(arg)
+os.execv({real!r}, [{real!r}, *out])
+'''
+
+
+@pytest.fixture
+def fake_vaapi(client, tmp_path, monkeypatch):
+    from movieclaw_api.services.playback.ffmpeg_args import register_hevc_encoder
+
+    real = shutil.which("ffmpeg")
+    assert real
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    script = bin_dir / "ffmpeg"
+    script.write_text(_FAKE_VAAPI_FFMPEG.format(python=sys.executable, real=real))
+    script.chmod(0o755)
+    log = tmp_path / "ffmpeg.log"
+    log.touch()
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("FAKE_FFMPEG_LOG", str(log))
+    monkeypatch.setattr("movieclaw_api.services.playback.plan.hardware_available", lambda: True)
+    monkeypatch.setattr(exports, "available_local_backends", lambda: ("vaapi",))
+    monkeypatch.setattr(exports, "available_backends", lambda: ("vaapi",))
+    register_hevc_encoder("vaapi", ())  # 自检：HEVC 真编通过
+    yield log
+    register_hevc_encoder("vaapi", None)
+
+
+def _probe_video(data: bytes, tmp_path: Path) -> str:
+    out = tmp_path / "check.mp4"
+    out.write_bytes(data)
+    return subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=codec_name,codec_tag_string,height",
+            "-of", "default=nw=1", str(out),
+        ],
+        capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="需要 ffmpeg")
+def test_export_on_nas_gpu_is_hevc_when_self_test_passed(client, tmp_path, fake_vaapi) -> None:
+    _lib, _item, file_id = seed(client, tmp_path, real=True)
+    manifest = client.get(f"{_API}/offline/manifest", params={"file_id": file_id}).json()["data"]
+    assert "480p" in [p["profile"] for p in manifest["profiles"]]
+    created = client.post(f"{_API}/offline/exports", json={"file_id": file_id, "profile": "480p"})
+    assert created.status_code == 200, created.text
+    done = _wait_export(client, created.json()["data"]["export_id"])
+    assert done["status"] == "done", done
+    probe = _probe_video(client.get(created.json()["data"]["content_url"]).content, tmp_path)
+    assert "codec_name=hevc" in probe and "codec_tag_string=hvc1" in probe, probe
+    assert "height=480" in probe
+    commands = fake_vaapi.read_text()
+    assert "-c:v hevc_vaapi" in commands and "-maxrate 1M" in commands  # HEVC 码率阶梯
+    assert "h264_vaapi" not in commands
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="需要 ffmpeg")
+@pytest.mark.parametrize("failure", ["start", "late"])
+def test_export_falls_back_to_h264_when_gpu_hevc_fails(
+    client, tmp_path, fake_vaapi, monkeypatch, failure
+) -> None:
+    """自检只编一秒合成画面：真实片子上 HEVC 编不了（起步即退，或起来了一段不产出）时，
+    这份导出改出 H.264 照样完成。"""
+    monkeypatch.setenv("FAKE_HEVC_FAIL", failure)
+    monkeypatch.setattr(exports, "_CAPACITY_POLL_S", 0.05)
+    _lib, _item, file_id = seed(client, tmp_path, real=True)
+    created = client.post(f"{_API}/offline/exports", json={"file_id": file_id, "profile": "480p"})
+    assert created.status_code == 200, created.text
+    done = _wait_export(client, created.json()["data"]["export_id"], timeout=120)
+    assert done["status"] == "done", done
+    probe = _probe_video(client.get(created.json()["data"]["content_url"]).content, tmp_path)
+    assert "codec_name=h264" in probe and "codec_tag_string=avc1" in probe, probe
+    commands = fake_vaapi.read_text()
+    assert "-c:v hevc_vaapi" in commands and "-c:v h264_vaapi" in commands

@@ -25,14 +25,16 @@ import logging
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from movieclaw_api.services.playback.ffmpeg_args import (
     HW_BACKENDS,
     NVENC_TONEMAP,
     VAAPI_LOW_POWER,
+    encoder_options,
     register_encoder_options,
+    register_hevc_encoder,
     register_native_tonemap,
 )
 from movieclaw_api.services.playback.remote_worker import remote_worker_available
@@ -68,6 +70,14 @@ _VAAPI_LOW_POWER_PROBE_ARGS: list[str] = [
     *VAAPI_LOW_POWER,
     "-profile:v", "high",
     "-b:v", "0", "-maxrate", "8M", "-bufsize", "16M",
+]  # fmt: skip
+
+#: HEVC 编码的探测参数：带上离线导出真实会用的 profile 与码率控制（8-bit Main、只给上限），
+#: 数值取 1080p 档的量级。理由同 ``_VAAPI_LOW_POWER_PROBE_ARGS``：只探「能不能开」会探得通、
+#: 真用时再被参数拒掉。
+_HEVC_PROBE_ARGS: list[str] = [
+    "-profile:v", "main",
+    "-b:v", "0", "-maxrate", "4M", "-bufsize", "8M",
 ]  # fmt: skip
 
 #: 需要真跑一遍才敢启用的原生 tone-map 链：``tonemap_cuda`` 是 jellyfin-ffmpeg
@@ -133,7 +143,7 @@ def probe_backends(*, force: bool = False) -> list[HwBackendStatus]:
         return _with_remote_backend(_cache)
 
     encoders = _list_encoders()
-    _cache = [_probe_one(name, encoders) for name in HW_BACKENDS]
+    _cache = [_probe_hevc(_probe_one(name, encoders), encoders) for name in HW_BACKENDS]
     for status in _cache:
         _probe_native_tonemap(status.name, available=status.available)
     usable = [s.name for s in _cache if s.available]
@@ -179,6 +189,7 @@ def reset_probe_cache() -> None:
         register_native_tonemap(name, None)
     for name in HW_BACKENDS:
         register_encoder_options(name, ())
+        register_hevc_encoder(name, None)
 
 
 async def probe_backends_async(*, force: bool = False) -> list[HwBackendStatus]:
@@ -248,6 +259,41 @@ def _probe_one(name: str, encoders: frozenset[str]) -> HwBackendStatus:
     if proc.returncode == 0:
         return status(True, "已通过一秒钟的真实编码验证，可用于硬件转码。")
     return status(False, _explain_failure(proc.stderr.decode(errors="replace")))
+
+
+def _probe_hevc(status: HwBackendStatus, encoders: frozenset[str]) -> HwBackendStatus:
+    """H.264 可用的后端再真编一秒 HEVC，过了才让离线导出出 HEVC（同画质体积小三分之一）。
+
+    沿用 H.264 探出来的编码方式：H.264 走了低功耗，HEVC 也只试低功耗——#763 那类机器普通
+    编码合成画面能过、真实片子挂 GPU，退回普通编码去探等于没探。探不通不影响硬件转码，
+    只是导出照旧出 H.264。VideoToolbox 不用探（见 ``ffmpeg_args.hevc_encoder``）。
+    """
+    backend = HW_BACKENDS[status.name]
+    if status.name == "videotoolbox" or backend.hevc_encoder is None:
+        return status
+    register_hevc_encoder(status.name, None)
+    if not status.available or backend.hevc_encoder not in encoders:
+        return status
+    options = encoder_options(backend)
+    proc = _run_probe(
+        backend.hevc_encoder,
+        _PROBE_FILTERS.get(status.name, []),
+        encoder_args=[*options, *_HEVC_PROBE_ARGS],
+    )
+    if proc is None or proc.returncode != 0:
+        reason = (
+            "探测超时"
+            if proc is None
+            else " ".join(proc.stderr.decode(errors="replace").split())[:200]
+        )
+        logger.info(
+            "%s 的 HEVC 编码探测不通，离线下载照旧出 H.264。原因：%s",
+            status.label,
+            reason or "（ffmpeg 未给出原因）",
+        )
+        return status
+    register_hevc_encoder(status.name, options)
+    return replace(status, detail=status.detail + "HEVC 编码也已验证，离线下载出 HEVC。")
 
 
 def _run_probe(

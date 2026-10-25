@@ -49,6 +49,7 @@ from movieclaw_api.services.playback.ffmpeg_args import (
     HW_BACKENDS,
     INIT_NAME,
     SEGMENT_SECONDS,
+    hevc_encoder,
     segment_type,
 )
 from movieclaw_api.services.playback.hwprobe import available_backends, available_local_backends
@@ -180,16 +181,19 @@ def estimate_bytes(
     if hevc is None:
         hevc = likely_hevc()
     if videotoolbox is None:
-        videotoolbox = hevc or likely_videotoolbox()
+        # 本机没有显卡还出 HEVC，只能是转码器在转（它的 HEVC 编码器在、名额可能正被占着）
+        videotoolbox = likely_videotoolbox() or (hevc and not available_local_backends())
     factor = VIDEOTOOLBOX_RATE_FACTOR if videotoolbox else OTHER_RATE_FACTOR
     return int((video_bps(profile, hevc=hevc) * factor + AUDIO_BPS) * duration_s / 8 * 1.02)
 
 
 def likely_hevc() -> bool:
-    """现在开转多半出 HEVC：在线的转码器都带 HEVC 编码器（NAS 本机是 Mac 时同理）。"""
-    return "videotoolbox" in available_local_backends() or remote_workers_have_encoder(
-        "hevc_videotoolbox"
-    )
+    """现在开转多半出 HEVC：本机首选的显卡自检过 HEVC 编码；本机没有显卡时看在线的转码器
+    是不是都带 HEVC 编码器（与 ``_execution`` 同序：本机硬件优先）。"""
+    local = available_local_backends()
+    if local:
+        return hevc_encoder(HW_BACKENDS[local[0]]) is not None
+    return remote_workers_have_encoder("hevc_videotoolbox")
 
 
 def likely_videotoolbox() -> bool:
@@ -293,7 +297,7 @@ class _Execution:
 
 
 async def _execution(
-    file: LibraryFile, profile: str, audio_track: str | None
+    file: LibraryFile, profile: str, audio_track: str | None, *, allow_hevc: bool = True
 ) -> _Execution | None:
     """现在能不能开转、由谁转；None = 还得等（名额被播放占着、转码器暂时不在）。
 
@@ -320,7 +324,7 @@ async def _execution(
         if backend is not None:
             if not remote and not _local_slot_free(hardware=True):
                 return None
-            if _hevc_capable(backend, remote=remote):
+            if allow_hevc and _hevc_capable(backend, remote=remote):
                 plan = replace(plan, video=replace(plan.video, codec="hevc"))
             return _Execution(plan, backend, remote)
         if (
@@ -337,12 +341,14 @@ async def _execution(
 
 def _hevc_capable(backend: str, *, remote: bool) -> bool:
     """这个执行者能出 HEVC：同画质体积小三分之一（ffmpeg_args.HEVC_BITRATE_LADDER），手机全系硬解。
-    目前只有 VideoToolbox（Mac 转码器）；NAS 的软件与其它显卡仍出 H.264（libx265 在 NAS 的
-    CPU 上太慢）。"""
-    encoder = HW_BACKENDS[backend].hevc_encoder if backend in HW_BACKENDS else None
-    if encoder is None:
+    VideoToolbox（Mac 转码器）与自检真编过 HEVC 的 NAS 显卡；NAS 软件仍出 H.264（libx265 在
+    NAS 的 CPU 上太慢）。"""
+    if backend not in HW_BACKENDS:
         return False
-    return remote_workers_have_encoder(encoder, backend) if remote else True
+    if remote:
+        encoder = HW_BACKENDS[backend].hevc_encoder
+        return encoder is not None and remote_workers_have_encoder(encoder, backend)
+    return hevc_encoder(HW_BACKENDS[backend]) is not None
 
 
 def _local_slot_free(*, hardware: bool) -> bool:
@@ -617,9 +623,13 @@ class ExportManager:
                 old.unlink()
         return out
 
-    async def _wait_execution(self, file: LibraryFile, state: ExportState) -> _Execution:
+    async def _wait_execution(
+        self, file: LibraryFile, state: ExportState, *, allow_hevc: bool
+    ) -> _Execution:
         while True:
-            execution = await _execution(file, state.profile, state.audio_track)
+            execution = await _execution(
+                file, state.profile, state.audio_track, allow_hevc=allow_hevc
+            )
             if execution is not None:
                 return execution
             await asyncio.sleep(_CAPACITY_POLL_S)
@@ -644,9 +654,10 @@ class ExportManager:
         init: bytes | None = None
         index = 0
         stalled = 0
+        allow_hevc = True
         started = time.monotonic()
         while index < segments.count:
-            execution = await self._wait_execution(file, state)
+            execution = await self._wait_execution(file, state, allow_hevc=allow_hevc)
             if out is None:
                 # 真开转了才进「转码中」：等名额 / 等转码器回来时仍是排队，内容接口回 503 让手机
                 # 稍后再来，而不是挂一条没有字节的长连接
@@ -672,6 +683,12 @@ class ExportManager:
                     export_id=state.export_id,
                 )
             except (SessionLimitError, SessionStartError, DiskQuotaError) as exc:
+                if isinstance(exc, SessionStartError) and _gpu_hevc(execution, allow_hevc):
+                    logger.warning(
+                        "离线导出 %s 的 HEVC 起不来（%s），改出 H.264", state.export_id, exc
+                    )
+                    allow_hevc = False
+                    continue
                 stalled += 1
                 if stalled >= _MAX_STALLED_ROUNDS:
                     raise ExportUnavailable(f"转码起不来：{exc}") from exc
@@ -717,6 +734,15 @@ class ExportManager:
                 continue  # 被播放挤掉：不算没进展，等名额空出来接着转
             if index > before:
                 stalled = 0
+                continue
+            if _gpu_hevc(execution, allow_hevc):
+                # 已经写进文件的 HEVC 分片 init 对不上，H.264 会整份从头（_InitMismatch）
+                logger.warning(
+                    "离线导出 %s 的 HEVC 转不出来（%s），改出 H.264",
+                    state.export_id,
+                    live.error or "没有进展",
+                )
+                allow_hevc = False
                 continue
             stalled += 1
             if stalled >= _MAX_STALLED_ROUNDS:
@@ -788,6 +814,12 @@ class ExportManager:
             self._worker.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._worker
+
+
+def _gpu_hevc(execution: _Execution, allow_hevc: bool) -> bool:
+    """这一轮是本机显卡在出 HEVC，且这份导出还没退过 H.264。它起不来或一段都没转出来时改出
+    H.264：自检只编了一秒合成画面，真实片子仍可能编不了（驱动、片源）。"""
+    return allow_hevc and execution.plan.video.codec == "hevc" and not execution.remote
 
 
 class _InitMismatch(Exception):
