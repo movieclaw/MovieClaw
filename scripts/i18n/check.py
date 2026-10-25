@@ -279,6 +279,8 @@ def unused_keys() -> list[str]:
                 for path in (ROOT / "src" / package).rglob("*.py")
             ]
         source = "\n".join(path.read_text() for path in paths)
+        # Index quoted references once instead of rescanning every source file for every key.
+        references = set(re.findall(r"(?=[\"']([^\"'\n]*)[\"'])", source))
         for catalog in (base / resources).glob("*.json"):
             for key in flatten(json.loads(catalog.read_text())):
                 name = f"{catalog.stem}.{key}"
@@ -286,10 +288,7 @@ def unused_keys() -> list[str]:
                 suffixes = [
                     ".".join(name.split(".")[index:]) for index in range(len(name.split(".")))
                 ]
-                if not any(
-                    re.search(r"[\"']" + re.escape(suffix) + r"[\"']", source)
-                    for suffix in suffixes
-                ):
+                if not any(suffix in references for suffix in suffixes):
                     warnings.append(f"Possibly unused key: {base.relative_to(ROOT)}:{name}")
     base = ROOT / "apps/apple"
     source = "\n".join(

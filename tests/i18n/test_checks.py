@@ -192,3 +192,24 @@ def test_domain_error_provenance_keys_and_parameters_are_checked(catalog, packag
         "unknown key" in error or "call parameters differ" in error
         for error in check.check_catalogs()
     )
+
+
+@pytest.mark.parametrize("reference", ["common.greeting", "greeting"])
+def test_unused_hints_recognize_scoped_references(catalog, reference):
+    root, _ = catalog
+    (root / "src/movieclaw_api/example.py").write_text(f't("{reference}", count=1)')
+    assert not any("src/movieclaw_api" in warning for warning in check.unused_keys())
+
+
+def test_unused_hints_require_a_whole_quoted_reference(catalog):
+    root, _ = catalog
+    (root / "src/movieclaw_api/example.py").write_text(
+        't("common.greetingExtra")\nt("notcommon.greeting")'
+    )
+    assert any("src/movieclaw_api:common.greeting" in warning for warning in check.unused_keys())
+
+
+def test_unused_hints_recognize_references_inside_another_quoted_string(catalog):
+    root, _ = catalog
+    (root / "src/movieclaw_api/example.py").write_text('source = "t(\'greeting\')"')
+    assert not any("src/movieclaw_api" in warning for warning in check.unused_keys())
