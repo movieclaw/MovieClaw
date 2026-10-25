@@ -185,6 +185,9 @@ jobs:
           fi
 
       - name: 编译、签名、公证并打包
+        env:
+          # 更新包的 EdDSA 签名私钥（公钥写在 project.yml 的 SUPublicEDKey）；没配就不签，App 不会接受这个版本的自动更新
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: apps/apple/scripts/package-mac-app.sh
 
       - name: 清理签名钥匙串与密钥
@@ -200,6 +203,13 @@ jobs:
           gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             apps/apple/build-macapp/MovieClaw-macos-arm64.dmg \
             apps/apple/build-macapp/MovieClaw-macos-arm64.zip
+          # 更新包的签名单独一个小附件，清单脚本读进 downloads.json（官网据此生成更新源）
+          sig=apps/apple/build-macapp/MovieClaw-macos-arm64.zip.edsig
+          if [ -f "$sig" ]; then
+            gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber "$sig"
+          else
+            echo "::warning::更新包没有 EdDSA 签名（未配置 SPARKLE_ED_PRIVATE_KEY），已装的 Mac 版不会自动更新到这一版"
+          fi
 
   # Mac 转码器（macos/MovieClawTranscoder）：与 Mac 版 App 同一套 Developer ID 签名与公证密钥。
   transcoder:

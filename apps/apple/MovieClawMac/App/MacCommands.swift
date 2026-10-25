@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// 菜单栏（docs/design/macos-app.md §3.3）：Mac 用户习惯从菜单栏与快捷键找功能，侧边栏能做的事在这里都有一份。
-/// - 「MovieClaw › 关于 MovieClaw」打开关于窗口（版本、开源许可）；
+/// - 「MovieClaw › 关于 MovieClaw」打开关于窗口（版本、开源许可）；下面是「检查更新…」（下好了变成「重新启动以更新到 x…」，
+///   商店版是灰的「由 TestFlight 更新」，开发版没有，见 MacUpdater）；「设置…」⌘, 由 Settings 场景自带；
 /// - 「前往」：首页 ⌘1、我的收藏 ⌘2、各个媒体库 ⌘3…、搜索 ⌘F、返回 ⌘[；
 /// - 「账号」：切换到本机登录过的其他账号、添加账号、退出登录；
 /// - 「窗口 › 播放时置顶」：播放期间窗口浮在所有窗口前面（默认开，见 `MacPlayerWindow`）。
@@ -12,10 +13,20 @@ struct MacCommands: Commands {
     @FocusedValue(\.macFocusSearch) private var focusSearch
     @Environment(\.openWindow) private var openWindow
     @AppStorage(MacPlayerWindow.floatsOnTopKey) private var floatsOnTop = true
+    private let updater = MacUpdater.shared
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("关于 MovieClaw") { openWindow(id: "about") }
+            switch updater.channel {
+            case .sparkle:
+                Button(updater.menuTitle) { updater.primaryAction() }
+            case .store:
+                Button("由 TestFlight 更新") {}
+                    .disabled(true)
+            case .none:
+                EmptyView()
+            }
         }
         // 只有一个主窗口：不要「新建窗口」，避免开出两份播放器、两套导航状态
         CommandGroup(replacing: .newItem) {}

@@ -239,7 +239,9 @@ ffmpeg 版本，发版前按下表逐项过一遍。
   `apps/apple/scripts/build-unsigned-ipa.sh` 或
   `MOVIECLAW_SIGNING_IDENTITY="Developer ID Application: …" MOVIECLAW_NOTARY_PROFILE=<凭证名> apps/apple/scripts/package-mac-app.sh`，
   再 `gh release upload <tag> <产物> --clobber` 补传，并手动转正（`gh release edit <tag> --draft=false --latest=false`）。
-  本机打包要先装 dmgbuild（`python3 -m pip install -r apps/apple/scripts/dmg/requirements.txt`），Mac 版要补传 DMG 和 zip 两个。
+  本机打包要先装 dmgbuild（`python3 -m pip install -r apps/apple/scripts/dmg/requirements.txt`），并从钥匙串取更新签名私钥
+  `SPARKLE_ED_PRIVATE_KEY="$(security find-generic-password -s https://sparkle-project.org -a movieclaw -w)"`；
+  Mac 版要补传 DMG、zip 和 `MovieClaw-macos-arm64.zip.edsig` 三个（没有签名附件，已装的 Mac 版不会自动更新到这一版）。
   人工补传 Mac 版或转码器安装包后，在 macOS 上运行 `bash scripts/publish-download-manifest.sh <tag>` 刷新官网清单。
 - **mac-app / transcoder 公证失败**，按报错对仓库密钥：
   - `--issuer … must be a valid UUID` → `APPLE_API_ISSUER_ID` 值不对（常见多带空格 / 换行）

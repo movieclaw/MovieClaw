@@ -63,6 +63,7 @@ struct MacAboutView: View {
                 .foregroundStyle(.tertiary)
                 .textSelection(.enabled)
                 .padding(.top, 2)
+            MacAboutUpdateStatus()
             Text("MovieClaw 是自托管服务的客户端：你的媒体、账号与观看记录都在你自己部署的服务器上，App 不向开发者或任何第三方上传数据。")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
@@ -171,5 +172,32 @@ private struct MacLicenseTextView: View {
               let text = try? String(contentsOf: url, encoding: .utf8)
         else { return "（许可全文缺失：\(file).txt）" }
         return text
+    }
+}
+
+/// 关于窗口里版本号下面的更新状态：用户想确认版本时自然会打开这里（MacUpdater）
+private struct MacAboutUpdateStatus: View {
+    private let updater = MacUpdater.shared
+
+    var body: some View {
+        switch updater.channel {
+        case .sparkle:
+            VStack(spacing: 6) {
+                Text(updater.statusText)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Button(updater.primaryTitle) { updater.primaryAction() }
+                    .controlSize(.small)
+                    .accessibilityIdentifier("mac-about-update")
+            }
+            .padding(.top, 6)
+        case .store:
+            Text("由 TestFlight 更新")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .padding(.top, 6)
+        case .none:
+            EmptyView()
+        }
     }
 }

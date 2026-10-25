@@ -135,6 +135,7 @@ def describe_dmg(dmg: Path, update: dict) -> dict:
     并复核 DMG 自己的签名与公证。
     """
     entry = {**update, "variant": "installer", "asset": dmg.name, "size": dmg.stat().st_size}
+    entry.pop("edSignature", None)  # 签名只属于更新包
     with dmg.open("rb") as f:
         entry["sha256"] = hashlib.file_digest(f, "sha256").hexdigest()
     contents = dmg_contents(dmg)
@@ -246,6 +247,14 @@ def main() -> None:
     if not client and not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[\w.-]+)?", args.tag):
         parser.error("tag 必须是 vX.Y.Z，或客户端前缀（如 android-v、macos-v）加 X.Y.Z")
     packages = [describe(p) for p in sorted(args.directory.glob("MovieClaw*-macos-*.zip"))]
+    # 更新包的 EdDSA 签名（package-mac-app.sh 签好、用 App 里的公钥核对过，随 Release 上传）：
+    # 官网只把带签名的放进更新源
+    for p in packages:
+        sig = args.directory / f"{p['asset']}.edsig"
+        if p["product"] == "mac" and sig.exists():
+            p["edSignature"] = sig.read_text().strip()
+            if not re.fullmatch(r"[A-Za-z0-9+/]{86}==", p["edSignature"]):
+                sys.exit(f"{sig.name} 不是 EdDSA 签名")
     # Mac 版安装盘与同芯片的 zip 成对：有安装盘时 zip 只作自动更新的更新包，官网下载页给安装盘
     for dmg in sorted(args.directory.glob("MovieClaw-macos-*.dmg")):
         update = next((p for p in packages if p["product"] == "mac"

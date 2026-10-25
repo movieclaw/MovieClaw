@@ -60,10 +60,55 @@ struct MacSidebar: View {
         .scrollEdgeEffectStyle(.soft, for: .bottom)
         // 账号钉在底下，列表从它底下滚过去时带滚动边缘的玻璃虚化（同 Apple Music 侧边栏底部的账号）
         .safeAreaBar(edge: .bottom, spacing: 0) {
-            MacAccountButton()
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
+            VStack(spacing: 8) {
+                MacUpdatePill()
+                MacAccountButton()
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
         }
         .accessibilityIdentifier("mac-sidebar")
+    }
+}
+
+/// 侧边栏底部、账号上面的更新胶囊：只在新版已经下好（或有新版待确认）时出现，正在播放时收起。
+/// 唯一常驻的更新提示，不挡内容，想点就点（MacUpdater）
+private struct MacUpdatePill: View {
+    private let updater = MacUpdater.shared
+
+    var body: some View {
+        if !updater.isPlaying, let (title, detail) = text {
+            Button { updater.primaryAction() } label: {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 7, height: 7)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title)
+                            .font(.system(size: 12, weight: .medium))
+                        Text(detail)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .background(Color.accentColor.opacity(0.16), in: .rect(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.accentColor.opacity(0.45)))
+            .transition(.opacity)
+            .accessibilityIdentifier("mac-update-pill")
+        }
+    }
+
+    private var text: (String, String)? {
+        switch updater.phase {
+        case let .ready(version): ("更新到 \(version)", "已下载 · 点这里重新启动")
+        case let .available(version): ("有新版本 \(version)", "点这里查看")
+        case .idle: nil
+        }
     }
 }

@@ -74,6 +74,7 @@ jobs:
             mac:
               - *common
               - "apps/apple/MovieClawMac/**"
+              - "apps/apple/MovieClawMacDirect/**"
 
   iphone:
     needs: changes
@@ -164,12 +165,16 @@ jobs:
       - name: 编译 Mac 版（${{ needs.changes.outputs.configuration }}）
         run: apps/apple/scripts/ci-build.sh MovieClawMac macOS ${{ needs.changes.outputs.configuration }}
 
+      # GitHub 直接分发版：同一份代码多链 Sparkle 自动更新（canImport(Sparkle) 那部分只有这个目标编得到）
+      - name: 编译 Mac 直接分发版（${{ needs.changes.outputs.configuration }}）
+        run: apps/apple/scripts/ci-build.sh MovieClawMacDirect macOS ${{ needs.changes.outputs.configuration }}
+
       - name: 失败时上传完整编译日志
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: mac-build-log
-          path: apps/apple/build-ci/MovieClawMac.log
+          path: apps/apple/build-ci/MovieClawMac*.log
 
   apple-ok:
     needs: [changes, iphone, tv, mac]

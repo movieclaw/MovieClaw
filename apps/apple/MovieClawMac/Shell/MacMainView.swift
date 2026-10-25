@@ -82,7 +82,7 @@ struct MacMainView: View {
         }
         .task(id: accountKey) {
             // 切换账号、退出后自动切到别的账号时 AppModel 留了一句话：换到新账号后亮几秒
-            guard let text = model.takeNotice() else { return }
+            guard let text = model.takeNotice() ?? MacUpdater.shared.takeUpdatedNotice() else { return }
             withAnimation(.spring(duration: 0.35)) { notice = text }
             try? await Task.sleep(for: .seconds(3.5))
             withAnimation(.easeOut(duration: 0.3)) { notice = nil }
@@ -101,6 +101,8 @@ struct MacMainView: View {
         // 内容区顶上不垫工具栏底色（那一条灰带只是拖窗口用的空白，没有控件）；拖窗口照样在这一带
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .animation(.easeInOut(duration: 0.25), value: router.player?.id)
+        // 播放期间不弹更新窗口、收起更新胶囊（MacUpdater）
+        .onChange(of: router.player?.id, initial: true) { MacUpdater.shared.isPlaying = router.player != nil }
         .task {
             await FirstFrameGate.wait()
             // 第一次拿不到（刚启动网络还没就绪、局域网权限刚放行）隔几秒再试，别让侧边栏的「媒体库」一直空着

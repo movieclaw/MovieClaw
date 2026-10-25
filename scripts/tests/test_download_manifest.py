@@ -217,6 +217,23 @@ class DownloadManifestTest(unittest.TestCase):
             self.assertEqual([(p["asset"], p["variant"]) for p in packages],
                              [("MovieClaw-macos-arm64.zip", "update"),
                               ("MovieClaw-macos-arm64.dmg", "installer")])
+            # 没有签名附件：不带 edSignature
+            self.assertNotIn("edSignature", packages[0])
+            # 有签名附件：只写进更新包
+            signature = "A" * 86 + "=="
+            (directory / "MovieClaw-macos-arm64.zip.edsig").write_text(signature + "\n")
+            with patch.object(module, "dmg_contents", return_value=None), \
+                    patch.object(module, "verification", return_value=(None, None)), \
+                    patch.object(sys, "argv", argv):
+                module.main()
+            packages = json.loads((directory / "downloads.json").read_text())["packages"]
+            self.assertEqual([p.get("edSignature") for p in packages], [signature, None])
+            (directory / "MovieClaw-macos-arm64.zip.edsig").write_text("not a signature")
+            with patch.object(module, "dmg_contents", return_value=None), \
+                    patch.object(module, "verification", return_value=(None, None)), \
+                    patch.object(sys, "argv", argv), self.assertRaises(SystemExit):
+                module.main()
+            (directory / "MovieClaw-macos-arm64.zip.edsig").unlink()
             # 安装盘必须有同名的更新包
             (directory / "MovieClaw-macos-arm64.zip").unlink()
             with patch.object(module, "dmg_contents", return_value=None), \

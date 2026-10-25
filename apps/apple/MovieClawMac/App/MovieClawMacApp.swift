@@ -37,6 +37,12 @@ struct MovieClawMacApp: App {
         .windowResizability(.contentMinSize)
         .commands { MacCommands(model: model) }
 
+        // 设置（⌘,）：目前只有「通用 › 软件更新」
+        Settings {
+            MacSettingsView()
+                .preferredColorScheme(.dark)
+        }
+
         // 关于：版本号与开源组件许可（LGPL 合规必需，不能省）
         Window("关于 MovieClaw", id: "about") {
             MacAboutView()
@@ -63,6 +69,11 @@ struct MovieClawMacApp: App {
 /// 正在播放时退出会同步补发一次「停止」（PlaybackController 监听 willTerminate），续播点不丢
 final class MacAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // GitHub 直接分发版的自动更新（商店版、开发版里什么都不做）
+        MacUpdater.shared.launch()
+    }
 }
 
 /// 按 `AppModel.phase` 切换顶层界面：欢迎（连接、登录、选人）或主界面。
