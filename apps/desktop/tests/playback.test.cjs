@@ -888,7 +888,6 @@ test('browser progress starts on a real video-frame callback and discards callba
   assert.equal(h.calls.filter(c => c[0] === 'progress' && c[2] === 'start').length, 1);
 });
 
-
 test('browser codec decode probes never claim HDR output; HDR source prefers native mapping', async () => {
   const h = harness({ navigator: { mediaCapabilities: { decodingInfo: async () => ({ supported: true, smooth: true, powerEfficient: true }) } } });
   const browser = await h.context.readBrowserCapability();
@@ -1053,4 +1052,26 @@ test('HTML5 volume feedback follows external media changes and adjustment reveal
   h.P.engSetMuted(true);assert.equal(label.textContent,'静音');assert.equal(Number(slider.value),0);
   h.P.engSetVolume(.6);assert.equal(h.video.muted,false);assert.equal(label.textContent,'60%');
   h.video.volume=.2;h.video.emit('volumechange');assert.equal(label.textContent,'20%');
+});
+
+test('native progress snapshots only refresh settings when a displayed setting changes', async () => {
+  let position = 21, speed = 1;
+  const h = harness({ invoke: name => name === 'get_embedded_player_state'
+    ? { status: { running: true }, properties: { 'time-pos': position, speed, pause: true } } : {} });
+  h.P.adoptSession('Title', session(), item(), 'mpv');
+  h.win.__MOVIECLAW_MPV_ACTIVE = true;
+  h.elements.set('playerSettingsPanel', { hidden: false });
+  let renders = 0;
+  h.P.renderSettingsTab = () => { renders++; };
+  h.P.startMpvPoll();
+  await flush();
+  const initial = renders;
+  const poll = [...h.intervals.values()].find(t => t.ms === 500);
+  position = 22;
+  await poll.fn();
+  assert.equal(renders, initial);
+  speed = 1.5;
+  await poll.fn();
+  assert.equal(renders, initial + 1);
+  h.P.stopMpvPoll();
 });

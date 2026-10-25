@@ -109,7 +109,7 @@ async function openDesktop(page, request, options = {}) {
   }, { native: options.native !== false, nativeAuth: options.nativeAuth || false, updater: options.updater || false });
   await page.goto('/desktop/index.html');
 }
-async function state(request) { return (await request.get('/__test/state')).json(); }
+async function state(request) { return (await request.get('/__test/state', { maxRetries: 1 })).json(); }
 async function browseLibrary(page) {
   await page.locator('#libraryNav [data-library-id="1"]').click();
   await expect(page.locator('#posterGrid .poster-card')).toHaveCount(60);

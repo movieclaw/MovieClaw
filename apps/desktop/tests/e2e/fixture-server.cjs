@@ -40,7 +40,10 @@ http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://127.0.0.1');
     if (url.pathname === '/__test/reset') { reset(await bodyOf(req) || {}); return json(res, { ok: true }); }
-    if (url.pathname === '/__test/state') return json(res, state);
+    if (url.pathname === '/__test/state') {
+      if (state.stateReadResets > 0) { state.stateReadResets--; req.socket.destroy(); return; }
+      return json(res, state);
+    }
     if (url.pathname === '/__test/friends') { Object.assign(state, await bodyOf(req)); return json(res, {ok:true}); }
     if (url.pathname === '/__test/image') {
       const imagePath = url.searchParams.get('path');

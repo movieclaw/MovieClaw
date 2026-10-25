@@ -2261,6 +2261,7 @@ const Player = {
       try {
         const result = await window.__TAURI__.core.invoke('get_embedded_player_state', { instanceId }).catch(() => null);
         if (!alive() || !result) return;
+        const settingsBefore = JSON.stringify([this.mpvTracks, this.currentAudioRef, this.selectedSubtitle, this.mpvState.speed]);
         const v = result.properties || {}, status = result.status;
         if (v.ipc_error && !this._ended) { App.onPlaybackContentFailed('本机播放器控制连接失败', { kind: 'decode' }); return; }
         this.mpvState.properties = v;
@@ -2306,7 +2307,9 @@ const Player = {
         this.showIcon(this.mpvState.paused ? 'play' : 'pause');
         this.updateProgress(); this.checkSegments(); this.renderChapters(this.chapterList());
         if (!document.getElementById('playerInfoPanel')?.hidden) this._renderInfoPanel();
-        if (document.getElementById('playerSettingsPanel') && !document.getElementById('playerSettingsPanel').hidden) this.renderSettingsTab(this._settingsTab || 'subtitles');
+        // 进度快照每 500ms 到达；设置未变时保留按钮节点和键盘焦点。
+        const settingsChanged = settingsBefore !== JSON.stringify([this.mpvTracks, this.currentAudioRef, this.selectedSubtitle, this.mpvState.speed]);
+        if (settingsChanged && document.getElementById('playerSettingsPanel') && !document.getElementById('playerSettingsPanel').hidden) this.renderSettingsTab(this._settingsTab || 'subtitles');
         if (v['eof-reached'] === true || v.end_file?.reason === 'eof' || status?.running === false && this._everPlayed && status.exit_code === 0) {
           this.reportPlaybackEnd();
         } else if ((status?.running === false || v.end_file?.reason === 'error') && !this._ended) {

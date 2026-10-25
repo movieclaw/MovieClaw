@@ -165,6 +165,8 @@ async function property(page, key) { return page.evaluate(key => window.__fixtur
 
 test('native fullscreen frame menu fills, restores the original aspect and remembers its choice', async ({ page, request }) => {
   await nativeTracks(page, request);
+  // 菜单操作固定在同一帧；暂停夹具，避免假静止时间线触发卡死恢复。
+  await page.evaluate(() => { window.__fixture.props.pause = true; });
   await expect(page.locator('#btnPip')).toBeVisible();
   await page.locator('#btnSettings').click();
   await page.locator('[data-tab="frame"]').click();
@@ -211,6 +213,8 @@ test('HTML5 fullscreen uses the same frame menu and restores contain on exit', a
 
 test('native track menus control actual mpv IDs, subtitle off, delay and speed', async ({ page, request }) => {
   await nativeTracks(page, request);
+  // 菜单操作固定在同一帧；暂停夹具，避免假静止时间线触发卡死恢复。
+  await page.evaluate(() => { window.__fixture.props.pause = true; });
   await page.locator('#btnSettings').click();
   await page.locator('.player-settings-tab[data-tab="audio"]').click();
   await page.locator('.player-settings-item[data-audio-ref="embedded:1"]').click();
@@ -310,4 +314,20 @@ test('probed DVD bitmap subtitles stay disabled and explain the actual limitatio
   await expect(page.locator('#playerSettingsContent .disabled')).toContainText('此播放路径暂不支持 DVD 位图字幕');
   await expect(page.locator('#playerSettingsContent')).not.toContainText('无可用字幕');
   await page.locator('#playerBack').click();
+});
+
+test('native progress polling preserves settings focus and refreshes changed tracks', async ({ page, request }) => {
+  await nativeTracks(page, request);
+  await page.locator('#btnSettings').click();
+  await page.locator('[data-tab="frame"]').click();
+  const original = page.getByRole('button', { name: /^保持原比例/ });
+  await original.focus();
+  const button = await original.elementHandle();
+  const polls = await page.evaluate(() => window.__fixture.calls.filter(c => c.command === 'get_embedded_player_state').length);
+  await expect.poll(() => page.evaluate(() => window.__fixture.calls.filter(c => c.command === 'get_embedded_player_state').length)).toBeGreaterThan(polls + 2);
+  expect(await button.evaluate(node => node.isConnected)).toBe(true);
+  await expect(original).toBeFocused();
+  await page.locator('[data-tab="audio"]').click();
+  await page.evaluate(() => { window.__fixture.props.aid = 42; });
+  await expect(page.locator('[data-audio-ref="embedded:1"]')).toHaveClass(/active/);
 });

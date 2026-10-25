@@ -202,13 +202,24 @@ test('third-season resume and mpv close report the final file position then rele
 });
 
 test('closing during a delayed session response releases it without reopening the player', async ({ page, request }) => {
-  await openDesktop(page, request, { sessionDelay: 900 });
+  await openDesktop(page, request);
+  let releaseSession;
+  const responseGate = new Promise(resolve => { releaseSession = resolve; });
+  await page.route('**/api/v1/playback/sessions', async route => {
+    const response = await route.fetch();
+    await responseGate;
+    await route.fulfill({ response });
+  });
   await browseLibrary(page);
   await page.locator('#posterGrid .poster-card[data-item-id="1"]').click();
   await page.locator('#btnPlay').click();
-  await expect.poll(async () => (await state(request)).created.length).toBe(1);
-  await page.locator('#playerBack').click();
-  await expect(page.locator('#playerView')).toBeHidden();
+  try {
+    await expect.poll(async () => (await state(request)).created.length).toBe(1);
+    await page.locator('#playerBack').click();
+    await expect(page.locator('#playerView')).toBeHidden();
+  } finally {
+    releaseSession();
+  }
   await expect.poll(async () => (await state(request)).stopped).toEqual(['session-1']);
   expect(await page.evaluate(() => window.__fixture.calls.filter(c => c.command === 'launch_embedded_player').length)).toBe(0);
   await expect(page.locator('#playerView')).toBeHidden();
@@ -387,8 +398,18 @@ test('native welcome chooses a saved account and keeps device credential materia
 
 test('native QR waits for approval, retries a denial and enters the approved account', async ({ page, request }) => {
   await openDesktop(page,request,{nativeAuth:true,authenticated:false,savedAccounts:[],pairStatuses:['denied','pending','approved']});
-  await expect(page.locator('#loginPairing')).toHaveCount(0); await page.evaluate(()=>App.renderPairing()); await expect(page.locator('#pairingCode svg')).toBeVisible();
-  await expect(page.locator('#pairingCode')).toContainText('FIX-1234');
+  let allowPoll;
+  const pollGate = new Promise(resolve => { allowPoll = resolve; });
+  await page.route('**/__test/native', async route => {
+    if (route.request().postDataJSON().command === 'native_pair_poll') await pollGate;
+    await route.continue();
+  });
+  try {
+    await expect(page.locator('#loginPairing')).toHaveCount(0); await page.evaluate(()=>App.renderPairing()); await expect(page.locator('#pairingCode svg')).toBeVisible();
+    await expect(page.locator('#pairingCode')).toContainText('FIX-1234');
+  } finally {
+    allowPoll();
+  }
   await expect(page.locator('#pairingStatus')).toContainText('被拒绝'); await page.locator('#pairingRetry').click();
   await expect(page.locator('#heroBanner')).toBeVisible();
   expect(await page.evaluate(()=>App.session.username)).toBe('paired');
@@ -413,4 +434,9 @@ test('old servers give a specific QR upgrade explanation while native password c
   await page.locator('#loginUser').fill('fixture'); await page.locator('#loginPass').fill('fixture-password'); await page.locator('#loginBtn').click();
   await expect(page.locator('#heroBanner')).toBeVisible();
   expect((await state(request)).nativeRequests.some(r=>r.command==='native_password_login')).toBe(true);
+});
+
+test('fixture state inspection survives one connection reset', async ({ page, request }) => {
+  await openDesktop(page, request, { stateReadResets: 1 });
+  expect((await state(request)).stateReadResets).toBe(0);
 });
