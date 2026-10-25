@@ -349,6 +349,10 @@ class HwBackend:
     #: HEVC（见 ``HEVC_BITRATE_LADDER``），播放一律 H.264。VideoToolbox 以外的要自检真编
     #: 通过才用（``hevc_encoder``）：有 H.264 硬编不等于有 HEVC 硬编（老核显、老驱动）。
     hevc_encoder: str | None = None
+    #: 让 ``-force_key_frames`` 插的关键帧是 IDR 的编码器参数（H.264 / HEVC 同名）。QSV 与 NVENC
+    #: 默认只插普通 I 帧（``forced_idr`` 默认关），输出包不带关键帧标记，HLS 切不到分片栅格上；
+    #: VAAPI 与 VideoToolbox 强制关键帧本来就是 IDR。Jellyfin 对这两家同样显式打开
+    forced_idr: tuple[str, ...] = ()
 
 
 HW_BACKENDS: dict[str, HwBackend] = {
@@ -372,6 +376,7 @@ HW_BACKENDS: dict[str, HwBackend] = {
         name="qsv",
         encoder="h264_qsv",
         hevc_encoder="hevc_qsv",
+        forced_idr=("-forced_idr", "1"),
         hwaccel="qsv",
         hwaccel_output_format="qsv",
         scale_filter="scale_qsv",
@@ -386,6 +391,7 @@ HW_BACKENDS: dict[str, HwBackend] = {
         name="nvenc",
         encoder="h264_nvenc",
         hevc_encoder="hevc_nvenc",
+        forced_idr=("-forced-idr", "1"),
         hwaccel="cuda",
         hwaccel_output_format="cuda",
         scale_filter="scale_cuda",
@@ -901,14 +907,15 @@ def _video_args(
         # 离线导出的 HEVC：8-bit Main（输出恒为 SDR BT.709，iPhone 全系硬解；硬件 scale 已钉
         # nv12 / yuv420p），hvc1 标签理由同直通档。没有 H.264 那几条：hevc_videotoolbox 不认
         # -a53cc，High@4.1 是 H.264 的
-        args += ["-c:v", hevc_codec, *hevc_encoder_options(backend), "-profile:v", "main"]
+        args += ["-c:v", hevc_codec, *hevc_encoder_options(backend), *backend.forced_idr]
+        args += ["-profile:v", "main"]
         if backend.name == "videotoolbox" and vt_mode != VT_GPU:
             # 同 H.264：只有 VideoToolbox 吃软件帧时要钉；VAAPI / QSV / NVENC 的帧是硬件帧，
             # 再要 yuv420p 会逼 ffmpeg 插一个接不上硬件帧的软件格式转换
             args += ["-pix_fmt", "yuv420p"]
         args += ["-tag:v", "hvc1", "-b:v", "0", "-maxrate", maxrate, "-bufsize", bufsize]
     elif backend is not None:
-        args += ["-c:v", backend.encoder, *encoder_options(backend)]
+        args += ["-c:v", backend.encoder, *encoder_options(backend), *backend.forced_idr]
         # iOS 原生 HLS 对 10-bit/High 10 的硬件编码结果兼容性很差，统一锁
         # 到 High profile + 8-bit yuv420p。level 不钉，交给编码器按实际输出的
         # 宽×高×帧率选合法值：输出只钉高度、宽度随源宽高比走，宽银幕 1080p

@@ -253,7 +253,10 @@ def _probe_one(name: str, encoders: frozenset[str]) -> HwBackendStatus:
         if low_power is not None and low_power.returncode == 0:
             register_encoder_options(name, VAAPI_LOW_POWER)
             return status(True, "已通过一秒钟的真实编码验证（低功耗编码），可用于硬件转码。")
-    proc = _run_probe(backend.encoder, _PROBE_FILTERS.get(name, []))
+    # 带上真实转码会加的 forced_idr：参数不认（过老的 ffmpeg）要在这里探出来，而不是播放时才炸
+    proc = _run_probe(
+        backend.encoder, _PROBE_FILTERS.get(name, []), encoder_args=list(backend.forced_idr)
+    )
     if proc is None:
         return status(False, "硬件编码探测超时——设备可能被占用或驱动无响应。")
     if proc.returncode == 0:
@@ -278,7 +281,7 @@ def _probe_hevc(status: HwBackendStatus, encoders: frozenset[str]) -> HwBackendS
     proc = _run_probe(
         backend.hevc_encoder,
         _PROBE_FILTERS.get(status.name, []),
-        encoder_args=[*options, *_HEVC_PROBE_ARGS],
+        encoder_args=[*options, *backend.forced_idr, *_HEVC_PROBE_ARGS],
     )
     if proc is None or proc.returncode != 0:
         reason = (

@@ -1365,6 +1365,37 @@ def test_hevc_plan_without_a_hevc_encoder_stays_h264(backend):
     assert pair(argv, "-maxrate") == "6M"  # 码率也按 H.264 给
 
 
+_FORCED_IDR = {"qsv": ("-forced_idr", "1"), "nvenc": ("-forced-idr", "1")}
+
+
+@pytest.mark.parametrize("backend", ["vaapi", "qsv", "nvenc", "videotoolbox"])
+@pytest.mark.parametrize("codec", ["h264", "hevc"])
+def test_forced_keyframes_are_idr_on_every_hardware_encoder(backend, codec):
+    """HLS 只在带关键帧标记的包上切分片。QSV / NVENC 的 -force_key_frames 默认只插普通 I 帧
+    （FFmpeg 7.1：qsvenc 只在帧带 KEY 标记或 forced_idr 时出 IDR，nvenc 没开 forced-idr 时是
+    FORCEINTRA；两家都只给 IDR 包打关键帧标记），4 秒栅格对不上；要显式打开。VAAPI 与
+    VideoToolbox 强制关键帧本来就是 IDR，不加。"""
+    p = _hevc_plan() if codec == "hevc" else plan(
+        PlaybackTier.HARDWARE_TRANSCODE,
+        video=VideoPlan(action="transcode", codec="h264", height=1080, source_bit_depth=8),
+    )
+    if codec == "hevc" and backend != "videotoolbox":
+        register_hevc_encoder(backend, ())
+    try:
+        argv = argv_of(p, hw_backend=backend, start_number=0)
+    finally:
+        register_hevc_encoder(backend, None)
+    encoder = pair(argv, "-c:v")
+    assert encoder is not None and encoder.startswith(codec) and encoder.endswith(backend)
+    at = argv.index(encoder)
+    expected = _FORCED_IDR.get(backend)
+    if expected is None:
+        assert "-forced_idr" not in argv and "-forced-idr" not in argv
+    else:
+        assert tuple(argv[at + 1 : at + 3]) == expected  # 紧跟编码器，作用于它
+    assert "-force_key_frames" in argv
+
+
 @pytest.mark.parametrize(
     ("backend", "encoder", "options"),
     [
@@ -1383,7 +1414,9 @@ def test_hevc_export_on_nas_gpus_after_self_test(backend, encoder, options):
         register_hevc_encoder(backend, None)
     at = argv.index(encoder)
     assert argv[at - 1] == "-c:v"
-    assert tuple(argv[at + 1 : at + 1 + len(options)]) == options
+    # 自检探出的参数与强制 IDR 紧跟编码器
+    tail = (*options, *_FORCED_IDR.get(backend, ()))
+    assert tuple(argv[at + 1 : at + 1 + len(tail)]) == tail
     assert pair(argv, "-profile:v") == "main" and pair(argv, "-tag:v") == "hvc1"
     assert pair(argv, "-maxrate") == "4M" and pair(argv, "-bufsize") == "8M"
     assert "-pix_fmt" not in argv and "-a53cc" not in argv

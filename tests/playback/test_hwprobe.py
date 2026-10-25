@@ -312,6 +312,36 @@ def test_qsv_probe_initialises_its_device_before_hwupload(monkeypatch, tmp_path)
     assert "hwupload" in argv[argv.index("-vf") + 1]
 
 
+@pytest.mark.parametrize(
+    ("name", "encoders", "flag"),
+    [("qsv", {"h264_qsv", "hevc_qsv"}, "-forced_idr"),
+     ("nvenc", {"h264_nvenc", "hevc_nvenc"}, "-forced-idr")],
+)  # fmt: skip
+def test_probe_carries_forced_idr_like_real_transcoding(
+    monkeypatch, tmp_path, name, encoders, flag
+):
+    """真实转码给 QSV / NVENC 加强制 IDR（见 ffmpeg_args.HwBackend.forced_idr），探测也带上：
+    参数不认的 ffmpeg 在自检就判不可用，而不是播放时才炸。"""
+    dri = tmp_path / "dri"
+    dri.mkdir()
+    (dri / "renderD128").write_bytes(b"")
+    monkeypatch.setattr(hwprobe.shutil, "which", lambda _n: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(hwprobe, "_list_encoders", lambda: frozenset(encoders))
+    monkeypatch.setattr(hwprobe, "Path", lambda _p: dri)
+    monkeypatch.setattr(hwprobe.os, "access", lambda *_a: True)
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(hwprobe.subprocess, "run", fake_run)
+    hwprobe.probe_backends()
+    for encoder in encoders:
+        (argv,) = [a for a in calls if encoder in a and "-vf" in a and "tonemap" not in " ".join(a)]
+        assert argv[argv.index(encoder) + 1 : argv.index(encoder) + 3] == [flag, "1"]
+
+
 def test_probe_timeout_is_reported_not_swallowed(monkeypatch, tmp_path):
     dri = tmp_path / "dri"
     dri.mkdir()
@@ -344,7 +374,7 @@ def test_native_tonemap_is_enabled_only_after_a_real_run(monkeypatch, tmp_path):
     _nvenc_ready(monkeypatch, tmp_path)
     seen: list[list[str]] = []
 
-    def fake_probe(_encoder, filters):
+    def fake_probe(_encoder, filters, **_kwargs):
         seen.append(filters)
         return subprocess.CompletedProcess([], 0, b"", b"")
 
@@ -368,7 +398,7 @@ def test_native_tonemap_failure_keeps_hardware_transcoding(monkeypatch, tmp_path
 
     _nvenc_ready(monkeypatch, tmp_path)
 
-    def fake_probe(_encoder, filters):
+    def fake_probe(_encoder, filters, **_kwargs):
         if any("tonemap_cuda" in f for f in filters):
             return subprocess.CompletedProcess([], 1, b"", b"No such filter: 'tonemap_cuda'")
         return subprocess.CompletedProcess([], 0, b"", b"")
