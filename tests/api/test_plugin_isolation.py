@@ -9,7 +9,9 @@ from __future__ import annotations
 import os
 import stat
 import sys
+import tempfile
 import textwrap
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,10 +21,13 @@ from movieclaw_api.services import durable_events, plugin_isolation, plugin_runt
 
 
 @pytest.fixture
-def runtime_root(tmp_path, monkeypatch):
-    root = tmp_path / "runtime"
-    monkeypatch.setattr(plugin_isolation, "runtime_root", lambda: root)
-    return root
+def runtime_root(monkeypatch):
+    # pytest 的 root 临时目录上层是 0700，降权后的 nobody 无法穿过它。
+    # 与生产环境一样从公开可遍历的 /tmp 建独立运行目录，不改 pytest 的权限。
+    with tempfile.TemporaryDirectory(prefix="movieclaw-isolation-", dir="/tmp") as directory:
+        root = Path(directory)
+        monkeypatch.setattr(plugin_isolation, "runtime_root", lambda: root)
+        yield root
 
 
 def test_stage_source_copies_once_without_caches(tmp_path, runtime_root) -> None:

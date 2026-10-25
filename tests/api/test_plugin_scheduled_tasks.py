@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import textwrap
 from functools import partial
@@ -121,6 +122,16 @@ def test_a_plugin_scheduled_task_is_registered_and_runs_in_the_plugin(client) ->
 
 def test_it_shows_up_in_the_scheduled_tasks_page_and_its_period_can_change(client) -> None:
     """用户在「设置 → 定时任务」里看得到插件的任务，能改周期（此前插件任务按贡献 id 查不到）。"""
+    from movieclaw_scheduler import get_scheduler
+
+    async def wait_until_scheduled():
+        # 进程插件启动后，scheduler 的同步队列才异步补库并排上任务。
+        # 等实际 job 登记完成，再验证页面；插件 active 不代表这一步已经提交。
+        async with asyncio.timeout(10):
+            while get_scheduler()._scheduler.get_job("acme-tick.sync") is None:
+                await asyncio.sleep(0.01)
+
+    call(client, wait_until_scheduled)
     tasks = {t["key"]: t for t in client.get("/api/v1/scheduled-tasks").json()["data"]}
     assert "acme-tick.sync" in tasks, sorted(tasks)
     assert tasks["acme-tick.sync"]["title"] == "同步想看"
