@@ -151,7 +151,8 @@ def stack(tmp_path_factory):
     )
     try:
         base = f"http://127.0.0.1:{web_port}"
-        _wait_http(f"http://127.0.0.1:{api_port}/api/v1/auth/bootstrap", 90)
+        # 冷启动包含完整空库迁移和插件装配；就绪后才开始计浏览器操作的超时。
+        _wait_http(f"http://127.0.0.1:{api_port}/api/v1/auth/bootstrap", 300)
         _wait_http(f"{base}/login", 180)
         yield base
     finally:
