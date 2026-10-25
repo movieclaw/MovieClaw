@@ -250,6 +250,8 @@ async def fake_window(path: str, start: float, length: float) -> bytes:
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
     monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
+    monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("METADATA_DIR", str(tmp_path / "metadata"))
     monkeypatch.setenv("MOVIECLAW_TRANSCODE_DIR", str(tmp_path / "transcodes"))
     monkeypatch.setenv("MOVIECLAW_AUDIO_FINGERPRINT_DIR", str(tmp_path / "fp"))
     # 默认不加载画面文字识别模型（开发机 data/models/ppocr 里有也不用），结果只来自声音

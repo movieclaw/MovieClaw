@@ -77,6 +77,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
     monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path / "media"))
+    monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("METADATA_DIR", str(tmp_path / "metadata"))
     monkeypatch.setenv("MOVIECLAW_TRANSCODE_DIR", str(tmp_path / "transcodes"))
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
     monkeypatch.setenv("TMDB_API_KEY", "test-key-not-used")
@@ -615,25 +617,43 @@ def test_direct_play_releases_the_db_connection_before_streaming(client, tmp_pat
     若取流期间一直占着连接，十几条并发流就会耗尽连接池，整个服务的接口一起超时
     （2026-09-27 NAS 实测）。
     """
-    from movieclaw_api.services.server_addresses import address_book
+    from sqlalchemy import text
 
     file_id = seed(client, tmp_path, container="mp4")
     url = start_session(client, file_id)["stream_url"]
-    # 访问地址簿首次查询时会在后台读一次库；先读完，量到的才是取流请求自己占的连接
-    client.portal.call(address_book.preload)
-    pool = get_database().engine.sync_engine.pool
-    checked_out: list[int] = []
+    request_sessions = []
+    transaction_active: list[bool] = []
     original = routes_playback.DisconnectAwareFileResponse
+
+    async def tracked_session():
+        async for session in routes_playback.get_session():
+            request_sessions.append(session)
+            yield session
+
+    monkeypatch.setitem(
+        client.app.dependency_overrides, routes_playback.get_session, tracked_session
+    )
 
     class ProbeResponse(original):
         async def __call__(self, scope, receive, send):
-            checked_out.append(pool.checkedout())
+            assert len(request_sessions) == 1
+            transaction_active.append(request_sessions[0].in_transaction())
             await super().__call__(scope, receive, send)
 
+    # 后台任务可以合法占用别的连接；只检查这个取流请求是否已归还自己的连接。
+    async def hold_background_connection():
+        session = get_database().session()
+        await session.execute(text("SELECT 1"))
+        return session
+
+    background = client.portal.call(hold_background_connection)
     monkeypatch.setattr(routes_playback, "DisconnectAwareFileResponse", ProbeResponse)
-    resp = client.get(url, headers={"Range": "bytes=0-15"})
-    assert resp.status_code == 206
-    assert checked_out == [0]
+    try:
+        resp = client.get(url, headers={"Range": "bytes=0-15"})
+        assert resp.status_code == 206
+        assert transaction_active == [False]
+    finally:
+        client.portal.call(background.close)
 
 
 def test_strm_entry_redirects_to_cloud_url(client, tmp_path):
