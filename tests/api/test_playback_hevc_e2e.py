@@ -63,7 +63,7 @@ def fake_vaapi(client, tmp_path, monkeypatch):  # noqa: F811
     vaapi = lambda: ("vaapi",)  # noqa: E731
     monkeypatch.setattr(routes_playback, "available_backends", vaapi)
     monkeypatch.setattr(routes_playback, "available_local_backends", vaapi)
-    monkeypatch.setattr(routes_playback, "remote_worker_available", lambda *_a, **_k: False)
+    monkeypatch.setattr(routes_playback, "remote_backends_available", lambda **_k: ())
     monkeypatch.setattr(plan_mod, "hardware_available", lambda: True)
     register_hevc_encoder("vaapi", ())  # 自检：HEVC 真编通过
     yield log
@@ -161,6 +161,11 @@ def test_hevc_that_cannot_start_falls_back_to_h264_on_the_server(
 ):
     """自检只编一秒合成画面：真实片子上 HEVC 起步即退时，服务端当场改出 H.264 重开——任何客户端
     （包括没实现回退的）拿到的都是能放的会话，而不是 503 错误页。"""
+    # Python 替身冷启动可能超过生产 ffmpeg 的 300 ms 快速失败窗口；此用例要验证
+    # 窗口内退出后的回退，不把解释器启动速度当成产品行为。
+    monkeypatch.setattr(
+        "movieclaw_api.services.playback.session.VOD_FAST_FAIL_WINDOW_S", 5.0
+    )
     monkeypatch.setenv("FAKE_HEVC_FAIL", "start")
     file_id = _mpeg2_file(client, tmp_path)
     data = start(client, file_id, capability=HEVC_BROWSER)
