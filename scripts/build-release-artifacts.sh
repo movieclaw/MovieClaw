@@ -112,11 +112,11 @@ for arch in amd64 arm64; do
         go build -trimpath -ldflags="-s -w -X main.version=$VERSION" \
         -o "$STAGE/backend/bin/mclaw-linux-$arch" ./cmd/mclaw )
 done
-# 同架构时冒烟一次：spec 坏了、命令树建不起来，在这里就断，而不是等用户更新完
-host_arch="$(uname -m)"
-case "$host_arch" in
-    x86_64 | amd64) "$STAGE/backend/bin/mclaw-linux-amd64" --help > /dev/null ;;
-    aarch64 | arm64) "$STAGE/backend/bin/mclaw-linux-arm64" --help > /dev/null ;;
+# Linux 同架构时冒烟一次；macOS 即使同为 arm64 也不能执行 Linux ELF。
+case "$(uname -s)/$(uname -m)" in
+    Linux/x86_64 | Linux/amd64) "$STAGE/backend/bin/mclaw-linux-amd64" --help > /dev/null ;;
+    Linux/aarch64 | Linux/arm64) "$STAGE/backend/bin/mclaw-linux-arm64" --help > /dev/null ;;
+    *) echo "跳过 Linux CLI 本机执行：当前主机 $(uname -s)/$(uname -m)，请在 Linux 验证产物" ;;
 esac
 
 for f in src/movieclaw_api/main.py src/movieclaw_api/data/spec.json alembic.ini alembic/env.py \
