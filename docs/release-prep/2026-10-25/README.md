@@ -1,5 +1,7 @@
 # MovieClaw 发布准备（未发布）
 
+2026-10-26 补充：[发布阻塞修复与复验](validation-followup-2026-10-26.md)。14 个修复 PR（#1029–#1042）已进入主线，`release-prep` 已 rebase 到 `948acd26c`，原版本提交补丁内容保持不变。以下表格及首次验证记录保留为历史快照，最新结论以补充记录为准。
+
 基线：2026-10-25 fetch 后的 `origin/main`，`a4559c65d50702497d7d90a022d10c79e15e9ee1`（含 #1027）。本地分支 `release-prep`。
 原分支为 main，未跟踪的 `work/` 已保存为 `stash@{0}`，说明为 `release-prep: preserve pre-existing work 2026-10-25`，没有恢复到发布分支，也没有删除。
 
