@@ -21,6 +21,7 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okio.buffer
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -327,11 +328,30 @@ class NetworkIdentityProtocolTest {
     @Test fun `sse buffer overflow reports an error instead of silently skipping deltas`() = runBlocking {
         server.enqueue(MockResponse().addHeader("Content-Type", "text/event-stream")
             .setBody((1..200).joinToString("") { "id: $it\nevent: text_delta\ndata: {}\n\n" }))
+        // 消费者停在第一帧，直到 SSE 解析器关闭响应体，再立即排空缓冲。
+        // callEnd 只表示 HTTP 字节已读完，可能早于缓冲中的 SSE 帧被解析，不能用作屏障。
+        val disconnected = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val observedClient = identityClient(client, null).newBuilder()
+            .addInterceptor { chain ->
+                val response = chain.proceed(chain.request())
+                val body = response.body!!
+                val observed = object : okhttp3.ResponseBody() {
+                    private val source = object : okio.ForwardingSource(body.source()) {
+                        override fun close() {
+                            try { super.close() } finally { disconnected.complete(Unit) }
+                        }
+                    }.buffer()
+                    override fun contentType() = body.contentType()
+                    override fun contentLength() = body.contentLength()
+                    override fun source() = source
+                }
+                response.newBuilder().body(observed).build()
+            }.build()
         var error: Throwable? = null
         try {
             kotlinx.coroutines.withTimeout(10_000) {
-                events().streamOnce(identityClient(client, null), origin() + "/api/v1", "events", null, emptySet())
-                    .collect { kotlinx.coroutines.delay(10) }
+                events().streamOnce(observedClient, origin() + "/api/v1", "events", null, emptySet())
+                    .collect { disconnected.await() }
             }
         } catch (failure: ApiException) { error = failure }
         assertEquals("SSE_BACKPRESSURE", (error as? ApiException)?.code)
