@@ -570,6 +570,16 @@ async def _record_transition(
     )
 
 
+async def _lock_job(session: AsyncSession, job_id: str) -> Job | None:
+    # SQLite 忽略 SELECT FOR UPDATE。先取得写锁，再刷新 ORM 状态，使取消与
+    # 执行器收尾的读改写处于同一事务，避免旧 running 覆盖已归还租约的状态。
+    await session.execute(
+        update(Job).where(Job.id == job_id).values(id=Job.id)
+        .execution_options(synchronize_session=False)
+    )
+    return await session.get(Job, job_id, populate_existing=True)
+
+
 async def request_cancel(
     session: AsyncSession,
     job_id: str,
@@ -584,7 +594,7 @@ async def request_cancel(
     只在排队/挂起态的立即取消分支生效——运行中任务要等安全停止点，
     期间处理器仍会整体覆盖 progress，理由留不住。
     """
-    job = await session.get(Job, job_id)
+    job = await _lock_job(session, job_id)
     if job is None:
         return None, False
     if job.status in TERMINAL_JOB_STATUSES:
@@ -1372,7 +1382,7 @@ class JobDispatcher:
                 await asyncio.sleep(3)
 
     async def _load_owned(self, session: AsyncSession, job_id: str, lease_token: str) -> Job | None:
-        job = await session.get(Job, job_id)
+        job = await _lock_job(session, job_id)
         if job is None or job.lease_owner != lease_token:
             return None
         return job
