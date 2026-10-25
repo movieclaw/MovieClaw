@@ -56,8 +56,7 @@ func nativeReply(name string, addresses ...string) string {
 	return string(raw)
 }
 
-// 新服务器两句都答：同一来源合并成一台，自家应答的地址在前，来源 IP 拼出的兜底在后。
-// 广播在本机回环上收到的来源 IP 不固定，按 Find 返回的来源推导期望值。
+// 新服务器两句都答：多张真实网卡的应答合成一台，保留每个来源的兜底地址。
 func TestFindMergesBothRepliesFromOneServer(t *testing.T) {
 	responder(t,
 		[]string{nativeReply("客厅 NAS", "http://192.168.1.10:3300", "https://m.example.com")},
@@ -71,16 +70,26 @@ func TestFindMergesBothRepliesFromOneServer(t *testing.T) {
 		t.Fatalf("期望合并成 1 台，实际 %d：%+v", len(found), found)
 	}
 	got := found[0]
-	source := strings.TrimSuffix(strings.TrimPrefix(got.Candidates[len(got.Candidates)-1], "http://"), ":3000")
 	want := []string{
 		"http://192.168.1.10:3300",
 		"https://m.example.com",
 		"http://172.17.0.2:3000",
-		"http://" + source + ":3300",
-		"http://" + source + ":3000",
 	}
-	if got.Name != "客厅 NAS" || got.Address != want[0] || !reflect.DeepEqual(got.Candidates, want) {
-		t.Errorf("合并结果不对：%+v\n期望候选 %v", got, want)
+	if got.Name != "客厅 NAS" || got.Address != want[0] || len(got.Candidates) < 5 ||
+		!reflect.DeepEqual(got.Candidates[:3], want) {
+		t.Fatalf("合并结果不对：%+v", got)
+	}
+	fallbacks := got.Candidates[3:]
+	if len(fallbacks)%2 != 0 {
+		t.Fatalf("每张网卡应有 3300 和 3000 两个兜底：%v", fallbacks)
+	}
+	seen := map[string]bool{}
+	for i := 0; i < len(fallbacks); i += 2 {
+		source := strings.TrimSuffix(strings.TrimPrefix(fallbacks[i], "http://"), ":3300")
+		if net.ParseIP(source) == nil || seen[source] || fallbacks[i+1] != "http://"+source+":3000" {
+			t.Fatalf("网卡候选丢失、重复或端口不对：%v", fallbacks)
+		}
+		seen[source] = true
 	}
 }
 
@@ -162,5 +171,46 @@ func TestBroadcastTargetsAlwaysIncludeLimited(t *testing.T) {
 	targets := broadcastTargets()
 	if len(targets) == 0 || !targets[0].IP.Equal(net.IPv4bcast) {
 		t.Fatalf("首个目标应当是 255.255.255.255：%+v", targets)
+	}
+}
+
+// 同一 IP 上可以有多个实例，不能按名字或来源 IP 把不同 ID 合并。
+func TestFindKeepsDistinctInstancesSeparate(t *testing.T) {
+	responder(t, []string{
+		`{"type":"movieclaw.discovery","instance_id":"a","name":"同名","addresses":[]}`,
+		`{"type":"movieclaw.discovery","instance_id":"b","name":"同名","addresses":[]}`,
+	}, nil)
+	found, err := Find(time.Second)
+	if err != nil || len(found) != 2 {
+		t.Fatalf("不同 ID 不应合并：%+v, %v", found, err)
+	}
+}
+
+func TestMergeRetainsEveryInterfaceFallback(t *testing.T) {
+	found := merge([]string{"id:x"}, map[string][]reply{
+		"id:x": {
+			{addresses: []string{"http://172.17.0.2:3300"}, source: "192.168.1.10", native: true},
+			{addresses: []string{"http://172.17.0.2:3300"}, source: "10.0.0.5"},
+		},
+	})
+	want := []string{"http://172.17.0.2:3300", "http://192.168.1.10:3300", "http://192.168.1.10:3000", "http://10.0.0.5:3300", "http://10.0.0.5:3000"}
+	if len(found) != 1 || !reflect.DeepEqual(found[0].Candidates, want) {
+		t.Fatalf("多网卡兜底不完整：%+v", found)
+	}
+}
+
+func TestFindWithoutIDsStillWorks(t *testing.T) {
+	responder(t, []string{`{"type":"movieclaw.discovery","name":"无 ID","addresses":[]}`},
+		[]string{`{"Address":"http://172.17.0.2:3000","Name":"无 ID"}`})
+	found, err := Find(time.Second)
+	if err != nil || len(found) == 0 {
+		t.Fatalf("无 ID 的应答仍应可用：%+v, %v", found, err)
+	}
+	seen := map[string]bool{}
+	for _, server := range found {
+		if len(server.Candidates) != 2 || seen[server.Candidates[1]] {
+			t.Fatalf("无 ID 应答应按来源 IP 合并：%+v", found)
+		}
+		seen[server.Candidates[1]] = true
 	}
 }

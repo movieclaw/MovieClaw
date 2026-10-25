@@ -3,7 +3,7 @@
 // 协议见 docs/design/lan-discovery.md：往 UDP 7359 广播两句询问——自家的
 // `who is MovieClawServer?`（应答一组按可信度排好的地址）与 Jellyfin 的
 // `who is JellyfinServer?`（v0.40.0 及更早的服务器只认这一句，应答一个 Address）。
-// 同一来源 IP 的应答合并成一台服务器。
+// 按实例 ID 合并多网卡应答；旧应答没有 ID 时按来源 IP 合并。
 //
 // **它只是兜底，不是主路**。这些情况下发现不到，`--server` 必须一直留着：
 //
@@ -47,6 +47,8 @@ type Server struct {
 type reply struct {
 	addresses []string
 	name      string
+	id        string
+	source    string
 	native    bool
 }
 
@@ -69,16 +71,16 @@ func parseReply(data []byte) (reply, bool) {
 				addresses = append(addresses, value)
 			}
 		}
-		return reply{addresses: addresses, name: text("name"), native: true}, true
+		return reply{addresses: addresses, name: text("name"), id: text("instance_id"), native: true}, true
 	}
 	if text("Address") == "" {
 		return reply{}, false
 	}
-	return reply{addresses: []string{text("Address")}, name: text("Name")}, true
+	return reply{addresses: []string{text("Address")}, name: text("Name"), id: text("Id")}, true
 }
 
 // candidatesFor 由一台服务器的全部应答地址与来源 IP 拼出候选地址（去重、保序）。
-func candidatesFor(addresses []string, source string) []string {
+func candidatesFor(addresses []string, sources ...string) []string {
 	var list []string
 	add := func(value string) {
 		for _, existing := range list {
@@ -99,13 +101,15 @@ func candidatesFor(addresses []string, source string) []string {
 			ports = append(ports, p)
 		}
 	}
-	for _, p := range append(ports, defaultPort) {
-		add("http://" + net.JoinHostPort(source, strconv.Itoa(p)))
+	for _, source := range sources {
+		for _, p := range append(ports, defaultPort) {
+			add("http://" + net.JoinHostPort(source, strconv.Itoa(p)))
+		}
 	}
 	return list
 }
 
-// Find 广播一次并收集 timeout 内的全部应答，同一来源 IP 合并成一台。
+// Find 广播一次并收集 timeout 内的全部应答，同一实例 ID 合并成一台；无 ID 时回落到来源 IP。
 //
 // 找不到不是错误：局域网里没有、或者根本不在同一网段，都是正常情况，
 // 调用方据空结果回落到「请给地址」即可。返回 error 只表示「这次探测本身
@@ -136,7 +140,7 @@ func Find(timeout time.Duration) ([]Server, error) {
 	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
 		return nil, err
 	}
-	var sources []string
+	var keys []string
 	replies := map[string][]reply{}
 	buf := make([]byte, 4096)
 	for {
@@ -149,23 +153,30 @@ func Find(timeout time.Duration) ([]Server, error) {
 		if !ok {
 			continue
 		}
-		source := from.IP.String()
-		if _, seen := replies[source]; !seen {
-			sources = append(sources, source)
+		parsed.source = from.IP.String()
+		key := "ip:" + parsed.source
+		if parsed.id != "" {
+			key = "id:" + parsed.id
 		}
-		replies[source] = append(replies[source], parsed)
+		if _, seen := replies[key]; !seen {
+			keys = append(keys, key)
+		}
+		replies[key] = append(replies[key], parsed)
 	}
-	return merge(sources, replies), nil
+	return merge(keys, replies), nil
 }
 
-// merge 把每个来源的应答合成一台服务器：自家应答的地址与名字在前。
-func merge(sources []string, replies map[string][]reply) []Server {
+// merge 把每个实例的应答合成一台服务器：自家应答的地址与名字在前，保留各网卡的兜底地址。
+func merge(keys []string, replies map[string][]reply) []Server {
 	var found []Server
-	for _, source := range sources {
-		var addresses []string
+	for _, key := range keys {
+		var addresses, sources []string
+		for _, item := range replies[key] {
+			sources = append(sources, item.source)
+		}
 		name := ""
 		for _, native := range []bool{true, false} {
-			for _, item := range replies[source] {
+			for _, item := range replies[key] {
 				if item.native != native {
 					continue
 				}
@@ -175,7 +186,7 @@ func merge(sources []string, replies map[string][]reply) []Server {
 				}
 			}
 		}
-		candidates := candidatesFor(addresses, source)
+		candidates := candidatesFor(addresses, sources...)
 		found = append(found, Server{Address: candidates[0], Name: name, Candidates: candidates})
 	}
 	return found
