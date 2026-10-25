@@ -3,6 +3,7 @@
 - ``ok``：往输出文件里写 init 与 ``--fragments`` 个 0.5 秒的片段（每 2 秒一个同步帧），边写边打印
   ``-progress`` 风格的进度，最后 ``progress=end``、退出码 0；
 - ``slow``：同上但不收尾，一直写到被杀（最多 30 秒）；
+- ``progress-once``：只写一条短进度后保持管道打开，直到被停止（最多 30 秒）；
 - ``fail``：往 stderr 打一堆行，退出码 3；
 - ``hang``：不出任何进度（只往管道写空行，父进程没了就会写失败而退出）；
 - ``garbage``：写完 init 再写一个长度不合理的盒头，然后像 hang 一样不动；
@@ -106,6 +107,9 @@ def main() -> int:
             out.write(fragment(start_ms=at, sync=at % 2000 == 0))
             out.flush()
             progress(at + 500)
+            if args.mode == "progress-once":
+                time.sleep(30)
+                return 0
             time.sleep(args.delay)
             index += 1
         if args.mode == "ok":

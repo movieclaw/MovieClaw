@@ -168,15 +168,16 @@ def test_an_ffmpeg_failure_reports_the_exit_code_and_the_tail_of_stderr(tmp_path
 
 def test_progress_is_reported_as_soon_as_ffmpeg_prints_it(tmp_path, nas):
     """进度行很短：按固定字节数读管道会把第一条进度压住好几秒（ffmpeg 约每 0.5 秒打一组）。"""
-    started = time.monotonic()
-    harness = Harness(tmp_path, nas, "slow", extra_args=["--delay", "0.5"]).run()
-
-    wait_until(lambda: harness.of("job.progress"), 20.0, "第一条进度")
-    elapsed = time.monotonic() - started
-
-    harness.job.stop()
-    harness.wait_exit(15.0)
-    assert elapsed < 2.5, f"第一条进度晚了 {elapsed:.1f} 秒"
+    # 只写一条远小于 4096 字节的进度后保持管道打开：read(4096) 必须卡住，
+    # read1 则能立即交付。不要把 Python 替身冷启动时间算进进度读取的时限。
+    harness = Harness(tmp_path, nas, "progress-once").run()
+    try:
+        wait_until(lambda: harness.of("job.progress"), 20.0, "管道关闭前的第一条短进度")
+        assert harness.job._process.poll() is None
+        assert not harness.of("job.finished")
+    finally:
+        harness.job.stop()
+        harness.wait_exit(15.0)
 
 
 def test_a_silent_ffmpeg_is_killed_by_the_watchdog_and_reported(tmp_path, nas, monkeypatch):
