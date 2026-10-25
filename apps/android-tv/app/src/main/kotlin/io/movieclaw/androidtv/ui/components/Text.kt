@@ -5,6 +5,7 @@ import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
@@ -56,6 +57,29 @@ fun Text(
         softWrap,
         maxLines,
         minLines,
+    )
+}
+
+/**
+ * 颜色在绘制时才取（[color] 里读动画值）：行标题这种随焦点变色的字，变色的每一帧只重画、不重组。
+ * 样式里的颜色不再起作用
+ */
+@Composable
+fun Text(
+    text: String,
+    color: ColorProducer,
+    modifier: Modifier = Modifier,
+    overflow: TextOverflow = TextOverflow.Clip,
+    maxLines: Int = Int.MAX_VALUE,
+    style: TextStyle = LocalTextStyle.current,
+) {
+    BasicText(
+        text,
+        modifier,
+        merged(style, Color.Unspecified, TextUnit.Unspecified, null, null, null, TextUnit.Unspecified, null, null, TextUnit.Unspecified),
+        overflow = overflow,
+        maxLines = maxLines,
+        color = color,
     )
 }
 

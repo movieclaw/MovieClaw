@@ -51,7 +51,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -371,13 +373,15 @@ internal fun PosterWall(
         WallPrefetch.page(context, urls)
     }
 
-    // 背景跟着焦点那一部：停稳再换（快速滚动时多等一会儿），一路划过去时不逐张闪
+    // 背景跟着焦点那一部：停稳再换（快速滚动时多等一会儿），一路划过去时不逐张闪。
+    // 焦点只在这里的计时和下面索引条的当前档里读（不在页面的组合里读）：挪一张海报整页不重组
     var backdrop by remember { mutableStateOf<WallItem?>(null) }
-    LaunchedEffect(focusedId) {
-        val id = focusedId ?: return@LaunchedEffect
-        if (id == backdrop?.id) return@LaunchedEffect
-        delay(if (quickSteps >= 2) 450 else 200)
-        backdrop = pager.items?.firstOrNull { it.id == id }
+    LaunchedEffect(Unit) {
+        snapshotFlow { focusedId }.collectLatest { id ->
+            if (id == null || id == backdrop?.id) return@collectLatest
+            delay(if (quickSteps >= 2) 450 else 200)
+            backdrop = pager.items?.firstOrNull { it.id == id }
+        }
     }
 
     // 条目出来时焦点还不在页面里：落回记下的那张，没有就第一张；空墙、失败落到状态页上
@@ -529,8 +533,12 @@ internal fun PosterWall(
             }
         }
         if (index.isNotEmpty() && !items.isNullOrEmpty()) {
-            val current = focusedId?.let(pager::offsetOf)?.let { WallIndex.entryAt(it, index) }?.key
-                ?: index.firstOrNull { it.count > 0 }?.key
+            // 跨了档才重组
+            val current by remember(index) {
+                derivedStateOf {
+                    focusedId?.let(pager::offsetOf)?.let { WallIndex.entryAt(it, index) }?.key ?: index.firstOrNull { it.count > 0 }?.key
+                }
+            }
             WallRail(
                 index = index,
                 current = current,

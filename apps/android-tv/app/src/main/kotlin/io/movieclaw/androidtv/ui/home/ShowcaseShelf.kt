@@ -2,7 +2,6 @@ package io.movieclaw.androidtv.ui.home
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -28,13 +27,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animate
+import coil3.SingletonImageLoader
+import coil3.request.ImageRequest
+import io.movieclaw.androidtv.ui.components.imageUrl
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -75,8 +76,11 @@ data class ShowcaseEntry(
 )
 
 /**
- * 选中展开的海报行（TVShowcaseShelf）：平时 300×450 海报，焦点所在那张横向展开到 800 宽、换成背景图 + 片名 Logo；
- * 行下面写这一部的「类型 · 年份 · 片长 · 分级」与两行简介。焦点那张滚到左边 80 处。
+ * 选中展开的海报行（TVShowcaseShelf）：平时 300×450 海报，焦点所在那一部在行首（左 80）展开到 800 宽、换成背景图 + 片名 Logo；
+ * 行下面写这一部的「类型 · 年份 · 片长 · 分级」与两行简介。
+ * 展开位固定在行首、大小不变（同 Apple 端，2026-10-11 用户定，同 Netflix）：往右按，展开位里直接换成下一部，后面的海报整体往左
+ * 平移一格滑进来。原先两张卡同时做 0.3 秒宽度动画、整行同时滚动，动画的每一帧整行都要重新测量排版；
+ * 现在宽度与滚动位置在同一帧里直接到位，只有后面海报的平移这一个动画（只改图层位移，不重新排版）。
  * 从上下切进这一行只落在上次停的那张（没停过就第一张；上次停在「查看全部」就落它），不按位置挑最近的（同 Apple 端）。
  */
 @OptIn(ExperimentalComposeUiApi::class)
@@ -96,27 +100,67 @@ fun ShowcaseShelf(
     var leftAtTrailing by remember { mutableStateOf(false) }
     val cardFocus = remember { mutableMapOf<Long, FocusRequester>() }
     val trailingFocus = remember { FocusRequester() }
-    val trailingModifier = Modifier.focusRequester(trailingFocus).onFocusChanged { if (it.hasFocus) leftAtTrailing = true }
+    // 展开位后面那些海报的平移：换一部的那一帧排版已经到位，先把它们放回原来的位置（往右按是右边一格），再滑过来。
+    // 只在图层里读
+    val slide = remember { mutableFloatStateOf(0f) }
+    val scope = rememberCoroutineScope()
+    var slideJob by remember { mutableStateOf<Job?>(null) }
     var rowFocused by remember { mutableStateOf(false) }
-    val color by animateColorAsState(if (rowFocused) McColors.Text else McColors.Secondary, tween(200), label = "showcase-title")
+    val color = animateColorAsState(if (rowFocused) McColors.Text else McColors.Secondary, tween(200), label = "showcase-title")
     val state = rememberLazyListState()
-    val edgePx = with(androidx.compose.ui.platform.LocalDensity.current) { McMetrics.Edge.roundToPx() }
-    LaunchedEffect(focusedId) {
-        val id = focusedId ?: return@LaunchedEffect
-        val index = entries.indexOfFirst { it.id == id }
-        // 焦点那张的左边停在屏幕左 80（同 Apple 端 scrollTo(anchor: 80/1120)）；展开动画与滚动同时进行会少走一截，多给 1/5 补上（截图量出）
-        if (index >= 0) state.animateScrollToItem(index, -(edgePx + edgePx / 5))
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val stepPx = with(density) { (McMetrics.ShowcasePosterWidth + McMetrics.CardSpacing).toPx() }
+    val trailingModifier = Modifier
+        .focusRequester(trailingFocus)
+        .onFocusChanged { if (it.hasFocus) leftAtTrailing = true }
+        .graphicsLayer { translationX = if (focusedId != null) slide.floatValue else 0f }
+
+    fun focusCard(entry: ShowcaseEntry) {
+        val from = entries.indexOfFirst { it.id == focusedId }
+        val to = entries.indexOfFirst { it.id == entry.id }
+        focusedId = entry.id
+        remembered = entry.id
+        leftAtTrailing = false
+        if (to < 0) return
+        // 宽度、滚动位置在同一帧里直接到位：展开位停在行首（偏移 0 就是贴着左边的内边距，屏幕左 80）
+        state.requestScrollToItem(to)
+        slideJob?.cancel()
+        if (from >= 0 && from != to) {
+            slide.floatValue = if (to > from) stepPx else -stepPx
+            slideJob = scope.launch {
+                animate(slide.floatValue, 0f, animationSpec = tween(250, easing = LinearOutSlowInEasing)) { value, _ -> slide.floatValue = value }
+            }
+        } else {
+            slide.floatValue = 0f
+        }
+    }
+
+    val expandedIndex = entries.indexOfFirst { it.id == focusedId }
+    // 预载展开位前后几部的背景图与 Logo（与卡片取图同一个地址，命中内存缓存）：往右按时展开位里直接换图，不等加载
+    if (expandedIndex >= 0) {
+        val neighbours = listOf(expandedIndex - 1, expandedIndex + 1, expandedIndex + 2).mapNotNull { entries.getOrNull(it) }
+        val urls = neighbours.flatMap { e -> listOf(imageUrl(showcaseBackdrop(e, details[e.id]), 800f), imageUrl(details[e.id]?.logoUrl, 380f)) }.filterNotNull()
+        val context = androidx.compose.ui.platform.LocalContext.current
+        LaunchedEffect(urls) {
+            val loader = SingletonImageLoader.get(context)
+            urls.forEach { loader.enqueue(ImageRequest.Builder(context).data(it).build()) }
+        }
     }
     Column(
         modifier.onFocusChanged {
             rowFocused = it.hasFocus
             onRowFocus(it.hasFocus)
-            if (!it.hasFocus) focusedId = null
+            if (!it.hasFocus) {
+                focusedId = null
+                slideJob?.cancel()
+                slide.floatValue = 0f
+            }
         },
         verticalArrangement = Arrangement.spacedBy(8.pt),
     ) {
-        Text(title, style = McType.size(32, FontWeight.SemiBold), color = color, modifier = Modifier.padding(horizontal = McMetrics.Edge))
-        io.movieclaw.androidtv.ui.components.TvScrollSpec(80) {
+        // 标题变色只在绘制时读：焦点进出这一行时不让整行跟着每帧重组
+        Text(title, style = McType.size(32, FontWeight.SemiBold), color = { color.value }, modifier = Modifier.padding(horizontal = McMetrics.Edge))
+        io.movieclaw.androidtv.ui.components.NoAutoScroll {
         LazyRow(
             state = state,
             modifier = Modifier
@@ -132,24 +176,21 @@ fun ShowcaseShelf(
             contentPadding = PaddingValues(start = McMetrics.Edge, end = (1920 - 80 - 800).pt, top = 20.pt, bottom = 20.pt),
             horizontalArrangement = Arrangement.spacedBy(McMetrics.CardSpacing),
         ) {
-            itemsIndexed(entries, key = { _, e -> e.id }) { _, entry ->
+            itemsIndexed(entries, key = { _, e -> e.id }) { index, entry ->
                 val requester = remember { FocusRequester() }
                 DisposableEffect(entry.id) {
                     cardFocus[entry.id] = requester
                     onDispose { if (cardFocus[entry.id] === requester) cardFocus.remove(entry.id) }
                 }
+                val behind = expandedIndex in 0 until index
                 ShowcaseCard(
                     entry,
                     details[entry.id],
-                    expanded = focusedId == entry.id,
-                    modifier = Modifier.focusRequester(requester),
-                    onFocus = {
-                        if (it) {
-                            focusedId = entry.id
-                            remembered = entry.id
-                            leftAtTrailing = false
-                        }
-                    },
+                    expanded = index == expandedIndex,
+                    modifier = Modifier
+                        .focusRequester(requester)
+                        .graphicsLayer { translationX = if (behind) slide.floatValue else 0f },
+                    onFocus = { if (it) focusCard(entry) },
                 ) { onOpen(entry) }
             }
             trailing(trailingModifier)
@@ -157,28 +198,30 @@ fun ShowcaseShelf(
         }
         Box(Modifier.padding(horizontal = McMetrics.Edge)) {
             // 几行字的交叉淡入：透明度直接乘到字上，不离屏（ModulatedCrossfade）；简介行数不同时高度照旧平滑过渡
-            ModulatedCrossfade(entries.firstOrNull { it.id == focusedId }, tween(300), Modifier.animateContentSize()) { entry ->
+            ModulatedCrossfade(entries.getOrNull(expandedIndex), tween(300), Modifier.animateContentSize()) { entry ->
                 if (entry != null) ShowcaseInfo(entry, details[entry.id])
             }
         }
     }
 }
 
+/** 展开时的背景图：展开接口给的优先，列表里带的兜底，再没有用海报 */
+private fun showcaseBackdrop(entry: ShowcaseEntry, detail: LibraryItemShowcaseView?): String? = detail?.backdropUrl ?: entry.backdrop ?: entry.poster
+
+/**
+ * 一张卡：平时竖海报，展开时同高的横版背景图 + 左下 Logo。宽度、内容直接到位（见 [ShowcaseShelf]），不做宽度动画与交叉淡入；
+ * 海报一直留着、展开时盖上背景图，收回时不用重建海报
+ */
 @Composable
 private fun ShowcaseCard(entry: ShowcaseEntry, detail: LibraryItemShowcaseView?, expanded: Boolean, modifier: Modifier, onFocus: (Boolean) -> Unit, onClick: () -> Unit) {
-    val width by animateDpAsState(if (expanded) McMetrics.ShowcaseExpandedWidth else McMetrics.ShowcasePosterWidth, tween(300), label = "showcase-width")
-    var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(McMetrics.CardCorner)
     Surface(
         onClick = onClick,
         modifier = modifier
             .layerFocus()
-            .width(width)
+            .width(if (expanded) McMetrics.ShowcaseExpandedWidth else McMetrics.ShowcasePosterWidth)
             .height(McMetrics.ShowcaseHeight)
-            .onFocusChanged {
-                focused = it.isFocused
-                onFocus(it.isFocused)
-            },
+            .onFocusChanged { onFocus(it.isFocused) },
         shape = ClickableSurfaceDefaults.shape(shape),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 0.98f),
         border = ClickableSurfaceDefaults.border(
@@ -188,15 +231,18 @@ private fun ShowcaseCard(entry: ShowcaseEntry, detail: LibraryItemShowcaseView?,
         glow = ClickableSurfaceDefaults.glow(focusedGlow = androidx.tv.material3.Glow(Color.Black.copy(alpha = 0.55f), 26.pt)),
         colors = ClickableSurfaceDefaults.colors(containerColor = McColors.SurfaceRaised, focusedContainerColor = McColors.SurfaceRaised),
     ) {
-        // 展开时背景图版淡入、海报淡出（0.3 秒）。不给背景图版整块套透明度（每帧离屏两块 800×450），而是倒过来叠：
-        // 背景图版在下面照常画，海报在上面按 1 − a 的透明度画（单张图，直接乘透明度）；卡片比海报宽出来的那截，
-        // 盖一层卡底色 × (1 − a)。两处都是「a × 背景图版 + (1 − a) × 原来的底」，与整块淡入逐像素相同
-        val reveal = animateFloatAsState(if (expanded) 1f else 0f, tween(300), label = "showcase-reveal")
-        val revealing by remember { derivedStateOf { reveal.value > 0f } }
         Box(Modifier.fillMaxSize().clip(shape)) {
-            if (expanded || revealing) {
+            // 海报不垫底色：卡片本身就是同一种底色（ClickableSurfaceDefaults.colors）
+            RemoteImage(
+                entry.poster,
+                300f,
+                Modifier.width(McMetrics.ShowcasePosterWidth).fillMaxSize().graphicsLayer { alpha = if (expanded) 0f else 1f },
+                placeholder = entry.title,
+                showsPlaceholderBox = false,
+            )
+            if (expanded) {
                 Box(Modifier.width(McMetrics.ShowcaseExpandedWidth).height(McMetrics.ShowcaseHeight)) {
-                    RemoteImage(detail?.backdropUrl ?: entry.backdrop ?: entry.poster, 800f, Modifier.fillMaxSize(), placeholder = entry.title)
+                    RemoteImage(showcaseBackdrop(entry, detail), 800f, Modifier.fillMaxSize(), placeholder = entry.title)
                     Box(
                         Modifier.fillMaxSize().background(
                             Brush.linearGradient(
@@ -216,27 +262,7 @@ private fun ShowcaseCard(entry: ShowcaseEntry, detail: LibraryItemShowcaseView?,
                         textSizePt = 52,
                     )
                 }
-                Spacer(
-                    Modifier.fillMaxSize().drawBehind {
-                        val a = reveal.value
-                        val poster = McMetrics.ShowcasePosterWidth.toPx()
-                        if (a < 1f && size.width > poster) {
-                            drawRect(McColors.SurfaceRaised, topLeft = Offset(poster, 0f), size = Size(size.width - poster, size.height), alpha = 1 - a)
-                        }
-                    },
-                )
             }
-            // 海报不垫底色：卡片本身就是同一种底色（ClickableSurfaceDefaults.colors），垫了反而让上面的透明度算不对
-            RemoteImage(
-                entry.poster,
-                300f,
-                Modifier.width(McMetrics.ShowcasePosterWidth).fillMaxSize().graphicsLayer {
-                    alpha = 1 - reveal.value
-                    compositingStrategy = CompositingStrategy.ModulateAlpha
-                },
-                placeholder = entry.title,
-                showsPlaceholderBox = false,
-            )
         }
     }
 }

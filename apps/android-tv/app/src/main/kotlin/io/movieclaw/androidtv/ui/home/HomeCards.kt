@@ -24,9 +24,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
+import io.movieclaw.androidtv.ui.stage.reducedBlur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawBehind
@@ -68,7 +67,8 @@ fun LibraryCard(name: String, image: String?, onClick: () -> Unit, modifier: Mod
             if (url != null) {
                 AsyncImage(
                     url, null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().then(if (Build.VERSION.SDK_INT >= 31) Modifier.blur(20.dp) else Modifier),
+                    // 模糊在 1/4 大小上算（reducedBlur）：一行库卡滚进画面时不再每张都在原尺寸上多遍渲染模糊
+                    modifier = Modifier.fillMaxSize().then(if (Build.VERSION.SDK_INT >= 31) Modifier.reducedBlur(20.dp) else Modifier),
                 )
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)))
                 AsyncImage(
@@ -133,7 +133,8 @@ private fun Modifier.fadeBottom(from: Float): Modifier = drawWithContent {
 @Composable
 fun GenreCard(label: String, count: Long, mediaKind: String, cover: String?, onClick: () -> Unit, modifier: Modifier = Modifier) {
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.07f else 1f, tween(230), label = "genre-scale")
+    // 放大只在图层里读：焦点动画的每一帧不让整张卡重组
+    val scale = animateFloatAsState(if (focused) 1.07f else 1f, tween(230), label = "genre-scale")
     val saturation by animateFloatAsState(if (focused) 1f else 0.76f, tween(230), label = "genre-sat")
     val url = imageUrl(cover, 416f, 1.07f)
     val shape = RoundedCornerShape(McMetrics.CardCorner)
@@ -143,7 +144,10 @@ fun GenreCard(label: String, count: Long, mediaKind: String, cover: String?, onC
             .layerFocus()
             .width(McMetrics.GenreWidth)
             .height(234.pt)
-            .scale(scale)
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+            }
             .then(if (focused) Modifier.shadow(18.pt, shape, spotColor = Color.Black.copy(alpha = 0.4f)) else Modifier)
             .onFocusChanged { focused = it.isFocused },
         shape = ClickableSurfaceDefaults.shape(shape),

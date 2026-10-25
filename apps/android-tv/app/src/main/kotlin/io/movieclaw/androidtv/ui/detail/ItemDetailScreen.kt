@@ -29,6 +29,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableFloatState
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -126,9 +129,11 @@ fun ItemDetailScreen(libraryId: Long, itemId: Long) {
     }
 
     val scroll = rememberScrollState()
+    // 剧照淡完要滚的像素：正好是滑到下半截的距离（内容出来后由 DetailContent 填上）
+    val stageFadePx = remember { mutableFloatStateOf(0f) }
     // testTagsAsResourceId：端到端验收用 uiautomator 按 testTag 找控件
     Box(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }.onFocusChanged { pageFocused = it.hasFocus }) {
-        DetailBackdrop(itemId, state.detail, scroll)
+        DetailBackdrop(itemId, state.detail, scroll, stageFadePx)
         val detail = state.detail
         when {
             state.failed -> {
@@ -145,15 +150,19 @@ fun ItemDetailScreen(libraryId: Long, itemId: Long) {
                     if (!pageFocused) focus.tryFocus()
                 }
             }
-            detail != null -> DetailContent(state, detail, scroll, pageFocused = { pageFocused })
+            detail != null -> DetailContent(state, detail, scroll, stageFadePx, pageFocused = { pageFocused })
             else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Spinner() }
         }
     }
 }
 
-/** 整页背景：剧照按屏宽取，往下滑时跟着内容滚走、露出同一张图的模糊版（滚动量只在它的图层里读） */
+/**
+ * 整页背景：剧照按屏宽取，往下滑时跟着内容滚走、露出同一张图的模糊版（滚动量只在它的图层里读）。
+ * 滑到下半截时剧照正好淡完（[fadePx]，没填时按 900 点）：原先停在下半截还剩约两成透明度，
+ * 看着几乎没有，这层大图连同慢推却每帧都要离屏重画（同 Apple TV，docs/perf/tvos-home-gpu-2026-10.md §5）
+ */
 @Composable
-private fun DetailBackdrop(itemId: Long, detail: LibraryItemDetailView?, scroll: ScrollState) {
+private fun DetailBackdrop(itemId: Long, detail: LibraryItemDetailView?, scroll: ScrollState, fadePx: MutableFloatState) {
     // 大图预告：详情页放「高光」片段；从首页进来是同一部就接着放（TVStagePreview 按条目 id 认）
     val preview = io.movieclaw.androidtv.ui.shell.LocalStagePreview.current
     if (preview != null) {
@@ -165,6 +174,7 @@ private fun DetailBackdrop(itemId: Long, detail: LibraryItemDetailView?, scroll:
         scrollPx = { scroll.value.toFloat() },
         pinnedPt = 0f,
         fadePt = 900f,
+        fadePx = remember(fadePx) { { fadePx.floatValue } },
         preview = if (preview != null && detail != null) { visible -> StagePreviewLayer(preview, itemId, visible) } else null,
     )
 }
@@ -175,7 +185,13 @@ private class ZoneHolder {
 }
 
 @Composable
-private fun DetailContent(state: DetailState, detail: LibraryItemDetailView, scroll: ScrollState, pageFocused: () -> Boolean) {
+private fun DetailContent(
+    state: DetailState,
+    detail: LibraryItemDetailView,
+    scroll: ScrollState,
+    stageFadePx: MutableFloatState,
+    pageFocused: () -> Boolean,
+) {
     val router = LocalRouter.current
     val scope = rememberCoroutineScope()
     val ptPx = LocalDensity.current.density * 0.5f
@@ -186,6 +202,7 @@ private fun DetailContent(state: DetailState, detail: LibraryItemDetailView, scr
     val screenTop = DetailLogic.lowerScreenTop(state.hasSeasonTabs, ranges.isNotEmpty())
     val gap = DetailLogic.lowerGap(isMovie)
     val lowerPx by rememberUpdatedState((918 + gap - screenTop) * ptPx)
+    SideEffect { stageFadePx.floatValue = lowerPx }
 
     val zone = remember { ZoneHolder() }
     // 焦点记在哪（从影人页、别的详情退回来时落回原处）
