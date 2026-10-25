@@ -40,7 +40,8 @@ private struct MacGeneralSettings: View {
                     Text("这份 App 通过 TestFlight 安装，更新由 TestFlight 负责。")
                         .foregroundStyle(.secondary)
                 case .none:
-                    Text("开发版不检查更新。")
+                    // GitHub 版还没装进「应用程序」时也是这里（正显示安装引导）
+                    Text(MacInstallLocation.problem == nil ? "开发版不检查更新。" : "装进「应用程序」文件夹后才能自动更新。")
                         .foregroundStyle(.secondary)
                 }
                 Link("在 GitHub 查看所有 Mac 版发布",

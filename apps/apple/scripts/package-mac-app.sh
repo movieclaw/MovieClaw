@@ -81,8 +81,9 @@ plist "Clear dict"
 [ "$(setting ENABLE_APP_SANDBOX)" = YES ] && plist "Add :com.apple.security.app-sandbox bool true"
 [ "$(setting ENABLE_OUTGOING_NETWORK_CONNECTIONS)" = YES ] && plist "Add :com.apple.security.network.client bool true"
 [ "$(setting ENABLE_INCOMING_NETWORK_CONNECTIONS)" = YES ] && plist "Add :com.apple.security.network.server bool true"
-# Sparkle 在沙盒里经它的安装器 XPC 服务替换 App，要能连上它注册的两个服务名（Sparkle 文档「Sandboxing」）
-bundle_id="$(setting PRODUCT_BUNDLE_IDENTIFIER)"
+# Sparkle 在沙盒里经它的安装器 XPC 服务替换 App，要能连上它注册的两个服务名（Sparkle 文档「Sandboxing」）。
+# Bundle ID 从编好的 App 读：构建设置里还有依赖目标的同名设置，按顺序取第一个不可靠
+bundle_id="$(plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist")"
 plist "Add :com.apple.security.temporary-exception.mach-lookup.global-name array"
 plist "Add :com.apple.security.temporary-exception.mach-lookup.global-name:0 string $bundle_id-spks"
 plist "Add :com.apple.security.temporary-exception.mach-lookup.global-name:1 string $bundle_id-spki"
