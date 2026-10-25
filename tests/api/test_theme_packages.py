@@ -319,6 +319,14 @@ def test_bundled_theme_can_be_uninstalled_restored_and_replaced(data_dir, monkey
     with client:
         theme = catalog(client)["netflix"]
         assert theme["source"] == "bundled" and theme["status"] == "ok"
+        fiber = client.app.state.kernel.fiber("netflix")
+        assert fiber.plugin.reloadable is True
+        off = client.put("/api/v1/app/plugins/netflix/enabled", json={"enabled": False})
+        assert off.status_code == 200, off.text
+        assert "netflix" not in catalog(client)
+        on = client.put("/api/v1/app/plugins/netflix/enabled", json={"enabled": True})
+        assert on.status_code == 200, on.text
+        assert client.get(catalog(client)["netflix"]["css"]).status_code == 200
         # 安全模式：随带主题照常（与随带插件包同口径）
         with monkeypatch.context() as m:
             m.setattr(safe_mode, "current", lambda: safe_mode.SafeMode(active=True))

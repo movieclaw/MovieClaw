@@ -658,7 +658,7 @@ def web_only(entry_id: str, title: str) -> Plugin:
     async def apply(ctx: Any) -> None:
         return None
 
-    return Plugin(name=entry_id, title=title, apply=apply, disableable=True)
+    return Plugin(name=entry_id, title=title, apply=apply, disableable=True, reloadable=True)
 
 
 def _inline(path: Path, package: Installed) -> Plugin:
