@@ -29,6 +29,7 @@ from sqlalchemy import select
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services.auth import reset_auth_state
 from movieclaw_api.services.offline import exports
+from movieclaw_api.services.playback.session import reset_session_manager
 from movieclaw_api.settings.store import reset_setting_store
 from movieclaw_db.crypto import reset_secret_box
 from movieclaw_db.engine import get_database
@@ -55,11 +56,15 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'offline.db'}")
     monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
     monkeypatch.setenv("MEDIA_DIR", str(tmp_path / "media"))
+    monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("METADATA_DIR", str(tmp_path / "metadata"))
+    monkeypatch.setenv("MOVIECLAW_TRANSCODE_DIR", str(tmp_path / "transcodes"))
     monkeypatch.setenv("MOVIECLAW_OFFLINE_EXPORTS_DIR", str(tmp_path / "exports"))
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
     monkeypatch.setenv("TMDB_API_KEY", "test-key-not-used")
     get_settings.cache_clear()
     reset_setting_store()
+    reset_session_manager()
     reset_secret_box()
     reset_auth_state()
     # 测试机没有显卡：硬件探测一律为空，转码档走软件（用例里按需打开软件转码）
@@ -77,6 +82,7 @@ def client(tmp_path, monkeypatch):
         c.portal.call(exports.get_export_manager().shutdown)  # type: ignore[attr-defined]
 
     reset_setting_store()
+    reset_session_manager()
     reset_secret_box()
     reset_auth_state()
     get_settings.cache_clear()
