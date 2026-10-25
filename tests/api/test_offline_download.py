@@ -116,14 +116,16 @@ def _make_video(path: Path, seconds: int = 4) -> None:
     )
 
 
-async def _seed(tmp_path: Path, *, real: bool, kind: str = "movie") -> tuple[int, int, int]:
+async def _seed(
+    tmp_path: Path, *, real: bool, kind: str = "movie", seconds: int = 4
+) -> tuple[int, int, int]:
     """建库 + 条目 + 一个在位文件（可带同名外挂 srt），返回 (库, 条目, 文件)。"""
     n = next(_counter)
     root = tmp_path / f"lib{n}"
     root.mkdir(exist_ok=True)
     path = root / f"movie{n}.mp4"
     if real:
-        _make_video(path)
+        _make_video(path, seconds)
     else:
         path.write_bytes(bytes(range(256)) * 4096)
     (root / f"movie{n}.chs.srt").write_text("1\n00:00:01,000 --> 00:00:02,000\n你好\n", "utf-8")
@@ -144,7 +146,7 @@ async def _seed(tmp_path: Path, *, real: bool, kind: str = "movie") -> tuple[int
             container="mp4",
             video_codec="h264",
             resolution="720p" if real else "1080p",
-            duration_seconds=4 if real else _DURATION_S,
+            duration_seconds=seconds if real else _DURATION_S,
             audio_streams=[{"codec": "aac", "channels": 2, "default": True}],
             external_subtitles=[
                 {"filename": f"movie{n}.chs.srt", "format": "srt", "language": "chi"}
@@ -939,14 +941,27 @@ def test_queued_export_says_what_it_is_waiting_for(client, tmp_path) -> None:
 
 _FAKE_VAAPI_FFMPEG = r'''#!{python}
 import os, re, sys
+GPU_ERROR = "[hevc_vaapi] Failed to map output buffers: 24 (internal encoding error)\n"
 argv = sys.argv[1:]
 with open(os.environ["FAKE_FFMPEG_LOG"], "a") as log:
     log.write(" ".join(argv) + "\n")
-if "hevc_vaapi" in argv and os.environ.get("FAKE_HEVC_FAIL"):
-    if os.environ["FAKE_HEVC_FAIL"] == "late":
+mode = os.environ.get("FAKE_HEVC_FAIL", "")
+if "hevc_vaapi" in argv and mode.startswith("midway"):
+    # 第一次只转前 6 秒（转出两段就退出），之后的重启前 N 次起步即退（N=midway 后面的数）
+    runs = os.environ["FAKE_FFMPEG_LOG"] + ".hevc_runs"
+    n = int(open(runs).read()) if os.path.exists(runs) else 0
+    open(runs, "w").write(str(n + 1))
+    if n == 0:
+        argv = [*argv[:-1], "-t", "6", argv[-1]]
+    elif n <= int(mode[len("midway"):]):
+        sys.stderr.write(GPU_ERROR)
+        sys.exit(1)
+    mode = ""
+if "hevc_vaapi" in argv and mode:
+    if mode == "late":
         import time
         time.sleep(1.2)  # #763 现场：起来了、约一秒后退出，一段不产出
-    sys.stderr.write("[hevc_vaapi] Failed to map output buffers: 24 (internal encoding error)\n")
+    sys.stderr.write(GPU_ERROR)
     sys.exit(1)
 out = []
 skip = 0
@@ -1046,3 +1061,31 @@ def test_export_falls_back_to_h264_when_gpu_hevc_fails(
     assert "codec_name=h264" in probe and "codec_tag_string=avc1" in probe, probe
     commands = fake_vaapi.read_text()
     assert "-c:v hevc_vaapi" in commands and "-c:v h264_vaapi" in commands
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="需要 ffmpeg")
+@pytest.mark.parametrize(("failures", "codec"), [(2, "hevc"), (99, "h264")])
+def test_gpu_hevc_failing_midway_retries_before_falling_back(
+    client, tmp_path, fake_vaapi, monkeypatch, failures, codec
+) -> None:
+    """已经转出过 HEVC 的导出中途起不来：先按原规矩重试（偶发两次——一次会被会话层自己的重启吸收——
+    之后接着出 HEVC，不整份从头）；
+    一直起不来、要判失败时才改出 H.264 重转，导出照样完成。"""
+    monkeypatch.setenv("FAKE_HEVC_FAIL", f"midway{failures}")
+    monkeypatch.setattr(exports, "_CAPACITY_POLL_S", 0.05)
+    _lib, _item, file_id = seed(client, tmp_path, real=True, seconds=24)
+    created = client.post(f"{_API}/offline/exports", json={"file_id": file_id, "profile": "480p"})
+    assert created.status_code == 200, created.text
+    done = _wait_export(client, created.json()["data"]["export_id"], timeout=180)
+    assert done["status"] == "done", done
+    data = client.get(created.json()["data"]["content_url"]).content
+    probe = _probe_video(data, tmp_path)
+    assert f"codec_name={codec}" in probe, probe
+    duration = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+         str(tmp_path / "check.mp4")],
+        capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+    assert abs(float(duration) - 24) < 1, duration  # 整片、没有重复或缺段
+    commands = fake_vaapi.read_text()
+    assert ("-c:v h264_vaapi" in commands) == (codec == "h264")

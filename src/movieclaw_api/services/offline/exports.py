@@ -683,11 +683,13 @@ class ExportManager:
                     export_id=state.export_id,
                 )
             except (SessionLimitError, SessionStartError, DiskQuotaError) as exc:
-                if isinstance(exc, SessionStartError) and _gpu_hevc(execution, allow_hevc):
+                if isinstance(exc, SessionStartError) and _give_up_gpu_hevc(
+                    execution, allow_hevc, wrote=init is not None, stalled=stalled
+                ):
                     logger.warning(
                         "离线导出 %s 的 HEVC 起不来（%s），改出 H.264", state.export_id, exc
                     )
-                    allow_hevc = False
+                    allow_hevc, stalled = False, 0
                     continue
                 stalled += 1
                 if stalled >= _MAX_STALLED_ROUNDS:
@@ -735,14 +737,14 @@ class ExportManager:
             if index > before:
                 stalled = 0
                 continue
-            if _gpu_hevc(execution, allow_hevc):
+            if _give_up_gpu_hevc(execution, allow_hevc, wrote=init is not None, stalled=stalled):
                 # 已经写进文件的 HEVC 分片 init 对不上，H.264 会整份从头（_InitMismatch）
                 logger.warning(
                     "离线导出 %s 的 HEVC 转不出来（%s），改出 H.264",
                     state.export_id,
                     live.error or "没有进展",
                 )
-                allow_hevc = False
+                allow_hevc, stalled = False, 0
                 continue
             stalled += 1
             if stalled >= _MAX_STALLED_ROUNDS:
@@ -816,10 +818,18 @@ class ExportManager:
                 await self._worker
 
 
-def _gpu_hevc(execution: _Execution, allow_hevc: bool) -> bool:
-    """这一轮是本机显卡在出 HEVC，且这份导出还没退过 H.264。它起不来或一段都没转出来时改出
-    H.264：自检只编了一秒合成画面，真实片子仍可能编不了（驱动、片源）。"""
-    return allow_hevc and execution.plan.video.codec == "hevc" and not execution.remote
+def _give_up_gpu_hevc(
+    execution: _Execution, allow_hevc: bool, *, wrote: bool, stalled: int
+) -> bool:
+    """本机显卡出 HEVC 的这一轮起不来或一段都没转出来，要不要这份改出 H.264。
+
+    自检只编了一秒合成画面，真实片子仍可能编不了（驱动、片源）。还没写进分片时立刻改；
+    已经转出过 HEVC 的，说明编码器本身能用，先按原来的规矩重试（卡一下就整份从头太亏），
+    重试到要判失败了才改 H.264 重转，而不是让导出失败。
+    """
+    if not allow_hevc or execution.plan.video.codec != "hevc" or execution.remote:
+        return False
+    return not wrote or stalled + 1 >= _MAX_STALLED_ROUNDS
 
 
 class _InitMismatch(Exception):
