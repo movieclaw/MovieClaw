@@ -113,6 +113,11 @@ class ClientCapability:
     #: 样本，两个多小时的电影光这一条轨就三百多 MB，再加播放缓冲就把堆撑爆（#962）。超出的给换封装。
     #: None = 不受限（老客户端、Apple 的自研引擎）
     mp4_sample_limit: int | None = None
+    #: 硬件转码时能接 HEVC 输出（fMP4、hvc1、8-bit Main），且播放器实现了「HEVC 放不了就不带
+    #: 它重来、不把硬件档记成失败」的回退（#1008）。同画质码率约为 H.264 的三分之二；还要
+    #: ``video`` 里有 HEVC、高度够。老客户端不带 = 一律 H.264：它们把 HEVC 解不了当作硬件档
+    #: 失败，会直接降到软件转码
+    hevc_transcode: bool = False
 
     @property
     def uses_native_hls_player(self) -> bool:

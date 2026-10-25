@@ -508,6 +508,9 @@ export interface ClientCapability {
   is_mobile: boolean;
   /** 能原生播 HLS（Safari/AVPlayer）。服务端不消费，前端选引擎用 */
   native_hls: boolean;
+  /** 硬件转码时能接 HEVC 输出，且 HEVC 放不了会不带它重来、不记硬件档失败（#1008）。
+   * 不进能力快照（缓存）：每次请求按播放器状态现填 */
+  hevc_transcode?: boolean;
 }
 
 /** 播放单元：电影用 (0, 0) 哨兵，与台账、playback_state 的约定一致。 */

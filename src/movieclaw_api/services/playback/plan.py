@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Select, select
@@ -18,14 +19,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from movieclaw_api.services.media_probe import probe_keyframe_interval
 from movieclaw_api.services.playback.disc_source import disc_source_for_file
 from movieclaw_api.services.playback.ffmpeg_args import (
+    HW_BACKENDS,
     effective_hw_backend,
+    hevc_encoder,
+    is_mpegts,
     tonemap_ignores_dolby_vision,
     tonemap_reads_dolby_vision,
 )
 from movieclaw_api.services.playback.hwprobe import BACKEND_LABELS, hardware_available
 from movieclaw_api.services.playback.iso_source import iso_disc_source
 from movieclaw_api.services.playback.limits import MAX_TRANSCODE_HEIGHT
-from movieclaw_api.services.playback.remote_worker import remote_worker_busy
+from movieclaw_api.services.playback.remote_worker import (
+    remote_worker_busy,
+    remote_workers_have_encoder,
+)
 from movieclaw_api.services.playback.strm_probe import ensure_strm_spec
 from movieclaw_api.services.playback.track_context import track_contexts
 from movieclaw_api.settings import PlaybackPolicySetting
@@ -243,6 +250,47 @@ def select_execution_backend(
     return None, False
 
 
+def backend_outputs_hevc(backend: str, *, remote: bool) -> bool:
+    """这个执行者能出 HEVC：VideoToolbox（Mac 转码器在线的都带 HEVC 编码器才算）与自检真编过
+    HEVC 的 NAS 显卡。NAS 软件一律 H.264（libx265 在 NAS 的 CPU 上太慢）。"""
+    if backend not in HW_BACKENDS:
+        return False
+    if remote:
+        encoder = HW_BACKENDS[backend].hevc_encoder
+        return encoder is not None and remote_workers_have_encoder(encoder, backend)
+    return hevc_encoder(HW_BACKENDS[backend]) is not None
+
+
+def prefer_hevc_output(
+    decision: PlaybackDecision,
+    capability: ClientCapability,
+    backend: str | None,
+    *,
+    remote: bool,
+) -> PlaybackDecision:
+    """硬件转码能出 HEVC 就出（#1008）：同画质码率约为 H.264 的三分之二，外网省流量、省上行。
+
+    原流优先不变——只改「已经定了要硬件转码」的计划的输出编码。条件缺一不可：客户端申报了
+    ``hevc_transcode``（带回退）、能解 HEVC 到输出高度；fMP4 分片（TS 只给第三方播放器，留
+    H.264）；执行者能出 HEVC。在按带宽收紧码率之前调：收紧按实际编码的码率阶梯算。
+    """
+    if not isinstance(decision, PlaybackPlan) or backend is None:
+        return decision
+    video = decision.video
+    if decision.tier is not Tier.HARDWARE_TRANSCODE or video.action != "transcode":
+        return decision
+    support = capability.video_support("hevc")
+    if (
+        not capability.hevc_transcode
+        or support is None
+        or (video.height or 0) > support.max_height
+        or is_mpegts(decision)
+        or not backend_outputs_hevc(backend, remote=remote)
+    ):
+        return decision
+    return replace(decision, video=replace(video, codec="hevc"))
+
+
 def dolby_vision_caveat(
     decision: PlaybackDecision, hw_used: str | None, *, use_remote: bool
 ) -> str | None:
@@ -391,4 +439,5 @@ def capability_from_request(payload) -> ClientCapability:  # noqa: ANN001
         dolby_vision_base_layer_profiles=frozenset(payload.dolby_vision_base_layer_profiles),
         dolby_vision_record_audit=payload.dolby_vision_record_audit,
         mp4_sample_limit=payload.mp4_sample_limit,
+        hevc_transcode=payload.hevc_transcode,
     )

@@ -1176,6 +1176,7 @@ nonisolated extension API {
         var dolbyVisionBaseLayerProfiles: [Int]?
         var dolbyVisionRecordAudit: Bool?
         var mp4SampleLimit: Int?
+        var hevcTranscode: Bool?
 
         enum CodingKeys: String, CodingKey {
             case video
@@ -1194,6 +1195,7 @@ nonisolated extension API {
             case dolbyVisionBaseLayerProfiles = "dolby_vision_base_layer_profiles"
             case dolbyVisionRecordAudit = "dolby_vision_record_audit"
             case mp4SampleLimit = "mp4_sample_limit"
+            case hevcTranscode = "hevc_transcode"
         }
     }
 

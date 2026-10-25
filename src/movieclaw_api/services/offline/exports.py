@@ -324,7 +324,7 @@ async def _execution(
         if backend is not None:
             if not remote and not _local_slot_free(hardware=True):
                 return None
-            if allow_hevc and _hevc_capable(backend, remote=remote):
+            if allow_hevc and playback_plan.backend_outputs_hevc(backend, remote=remote):
                 plan = replace(plan, video=replace(plan.video, codec="hevc"))
             return _Execution(plan, backend, remote)
         if (
@@ -337,18 +337,6 @@ async def _execution(
     if not _local_slot_free(hardware=bool(local)):
         return None
     return _Execution(plan, None, False)
-
-
-def _hevc_capable(backend: str, *, remote: bool) -> bool:
-    """这个执行者能出 HEVC：同画质体积小三分之一（ffmpeg_args.HEVC_BITRATE_LADDER），手机全系硬解。
-    VideoToolbox（Mac 转码器）与自检真编过 HEVC 的 NAS 显卡；NAS 软件仍出 H.264（libx265 在
-    NAS 的 CPU 上太慢）。"""
-    if backend not in HW_BACKENDS:
-        return False
-    if remote:
-        encoder = HW_BACKENDS[backend].hevc_encoder
-        return encoder is not None and remote_workers_have_encoder(encoder, backend)
-    return hevc_encoder(HW_BACKENDS[backend]) is not None
 
 
 def _local_slot_free(*, hardware: bool) -> bool:

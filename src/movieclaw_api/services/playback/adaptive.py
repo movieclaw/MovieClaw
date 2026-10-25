@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from movieclaw_api.services.playback.ffmpeg_args import HEVC_BITRATE_LADDER, is_hevc_output
 from movieclaw_playback.decide import PlaybackDecision, PlaybackPlan
 
 #: 线路余量：实测下行的八成给视频，剩下的留给音频、分片边界抖动与并发请求。
@@ -42,6 +43,11 @@ LADDER_BPS: dict[int, int] = {
     1080: 6_000_000,
     720: 3_000_000,
     480: 1_500_000,
+}
+#: HEVC 输出的阶梯（ffmpeg_args.HEVC_BITRATE_LADDER，约为 H.264 的三分之二）：同一条线路，
+#: HEVC 能保住更高的分辨率——外网省流量正是出 HEVC 的初衷（#1008）
+HEVC_LADDER_BPS: dict[int, int] = {
+    height: int(float(rate[:-1]) * 1_000_000) for height, rate in HEVC_BITRATE_LADDER.items()
 }
 
 
@@ -68,23 +74,24 @@ def adapt_to_downlink(
         return decision
 
     budget = int(downlink_bps * DOWNLINK_SAFETY)
+    rates = HEVC_LADDER_BPS if is_hevc_output(video) else LADDER_BPS
     target_height = video.height
     height = target_height
     if target_height is not None:
         # 目标高度对应的阶梯档：向上取整，与 ffmpeg_args.maxrate_for_height 同一规则
-        steps = sorted(LADDER_BPS)
+        steps = sorted(rates)
         top = next((h for h in steps if target_height <= h), steps[-1])
-        if budget >= LADDER_BPS[top] * KEEP_HEIGHT_RATIO:
+        if budget >= rates[top] * KEEP_HEIGHT_RATIO:
             height = target_height
-            ladder = LADDER_BPS[top]
+            ladder = rates[top]
         else:
             # 往下找线路装得下的最高一档；一档都装不下就取最低档，再由下面的
             # 上限把码率压下去
-            lower = [h for h in steps if h < top and LADDER_BPS[h] <= budget]
+            lower = [h for h in steps if h < top and rates[h] <= budget]
             height = max(lower) if lower else steps[0]
-            ladder = LADDER_BPS[height]
+            ladder = rates[height]
     else:
-        ladder = LADDER_BPS[1080]
+        ladder = rates[1080]
     cap = quantize_cap(min(ladder, budget))
     if cap >= ladder and height == target_height:
         # 线路吃得下阶梯值：不设上限，与没有读数时的行为完全一致

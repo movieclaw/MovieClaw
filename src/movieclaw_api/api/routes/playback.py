@@ -178,6 +178,7 @@ from movieclaw_db.models.base import utcnow
 from movieclaw_db.repositories.media_repo import MediaItemRepository
 from movieclaw_playback import activity
 from movieclaw_playback import state as playback_state
+from movieclaw_playback.decide import PlaybackPlan
 from movieclaw_playback.decide import PlaybackTier as Tier
 from movieclaw_playback.hls_vod import (
     build_master_playlist,
@@ -1378,6 +1379,18 @@ async def start_playback_session(
         ]
         execution_backend = None
         use_remote = False
+    # 硬件转码能出 HEVC 就出（#1008），要在收紧码率之前：收紧按实际编码的码率阶梯算。
+    # 留一份 H.264 的计划：HEVC 起不来时当场换它重开
+    h264_decision = decision
+    hevc_decision = playback_plan.prefer_hevc_output(
+        decision,
+        playback_plan.capability_from_request(payload.capability),
+        execution_backend,
+        remote=use_remote,
+    )
+    if hevc_decision is not decision:
+        decision = hevc_decision
+        view = playback_plan.to_view(decision)
     # 按实测线路带宽收紧转码码率（docs/design/player-pipeline-optimization.md §C）。
     # 用户手动选了画质上限时不动——他的选择优先于自动。
     if payload.max_height is None:
@@ -1438,9 +1451,10 @@ async def start_playback_session(
         if keyframe_s is not None:
             start_ms = int(keyframe_s * 1000)
     spawn_started_at = time.perf_counter()
-    try:
-        transcode = await manager.start(
-            decision,
+
+    async def _start(plan: PlaybackPlan) -> TranscodeSession:
+        return await manager.start(
+            plan,
             source_path=file.file_path,
             member_id=member_id,
             start_ms=start_ms,
@@ -1460,6 +1474,26 @@ async def start_playback_session(
             source_concat=disc.concat_list() if disc is not None else None,
             attempt_id=attempt_id,
         )
+
+    try:
+        try:
+            transcode = await _start(decision)
+        except SessionStartError as exc:
+            if decision is h264_decision:
+                raise
+            # HEVC 起不来（自检只编了一秒合成画面，真实片子仍可能编不了）：当场改出 H.264 重开，
+            # 不让播放器进错误页。码率按 H.264 阶梯重新收紧
+            logger.warning(
+                "HEVC 转码起不来，改出 H.264 重开：file_id=%s 执行=%s：%s",
+                file.id,
+                "远程 Worker" if use_remote else hw_used,
+                exc,
+            )
+            decision = h264_decision
+            if payload.max_height is None:
+                decision = adapt_to_downlink(decision, payload.downlink_bps)
+            view = view.model_copy(update={"video": playback_plan.to_view(decision).video})
+            transcode = await _start(decision)
     except (SessionLimitError, DiskQuotaError) as exc:
         # 这两类的文案本来就是写给用户的，前端原样展示；NAS 日志也要留一份，
         # 用户反馈「点了播放没反应」时才对得上
@@ -1694,7 +1728,8 @@ def _master_subtitle_tracks(session) -> list:
 def _master_playlist_codecs(session: TranscodeSession) -> str | None:
     """返回本会话可以确定的 HLS CODECS，未知时返回 None。
 
-    服务端转码视频统一是 H.264 High@4.1，RFC 6381 标识为 avc1.640029。
+    服务端转码的 H.264 是 High@4.1，RFC 6381 标识为 avc1.640029。HEVC 输出（#1008）的
+    level 由编码器按输出尺寸与帧率自己选，写不准，整条省略（写错比不写更容易走错解码路径）。
     音频只有在本次明确转码时才知道 profile：AAC 参数由 ffmpeg 装配器锁为
     AAC-LC，E-AC-3/AC-3 的目标编码也没有 profile 歧义。源音轨 copy 路径
     没有保存足够的 profile 信息，因此整条声明保守省略。

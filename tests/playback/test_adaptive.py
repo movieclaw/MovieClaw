@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from movieclaw_api.services.playback.adaptive import (
@@ -129,3 +131,20 @@ def test_ffmpeg_command_uses_capped_maxrate_and_bufsize(tmp_path):
     # 高度也一起降了：scale 滤镜里应当是 480
     vf = argv[argv.index("-vf") + 1]
     assert "480" in vf
+
+
+def _hevc(plan: PlaybackPlan) -> PlaybackPlan:
+    return replace(plan, video=replace(plan.video, codec="hevc"))
+
+
+def test_hevc_keeps_1080p_on_a_line_where_h264_drops_to_720p():
+    """#1008 的初衷：外网 4 Mbps（视频预算 3.2 Mbps）时 H.264 的 1080p 档（6M×0.75）装不下、
+    降到 720p；HEVC 的 1080p 档是 4M（×0.75 = 3M）装得下，保住 1080p。"""
+    h264 = adapt_to_downlink(_plan(), 4_000_000)
+    assert isinstance(h264, PlaybackPlan) and h264.video.height == 720
+    hevc = adapt_to_downlink(_hevc(_plan()), 4_000_000)
+    assert isinstance(hevc, PlaybackPlan) and hevc.video.height == 1080
+    assert hevc.video.bitrate_cap_bps == 3_000_000
+    # 线路吃得下 HEVC 阶梯值：不设上限，与没有读数时一样
+    roomy = _hevc(_plan())
+    assert adapt_to_downlink(roomy, 5_000_000) is roomy

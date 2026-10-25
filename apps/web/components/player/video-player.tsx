@@ -1322,7 +1322,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     // 指纹必须覆盖**全部**会影响请求参数的依赖（quality 也在内）：漏一项的
     // 后果是该项单独变化时 effect 重跑却撞上相同指纹被去重跳过，而上一次
     // 在途请求已被 cancelled——响应回来没人认领，起播就永远停在转圈里。
-    const key = `${unitKey}|${phase}|${state.startMs}|${failedKey}|${state.failureCount}|${state.attempt}|${requestedAudio ?? ""}|${requestedSubtitle ?? ""}|${quality ?? ""}|${lockFile ?? ""}`;
+    const key = `${unitKey}|${phase}|${state.startMs}|${failedKey}|${state.failureCount}|${state.hevcRefused}|${state.attempt}|${requestedAudio ?? ""}|${requestedSubtitle ?? ""}|${quality ?? ""}|${lockFile ?? ""}`;
     if (startedKeyRef.current === key) return;
     startedKeyRef.current = key;
 
@@ -1341,7 +1341,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
             // 详情页版本选择器带来的 `?file=`：锁定这个文件起播，服务端跳过
             // 多版本自动择优（undefined = 没锁 / 已切到别的集，照旧择优）
             file_id: lockFile,
-            capability: capabilityRef.current,
+            // HEVC 输出（#1008）按本轮状态现填：HEVC 放不了过就不再要
+            capability: { ...capabilityRef.current, hevc_transcode: !state.hevcRefused },
             failed_tiers: state.failedTiers,
             // null = 服务端接续播点；显式值（seek 重开 / 换轨 / ?t=）原样发
             start_ms: state.startMs ?? undefined,
@@ -1435,6 +1436,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     state.startMs,
     failedKey,
     state.failureCount,
+    state.hevcRefused,
     state.attempt,
     unitKey,
     requestedAudio,

@@ -329,6 +329,60 @@ def test_execution_backend_uses_remote_when_local_backend_is_incompatible():
     ) == ("videotoolbox", True)
 
 
+def _hw_plan(**overrides) -> PlaybackPlan:
+    fields = dict(
+        tier=PlaybackTier.HARDWARE_TRANSCODE,
+        file_id=1,
+        container="hls-fmp4",
+        video=VideoPlan(action="transcode", codec="h264", height=1080),
+        audio=AudioPlan(action="copy"),
+    )
+    fields.update(overrides)
+    return PlaybackPlan(**fields)
+
+
+def test_prefer_hevc_output_needs_every_condition(monkeypatch):
+    """#1008：只把「已经定了硬件转码」的计划改成 HEVC，条件缺一不可。"""
+    from movieclaw_api.services.playback import plan as plan_mod
+    from movieclaw_api.services.playback.ffmpeg_args import register_hevc_encoder
+    from movieclaw_playback.capability import ClientCapability, VideoSupport
+
+    prefer = plan_mod.prefer_hevc_output
+    hevc_client = ClientCapability(
+        video=(VideoSupport("h264"), VideoSupport("hevc", max_height=1080)),
+        containers=frozenset({"mp4", "hls-fmp4"}),
+        hevc_transcode=True,
+    )
+    codec = lambda d: d.video.codec  # noqa: E731
+    register_hevc_encoder("vaapi", ())
+    try:
+        assert codec(prefer(_hw_plan(), hevc_client, "vaapi", remote=False)) == "hevc"
+        # 客户端没申报回退 / 解不了 HEVC / 高度不够
+        old = ClientCapability(video=hevc_client.video, containers=hevc_client.containers)
+        assert codec(prefer(_hw_plan(), old, "vaapi", remote=False)) == "h264"
+        short = ClientCapability(
+            video=(VideoSupport("hevc", max_height=720),), hevc_transcode=True
+        )
+        assert codec(prefer(_hw_plan(), short, "vaapi", remote=False)) == "h264"
+        # TS 分片只给第三方播放器，留 H.264
+        ts = _hw_plan(container="hls-ts")
+        assert codec(prefer(ts, hevc_client, "vaapi", remote=False)) == "h264"
+        # 软件档、直通档、没有执行者：不动
+        soft = _hw_plan(tier=PlaybackTier.SOFTWARE_TRANSCODE)
+        assert prefer(soft, hevc_client, None, remote=False) is soft
+        copy = _hw_plan(tier=PlaybackTier.REMUX, video=VideoPlan(action="copy", codec="hevc"))
+        assert prefer(copy, hevc_client, "vaapi", remote=False) is copy
+        # 本机没自检过 HEVC 的显卡
+        assert codec(prefer(_hw_plan(), hevc_client, "qsv", remote=False)) == "h264"
+    finally:
+        register_hevc_encoder("vaapi", None)
+    # 远程转码器：在线的都带 HEVC 编码器才出
+    monkeypatch.setattr(plan_mod, "remote_workers_have_encoder", lambda *_a: True)
+    assert codec(prefer(_hw_plan(), hevc_client, "videotoolbox", remote=True)) == "hevc"
+    monkeypatch.setattr(plan_mod, "remote_workers_have_encoder", lambda *_a: False)
+    assert codec(prefer(_hw_plan(), hevc_client, "videotoolbox", remote=True)) == "h264"
+
+
 def test_profile_5_transcode_prefers_a_transcoder_whose_tonemap_reads_the_rpu():
     """P5 的 IPT 基础层要吃 RPU：VAAPI 的映射不认、出来整片发紫，Mac 转码器在线就交给它；
     不在线时照旧用本机（与原来相同）。不是 P5 的不受影响"""
