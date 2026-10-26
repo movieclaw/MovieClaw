@@ -5,7 +5,6 @@ import { AppModel } from '../common/AppModel';
 import { NavStacks, ShareRouter } from '../common/ShareLinks';
 import { SharePageParams } from '../share/SharePage';
 import { MorePage } from './MorePage';
-import { AgentQuickInput } from '../agent/AgentQuickInput';
 
 /**
  * 「更多」页签的导航宿主：Navigation 本体承载「我的」页，
@@ -28,30 +27,19 @@ export struct MoreNavHost {
   }
 
   build() {
-    // 底部叠一层管理员快捷输入（同 iOS safeAreaBar）：显隐由组件自己按
-    // 管理员身份 + ShellChrome（整屏页压上来）算，这里只负责常驻挂载（草稿不丢）
-    Stack({ alignContent: Alignment.Bottom }) {
-      Navigation(this.navStack) {
-        MorePage({ navStack: this.navStack, scanSignal: this.scanSignal })
-      }
-      .mode(NavigationMode.Stack)
-      // 原生标题栏（华为组件，不自绘）：Mini = 常规字号；根页无返回键。
-      // 标题栏底色显式接 App 纯黑：系统默认是暗灰，状态栏区域会露出一条割裂的灰带。
-      .title('我的', { backgroundColor: Theme.bg })
-      .titleMode(NavigationTitleMode.Mini)
-      .hideBackButton(true)
-      .menus(this.TopMenus())
-      .hideTitleBar(false)
-      .width('100%')
-      .height('100%')
-      .backgroundColor(Theme.bg)
-      // HdsTabs 已整体顶进状态栏：推回安全区（几何同之前），padding 区由上面的纯黑铺满
-      .padding({ top: WindowInsets.top })
-      AgentQuickInput({ navStack: this.navStack })
+    Navigation(this.navStack) {
+      MorePage({ navStack: this.navStack, scanSignal: this.scanSignal })
     }
+    .mode(NavigationMode.Stack)
+    .title('我的', { backgroundColor: Theme.bg })
+    .titleMode(NavigationTitleMode.Mini)
+    .hideBackButton(true)
+    .menus(this.TopMenus())
+    .hideTitleBar(false)
     .width('100%')
     .height('100%')
     .backgroundColor(Theme.bg)
+    .padding({ top: WindowInsets.top })
   }
 
   /** 右上角动作（原生工具栏）：扫码 / 搜索 胶囊（同 iOS） */

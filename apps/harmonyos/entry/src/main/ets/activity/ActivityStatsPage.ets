@@ -763,14 +763,14 @@ export struct ActivityStatsPage {
         Blank()
         Row({ space: 10 }) {
           Row({ space: 4 }) {
-            Circle().width(7).height(7).fill(Theme.info)
+            Circle().width(7).height(7).backgroundColor(Theme.info)
             Text('本期')
               .fontSize(10)
               .fontColor(Theme.textFaint)
           }
           if (this.previousAvailable()) {
             Row({ space: 4 }) {
-              Circle().width(7).height(7).fill('rgba(127,176,255,0.3)')
+              Circle().width(7).height(7).backgroundColor('rgba(127,176,255,0.3)')
               Text('上期')
                 .fontSize(10)
                 .fontColor(Theme.textFaint)

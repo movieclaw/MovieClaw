@@ -199,6 +199,12 @@ export class HomeRow {
     if (this.kind instanceof LibrariesKind) {
       return '我的媒体库';
     }
+    if (this.kind instanceof GenresKind) {
+      return this.kind.kind === 'tv' ? '按类型找剧集' : '按类型找电影';
+    }
+    if (this.kind instanceof MediaKindRowKind) {
+      return this.kind.kind === 'tv' ? '全部剧集' : '全部电影';
+    }
     return '接下来继续';
   }
 }

@@ -463,7 +463,10 @@ export struct ActivityPage {
   }
 
   private toast(message: string): void {
-    this.getUIContext().getPromptAction().showToast({ message: message });
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message });
+    } catch (e) {
+    }
   }
 
   // MARK: 文案
@@ -770,7 +773,7 @@ export struct ActivityPage {
         Circle()
           .width(8)
           .height(8)
-          .fill(tint)
+          .backgroundColor(tint)
       }
       Text(title)
         .fontSize(17)

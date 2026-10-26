@@ -130,7 +130,10 @@ export struct ActivityPlaysPage {
       this.hasMore = view.has_more;
     } catch (error) {
       if (request === this.generation) {
-        this.getUIContext().getPromptAction().showToast({ message: this.messageOf(error) });
+        try {
+          this.getUIContext().getPromptAction().showToast({ message: this.messageOf(error) });
+        } catch (e2) {
+        }
       }
     } finally {
       if (request === this.generation) {

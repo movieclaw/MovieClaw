@@ -112,16 +112,19 @@ export struct MainTabsPage {
       }, 400);
     }
     // 「接着看」条：读回叉掉的记录，再取这台设备最近播放的那一条
-    this.resume.init(getContext(this))
-      .then((): Promise<void> => {
-        return this.resume.refresh(this.model.api);
-      })
-      .catch((): void => {
-      });
+    const ctx: Context | undefined = this.getUIContext().getHostContext();
+    if (ctx !== undefined) {
+      this.resume.init(ctx)
+        .then((): Promise<void> => {
+          return this.resume.refresh(this.model.api);
+        })
+        .catch((): void => {
+        });
+    }
   }
 
   /** 整屏页（播放器/会话/片段）关掉了：最近播放可能变了，「接着看」重新取一次 */
-  @Monitor('chrome.immersive')
+  @Monitor('chrome')
   onChromeImmersiveChange(): void {
     if (!this.chrome.immersive) {
       this.resume.refresh(this.model.api);
@@ -129,7 +132,10 @@ export struct MainTabsPage {
   }
 
   private toast(message: string): void {
-    this.getUIContext().getPromptAction().showToast({ message: message });
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message });
+    } catch (e) {
+    }
   }
 
   /**
@@ -216,6 +222,7 @@ export struct MainTabsPage {
         })
           .margin({ left: 16, right: 16, bottom: 80 })
       }
+      // AgentQuickInput 已移到 MorePage 内部
     }
     .alignContent(Alignment.Bottom)
     .width('100%')
@@ -253,7 +260,11 @@ export struct MainTabsPage {
    * 内容自己撑满这一块（`AccountSwitcherSheet` 的根是 `height('100%')`）。
    */
   private openAccountSwitcher(): void {
-    const screenWidthVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+    let screenWidthVp: number = 360;
+    try {
+      screenWidthVp = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+    } catch (e) {
+    }
     const options: promptAction.CustomDialogOptions = {
       builder: (): void => {
         this.AccountSwitcherCard();
@@ -284,7 +295,10 @@ export struct MainTabsPage {
     if (this.accountDialogId < 0) {
       return;
     }
-    this.getUIContext().getPromptAction().closeCustomDialog(this.accountDialogId);
+    try {
+      this.getUIContext().getPromptAction().closeCustomDialog(this.accountDialogId);
+    } catch (e) {
+    }
     this.accountDialogId = -1;
   }
 
@@ -320,35 +334,13 @@ export struct MainTabsPage {
         .tabBar(this.chrome.immersive ? this.NoBar() : this.TabBarIcon(tab, index))
       }, (tab: TabSpec, index: number) => `${tab.title}-${index}`)
     }
-    /*
-     * 底部页签栏：**鸿蒙 7 的悬浮底栏 + 沉浸光感材质**（对齐华为视频这类华为自家应用）。
-     *
-     * - `barOverlap(true)`：页签栏脱离内容流浮在内容之上，内容从它下面滚过去。
-     * - `barFloatingStyle`：左右 16 留边、底部 12 抬起的**悬浮胶囊**。
-     * - `systemMaterialEffect` 的 `MaterialType.IMMERSIVE` 就是**沉浸光感材质**：
-     *   背板随底下内容透出光感（本机 `hdsMaterial.getSystemMaterialTypes()` 实测返回 `[101]`，支持）。
-     *   `MaterialLevel.ADAPTIVE` 交给系统按设备能力取档（EXQUISITE/GENTLE/SMOOTH）。
-     * - `adaptToHandedness`：系统内建的「智感握姿」，底栏跟着握持手左右移动。
-     * - `gradientMask`：内容滑到胶囊底下时渐隐过去，而不是被硬切一刀。
-     *
-     * **不要给 `barBackgroundColor` 设不透明色**，那会把光感材质盖住、看着就是个黑胶囊。
-     */
     .barOverlap(true)
     .barFloatingStyle({
-      barSideMargin: 16,
-      /*
-       * 底部抬起量 = **底部安全区 + 12**。
-       *
-       * 不能只写 12：那样胶囊下缘离屏底只有 10vp 左右，正落在系统的**手势区**里
-       * （本机避让区 bottom=28vp），用户点底栏时系统会把手势提示（一条通栏灰带 + 小白条）勾出来。
-       * 系统提示 App 压不掉（`setSpecificSystemBarEnabled(false)` 只管常驻显示），
-       * 能做的是把可点区域挪出手势区。
-       */
-      // 系统已避让手势条 → 悬浮胶囊的抬起就是纯视觉边距
-      barBottomMargin: 12,
-      adaptToHandedness: true,
-      gradientMask: { maskColor: Theme.bg, maskHeight: 96 },
-      systemMaterialEffect: {
+      barSideMargin: this.chrome.immersive ? 0 : 16,
+      barBottomMargin: this.chrome.immersive ? 0 : 12,
+      adaptToHandedness: !this.chrome.immersive,
+      gradientMask: this.chrome.immersive ? undefined : { maskColor: Theme.bg, maskHeight: 96 },
+      systemMaterialEffect: this.chrome.immersive ? undefined : {
         materialType: hdsMaterial.MaterialType.IMMERSIVE,
         materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
       }
@@ -452,13 +444,11 @@ export struct MainTabsPage {
         .borderRadius(12)
         .clip(true)
       if (this.currentTab === index) {
-        // 选中时头像外圈一道高亮环（同 iOS 选中态的强调色）
         Circle()
           .width(28)
           .height(28)
           .fillOpacity(0)
-          .stroke(this.currentTab === index ? Theme.accentStrong : Color.Transparent)
-          .strokeWidth(1.5)
+          .border({ width: 1.5, color: Theme.accentStrong })
       }
     }
   }

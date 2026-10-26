@@ -82,9 +82,12 @@ export struct AboutPage {
   }
 
   private openUrl(url: string): void {
-    const context = getContext() as common.UIAbilityContext;
-    context.openLink(url).catch((error: BusinessError): void => {
-      this.getUIContext().getPromptAction().showToast({ message: `打不开链接（${error.code}）` });
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    context?.openLink(url).catch((error: BusinessError): void => {
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: `打不开链接（${error.code}）` });
+      } catch (e2) {
+      }
     });
   }
 

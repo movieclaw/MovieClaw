@@ -112,7 +112,10 @@ export struct DuplicatesContent {
   }
 
   private toast(message: string): void {
-    this.getUIContext().getPromptAction().showToast({ message: message });
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message });
+    } catch (e) {
+    }
   }
 
   private messageOf(error: Object): string {

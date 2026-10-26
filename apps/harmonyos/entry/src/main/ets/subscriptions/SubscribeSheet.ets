@@ -163,7 +163,10 @@ export struct SubscribeSheetContent {
   }
 
   private toast(message: string): void {
-    this.getUIContext().getPromptAction().showToast({ message: message });
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message });
+    } catch (e) {
+    }
   }
 
   // MARK: 取数
@@ -548,7 +551,8 @@ export struct SubscribeSheetContent {
 
   /** 取消订阅（已订阅时的管理态）：文案照 iOS 成员路径（取消键「先不」） */
   private confirmUnsubscribe(): void {
-    this.getUIContext().showAlertDialog({
+    try {
+      this.getUIContext().showAlertDialog({
       title: `取消订阅《${this.title}》？`,
       message: '将取消你的订阅关注；已经下载或入库的文件不会被删除。',
       primaryButton: {
@@ -564,6 +568,8 @@ export struct SubscribeSheetContent {
         }
       }
     });
+    } catch (e) {
+    }
   }
 
   private async unsubscribe(): Promise<void> {

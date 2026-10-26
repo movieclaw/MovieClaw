@@ -234,7 +234,9 @@ export struct LibraryCustomizeSheet {
   private toggleHidden(index: number): void {
     const item: EditableRow = this.rows[index];
     item.pref.hidden = !(item.pref.hidden ?? false);
-    this.rows.splice(index, 1, new EditableRow(item.row, item.pref));
+    const copy: EditableRow[] = [...this.rows];
+    copy[index] = new EditableRow(item.row, item.pref);
+    this.rows = copy;
     this.scheduleSave();
   }
 
@@ -496,7 +498,7 @@ export struct LibraryCustomizeSheet {
           }
         }
         .width('100%')
-      }, (item: EditableRow) => item.pref.id)
+      }, (item: EditableRow) => `${item.pref.id}_${item.pref.hidden ?? false}`)
     }
     .width('100%')
     .backgroundColor(Theme.surface)

@@ -61,7 +61,10 @@ export struct ManageSharesTab {
   }
 
   private toast(message: string): void {
-    this.getUIContext().getPromptAction().showToast({ message: message });
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message });
+    } catch (e) {
+    }
   }
 
   private messageOf(error: Object): string {
@@ -93,8 +96,13 @@ export struct ManageSharesTab {
   private copy(share: ShareView): void {
     const link: string = shareAbsoluteUrl(share.url, AppModel.origin());
     const text: string = shareCopyText(share.title, link, share.password ?? '');
-    const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
-    pasteboard.getSystemPasteboard().setDataSync(data);
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      pasteboard.getSystemPasteboard().setDataSync(data);
+    } catch (e) {
+      this.toast('复制失败');
+      return;
+    }
     this.toast(share.password !== null && share.password !== undefined ? '已复制链接和密码' : '已复制链接');
   }
 

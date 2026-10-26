@@ -70,7 +70,8 @@ export struct SharePage {
 
   aboutToAppear(): void {
     try {
-      const widthVp: number = px2vp(display.getDefaultDisplaySync().width);
+      const density: number = display.getDefaultDisplaySync().densityPixels;
+      const widthVp: number = display.getDefaultDisplaySync().width / density;
       const avail: number = widthVp - Theme.pagePadding * 2;
       // 最大列数 n：n*104 + (n-1)*12 ≤ avail
       this.columns = Math.max(2, Math.floor((avail + 12) / 116));

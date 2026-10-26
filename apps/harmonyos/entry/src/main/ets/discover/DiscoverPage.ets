@@ -380,7 +380,10 @@ export struct DiscoverPage {
   }
 
   private toast(message: string): void {
-    this.getUIContext().getPromptAction().showToast({ message: message });
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message });
+    } catch (e) {
+    }
   }
 
   /** 点卡片：进发现详情（对应 iOS 的 MediaDetailView） */
@@ -648,7 +651,7 @@ export struct DiscoverPage {
           Circle()
             .width(6)
             .height(6)
-            .fill(Theme.ok)
+            .backgroundColor(Theme.ok)
           Text('在库')
             .fontSize(15)
             .fontColor(Theme.ok)

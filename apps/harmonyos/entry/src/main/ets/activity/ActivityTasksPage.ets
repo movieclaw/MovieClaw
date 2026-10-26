@@ -239,7 +239,10 @@ export struct ActivityTasksPage {
   }
 
   private toast(message: string): void {
-    this.getUIContext().getPromptAction().showToast({ message: message });
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message });
+    } catch (e) {
+    }
   }
 
   // MARK: 文案（与总览页同一套对照表）

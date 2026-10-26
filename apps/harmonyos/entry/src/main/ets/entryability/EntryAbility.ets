@@ -1,6 +1,6 @@
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { window } from '@kit.ArkUI';
+import { display, window } from '@kit.ArkUI';
 import { AppModel } from '../common/AppModel';
 import { TokenVault } from '../common/TokenVault';
 import { SavedServers } from '../common/SavedServers';
@@ -19,7 +19,10 @@ const DOMAIN = 0x0000;
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     // App 全局深色（对应 iOS/Web 的暗色基调），不跟随系统外观
-    this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    try {
+      this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    } catch (e) {
+    }
     // 会话偏好存储尽早初始化；异步加载不阻塞首帧
     AppModel.shared.initStore(this.context);
     // 多服务器 × 多账号的两块存储（对应 iOS 的 TokenVault 钥匙串 + SavedServers）：
@@ -153,11 +156,12 @@ export default class EntryAbility extends UIAbility {
   /** 把状态栏 / 底部导航条的高度换算成 vp 记下来，供页面留白 */
   private static publishInsets(mainWindow: window.Window): void {
     try {
+      const density: number = display.getDefaultDisplaySync().densityPixels;
       const status: window.AvoidArea = mainWindow.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
-      WindowInsets.top = px2vp(status.topRect.height);
+      WindowInsets.top = status.topRect.height / density;
       const indicator: window.AvoidArea =
         mainWindow.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
-      WindowInsets.bottom = px2vp(indicator.bottomRect.height);
+      WindowInsets.bottom = indicator.bottomRect.height / density;
       hilog.info(DOMAIN, 'MovieClaw', '避让区 top=%{public}d bottom=%{public}d',
         WindowInsets.top, WindowInsets.bottom);
     } catch (error) {

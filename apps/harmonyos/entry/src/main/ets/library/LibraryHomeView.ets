@@ -246,7 +246,10 @@ struct UpNextCard {
   }
 
   private comingSoon(feature: string): void {
-    this.getUIContext().getPromptAction().showToast({ message: `「${feature}」建设中` });
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: `「${feature}」建设中` });
+    } catch (e) {
+    }
   }
 
   @Builder
@@ -287,7 +290,7 @@ struct UpNextCard {
         Column()
           .width('100%')
           .height(56)
-          .linearGradient({ angle: 90, colors: [['rgba(0,0,0,0)', 0], ['rgba(0,0,0,0.75)', 1]] })
+          .linearGradient({ angle: 180, colors: [['rgba(0,0,0,0)', 0], ['rgba(0,0,0,0.75)', 1]] })
         // 左下角：时钟 + 续播进度
         Column({ space: 4 }) {
           if (this.clockText() !== null) {
@@ -538,7 +541,10 @@ export struct LibraryHomeView {
   // MARK: 小工具
 
   private toast(message: string): void {
-    this.getUIContext().getPromptAction().showToast({ message: message, duration: 2500 });
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message, duration: 2500 });
+    } catch (e) {
+    }
   }
 
   /** 弹层槽位：空串=关，libraryPicker=选媒体库，customize=自定义首页 */
@@ -687,21 +693,19 @@ export struct LibraryHomeView {
       label = '全部观看记录';
       description = '所有作品的续播进度、已看标记和播放次数都会清除，无法恢复。只影响你自己的记录；应用更新前的自动备份仍包含历史记录。';
     }
-    AlertDialog.show({
+    this.getUIContext().getPromptAction().showDialog({
       title: `清空${label}？`,
       message: description,
-      primaryButton: {
-        value: '清空',
-        fontColor: Theme.danger,
-        action: (): void => {
-          this.performClearHistory(label, sinceIso);
-        }
-      },
-      secondaryButton: {
-        value: '取消',
-        action: (): void => {
-        }
+      buttons: [
+        { text: '取消', color: Theme.accent2 },
+        { text: '清空', color: Theme.danger }
+      ]
+    }).then((result: Object): void => {
+      const idx: number = (result as Record<string, number>)['index'] ?? 0;
+      if (idx === 1) {
+        this.performClearHistory(label, sinceIso);
       }
+    }).catch((): void => {
     });
   }
 
@@ -779,20 +783,19 @@ export struct LibraryHomeView {
   private openReels(): void {
     this.checkCellular().then((cellular: boolean): void => {
       if (cellular) {
-        AlertDialog.show({
+        this.getUIContext().getPromptAction().showDialog({
           title: '正在使用移动网络',
           message: '片段直接播放原片，可能很耗流量：4K 影片看完一段约 300MB。确定进入吗？',
-          primaryButton: {
-            value: '进入',
-            action: (): void => {
-              this.enterReels();
-            }
-          },
-          secondaryButton: {
-            value: '取消',
-            action: (): void => {
-            }
+          buttons: [
+            { text: '取消', color: Theme.accent2 },
+            { text: '进入', color: Theme.accentStrong }
+          ]
+        }).then((result: Object): void => {
+          const idx: number = (result as Record<string, number>)['index'] ?? 0;
+          if (idx === 1) {
+            this.enterReels();
           }
+        }).catch((): void => {
         });
       } else {
         this.enterReels();
@@ -1221,7 +1224,7 @@ export struct LibraryHomeView {
               Circle()
                 .width(6)
                 .height(6)
-                .fill(Theme.info)
+                .backgroundColor(Theme.info)
               Text(`${this.libraryImporting(library)} 个新文件入库中`)
                 .fontSize(11)
                 .fontWeight(600)

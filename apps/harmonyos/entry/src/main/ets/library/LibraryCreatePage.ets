@@ -126,7 +126,7 @@ export struct LibraryCreatePage {
     }
   }
 
-  private async create(): Promise<void> {
+  private async createLibrary(): Promise<void> {
     const api: MovieClawApi | null = this.api();
     if (api === null || this.busy) {
       return;
@@ -412,7 +412,7 @@ export struct LibraryCreatePage {
         .borderRadius(Theme.cardRadius)
         .onClick(() => {
           if (this.ready() && !this.busy) {
-            this.create();
+            this.createLibrary();
           }
         })
     }

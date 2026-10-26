@@ -163,7 +163,10 @@ export struct NoticeCenterPage {
   }
 
   private toast(message: string): void {
-    this.getUIContext().getPromptAction().showToast({ message: message });
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message });
+    } catch (e) {
+    }
   }
 
   // MARK: 视图
@@ -321,7 +324,7 @@ export struct NoticeCenterPage {
         Circle()
           .width(8)
           .height(8)
-          .fill(notice.severity === 'warning' ? Theme.warning : Theme.danger)
+          .backgroundColor(notice.severity === 'warning' ? Theme.warning : Theme.danger)
           .margin({ top: 6 })
         Column({ space: 4 }) {
           Row({ space: 10 }) {

@@ -524,7 +524,10 @@ struct LibraryManagePage {
   // MARK: 派生
 
   private toast(message: string): void {
-    this.getUIContext().getPromptAction().showToast({ message: message, duration: 2500 });
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message, duration: 2500 });
+    } catch (e) {
+    }
   }
 
   private messageOf(error: Object): string {

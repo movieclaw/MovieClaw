@@ -11,7 +11,7 @@ import { NoticeView } from '../api/Models';
 import { MovieClawApi } from '../api/Endpoints';
 import { SessionSummary, SessionTranscriptView } from '../api/Models';
 import { ChatParams } from '../agent/ChatPage';
-import { AGENT_QUICK_CONTENT_EXTRA } from '../agent/AgentQuickInput';
+import { AGENT_QUICK_CONTENT_EXTRA, AgentQuickInput } from '../agent/AgentQuickInput';
 import { AgentSessionsSignal } from '../agent/AgentSessionsSignal';
 import { OfflineStore } from '../offline/OfflineStore';
 import {
@@ -281,7 +281,10 @@ export struct MorePage {
   }
 
   private toast(message: string): void {
-    this.getUIContext().getPromptAction().showToast({ message: message });
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message });
+    } catch (e) {
+    }
   }
 
   // MARK: 派生
@@ -470,7 +473,11 @@ export struct MorePage {
   }
 
   private openScanApproval(): void {
-    const screenWidthVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+    let screenWidthVp: number = 360;
+    try {
+      screenWidthVp = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+    } catch (e) {
+    }
     const options: promptAction.CustomDialogOptions = {
       builder: (): void => {
         this.ApprovalCard();
@@ -496,7 +503,10 @@ export struct MorePage {
     if (this.approvalDialogId < 0) {
       return;
     }
-    this.getUIContext().getPromptAction().closeCustomDialog(this.approvalDialogId);
+    try {
+      this.getUIContext().getPromptAction().closeCustomDialog(this.approvalDialogId);
+    } catch (e) {
+    }
     this.approvalDialogId = -1;
   }
 
@@ -513,56 +523,64 @@ export struct MorePage {
   // MARK: 视图
 
   build() {
-    Column() {
-      // 同 iOS：一个 List。首项是居中个人信息 + 胶囊切换，之后按选中段渲染。
-      // 用 `List`（不是 Scroll+Column）是因为会话行要用**原生左滑操作**（`swipeAction` 只在 ListItem 上）。
-      List({ space: 12 }) {
-        ListItem() {
-          Column({ space: 22 }) {
-            this.ProfileCard()
-            if (this.availableSections().length > 1) {
-              this.SectionPicker()
+    Stack({ alignContent: Alignment.Bottom }) {
+      Column() {
+        // 同 iOS：一个 List。首项是居中个人信息 + 胶囊切换，之后按选中段渲染。
+        // 用 `List`（不是 Scroll+Column）是因为会话行要用**原生左滑操作**（`swipeAction` 只在 ListItem 上）。
+        List({ space: 12 }) {
+          ListItem() {
+            Column({ space: 22 }) {
+              this.ProfileCard()
+              if (this.availableSections().length > 1) {
+                this.SectionPicker()
+              }
             }
+            .width('100%')
+            .alignItems(HorizontalAlign.Center)
+            .padding({ top: 8, bottom: 4 })
           }
-          .width('100%')
-          .alignItems(HorizontalAlign.Center)
-          .padding({ top: 8, bottom: 4 })
+          if (this.visibleSection() === MoreSection.conversations) {
+            this.ConversationsSection()
+          } else if (this.visibleSection() === MoreSection.downloads) {
+            OfflineDownloadingSection({ navStack: this.navStack })
+            OfflineWatchedCard()
+            OfflineDownloadedSection({ navStack: this.navStack })
+            OfflineOtherOwnersSection()
+            OfflineCapacityCard()
+          } else {
+            this.ServerSectionItem()
+          }
         }
-        if (this.visibleSection() === MoreSection.conversations) {
-          this.ConversationsSection()
-        } else if (this.visibleSection() === MoreSection.downloads) {
-          OfflineDownloadingSection({ navStack: this.navStack })
-          OfflineWatchedCard()
-          OfflineDownloadedSection({ navStack: this.navStack })
-          OfflineOtherOwnersSection()
-          OfflineCapacityCard()
-        } else {
-          this.ServerSectionItem()
-        }
+        .layoutWeight(1)
+        .width('100%')
+        .scrollBar(BarState.Off)
+        // 内容不够一屏时也给点回弹反馈（不然会觉得「不能滑」）
+        .edgeEffect(EdgeEffect.Spring)
+        // 点 / 滑列表收起快捷输入条的键盘（同 iOS scrollDismissesKeyboard：不吞点按，行照常响应）
+        .onTouch((event: TouchEvent): void => {
+          if (event.type === TouchType.Down) {
+            this.getUIContext().getFocusController().clearFocus();
+          }
+        })
+        // 管理员底部有常驻快捷输入条（AgentQuickInput）：末项多让出它的高度
+        .padding({ left: 16, right: 16, top: 0, bottom: Theme.tabBarInset + (this.isAdmin() ? AGENT_QUICK_CONTENT_EXTRA : 0) })
       }
-      .layoutWeight(1)
       .width('100%')
-      .scrollBar(BarState.Off)
-      // 内容不够一屏时也给点回弹反馈（不然会觉得「不能滑」）
-      .edgeEffect(EdgeEffect.Spring)
-      // 点 / 滑列表收起快捷输入条的键盘（同 iOS scrollDismissesKeyboard：不吞点按，行照常响应）
-      .onTouch((event: TouchEvent): void => {
-        if (event.type === TouchType.Down) {
-          this.getUIContext().getFocusController().clearFocus();
-        }
+      .height('100%')
+      .backgroundColor(Theme.bg)
+      .bindSheet($$this.showRename, this.RenameSheet(), {
+        height: SheetSize.FIT_CONTENT,
+        dragBar: true,
+        showClose: false,
+        backgroundColor: Theme.bg
       })
-      // 管理员底部有常驻快捷输入条（AgentQuickInput）：末项多让出它的高度
-      .padding({ left: 16, right: 16, top: 0, bottom: Theme.tabBarInset + (this.isAdmin() ? AGENT_QUICK_CONTENT_EXTRA : 0) })
+
+      if (this.isAdmin()) {
+        AgentQuickInput({ navStack: this.navStack })
+      }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.bg)
-    .bindSheet($$this.showRename, this.RenameSheet(), {
-      height: SheetSize.FIT_CONTENT,
-      dragBar: true,
-      showClose: false,
-      backgroundColor: Theme.bg
-    })
   }
 
   /** 居中个人信息卡：80 号头像 + 铅笔角标 + 昵称 + 身份小字；点一下进个人信息（同 iOS `profile`） */
@@ -644,7 +662,7 @@ export struct MorePage {
               Circle()
                 .width(6)
                 .height(6)
-                .fill(Theme.danger)
+                .backgroundColor(Theme.danger)
                 .offset({ x: 4, y: -3 })
             }
           }
@@ -756,7 +774,7 @@ export struct MorePage {
           Circle()
             .width(7)
             .height(7)
-            .fill(Theme.info)
+            .backgroundColor(Theme.info)
           Text('进行中')
             .fontSize(12)
             .fontColor(Theme.info)

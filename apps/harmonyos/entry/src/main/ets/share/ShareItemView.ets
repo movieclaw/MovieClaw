@@ -1338,7 +1338,7 @@ export struct ShareItemView {
   }
 
   private openUrl(url: string): void {
-    const context: common.UIAbilityContext = getContext() as common.UIAbilityContext;
+    const context: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
     context.openLink(url).catch((): void => {
       this.getUIContext().getPromptAction().showToast({ message: '打不开链接' });
     });

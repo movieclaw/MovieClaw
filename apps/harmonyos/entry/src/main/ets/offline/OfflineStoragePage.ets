@@ -851,7 +851,7 @@ export struct OfflineCapacityCard {
       Circle()
         .width(6)
         .height(6)
-        .fill(color)
+        .backgroundColor(color)
       Text(text)
         .fontSize(12)
         .fontColor(Theme.textMuted)

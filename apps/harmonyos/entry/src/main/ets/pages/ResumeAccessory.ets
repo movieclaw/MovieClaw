@@ -24,8 +24,7 @@ import { episodeCode } from '../library/LibraryShared';
 @ObservedV2
 export class ResumeBarStore {
   @Trace private currentItem: UpNextItemView | null = null;
-  /** 被叉掉的那条的键：命中就不显示（再看过别的自己回来） */
-  private hiddenKey: string = '';
+  @Trace private hiddenKey: string = '';
   private store: preferences.Preferences | null = null;
   private static readonly storeName: string = 'movieclaw_resume_bar';
   private static readonly hiddenKeyName: string = 'hiddenKey';

@@ -651,7 +651,7 @@ export struct SubscriptionsPage {
         Circle()
           .width(7)
           .height(7)
-          .fill(slide.eyebrowTone)
+          .backgroundColor(slide.eyebrowTone)
       }
       if (text.length > 0) {
         Text(text)
@@ -864,10 +864,10 @@ export struct SubscriptionsPage {
                 .fontColor(day.daysAhead === this.selectedDay ? '#0b0d12' : Theme.text)
               Row({ space: 3 }) {
                 if (day.count === 0) {
-                  Circle().width(4).height(4).fill('rgba(255,255,255,0.15)')
+                  Circle().width(4).height(4).backgroundColor('rgba(255,255,255,0.15)')
                 } else {
                   Circle().width(4).height(4)
-                    .fill(day.daysAhead === this.selectedDay ? '#0b0d12' : Theme.accent2)
+                    .backgroundColor(day.daysAhead === this.selectedDay ? '#0b0d12' : Theme.accent2)
                 }
               }
               .height(4)
@@ -915,7 +915,7 @@ export struct SubscriptionsPage {
                   Circle()
                     .width(5)
                     .height(5)
-                    .fill(this.groupPresentation(group).toneColor())
+                    .backgroundColor(this.groupPresentation(group).toneColor())
                   Text(this.groupPresentation(group).statusLabel)
                     .fontSize(11)
                     .fontWeight(FontWeight.Medium)
