@@ -12,6 +12,7 @@ import SwiftUI
 ///
 /// 带 `genre`（`?g=878`）时是首页「按类型找电影」色块的落点：墙按这个 TMDB 类型筛好，标题是类型名。
 struct LibraryKindWallView: View {
+    @Environment(\.cardMetrics) private var cards
     let kind: String
     var genre: Int?
     @Environment(\.api) private var api
@@ -34,26 +35,26 @@ struct LibraryKindWallView: View {
     /// 其余档与单库墙同一套；其他视频没有评分与上映时间，列出来只会排出一面按 id 的墙，按类型裁掉
     private static func sortOptions(_ kind: String) -> [WallSortMenu.Option] {
         let all: [WallSortMenu.Option] = [
-            .init(value: "default", label: "最近添加", direction: WallSortDirections.of("added_at")),
-            .init(value: "title", label: "按标题", direction: WallSortDirections.of("title")),
-            .init(value: "release_date", label: "按上映时间", direction: WallSortDirections.of("release_date")),
-            .init(value: "rating", label: "按评分", direction: WallSortDirections.of("rating")),
-            .init(value: "runtime", label: "按片长", direction: WallSortDirections.of("runtime")),
-            .init(value: "size", label: "按体积", direction: WallSortDirections.of("size")),
-            .init(value: "last_played", label: "最近观看", direction: WallSortDirections.of("last_played")),
+            .init(value: "default", label: String(localized: .libraryRowsRecentAdded), direction: WallSortDirections.of("added_at")),
+            .init(value: "title", label: String(localized: .librarySortTitle), direction: WallSortDirections.of("title")),
+            .init(value: "release_date", label: String(localized: .librarySortReleaseDate), direction: WallSortDirections.of("release_date")),
+            .init(value: "rating", label: String(localized: .librarySortRating), direction: WallSortDirections.of("rating")),
+            .init(value: "runtime", label: String(localized: .librarySortRuntime), direction: WallSortDirections.of("runtime")),
+            .init(value: "size", label: String(localized: .librarySortSize), direction: WallSortDirections.of("size")),
+            .init(value: "last_played", label: String(localized: .libraryRowsRecentWatched), direction: WallSortDirections.of("last_played")),
         ]
         return kind == "video" ? all.filter { $0.value != "rating" && $0.value != "release_date" } : all
     }
 
-    private var genreName: String? { genre.map { GenreLabels.names[$0] ?? "类型 \($0)" } }
-    private var label: String { genreName ?? "全部\(HomeRows.mediaKindLabel(kind))" }
+    private var genreName: String? { genre.map { GenreLabels.names[$0] ?? String(localized: .libraryKindWallGenreUnknown(String($0))) } }
+    private var label: String { genreName ?? String(localized: .libraryCustomizeAllKind(HomeRows.mediaKindLabel(kind))) }
     /// 筛选参数 g：只带预设的这一个类型
     private var genreQuery: String? { genre.map(String.init) }
     /// 页头小字：类型页写「168 部剧集」（标题已是类型名），全部墙写「N 部作品」并说明去重口径
     private func summary(total: Int, libraries: Int) -> String {
         genre == nil
-            ? "\(total) 部作品 · 来自 \(libraries) 个库，同一部片只算一次"
-            : "\(total) 部\(HomeRows.mediaKindLabel(kind)) · 来自 \(libraries) 个库"
+            ? String(localized: .libraryKindWallSummaryAll(total, libraries))
+            : String(localized: .libraryKindWallSummaryKind(total, HomeRows.mediaKindLabel(kind), libraries))
     }
 
     private var effectiveSort: String { sort.sort == "default" ? "added_at" : sort.sort }
@@ -86,9 +87,9 @@ struct LibraryKindWallView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             // 概况读失败时（libraryCount 为 nil）只说口径，不挂一句永远的「正在读取」
-            Text(pager.items == nil ? "正在读取…"
-                : libraryCount == 0 ? "还没有可浏览的\(HomeRows.mediaKindLabel(kind))库"
-                : libraryCount.map { summary(total: pager.total ?? 0, libraries: $0) } ?? "同一部片只算一次")
+            Text(pager.items == nil ? String(localized: .libraryCustomizeLoading)
+                : libraryCount == 0 ? String(localized: .libraryKindWallNoLibraryKind(HomeRows.mediaKindLabel(kind)))
+                : libraryCount.map { summary(total: pager.total ?? 0, libraries: $0) } ?? String(localized: .libraryKindWallCountedOnce))
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
                 .accessibilityIdentifier("kind-wall-summary")
@@ -97,27 +98,27 @@ struct LibraryKindWallView: View {
                     .glassEffect(.regular.interactive(), in: .capsule)
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 4)
     }
 
     @ViewBuilder
     private var content: some View {
         if let failed = pager.failed, pager.items == nil {
-            ErrorState(title: "加载失败", message: failed) { await reload() }
+            ErrorState(title: String(localized: .libraryDeletionLoadFailed), message: failed) { await reload() }
         } else if pager.items == nil {
             ProgressView().frame(maxWidth: .infinity).padding(.top, 60)
         } else if let items = pager.items, !items.isEmpty {
             // 其他视频是 16:9 抓帧，走宽列；影视按 2:3 钉死框比例——跨库的一面墙里偶有没刮到海报的本地条目，
             // 钉死后每格等高、片名落在一条线上（同 Web）
             let wide = kind == "video"
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: wide ? 200 : 140), spacing: 12, alignment: .top)], alignment: .leading, spacing: 20) {
+            LazyVGrid(columns: cards.wallColumns(extra: wide ? 60 : 0), alignment: .leading, spacing: 20) {
                 ForEach(items) { item in
                     LibraryInventoryCell(item: item, libraryId: item.libraryId ?? 0, frameAspect: wide ? 16 / 9 : Theme.posterAspect,
                                          showRating: effectiveSort == "rating")
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             WallLoadMoreFooter(hasMore: pager.hasMore, start: pager.start, loaded: items.count, total: pager.total) {
                 await pager.loadMore()
             }

@@ -38,7 +38,7 @@ struct PlayerGestureLayer: UIViewRepresentable {
 
     func makeUIView(context: Context) -> GestureView {
         let view = GestureView()
-        view.isMultipleTouchEnabled = false
+        view.isMultipleTouchEnabled = true
         view.backgroundColor = .clear
         view.accessibilityIdentifier = "player-gesture-layer"
         return view
@@ -79,6 +79,11 @@ struct PlayerGestureLayer: UIViewRepresentable {
         }
 
         override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+            if event?.allTouches?.count ?? 1 > 1 {
+                finish(cancelled: true, touch: nil)
+                lastTap = nil
+                return
+            }
             guard let config, config.enabled, let touch = touches.first, event?.allTouches?.count ?? 1 == 1 else { return }
             let point = touch.location(in: self)
             guard point.y > Self.edgeGuard, point.y < bounds.height - Self.edgeGuard, !isExcluded(point) else { return }

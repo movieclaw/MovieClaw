@@ -142,9 +142,12 @@ class NexusPHPSite(BaseSite):
 
         username = self._css_text(doc, self.selectors.profile_username_css)
         if not username:
+            # 会话失效时 NexusPHP 会 302 到 login.php：这不是页面改版，标出来
+            # 供上层给出"重新登录"而非"站点已改版"的提示
+            login_redirect = urlparse(str(response.url)).path.endswith("login.php")
             raise TrackerParseError(
                 "Failed to parse user profile",
-                details={"url": url},
+                details={"url": url, "login_redirect": login_redirect},
             )
 
         # 若调用方未提供 user_id，尝试从页面提取（通常取导航栏用户链接的 href 中的数字）

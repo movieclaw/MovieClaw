@@ -1,3 +1,6 @@
+import { appTranslator } from "@/lib/i18n/translate";
+import { requestLocale, type AppLocale } from "@/lib/i18n/negotiate";
+import type { ConfigSchema } from "@/lib/api/plugins";
 import { request } from "@/lib/http";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
@@ -12,8 +15,63 @@ async function unwrap<T>(promise: Promise<ApiEnvelope<T>>): Promise<T> {
   return (await promise).data;
 }
 
-/** 已适配的下载器类型（与后端 movieclaw_db ClientType 对应）。 */
-export type DownloaderClientType = "qbittorrent" | "transmission" | "demo";
+/** 下载器类型值：内置 qbittorrent / transmission，下载器插件可以登记新的（见 listDownloaderTypes）。 */
+export type DownloaderClientType = string;
+
+/** 一种可接入的下载器（由官方 / 第三方下载器插件登记，docs/design/downloader-adapters.md）。 */
+export interface DownloaderTypeInfo {
+  type: string;
+  title: string;
+  /** 配置表单里地址一栏的叫法，如「WebUI 地址」 */
+  url_label: string;
+  url_placeholder: string;
+  needs_username: boolean;
+  help: string;
+  /**
+   * 连接参数的界面描述（JSON Schema 子集，字段取自 url / username / password）：
+   * 表单各栏的叫法、示例、要不要以它为准；旧服务端没有这一项时用上面几个字段
+   */
+  connection?: ConfigSchema;
+}
+
+/** 旧服务端没有类型接口时的兜底：内置的两种 */
+export const BUILTIN_DOWNLOADER_TYPES: DownloaderTypeInfo[] = [
+  {
+    type: "qbittorrent",
+    title: "qBittorrent",
+    url_label: "WebUI 地址",
+    url_placeholder: "http://192.168.1.10:8080",
+    needs_username: true,
+    help: "",
+  },
+  {
+    type: "transmission",
+    title: "Transmission",
+    url_label: "RPC 地址",
+    url_placeholder: "http://192.168.1.10:9091",
+    needs_username: true,
+    help: "路径缺省时自动补全为 /transmission/rpc",
+  },
+];
+
+export function builtinDownloaderTypes(locale: AppLocale): DownloaderTypeInfo[] {
+  const t = appTranslator(locale);
+  return BUILTIN_DOWNLOADER_TYPES.map((info) => ({
+    ...info,
+    url_label: t(info.type === "transmission" ? "download.config.rpcUrl" : "download.config.webuiUrl"),
+    help: info.type === "transmission" ? t("download.config.rpcHelp") : info.help,
+  }));
+}
+
+export async function listDownloaderTypes(
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
+): Promise<DownloaderTypeInfo[]> {
+  try {
+    return await unwrap(request<ApiEnvelope<DownloaderTypeInfo[]>>("/downloaders/types"));
+  } catch {
+    return builtinDownloaderTypes(locale);
+  }
+}
 
 /** 连接验证状态（与站点配置共用同一状态机语义）。 */
 export type DownloaderStatus = "pending" | "verifying" | "active" | "failed";

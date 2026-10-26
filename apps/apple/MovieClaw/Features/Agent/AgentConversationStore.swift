@@ -16,9 +16,13 @@ import SwiftUI
 final class AgentConversation {
     let id: String
     var title: String
-    var turns: [AgentTurn] = []
+    var turns: [AgentTurn] = [] {
+        didSet { cachedRows = nil }
+    }
     /// 从旧会话续开时的来源（只用于展示来源卡片）
-    var handoff: (sourceId: String, sourceTitle: String?)?
+    var handoff: (sourceId: String, sourceTitle: String?)? {
+        didSet { cachedRows = nil }
+    }
     /// 详情是否已从服务端回放（或由新任务页乐观建立）
     var loaded = false
     /// 首次加载失败的原因（404 = 会话不存在）
@@ -30,9 +34,18 @@ final class AgentConversation {
     @ObservationIgnored private var loading = false
     @ObservationIgnored private var prefetched: Task<AgentTranscript, Error>?
     @ObservationIgnored private let rowCache = AgentTranscriptRowCache()
+    @ObservationIgnored private var cachedRows: [AgentTranscriptRow]?
 
-    /// 消息列的行（段落级懒加载单位，见 AgentTranscriptRows）：由 turns 派生、按轮缓存，只重拆变了的那一轮
-    var rows: [AgentTranscriptRow] { rowCache.rows(turns: turns, handoff: handoff) }
+    /// 只有消息变化才重新拼接行；键盘、草稿和滚动状态更新直接复用完整数组。
+    var rows: [AgentTranscriptRow] {
+        // 命中缓存时也登记 Observation 依赖，流式输出 / 改写 / 来源变化仍能更新视图。
+        let turns = turns
+        let handoff = handoff
+        if let cachedRows { return cachedRows }
+        let rows = rowCache.rows(turns: turns, handoff: handoff)
+        cachedRows = rows
+        return rows
+    }
 
     init(id: String, title: String = "") {
         self.id = id
@@ -110,7 +123,7 @@ final class AgentConversation {
     static func title(of summary: API.SessionSummary) -> String {
         if let title = summary.title, !title.isEmpty { return title }
         if let prompt = summary.lastPrompt, !prompt.isEmpty { return prompt }
-        return "未命名会话"
+        return String(localized: .agentSessionUnnamed)
     }
 
     // MARK: 发送 / 停止 / 改写重问
@@ -153,7 +166,7 @@ final class AgentConversation {
     /// 改写重问：服务端一次完成旧轨迹丢弃与新消息提交，成功后本地才替换时间线；失败保留原对话。
     func retry(api: APIClient, messageId: String, content: String, thinking: String?, model: String?) async throws {
         guard let index = turns.firstIndex(where: { $0.messageId == messageId }) else {
-            throw APIError.network("这条提问已不在当前会话里")
+            throw APIError.network(String(localized: .agentConversationQuestionMissing))
         }
         let original = turns[index]
         let accepted = try await api.sessionRetry(sessionId: id, body: .init(
@@ -195,11 +208,11 @@ final class AgentConversation {
                             return
                         }
                     }
-                } catch let APIError.http(status, message, _) {
+                } catch let APIError.http(status, message, _, _) {
                     self?.flush()
                     self?.updateTurn(turnId) {
                         $0.status = .error
-                        $0.error = status == 404 ? "运行记录不存在或已过期，可能是服务已重启，请重新发起任务" : message
+                        $0.error = status == 404 ? String(localized: .agentConversationRunMissing) : message
                     }
                     self?.streamTask = nil
                     return
@@ -285,9 +298,9 @@ enum AgentConversationRegistry {
         ))
         // 标题取首轮输入前 30 字（技能 token 折叠成 [技能]，纯图消息占位 [图片]），与服务端索引同口径
         let parsed = AgentSkillText.parseTokens(input)
-        let optimistic = parsed.names.isEmpty ? input : "[技能] \(parsed.text)".trimmingCharacters(in: .whitespaces)
+        let optimistic = parsed.names.isEmpty ? input : String(localized: .agentSessionSkill(parsed.text)).trimmingCharacters(in: .whitespaces)
         let title = String(optimistic.prefix(30))
-        let conversation = AgentConversation(id: accepted.sessionId, title: title.isEmpty ? (images.isEmpty ? "" : "[图片]") : title)
+        let conversation = AgentConversation(id: accepted.sessionId, title: title.isEmpty ? (images.isEmpty ? "" : String(localized: .agentSessionImage)) : title)
         var turn = AgentTurn(id: UUID().uuidString, messageId: accepted.messageId, input: input, images: images, status: .running, startedAt: .now)
         if let thinking { turn.thinkingLevel = .some(thinking == "default" ? nil : thinking) }
         if let model { turn.modelRef = .some(model == "default" ? nil : model) }

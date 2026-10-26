@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from movieclaw_api.i18n import t
 from movieclaw_api.settings.base import SettingSchema, register_setting
 from movieclaw_api.settings.store import get_setting_store
 from movieclaw_tracker.models import TorrentCategory
@@ -88,6 +89,13 @@ class AdminAccountSetting(SettingSchema):
     password_hash: str = Field(default="", description="argon2 密码哈希；空表示尚未初始化")
     nickname: str = Field(default="", description="展示昵称；建号时默认取用户名，可在设置里修改")
     created_at: str = Field(default="", description="账号创建时间（ISO8601 字符串）")
+
+
+@register_setting(namespace="auth.locale", title="Language history")
+class AdminLocaleSetting(SettingSchema):
+    """Separate history so request bookkeeping never rewrites account credentials."""
+
+    last_locale: Literal["zh-Hans", "en"] | None = None
 
 
 @register_setting(
@@ -378,13 +386,21 @@ class NavUiPrefs(BaseModel):
       不会因为不在这个列表里而永远消失——这是这类"存死一份顺序"功能最常见的事故；
     - 已经不存在的 id（导航项被删）读取时直接忽略，无需迁移。
 
-    上限 32 只是防脏数据无限增长的安全阀，不是产品限制（主导航实际只有个位数项）。
+    上限 64 只是防脏数据无限增长的安全阀，不是产品限制（内置项个位数，另加插件网页的项）。
     """
 
     order: list[str] = Field(
         default_factory=list,
-        max_length=32,
+        max_length=64,
         description="侧栏主导航的展示顺序（导航项 id）；空列表 = 用内置默认顺序",
+    )
+    hidden: list[str] | None = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "从侧栏移出的导航项 id（只有插件网页的项能移出，"
+            "docs/design/plugin-web-pages.md §4.2）；空 = 都显示"
+        ),
     )
 
 
@@ -445,9 +461,9 @@ class HomeRowPref(BaseModel):
             + (self.media_kind is not None)
         )
         if custom and sources != 1:
-            raise ValueError("自加行必须且只能指定 library_id / collection_id / media_kind 之一")
+            raise ValueError(t("settings.validation.homeRowSource"))
         if not custom and sources:
-            raise ValueError("内置行与默认库行不能指定来源")
+            raise ValueError(t("settings.validation.homeRowNoSource"))
         if self.sort is not None:
             allowed = (
                 HOME_FAVORITES_SORTS
@@ -457,9 +473,9 @@ class HomeRowPref(BaseModel):
                 else frozenset()
             )
             if self.sort not in allowed:
-                raise ValueError(f"这一行不支持排序档 {self.sort!r}")
+                raise ValueError(t("settings.validation.homeRowSort", sort=repr(self.sort)))
         if self.order is not None and self.order not in ("asc", "desc"):
-            raise ValueError(f"排序方向只能是 asc 或 desc，收到 {self.order!r}")
+            raise ValueError(t("settings.validation.homeRowOrder", order=repr(self.order)))
         return self
 
 
@@ -481,7 +497,7 @@ class HomeUiPrefs(BaseModel):
     def _unique_ids(self) -> HomeUiPrefs:
         ids = [row.id for row in self.rows]
         if len(ids) != len(set(ids)):
-            raise ValueError("首页的行 id 不能重复")
+            raise ValueError(t("settings.validation.homeRowDuplicate"))
         return self
 
 
@@ -489,6 +505,7 @@ class HomeUiPrefs(BaseModel):
 class UiPreferencesSetting(SettingSchema):
     """全站界面样式偏好，按页面分组。新页面的设定加嵌套模型字段即可。"""
 
+    language: Literal["auto", "zh-Hans", "en"] = "auto"
     theme: str = Field(
         default="silver",
         max_length=32,

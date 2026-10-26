@@ -6,6 +6,8 @@ import io.movieclaw.android.core.designsystem.PosterRowSkeleton
 import io.movieclaw.android.core.designsystem.PosterRibbon
 import io.movieclaw.android.core.designsystem.McType
 import io.movieclaw.android.core.designsystem.tabGlassSource
+import io.movieclaw.android.core.designsystem.glassSurface
+import io.movieclaw.android.core.designsystem.glassSurfaceLens
 import io.movieclaw.android.core.designsystem.McRow
 import io.movieclaw.android.core.designsystem.McMetrics
 import androidx.compose.ui.text.TextStyle
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -111,6 +114,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import io.movieclaw.android.core.designsystem.LocalPosterReveal
+import io.movieclaw.android.core.designsystem.mcCards
 
 data class DiscoverRow(val section: DiscoverySection, val titles: List<DiscoveredTitle>)
 
@@ -385,6 +389,16 @@ fun DiscoverScreen(
 
     val scroll = rememberScrollState()
     io.movieclaw.android.core.designsystem.TrackTabBarMinimize(scroll)
+    // 外壳只在这段高度里铺 hero 剧照，并随页面滚动一起上移。
+    val heroHeight = io.movieclaw.android.core.designsystem.padHeroHeight()
+    // 宽屏：页面内容整体缩进到侧栏卡片右侧（侧栏宽 + 左右各 14dp 缝），
+    // 但页面根/背景仍是整窗——hero 不会在侧栏处被裁出一条竖边。
+    val discoverInset = if (io.movieclaw.android.core.designsystem.LocalCardMetrics.current.isWide) {
+        io.movieclaw.android.core.designsystem.McSidebarWidth +
+            io.movieclaw.android.core.designsystem.McShellInset * 2
+    } else {
+        0.dp
+    }
     // 英雄轮播的数据来自 presentation == "hero" 那一行（六屏）
     val heroRow = remember(state.rows) { state.rows.firstOrNull { it.section.presentation == "hero" } }
     val heroSlides = remember(heroRow, origin, subscriptionIndex) {
@@ -398,6 +412,27 @@ fun DiscoverScreen(
     var heroPage by remember { mutableIntStateOf(0) }
     // 氛围底色 = 当前这一屏剧照的主色（同一套取色算法）
     val ambient = rememberAmbientColor(heroSlides.getOrNull(heroPage)?.backdropUrl, origin)
+    // 把**发现页当前这一屏 hero 剧照**发布给外壳：宽窗口时外壳最底层铺全屏剧照，
+    // 半透明侧栏透出同一张图 —— 首页/发现页与左侧栏就不再是"一块黑栏 + 一张图"的割裂关系。
+    // 换 hero 页时跟着换（与详情页同一套机制）。
+    val discoverHeroUrl = heroSlides.getOrNull(heroPage)?.backdropUrl
+    val setShellBackdropDiscover = io.movieclaw.android.routing.LocalShellBackdropSetter.current
+    androidx.compose.runtime.LaunchedEffect(discoverHeroUrl, ambient, heroHeight) {
+        if (discoverHeroUrl != null) {
+            setShellBackdropDiscover(
+                io.movieclaw.android.routing.ShellBackdrop(
+                    discoverHeroUrl,
+                    origin,
+                    ambient ?: androidx.compose.ui.graphics.Color.Black,
+                    heroHeight = heroHeight,
+                    scrollState = scroll,
+                ),
+            )
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { setShellBackdropDiscover(null) }
+    }
     // 悬浮顶栏实际占的高度（状态栏 + 52dp）：筛选态下胶囊行与维度菜单都按它让位
     val topBarTotal = androidx.compose.foundation.layout.WindowInsets.statusBars
         .asPaddingValues()
@@ -406,18 +441,24 @@ fun DiscoverScreen(
     var showFilterMenu by remember { mutableStateOf(false) }
     /** 结果页条件胶囊点开的那一维（null = 没开；浮层挂在胶囊行正下方） */
     var chipDim by remember { mutableStateOf<String?>(null) }
+    // 收起时 chipDim 立刻变 null，面板还要缩回；留住最后一次的维度
+    var lastChipDim by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(chipDim) { if (chipDim != null) lastChipDim = chipDim }
 
     // 展开层宿主：同一时刻只展开一张海报卡（网页 hover 层在触摸端的等价物）
     val posterReveal = remember { mutableStateOf<String?>(null) }
 
     androidx.compose.runtime.CompositionLocalProvider(LocalPosterReveal provides posterReveal) {
     Box(Modifier.fillMaxSize()) {
-        // 氛围底在页面根、滚动容器之外（实测如此），随滚动退淡
-        HeroAmbientBackdrop(
-            color = ambient,
-            scrollPx = scroll.value.toFloat(),
-            modifier = Modifier.fillMaxSize(),
-        )
+        // 宽屏：背景由外壳统一铺满整窗（hero + 环境底）；页面里不再铺一层，
+        // 否则它的黑底会从内容区左缘开始，压出一条竖缝。
+        if (!io.movieclaw.android.core.designsystem.LocalCardMetrics.current.isWide) {
+            HeroAmbientBackdrop(
+                color = ambient,
+                scrollPx = scroll.value.toFloat(),
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
         // 下拉刷新（iOS `.refreshable`）：**必须用官方 PullToRefreshBox 包在滚动之外**——
         // 之前把 `Modifier.pullToRefresh` 挂在滚动同一个节点上，划了没反应（实机反馈）。
         // 指示器再加一段 offset：这一页的顶栏是悬浮的（盖在内容上），默认位置的转圈正好被它挡住，
@@ -427,7 +468,7 @@ fun DiscoverScreen(
             isRefreshing = refreshing,
             onRefresh = { vm.pullRefresh() },
             state = pullState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(start = discoverInset),
             indicator = {
                 androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator(
                     state = pullState,
@@ -445,7 +486,10 @@ fun DiscoverScreen(
                 // 筛选态下正文是懒加载网格：外层不能再套垂直滚动（无限高约束会崩），
                 // 网格自己滚；常规态仍是整页一个滚动容器（实测形态）
                 .then(if (filtering) Modifier else Modifier.verticalScroll(scroll))
-                // 液态底栏的背景模糊源（Local 为 null 时原样返回，零代价）
+                // 液态底栏的背景模糊源 / 气泡取样源（Local 为 null 时原样返回，零代价）。
+                // 已知限制：这里挂在 scroll **之内**，录下来的是「未滚动」的页面内容，
+                // 而取样按屏上位置算 —— 滚动后（迷你圆钮出现时）会落到该层的空白区，
+                // 气泡/圆钮看着偏暗。试过提到 scroll 之外，整页会被糊（回归），先保持原样
                 .tabGlassSource()
                 .padding(bottom = McTabBarContentPadding),
         ) {
@@ -554,7 +598,7 @@ fun DiscoverScreen(
                                         subscribed -> PosterRibbon.SUBSCRIBED
                                         else -> null
                                     },
-                                    modifier = Modifier.width(McMetrics.rowCardWidth),
+                                    modifier = Modifier.width(mcCards.posterWidth),
                                     // 卡片动作键（移动端网页实测）：已订阅 = 中性底 + 绿勾 +「已订阅」；
                                     // 未订阅 = 强调色 +「订阅影片/订阅剧集」（**在库但未订阅照样给订阅键**，
                                     // 卡片右上另有「在库」徽标）。两种状态的点击都打开订阅弹层。
@@ -626,9 +670,10 @@ fun DiscoverScreen(
         title = if (state.mediaType == "tv") "剧集" else "电影",
         sourceLabel = if (state.source.equals("douban", ignoreCase = true)) "豆瓣" else "TMDB",
         onSourceClick = { showFilterMenu = false; chipDim = null; showSourceMenu = !showSourceMenu },
-        mistStrength = 0.5f,
+        // 宽屏外壳 hero 自带整窗顶部压暗，内容区雾层会从内容左缘开始，形成顶部竖线。
+        mistStrength = if (io.movieclaw.android.core.designsystem.LocalCardMetrics.current.isWide) 0f else 0.5f,
         mistHeight = 135.dp,
-        modifier = Modifier.align(Alignment.TopCenter),
+        modifier = Modifier.align(Alignment.TopCenter).padding(start = discoverInset),
     ) {
         // 「全部」筛选键（iOS DiscoverFilterMenu）：点开是六个维度各一个二级菜单 + 「清空条件」，
         // 选一项即生效——**不压栈新页**，也没有「查看结果」这一步。豆瓣源没有筛选，键不出现。
@@ -638,10 +683,13 @@ fun DiscoverScreen(
                 style = McType.subSemibold,
                 color = Color.White.copy(alpha = 0.92f),
                 modifier = Modifier
-                    .height(36.dp)
+                    // 高度与右侧放大镜同档（44dp，网页触屏口径）：36 时两颗不等高，实机一眼看出
+                    .height(44.dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(GlassCapsule)
                     .border(1.dp, LineSoft, RoundedCornerShape(999.dp))
+                    // 与放大镜、媒体库那排同一套材质（统一分发：Haze 真背景模糊 + 高光边）
+                    .glassSurface()
                     .clickable {
                         showSourceMenu = false
                         chipDim = null
@@ -653,8 +701,15 @@ fun DiscoverScreen(
             Spacer(Modifier.width(8.dp))
         }
         // 入口口径是「任一搜索分区可用」（影视 / 资源 / 媒体库，见 SearchAccess.canOpenSearch）
-        if (io.movieclaw.android.core.session.LocalSearchAccess.current.canOpenSearch) {
-            McNavButton(Icons.Rounded.Search, contentDescription = "搜索", onClick = onOpenSearch)
+        // 侧栏模式下搜索入口就在侧栏第一行（ipad.md §3）——宽窗口不再重复放放大镜
+        if (!io.movieclaw.android.core.designsystem.LocalCardMetrics.current.isWide &&
+            io.movieclaw.android.core.session.LocalSearchAccess.current.canOpenSearch
+        ) {
+            McNavButton(
+                Icons.Rounded.Search,
+                contentDescription = "搜索",
+                onClick = onOpenSearch,
+            )
         }
     }
 
@@ -676,42 +731,59 @@ fun DiscoverScreen(
         )
     }
 
-    if (showSourceMenu) {
+    // 三个菜单都一直组合、只切 visible：收起时缩回原点再移除（弹入/缩回同一套节奏）
+    // 与「全部」菜单同一套弹出（iOS 两处菜单都是同一个出现动画）：这里是**左上锚点**，
+    // 所以原点取左下对称值 0.15；之前漏了这层，TMDB 面板是硬闪出来的（用户反馈）
+    io.movieclaw.android.core.designsystem.MenuAppear(
+        visible = showSourceMenu,
+        originX = 0.15f,
+        originY = 0.1f,
+        modifier = Modifier
+            .align(Alignment.TopStart)
+            .statusBarsPadding()
+            .padding(start = McMetrics.topBarInsetRoot, top = McMetrics.topBarHeight),
+    ) {
         SourceMenu(
             mediaType = state.mediaType,
             source = state.source,
             onPickMediaType = { vm.switchMediaType(it); showSourceMenu = false },
             onPickSource = { vm.switchSource(it); showSourceMenu = false },
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(start = McMetrics.topBarInsetRoot, top = McMetrics.topBarHeight),
         )
     }
-    if (showFilterMenu) {
+    // 与另两处菜单同一套弹出（菜单内部不再自带一层，避免 0.82² 的叠放）
+    io.movieclaw.android.core.designsystem.MenuAppear(
+        visible = showFilterMenu,
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .statusBarsPadding()
+            .padding(end = McMetrics.topBarInsetRoot, top = McMetrics.topBarHeight),
+    ) {
         DiscoveryFilterMenu(
             filter = state.filters,
             // 选一项即生效并收起（同 iOS）；条件被清空后正文本就回到首页板块
             onApply = { vm.applyFilters(it); showFilterMenu = false },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(end = McMetrics.topBarInsetRoot, top = McMetrics.topBarHeight),
         )
     }
     // 结果页条件胶囊点开的那一维：浮层挂在顶栏右下（与「全部」菜单同一处）。
     // iOS 是把菜单锚在胶囊本身上；安卓这边胶囊在滚动容器里，锚点跟着滚会跑偏，
     // 统一挂在固定的右上角——同一个取值菜单、同一份文案，只是位置固定可预期。
-    chipDim?.let { dim ->
-        DiscoveryFilterDimPanel(
-            dimKey = dim,
-            filters = state.filters,
-            onApply = { vm.applyFilters(it); chipDim = null },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(end = McMetrics.topBarInsetRoot, top = topBarTotal),
-        )
+    val dimPanelKey = chipDim ?: lastChipDim
+    io.movieclaw.android.core.designsystem.MenuAppear(
+        visible = chipDim != null,
+        originX = 0.85f,
+        originY = 0.1f,
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .statusBarsPadding()
+            .padding(end = McMetrics.topBarInsetRoot, top = topBarTotal),
+    ) {
+        dimPanelKey?.let { dim ->
+            DiscoveryFilterDimPanel(
+                dimKey = dim,
+                filters = state.filters,
+                onApply = { vm.applyFilters(it); chipDim = null },
+            )
+        }
     }
     }
     }

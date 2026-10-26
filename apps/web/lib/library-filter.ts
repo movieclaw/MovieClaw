@@ -204,3 +204,25 @@ export function filterKey(filter: LibraryFilter | undefined): string {
   }
   return pieces.join(".");
 }
+
+/** Read the route query directly, including during client navigation before location commits. */
+export function readLibraryFilter(params: Pick<URLSearchParams, "get">): LibraryFilter {
+  const list = (key: string) => (params.get(key) ?? "").split(",").filter(Boolean);
+  const watch = params.get("w");
+  const rating = params.get("rating_gte");
+  const hdr = params.get("hdr");
+  return {
+    genres: list("g")
+      .map(Number)
+      .filter((n) => Number.isFinite(n)),
+    countries: list("c"),
+    decades: list("d"),
+    watch: watch ? (watch as WatchFilter) : null,
+    ratingGte: rating !== null && Number.isFinite(Number(rating)) ? Number(rating) : null,
+    runtimes: list("rt"),
+    languages: list("lang"),
+    resolutions: list("res"),
+    hdr: hdr === null ? null : hdr === "true",
+    stock: list("stock"),
+  };
+}

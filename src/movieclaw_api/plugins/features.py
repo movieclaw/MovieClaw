@@ -39,60 +39,89 @@ class Feature:
     settings_href: str | None = None
     #: 能不能停用（停用 = 组成插件全部不运行，运行中生效、重启保持）
     switchable: bool = False
+    title_key: str | None = None
+    description_key: str | None = None
 
 
 FEATURES: tuple[Feature, ...] = (
     Feature(
         "subtitle-gen",
+        # i18n-ignore: source default of plugins.features.* (guarded by test)
         "AI 字幕生成",
+        # i18n-ignore: source default of plugins.features.* (guarded by test)
         "没有中文字幕时，用模型把其他语言的字幕翻译成中文外挂字幕",
         ("subtitle.gen", "subtitle.pgs-warm"),
         "/settings/ai",
+        title_key="plugins.features.subtitleGenTitle",
+        description_key="plugins.features.subtitleGenDescription",
     ),
     Feature(
         "ingest-watch",
+        # i18n-ignore: source default of plugins.features.* (guarded by test)
         "自动入库",
+        # i18n-ignore: source default of plugins.features.* (guarded by test)
         "监听下载目录，下载完成后自动整理进媒体库",
         ("library.ingest-watch",),
         "/settings/import-watch",
         switchable=True,
+        title_key="plugins.features.ingestWatchTitle",
+        description_key="plugins.features.ingestWatchDescription",
     ),
     Feature(
         "library-watch",
+        # i18n-ignore: source default of plugins.features.* (guarded by test)
         "媒体库实时监控",
+        # i18n-ignore: source default of plugins.features.* (guarded by test)
         "媒体库目录有变化时自动增量扫描；在每个媒体库的编辑里开关",
         ("library.watch",),
         "/library/manage",
         switchable=True,
+        title_key="plugins.features.libraryWatchTitle",
+        description_key="plugins.features.libraryWatchDescription",
     ),
     Feature(
         "boost",
+        # i18n-ignore: source default of plugins.features.* (guarded by test)
         "自动刷分享率",
+        # i18n-ignore: source default of plugins.features.* (guarded by test)
         "按站点规则自动下载与做种，并在上行吃紧时让路",
         ("boost", "boost.sentinel"),
         "/settings/sites",
+        title_key="plugins.features.boostTitle",
+        description_key="plugins.features.boostDescription",
     ),
     Feature(
         "arrivals",
+        # i18n-ignore: source default of plugins.features.* (guarded by test)
         "新片到达通知",
+        # i18n-ignore: source default of plugins.features.* (guarded by test)
         "媒体库有新片入库时推送通知",
         ("push.arrivals",),
         "/settings/notifications",
         switchable=True,
+        title_key="plugins.features.arrivalsTitle",
+        description_key="plugins.features.arrivalsDescription",
     ),
     Feature(
         "cloud",
         "MovieClaw Cloud",
+        # i18n-ignore: source default of plugins.features.* (guarded by test)
         "把这台服务器连到你的 MovieClaw 账号，使用官方推送等云端服务",
         ("cloud", "push.channels-refresh"),
         "/settings/cloud",
+        title_key="plugins.features.cloudTitle",
+        description_key="plugins.features.cloudDescription",
     ),
     Feature(
         "jellyfin-discovery",
-        "Jellyfin 局域网发现",
-        "让 Infuse 等 Jellyfin 客户端在局域网里自动找到这台服务器",
+        # i18n-ignore: source default of plugins.features.* (guarded by test)
+        "局域网发现",
+        # i18n-ignore: source default of plugins.features.* (guarded by test)
+        "让 MovieClaw 各端 App 和 Infuse 等 Jellyfin 客户端在局域网里自动找到这台服务器",
         ("jellyfin.discovery",),
         switchable=True,
+        title_key="plugins.features.discoveryTitle",
+        description_key="plugins.features.discoveryDescription",
     ),
 )
 

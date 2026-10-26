@@ -1,3 +1,6 @@
+import { appTranslator } from "../i18n/translate.ts";
+import { requestLocale, type AppLocale } from "../i18n/negotiate.ts";
+
 /**
  * 开播提示「已沿用上次的选择」（与 iOS App 的 `RememberedChoices` 同一口径，
  * apps/apple/MovieClaw/Features/Player/PlayerPreferences.swift；设计见 docs/design/player-engine.md §3.2）。
@@ -13,12 +16,13 @@ export function rememberedChoicesNotice(input: {
   quality: number | null;
   audio: string | null;
   subtitle: string | null;
-}): string | null {
+}, locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
+  const t = appTranslator(locale);
   const parts: string[] = [];
-  if (input.quality !== null) parts.push(`画质 ${input.quality}p`);
-  if (input.audio !== null) parts.push(`音轨 ${input.audio}`);
-  if (input.subtitle !== null) parts.push(`字幕 ${input.subtitle}`);
-  return parts.length ? `已沿用上次的选择：${parts.join("，")}` : null;
+  if (input.quality !== null) parts.push(t("player.memory.quality", { height: input.quality }));
+  if (input.audio !== null) parts.push(t("player.memory.audio", { label: input.audio }));
+  if (input.subtitle !== null) parts.push(t("player.memory.subtitles", { label: input.subtitle }));
+  return parts.length ? t("player.memory.restored", { choices: parts.join(t("player.memory.separator")) }) : null;
 }
 
 /**

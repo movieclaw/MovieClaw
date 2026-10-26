@@ -164,3 +164,75 @@ async def test_snapshot_empty_without_inflight(db) -> None:
         assert subscription.id is not None
         rows = await download_progress.subscription_download_snapshot(session, subscription.id)
     assert rows == []
+
+
+def test_unit_progress_per_selected_file() -> None:
+    """包内每集进度：按认得出集号的已选中文件算；未选中与认不出的不给。"""
+    from movieclaw_downloader import TorrentFile
+
+    files = [
+        TorrentFile(path="Pack/Show.S01E01.mkv", size_bytes=100, completed_bytes=100),
+        TorrentFile(path="Pack/Show.S01E02.mkv", size_bytes=100, completed_bytes=40),
+        TorrentFile(path="Pack/Show.S01E03.mkv", size_bytes=100, completed_bytes=0, selected=False),
+        TorrentFile(path="Pack/Extras/making-of.mkv", size_bytes=100, completed_bytes=100),
+        TorrentFile(path="Pack/Show.S01E04.mkv", size_bytes=100),  # 旧适配器：没报完成字节
+    ]
+    assert download_progress._unit_progress(files) == {(1, 1): 1.0, (1, 2): 0.4}
+
+
+@pytest.mark.asyncio
+async def test_snapshot_gives_each_episode_of_a_pack_its_own_progress(db, monkeypatch) -> None:
+    """全集包挂了多集：取文件清单，每集带上自己的进度（大包按单集分批入库，
+    整包进度看不出哪几集已经下完）；认不出集号的单元不给，看整包进度。"""
+    from movieclaw_downloader import TorrentFile
+
+    status = TorrentStatus(
+        info_hash="c" * 40,
+        name="Show.S01.Complete",
+        progress=0.47,
+        completed=False,
+        save_path="/downloads",
+        dlspeed_bytes=2_000_000,
+        state="downloading",
+        files=[
+            TorrentFile(path="Pack/Show.S01E01.mkv", size_bytes=100, completed_bytes=100),
+            TorrentFile(path="Pack/Show.S01E02.mkv", size_bytes=100, completed_bytes=40),
+        ],
+    )
+    asked: list[bool] = []
+
+    async def fake_usable(session):
+        return [("占位", "占位配置")]
+
+    async def fake_query(info_hash, downloaders, *, include_files=True):
+        asked.append(include_files)
+        return _FakeDownloaderRow(), status
+
+    monkeypatch.setattr(download_progress, "_usable_downloaders", fake_usable)
+    monkeypatch.setattr(download_progress, "_query_torrent", fake_query)
+
+    async with db.session() as session:
+        subscription_id = await _movie_subscription_with_grabbed(session, "c" * 40)
+        template = (
+            (
+                await session.execute(
+                    select(WantedItem).where(WantedItem.subscription_id == subscription_id)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        assert template is not None
+        for episode in (1, 2):
+            data = template.model_dump(exclude={"id"})
+            data.update(season_number=1, episode_number=episode)
+            session.add(WantedItem(**data))
+        await session.commit()
+        rows = await download_progress.subscription_download_snapshot(session, subscription_id)
+
+    assert asked == [True]
+    assert rows[0]["progress"] == pytest.approx(0.47)
+    by_unit = {
+        (u["season_number"], u["episode_number"]): u.get("progress") for u in rows[0]["units"]
+    }
+    assert by_unit == {(0, 0): None, (1, 1): pytest.approx(1.0), (1, 2): pytest.approx(0.4)}

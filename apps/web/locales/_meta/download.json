@@ -1,0 +1,422 @@
+{
+  "target.title": {
+    "sourceHash": "edfa33a3f470ecc57da9b29540916a5e68b3a71edfebd22419b549c94fdc4846"
+  },
+  "target.failed": {
+    "sourceHash": "a50b30d8030480b365a8b7378b3c3afe797bd63440f3e4d99cea21ffe5243111"
+  },
+  "target.defaultPathSource": {
+    "sourceHash": "25af5c8402f1fd54712a41a08db3d985edef5555921267be780dd8a84c18395f"
+  },
+  "target.mappingSource": {
+    "sourceHash": "be5f460100b42d5b1a9ca6185c641e81bd9a4f6e615f144edea0da817dd81d95"
+  },
+  "target.downloaderDirectory": {
+    "sourceHash": "687eb0be358b87f4c3e32219bf4c7388e4abe8b45d68076f8996361de6d2eeb6"
+  },
+  "target.defaultDirectoryHint": {
+    "sourceHash": "56451d8b25df00e0f52627a2d449dbabf17d38212b4eb274dbc65206a3eda08c"
+  },
+  "target.previewing": {
+    "sourceHash": "0e08b3b8bd85d80c443f4cc0aba1bf42efa9030da94a9f9d950a21b1c5719cf9"
+  },
+  "target.identifying": {
+    "sourceHash": "7e1992b13957cf53dcc56f12595ade8fef14185925eb953b44df864f5be1c1bc"
+  },
+  "target.unavailable": {
+    "sourceHash": "d63d95f7d8b2bce87a8a7cb37b353ef1caa0ffcd8f56096cb7740499e44ccc5f"
+  },
+  "target.checkConfig": {
+    "sourceHash": "c572b8185cf84748332ab09fb04d58a5eb6d005ded8c977cf0967a3c95148267"
+  },
+  "target.otherDestinations": {
+    "sourceHash": "de6352e269fabd7e4610420cd6fec8636818308cb014a8bf91f0e75fa8650087"
+  },
+  "target.downloader": {
+    "sourceHash": "19c3857aba1b0d88fbf50b66335a5ec0e2e958fababde6bb7faac04a0d7b3e85"
+  },
+  "target.rememberedHint": {
+    "sourceHash": "22a5f1e1dc8c68d307227dc59ab5c567eee4a773d7c27b3e4826b13fa957f2dc"
+  },
+  "target.temporaryHint": {
+    "sourceHash": "ccc3deb824b27eaa0b6f9948750e0c73a1741ecb10b9975c1110f7cf9663d7da"
+  },
+  "target.submitting": {
+    "sourceHash": "18931020ad52e63a09e01c7e84c4e9ab498fa2a4e209fbdc15525b8989fe9834"
+  },
+  "target.confirm": {
+    "sourceHash": "795d5116bafe36695bda1f8f05cbc7770d7f6f537cf126a2586d6eefefa9ff82"
+  },
+  "target.memberLibraryHint": {
+    "sourceHash": "b0b013d3c98c905d9ec9dec9e3594228139ad111604d4ea9e425a4a6531abf70"
+  },
+  "target.memberDefaultHint": {
+    "sourceHash": "ed5bd753e4c4e81848a90e6a521475fa06f687ef2fccbde29985217da093cd90"
+  },
+  "target.whichTitle": {
+    "sourceHash": "ba0ac51fc8de8c2566e63ed3cdc4a7fc21e9fdffcd6937af60594f967e22b64b"
+  },
+  "target.searchHint": {
+    "sourceHash": "da3315859a5372643225fca997f2c68e005af530432b5e0f06fd87393f67f709"
+  },
+  "target.unidentified": {
+    "sourceHash": "680ec81aa16d36522142891553f7500c7f0ee7fade942eb015462eb43c3fba76"
+  },
+  "target.searchAgain": {
+    "sourceHash": "4a23a4bf1373d9db20c3abb17fc96ca1b379f5d27ab9391fccba48af145969ec"
+  },
+  "target.enterTitle": {
+    "sourceHash": "dd47fd42ea437b1e654dc64ccd0fec5daaec6ffcc034887ab89bbe912f48cbba"
+  },
+  "target.searchTitleLabel": {
+    "sourceHash": "7adb9754ff616dbc22575db8e1695ea8c0c8d6e8491b8f92d6b8ebec0b7786c2"
+  },
+  "target.defaultHeadline": {
+    "sourceHash": "ef6a0b39e1c7a3d2a12a7f1853230ed3b926617b1fc69357557d71db9f0967e6"
+  },
+  "target.confirmTitle": {
+    "sourceHash": "e8a3c8f089389a5d315b8c58a314be9ecf6ba4f7b00c5131a47e5040bb01ca08"
+  },
+  "target.saveTo": {
+    "sourceHash": "e31cccd7bba006f532333776db19382cef987670d63851924e9c5fb4ed9b1494"
+  },
+  "target.smart": {
+    "sourceHash": "a3e39d82bb51af0054c5fdba4691daae49246b21b20db55c4dd00029195d0708"
+  },
+  "target.defaultDownloader": {
+    "sourceHash": "4b86e7ce561857251b14e073440e66bb868f371334c42b72efbc198712b4b761"
+  },
+  "target.checking": {
+    "sourceHash": "799184b135d0d4f1aa9e6146d1ea462861d93649464e0e46b4d8cb3693bb91d1"
+  },
+  "target.chosenByDownloader": {
+    "sourceHash": "68282e59fcff09ed6cd3aecde379ba34a99f4d83c1dab170452f34ebbd518208"
+  },
+  "target.change": {
+    "sourceHash": "6b01fce4dbeaeeb9a6c439a1828b1b8cc1d1618b5fc0035c6308b57080acd8f8"
+  },
+  "target.watchStaging": {
+    "sourceHash": "014ae18235996f4a624f32e6562a5ed7bf0367308d47821223715805e5316c8c"
+  },
+  "target.watch": {
+    "sourceHash": "03214f65e86961e79c74f6cd7502375aafe50e3aa37b59dd4a71936d92ec11d5"
+  },
+  "target.inplace": {
+    "sourceHash": "75b281dfbd3fb118132901f5db498c02e16740599c2415c31bc5b76d5f19d0cb"
+  },
+  "target.automaticLibrary": {
+    "sourceHash": "fe3ff52dac9824dda49746b9641f0063402a38f21f6c6438a740351cfe1380aa"
+  },
+  "target.remoteView": {
+    "sourceHash": "ed5a6d6c36e369bcefc82a5d90176a7bab454f04d429184e17f1506f882c7b96"
+  },
+  "target.blocked": {
+    "sourceHash": "b7c443734dd04fb364c1a9c0a497b3bdc53ed41eb39894615dda0d63adc0d7c8"
+  },
+  "target.namedDownloader": {
+    "sourceHash": "a60b8e8b49f076e0a7440140a379954c3927d799efef49bcb08668114471f389"
+  },
+  "target.remember": {
+    "sourceHash": "31f95159acaccf9d39e364c42c7e0e28c7bb95c23fe59a3f371cd8b72acaffea"
+  },
+  "target.mappingHint": {
+    "sourceHash": "74624c471ea315edfb2016ae2efd0f8c0ecc59964fbbc3ef5b28759c558bbfa7"
+  },
+  "target.libraryDownload": {
+    "sourceHash": "28c004a4c46a5bb82750e0a37844f2d2226bdd0cb32a6b15a3f4c0d25cedf96a"
+  },
+  "target.kindMismatch": {
+    "sourceHash": "55302642fe5b2a2aebb416135adbf6cacc800ea44cd7cdc59498a722c7115a16"
+  },
+  "target.noCandidates": {
+    "sourceHash": "33e1b76ecdb068da333c110cc723a85ee834b01e81a3999017c80711477dcd2d"
+  },
+  "target.episodeSuffix": {
+    "sourceHash": "972ce480d992e05ca5b70c49e9a15e4135b7e7c739eb7cc4d5f0bf0cab436728"
+  },
+  "target.lastUsed": {
+    "sourceHash": "26e5bee68ead39dfa4890cec03205e6448a9a98d229294394c121689996bd7dd"
+  },
+  "config.connected": {
+    "sourceHash": "5be0323e8adcaeae8a644b6e8e4ad05864ec03c7b841504f91c911ff06dabd6d"
+  },
+  "config.testing": {
+    "sourceHash": "458748c7478ef72d6eb2b9e7af162f8676770ec09a4da4c5e758352083d37252"
+  },
+  "config.pending": {
+    "sourceHash": "04f06469dc0cc21289953ac654c0ad454eef222048e3d5087f24ab5b14538e07"
+  },
+  "config.failed": {
+    "sourceHash": "89c4766afc85125fd76d094df949fa730f06eedd32a667900893e6e0c590ee6a"
+  },
+  "config.optional": {
+    "sourceHash": "0d9e88c640fcfedd887d5832d4f73da900a788029f3a7477d3e39b81ab81494a"
+  },
+  "config.optionalUsername": {
+    "sourceHash": "e67fea90bde659aeb6435dc38091b81075deefbc114b439328842f34f85b0169"
+  },
+  "config.optionalPassword": {
+    "sourceHash": "44733c95379ca123a195ead9864a80f067cb552e0007c675675b69d244dc1263"
+  },
+  "config.username": {
+    "sourceHash": "1a3f0617d6de8e52b118615b380a998dcf5b35642b485c26a44d2fc3e87a50ba"
+  },
+  "config.password": {
+    "sourceHash": "a621ab606db2a11f63edc576a729843b8269250dc324206871d90635ac5e531c"
+  },
+  "config.url": {
+    "sourceHash": "37aac5b4e639b93b620a8366fb9d17875610a76ab8c8ab5f12d3ec6da37788dd"
+  },
+  "config.pluginUnavailable": {
+    "sourceHash": "8669bfc4a385ec3c027a7888c7e73d55d7687ffda96317e295cb288202788e13"
+  },
+  "config.title": {
+    "sourceHash": "7e0da4b7c3c06921f60b0ae0a34f9951e1ddb644a24a13a8d25309a063a55248"
+  },
+  "config.loading": {
+    "sourceHash": "4927a53bcc886afb9211eb1143351cf8e32ec830c381832e6060223c8b84f3d6"
+  },
+  "config.intro": {
+    "sourceHash": "8ecfa2f26413059d68170bdf9581d22d1ddc487aa3fd905b3c6bb32608a5e109"
+  },
+  "config.summary": {
+    "sourceHash": "d6b10eb793732f948ce29203fe23127589d57e656807e9d39f2842c25e8a54e4"
+  },
+  "config.refresh": {
+    "sourceHash": "aee88743413144a2ec6c48e348628142cd063832fdb5f1e91242ce7808cee96a"
+  },
+  "config.addDownloader": {
+    "sourceHash": "d3be1aa9bcc3782792160eca5f7670056deae25289ad6ff3e2fe7d221740421c"
+  },
+  "config.empty": {
+    "sourceHash": "81355e6525e8f216ff8bfc902589d0bf04c53f2cc8577136ff00320c48e1e366"
+  },
+  "config.emptyHint": {
+    "sourceHash": "e0e436c4b902310e6d4fdc5df65292f8ed4388d2b6a074a0cb7c8df2854f1e38"
+  },
+  "config.pathsBroken": {
+    "sourceHash": "084d46a7dddd3fbaab96d482fe35167e8df97dc7f6352421da8d51f73c8eca10"
+  },
+  "config.lastChecked": {
+    "sourceHash": "b152b7fe93f49699f9f0b449a42109a172340ee3b5d92b84043dd82f5fd1faff"
+  },
+  "config.openWebui": {
+    "sourceHash": "f554f06402c1f98b9e309859bc8ecd69d8b052d98f6bec1e25b259b875aa3b77"
+  },
+  "config.default": {
+    "sourceHash": "844b8cc8dff7c1d87b0f840c0a1271b227b332288a1a947f24fd376bfd12c1c9"
+  },
+  "config.disabled": {
+    "sourceHash": "a8c3698b5b8c485d8bd403c226a3dc594cd3196b8229ebc02338bab31a7bea44"
+  },
+  "config.edit": {
+    "sourceHash": "051836569928a9f91145a70e00b212b62a06c21a97d2d828cb75acd3fbe851b9"
+  },
+  "config.moreActions": {
+    "sourceHash": "cd472ffd09221db2c7ecbbd09c64ff14661fe12152ac97a526ee107133aa7b1a"
+  },
+  "config.disable": {
+    "sourceHash": "a7663e6847c4459cad7ed119965771724c50d0931ef8875e52a6bb9e73c650fe"
+  },
+  "config.enable": {
+    "sourceHash": "81daee85c131d55d0f8ba47bd35379b8955b9b81a7d1d895bad71284823ebc37"
+  },
+  "config.limitsAction": {
+    "sourceHash": "8a50c904579c518e043e4582dec2f92bebb3622211dea405303302862d2cccf0"
+  },
+  "config.makeDefault": {
+    "sourceHash": "357211096f78cdb88042c0f87efac67b24ae8d127c3d0fa0746eb40048d03206"
+  },
+  "config.retest": {
+    "sourceHash": "e9291da9e89a77071e92135cd7b012c304be142e52696050b7fdc91f28791e53"
+  },
+  "config.deleteConfig": {
+    "sourceHash": "49b82b04bd1a7da57e4571f123e401560255ed5b08f0c02ad39f0bb17e47bd25"
+  },
+  "config.deleteTitle": {
+    "sourceHash": "5739a1f7024302b604a434d3af2fb504787206c23a1f2a49291437b9273ab8be"
+  },
+  "config.deleteHint": {
+    "sourceHash": "b347f7d3840b114ca15e8102762beb689bae32dedd9d028adaacdba10245e2e9"
+  },
+  "config.deleteBoostWarning": {
+    "sourceHash": "c178af019b7d2c3943f96538fccd9a3be116121e962860284eef3d6b7e00aaa9"
+  },
+  "config.deleteBoostHint": {
+    "sourceHash": "87d3c3c5bd1931cc68b4e3fd6ca244a2e89b9bdd4d810ebd50d66ea3d8ae7efd"
+  },
+  "config.delete": {
+    "sourceHash": "2f9daa828907b93ff8a00d41a16828e0c6388bf3a95dadf816c8ee9c3bdac37d"
+  },
+  "config.connection": {
+    "sourceHash": "a5574109f0208e899feb6b620feb3f1f686aded4ec939631420afc1bec51c400"
+  },
+  "config.notSet": {
+    "sourceHash": "2f5f1d6fbfb061ed02def5f4a3a151303da034681e38179744c7d1b1401f1caf"
+  },
+  "config.version": {
+    "sourceHash": "5f76b2bf82dd2c5d820c26010d44246643f3010308e8821e7054c6c44f6c9f95"
+  },
+  "config.storage": {
+    "sourceHash": "d68e109beb7f4f3853454094474a037f2410aff6f962ae01f05ea78373e4d72d"
+  },
+  "config.savePath": {
+    "sourceHash": "25af5c8402f1fd54712a41a08db3d985edef5555921267be780dd8a84c18395f"
+  },
+  "config.downloaderDefault": {
+    "sourceHash": "9ee612720f996f509af60142691eebf34c5550714b9ccd29d9fef24becc80420"
+  },
+  "config.mapping": {
+    "sourceHash": "951c3aa87c99b58161bceb78eb82ab1982937c8665803126d5166d3fd7afaacb"
+  },
+  "config.emptyDirectory": {
+    "sourceHash": "77fa57e99556ca33036c3d152eeea914f34a5e7f636fbbe4b142bf16c43b6097"
+  },
+  "config.notDirectory": {
+    "sourceHash": "53660bdc353d6bd52a1aa477e9b0701d800a688f204e21b060ec782e4fc4ce80"
+  },
+  "config.missing": {
+    "sourceHash": "4e51b67dd32c7e2d8ec22b938de1db7b5b2fb6288bc87ffbef36431d3d75c86a"
+  },
+  "config.unmapped": {
+    "sourceHash": "a7f7d074210b3211203373668b6fd3283e9745a07fa01b820b4c3f40ed6360ea"
+  },
+  "config.noMappings": {
+    "sourceHash": "9225a12d19b81ae086e08952a18a02e4cbc026257382bde7550e3d4a7eebc975"
+  },
+  "config.localView": {
+    "sourceHash": "63ae6a5b26261f66fe6782b8107e4b7c85d7cb5ec286bf397a4de6f63e4fc996"
+  },
+  "config.remoteView": {
+    "sourceHash": "f7b5d6781242e9611200f4278829ecd6641a9e7bad66907903e64f6c4100501d"
+  },
+  "config.limits": {
+    "sourceHash": "165d0a22a2da8ed0f2066ec800bf8b9049aebcef8f6d8134fa116d247c34cb79"
+  },
+  "config.limitsTitle": {
+    "sourceHash": "f3e6ca231b4b959c7ba9fd4a6bab8a6fbc3fc99f0f9c45832774c8f1bc72d912"
+  },
+  "config.limitsHint": {
+    "sourceHash": "142fc7fcbaf330f6067e8920f1ca08706969dc38d86e3873d05fc8d5eb6fce36"
+  },
+  "config.downloadLimit": {
+    "sourceHash": "7c2e8d1705e348f02f8d453fd1e1249c762001f376b9acd0035dda7e84620d85"
+  },
+  "config.unlimited": {
+    "sourceHash": "f203d577d14268cd853ce37418cb14f8e268c2bce88220ae131c761e2255954a"
+  },
+  "config.uploadLimit": {
+    "sourceHash": "22800ceadb6aa6ee2589dfd385361266e9401a02dd066c194f9b8b0b6b065d22"
+  },
+  "config.alternativeHint": {
+    "sourceHash": "aef5eafc0267f821149d2b45b8fdead55b2f8d642514798ec9e7636a68653fb7"
+  },
+  "config.alternative": {
+    "sourceHash": "31f5a099ac8e6d54e0ab4e303afc093108a02ad02db6c956bfee72f4f25f1f64"
+  },
+  "config.queueHint": {
+    "sourceHash": "427307f023043066d85ff3845560d638cc570f444c45b95d3de99f3d1adc751a"
+  },
+  "config.queue": {
+    "sourceHash": "d7edee3f40cec8537278f0d3acfec52448ea2451cdbc02cb306e51d68133f7a1"
+  },
+  "config.maxDownloads": {
+    "sourceHash": "87c1099746c559cb704bfe2c7eb8095e99691e9d3b9f1a364f6919bf4d8fb2d5"
+  },
+  "config.maxUploads": {
+    "sourceHash": "823b24b5ceeadaae406c21084bf804f049492b673c869b2cdedbd308a97cdc8c"
+  },
+  "config.maxTorrents": {
+    "sourceHash": "fc84339e8e3f46490018fe1482ed7965b46e4287624fe9ac03b4409e2a0d2d2a"
+  },
+  "config.cancel": {
+    "sourceHash": "2cd0f3be8738a86cede1a1452f874f31d569864bbb00cacd4130990f4610cb5c"
+  },
+  "config.saving": {
+    "sourceHash": "ff509c9ba052a21c008c88b36ef5f13acc9cb693641689b35747be6daf11d9d6"
+  },
+  "config.save": {
+    "sourceHash": "a3030bf8f16dc63c6b277564c68f78a3be5abe5f2907c51826dee7184ff793fd"
+  },
+  "config.editTitle": {
+    "sourceHash": "91c96374750c7d6e10b6813ccd854f9b56134661b6d39987ddf82424747ad562"
+  },
+  "config.add": {
+    "sourceHash": "7a8a11ead50742a2a0a7258309a42663a29f9354a6cc313c407fb0be8ee35001"
+  },
+  "config.type": {
+    "sourceHash": "fbadf660c5d8e4065924751903cee3debd731e8ebf5a2bbec7b8888d9cc58042"
+  },
+  "config.name": {
+    "sourceHash": "d44e9b3d3b31d37b4f0cd94f7861383519f9ec0cf59b953596627a3e7706bfbc"
+  },
+  "config.namePlaceholder": {
+    "sourceHash": "be65705ed837315daf44caa5e4652f87d830b5afd29bb230c355fee83b958b24"
+  },
+  "config.passwordPlaceholder": {
+    "sourceHash": "f611fe951c24c8bb6a4cc2aa4db2c751d6c4e870510df949d3b25ddd1e325f76"
+  },
+  "config.optionalSavePath": {
+    "sourceHash": "2d3fafd58ba87626b3b311d5df2b0033d4bb34090e46fa53e1fde11c7b17be4c"
+  },
+  "config.browseDirectory": {
+    "sourceHash": "065e8dbdfc1ba91dc5e35238828d32d99a682f8c02e288c405f5e2ef85b4b0cb"
+  },
+  "config.clearSavePath": {
+    "sourceHash": "d80c9308e869ff2ae2d27cff3d7da9489c772b923ac06a9aa497ce79a624491c"
+  },
+  "config.savePathHint": {
+    "sourceHash": "006ab4826322c3b2c3a8a17b11952f865ee5d6d208f7e447d90469650899f01b"
+  },
+  "config.optionalMappings": {
+    "sourceHash": "06da364309563dd8e4654c0fb8421e5d0a5b40d6dddade8256683041d30e7ad5"
+  },
+  "config.mappingCount": {
+    "sourceHash": "0223e8020b7f6416cb2e527c334198c123cc5532d1ba664b4d83328da87b9a1b"
+  },
+  "config.mappingHint": {
+    "sourceHash": "0bf7e46e5eb03a3fb66e584de16762545f3c3f1bb525ffc59bc781f3c4e84f83"
+  },
+  "config.suggestedMapping": {
+    "sourceHash": "5b77711b21583efd95b1e662faeda1be5a605055bfa3dbebc848c0439b5bfea0"
+  },
+  "config.browseLocalPath": {
+    "sourceHash": "3de86731f9258818eab91ae88d5274aab45f9a5f9c001155407513b1bec286ef"
+  },
+  "config.localPathPlaceholder": {
+    "sourceHash": "40672fc857760de3af0711d61bdd51fb56355c1d1bbaac3f47a620b3d9262fe8"
+  },
+  "config.copyPathHint": {
+    "sourceHash": "1e0ffd474efd6209bec74840a475811848119bc174062d13fad0dba3ae25de19"
+  },
+  "config.copyPath": {
+    "sourceHash": "a3e5fc65e9bd7a3b8c2e1f815e16fa5aa24cf9613fb4418dd106f1c0a0807fe4"
+  },
+  "config.remotePathPlaceholder": {
+    "sourceHash": "51417c508490699bdb06d9cca1ee90334018d473aabe400621def08211623e28"
+  },
+  "config.removeMapping": {
+    "sourceHash": "9e52809e2542966c86ec270e9e6958db3c7aa993f7c9c4842caa2875de93b530"
+  },
+  "config.addMapping": {
+    "sourceHash": "99049e59a6e850254bd0731b2c0a23857e82854e356bd11276b949db9bfd803a"
+  },
+  "config.incompleteMappings": {
+    "sourceHash": "4cd0831a9cdd43c4e900c8954a362334285308f92a4fb3b9a3f1d05a583280d8"
+  },
+  "config.duplicateMappings": {
+    "sourceHash": "db07f0104b965cde0688b62fd6ede7694fb904ac7d33a80088cb6683cd30fe95"
+  },
+  "config.listSeparator": {
+    "sourceHash": "c4a40ea8fe35627476f7f8cb9e1fc7f8898f428c6d1ff18b0bc5479d5db39c5f"
+  },
+  "config.webuiUrl": {
+    "sourceHash": "8bf8a23812bfef3719a903e24dde4dcf487fa9ba5fbdd9ca4c30d295b426398f"
+  },
+  "config.rpcUrl": {
+    "sourceHash": "2634666b5faad646595e691c3b04969afc471e8046c645d3f8a4c601d3f2648a"
+  },
+  "config.rpcHelp": {
+    "sourceHash": "b0e781feba5d1aed0db27ace638c50431984a049a1cb036ab5b883616cd2fb4d"
+  }
+}

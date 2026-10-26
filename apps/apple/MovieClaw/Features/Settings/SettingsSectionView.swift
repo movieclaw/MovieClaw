@@ -47,10 +47,10 @@ private struct WebManagedSectionView: View {
         ContentUnavailableView {
             Label(section.title, systemImage: section.systemImage)
         } description: {
-            Text("这一项请在网页端的「设置 → \(section.title)」里管理。")
+            Text(String(localized: .settingsSectionWebOnly(section.title)))
         } actions: {
             Link(destination: api.server.origin.appending(path: "settings/\(section.rawValue)")) {
-                Label("在浏览器中打开", systemImage: "safari")
+                Label(String(localized: .settingsSectionOpenInBrowser), systemImage: "safari")
             }
             .buttonStyle(.bordered)
         }

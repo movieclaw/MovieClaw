@@ -32,6 +32,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -96,6 +99,8 @@ import io.movieclaw.android.core.designsystem.TextFaint
 import io.movieclaw.android.core.designsystem.TextMuted
 import io.movieclaw.android.core.designsystem.Warning
 import io.movieclaw.android.core.model.SubscriptionView
+import io.movieclaw.android.core.designsystem.mcCards
+import io.movieclaw.android.core.designsystem.formSheetScroll
 
 /**
  * 下一集英雄 —— 实测：高 500、整幅剧照铺满，图片带遮罩
@@ -139,7 +144,7 @@ private fun ArrivalHero(
             Modifier
                 .align(Alignment.Center)
                 .fillMaxWidth()
-                .padding(horizontal = McMetrics.pagePadding),
+                .padding(horizontal = mcCards.pagePadding),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
@@ -219,7 +224,7 @@ private fun ScheduleSection(
     Spacer(Modifier.height(12.dp))
 
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding),
+        Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         days.forEach { day ->
@@ -264,7 +269,7 @@ private fun ScheduleSection(
         val sub = remember(first.subscriptionId) { null }
         Column(
             Modifier
-                .padding(horizontal = McMetrics.pagePadding)
+                .padding(horizontal = mcCards.pagePadding)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(McMetrics.panelRadius))
                 .background(Color.White.copy(alpha = 0.045f))
@@ -326,8 +331,8 @@ private fun SubscriptionRow(
     SectionHeaderLarge(title = title, counter = "共 ${items.size} 部")
     Spacer(Modifier.height(16.dp))
     LazyRow(
-        contentPadding = PaddingValues(horizontal = McMetrics.pagePadding),
-        horizontalArrangement = Arrangement.spacedBy(McMetrics.rowSpacing),
+        contentPadding = PaddingValues(horizontal = mcCards.pagePadding),
+        horizontalArrangement = Arrangement.spacedBy(mcCards.rowSpacing),
     ) {
         items(items, key = { it.id }) { sub ->
             SubscriptionPosterCard(sub, origin) { onOpen(sub.id) }
@@ -349,7 +354,7 @@ private fun SubscriptionPosterCard(
 ) {
     val searching = sub.status == "wanted" || sub.status == "searching"
     val pillText = if (searching) "找资源中" else "已入库"
-    Column(Modifier.width(McMetrics.rowCardWidth).clickable(onClick = onClick)) {
+    Column(Modifier.width(mcCards.posterWidth).clickable(onClick = onClick)) {
         Box(
             Modifier
                 .fillMaxWidth()
@@ -421,7 +426,7 @@ private fun subLine(sub: SubscriptionView): String {
 private fun EmptySubscriptions(onDiscover: () -> Unit) {
     Column(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .fillMaxWidth()
             .clip(RoundedCornerShape(McMetrics.cardRadius))
             .background(GlassCard)
@@ -499,7 +504,7 @@ private fun chineseWeekday(d: LocalDate): String =
     listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")[d.dayOfWeek.value - 1]
 
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun SubscribeScreen(
     onBack: () -> Unit,
@@ -534,7 +539,13 @@ fun SubscribeScreen(
         // 抽屉最高 78% 屏高（HTML `max-height:78%` 同款）；头部常驻，主体自己滚——
         // 季数多的剧集（美国恐怖故事那种）不会再把下面整段挤出屏幕且滚不动
         val maxSheetHeight = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.78f).dp
-        Column(Modifier.fillMaxWidth().heightIn(max = maxSheetHeight)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = maxSheetHeight)
+                // 测试与无障碍：把 testTag 暴露成 resource-id，模拟器验收按它定位
+                .semantics { testTagsAsResourceId = true },
+        ) {
         when {
             state.loading -> Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 // 有种子就先画标题行，季节/规则等预检回来再补（观感上"点了就开"）
@@ -582,15 +593,16 @@ fun SubscribeScreen(
                     )
                     Spacer(Modifier.weight(1f))
                     if (state.existing == null) {
+                        val canSubmit = !state.creating && submitBlockReason(state) == null
                         // 移动端网页实测：确认键就在头部右侧（文字「确认订阅」，不是底部整宽栏）
                         Text(
                             if (state.creating) "提交中…" else "确认订阅",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (state.creating) TextFaint else Accent,
+                            color = if (canSubmit) Accent else TextFaint,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(999.dp))
-                                .clickable(enabled = !state.creating) { vm.create() }
+                                .clickable(enabled = canSubmit) { vm.create() }
                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                         )
                     }
@@ -601,7 +613,7 @@ fun SubscribeScreen(
                     Modifier
                         .fillMaxWidth()
                         .weight(1f, fill = false)
-                        .verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                        .formSheetScroll().verticalScroll(androidx.compose.foundation.rememberScrollState()),
                 ) {
                 Column(Modifier.padding(horizontal = 16.dp)) {
                     Row {
@@ -640,6 +652,42 @@ fun SubscribeScreen(
                                 }
                             }
                         }
+                    }
+
+                    // —— 智能选择（默认）：摘要与文案来自服务端，管理员在这里回答语言、改画质 ——
+                    var qualityOpen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                    var settingsOpen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                    var editingSubtitle by androidx.compose.runtime.remember(preview) { androidx.compose.runtime.mutableStateOf(false) }
+                    if (state.existing == null && preview.status == "ready" && state.selectionMode == "smart") {
+                        Spacer(Modifier.height(16.dp))
+                        SmartPlanCard(
+                            plan = preview.smart,
+                            choice = state.smartChoice,
+                            onChoice = vm::setSmartChoice,
+                            onEditSettings = { vm.loadSmartSettings(); settingsOpen = true },
+                            onEditQuality = { qualityOpen = true },
+                            editingSubtitle = editingSubtitle,
+                            onEditSubtitle = { editingSubtitle = true },
+                        )
+                        state.smartError?.let { Text(it, fontSize = 12.5.sp, color = Warn, modifier = Modifier.padding(top = 6.dp)) }
+                    }
+                    val smartPlan = preview.smart
+                    if (qualityOpen && smartPlan != null) {
+                        SmartQualitySheet(smartPlan, state.smartChoice, vm::setSmartChoice) { qualityOpen = false }
+                    }
+                    if (settingsOpen) {
+                        SmartSettingsSheet(
+                            draft = state.smartDraft,
+                            configured = state.smartConfigured,
+                            memory = state.smartMemory,
+                            busy = state.smartBusy,
+                            error = state.smartError,
+                            onDraft = vm::setSmartDraft,
+                            onSave = { vm.saveSmartDefaults { settingsOpen = false } },
+                            onLanguage = { key, understood -> vm.changeSmartMemory(language = key, understood = understood) },
+                            onRemoveHabit = { key -> vm.changeSmartMemory(removeHabit = key) },
+                            onDismiss = { settingsOpen = false },
+                        )
                     }
 
                     // —— 表单态（未订阅）：网页 `!existing_subscription_id` 才渲染这一段 ——
@@ -703,6 +751,10 @@ fun SubscribeScreen(
                             Spacer(Modifier.height(6.dp))
                         }
                         Text("勾选即要整季（含未播出的集）", fontSize = 12.sp, color = TextFaint)
+                        submitBlockReason(state)?.let { reason ->
+                            Spacer(Modifier.height(6.dp))
+                            Text(reason, fontSize = 12.5.sp, color = Warn)
+                        }
                     }
 
                     // 自动续订只对剧集有意义（网页：followFuture !== null 时才给这一项）
@@ -745,8 +797,29 @@ fun SubscribeScreen(
                     // 于是「资源规则 / 入库到 / 投递预检」被吞进"只给剧集"的分支里——
                     // 电影打开抽屉就只剩海报和说明（用户报的现象）。
 
+                    // 选择方式：智能选择（默认）/ 规则模式，与网页、iOS「更多选项 → 选择方式」同一项
+                    var modePicker by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                    if (state.existing == null && preview.status == "ready" && preview.smart != null) {
+                        Spacer(Modifier.height(10.dp))
+                        Box(Modifier.testTag("subscribe-mode")) {
+                            SheetChoiceRow(
+                                label = "选择方式",
+                                value = if (state.selectionMode == "smart") "智能选择" else "规则模式",
+                                onClick = { modePicker = true },
+                            )
+                        }
+                    }
+                    if (modePicker) {
+                        PickerSheet(
+                            title = "选择方式",
+                            options = listOf("智能选择" to 0L, "规则模式" to 1L),
+                            current = if (state.selectionMode == "smart") 0L else 1L,
+                            onPick = { vm.setSelectionMode(if (it == 1L) "rules" else "smart"); modePicker = false },
+                            onDismiss = { modePicker = false },
+                        )
+                    }
                     // 规则组 / 入库目标库：与网页弹层同一组选项（都是创建订阅的一部分）
-                    if (state.existing == null && state.ruleSets.isNotEmpty()) {
+                    if (state.existing == null && state.selectionMode == "rules" && state.ruleSets.isNotEmpty()) {
                         Spacer(Modifier.height(10.dp))
                         val picked = state.ruleSets.firstOrNull { it.id == state.ruleSetId }
                             ?: state.ruleSets.firstOrNull { it.isDefault }

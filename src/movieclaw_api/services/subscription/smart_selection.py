@@ -9,6 +9,7 @@ from sqlalchemy import update
 from sqlalchemy.dialects.sqlite import insert
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import source_render, stored_fields
 from movieclaw_api.services.subscription.smart_profiles import conflict
 from movieclaw_db.models import (
     SiteTorrent,
@@ -168,8 +169,8 @@ async def maybe_switch_series(session, subscription, follow, imported):
             subscription_id=subscription.id,
             wanted_item_id=imported.id,
             type=ActivityType.ADJUSTED,
-            message="多个单集的实测品质不符，已根据成功入库记录更换跟随版本",
             payload=follow.evidence,
+            **stored_fields("activity.subscription.smartVersionChanged"),
         )
     )
 
@@ -394,6 +395,15 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
         )
         try:
             saved[unit] = SelectionState.model_validate(payload) if payload else None
+            if saved[unit] is not None:
+                saved[unit].messages = dict(
+                    (
+                        record.outcome.get("state_messages")
+                        if runtime.shadow_only and record
+                        else wanted.selection_messages
+                    )
+                    or {}
+                )
         except ValueError:
             continue  # 损坏状态不能重新计时，也不能回落到规则模式。
     # 先比较同品质版本在本季的覆盖，再比较单个资源；镜像不累加覆盖。
@@ -450,6 +460,8 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
         )
         result = decide(ctx.spec, choices, **arguments)
         if not choices and identity_rejections and result.action != "stop":
+            # 同一句话只说一次（多个候选可能因同一原因被拒）
+            explained = {source_render(ref): ref for ref in identity_rejections.values()}
             result = SelectionDecision(
                 action="no_candidate", reason="identity_unconfirmed",
                 state=(state or SelectionState(
@@ -458,9 +470,13 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
                     "reason": "identity_unconfirmed",
                     "candidate_key": None, "candidate_title": None, "forced_candidate": None,
                     "choice_explanation": None, "wait_explanation": None, "prediction": None,
-                    "identity_explanation": "\n\n".join(
-                        dict.fromkeys(identity_rejections.values())
-                    ),
+                    "identity_explanation": "\n\n".join(explained),
+                    "messages": {
+                        "identity_explanation": {
+                            "message_list": list(explained.values()),
+                            "separator_key": "common.list.paragraphSeparator",
+                        }
+                    },
                 }),
             )
         decisions[unit] = result
@@ -474,6 +490,7 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
         wanted = open_rows[unit]
         record = records.get(wanted.id)
         outcome = result.model_dump(mode="json")
+        outcome["state_messages"] = result.state.messages if result.state else {}
         if record is None or record.outcome != outcome:
             choices, arguments = inputs[unit]
             candidates = TypeAdapter(list[TorrentCandidate]).dump_python(choices, mode="json")
@@ -508,7 +525,11 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
         if runtime.shadow_only:
             continue
         payload = result.state.model_dump(mode="json") if result.state else None
-        if payload != wanted.selection_state or result.next_at != wanted.next_selection_at:
+        messages = result.state.messages if result.state else None
+        state_changed = (
+            payload != wanted.selection_state or result.next_at != wanted.next_selection_at
+        )
+        if state_changed or messages != wanted.selection_messages:
             changed = await session.execute(
                 update(WantedItem)
                 .where(
@@ -522,8 +543,11 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
                 )
                 .values(
                     selection_state=payload,
+                    selection_messages=messages,
                     next_selection_at=result.next_at,
-                    selection_version=WantedItem.selection_version + 1,
+                    selection_version=WantedItem.selection_version + 1
+                    if state_changed
+                    else WantedItem.selection_version,
                 )
             )
             if changed.rowcount != 1:
@@ -537,6 +561,18 @@ async def plan_selection(session, ctx, entries, *, identity_rejections=None):
     await session.commit()
     if runtime.shadow_only:
         return [], {}
+    expired = [
+        unit
+        for unit, result in decisions.items()
+        if result.reason == "deadline_awaiting_subtitles"
+        and (saved.get(unit) is None or saved[unit].reason != "deadline_awaiting_subtitles")
+    ]
+    if expired:
+        from movieclaw_api.services.subscription.smart_memory import notify_awaiting_subtitles
+
+        await notify_awaiting_subtitles(
+            session, ctx.subscription, ctx.spec, {u: decisions[u].state for u in expired}
+        )
     allowed = {}
     for entry in usable:
         key = candidate_key(entry[0])
@@ -658,7 +694,11 @@ async def change_wait(
             subscription_id=sub.id,
             wanted_item_id=wanted_id,
             type=ActivityType.ADJUSTED,
-            message="已请求立即下载当前候选" if immediate_candidate else "用户延长了等待时间",
+            **stored_fields(
+                "activity.subscription.smartCandidateRequested"
+                if immediate_candidate
+                else "activity.subscription.smartWaitExtended"
+            ),
             payload={
                 "old_deadline": old_deadline.isoformat(),
                 "deadline": state.deadline.isoformat(),

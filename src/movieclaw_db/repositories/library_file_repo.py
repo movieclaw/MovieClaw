@@ -35,6 +35,8 @@ class LedgerPresence(NamedTuple):
     file_path: str
     state: str
     container: str | None
+    #: 本地有没有字节：只在网盘上的行不按本地遍历判丢失
+    local_bytes: bool = True
 
 
 class LibraryFileRepository:
@@ -97,6 +99,7 @@ class LibraryFileRepository:
             LibraryFile.file_path,
             LibraryFile.state,
             LibraryFile.container,
+            LibraryFile.local_bytes,
         ).where(LibraryFile.library_id == library_id)
         if containers is not None:
             statement = statement.where(LibraryFile.container.in_(containers))  # type: ignore[union-attr]
@@ -366,6 +369,7 @@ class LibraryFileRepository:
         if existing.origin is None:
             existing.origin = row.origin
         existing.unidentified_reason = row.unidentified_reason
+        existing.unidentified_message = row.unidentified_message
         existing.unidentified_code = row.unidentified_code
         existing.unidentified_candidates = row.unidentified_candidates
         existing.identity_source = row.identity_source
@@ -435,6 +439,7 @@ class LibraryFileRepository:
         row.season_number = season_number
         row.episode_number = episode_number
         row.unidentified_reason = None  # 已有身份，失败原因/分类/候选随之失义
+        row.unidentified_message = None
         row.unidentified_code = None
         row.unidentified_candidates = None
         row.identity_source = IdentitySource.MANUAL
@@ -468,6 +473,7 @@ class LibraryFileRepository:
             row.media_item_id = None
             # 身份没了，围绕身份的三件套（失败原因/分类/候选）与复核建议随之失义
             row.unidentified_reason = None
+            row.unidentified_message = None
             row.unidentified_code = None
             row.unidentified_candidates = None
             row.identity_source = None

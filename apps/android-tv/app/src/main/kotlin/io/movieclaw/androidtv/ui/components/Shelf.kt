@@ -44,7 +44,7 @@ import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt
 
 /**
- * 一行（TVShelf）：标题 32 半粗，这一行有焦点时亮起（0.2 秒）；下面横排卡片，间距 32、左右 80、上下 20，不裁切。
+ * 一行（TVShelf）：标题 32 半粗，这一行有焦点时亮起（0.2 秒，[titleAlpha] 再乘一层透明度）；下面横排卡片，间距 32、左右 80、上下 20，不裁切。
  * 整行是一个焦点组：上下切行时落在几何上最近的卡片。
  */
 @Composable
@@ -54,14 +54,15 @@ fun Shelf(
     detail: String? = null,
     state: LazyListState = rememberLazyListState(),
     spacing: Dp = McMetrics.CardSpacing,
-    titleAlpha: Float = 1f,
+    titleAlpha: () -> Float = { 1f },
     content: LazyListScope.() -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val color by animateColorAsState(if (focused) McColors.Text else McColors.Secondary, tween(200), label = "shelf-title")
+    val color = animateColorAsState(if (focused) McColors.Text else McColors.Secondary, tween(200), label = "shelf-title")
     Column(modifier.onFocusChanged { focused = it.hasFocus }, verticalArrangement = Arrangement.spacedBy(8.pt)) {
         Row(Modifier.padding(horizontal = McMetrics.Edge), horizontalArrangement = Arrangement.spacedBy(16.pt), verticalAlignment = Alignment.Bottom) {
-            Text(title, style = McType.size(32, FontWeight.SemiBold), color = color.copy(alpha = color.alpha * titleAlpha), maxLines = 1)
+            // 变色、淡出只在绘制时读：焦点进出这一行时整行不跟着每帧重组（卡片行让位时同理）
+            Text(title, color = { color.value.let { it.copy(alpha = it.alpha * titleAlpha()) } }, style = McType.size(32, FontWeight.SemiBold), maxLines = 1)
             detail?.let { Text(it, style = McType.Callout, color = McColors.Secondary) }
         }
         TvScrollSpec(80) {

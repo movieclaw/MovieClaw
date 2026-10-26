@@ -14,12 +14,30 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
-
-from mcp.types import Tool, ToolAnnotations
 
 from movieclaw_api.services.mclaw_tool import domain_description
 from movieclaw_mcp.catalog import Operation, operations_by_domain
+
+
+# 工具面用自己的轻量结构、字段名与 SDK 的 Tool / ToolAnnotations 一致：管理页统计工具数、
+# 预览工具面都只读这几项，不该为此把整个 SDK（约 25MB）拉进常驻内存。真正应答协议请求时
+# 才在 server.py 转成 SDK 类型。
+@dataclass(frozen=True, slots=True)
+class ToolAnnotations:
+    read_only_hint: bool | None = None
+    destructive_hint: bool | None = None
+    idempotent_hint: bool | None = None
+    open_world_hint: bool | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Tool:
+    name: str
+    description: str
+    input_schema: dict[str, Any] = field(default_factory=dict)
+    annotations: ToolAnnotations | None = None
 
 #: Agent 服务目录里没有的域的一行说明。
 #: ``mclaw_tool._DOMAIN_LINES`` 只覆盖对 Agent 开放的域，fs / logs / members 被它显式

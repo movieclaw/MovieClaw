@@ -22,6 +22,8 @@ from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException
+from movieclaw_api.i18n import use_locale
+from movieclaw_api.i18n.stored import localize_fields, source_text
 from movieclaw_api.services import download_tasks
 from movieclaw_api.services.media_library import MediaLibraryService
 from movieclaw_api.services.subscription import SubscriptionService
@@ -220,7 +222,10 @@ class _FakeContext:
         return True
 
     async def update_progress(self, **kwargs) -> None:
-        self.messages.append(kwargs["message"])
+        key = kwargs.get("message_key")
+        self.messages.append(
+            source_text(key, **kwargs.get("message_params", {})) if key else kwargs["message"]
+        )
 
 
 @pytest.mark.asyncio
@@ -286,7 +291,11 @@ async def test_cleanup_job_reports_torrent_failure_but_keeps_going(
 
     assert result["torrent_removed"] == 0
     assert result["failed"] == 1
-    assert "下载器连接失败" in result["failures"][0]
+    assert "下载器连接失败" in result["failures"][0]["message"]
+    with use_locale("en"):
+        english = localize_fields(result)
+    assert english["failures"][0]["message"].startswith("Deleting torrent")
+    assert english["message"].endswith("1 item failed, see the job result")
     async with db.session() as session:
         assert (await session.get(LibraryFile, file_id)).state == FileState.TRASHED
 

@@ -10,8 +10,9 @@ from movieclaw_api.exceptions import AppException, ForbiddenException, Unauthori
 from movieclaw_api.services import auth as auth_service
 from movieclaw_api.services import demo as demo_service
 from movieclaw_api.services.auth import Principal
+from movieclaw_api.services.server_addresses import AUTHENTICATED_SCOPE_KEY
 from movieclaw_api.settings.schemas import get_sync_setting
-from movieclaw_kernel import Origin, current_origin
+from movieclaw_kernel import AGENT_MARK, Origin, current_origin
 
 
 async def demo_guard(connection: HTTPConnection) -> None:
@@ -73,11 +74,11 @@ async def require_sync_token(authorization: str | None = Header(default=None)) -
     """
     setting = await get_sync_setting()
     if not setting.token:
-        raise UnauthorizedException("后端未启用同步，请先在后台生成令牌")
+        raise UnauthorizedException(message_key="errors.auth.syncDisabled")
 
     provided = _extract_bearer(authorization)
     if not provided or not hmac.compare_digest(provided, setting.token):
-        raise UnauthorizedException("令牌无效或已重置，请重新填写")
+        raise UnauthorizedException(message_key="errors.auth.syncTokenInvalid")
 
 
 async def optional_login(
@@ -101,9 +102,22 @@ async def optional_login(
             session_token, ip=ip, user_agent=user_agent
         )
     elif bearer := _extract_bearer(authorization):
+        if bearer.startswith(auth_service.PLUGIN_TOKEN_PREFIX) and not connection.scope.get(
+            auth_service.PLUGIN_GATEWAY_SCOPE
+        ):
+            # 插件令牌只在插件网关上有效：泄露了也不能从网络入口使用（plugin-ipc-http.md §4.6）
+            raise UnauthorizedException(message_key="errors.auth.pluginGatewayOnly")
         principal = await auth_service.verify_bearer_token(bearer, ip=ip, user_agent=user_agent)
     if principal is not None:
+        from movieclaw_api.services.locale_preferences import record_request_language
+
+        await record_request_language(principal, connection.headers.get("x-movieclaw-timezone"))
         _attribute(principal)
+        human = principal.plugin is None and principal.kind not in ("agent", "mcp")
+        if principal.is_admin and human:
+            # 访问地址簿只从管理员用的客户端学：学到的地址会发给全家的 App 去连，Host /
+            # X-Forwarded-Host 又是请求方自己能写的（server-addresses.md §3.1）
+            connection.scope[AUTHENTICATED_SCOPE_KEY] = True
     return principal
 
 
@@ -116,6 +130,10 @@ def _attribute(principal: Principal) -> None:
     origin = current_origin.get()
     if principal.plugin is not None:
         current_origin.set(Origin(kind="plugin", id=principal.plugin.entry_id, chain=origin.chain))
+    elif principal.kind == "agent":
+        # Agent 的工具调用：链首打上标记，之后经事件、插件一路带着，插件据此不能再发起 Agent
+        chain = origin.chain if AGENT_MARK in origin.chain else (AGENT_MARK, *origin.chain)
+        current_origin.set(Origin(kind="agent", id=principal.name, chain=chain))
     elif origin.kind == "system" and not origin.chain:
         if principal.kind == "member":
             current_origin.set(Origin(kind="member", id=str(principal.member_id)))
@@ -148,9 +166,9 @@ async def require_login(
     （转码控制面）与 ``require_device_principal``（注销自己）。
     """
     if principal is None:
-        raise UnauthorizedException("未登录，请先登录")
+        raise UnauthorizedException(message_key="errors.auth.signInRequired")
     if principal.device is not None and principal.device.scope == "transcode":
-        raise ForbiddenException("转码器的凭证只能用于转码，不能访问业务接口")
+        raise ForbiddenException(message_key="errors.auth.workerScope")
     if principal.plugin is not None:
         # 插件主体按操作授权：只放行授权集合里的 operationId（同样是默认拒绝）
         route = connection.scope.get("route")
@@ -159,10 +177,11 @@ async def require_login(
             raise AppException(
                 status_code=403,
                 code="PLUGIN_OPERATION_DENIED",
-                message=(
-                    f"插件 {principal.plugin.entry_id} 没有获得调用 "
-                    f"{operation_id or connection.url.path} 的授权"
-                ),
+                message_key="errors.auth.pluginOperationDenied",
+                params={
+                    "plugin": principal.plugin.entry_id,
+                    "operation": operation_id or connection.url.path,
+                },
             )
     return principal
 
@@ -177,7 +196,7 @@ async def require_device_principal(
     令牌在服务端。升级前的签名会话 Cookie 没有设备行，这里返回 404 由调用方说明。
     """
     if principal is None:
-        raise UnauthorizedException("未登录，请先登录")
+        raise UnauthorizedException(message_key="errors.auth.signInRequired")
     return principal
 
 
@@ -212,7 +231,7 @@ async def require_transcode_worker(
     """
     principal = await resolve_worker_principal(authorization)
     if principal is None:
-        raise UnauthorizedException("需要转码 Worker 凭证，请在 Worker 应用里完成配对")
+        raise UnauthorizedException(message_key="errors.auth.workerRequired")
     return principal
 
 
@@ -224,7 +243,7 @@ async def require_admin(principal: Principal = Depends(require_login)) -> Princi
     即自动满足契约。
     """
     if not principal.is_admin:
-        raise ForbiddenException("该操作需要管理员权限")
+        raise ForbiddenException(message_key="errors.auth.adminRequired")
     return principal
 
 
@@ -242,9 +261,7 @@ async def require_interactive(principal: Principal = Depends(require_login)) -> 
       注销**自己**不受此限，见 ``require_device_principal``。
     """
     if not principal.interactive:
-        raise ForbiddenException(
-            "这个操作只能由人在网页或 App 里完成，命令行、转码器与 Agent 的凭证不能执行"
-        )
+        raise ForbiddenException(message_key="errors.auth.interactiveRequired")
     return principal
 
 
@@ -256,9 +273,7 @@ async def require_admin_session(
     用于只有超管才能做的凭证签发：手工创建令牌、签发 / 轮换 MCP 端点令牌。
     """
     if not principal.interactive:
-        raise ForbiddenException(
-            "签发凭证只能由人在网页或 App 里完成，请用管理员账号登录 movieclaw 后操作"
-        )
+        raise ForbiddenException(message_key="errors.auth.credentialInteractive")
     return principal
 
 
@@ -273,7 +288,7 @@ async def require_search_capability(
     if principal.is_admin:
         return principal
     if principal.member is None or not principal.member.allow_search:
-        raise ForbiddenException("管理员未对你开放站点搜索，请联系管理员开启")
+        raise ForbiddenException(message_key="errors.auth.searchPermission")
     return principal
 
 
@@ -284,7 +299,7 @@ async def require_subscribe_capability(
     if principal.is_admin:
         return principal
     if principal.member is None or not principal.member.allow_subscribe:
-        raise ForbiddenException("管理员未对你开放订阅功能，请联系管理员开启")
+        raise ForbiddenException(message_key="errors.auth.subscriptionPermission")
     return principal
 
 
@@ -299,5 +314,24 @@ async def require_direct_download_capability(
     if principal.is_admin:
         return principal
     if principal.member is None or not principal.member.allow_direct_download:
-        raise ForbiddenException("管理员未对你开放一键下载，请联系管理员开启")
+        raise ForbiddenException(message_key="errors.auth.downloadPermission")
+    return principal
+
+
+def can_download_video(principal: Principal) -> bool:
+    """下载影片到设备（docs/design/offline-download.md §9）。
+
+    管理员恒可；成员看 ``allow_video_download``。
+    """
+    if principal.is_admin:
+        return True
+    return principal.member is not None and principal.member.allow_video_download
+
+
+async def require_video_download_capability(
+    principal: Principal = Depends(require_login),
+) -> Principal:
+    """离线下载能力依赖：App 离线下载的全部接口都挂它。"""
+    if not can_download_video(principal):
+        raise ForbiddenException(message_key="errors.auth.offlinePermission")
     return principal

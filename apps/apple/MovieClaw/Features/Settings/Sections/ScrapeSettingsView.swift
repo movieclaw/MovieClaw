@@ -15,7 +15,7 @@ struct ScrapeSettingsView: View {
         Group {
             switch state {
             case .loading:
-                ProgressView("正在加载刮削配置…")
+                ProgressView(String(localized: .settingsScrapeLoading))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityIdentifier("loading")
             case let .failed(message):
@@ -25,10 +25,10 @@ struct ScrapeSettingsView: View {
                     SettingsFormSection {
                         row(.metaLanguage, view)
                         row(.certCountry, view)
-                    } header: { Text("元数据") } footer: {
-                        Text("这里的默认设置用于所有媒体库。每个库可在「编辑库 → 刮削设置」中单独覆盖。")
+                    } header: { Text(String(localized: .settingsScrapeMetadataSection)) } footer: {
+                        Text(String(localized: .settingsScrapeUiDefaultsHint))
                     }
-                    SettingsFormSection("图片") {
+                    SettingsFormSection(String(localized: .settingsScrapeImagesSection)) {
                         row(.sources, view)
                         row(.poster, view)
                         row(.backdrop, view)
@@ -38,8 +38,8 @@ struct ScrapeSettingsView: View {
                     SettingsFormSection {
                         row(.naming, view)
                         row(.mirror, view)
-                    } header: { Text("整理与写入") } footer: {
-                        Text("保存后对新刮削生效。已有条目可在媒体库中执行「刷新元数据」应用新配置。")
+                    } header: { Text(String(localized: .settingsScrapeUiOrganizeWrite)) } footer: {
+                        Text(String(localized: .settingsScrapeUiSaveHint))
                     }
                 }
                 .settingsBFormStyle()
@@ -73,7 +73,7 @@ struct ScrapeSettingsView: View {
                         .font(.subheadline).foregroundStyle(Theme.textMuted)
                         .lineLimit(2)
                     if count > 0 {
-                        Text("\(count) 个媒体库单独设置")
+                        Text(String(localized: .settingsScrapeUiOverrides(count)))
                             .font(.caption).foregroundStyle(Theme.textFaint)
                     }
                 }
@@ -125,7 +125,7 @@ struct ScrapeSettingsView: View {
             estimate = (try? await api.scrapeStorageEstimate()) ?? estimate
             return nil
         } catch {
-            return error.localizedDescription.isEmpty ? "保存失败，请重试" : error.localizedDescription
+            return error.localizedDescription.isEmpty ? String(localized: .settingsScrapeSaveFailed) : error.localizedDescription
         }
     }
 }
@@ -183,7 +183,7 @@ private struct ScrapeSettingsEditor: View {
         Group {
             if isSheet {
                 SubsSheetScaffold(title: card.title, onClose: cancel,
-                                  confirm: SubsSheetConfirm(title: "保存", enabled: dirty && valid,
+                                  confirm: SubsSheetConfirm(title: String(localized: .commonSave), enabled: dirty && valid,
                                                             busy: busy, identifier: "scrape-save", action: save)) {
                     content
                 }
@@ -195,21 +195,21 @@ private struct ScrapeSettingsEditor: View {
                     .navigationBarBackButtonHidden()
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button("取消", action: cancel).accessibilityIdentifier("scrape-cancel")
+                            Button(String(localized: .commonCancel), action: cancel).accessibilityIdentifier("scrape-cancel")
                         }
                         ToolbarItem(placement: .topBarTrailing) {
                             if card == .naming {
                                 Menu {
-                                    Button("恢复默认模板", systemImage: "arrow.counterclockwise") { resetting = true }
+                                    Button(String(localized: .settingsScrapeResetTemplates), systemImage: "arrow.counterclockwise") { resetting = true }
                                         .accessibilityIdentifier("scrape-naming-reset")
                                 } label: { Image(systemName: "ellipsis") }
-                                .accessibilityLabel("命名模板操作")
+                                .accessibilityLabel(String(localized: .settingsScrapeUiNamingActions))
                                 .accessibilityIdentifier("scrape-naming-actions")
                             }
                         }
                         ToolbarItem(placement: .confirmationAction) {
                             if busy { ProgressView() } else {
-                                Button("保存", action: save)
+                                Button(String(localized: .commonSave), action: save)
                                     .disabled(!dirty || !valid)
                                     .accessibilityIdentifier("scrape-save")
                             }
@@ -219,16 +219,16 @@ private struct ScrapeSettingsEditor: View {
         }
         .disabled(busy)
         .interactiveDismissDisabled(busy || dirty)
-        .alert("放弃未保存的修改？", isPresented: $discarding) {
-            Button("继续编辑", role: .cancel) { }
-            Button("放弃修改", role: .destructive) { dismiss() }
+        .alert(String(localized: .settingsFormDiscardTitle), isPresented: $discarding) {
+            Button(String(localized: .settingsFormKeepEditing), role: .cancel) { }
+            Button(String(localized: .settingsScrapeDiscardChanges), role: .destructive) { dismiss() }
         }
-        .confirmationDialog("恢复全部默认命名模板？", isPresented: $resetting, titleVisibility: .visible) {
-            Button("恢复默认模板") {
+        .confirmationDialog(String(localized: .settingsScrapeUiResetTitle), isPresented: $resetting, titleVisibility: .visible) {
+            Button(String(localized: .settingsScrapeResetTemplates)) {
                 for field in SettingsBScrapeNaming.fields { draft[keyPath: field.keyPath] = "" }
             }
         } message: {
-            Text("当前草稿中的自定义模板会被替换，保存后才会生效。")
+            Text(String(localized: .settingsScrapeUiResetHint))
         }
     }
 
@@ -238,23 +238,23 @@ private struct ScrapeSettingsEditor: View {
             case .sources: EmptyView()
             case .logo:
                 SettingsBScrapeOrderChips(options: SettingsBScrapeCatalog.commonImageLangs,
-                    extraOptions: SettingsBScrapeCatalog.extraImageLangs(languages), moreLabel: "语言",
+                    extraOptions: SettingsBScrapeCatalog.extraImageLangs(languages), moreLabel: String(localized: .settingsAppearanceLanguage),
                     value: Binding(get: { draft.logoLanguagePriority ?? [] }, set: { draft.logoLanguagePriority = $0 }),
-                    max: 4, primaryTag: "首选", identifier: "scrape-logo-lang")
+                    max: 4, primaryTag: String(localized: .settingsScrapePreferred), identifier: "scrape-logo-lang")
             case .metaLanguage:
                 SettingsBScrapeOrderChips(options: SettingsBScrapeCatalog.commonMetaLangs,
-                    extraOptions: SettingsBScrapeCatalog.extraMetaLangs(languages), moreLabel: "语言",
-                    value: $draft.languagePriority, max: 3, primaryTag: "主语言", identifier: "scrape-meta-lang")
+                    extraOptions: SettingsBScrapeCatalog.extraMetaLangs(languages), moreLabel: String(localized: .settingsAppearanceLanguage),
+                    value: $draft.languagePriority, max: 3, primaryTag: String(localized: .settingsScrapePrimaryLanguage), identifier: "scrape-meta-lang")
             case .certCountry:
                 SettingsBScrapeOrderChips(options: SettingsBScrapeCatalog.commonCertCountries,
-                    extraOptions: SettingsBScrapeCatalog.extraCountries(countries), moreLabel: "地区",
-                    value: $draft.certCountryPriority, max: 6, primaryTag: "首选", identifier: "scrape-cert-country")
+                    extraOptions: SettingsBScrapeCatalog.extraCountries(countries), moreLabel: String(localized: .settingsScrapeRegionOptions),
+                    value: $draft.certCountryPriority, max: 6, primaryTag: String(localized: .settingsScrapePreferred), identifier: "scrape-cert-country")
             case .poster:
                 SettingsBScrapePosterRows(setting: $draft, extraImageLangs: SettingsBScrapeCatalog.extraImageLangs(languages))
             case .backdrop:
                 SettingsBScrapeOrderChips(options: SettingsBScrapeCatalog.commonImageLangs,
-                    extraOptions: SettingsBScrapeCatalog.extraImageLangs(languages), moreLabel: "语言",
-                    value: $draft.backdropLanguagePriority, max: 4, primaryTag: "首选", identifier: "scrape-backdrop-lang")
+                    extraOptions: SettingsBScrapeCatalog.extraImageLangs(languages), moreLabel: String(localized: .settingsAppearanceLanguage),
+                    value: $draft.backdropLanguagePriority, max: 4, primaryTag: String(localized: .settingsScrapePreferred), identifier: "scrape-backdrop-lang")
             case .quality:
                 SettingsBScrapeQualityRows(setting: $draft, effective: config.effective, estimate: estimate)
             case .naming:
@@ -269,8 +269,8 @@ private struct ScrapeSettingsEditor: View {
             SettingsFormSection {
                 Text(overriddenBy.joined(separator: "、"))
                     .foregroundStyle(Theme.textMuted)
-            } header: { Text("已单独设置的媒体库") } footer: {
-                Text("这些媒体库使用自己的设置，不跟随这里的默认值。")
+            } header: { Text(String(localized: .settingsImageSourcesOverriddenLibraries)) } footer: {
+                Text(String(localized: .settingsImageSourcesOverriddenHint))
             }
         }
         if let error {

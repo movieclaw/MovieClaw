@@ -1,6 +1,8 @@
 """从骨架生成一个插件目录（清单 + 入口模块）。
 
     python new_plugin.py plugins/hello-world --id hello-world --title "你好" [--description "一句话说明"] [--module hello]
+    python new_plugin.py plugins/weekly-board --id weekly-board --title "本周看板" --web   # 只带网页的插件
+    python new_plugin.py plugins/ocean --id ocean --title "海蓝" --theme                    # 网页主题（纯 CSS）
 
 入口模块名缺省由 id 推出（连字符换成下划线），如 media-stats → media_stats。
 目标目录已存在且非空时拒绝（不覆盖已有代码）。
@@ -14,6 +16,10 @@ import sys
 from pathlib import Path
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "starter"
+#: 只带网页的插件（docs/design/plugin-web-pages.md）：清单 + web/
+WEB_TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "web"
+#: 网页主题（docs/design/theme-plugins.md）：清单（含 [theme] 段）+ theme/theme.css
+THEME_TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "theme"
 #: 主程序源码根（本脚本上溯四级）：插件不许生成到这里面
 SOURCE_ROOT = Path(__file__).resolve().parents[4]
 
@@ -29,6 +35,12 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--title", required=True, help="中文标题（60 字以内）")
     parser.add_argument("--description", default="", help="一句话说明（500 字以内）")
     parser.add_argument("--module", help="入口模块名，缺省由 id 推出")
+    parser.add_argument(
+        "--web", action="store_true", help="只带网页的插件：生成 web/（标准网页 + manifest），没有 Python 代码"
+    )
+    parser.add_argument(
+        "--theme", action="store_true", help="网页主题：生成 [theme] 段与 theme/theme.css（纯 CSS），没有 Python 代码"
+    )
     args = parser.parse_args(argv)
 
     if not _ID.match(args.id):
@@ -66,6 +78,28 @@ def main(argv: list[str]) -> int:
         return text
 
     target.mkdir(parents=True, exist_ok=True)
+    if args.theme:
+        if len(args.title) > 20:
+            print("✗ 主题的 title 也是外观卡片上的名字，须 20 字以内")
+            return 1
+        for source in sorted(THEME_TEMPLATE.iterdir()):
+            dest = target / ("movieclaw-plugin.toml" if source.name.endswith(".toml") else f"theme/{source.name}")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(render(source.read_text("utf-8")), "utf-8")
+            print(f"✓ 已生成 {dest}")
+        print(
+            "下一步：改 theme/theme.css，再改清单里的 description 与 [theme] 段（preview 取 --bg / --accent，theme_color 一般同 --bg），"
+            "然后运行 check_plugin.py 检查；装好后在 设置 → 外观 里选用"
+        )
+        return 0
+    if args.web:
+        for source in sorted(WEB_TEMPLATE.iterdir()):
+            dest = target / ("movieclaw-plugin.toml" if source.name.endswith(".toml") else f"web/{source.name}")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(render(source.read_text("utf-8")), "utf-8")
+            print(f"✓ 已生成 {dest}")
+        print(f"下一步：改 web/ 里的网页，然后运行 check_plugin.py 检查；装好后地址是 /apps/{args.id}")
+        return 0
     manifest = target / "movieclaw-plugin.toml"
     manifest.write_text(render((TEMPLATE / "movieclaw-plugin.toml").read_text("utf-8")), "utf-8")
     entry = target / f"{module}.py"

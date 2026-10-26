@@ -20,6 +20,7 @@ import SwiftUI
 
 /// 重复文件页签（Web LibraryDuplicateFiles）。libraries 用于库筛选/库名显示；initialItemId 对应 Web ?item=（只看这一个条目）。
 struct ManageDuplicateFilesTab: View {
+    @Environment(\.cardMetrics) private var cards
     let libraries: [API.LibraryView]?
     var initialItemId: Int? = nil
     var onCountChange: (Int) -> Void = { _ in }
@@ -139,7 +140,7 @@ struct ManageDuplicateFilesTab: View {
         defer { busy = false }
         do {
             let started = try await api.libraryDuplicatesScan()
-            feedback.success(started["created"] == .bool(true) ? "已开始扫描重复文件" : "扫描正在进行中")
+            feedback.success(started["created"] == .bool(true) ? String(localized: .libraryDuplicatesScanStartedToast) : String(localized: .libraryDuplicatesScanRunningToast))
             await reload()
         } catch {
             feedback.error(error)
@@ -150,13 +151,13 @@ struct ManageDuplicateFilesTab: View {
     private func keepFile(_ item: API.DuplicateItemView, _ unit: API.DuplicateUnitView, _ file: API.DuplicateFileView) async {
         let gone = unit.files.filter { $0.id != file.id }
         let ok = await feedback.confirm(
-            "留下这个，其余移入回收站？",
+            String(localized: .libraryDuplicatesKeepFileTitle),
             message: manageBinMessage(
-                "留下 \(file.fileName)。移入回收站的文件 7 天内可恢复。",
+                String(localized: .libraryDuplicatesKeepFileDescription(file.fileName)),
                 bullets: gone.map { "\($0.fileName) · \($0.qualityLabel) · \(libraryBytes($0.sizeBytes))" }
             ),
-            confirmTitle: "移入回收站 · \(gone.count)",
-            cancelTitle: "先不",
+            confirmTitle: String(localized: .libraryDuplicatesRecycleCount(gone.count)),
+            cancelTitle: String(localized: .libraryItemNotNow),
             destructive: true
         )
         guard ok else { return }
@@ -172,16 +173,16 @@ struct ManageDuplicateFilesTab: View {
     private func keepVersion(_ item: API.DuplicateItemView, _ season: API.DuplicateSeasonView, _ version: API.DuplicateVersionView) async {
         let facts = ManageDupText.keepVersionFacts(season, version)
         var bullets = facts.gone.prefix(8).map { "\($0.fileName) · \($0.qualityLabel) · \(libraryBytes($0.sizeBytes))" }
-        if facts.gone.count > 8 { bullets.append("… 共 \(facts.gone.count) 个文件") }
+        if facts.gone.count > 8 { bullets.append(String(localized: .libraryDuplicatesMoreFiles(facts.gone.count))) }
         let missing = facts.missingEpisodes.map(ManageDupText.episodeLabel).joined(separator: "、")
-        let description = "留下 \(version.qualityLabel) · \(version.originLabel)（\(version.episodes.count) 集）。"
-            + (missing.isEmpty ? "" : " \(missing) 没有这个版本，这 \(facts.missingEpisodes.count) 集保留原有文件。")
-            + " 移入回收站 \(facts.gone.count) 个文件 · \(libraryBytes(facts.bytes))，7 天内可恢复。"
+        let description = String(localized: .libraryDuplicatesKeepVersionDescription(version.qualityLabel, version.originLabel, version.episodes.count))
+            + (missing.isEmpty ? "" : String(localized: .libraryDuplicatesKeepVersionMissing(missing, facts.missingEpisodes.count)))
+            + String(localized: .libraryDuplicatesRecycleDescription(facts.gone.count, libraryBytes(facts.bytes)))
         let ok = await feedback.confirm(
-            "《\(item.mediaItem.title)》S\(ManageDupText.pad(season.seasonNumber)) 整季留下这个版本？",
+            String(localized: .libraryDuplicatesKeepVersionTitle(item.mediaItem.title, String(ManageDupText.pad(season.seasonNumber)))),
             message: manageBinMessage(description, bullets: bullets),
-            confirmTitle: "移入回收站 · \(facts.gone.count)",
-            cancelTitle: "先不",
+            confirmTitle: String(localized: .libraryDuplicatesRecycleCount(facts.gone.count)),
+            cancelTitle: String(localized: .libraryItemNotNow),
             destructive: true
         )
         guard ok else { return }
@@ -195,7 +196,7 @@ struct ManageDuplicateFilesTab: View {
     /// 「都留着」：这些版本都是我要的，单元不再列出（直到下一轮扫描发现新文件）。可撤销，不弹确认
     private func keepAll(_ item: API.DuplicateItemView, _ season: API.DuplicateSeasonView) async {
         let isTv = item.mediaItem.kind == "tv"
-        await run(isTv ? "整季都留着：不再列出，直到有新文件进来" : "都留着：不再列出，直到有新文件进来") {
+        await run(isTv ? String(localized: .libraryDuplicatesKeepSeasonSaved) : String(localized: .libraryDuplicatesKeepSaved)) {
             try await api.libraryDuplicatesResolve(body: API.DuplicateResolvePayload(
                 mediaItemId: item.mediaItem.id, seasonNumber: season.seasonNumber,
                 episodeNumber: isTv ? nil : 0, keepAll: true
@@ -208,17 +209,17 @@ struct ManageDuplicateFilesTab: View {
         guard let data else { return }
         let lines = ManageDupText.tierLines(data)
         let libraryName = filter.libraryId.flatMap { id in libraries?.first { $0.id == id }?.name }
-        let scope = libraryName.map { "「\($0)」库" } ?? "全部库"
+        let scope = libraryName.map { String(localized: .libraryDuplicatesLibraryScope($0)) } ?? String(localized: .libraryRecycleAllLibraries)
         let safe = tier == "safe"
-        let description = "\(scope) · \(group.files) 个文件 · \(libraryBytes(group.bytes)) · "
-            + "每个单元留下「建议保留」的那个 · 7 天内可在回收站恢复。"
+        let description = String(localized: .libraryDuplicatesCleanGroupCounts(scope, group.files, libraryBytes(group.bytes)))
+            + String(localized: .libraryDuplicatesCleanGroupDescription)
             + (safe ? "" : " \(ManageDupText.bulkCleanNote(reviewKind))")
-            + (group.files > Self.batchLimit ? " 一次最多处理 \(Self.batchLimit) 个，剩下的再点一次。" : "")
+            + (group.files > Self.batchLimit ? String(localized: .libraryDuplicatesBatchLimit(Self.batchLimit)) : "")
         let ok = await feedback.confirm(
-            safe ? "清理\(scope)一模一样的文件？" : "按建议清理「\(group.label)」？",
+            safe ? String(localized: .libraryDuplicatesCleanIdenticalTitle(scope)) : String(localized: .libraryDuplicatesCleanSuggestedTitle(group.label)),
             message: manageBinMessage(description, bullets: safe ? [] : lines),
-            confirmTitle: "移入回收站 · \(min(group.files, Self.batchLimit))",
-            cancelTitle: "先不",
+            confirmTitle: String(localized: .libraryDuplicatesRecycleCount(min(group.files, Self.batchLimit))),
+            cancelTitle: String(localized: .libraryItemNotNow),
             destructive: !safe
         )
         guard ok else { return }
@@ -233,14 +234,14 @@ struct ManageDuplicateFilesTab: View {
     /// 一整组「都留着」：同一种取舍只回答一次，不动文件，可在文件区逐个撤销
     private func keepGroup(_ tier: String, _ reviewKind: String?, _ group: API.DuplicateGroupView) async {
         let ok = await feedback.confirm(
-            "「\(group.label)」都留着？",
-            message: "\(group.units) 个单元的文件全部保留、不再列为重复。不会动任何文件，之后可以在条目详情页逐个撤销。",
-            confirmTitle: "都留着 · \(group.units)",
-            cancelTitle: "先不"
+            String(localized: .libraryDuplicatesKeepGroupTitle(group.label)),
+            message: String(localized: .libraryDuplicatesKeepGroupDescription(group.units)),
+            confirmTitle: String(localized: .libraryDuplicatesKeepCount(group.units)),
+            cancelTitle: String(localized: .libraryItemNotNow)
         )
         guard ok else { return }
         let libraryId = filter.libraryId
-        await run("已标记「都留着」：\(group.units) 个单元不再列为重复") {
+        await run(String(localized: .libraryDuplicatesKeepGroupSaved(group.units))) {
             try await api.libraryDuplicatesResolveAll(body: API.DuplicateResolveAllPayload(
                 tier: tier, reviewKind: reviewKind, libraryId: libraryId, keepAll: true
             ))
@@ -258,10 +259,10 @@ struct ManageDuplicateFilesTab: View {
                     scanBar(data.scan)
                     EmptyState(
                         systemImage: "square.on.square",
-                        title: "还没有扫描过重复文件",
-                        message: "重复检测要逐个文件比对指纹与规格，是一件要跑一会儿的事，所以由你来触发。"
-                            + "扫完之后这里会按「可以放心清理 / 建议清理 / 需要你决定」分好，你再决定先做哪一档。",
-                        actionTitle: "开始扫描",
+                        title: String(localized: .libraryDuplicatesFirstScanTitle),
+                        message: String(localized: .libraryDuplicatesFirstScanLead)
+                            + String(localized: .libraryDuplicatesFirstScanTail),
+                        actionTitle: String(localized: .libraryConfirmStartScan),
                         action: { Task { await startScan() } }
                     )
                     .padding(.top, 24)
@@ -274,8 +275,8 @@ struct ManageDuplicateFilesTab: View {
                     let hidden = ManageDupText.hiddenNote(data.scan)
                     EmptyState(
                         systemImage: "checkmark.seal",
-                        title: "没有重复文件",
-                        message: "每部电影、每一集都只有一个在位文件。" + (hidden.isEmpty ? "" : " \(hidden)。")
+                        title: String(localized: .libraryDuplicatesEmptyTitle),
+                        message: String(localized: .libraryDuplicatesEmptyDescription) + (hidden.isEmpty ? "" : " \(hidden)。")
                     )
                     .padding(.top, 24)
                     .accessibilityIdentifier("dup-empty")
@@ -285,8 +286,8 @@ struct ManageDuplicateFilesTab: View {
             }
         } else if failed {
             VStack(spacing: 12) {
-                Text("重复文件加载失败").font(.subheadline).foregroundStyle(Theme.textMuted)
-                Button("重试") { Task { await reload() } }
+                Text(String(localized: .libraryDuplicatesLoadFailed)).font(.subheadline).foregroundStyle(Theme.textMuted)
+                Button(String(localized: .commonRetry)) { Task { await reload() } }
                     .buttonStyle(.glass)
                     .accessibilityIdentifier("dup-retry")
             }
@@ -295,7 +296,7 @@ struct ManageDuplicateFilesTab: View {
         } else {
             HStack(spacing: 10) {
                 ProgressView()
-                Text("正在读取扫描结果…").font(.subheadline).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .libraryDuplicatesLoading)).font(.subheadline).foregroundStyle(Theme.textMuted)
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 64)
@@ -325,13 +326,13 @@ struct ManageDuplicateFilesTab: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            ManageBinButton(title: running ? "扫描中…" : scan.scannedAt != nil ? "重新扫描" : "开始扫描") {
+            ManageBinButton(title: running ? String(localized: .libraryDuplicatesScanningButton) : scan.scannedAt != nil ? String(localized: .libraryIssuesScanAgain) : String(localized: .libraryConfirmStartScan)) {
                 Task { await startScan() }
             }
             .disabled(busy || running)
             .accessibilityIdentifier("dup-scan")
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 16)
     }
 
@@ -343,14 +344,14 @@ struct ManageDuplicateFilesTab: View {
             scanBar(data.scan)
             VStack(alignment: .leading, spacing: 12) {
                 if failed {
-                    ManageBinWarningBanner(text: "与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据")
+                    ManageBinWarningBanner(text: String(localized: .libraryHomeStale))
                 }
 
                 // 筛选：搜索 / 库胶囊 / 只看某条目（详情页带来的）
-                ManageBinSearchField(text: $queryDraft, placeholder: "按片名或剧名搜索", identifier: "dup-search")
+                ManageBinSearchField(text: $queryDraft, placeholder: String(localized: .libraryDuplicatesSearchPlaceholder), identifier: "dup-search")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
-                        ManageBinChip(title: "全部库", active: filter.libraryId == nil) { filter.libraryId = nil }
+                        ManageBinChip(title: String(localized: .libraryRecycleAllLibraries), active: filter.libraryId == nil) { filter.libraryId = nil }
                             .accessibilityIdentifier("dup-library-all")
                         ForEach(libraryChips, id: \.id) { lib in
                             ManageBinChip(title: lib.name, active: filter.libraryId == lib.id) {
@@ -360,7 +361,7 @@ struct ManageDuplicateFilesTab: View {
                         }
                         if filter.itemId != nil {
                             ManageBinChip(
-                                title: "只看" + (itemTitle.map { "《\($0)》" } ?? "这个条目"),
+                                title: itemTitle.map { String(localized: .libraryDuplicatesOnlyNamed($0)) } ?? String(localized: .libraryDuplicatesOnlyItem),
                                 active: true, trailingSymbol: "xmark"
                             ) { filter.itemId = nil }
                             .accessibilityIdentifier("dup-item-filter")
@@ -376,7 +377,7 @@ struct ManageDuplicateFilesTab: View {
                     detailSection(data, itemTitle: itemTitle)
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.top, 14)
         }
     }
@@ -389,7 +390,7 @@ struct ManageDuplicateFilesTab: View {
      */
     private func tierSummary(_ data: API.DuplicateFilesData) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("一共 **\(data.totalUnits)** 个单元有重复，按建议处理可清掉 **\(data.totalFiles)** 个文件、腾出 **\(libraryBytes(data.totalBytes))**。从上往下做：")
+            Text(LocalizedStringKey(String(localized: .libraryDuplicatesOverviewMarkdown(data.totalUnits, data.totalFiles, libraryBytes(data.totalBytes)))))
                 .font(.footnote)
                 .monospacedDigit()
                 .foregroundStyle(Theme.textMuted)
@@ -414,7 +415,7 @@ struct ManageDuplicateFilesTab: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(tier.label).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
-                Text(empty ? "没有" : ManageDupText.groupSummary(tier))
+                Text(empty ? String(localized: .libraryDuplicatesNone) : ManageDupText.groupSummary(tier))
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(Theme.textFaint)
@@ -422,7 +423,7 @@ struct ManageDuplicateFilesTab: View {
             }
             if !empty {
                 HStack(spacing: 6) {
-                    ManageBinButton(title: "逐个看") { focus = ManageDupFocus(tier: tier.key) }
+                    ManageBinButton(title: String(localized: .libraryDuplicatesReviewEach)) { focus = ManageDupFocus(tier: tier.key) }
                         .disabled(busy)
                         .accessibilityIdentifier("dup-tier-open-\(tier.key)")
                     if ManageDupText.allowsBulkClean(tier.key, nil) {
@@ -448,36 +449,7 @@ struct ManageDuplicateFilesTab: View {
             if tier.key == "review", !data.reviewGroups.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(data.reviewGroups, id: \.key) { group in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                Text(group.label).font(.footnote).foregroundStyle(Theme.text)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Text(ManageDupText.compactSummary(group))
-                                    .font(.caption)
-                                    .monospacedDigit()
-                                    .foregroundStyle(Theme.textFaint)
-                            }
-                            HStack(spacing: 6) {
-                                // 逐个看 = 这一组的正路（玻璃按钮）；都留着 = 关掉它，不动文件（幽灵）
-                                ManageBinButton(title: "逐个看") {
-                                    focus = ManageDupFocus(tier: "review", reviewKind: group.key)
-                                }
-                                .disabled(busy)
-                                .accessibilityIdentifier("dup-group-open-\(group.key)")
-                                ManageBinButton(title: "都留着", tone: .ghost) {
-                                    Task { await keepGroup("review", group.key, group) }
-                                }
-                                .disabled(busy)
-                                .accessibilityIdentifier("dup-group-keep-\(group.key)")
-                                if ManageDupText.allowsBulkClean("review", group.key) {
-                                    ManageBinButton(title: "按建议清 · \(group.files)", tone: .dangerSolid) {
-                                        Task { await cleanGroup("review", group.key, group) }
-                                    }
-                                    .disabled(busy)
-                                    .accessibilityIdentifier("dup-group-clean-\(group.key)")
-                                }
-                            }
-                        }
+                        reviewGroupRow(group)
                     }
                 }
                 .padding(.top, 10)
@@ -494,6 +466,41 @@ struct ManageDuplicateFilesTab: View {
         .accessibilityIdentifier("dup-tier-\(tier.key)")
     }
 
+    /// 「需要你决定」的一个取舍分组：名字与分量一行、动作一行（单独成函数，避免主体表达式过大）
+    @ViewBuilder
+    private func reviewGroupRow(_ group: API.DuplicateGroupView) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(group.label).font(.footnote).foregroundStyle(Theme.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(ManageDupText.compactSummary(group))
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textFaint)
+            }
+            HStack(spacing: 6) {
+                // 逐个看 = 这一组的正路（玻璃按钮）；都留着 = 关掉它，不动文件（幽灵）
+                ManageBinButton(title: String(localized: .libraryDuplicatesReviewEach)) {
+                    focus = ManageDupFocus(tier: "review", reviewKind: group.key)
+                }
+                .disabled(busy)
+                .accessibilityIdentifier("dup-group-open-\(group.key)")
+                ManageBinButton(title: String(localized: .libraryDuplicatesKeepAll), tone: .ghost) {
+                    Task { await keepGroup("review", group.key, group) }
+                }
+                .disabled(busy)
+                .accessibilityIdentifier("dup-group-keep-\(group.key)")
+                if ManageDupText.allowsBulkClean("review", group.key) {
+                    ManageBinButton(title: String(localized: .libraryDuplicatesCleanSuggestedCount(group.files)), tone: .dangerSolid) {
+                        Task { await cleanGroup("review", group.key, group) }
+                    }
+                    .disabled(busy)
+                    .accessibilityIdentifier("dup-group-clean-\(group.key)")
+                }
+            }
+        }
+    }
+
     // MARK: 明细层
 
     private func detailSection(_ data: API.DuplicateFilesData, itemTitle: String?) -> some View {
@@ -504,7 +511,7 @@ struct ManageDuplicateFilesTab: View {
                 if focus.tier != nil {
                     tierNav(data, group: group)
                 } else {
-                    Text(itemTitle.map { "《\($0)》的重复文件" } ?? "重复文件")
+                    Text(itemTitle.map { String(localized: .libraryDuplicatesItemTitle($0)) } ?? String(localized: .libraryManageDuplicates))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Theme.text)
                 }
@@ -517,7 +524,7 @@ struct ManageDuplicateFilesTab: View {
                 if let tier = focus.tier, let group, group.files > 0 {
                     HStack(spacing: 6) {
                         if tier == "review" {
-                            ManageBinButton(title: "整组都留着", tone: .ghost) {
+                            ManageBinButton(title: String(localized: .libraryDuplicatesKeepWholeGroup), tone: .ghost) {
                                 Task { await keepGroup(tier, focus.reviewKind, group) }
                             }
                             .disabled(busy)
@@ -548,9 +555,9 @@ struct ManageDuplicateFilesTab: View {
 
             if data.items.isEmpty {
                 HStack(spacing: 8) {
-                    Text("这里已经没有待处理的重复文件").foregroundStyle(Theme.textFaint)
+                    Text(String(localized: .libraryDuplicatesNoPending)).foregroundStyle(Theme.textFaint)
                     if filterActive {
-                        Button("清除筛选") {
+                        Button(String(localized: .libraryManageClearFilters)) {
                             queryDraft = ""
                             filter = ManageDupFilter()
                         }
@@ -591,8 +598,8 @@ struct ManageDuplicateFilesTab: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(
-                    [ManageDupText.hiddenNote(data.scan), "清理的文件进回收站，7 天内可恢复"].filter { !$0.isEmpty }.joined(separator: " · ")
-                        + (data.totalItems > Self.pageSize ? " · 第 \(offset + 1)–\(offset + data.items.count) 个条目，共 \(data.totalItems) 个" : "")
+                    [ManageDupText.hiddenNote(data.scan), String(localized: .libraryDuplicatesRetention)].filter { !$0.isEmpty }.joined(separator: " · ")
+                        + (data.totalItems > Self.pageSize ? String(localized: .libraryDuplicatesPageInfo(offset + 1, String(offset + data.items.count), data.totalItems)) : "")
                 )
                 .font(.caption)
                 .monospacedDigit()
@@ -617,7 +624,7 @@ struct ManageDuplicateFilesTab: View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ManageBinChip(title: "摘要", active: false, leadingSymbol: "chevron.left") { focus = ManageDupFocus() }
+                    ManageBinChip(title: String(localized: .libraryDuplicatesSummary), active: false, leadingSymbol: "chevron.left") { focus = ManageDupFocus() }
                         .accessibilityIdentifier("dup-nav-summary")
                     Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 16).padding(.horizontal, 2)
                     ForEach(data.tiers, id: \.key) { t in
@@ -709,7 +716,7 @@ private struct ManageDupSeasonBlock: View {
             }
             HStack {
                 Spacer()
-                ManageBinButton(title: isTv ? "整季都留着" : "都留着", tone: .ghost, action: onKeepAll)
+                ManageBinButton(title: isTv ? String(localized: .libraryDuplicatesKeepSeasonAll) : String(localized: .libraryDuplicatesKeepAll), tone: .ghost, action: onKeepAll)
                     .disabled(busy)
                     .accessibilityIdentifier("dup-keep-all-\(blockKey)")
             }
@@ -754,7 +761,7 @@ private struct ManageDupSeasonBlock: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if season.uniform {
-                ManageBinButton(title: expanded ? "收起各集" : "展开各集", tone: .ghost, action: onToggleExpanded)
+                ManageBinButton(title: expanded ? String(localized: .libraryDuplicatesCollapseEpisodes) : String(localized: .libraryDuplicatesExpandEpisodes), tone: .ghost, action: onToggleExpanded)
                     .accessibilityIdentifier("dup-expand-\(blockKey)")
             }
         }
@@ -774,10 +781,10 @@ private struct ManageDupSeasonBlock: View {
 
     /// 版本行：规格（与建议保留版本不同的段加亮）+ 动作一行；覆盖（集数 · 大小）与来源排在下面
     private func versionRow(_ version: API.DuplicateVersionView, suggested: API.DuplicateVersionView?, hideOrigin: Bool) -> some View {
-        let refParts = suggested.map { $0.qualityLabel.split(separator: " ").map(String.init) }
-        let segments = version.qualityLabel.split(separator: " ").map(String.init).enumerated().map { i, text in
+        let refParts = suggested.map { ($0.qualityKey ?? $0.qualityLabel).split(separator: " ").map(String.init) }
+        let segments = (version.qualityKey ?? version.qualityLabel).split(separator: " ").map(String.init).enumerated().map { i, text in
             ManageDupSegment(
-                text: text,
+                text: ManageDupText.specPart(text),
                 diff: refParts != nil && !version.suggested && (i < refParts!.count ? refParts![i] : nil) != text
             )
         }
@@ -787,12 +794,12 @@ private struct ManageDupSeasonBlock: View {
                     .font(.footnote)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if version.suggested { ManageDupTag(title: "建议保留", keep: true) }
-                ManageBinButton(title: "整季留这个") { onKeepVersion(version) }
+                if version.suggested { ManageDupTag(title: String(localized: .libraryDuplicatesRecommended), keep: true) }
+                ManageBinButton(title: String(localized: .libraryDuplicatesKeepSeasonVersion)) { onKeepVersion(version) }
                     .disabled(busy)
                     .accessibilityIdentifier("dup-keep-version-\(blockKey)-\(version.key)")
             }
-            Text(manageBinRun("\(version.episodes.count) 集", Theme.text, .footnote.weight(.semibold))
+            Text(manageBinRun(String(localized: .libraryIssuesEpisodeCount(version.episodes.count)), Theme.text, .footnote.weight(.semibold))
                 + manageBinRun(" · \(libraryBytes(version.bytes))", Theme.textMuted))
                 .font(.footnote)
                 .monospacedDigit()
@@ -865,16 +872,16 @@ private struct ManageDupFileRow: View {
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("查看「\(file.fileName)」的原始文件名与路径")
+            .accessibilityLabel(String(localized: .libraryDuplicatesOriginalNameAria(file.fileName)))
             .accessibilityIdentifier("dup-file-name-\(file.id)")
             .popover(isPresented: $showPath) {
                 VStack(alignment: .leading, spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("原始文件名").foregroundStyle(Theme.textFaint)
+                        Text(String(localized: .libraryDuplicatesOriginalName)).foregroundStyle(Theme.textFaint)
                         Text(file.fileName).font(.caption.monospaced()).foregroundStyle(Theme.text)
                     }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("完整路径").foregroundStyle(Theme.textFaint)
+                        Text(String(localized: .libraryDuplicatesFullPath)).foregroundStyle(Theme.textFaint)
                         Text(file.filePath).font(.caption.monospaced()).foregroundStyle(Theme.textMuted)
                     }
                 }
@@ -912,7 +919,7 @@ private struct ManageDupFileRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if live > 1 || unit.files.count > 1 {
-                    ManageBinButton(title: "留这个", action: onKeep)
+                    ManageBinButton(title: String(localized: .libraryDuplicatesKeepThis), action: onKeep)
                         .disabled(busy)
                         .accessibilityIdentifier("dup-keep-file-\(file.id)")
                 }
@@ -970,6 +977,11 @@ struct ManageDupKeepVersionFacts {
 }
 
 enum ManageDupText {
+    static func specPart(_ source: String) -> String {
+        // i18n-ignore: original protocol quality key; presentation only.
+        source == "未知规格" ? String(localized: .libraryRecycleUnknownSpec) : source
+    }
+
     static func pad(_ n: Int) -> String { String(format: "%02d", n) }
 
     /// 集号 `E03`；电影为空串
@@ -980,13 +992,13 @@ enum ManageDupText {
     /// 块标题的第二段：剧集 `S01 · 3 集有重复`；电影空
     static func seasonHeadline(_ season: API.DuplicateSeasonView, kind: String) -> String {
         guard kind == "tv" else { return "" }
-        return "S\(pad(season.seasonNumber)) · \(season.units.count) 集有重复"
+        return String(localized: .libraryDuplicatesSeasonHeadline(String(pad(season.seasonNumber)), season.units.count))
     }
 
     /// `12 个单元 · 14 个文件 · 31 GB`；没有活时返回空串
     static func groupSummary(_ group: API.DuplicateGroupView) -> String {
         guard group.units > 0 else { return "" }
-        var parts = ["\(group.units) 个单元", "\(group.files) 个文件"]
+        var parts = [String(localized: .libraryDuplicatesUnitsCount(group.units)), String(localized: .libraryStatusFileCount(group.files))]
         if group.bytes > 0 { parts.append(libraryBytes(group.bytes)) }
         return parts.joined(separator: " · ")
     }
@@ -994,7 +1006,7 @@ enum ManageDupText {
     /// 取舍分组行上的计数：`562 个单元 · 933 GB`（文件数写在「按建议清 · N」上）
     static func compactSummary(_ group: API.DuplicateGroupView) -> String {
         guard group.units > 0 else { return "" }
-        var parts = ["\(group.units) 个单元"]
+        var parts = [String(localized: .libraryDuplicatesUnitsCount(group.units))]
         if group.bytes > 0 { parts.append(libraryBytes(group.bytes)) }
         return parts.joined(separator: " · ")
     }
@@ -1007,14 +1019,14 @@ enum ManageDupText {
     /// 成批清理确认框里那句"依据"：只有「规格不全」要单独说
     static func bulkCleanNote(_ reviewKind: String?) -> String {
         if reviewKind == "unknown" {
-            return "这一组机器没比出档位：留下的那个只是按实测码率、来源、文件名挑的，不是画质判断。"
+            return String(localized: .libraryDuplicatesBulkUnknown)
         }
-        return "这些文件与保留者有区别；想留的请先取消，回去点那个单元的「都留着」。"
+        return String(localized: .libraryDuplicatesBulkDifferent)
     }
 
     /// 一档的动作按钮文案：safe 是没风险的清理，另两档都在动"有区别"的文件
     static func tierActionLabel(_ tier: String) -> String {
-        tier == "safe" ? "全部清理" : "全部按建议清理"
+        tier == "safe" ? String(localized: .libraryIssuesClearAll) : String(localized: .libraryDuplicatesCleanAllSuggested)
     }
 
     /// 三档的配色：放心清绿、建议清金、要你决定中性
@@ -1029,9 +1041,9 @@ enum ManageDupText {
     /// 页脚那句"不在这里显示的"：两段都为 0 时返回空串
     static func hiddenNote(_ scan: API.DuplicateScanStateView) -> String {
         var parts: [String] = []
-        if scan.upgradingUnits > 0 { parts.append("\(scan.upgradingUnits) 个单元正在洗版验证中") }
-        if scan.keepOldItems > 0 { parts.append("\(scan.keepOldItems) 个条目按规则组「保留共存」") }
-        return parts.isEmpty ? "" : "\(parts.joined(separator: "、"))，不在这里显示"
+        if scan.upgradingUnits > 0 { parts.append(String(localized: .libraryDuplicatesHiddenUpgrading(scan.upgradingUnits))) }
+        if scan.keepOldItems > 0 { parts.append(String(localized: .libraryDuplicatesHiddenKeepOld(scan.keepOldItems))) }
+        return parts.isEmpty ? "" : String(localized: .libraryDuplicatesHiddenNote(AppFormatting.list(parts)))
     }
 
     static func isScanning(_ scan: API.DuplicateScanStateView) -> Bool {
@@ -1042,36 +1054,36 @@ enum ManageDupText {
     /// 扫描状态那一行：从未扫描 / 正在跑（带进度）/ 上次没跑成 / 上次扫描于何时
     static func scanNote(_ scan: API.DuplicateScanStateView) -> String {
         if isScanning(scan) {
-            if let message = scan.message, !message.isEmpty { return "正在扫描 · \(message)" }
-            return "正在扫描…"
+            if let message = scan.message, !message.isEmpty { return String(localized: .libraryDuplicatesScanningMessage(message)) }
+            return String(localized: .libraryDuplicatesScanning)
         }
         if scan.status == "failed" || scan.status == "cancelled" {
-            let why = scan.message.flatMap { $0.isEmpty ? nil : "：\($0)" } ?? ""
-            let had = scan.scannedAt.map { "，下面是 \(relativeTime($0))的结果" } ?? ""
-            return "上次扫描\(scan.status == "failed" ? "失败" : "被取消")\(why)\(had)"
+            let why = scan.message.flatMap { $0.isEmpty ? nil : String(localized: .libraryDuplicatesReasonSuffix($0)) } ?? ""
+            let had = scan.scannedAt.map { String(localized: .libraryDuplicatesScanPrevious(relativeTime($0))) } ?? ""
+            return scan.status == "failed" ? String(localized: .libraryDuplicatesScanFailedPrevious(why, had)) : String(localized: .libraryDuplicatesScanCancelledPrevious(why, had))
         }
-        guard let scannedAt = scan.scannedAt else { return "还没有扫描过" }
-        return "上次扫描：\(relativeTime(scannedAt))"
+        guard let scannedAt = scan.scannedAt else { return String(localized: .libraryDuplicatesNeverScanned) }
+        return String(localized: .libraryDuplicatesLastScanned(relativeTime(scannedAt)))
     }
 
     /// 「3 分钟前」「2 小时前」「3 天前」——用户只想知道"新不新鲜"
     static func relativeTime(_ iso: String, now: Date = .now) -> String {
         guard let then = Formatters.date(iso) else { return iso }
         let seconds = max(0, Int(now.timeIntervalSince(then).rounded()))
-        if seconds < 60 { return "刚刚" }
-        if seconds < 3600 { return "\(seconds / 60) 分钟前" }
-        if seconds < 86400 { return "\(seconds / 3600) 小时前" }
-        if seconds < 86400 * 30 { return "\(seconds / 86400) 天前" }
+        if seconds < 60 { return String(localized: .libraryDuplicatesJustNow) }
+        if seconds < 3600 { return String(localized: .libraryDuplicatesMinutesAgo(seconds / 60)) }
+        if seconds < 86400 { return String(localized: .libraryDuplicatesHoursAgo(seconds / 3600)) }
+        if seconds < 86400 * 30 { return String(localized: .libraryDuplicatesDaysAgo(seconds / 86400)) }
         let c = Calendar(identifier: .gregorian).dateComponents(in: .current, from: then)
         return "\(c.year ?? 0)/\(c.month ?? 0)/\(c.day ?? 0)"
     }
 
     /// 规格里认得出是什么的那几段：分辨率 / 片源 / HDR / 音轨（可以截断）
     static func specSegments(_ file: API.DuplicateFileView, reference: API.DuplicateFileView?) -> [ManageDupSegment] {
-        let own = file.qualityLabel.split(separator: " ").map(String.init)
-        let ref = reference.flatMap { $0.id == file.id ? nil : $0.qualityLabel.split(separator: " ").map(String.init) }
+        let own = (file.qualityKey ?? file.qualityLabel).split(separator: " ").map(String.init)
+        let ref = reference.flatMap { $0.id == file.id ? nil : ($0.qualityKey ?? $0.qualityLabel).split(separator: " ").map(String.init) }
         var segments = own.enumerated().map { i, text in
-            ManageDupSegment(text: text, diff: ref != nil && (i < ref!.count ? ref![i] : nil) != text)
+            ManageDupSegment(text: specPart(text), diff: ref != nil && (i < ref!.count ? ref![i] : nil) != text)
         }
         if let audio = file.audioLabel, !audio.isEmpty {
             segments.append(ManageDupSegment(text: audio, diff: ref != nil && reference?.audioLabel != file.audioLabel))
@@ -1098,8 +1110,12 @@ enum ManageDupText {
 
     static func sharedFacts(_ files: [API.DuplicateFileView]) -> ManageDupSharedFacts {
         guard files.count >= 2 else { return ManageDupSharedFacts() }
-        let specs = Set(files.map(specText))
-        let origins = Set(files.map(\.origin.label))
+        let specs = Set(files.map { file in
+            let parts = (file.qualityKey ?? file.qualityLabel).split(separator: " ").map(String.init)
+            let audio = file.audioLabel.flatMap { $0.isEmpty ? nil : [$0] } ?? []
+            return (parts + audio + volumeSegments(file).map(\.text)).joined(separator: " · ")
+        })
+        let origins = Set(files.map { $0.originKey ?? $0.origin.label })
         return ManageDupSharedFacts(
             quality: specs.count == 1 ? specText(files[0]) : nil,
             origin: origins.count == 1 ? files[0].origin.label : nil
@@ -1124,7 +1140,7 @@ enum ManageDupText {
     /// 同构季里几个版本行共有的来源；不同则为 nil
     static func sharedVersionOrigin(_ versions: [API.DuplicateVersionView]) -> String? {
         guard versions.count >= 2 else { return nil }
-        return Set(versions.map(\.originLabel)).count == 1 ? versions[0].originLabel : nil
+        return Set(versions.map { $0.originKey ?? $0.originLabel }).count == 1 ? versions[0].originLabel : nil
     }
 
     /// 单元里的建议保留者（没有时取第一个，后端保证一定有）
@@ -1132,10 +1148,10 @@ enum ManageDupText {
         unit.files.first(where: \.suggested) ?? unit.files.first
     }
 
-    /// 文件行说明：「都留着」过的写"你留下的"；建议保留写依据；否则空
+    /// 文件行说明：「都留着」过的写String(localized: .libraryDuplicatesKept)；建议保留写依据；否则空
     static func fileNote(_ file: API.DuplicateFileView) -> String {
-        if file.keptAt != nil { return "你留下的" }
-        if file.suggested, let reason = file.suggestReason, !reason.isEmpty { return "建议保留 · \(reason)" }
+        if file.keptAt != nil { return String(localized: .libraryDuplicatesKept) }
+        if file.suggested, let reason = file.suggestReason, !reason.isEmpty { return String(localized: .libraryDuplicatesRecommendedReason(reason)) }
         return ""
     }
 
@@ -1161,9 +1177,12 @@ enum ManageDupText {
                 if extras.isEmpty { continue }
                 let head = item.mediaItem.kind == "tv" ? "\(item.mediaItem.title) S\(pad(season.seasonNumber))" : item.mediaItem.title
                 var seen: [String] = []
-                for label in extras.map(\.qualityLabel) where !seen.contains(label) { seen.append(label) }
+                var sourceKeys: Set<String> = []
+                for file in extras where sourceKeys.insert(file.qualityKey ?? file.qualityLabel).inserted {
+                    seen.append(file.qualityLabel)
+                }
                 let bytes = libraryBytes(extras.reduce(0) { $0 + $1.sizeBytes })
-                lines.append("\(head) · \(extras.count) 个文件 · \(bytes) · \(seen.joined(separator: " / "))")
+                lines.append(String(localized: .libraryDuplicatesSummaryLine(head, extras.count, bytes, seen.joined(separator: " / "))))
             }
         }
         return lines
@@ -1171,9 +1190,9 @@ enum ManageDupText {
 
     /// 批量结果：`已移入回收站 5 个文件` / `…，2 个失败：原因` / `…，还有 N 个未处理（再点一次即可）`
     static func resolveResult(_ result: API.TrashedBatchResultView) -> String {
-        var text = "已移入回收站 \(result.done) 个文件"
-        if let first = result.failed.first { text += "，\(result.failed.count) 个失败：\(first.error)" }
-        if result.remaining > 0 { text += "，还有 \(result.remaining) 个未处理（再点一次即可）" }
+        var text = String(localized: .libraryDuplicatesResolved(result.done))
+        if let first = result.failed.first { text += String(localized: .libraryDuplicatesResolveFailures(result.failed.count, first.error)) }
+        if result.remaining > 0 { text += String(localized: .libraryDuplicatesResolveRemaining(result.remaining)) }
         return text
     }
 

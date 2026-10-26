@@ -39,7 +39,7 @@
 | 账号密码（兜底） | 电视屏幕键盘输入 | `POST /auth/device/login`（`kind: androidtv`） |
 | 谁在看 / 多账号 | 侧边栏第一项；跨服务器切换 = 换令牌、不联网、整棵界面树与 `AppGraph` 重建；启动直接进上次的账号 | 本机存储；退出登录 `DELETE /auth/devices/current`（失败入队重试） |
 | 首页 | 首屏是跟着焦点走的「接下来继续」大图区，下面接用户在网页自定义的行 | `GET /playback/up-next`、`GET /ui/preferences`（只读）、各行取数（库 / 类型 / 合集 / 收藏 / 按类型找）、`GET /libraries/showcase` |
-| 媒体库海报墙 | 从首页「我的媒体库」行进；筛选只留排序、只看未看、类型；每页 60 条、短页即止 | `GET /libraries?scope=all`、`GET /libraries/{id}/items`、`GET /libraries/kinds/{kind}/items` |
+| 媒体库海报墙 | 从首页「我的媒体库」行进；标题行一枚「排序与筛选」：排序、只看没看过的、类型 / 年代 / 画质；大库有索引条快速跳转（§10.8，与 Apple TV 同一套） | `GET /libraries?scope=all`、`GET /libraries/{id}/items`、`…/facets`、`…/item-index`、`…/relax`、`GET /libraries/kinds/{kind}/items` |
 | 条目详情 | 大剧照 + 片名 Logo + 事实行 + 主按钮「继续 mm:ss」；季、分集横排、演职员；版本、标记已看 / 收藏 | `GET /libraries/{lid}/items/{id}`、`…/episodes`、`GET /playback/resume`、`GET/POST /playback/marks`、`GET /people/{id}` |
 | 搜索 | 屏幕键盘 + 系统语音输入，只搜媒体库 | `GET /search/library` |
 | 播放 | §4、§5 | `/playback/sessions` 一族 |
@@ -47,31 +47,34 @@
 | 不做 | 发现、订阅、片段、大图预告、设置、活动、AI 助手、待处理事项、站点资源、媒体库管理、分享 | — |
 
 导航照 Apple TV 的最终形态：左侧可收起的抽屉（`tv-material` 的 `NavigationDrawer`），只有 **账号 / 搜索 / 首页** 三项；
-二级页（详情、海报墙、影人页）压在抽屉之上、盖住整屏，返回键退回。
+二级页（详情、海报墙、影人页）压在抽屉之上、盖住整屏，返回键退回。页签根页上：账号 / 搜索按返回回首页页签；
+首页按返回先在顶部提示「再按一次返回键退出」，2 秒内再按才退出 App。Android TV 设计规范不建议退出时弹确认对话框，
+所以用不挡操作的「连按两次」（国内电视 App 的常见做法）；判断在 `backAction`（`BackActionTest` 锁住）。
 
 ## 3. 工程
 
 ### 3.1 目录
 
-独立的 Gradle 工程，按「核心 / 功能」分模块，核心模块不依赖任何界面：
+独立的 Gradle 工程，按「核心 / 功能」分模块，核心模块不依赖任何界面。播放引擎、接口与模型与安卓手机版共用，
+源码在 `apps/android-core`（iOS 的 `Shared/` 同理），两个工程的 settings 按路径把它们挂成 `:core:*`：
 
 ```
+apps/android-core/          TV 与手机共用（依赖版本：gradle/shared.versions.toml，以 `shared` 引用）
+  model/        接口数据模型（纯 Kotlin，可空带默认值；生成物在 generated/）
+  network/      OkHttp 客户端、信封解包、错误中文化、User-Agent、令牌注入；生成的 McApi
+  playback/     会话协议、能力探测、Exo 编排、进度 / 心跳上报、跳过段、选轨、看门狗与兜底阶梯
+  ffmpeg/       Media3 decoder_ffmpeg 音频扩展（§4.3）
+  native/ffmpeg/  LGPL FFmpeg 音频扩展的编译脚本（产物不入库）
+  scripts/gen_api.py  接口生成器（白名单）
 apps/android-tv/
-  settings.gradle.kts / build.gradle.kts / gradle/libs.versions.toml（依赖版本唯一来源）
+  settings.gradle.kts / build.gradle.kts / gradle/libs.versions.toml（TV 自己的依赖版本）
   version.properties
-  core/
-    model/        接口数据模型（纯 Kotlin，可空带默认值）
-    network/      OkHttp 客户端、信封解包、错误中文化、User-Agent、令牌注入
-    session/      服务器发现、登录 / 配对状态机、账号库（KeyStore 加密）、权限
-    playback/     会话协议、能力探测、引擎抽象（Player 接口）、进度 / 心跳上报、跳过段、选轨
-  feature/
-    onboarding/ home/ library/ detail/ search/ player/ accounts/ about/
-  app/            Application、MainActivity、导航壳、AppGraph
-  native/ffmpeg/  LGPL FFmpeg 音频扩展的编译脚本（产物不入库，§4.3）
-  tests/          端到端（遥控器按键驱动）
+  core/session/ 服务器发现、登录 / 配对状态机、账号库（KeyStore 加密）、权限
+  app/          Application、MainActivity、导航壳、AppGraph、各页面
+  tests/        端到端（遥控器按键驱动）
 ```
 
-模块边界的目的：播放与会话逻辑可以单测、可以换引擎，以后若要做安卓手机界面，`core/*` 原样共用。
+模块边界的目的：播放与会话逻辑可以单测、可以换引擎，手机界面与 TV 界面共用同一套 `core/*`。
 
 ### 3.2 约定
 
@@ -112,6 +115,14 @@ mkv / ts / webm 一律重封装成 HLS（`containers` 字段服务端从没读�
   `audio.track_ref` 就是要它在本机选中的那条。
 现有客户端只申报 mp4 / hls-fmp4、不带 `local_tracks`，行为不变（`tests/playback/test_decide.py` 锁住）。
 老服务端会忽略 `local_tracks`、照旧重封装——能播，只是多走一路 HLS。
+
+**MP4 样本表上限（#962）**：Exo 解析 MP4 / MOV 的 moov 时，把所有轨（没选中的也算）每个样本的偏移、大小、时间戳
+整个建进 Java 堆，约 31～34 字节 / 样本。TrueHD 每秒 1200 个样本：144 分钟、带 TrueHD 与五条其它音轨的 MP4 共约
+1300 万个样本，JVM 实测解析完常驻 426 MB、峰值 631 MB；512 MB 的堆再叠上 128 MB 播放缓冲，起播十几秒就内存溢出、
+整个 App 闪退——不报播放错误，降档回路也接不住，再点几次都一样。因此能力里申报 `mp4_sample_limit`（堆的四分之一 /
+每样本 32 字节，512 MB 堆约 419 万；`BufferBudget.mp4SampleLimit`），服务端按时长 × （帧率 + 各音轨每秒样本数）估算，
+超出的 MP4 / MOV 不给原文件、改换封装（`decide._overflows_mp4_sample_limit`）：HLS 分片各自只带几秒的样本表，视频
+照旧 copy，杜比视界不丢。MKV 不受影响（Matroska 解析器只读索引）。老客户端不带这个字段 = 不受限，行为不变。
 
 ### 4.3 补短板
 
@@ -250,7 +261,9 @@ HEVC + AC3 MKV）。
 - 搜索键盘没有拼音候选行（tvOS 的中文拼音输入法自带）：拼音首字母本来就能搜中文片名，打汉字走系统输入法；
 - 字体：Noto CJK 比 PingFang 宽、行框高，长简介可能多折一行、各行有十来点的上下差（大处已按 SF 行高补齐）；
 - 玻璃材质：电视上不做背后实时模糊，用半透明近似；
-- 局域网发现：Android 模拟器在 NAT 后面收不到宿主机的 mDNS（真机局域网可用）。
+- 局域网发现：Android 模拟器在 NAT 后面收不到宿主机的 mDNS（真机局域网可用）；
+- 页签根页的返回键：tvOS 交给系统（第一下焦点移到侧边栏、再按退到主屏幕）；Android 没有系统侧边栏这一层缓冲，
+  按返回直接就退出了，所以账号 / 搜索根页回首页、首页连按两次才退出（§2）。
 
 **走查里发现、未在本分支修的服务端问题**：服务端直接跑在 macOS 上（`hw=videotoolbox` 本地执行）时，
 不能硬解的片源（如 MPEG-2）仍按硬解装命令，ffmpeg 滤镜阶段报 `-78 Function not implemented`，档 3 转码起不来。
@@ -370,10 +383,38 @@ HEVC + AC3 MKV）。
 
 ### 10.7 发版（2026-10-08）
 
-GitHub `release` 工作流新增 `android-tv-apk` 作业，产出 `MovieClaw-AndroidTV.apk` + `.json`，进 `downloads.json`（`product: androidtv`）。
+GitHub `android-release` 工作流的 `android-tv-apk` 作业（tag `androidtv-vX.Y.Z`）产出 `MovieClaw-AndroidTV.apk` + `.json`，进 `downloads.json`（`product: androidtv`）。
 版本独立（`version.properties`，首版 `0.1.0 / 1`），签名复用手机版的 `ANDROID_KEYSTORE_*`；目前是可选附件，缺了只告警。
 细节见 [android-release.md](android-release.md)「Android TV」。
 
 验证：本机用临时证书跑 `package-release.sh`，出 22.8 MB 的包（arm64-v8a + armeabi-v7a，v1 + v2 签名），元数据进清单校验通过；
 release 包装到 Android 8.0 镜像：登录 NAS、杜比视界服务端流、E-AC-3 走 FFmpeg 软解（播放记录 `decoder=ffmpegLavc60.3.100-eac3`），
 混淆没剪掉反射加载的 FFmpeg 类。
+
+### 10.8 大库海报墙（2026-10-22，#942）
+
+照搬 Apple TV 的 #952（docs/design/tvos-app.md §3.4「大库」）：焦点片名暗带、右侧索引条跳转、窗口式分页、按住滚动的位置提示、
+「排序与筛选」（类型 / 年代 / 画质二级菜单带部数、筛空给放宽建议）、合集墙排序。默认就开，不加设置。交互、尺寸、文案与 tvOS 一致，
+实现上与 SwiftUI 不同的地方：
+
+- **进索引条**：tvOS 要盖一块透明接应区再转交焦点（系统往右找不到上下不重叠的当前档）。Compose 的二维查找不要求上下重叠，
+  整条做成焦点组、`onEnter` 交给当前所在的档即可；上下 / 左右键在组上 `onPreviewKeyEvent` 自己处理（跳过空档、到头停、左键回刚才那张）。
+- **定位**：Lazy 网格按首个可见条目的 key 保持位置，往上补页时屏幕自然不动；只有标题行还是首个可见项时（窗口第一排贴着页首）
+  才自己滚掉补进来的那几排。跳转先等网格按新窗口量过一遍（`totalItemsCount` 对上）再 `scrollToItem`，否则会按旧列表的 key 把位置挪走，
+  目标排落到第二排（Robolectric 截图发现）。
+- **预取**：Coil 没有「只下载」：新到的一页不进内存缓存、按很小的尺寸解码（只做降采样）把原图下进磁盘；接下来三排按原图尺寸解码进内存
+  （Coil 的内存缓存键只在有变换时才带尺寸，与 `RemoteImage` 的请求命中同一条）。
+- **页面状态**：外壳的导航栈按「页签:深度:路由」保存页面状态，原先弹出页时不清，再进同一个库会接着用上次的窗口、筛选与焦点；
+  改成弹出时清掉（`MainShell`），同 tvOS 再进来是新的一页（排序照旧按库记在本机）。
+
+验证：
+- 单测 `WallIndexTest`（字母 / 年份 / 年代 / 评分分档、旧服务端月份档并年、条件叫法、放宽、窗口分页器）；
+- Robolectric 遥控器用例 `BigLibraryWallTest`（假服务端 3000 部按 offset 现算）：焦点暗带、按住往下的位置提示、最右一列进索引条落在当前档、
+  跳过空档、到头停、跳到 S（整排对齐 + 先补前一页、目标排在顶上）、往上一排落在 R、左键回海报；「排序与筛选」→ 类型 → 0 部置灰选不到、
+  返回键回到那一行 → 西部 → 筛空 → 放宽；退出再进来是新的一页；合集墙排序与记忆；
+- 模拟器（Android TV API 34）连隔离夹具后端（复用 tvOS 验收的 3000 部虚构电影库）用遥控器按键走完：焦点暗带（海报只印英文、库里是中文片名）、
+  按添加时间快速滚动提示「2026 年 10 月」、A–Z 索引条进入 / 跳过 I / S 168 部 / 跳到第 2219 部 / 往上补页、进详情返回原处、
+  类型二级菜单部数与 tvOS 截图一致（动画 390、西部 137）、「西部 · 4K · 49 部」、加「只看没看过的」筛空后的三条放宽建议（540 / 58 / 49）、
+  去掉西部后「4K · 未看 · 540 部」、按上映的年份索引条（2025 · 203 部 … 90s / 80s / 70s / 60s）、收藏「查看全部」墙。
+- 未覆盖：真机（索尼）按住方向键的连发节奏与 0.55 秒门槛、快速滚动的流畅度与预取效果；影人页仍只写饰演角色（tvOS 同样未改）。
+

@@ -1,8 +1,8 @@
-"""投递记录：每 endpoint 一个内存环形缓冲（docs/design/webhook.md §4.2）。
+"""投递记录：每个地址一个内存环形缓冲（docs/design/webhook.md §4.2）。
 
 纯诊断用途——设置页展示"最近投递"帮用户排障（下游没收到？看这里的状态码
-和错误摘要）。进程重启即清空，契约里已明示不承诺持久；确有重放需求时 P2
-落表。
+和错误摘要）。进程重启即清空；要重放失败的投递，看插件页「Webhook 投递」的死信
+（可靠投递，domain-events.md §6.2）。
 """
 
 from __future__ import annotations
@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+
+from movieclaw_api.i18n.stored import stored_message
 
 _MAX_RECORDS_PER_ENDPOINT = 50
 
@@ -25,6 +27,11 @@ class DeliveryRecord:
     error: str = ""
     """失败摘要（中文），成功为空串。"""
     at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    failed: bool = False
+    """发出去了但目标没收下（网络错误、非 2xx）：可靠投递会重试。"""
+
+    error_key: str | None = None
+    error_params: dict | None = None
 
     @property
     def ok(self) -> bool:
@@ -35,9 +42,16 @@ _records: dict[str, deque[DeliveryRecord]] = {}
 
 
 def record_delivery(endpoint_id: str, record: DeliveryRecord) -> None:
-    _records.setdefault(endpoint_id, deque(maxlen=_MAX_RECORDS_PER_ENDPOINT)).append(
-        record
+    _records.setdefault(endpoint_id, deque(maxlen=_MAX_RECORDS_PER_ENDPOINT)).append(record)
+
+
+def error_text(record: DeliveryRecord) -> str:
+    text = (
+        stored_message(record.error, record.error_key, record.error_params)
+        if record.error_key
+        else record.error
     )
+    return text[:200] if record.error_key == "settings.webhook.errors.requestFailed" else text
 
 
 def recent_deliveries(endpoint_id: str) -> list[dict]:
@@ -50,7 +64,7 @@ def recent_deliveries(endpoint_id: str) -> list[dict]:
             "status_code": r.status_code,
             "duration_ms": r.duration_ms,
             "attempts": r.attempts,
-            "error": r.error,
+            "error": error_text(r),
             "at": r.at.isoformat(),
         }
         for r in reversed(_records.get(endpoint_id, ()))

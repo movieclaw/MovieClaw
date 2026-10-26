@@ -1,5 +1,8 @@
 # MovieClaw Cloud 与 App 推送（实例端）
 
+> **更新**（2026-10-12）：推送改由「通知规则表」从系统事件导出（`domain-events.md` §6.1）：产生点只 `publish` 事件，
+> 偏好开关的键改成触发它的事件名（`imported` → `subscription.fulfilled` 等，旧键按别名接收），插件也能声明自己的通知（§7）。
+
 > 状态：实施中（2026-10，分支 `feat/cloud-push`）。
 >
 > 依据：云端协议 `docs/design/cloud-protocol.md`、推送中继协议
@@ -42,7 +45,7 @@
 | --- | --- | --- |
 | 系统 → MovieClaw Cloud（`/settings/cloud`） | 管理员 | 连接 / 断开、连接到哪个账号、权限和能力、最近同步、服务通知、统计开关与「上报哪些信息」的说明链接 |
 | 通知与集成 → App 推送（`/settings/app-push`） | 管理员 | 推送通道（官方 + 自建中继，各一个启用开关）、添加自建中继 |
-| 通知与集成 → IM 推送（`/settings/im-push`） | 管理员 | 原「消息推送」，只改名 |
+| 通知与集成 → IM 推送（`/settings/im-push`） | 管理员 | 接入哪些 IM 账号、测试推送；推什么在「账号 → 通知」（§5.2） |
 | 账号 → 设备（`/settings/devices`，原有） | 所有人（管理员可看全部成员） | 设备列表；每台 App 设备收不到通知时写一行原因 |
 | 账号 → 通知（`/settings/notifications`） | 所有人 | 自己收哪些通知、发测试通知；自己有设备收不到时提示一句 |
 
@@ -152,6 +155,26 @@ App 里：
 - 同一台手机（同一个 APNs 令牌）登了几个账号：只推一条，用最近登记过的那个账号的密钥。App 每天
   至少给手机上的每个账号登记一次；比这台手机最新的登记旧了一周以上的账号，当它已经不在这台手机上，不推。
 
+### 4.1 自托管实时通知（Android，保持连接）
+
+不依赖苹果、谷歌或手机厂商推送，也不需要连 MovieClaw Cloud：Android App 在前台服务里一直连着
+这台服务器，服务器自己把通知送过去。
+
+- **登记**：`PUT /push/me/registration` 带 `{"permission": "...", "stream": true}`（不带令牌和密钥，
+  只有 `android` 设备能开）；`stream: false` 关掉并清空发件箱；不传 `stream` 不改（旧版 App）。
+  开了实时通知的设备在「我的设备」里显示「能收到」，计入 `ready_devices`，`instance_ready` 也为真。
+- **发件箱**：`notify.prepare` 走完同样的收件人、偏好、权限筛选后，给这类设备每台写一行
+  `push_outbox`（明文 JSON：`event`、`title`、`subtitle`、`body`、`deeplink`（即 `open`）、`thread`、
+  `category`、`collapse`（与中继同一个 `collapse_id`）、`priority`（打扰级别）、`server`、`account`、
+  `sent_at`）。每台设备最多留 200 条未送达的；已送达的、超过 7 天的在写入时清掉；外键级联，
+  注销设备时随行删除；`id` 用 AUTOINCREMENT，清理后也不回退。
+- **连接**：`GET /push/me/stream?since=<id>`（SSE，设备凭证；`Last-Event-ID` 同义，取较大的）。
+  先补发 `since` 之后未确认的，再实时送新的：`id: <发件箱 id>` + `event: notification` +
+  `data: <JSON，含 id>`。连上先发 `: connected`，空闲时每 25 秒一行 `: heartbeat`；
+  单条连接最长一小时，到点正常结束，App 带游标重连。没开实时通知的设备 409，网页 / iOS 404。
+- **确认**：App 显示后 `POST /push/me/ack {"up_to": <id>}`，标记送达，之后重连不再补发。
+- **测试通知**：`POST /push/me/test` 同样写发件箱；手机连着时结果 `ok`，没连着 `queued`（连上补发）。
+
 ## 5. 事件、推送对象与偏好
 
 | 事件键 | 名称 | 推给谁 | 默认 | 跳转 |
@@ -163,6 +186,8 @@ App 里：
 | `new_device` | 新设备登录 | 账号本人（不发给刚登录的那台） | 开 | 账号 → 设备 |
 | `system_alert` | 需要处理的问题 | 管理员 | 开 | 能修它的设置页 |
 | `new_version` | 有新版本 | 管理员（每个版本只推一次） | 开 | 设置 → 更新与维护 |
+| `usage_tip` | 使用建议 | 管理员（每条建议只推一次） | 开 | 建议开启的那项设置 |
+| `agent.run.finished` | AI 回复完成 | 管理员；只推 App / 网页发起的会话（IM 里聊的回复本来就在聊天里），不转进 IM；iPhone 正停在这个会话页时前台不弹 | 开 | 这个会话 |
 
 - 订阅的人 = 发起人（`created_by_member_id`，空为管理员）∪ 关注者。
 - `download_started` / `imported` 进**剧卡**（§5.1）：一个人、一部剧的一批下载只占一张通知卡。
@@ -203,6 +228,7 @@ App 里：
     「『电影』新增 N 部：A、B、C 等」。同一部剧的多集合成一条。「其他」库叫「新视频」「新增 N 个视频」。
   - 看不到的库、超出分级的片不推。
 - `new_version`：每小时的更新检查发现新版本时推给管理员，每个版本只推一次；需要更新 Docker 镜像的版本会写明。
+- `usage_tip`：服务端发现某项设置能改善体验时推给管理员，与网页的使用提示同一个判定（tips.md「服务端代记的事件」）。目前只有一条：片段预切关着时有人刷片、放了大图预告，建议开启，点开到「设置 → 播放」。
 
 ### 5.1 剧卡：一部剧的一批下载只占一张通知卡
 
@@ -242,8 +268,30 @@ App 里：
   （看过 / 已入库 / 下载中 / 没找到）。
 - 只是「媒体库有新片」来的（不是自己订阅、下载的）安静送达；库里以前没有这部时写「新片：X / 已加入『电影』」。
   一个人一批里不止一部的仍合成「『电影』新增 N 部」（被动）。
-- **IM 通道**（微信、TG、Discord）走同一套合并，按整台服务器算：只在开始下载、可以先看、全部到齐、卡住时各发
-  一条，进度不发；洗版按订阅合并成一条。Webhook 保持一个事件一条，不合并。
+- **IM** 是这个人的另一个渠道（§5.2）：他的卡发出去时同一份文案也发到他的 IM，只是进度不发（IM 消息
+  不能原地替换）。Webhook 保持一个事件一条，不合并。
+
+### 5.2 IM 只是一个通知渠道
+
+2026-10 起 IM 推送并入通知：以前 IM 有自己的一套事件开关（只有「开始下载」「入库完成」两项、整台服务器一份、
+不看可见范围），和这里的按人偏好是两套。现在：
+
+- **IM 账号归属一个成员**（`channel_account.member_id`，0 = 管理员）。绑定目前只有管理员能做，所以都归管理员；
+  群机器人（飞书）也算绑定人的，收的和绑定人完全一样。
+- **推什么、推给谁和 App 完全一样**：`notify` 按偏好、静音、可见范围算出收件人和每个人的文案后，同一份文案
+  （标题 / 副标题 / 正文一段一行，带配图）也发到收件人的 IM 账号（`services/push/im.py`）。表里的所有事件
+  IM 都能收到，包括新设备登录、需要处理的问题。
+- **剧卡的进度更新不发 IM**（`notify(to_im=False)`）：IM 消息不能原地替换，每次进度都会是新的一条。
+- 「账号 → 通知」的测试通知也发到自己的 IM（结果里 `device_id` 为 `im`）；「IM 推送」页的测试推送仍发给
+  所有 IM 账号，用来验证通道本身。
+- 旧接口 `GET/PUT /channels/im/push-config`（已发布的 App 在用）保留，读写的是管理员的「开始下载」
+  「入库完成」偏好；新网页、新 App 不再调用。
+- 升级时不折算旧开关，IM 收到的跟着管理员的通知偏好变（发版说明要写）：
+  - 原来默认收的「开始下载」、一直收（没有开关）的「洗版完成」，在通知里默认关，要的话在「通知」里打开；
+  - 原来关掉了 IM「入库完成」的，升级后又会收到（通知里默认开）；新设备登录、需要处理的问题等以前 IM 没有的也会收到；
+  - 原来整台服务器的订阅都推到 IM，现在只推管理员发起或关注的订阅（要全收就打开「媒体库有新片」）；
+    管理员手动选种时自己的 IM 不收「开始下载」；管理员静音的片 IM 也不推。
+- 群机器人收的和绑定人一样，新设备登录（含设备名、来源 IP）、需要处理的问题也会发到群里。
 
 **打扰级别**（APNs 的 `interruption-level`，中继协议 §7 已允许）：
 
@@ -415,12 +463,16 @@ App 里：
 | `ready_devices` | 我能收到通知的设备数 |
 | `libraries` | 我能看到的媒体库，「媒体库有新片」的选项 |
 | `library_ids` | 「媒体库有新片」关心的库；`null` = 能看到的全部（含以后新建的） |
-| `attention` | 我收不到通知、需要处理的设备（`permission_denied` / `no_channel` / `bad_token`）；空 = 没问题，页面不提示 |
+| `attention` | 我收不到通知、需要处理的设备（`unsupported_build` / `permission_denied` / `no_channel` / `bad_token`）；空 = 没问题，页面不提示 |
+| `im_accounts` | 我绑定的 IM 账号数（IM 也按这里的开关推送，§5.2）；旧服务器没有这个字段（可空） |
 | `muted_items` | 「这部剧不再提醒」静音的片 `[{id, title, year, kind}]`，最近静音的在前；旧服务器没有这个字段（可空，App 照样能解码） |
 
 设备的推送状态挂在设备上：`GET /api/v1/auth/devices` 每台 App 类设备多一个
-`push: {status, status_text}`（`ok` / `permission_denied` / `no_channel` / `bad_token` /
-`not_registered`），其他设备为 `null`。界面只在不是 `ok` 时在设备下面写一行原因。
+`push: {status, status_text}`（`ok` / `unsupported_build` / `permission_denied` / `no_channel` /
+`bad_token` / `not_registered`），其他设备为 `null`。界面只在不是 `ok` 时在设备下面写一行原因。
+`unsupported_build`：App 登记时带了 `unsupported_build: true`——安装包签名里没有推送权限（侧载包，
+APNs 注册报 NSCocoaErrorDomain 3000），系统通知开着也收不到，提示改用 TestFlight / App Store 版；
+排在 `permission_denied` 前面（开了系统通知也没用）。
 
 | 接口 | 说明 |
 | --- | --- |
@@ -453,6 +505,9 @@ App 里：
 - `key` 是 32 字节密钥的 base64url（无填充）；`key_id` 是 11 个 base64url 字符。
 - `client_version`（可选）：App 当前版本，写回设备行的 `client_version`。登录时记下的版本
   在 App 升级后不会变，靠每次启动的登记刷新；不带时保留原值。上报里的 `app_version` 取它。
+- `unsupported_build`（可选，默认 `false`）：安装包签名里没有推送权限、永远拿不到令牌（侧载包）。
+  为 `true` 时不带令牌，服务器清掉已有令牌、记 `push_problem = "unsupported_build"`；之后不带它的
+  登记（换装了商店版）清掉这个标记。
 
 响应 `PushRegistrationView`：`{registered, status, status_text, channel_name}`，
 `status` 同设备的 `push.status`。
@@ -471,7 +526,7 @@ App 里：
   Cloud 时开关关着且按不动。有没有可用通道的 App 版本时，顶部才出一条提示。
 - 「通知」只管收什么：事件开关按 `group` 分组、测试按钮；自己有设备收不到时顶部出一条提示，
   点进「设备」页。
-- 「消息推送」改名「IM 推送」。
+- 「消息推送」改名「IM 推送」；只管接入哪些账号和测试推送，推什么链到「通知」（§5.2）。
 
 ## 9. iOS App
 

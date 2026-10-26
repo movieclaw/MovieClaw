@@ -39,8 +39,26 @@ def _ffmpeg() -> str | None:
     return shutil.which("ffmpeg")
 
 
-async def extract_pcm(video: Path, start_s: float, duration_s: float) -> np.ndarray | None:
-    """抽一段 16k 单声道 PCM；失败返回 None（无音轨/坏文件/超时）。
+def audio_index(streams: list[dict] | None) -> int:
+    """抽样用哪条音轨（同类型序号），``streams`` 是台账的 ``audio_streams``。
+
+    默认第一条；第一条 ffmpeg 解不了（华语 WEB-DL 的 Audio Vivid，探测不出 codec）时，
+    换同语言（或语言未知）的第一条解得了的轨。换不了维持第一条，抽样失败按未知处理。
+    """
+    if not streams or streams[0].get("codec"):
+        return 0
+    language = streams[0].get("language")
+    for index, stream in enumerate(streams[1:], 1):
+        other = stream.get("language")
+        if stream.get("codec") and (language in (None, "und") or other in (None, "und", language)):
+            return index
+    return 0
+
+
+async def extract_pcm(
+    video: Path, start_s: float, duration_s: float, audio: int = 0
+) -> np.ndarray | None:
+    """抽一段 16k 单声道 PCM（``audio`` 是音轨序号）；失败返回 None（无音轨/坏文件/超时）。
 
     ffmpeg 起在独立进程组里：停止任务时随之结束，不必等它把这一段解码完。
     """
@@ -53,7 +71,7 @@ async def extract_pcm(video: Path, start_s: float, duration_s: float) -> np.ndar
                 ffmpeg, "-nostdin", "-v", "error",
                 "-ss", str(start_s), "-t", str(duration_s),
                 "-i", str(video),
-                "-map", "0:a:0", "-ac", "1", "-ar", str(SAMPLE_RATE),
+                "-map", f"0:a:{audio}", "-ac", "1", "-ar", str(SAMPLE_RATE),
                 "-f", "s16le", "-",
             ],
             timeout=_FFMPEG_TIMEOUT,
@@ -175,7 +193,7 @@ def event_hit_rate(
 
 
 async def sample_sync_score(
-    video_path: Path, events: list[SubEvent], runtime_seconds: int | None
+    video_path: Path, events: list[SubEvent], runtime_seconds: int | None, audio: int = 0
 ) -> float | None:
     """抽样同步度（0..1）；None=无法检测（无 ffmpeg/无音轨/事件太少）。
 
@@ -203,7 +221,7 @@ async def sample_sync_score(
         ]
         if len(window_events) < 5:
             continue
-        pcm = await extract_pcm(video_path, start_s, float(_WINDOW_SECONDS))
+        pcm = await extract_pcm(video_path, start_s, float(_WINDOW_SECONDS), audio)
         if pcm is None:
             return None  # 音频抽不出来：整个检测按未知处理
         # VAD（尤其 silero 逐帧推理）放线程池：事件循环同时在服务所有请求

@@ -1,3 +1,6 @@
+import { appTranslator } from "./i18n/translate.ts";
+import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
+import { formatDate } from "./i18n/format.ts";
 import type { DownloadTask } from "@/lib/api/downloaders";
 import type {
   Subscription,
@@ -15,34 +18,46 @@ import type {
  * 后银玻璃保值、Netflix 收敛为白。此处颜色经 inline style 消费
  * （media-detail-view 状态字/状态点），CSS 选择器压不过，改动必须落在数据源。
  */
-export const subscriptionStatusMeta: Record<
-  SubscriptionStatus,
-  { label: string; color: string }
-> = {
-  active: { label: "追踪中", color: "var(--info-soft)" },
-  completed: { label: "已收齐", color: "var(--ok)" },
-  paused: { label: "已暂停", color: "var(--warn)" },
-};
+export function subscriptionStatusMetaFor(locale: AppLocale) {
+  const t = appTranslator(locale);
+  return {
+    active: { label: t("subscription.status.active"), color: "var(--info-soft)" },
+    completed: { label: t("subscription.status.completed"), color: "var(--ok)" },
+    paused: { label: t("subscription.status.paused"), color: "var(--warn)" },
+  } satisfies Record<SubscriptionStatus, { label: string; color: string }>;
+}
 
 /** 进度说明：回答「还缺多少 / 入库了多少」——订阅信息里最高频的一眼答案。 */
-export function subscriptionProgressNote(sub: Subscription): string {
+export function subscriptionProgressNote(sub: Subscription, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   const { wanted, grabbed, downloaded, imported, total } = sub.progress;
-  if (sub.status === "paused") return "暂停追踪";
+  if (sub.status === "paused") return t("subscription.progress.paused");
   const inPipeline = grabbed + downloaded;
   if (wanted === 0) {
     if (sub.media.kind === "movie") {
-      return imported > 0 ? "已入库" : inPipeline > 0 ? "下载安排中" : "已收齐";
+      return imported > 0 ? t("subscription.progress.imported") : inPipeline > 0 ? t("subscription.progress.arranging") : t("subscription.progress.collected");
     }
-    if (inPipeline > 0) return `${inPipeline} 集下载中 · 已入库 ${imported}`;
-    if (sub.status === "active") return "等待新集播出";
-    return imported > 0 ? `全部 ${total} 集已入库` : `全部 ${total} 集已安排`;
+    if (inPipeline > 0) return t("subscription.progress.pipelineSummary", { count: inPipeline, imported });
+    // 订阅窗口截断了本季：等的是用户，不是片源。完结季「可继续」，在播季「可往前补」
+    const win = sub.episode_windows?.[0];
+    if (sub.status === "active" && win) {
+      // 「最新 N 集」锚定已播集数（宣称的集数可能还没播到），拿不到退回窗口总集数
+      const aired =
+        sub.season_collection.find((s) => s.season_number === win.season_number)?.aired_count ??
+        win.total;
+      return win.end === null
+        ? t("subscription.progress.latestWindow", { count: Math.max(1, aired - win.start + 1) })
+        : t("subscription.progress.untilWindow", { end: win.end });
+    }
+    if (sub.status === "active") return t("subscription.progress.waiting");
+    return imported > 0 ? t("subscription.progress.allImported", { count: total }) : t("subscription.progress.allScheduled", { count: total });
   }
-  if (sub.media.kind === "movie") return "正在寻找资源";
+  if (sub.media.kind === "movie") return t("subscription.progress.searching");
   const detail = [
-    inPipeline > 0 ? `${inPipeline} 集下载中` : null,
-    imported > 0 ? `已入库 ${imported}` : null,
+    inPipeline > 0 ? t("subscription.progress.downloading", { count: inPipeline }) : null,
+    imported > 0 ? t("subscription.progress.importedCount", { count: imported }) : null,
   ].filter(Boolean);
-  return detail.length > 0 ? `缺 ${wanted} 集 · ${detail.join(" · ")}` : `缺 ${wanted} 集`;
+  return detail.length > 0 ? t("subscription.progress.missingDetail", { count: wanted, detail: detail.join(" · ") }) : t("subscription.progress.missing", { count: wanted });
 }
 
 /** 订阅是不是已经全部到手了（issue #221 的核心问题：这部到底入库没有）。
@@ -50,7 +65,7 @@ export function subscriptionProgressNote(sub: Subscription): string {
  *  电影是二元的——一部影片只有一个单元，``imported > 0`` 就是"到手了"，
  *  与 ``subscriptionProgressNote`` 判定同源。剧集是集合，"收齐"另有定义：
  *  ``completed`` = 缺口为零且期望集合不再生长（见 SubscriptionStatus），
- *  追新剧因此永远不算收齐——它确实还没完，这正是不能用一个"已入库"标签
+ *  追新剧因此永远不算收齐——它确实还没完，这正是不能用一个t("subscription.progress.imported")标签
  *  笼统盖住两类内容的原因。
  */
 export function subscriptionFullyCollected(
@@ -74,15 +89,17 @@ export function subscriptionFullyCollected(
  */
 export function subscriptionRibbon(
   sub: Pick<Subscription, "follow_future" | "media" | "progress" | "status">,
+  locale: AppLocale = requestLocale() ?? "zh-Hans"
 ): { label: string; tone: "owned" | "subscribed" } | undefined {
+  const t = appTranslator(locale);
   if (subscriptionFullyCollected(sub)) {
     return {
-      label: sub.media.kind === "movie" ? "已入库" : "已收齐",
+      label: sub.media.kind === "movie" ? t("subscription.progress.imported") : t("subscription.progress.collected"),
       tone: "owned",
     };
   }
   if (sub.media.kind === "tv" && sub.follow_future) {
-    return { label: "自动续订", tone: "subscribed" };
+    return { label: t("subscription.ribbon.followFuture"), tone: "subscribed" };
   }
   return undefined;
 }
@@ -108,7 +125,9 @@ export function subscriptionCollectionMeta(
     Subscription,
     "follow_future" | "media" | "progress" | "season_collection" | "selected_seasons" | "status"
   >,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): SubscriptionCollectionMeta | undefined {
+  const t = appTranslator(locale);
   if (sub.media.kind !== "tv") return undefined;
   // 洗版中：青点 + 「洗 N」数量（暂停中的订阅洗版也停着，不亮）
   const upgradingCount = sub.status !== "paused" ? (sub.progress.upgrading ?? 0) : 0;
@@ -144,10 +163,10 @@ export function subscriptionCollectionMeta(
     if (!latest) return undefined;
     const total = totalOf(latest);
     return {
-      label: `第 ${latest.season_number} 季`,
+      label: t("subscription.collection.season", { number: latest.season_number }),
       value:
         latest.aired_count === 0 && latest.owned_count === 0
-          ? "待播出"
+          ? t("subscription.collection.unaired")
           : `${latest.owned_count} / ${total}`,
       tracking: sub.status === "active",
       upgrading,
@@ -165,9 +184,9 @@ export function subscriptionCollectionMeta(
   return {
     label:
       scoped.length === 1
-        ? `第 ${scoped[0].season_number} 季`
-        : `${coversAllSeasons ? "全" : "共"} ${scoped.length} 季`,
-    value: owned >= total ? `全 ${total} 集` : `${owned} / ${total}`,
+        ? t("subscription.collection.season", { number: scoped[0].season_number })
+        : t(coversAllSeasons ? "subscription.collection.allSeasons" : "subscription.collection.seasons", { count: scoped.length }),
+    value: owned >= total ? t("subscription.collection.allEpisodes", { count: total }) : `${owned} / ${total}`,
     tracking: false,
     upgrading,
     upgradingCount: upgrading ? upgradingCount : undefined,
@@ -175,6 +194,7 @@ export function subscriptionCollectionMeta(
 }
 
 export interface TodayArrivalPresentation {
+  // i18n-ignore: legacy theme SDK discriminator; display uses arrivalStatusText.
   statusLabel: "预计入库" | "等待资源" | "下载中" | "整理中";
   timeLabel: string;
   estimatedAt: number | null;
@@ -200,7 +220,7 @@ function paddedUnit(value: number): string {
   return String(value).padStart(2, "0");
 }
 
-function episodeRanges(episodes: number[]): string {
+function episodeRanges(episodes: number[], locale: AppLocale): string {
   const unique = [...new Set(episodes)].toSorted((left, right) => left - right);
   const ranges: Array<{ start: number; end: number }> = [];
   for (const episode of unique) {
@@ -215,15 +235,15 @@ function episodeRanges(episodes: number[]): string {
     .map(({ start, end }) =>
       start === end ? `E${paddedUnit(start)}` : `E${paddedUnit(start)}–E${paddedUnit(end)}`,
     )
-    .join("、");
+    .join(locale === "zh-Hans" ? "、" : ", ");
 }
 
 /**
  * 同一订阅同日更新的集数合并成一条紧凑的季集范围。
  * 电影的工单是 (0,0) 哨兵，季集号对用户没有意义，直接标“电影”。
  */
-function groupedEpisodeLabel(rows: PresentedTodayArrival[]): string {
-  if (rows[0].arrival.media_kind === "movie") return "电影";
+function groupedEpisodeLabel(rows: PresentedTodayArrival[], locale: AppLocale): string {
+  if (rows[0].arrival.media_kind === "movie") return appTranslator(locale)("media.kind.movie");
   const bySeason = new Map<number, number[]>();
   for (const { arrival } of rows) {
     const episodes = bySeason.get(arrival.season_number) ?? [];
@@ -232,15 +252,24 @@ function groupedEpisodeLabel(rows: PresentedTodayArrival[]): string {
   }
   return [...bySeason.entries()]
     .toSorted(([left], [right]) => left - right)
-    .map(([season, episodes]) => `S${paddedUnit(season)}${episodeRanges(episodes)}`)
+    .map(([season, episodes]) => `S${paddedUnit(season)}${episodeRanges(episodes, locale)}`)
     .join(" · ");
 }
 
-const arrivalStageOrder: Record<TodayArrivalPresentation["statusLabel"], number> = {
-  预计入库: 0,
-  等待资源: 0,
-  下载中: 1,
-  整理中: 2,
+export type ArrivalStage = "expected" | "waiting" | "downloading" | "organizing";
+
+/** Preserve the theme SDK's legacy discriminator while using stable stages internally. */
+export function arrivalStageOf(presentation: TodayArrivalPresentation): ArrivalStage {
+  return ({ 预计入库: "expected", 等待资源: "waiting", 下载中: "downloading", 整理中: "organizing" } as const)[presentation.statusLabel];
+}
+
+export function arrivalStatusText(presentation: TodayArrivalPresentation, locale: AppLocale): string {
+  const keys = { expected: "subscription.arrivals.statusExpected", waiting: "subscription.arrivals.statusWaiting", downloading: "subscription.arrivals.statusDownloading", organizing: "subscription.arrivals.statusOrganizing" } as const;
+  return appTranslator(locale)(keys[arrivalStageOf(presentation)]);
+}
+
+const arrivalStageOrder: Record<ArrivalStage, number> = {
+  expected: 0, waiting: 0, downloading: 1, organizing: 2,
 };
 
 /**
@@ -250,8 +279,8 @@ const arrivalStageOrder: Record<TodayArrivalPresentation["statusLabel"], number>
 function blockingPresentation(rows: PresentedTodayArrival[]): TodayArrivalPresentation {
   return rows.toSorted((left, right) => {
     const stage =
-      arrivalStageOrder[left.presentation.statusLabel] -
-      arrivalStageOrder[right.presentation.statusLabel];
+      arrivalStageOrder[arrivalStageOf(left.presentation)] -
+      arrivalStageOrder[arrivalStageOf(right.presentation)];
     if (stage !== 0) return stage;
     const leftTime = left.presentation.estimatedAt;
     const rightTime = right.presentation.estimatedAt;
@@ -262,7 +291,7 @@ function blockingPresentation(rows: PresentedTodayArrival[]): TodayArrivalPresen
 }
 
 /** 今日区域按订阅聚合，确保同一部剧无论更新多少集都只占一行。 */
-export function groupTodayArrivals(rows: PresentedTodayArrival[]): TodayArrivalGroup[] {
+export function groupTodayArrivals(rows: PresentedTodayArrival[], locale: AppLocale = requestLocale() ?? "zh-Hans"): TodayArrivalGroup[] {
   const grouped = new Map<number, PresentedTodayArrival[]>();
   for (const row of rows) {
     const group = grouped.get(row.arrival.subscription_id) ?? [];
@@ -272,7 +301,7 @@ export function groupTodayArrivals(rows: PresentedTodayArrival[]): TodayArrivalG
   return [...grouped.entries()].map(([subscriptionId, group]) => ({
     subscriptionId,
     mediaTitle: group[0].arrival.media_title,
-    episodeLabel: groupedEpisodeLabel(group),
+    episodeLabel: groupedEpisodeLabel(group, locale),
     episodeCount: group.length,
     firstWantedId: Math.min(...group.map(({ arrival }) => arrival.wanted_id)),
     daysAhead: group[0].arrival.days_ahead,
@@ -290,32 +319,29 @@ function localDayKey(value: Date): string {
   return `${value.getFullYear()}-${value.getMonth()}-${value.getDate()}`;
 }
 
-function formatClock(value: Date): string {
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(value);
+function formatClock(value: Date, locale: AppLocale): string {
+  return formatDate(value, { hour: "2-digit", minute: "2-digit", hour12: false }, locale);
 }
 
 /**
  * 站点日历日（YYYY-MM-DD）转“M月D日”。按字段切分而不是 Date.parse——
  * 后者把纯日期当 UTC 零点解析，负时区浏览器会整整早显示一天。
  */
-function formatCalendarDay(day: string): string | null {
+function formatCalendarDay(day: string, locale: AppLocale): string | null {
   const [, month, date] = day.split("-").map(Number);
-  return Number.isFinite(month) && Number.isFinite(date) ? `${month}月${date}日` : null;
+  return Number.isFinite(month) && Number.isFinite(date) ? formatDate(new Date(2000, month - 1, date), { month: locale === "zh-Hans" ? "long" : "short", day: "numeric" }, locale) : null;
 }
 
 /** 首页只展示一个结果时间：同日写时刻，跨到次日时明确标注“明日”。 */
-function formatEstimatedArrival(timestamp: number, now: Date): string {
+function formatEstimatedArrival(timestamp: number, now: Date, locale: AppLocale): string {
+  const t = appTranslator(locale);
   const value = new Date(timestamp);
-  const clock = formatClock(value);
-  if (localDayKey(value) === localDayKey(now)) return `约 ${clock}`;
+  const clock = formatClock(value, locale);
+  if (localDayKey(value) === localDayKey(now)) return t("subscription.arrivals.approximateTime", { time: clock });
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
-  if (localDayKey(value) === localDayKey(tomorrow)) return `明日 ${clock}`;
-  return `${value.getMonth() + 1}月${value.getDate()}日 ${clock}`;
+  if (localDayKey(value) === localDayKey(tomorrow)) return t("subscription.arrivals.tomorrowTime", { time: clock });
+  return t("subscription.arrivals.dateTime", { date: formatDate(value, { month: locale === "zh-Hans" ? "long" : "short", day: "numeric" }, locale), time: clock });
 }
 
 /**
@@ -343,10 +369,13 @@ export function todayArrivalPresentation(
   arrival: TodaySubscriptionArrival,
   task?: DownloadTask,
   now = new Date(),
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): TodayArrivalPresentation {
+  const t = appTranslator(locale);
   const taskCompleted = task?.state === "completed";
   if (arrival.status === "downloaded" || taskCompleted) {
-    return { statusLabel: "整理中", timeLabel: "即将完成", estimatedAt: now.getTime() };
+    // i18n-ignore: legacy theme SDK discriminator.
+    return { statusLabel: "整理中", timeLabel: t("subscription.arrivals.finishing"), estimatedAt: now.getTime() };
   }
 
   if (arrival.status === "grabbed") {
@@ -357,8 +386,9 @@ export function todayArrivalPresentation(
           (etaSeconds + arrival.estimated_download_to_import_minutes * 60) * 1000
         : null;
     return {
+      // i18n-ignore: legacy theme SDK discriminator.
       statusLabel: "下载中",
-      timeLabel: estimatedAt == null ? "时间待更新" : formatEstimatedArrival(estimatedAt, now),
+      timeLabel: estimatedAt == null ? t("subscription.arrivals.timePending") : formatEstimatedArrival(estimatedAt, now, locale),
       estimatedAt,
     };
   }
@@ -370,11 +400,12 @@ export function todayArrivalPresentation(
       ? null
       : estimatedWantedArrival(arrival, predictedAt, now);
   return {
+    // i18n-ignore: legacy theme SDK discriminator.
     statusLabel: predictedAt != null && predictedAt <= now.getTime() ? "等待资源" : "预计入库",
     timeLabel:
       estimatedAt == null
-        ? pendingTimeLabel(arrival)
-        : formatEstimatedArrival(estimatedAt, now),
+        ? pendingTimeLabel(arrival, locale)
+        : formatEstimatedArrival(estimatedAt, now, locale),
     estimatedAt,
   };
 }
@@ -386,36 +417,45 @@ export function todayArrivalPresentation(
  * 今天的时刻误读，所以未来行先给日期；今天的行才用探测时刻，让用户看到
  * 系统仍在按计划轮询，而不是停了。
  */
-function pendingTimeLabel(arrival: TodaySubscriptionArrival): string {
+function pendingTimeLabel(arrival: TodaySubscriptionArrival, locale: AppLocale): string {
+  const t = appTranslator(locale);
   if (arrival.days_ahead > 0) {
-    const day = formatCalendarDay(arrival.expected_day);
-    if (day) return `${day} 播出`;
+    const day = formatCalendarDay(arrival.expected_day, locale);
+    if (day) return t("subscription.arrivals.airDate", { date: day });
   }
   const nextProbeAt = parsedTime(arrival.next_probe_at);
-  if (nextProbeAt != null) return `${formatClock(new Date(nextProbeAt))} 探测`;
-  return "时间待更新";
+  if (nextProbeAt != null) return t("subscription.arrivals.probeTime", { time: formatClock(new Date(nextProbeAt), locale) });
+  return t("subscription.arrivals.timePending");
 }
 
 /** 只补充智能选择特有的状态；其余沿用原有分集调度、下载和洗版展示。 */
-export function smartWantedPresentation(row: WantedItem): { label: string; color: string; note: string } | null {
+export function smartWantedPresentation(row: WantedItem, locale: AppLocale = requestLocale() ?? "zh-Hans"): { label: string; color: string; note: string } | null {
+  const t = appTranslator(locale);
   const state = row.selection_state;
   if (row.status !== "wanted" || !state) return null;
   const reasons: Record<string, [string, string]> = {
-    identity_unconfirmed: ["寻找中", "部分资源未通过影片身份核验，已跳过，继续寻找。"],
-    waiting_target: ["等版本", "历史发布记录支持等待目标品质版本"],
-    waiting_series: ["等版本", "已有合格候选，等待当前跟随版本"],
-    manual_requested: ["选择中", "已请求立即下载，正在核验当前候选"],
-    manual_candidate_unavailable: ["选择中", "指定候选已不可用，正在重新选择"],
-    reconciling: ["待核对", "正在核对提交结果，系统会恢复同一任务"],
-    submitting: ["提交中", "正在提交所选资源"],
-    deadline_fallback: ["选择中", "等待上限已到，正在选择当前合格版本"],
-    published_window_elapsed: ["选择中", "资源已发布一段时间，正在选择当前合格版本"],
-    observation_finished: ["选择中", "观察结束，正在选择当前合格版本"],
-    target_available: ["选择中", "目标版本已出现，正在选择"],
+    identity_unconfirmed: [t("subscription.smart.searching"), t("subscription.smart.identityUnconfirmed")],
+    waiting_target: [t("subscription.smart.waitingVersion"), t("subscription.smart.waitingTarget")],
+    waiting_series: [t("subscription.smart.waitingVersion"), t("subscription.smart.waitingSeries")],
+    manual_requested: [t("subscription.smart.selecting"), t("subscription.smart.manualRequested")],
+    manual_candidate_unavailable: [t("subscription.smart.selecting"), t("subscription.smart.candidateUnavailable")],
+    reconciling: [t("subscription.smart.reconciling"), t("subscription.smart.reconcileNote")],
+    candidate_rejected: [t("subscription.smart.searching"), t("subscription.smart.candidateRejected")],
+    submitting: [t("subscription.smart.submitting"), t("subscription.smart.submitNote")],
+    deadline_fallback: [t("subscription.smart.selecting"), t("subscription.smart.deadlineFallback")],
+    published_window_elapsed: [t("subscription.smart.selecting"), t("subscription.smart.publishedWindowElapsed")],
+    observation_finished: [t("subscription.smart.selecting"), t("subscription.smart.observationFinished")],
+    target_available: [t("subscription.smart.selecting"), t("subscription.smart.targetAvailable")],
   };
+  if (state.reason === "awaiting_subtitles") {
+    return { label: t("subscription.smart.waitingSubtitles"), color: "var(--info)", note: t("subscription.smart.subtitleCandidates", { count: state.subtitle_blocked ?? 1 }) };
+  }
+  if (state.reason === "deadline_awaiting_subtitles") {
+    return { label: t("subscription.smart.waitingSubtitles"), color: "var(--warn)", note: t("subscription.smart.subtitleDeadline") };
+  }
   if (!state.candidate_key && !["identity_unconfirmed", "manual_candidate_unavailable", "reconciling", "submitting"].includes(state.reason)) return null;
   const [label, note] = state.reason === "user_extended" || (state.manual_extended && ["observing", "waiting_target", "waiting_series"].includes(state.reason))
-    ? ["观察中", "按你延长的时间继续等待合适版本"]
-    : reasons[state.reason] ?? ["观察中", "已有合格候选，短暂观察更合适的版本"];
+    ? [t("subscription.smart.observing"), t("subscription.smart.extended")]
+    : reasons[state.reason] ?? [t("subscription.smart.observing"), t("subscription.smart.observeNote")];
   return { label, color: "var(--info)", note };
 }

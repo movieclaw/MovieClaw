@@ -1,6 +1,6 @@
 ---
 name: movieclaw-plugin-dev
-description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时使用，不管用户有没有说「插件」。典型说法：「做一个企业微信 / 钉钉 / Slack / Bark 通道」「接入某某平台」「能不能支持某某站点」「下载完 / 入库后 / 删片后自动做某事」「按订阅规则组表达不了的规则淘汰种子」「定时去拉某个片单」「给 AI 助手加个查某某的能力」「给外部系统开个接口」。这类需求先判断现有功能能否做到，做不到的靠写插件（.mcplugin）实现；本技能覆盖从判断、开发、打包、安装、验证到卸载的全过程，也用于升级、回滚、排查已装的插件，以及回答「插件是什么、要批准什么、安不安全」这类问题。
+description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时使用，不管用户有没有说「插件」。典型说法：「做一个企业微信 / 钉钉 / Slack / Bark 通道」「接入某某平台」「能不能支持某某站点」「下载完 / 入库后 / 删片后自动做某事」「按订阅规则组表达不了的规则淘汰种子」「定时去拉某个片单」「给 AI 助手加个查某某的能力」「给外部系统开个接口」「做个页面 / 看板放左边」「换一套网页配色 / 做个主题 / 皮肤」。这类需求先判断现有功能能否做到，做不到的靠写插件（.mcplugin）实现；本技能覆盖从判断、开发、打包、安装、验证到卸载的全过程，也用于升级、回滚、排查已装的插件，以及回答「插件是什么、要批准什么、安不安全」这类问题。
 ---
 
 # MovieClaw 插件开发
@@ -8,6 +8,8 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 你要帮用户写一个 MovieClaw 插件，并在这台服务器上把它装起来、验证、必要时卸载。
 插件是一个目录：一份清单 `movieclaw-plugin.toml` + Python 代码，打包成 `.mcplugin`（zip）后安装。
 装上后默认在**独立的低权限进程**里运行，崩溃只伤它自己；装、升级、回滚、卸载都**不用重启**。
+第三方插件和商店元数据（`store.json`）在 <https://github.com/movieclaw/movieclaw-plugins>，写法见该仓库 `example/GUIDE.md`。
+本仓库不收新的第三方插件；`store.json` 不要写进清单（多一个字段上传会被拒），打进 zip 也会被解出后忽略。
 
 本文件是判断、流程与规范，**读完再动手**；第 2 节告诉你动手前还必须读哪份参考（路径以本技能目录为锚）。
 
@@ -16,6 +18,7 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 **先分流**：
 
 - 用户只是问插件是什么、要批准什么、安不安全、怎么卸载 → 读 `references/explaining-to-users.md` 照着答，不走开发流程。
+- 用户要停用 / 启用 / 卸载 / 恢复某个插件（含官方插件）→ 第 3 节第 12 步，不走开发流程。
 - 用户只是想「做一次某件事」（建订阅、删种子、扫媒体库）→ 直接用 `mclaw` 工具，不要写插件。
 - 想要的效果**已有功能或设置**能做到 → 用现有的，不要写插件。先按下表查；查到「已有但只覆盖一部分」时，
   先讲清已有的能做到哪、剩下的部分能不能用插件补。
@@ -27,11 +30,13 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 | 需求 | 查什么 |
 |---|---|
 | 通道、消息推送 | `channels list`（输出很长，只看各项 `id` / `title`）；已经会推哪些事件：`channels im push config get` |
-| 下载器 | `dl list` 看已接入的；支持哪些类型看 `dl add --help`（只有 qBittorrent、Transmission） |
+| 下载器 | `dl list` 看已接入的；支持哪些类型看 `dl types list`（随应用有 qBittorrent、Transmission，插件加的类型也列在这里） |
+| 网盘 | `drives backends list` 看能接哪些网盘（主程序本身不带，都由插件提供，如插件仓库的 `cloud-115`；`drives status` 的 `active` 为假就是还没有）；`drives accounts list` 看已登录的账号；建库时怎么用网盘看 `library create --help`（`--cloud-folders-json` 纳管、主根在网盘） |
 | 订阅只要 / 不要某些资源（制作组、分辨率、HDR、字幕、体积、免费） | `rules update --help`：订阅规则组都能设（如制作组白名单），规则组表达不了的才用钩子 |
 | 站点 | `site list`、`site --help` |
 | 播放器跳过片头、片尾、广告、预告 | 内置：剧集库的片段识别，`library update --help` 的 `--detect-media-segments` |
 | 首页显示什么 | `ui prefs show`：首页行可以选某个库、合集或类型，每个库都有按入库时间排的「最近添加」 |
+| 看板 / 汇总页 | 媒体库页本身能筛选排序（`library items list --help`：分辨率、HDR、评分、按入库时间排）、任务页看下载与后台任务、首页自定义行；要把几样放在一页、按自己的口径算，才做插件网页 |
 | 某件事发生后是否已有插件在处理 | `app plugins list -o table` 的 `durable` 一行看消费者 |
 | 有没有装过某个插件 | `app plugins packages list` |
 
@@ -40,13 +45,17 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 | 插件能做 | 靠什么 |
 |---|---|
 | 某件事发生后自动做点什么：下载完成、入库完成、删片 / 删文件 / 回收站、订阅新建 / 删除 / 开始下载 / 收齐 / 状态变化 | 可靠事件 |
-| 改变系统的判断：订阅搜索词、淘汰或重排候选种子、选下载器、否决删种 | 决策钩子 |
-| 加一种新实现：IM 通道（含只推送的，如 Bark）、站点类 / 站点数据包、定时任务（可整段替换内置的）、后台任务、入库流水线步骤 | 注册表 |
+| 改变系统的判断：订阅搜索词、淘汰或重排候选种子、选下载器、否决删种、网盘挂载文件给播放器换直链（302） | 决策钩子 |
+| 加一种新实现：IM 通道（含只推送的，如 Bark）、下载器（Deluge、Aria2……）、网盘（115、123……：登录、取流、纳管、上传、删除）、站点类 / 站点数据包、定时任务（可整段替换内置的）、后台任务、入库流水线步骤 | 注册表 |
+| 删影片 / 删文件的弹窗里加一个「顺带清理」的勾选项（默认不勾，先预览后果，勾了才执行） | 注册表 `library.delete-participants` |
 | 给 AI 助手加一个能力（查天气、查某个外部服务）、给外部系统开接口 | 插件接口：自动成为 mclaw 命令，AI 助手直接能调 |
+| 用户自己的页面（看板、统计、片单、管理页），出现在网页左侧栏 | 插件网页：`web/` 里一个普通网页，同源调接口（`references/web-pages.md`） |
+| 网页换一套外观：配色、圆角、字号、字体、部件形状，在「设置 → 外观」里选用 | 网页主题：`theme/theme.css`，只改外观不改页面（`references/themes.md`） |
 | 接收外部平台推过来的消息（企业微信自建应用回调、GitHub / Slack 推送、Telegram Webhook） | 回调端点：宿主发地址，请求原样交给插件，插件自己验签 |
 | 做事与存东西：调用系统操作（与 mclaw 同一份）、存状态、读写批准的目录、报告健康 | 服务 |
 
-**做不到的**：给网页 / App 加界面、按钮或设置页（包括播放器里的按钮、首页卡片）、新的下载器类型、新的元数据来源、
+**做不到的**：在主程序已有的页面里加按钮或卡片（播放器、详情页、首页）、给 iPhone / TV 等 App 加界面
+（插件自己的整页可以，见能力地图「插件网页」）、新的元数据来源、
 新的 Webhook 格式、新的站点认证方式、替换播放 / 转码 / 媒体库扫描 / 刮削主流程、改 AI 助手本身。
 **遇到要直说做不到**，并给替代办法：先给用户能直接用的现成功能（上表），再给插件能做的部分
 （`references/extension-points.md` 第 5 节），不要先答应再做到一半。
@@ -79,20 +88,27 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 
 第 0 节给方案时只需要 `references/extension-points.md`；下表是**动手写代码前**要读的。
 示例插件都在本技能的 `references/examples/`（只有这一处，仓库和容器里没有别的副本）。它们是插件体系的验收插件，
-CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。示例大多是「本地插件」写法（`config=` + `data/plugins.yaml`、从 `movieclaw_kernel` 导入），
+CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。示例大多是「本地插件」写法（`data/plugins.yaml`、从 `movieclaw_kernel` 导入），
 做插件包时以 `templates/starter/` 为准，差别见 `references/examples/README.md`。
 
 | 你要做的 | 先读（读完再写代码） |
 |---|---|
 | 任何插件 | `references/extension-points.md`（确认要用的契约存在、没落在「做不到」里）、`templates/starter/` |
 | 事件 / 钩子类（删片联动、关键字规则、选下载器） | `references/recipes.md` 第 1～3 节，对应示例 `references/examples/{delete_cascade,keyword_rules}.py` |
+| 网盘（接一家网盘做媒体库的存储） | `references/recipes.md` 第 18 节（**先看登录方式与能写的限制**）、`$SRC/movieclaw_sdk/drives.py` 文件头（契约与骨架）；完整的真实插件是插件仓库的 `plugins/cloud-115/`（<https://github.com/movieclaw/movieclaw-plugins>，带第三方依赖，见 `references/manifest.md`「第三方依赖」） |
+| 下载器（接一款新的下载软件） | `$SRC/movieclaw_sdk/downloaders.py` 文件头（骨架、连接参数只能取 url / username / password）、随带的 `$SRC/movieclaw_plugins/qbittorrent/`、`transmission/` |
+| 删除弹窗加勾选项 | `references/extension-points.md` 的 `library.delete-participants`、`$SRC/movieclaw_api/services/library/delete_participants.py` 文件头、内置参与方 `$SRC/movieclaw_api/services/remove_source.py` |
 | IM 通道 | `references/recipes.md` 第 11 节（**选接入方式**）、`references/examples/ntfy-channel/`、`$SRC/movieclaw_sdk/channels.py` 文件头；只推送的通道再看 `$SRC/movieclaw_plugins/feishu/`；靠平台回调收消息的看 `references/examples/wecom-channel/` |
 | 定时 / 后台任务、入库流水线 | `references/recipes.md` 第 6～7 节、`references/examples/{watchlist_feed,cloud_strm}.py` |
+| 用户正要用的先准备好（开始播放预取下一集、收藏 / 打开详情先处理、新文件入库后慢慢补） | `references/recipes.md` 第 7、16 节（实时事件 + 插件自己建后台任务），完整示例 `$SRC/movieclaw_plugins/strm_prefetch/` |
+| 驱动 AI 助手（把外部协议 / 平台的请求转成一轮对话、自动化） | `references/recipes.md` 第 15 节（**先定对端怎么进来**：只聊天用公开区签名链接，要操作系统才用管理员区 + 令牌；先 `mclaw llm providers list` 确认接了模型）；非 Python 写法看 `references/examples/go-a2a-bridge/` |
 | 接收外部平台的回调 | `references/recipes.md` 第 14 节 |
 | 开接口（含给 AI 助手加能力）、读写文件 | `references/recipes.md` 第 5、8、10 节、`templates/starter/`、`references/examples/cloud_strm.py` |
+| 做一个页面（看板、统计、管理页） | `references/web-pages.md`（只带网页的用 `new_plugin.py --web` 生成骨架） |
+| 换网页外观（主题、配色、皮肤） | `references/themes.md`（用 `new_plugin.py --theme` 生成骨架），示例 `references/examples/ocean-theme/` |
 | 插件需要用户填的配置或凭据（账号、地址、Key） | `references/recipes.md` 第 13 节 |
 | 站点 | `references/recipes.md` 第 12 节、`references/examples/site_pack/` |
-| 一个插件里放好几件事、替换内置的东西 | `references/composition.md`（替换随带通道：把 `$SRC/movieclaw_plugins/<名>/` 复制到 `plugins/channel.<名>/` 再改） |
+| 一个插件里放好几件事、替换内置的东西 | `references/composition.md`（替换随带通道：把 `$SRC/movieclaw_plugins/<名>/` 复制到 `plugins/<同 id>/` 再改，id 不含点） |
 | 写清单、申请权限 | `references/manifest.md` |
 | 用户问「插件是什么、为什么要批准、会不会搞坏」 | `references/explaining-to-users.md` |
 | 装不上、起不来、没反应 | `references/troubleshooting.md` |
@@ -115,21 +131,24 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
    （多加几个关键词、多记几个字段），作为建议提出来，用户同意再加。
 2. **查契约**：`python <本技能>/scripts/contracts.py` 列出全部开放契约；`python <本技能>/scripts/contracts.py <名字>`
    看某个事件 / 钩子的载荷与返回结构。只能用列出来的契约。要调用的宿主操作用 `mclaw <域> --help` 找，
-   操作 id 与命令一一对应（`mclaw subscriptions create` ↔ `subscriptions.create`）。
+   操作 id 与命令一一对应（`mclaw subscriptions create` ↔ `subscriptions.create`）；它的参数、返回字段、
+   要不要管理员，用 `python <本技能>/scripts/api.py <操作 id>` 查（`ops.call` 的参数、网页里 `fetch` 的地址都看它）。
 3. **生成骨架**：
    `python <本技能>/scripts/new_plugin.py plugins/<id> --id <id> --title "<中文标题>"`
-   生成清单与入口模块，再按需求改。
+   生成清单与入口模块，再按需求改。只带网页的插件加 `--web`（生成清单与 `web/`，没有 Python 代码，见 `references/web-pages.md`）；
+   网页主题加 `--theme`（生成带 `[theme]` 段的清单与 `theme/theme.css`，见 `references/themes.md`）。
 4. **写代码**：遵守第 4 节规范。
 5. **本地检查**：`python <本技能>/scripts/check_plugin.py plugins/<id>`。它用服务器同一套逻辑校验清单、契约、
    宿主操作，并真的导入入口模块找 `@plugin`。**有 ✗ 必须先修好**；⚠ 要逐条判断。
    **再自测判断逻辑**：把「该不该处理 / 怎么处理」写成模块顶层的纯函数（如 `verdict(title) -> 原因 | None`），
    在 bash 里 `cd plugins/<id> && python -c "from <模块> import verdict; assert …"` 跑几条**正例和反例**
    （反例 = 看着像但不该命中的，如片名里恰好含这几个字母）。钩子在热路径上、误判会直接影响下载，这步不能省。
+   插件网页的判断逻辑（时间范围、过滤条件）同理：写成独立的 JS 函数，用 `node -e` 跑几条正反例（`references/web-pages.md` 第 5 节）。
 6. **征得用户同意再安装**（第 5 节）。问完就结束这一轮、等用户回答；同一轮里提问又接着安装，不算征得同意。
-7. **安装并加载**：`mclaw` 工具执行 `plugin dev plugins/<id> --once`。它会打包（版本自动加 `-dev.<时间戳>`）、
+7. **安装并加载**：`mclaw` 工具执行 `plugin dev plugins/<id> --once`（带网页的、用户同意后加 `--allow-web`；纯 CSS 主题不加授信参数，见 `references/themes.md` 第 5 节）。它会打包（版本自动加 `-dev.<时间戳>`）、
    上传、按清单申请批准、当场加载，成功打印 `✓ … 已加载`。**必须带 `--once`**，否则它会一直监视文件、卡到超时。
 8. **验证**（不验证不算完成）：
-   - `mclaw app plugins packages list`：插件在 `installed` 里，版本对；
+   - `mclaw app plugins packages list`：插件在 `installed` 里，版本对（`watching: true` 是装好后两分钟的观察期：这期间崩溃会自动回滚，不是 `plugin dev` 还在监视文件）；
    - `mclaw app plugins list`：找到条目 id（`id` 字段），`state` 应为 `active`，失败时看 `error`。
      这条输出很长（全部内置条目），会被截断；截断提示里给了完整输出的文件路径，用 bash 筛：
      `python -c "import json; d=json.load(open('<文件>')); [print(e['id'], e['state'], e['source'], e.get('error')) for e in d['plugins'] if e['source'] == 'package']"`
@@ -151,8 +170,22 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 10. **正式安装**（用户要长期使用时）：清单里定好正式 `version`，然后
     `plugin pack plugins/<id>` → `app plugins packages upload --file <生成的 .mcplugin>` →
     `app plugins packages approve <id> --version <版本> --operations-json '<与清单一致>' --paths-json '<与清单一致>' --yes`。
-11. **卸载**：`app plugins packages uninstall <id> --yes`（默认保留插件数据；用户要求清干净才加 `--purge-data`）。卸载后再查一次 `app plugins list`，确认条目已消失；替换内置插件的包卸载后内置版本自动回来。
+    带第三方依赖（清单 `[dependencies]`）的：上传结果的 `dependencies` 列出要下载的包、大小、是否含本机代码；
+    `needs_consent` 为真时**先把这份清单原样告诉用户、得到同意**，再加 `--dependencies <dependencies.lock_digest>` 批准。
+    锁文件没变的升级不用再加。
+   官方插件仓库里已经发布的插件（`app plugins market list` 里有的）不用打包：
+    `app plugins market install <id> --version <版本>` 让服务器下载核对后进待批准，再照上面 `approve`；升级、换回旧版都是同一条命令。
+11. **卸载**：`app plugins packages uninstall <id> --yes`（默认保留插件数据；用户要求清数据才加 `--purge-data`，它只删 `plugin_data` 里该 id 的行，不删设置文件和私有目录）。卸载后再查一次 `app plugins list`，确认条目已消失；替换内置插件的包卸载后内置版本自动回来。
     回到上一版：`app plugins packages rollback <id> --yes`。
+12. **停用 / 官方插件**：插件包与官方插件（随应用提供的，如通道、下载器、网盘规格预探）都能临时停用：
+    `app plugins switch <id> --enabled=false`（启用：`--enabled=true`；布尔参数必须带 `=`），运行中生效、重启后保持，
+    **停用会取消它排着的后台任务**（插件任务的类型以 `<id>:` 开头，停用前可用 `jobs list --active-only` 看有没有在跑的）。
+    条目 id 从 `app plugins list` 的完整输出里筛：官方插件 `tier` 是 `official`、可停用的 `switchable` 为真
+    （`python -c "import json; d=json.load(open('<文件>')); [print(e['id'], e['title'], e['state']) for e in d['plugins'] if e.get('switchable')]"`）。
+    网页上的位置：「设置 → 插件」，官方插件在最上面一组，点进去「操作」里有停用 / 卸载。
+    官方插件还能卸载：`app plugins bundled uninstall <id> --yes`（加 `--purge-data` 连数据删），随时
+    `app plugins bundled restore <id>` 装回；已卸载的在 `app plugins list` 的 `removed` 里。被 `plugins.yaml` / 环境变量
+    关掉的插件开关是锁住的（`locked_by` 写明原因），要用户去那里改。
 
 命令参数以 `mclaw <命令> --help` 为准，报错时先看 `--help` 再重试。排查：`references/troubleshooting.md`。
 
@@ -160,19 +193,22 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 
 **必须**
 - 清单 `id` = `@plugin` 名字；`entry` 是模块名（`hello.py` 或 `hello/__init__.py` 的 `hello`）。
-- `inject=(...)` **只写服务**（`HOST_OPS`、`PLUGIN_DATA`、`PLUGIN_FILES`、`PLUGIN_ROUTES`、`PLUGIN_HEALTH`、`DURABLE_EVENTS`）。
+- `inject=(...)` **只写服务**（`HOST_OPS`、`PLUGIN_DATA`、`PLUGIN_FILES`、`PLUGIN_ROUTES`、`PLUGIN_HEALTH`、`PLUGIN_JOBS`、
+  `AGENT`、`DURABLE_EVENTS`）。插件包代码优先从 SDK 导入（`movieclaw_sdk.ops` 的 `HOST_OPS`、`movieclaw_sdk.jobs`、
+  `movieclaw_sdk.agent` 的 `AGENT`、`movieclaw_sdk.events` 的系统事件）。
   注册表（如 `IM_CHANNELS`、`SCHEDULED_TASKS`）在 `apply` 里 `ctx.contribute`，事件 / 钩子用 `ctx.on`，**都不写进 inject**；
-  用到的事件 / 钩子 / 注册表写进清单 `[requires]`（如 `"library.ingest.imported" = "^1.0"`）；只用服务时 `[requires]` 可以留空。
+  用到的事件 / 钩子 / 注册表写进清单 `[requires]`（如 `"library.ingest.completed" = "^1.0"`）；服务写不写进 `[requires]` 都行（写了就锁定版本，如 `"plugin-jobs" = "^1.0"`）；只用服务时 `[requires]` 可以留空。
 - 要调用的宿主操作同时写进 `@plugin(permissions=...)` 和清单 `permissions.operations`；
   危险操作（`mclaw` 帮助里带 ⚠ 的）必须逐个列出，不能靠 `领域.*` 覆盖。
-- 可靠事件监听器必须有稳定 `id`（`ctx.on(EVENT, fn, id="xxx")`），并且**幂等**（至少投递一次，同一事件可能来两次）：
+- 可靠订阅必须有稳定 `id`（`ctx.on(EVENT, fn, id="xxx", durable=True)`），并且**幂等**（至少投递一次，同一事件可能来两次）：
   按 `ctx.delivery.event_id` 去重（`recipes.md` 第 1 节），或者做的事本身重复执行也没影响
   （删除类：对象已经不在了按成功处理，见 `examples/delete_cascade.py`）。
 - 后台循环用 `ctx.task(coro, name=...)`，循环里捕获异常并记日志后继续，`CancelledError` 要原样抛出。
 - 持久状态存插件数据（`PLUGIN_DATA`），读写文件走文件接口（`PLUGIN_FILES`）并在清单 `paths` 里申请。
 - 连外网走用户的代理设置：`httpx.AsyncClient(transport=movieclaw_sdk.net.http_transport("<服务名>"))`，清单写 `network = true`。
 - 主程序自带的库可以直接 import（如 `httpx`、`websockets`、`pydantic`、`fastapi`、`cryptography`、`parsel`、`pyyaml`）；
-  别的依赖只能随包放进插件目录的 `vendor/`（纯 Python）；安装时不联网、不跑 pip。
+  纯 Python 的依赖随包放进插件目录的 `vendor/`；带本机代码的第三方包写进 `[dependencies]` 锁文件，批准安装时由
+  服务器下载（`references/manifest.md`「第三方依赖」）。
 - 日志用 `ctx.logger`，中文，带上关键 id。
 - 按关键词匹配种子 / 发布名时：英文短词（TC、TS、CAM 这类）必须按**词边界**匹配，
   如 `re.compile(r"(?<![A-Za-z0-9])TC(?![A-Za-z0-9])", re.I)`，否则 `ts` 会命中 Hits、`cam` 会命中 Cameron；
@@ -195,15 +231,18 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 
 批准安装 = 把清单里申请的宿主操作和路径授予这段代码，并在服务器上运行它。所以：
 
-- 安装前向用户列出：条目 id、要做什么、申请的宿主操作（标出危险操作）、路径、是否联网、运行方式。
+- 安装前向用户列出：条目 id、要做什么、申请的宿主操作（标出危险操作）、路径、是否联网、运行方式；
+  带网页的还要说清「网页会以打开它的人的身份运行，管理员打开时拥有管理员的全部权限」和左侧栏会多出哪几项。
+  主题要说清它只改网页外观、每个人在「设置 → 外观」里自己选用，装上不会改任何人当前的外观。
   **用户明确同意后才执行第 3 节第 7、10 步**。用户在本次对话里已经明确说过「直接装」的，视为同意。
 - 申请最小权限：只列真正会调用的操作；能用演练（`dry_run`）验证的危险操作先演练。
 - 不可恢复、又有取舍的行为（删种时连数据文件一起删会影响做种和分享率、覆盖文件、批量改订阅）不要替用户定默认值，
   列出选项请用户选。
 - 装好后还要用户给凭据才能用的（通道绑定、外部服务的 Key），在征求安装同意的同一轮里一起说明要准备什么。
-- 卸载、回滚、清除数据：用户已经明确要求的，直接执行并在结果里说明影响，不要再问一遍；
-  是你自己提议的，先说明影响、等用户同意。
-- 不要把用户的凭据写进插件代码或清单；需要凭据时用插件数据的 `secret=True` 存。
+- 停用、卸载、回滚、清除数据：用户已经明确要求的（「帮我关掉 / 不想用了 / 卸了它」），直接执行并在结果里说明影响，
+  不要再问一遍；只是问「能不能关、怎么关」的，讲清办法和影响，问要不要现在做。是你自己提议的，先说明影响、等用户同意。
+  「暂时不用」做停用（随时启用），「不要了」才卸载。
+- 不要把用户的凭据写进插件代码或清单；凭据写进配置模型（`SecretStr`），用户在插件的「设置」里填（`references/recipes.md` 第 13 节）。
 - **绝不设法获取或截获登录凭据**：不读 mclaw 的配置 / 环境变量里的令牌，不用 strace、抓包、本地代理截请求头，
   不绕过鉴权直接 curl 需要登录的接口。mclaw 调不到的接口，就换上面的正规验证方式，或请用户在网页里打开确认。
 
@@ -214,9 +253,37 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 | `references/extension-points.md` | 全部开放契约（用途、导入、示例）与「还没开放的 + 替代办法」 |
 | `references/composition.md` | 一个插件组合多个扩展点、何时拆分、替换内置、插件之间配合 |
 | `references/recipes.md` | 每种扩展点的写法片段（第 11 节含 IM 通道的接入方式选择） |
+| `references/web-pages.md` | 插件网页：标准网页 + Web App Manifest，同源调接口，进左侧栏 |
+| `references/themes.md` | 网页主题：`[theme]` 段、theme.css 的作用域规则、公开变量与部件 |
 | `references/manifest.md` | 清单字段、权限、版本区间、安装 / 升级 / 回滚 / 卸载命令 |
 | `references/architecture.md` | 原理：生命周期、进程外运行、权限模型、源码位置 |
 | `references/explaining-to-users.md` | 给用户解释插件、权限、安全、卸载的标准说法 |
 | `references/troubleshooting.md` | 按报错查原因 |
-| `references/examples/` | 6 个经过测试的真实插件（先读 README） |
-| `templates/starter/`、`scripts/` | 骨架；生成骨架、查契约、安装前检查的脚本 |
+| `references/examples/` | 9 个经过测试的真实插件（先读 README） |
+| `templates/starter/`、`templates/web/`、`templates/theme/`、`scripts/` | 骨架；生成骨架、查契约、查接口（`api.py`）、安装前检查的脚本 |
+
+## 提供英文界面
+
+清单的原字段保留默认文本，在旁边增加 W3C `*_localized` 风格的语言映射；不要增加 `translations` 顶层段：
+
+```toml
+[plugin]
+id = "hello-world"
+title = "问候"
+title_localized = { en = "Greeting" }
+description = "显示问候语"
+description_localized = { en = "Display a greeting" }
+version = "1.0.0"
+entry = "hello_world"
+sdk = "^1.1"
+```
+
+- `[theme]` 的 `label` / `description` 同样可加 `label_localized` / `description_localized`。
+- 配置模型用 `Field(title="…", description="…", json_schema_extra={"title_localized": {"en": "…"}, "description_localized": {"en": "…"}})`。默认值、枚举值和配置键是数据，不随语言改写。
+- `ctx.locale` 是本次调用的 `en` / `zh-Hans`，主进程与独立进程都支持。运行中的处理函数现读它；不要在 `apply()` 时把语言缓存为全局变量。这个属性要求 SDK `^1.1`。
+- 网页从 `document.documentElement.lang` 读宿主注入的语言；`fetch` 调宿主时带同样的 `Accept-Language`。自己的界面由插件维护中英两套文案。
+- `web/manifest.webmanifest` 使用标准 `name_localized`、`short_name_localized`；`shortcuts` 中的名称也可带对应映射。映射值可为字符串或 `{ "value": "…", "lang": "en", "dir": "ltr" }`。
+- 主题代码通过 `@movieclaw/theme-sdk` 的 `useAppLocale` / `useAppTranslations` 获取宿主语言和宿主已有文案，要求 `requires."ui.theme" = "^1.2"`。插件自己的文案用自己的资源，不能假设宿主会提供任意键。
+- 市场 `store.json` 的 `name`、`summary`、`description` 可加对应 `*_localized` 映射，索引生成时原样携带；包清单不放市场专用字段。
+
+验证同一接口先英文、再中文、再英文；确认名称与说明各自正确，配置值及权限不变。网页检查 `<html lang>` 和切换后的 ETag，主题检查桌面与手机的英文布局。没有译文时保留原字段，旧清单仍可安装。

@@ -1,5 +1,8 @@
 "use client";
 
+import { useTranslations, useLocale } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import { requestLocale, type AppLocale } from "@/lib/i18n/negotiate";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -45,14 +48,14 @@ import {
   subscriptionCollectionMeta,
   subscriptionRibbon,
 } from "@/lib/subscription-ui";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
 import { useSubscriptionsHome } from "@/lib/use-subscriptions-home";
 
 /**
  * 订阅页的银玻璃布局「我的订阅」：流媒体式版式（2026-09-27 对齐原生 App 的
- * SubscriptionsView.swift；Netflix 主题走 themes/netflix/pages/subscriptions-page.tsx，
+ * SubscriptionsView.swift；Netflix 主题走 plugins/netflix/src/pages/subscriptions-page.tsx，
  * 入口分流见 components/subscriptions-page.tsx）。
  *
  * 页面按时间与意图拆，而不是按「全部 / 剧集 / 电影」拆：
@@ -75,6 +78,7 @@ import { useSubscriptionsHome } from "@/lib/use-subscriptions-home";
  * 判定口径全在 lib/subscriptions-home.ts。老版本服务端没有刚刚入库 / 整周预告时，对应版块自动不出现。
  */
 export function SubscriptionsView() {
+  const t = useTranslations();
   const { canManageSubscriptions, canSubscribe, isAdmin } = usePermissions();
   const { subscriptions, refresh } = useSubscribeEntry();
   const { state, recent, now } = useSubscriptionsHome(subscriptions, isAdmin);
@@ -117,13 +121,13 @@ export function SubscriptionsView() {
   const setTopBarTitle = chrome?.setTopBarTitle;
   const setTopBarActions = chrome?.setTopBarActions;
   const isMobile = useIsMobile();
-  const structural = useTheme().structural;
-  const mobileChrome = isMobile && !structural;
+  const cinema = useLayout() === "cinema";
+  const mobileChrome = isMobile && !cinema;
   const showHealth = canManageSubscriptions && healthErrors !== null;
   useEffect(() => {
     if (!mobileChrome || !setTopBarTitle) return;
-    return setTopBarTitle("我的订阅", { large: true });
-  }, [mobileChrome, setTopBarTitle]);
+    return setTopBarTitle(t("subscription.overview.title"), { large: true });
+  }, [mobileChrome, setTopBarTitle, t]);
   useEffect(() => {
     if (!mobileChrome || !setTopBarActions || !showHealth || healthErrors === null) return;
     return setTopBarActions(<HealthMenu errors={healthErrors} />);
@@ -139,7 +143,7 @@ export function SubscriptionsView() {
   const currentSlide = hasHero ? slides[Math.min(heroIndex, slides.length - 1)] : null;
   const tint = useHeroAmbientColor(currentSlide ? heroImageOf(currentSlide) : null);
   // 桌面沉浸：窗口背景换成当前这张剧照，侧栏玻璃与四周缝隙都透出同一部片（手机不需要，本来就铺满）
-  useHeroWindowBackdrop(!isMobile && !structural && currentSlide ? heroImageOf(currentSlide) : null);
+  useHeroWindowBackdrop(!isMobile && !cinema && currentSlide ? heroImageOf(currentSlide) : null);
 
   return (
     <div
@@ -171,7 +175,8 @@ export function SubscriptionsView() {
             }`}
           >
             <h2 className="text-on-image text-[26px] font-bold leading-tight tracking-[-0.02em] text-white">
-              我的订阅
+
+              {t("subscription.overview.title")}
             </h2>
             {showHealth && healthErrors !== null && (
               <div className="pointer-events-auto">
@@ -185,13 +190,14 @@ export function SubscriptionsView() {
 
         {showError && (
           <div className="mt-16 flex flex-col items-center gap-3 text-center">
-            <p className="text-ui text-[var(--text-muted)]">订阅列表加载失败</p>
+            <p className="text-ui text-[var(--text-muted)]">{t("subscription.overview.failed")}</p>
             <button
               type="button"
               onClick={reload}
               className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]"
             >
-              重试
+
+              {t("common.retry")}
             </button>
           </div>
         )}
@@ -199,11 +205,11 @@ export function SubscriptionsView() {
         {subscriptions !== null && subs.length === 0 && (
           <ContentEmptyState
             variant="subscription"
-            title="从一部想看的作品开始"
+            title={t("subscription.overview.empty")}
             description={
               canSubscribe
-                ? "去发现页挑选一部剧集或电影，打开详情并点击「订阅追踪」，有合适资源时会自动下载入库。"
-                : "当前账号暂未开启订阅权限，请联系管理员为你开启。"
+                ? t("subscription.overview.discoverAllHint")
+                : t("subscription.overview.permissionHint")
             }
             action={
               canSubscribe ? (
@@ -212,7 +218,8 @@ export function SubscriptionsView() {
                   className="btn-accent flex items-center gap-1.5 rounded-full px-4 py-2 text-ui font-semibold"
                 >
                   <SparklesIcon className="size-4" />
-                  去发现
+
+                  {t("subscription.overview.discover")}
                 </Link>
               ) : undefined
             }
@@ -232,10 +239,10 @@ export function SubscriptionsView() {
                 <SubsHomeSchedule days={state.days} />
               )}
               {state.tv.active.length + state.tv.paused.length + state.tv.done.length > 0 && (
-                <SubsHomeShelfRow title="剧集订阅" kind="tv" shelf={state.tv} />
+                <SubsHomeShelfRow title={t("subscription.sections.tvSubscriptions")} kind="tv" shelf={state.tv} />
               )}
               {state.movie.active.length + state.movie.paused.length + state.movie.done.length > 0 && (
-                <SubsHomeShelfRow title="电影订阅" kind="movie" shelf={state.movie} />
+                <SubsHomeShelfRow title={t("subscription.sections.movieSubscriptions")} kind="movie" shelf={state.movie} />
               )}
             </div>
           </>
@@ -247,12 +254,13 @@ export function SubscriptionsView() {
 
 /** 加载骨架：占住 Hero 与前两排的位置，数据到达原位替换不跳版 */
 function LoadingSkeleton() {
+  const t = useTranslations();
   return (
-    <div aria-label="订阅首页加载中" className="space-y-7">
+    <div aria-label={t("subscription.overview.loadingHome")} className="space-y-7">
       <HeroBleed>
         <div className={`${SUBS_HOME_HERO_HEIGHT} animate-pulse bg-white/[0.04]`} />
       </HeroBleed>
-      {["刚刚入库", "剧集订阅"].map((title) => (
+      {[t("subscription.sections.recent"), t("subscription.sections.tvSubscriptions")].map((title) => (
         <div key={title}>
           <p className={`text-[20px] font-bold text-[var(--text-faint)] ${SUBS_HOME_INSET}`}>{title}</p>
           <div className={`mt-3 flex gap-3.5 overflow-hidden ${SUBS_HOME_INSET}`}>
@@ -269,10 +277,11 @@ function LoadingSkeleton() {
   );
 }
 
-function healthMessage(errors: number): string {
+function healthMessage(errors: number, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   return errors > 0
-    ? `${errors} 个媒体库的入库链路有问题，相关订阅暂时无法自动下载入库（已下达的任务会自动重试）`
-    : "订阅链路尚未就绪（缺少可用的资源站点或下载器），订阅暂时只能记录意愿";
+    ? t("subscription.health.libraryErrors", { count: errors })
+    : t("subscription.health.notReady");
 }
 
 /**
@@ -281,14 +290,16 @@ function healthMessage(errors: number): string {
  * 但修好之前无法自动下载入库——原来是首屏一整条横幅，收成这颗钮不再占版面。
  */
 function HealthMenu({ errors }: { errors: number }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const router = useRouter();
-  const message = healthMessage(errors);
+  const message = healthMessage(errors, locale);
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          aria-label={`订阅链路异常：${message}`}
+          aria-label={t("subscription.health.menuLabel", { message })}
           className={`${PAGE_NAV_BUTTON_CLASS} !text-[var(--warn)]`}
         >
           <WarningIcon className="size-[18px]" />
@@ -309,7 +320,8 @@ function HealthMenu({ errors }: { errors: number }) {
             className="glass-row nav-item flex cursor-pointer items-center gap-2 px-3 py-2 text-sub outline-none data-[highlighted]:!bg-[var(--glass-fill-hover)]"
           >
             <ShieldIcon className="size-4 shrink-0 text-[var(--text-muted)]" />
-            查看体检详情与修复入口
+
+            {t("subscription.health.openDetails")}
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -337,15 +349,16 @@ export function MediaTypeSwitcher({
   onChange: (type: SubscriptionFilter) => void;
   compact?: boolean;
 }) {
+  const t = useTranslations();
   const labels: Record<SubscriptionFilter, string> = {
-    all: "全部",
-    tv: "剧集",
-    movie: "电影",
+    all: t("subscription.filter.all"),
+    tv: t("subscription.filter.tv"),
+    movie: t("subscription.filter.movie"),
   };
   return (
     <div
       className="flex shrink-0 rounded-full border border-white/10 bg-black/35 p-1 backdrop-blur-xl"
-      aria-label="订阅类型"
+      aria-label={t("subscription.filter.label")}
     >
       {(["all", "tv", "movie"] as const).map((type) => (
         <button
@@ -391,10 +404,11 @@ function toVisualItem(
   sub: Subscription,
   ruleSetName?: string,
   libraryName?: string,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): PosterVisualItem {
   const scope = sub.media.kind === "tv" ? compactSeasonRange(sub.selected_seasons) : undefined;
   const configFlow = [ruleSetName, libraryName].filter(Boolean).join("  →  ");
-  const ribbon = subscriptionRibbon(sub);
+  const ribbon = subscriptionRibbon(sub, locale);
   return {
     id: String(sub.media.tmdb_id),
     source: "tmdb",
@@ -412,7 +426,7 @@ function toVisualItem(
     // 角标一律用紧凑左上斜标：右上角让给「洗 N」洗版徽标（常驻状态数量比
     // 能力开关更值得占主视觉位）
     ribbonVariant: "compact-left",
-    posterFooter: subscriptionCollectionMeta(sub),
+    posterFooter: subscriptionCollectionMeta(sub, locale),
   };
 }
 
@@ -427,9 +441,10 @@ export function SubscriptionCell({
   ruleSetName?: string;
   libraryName?: string;
 }) {
+  const locale = useLocale();
   return (
     <PosterCardVisual
-      item={toVisualItem(sub, ruleSetName, libraryName)}
+      item={toVisualItem(sub, ruleSetName, libraryName, locale)}
       href={`/subscriptions/${sub.id}` as Route}
       action="none"
       revealInfoOnTouch

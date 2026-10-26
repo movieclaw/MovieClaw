@@ -1,0 +1,428 @@
+{
+  "core.database": {
+    "path": "src/movieclaw_api/plugins/core.py",
+    "function": "database",
+    "manifest_ref": "core.database",
+    "title": "plugins.builtins.coreDatabaseTitle",
+    "description": "plugins.builtins.coreDatabaseDescription"
+  },
+  "core.registries": {
+    "path": "src/movieclaw_api/plugins/core.py",
+    "function": "registries",
+    "manifest_ref": "core.registries",
+    "title": "plugins.builtins.coreRegistriesTitle",
+    "description": "plugins.builtins.coreRegistriesDescription"
+  },
+  "kernel.durable-events": {
+    "path": "src/movieclaw_api/plugins/events.py",
+    "function": "durable_events",
+    "manifest_ref": "events.durable_events",
+    "title": "plugins.builtins.kernelDurableEventsTitle",
+    "description": "plugins.builtins.kernelDurableEventsDescription"
+  },
+  "kernel.plugin-events": {
+    "path": "src/movieclaw_api/plugins/events.py",
+    "function": "plugin_events",
+    "manifest_ref": "events.plugin_events",
+    "title": "plugins.builtins.kernelPluginEventsTitle",
+    "description": "plugins.builtins.kernelPluginEventsDescription"
+  },
+  "kernel.host-ops": {
+    "path": "src/movieclaw_api/plugins/events.py",
+    "function": "host_ops",
+    "manifest_ref": "events.host_ops",
+    "title": "plugins.builtins.kernelHostOpsTitle",
+    "description": "plugins.builtins.kernelHostOpsDescription"
+  },
+  "kernel.plugin-data": {
+    "path": "src/movieclaw_api/plugins/events.py",
+    "function": "plugin_data",
+    "manifest_ref": "events.plugin_data",
+    "title": "plugins.builtins.kernelPluginDataTitle",
+    "description": "plugins.builtins.kernelPluginDataDescription"
+  },
+  "kernel.plugin-jobs": {
+    "path": "src/movieclaw_api/plugins/events.py",
+    "function": "plugin_jobs",
+    "manifest_ref": "events.plugin_jobs",
+    "title": "plugins.builtins.kernelPluginJobsTitle",
+    "description": "plugins.builtins.kernelPluginJobsDescription"
+  },
+  "kernel.plugin-health": {
+    "path": "src/movieclaw_api/plugins/events.py",
+    "function": "plugin_health",
+    "manifest_ref": "events.plugin_health",
+    "title": "plugins.builtins.kernelPluginHealthTitle",
+    "description": "plugins.builtins.kernelPluginHealthDescription"
+  },
+  "kernel.plugin-routes": {
+    "path": "src/movieclaw_api/plugins/events.py",
+    "function": "plugin_routes",
+    "manifest_ref": "events.plugin_routes",
+    "title": "plugins.builtins.kernelPluginRoutesTitle",
+    "description": "plugins.builtins.kernelPluginRoutesDescription"
+  },
+  "kernel.plugin-callbacks": {
+    "path": "src/movieclaw_api/plugins/events.py",
+    "function": "plugin_callbacks",
+    "manifest_ref": "events.plugin_callbacks",
+    "title": "plugins.builtins.kernelPluginCallbacksTitle",
+    "description": "plugins.builtins.kernelPluginCallbacksDescription"
+  },
+  "kernel.plugin-files": {
+    "path": "src/movieclaw_api/plugins/events.py",
+    "function": "plugin_files",
+    "manifest_ref": "events.plugin_files",
+    "title": "plugins.builtins.kernelPluginFilesTitle",
+    "description": "plugins.builtins.kernelPluginFilesDescription"
+  },
+  "core.secrets": {
+    "path": "src/movieclaw_api/plugins/core.py",
+    "function": "secrets",
+    "manifest_ref": "core.secrets",
+    "title": "plugins.builtins.coreSecretsTitle",
+    "description": "plugins.builtins.coreSecretsDescription"
+  },
+  "core.settings": {
+    "path": "src/movieclaw_api/plugins/core.py",
+    "function": "setting_store",
+    "manifest_ref": "core.setting_store",
+    "title": "plugins.builtins.coreSettingsTitle",
+    "description": "plugins.builtins.coreSettingsDescription"
+  },
+  "kernel.notices": {
+    "path": "src/movieclaw_api/plugins/notices.py",
+    "function": "plugin_notices",
+    "manifest_ref": "notices.plugin_notices",
+    "title": "plugins.builtins.kernelNoticesTitle",
+    "description": "plugins.builtins.kernelNoticesDescription"
+  },
+  "core.egress": {
+    "path": "src/movieclaw_api/plugins/core.py",
+    "function": "egress",
+    "manifest_ref": "core.egress",
+    "title": "plugins.builtins.coreEgressTitle",
+    "description": "plugins.builtins.coreEgressDescription"
+  },
+  "core.scrape-runtime": {
+    "path": "src/movieclaw_api/plugins/core.py",
+    "function": "scrape_runtime",
+    "manifest_ref": "core.scrape_runtime",
+    "title": "plugins.builtins.coreScrapeRuntimeTitle",
+    "description": "plugins.builtins.coreScrapeRuntimeDescription"
+  },
+  "playback.remote-config": {
+    "path": "src/movieclaw_api/plugins/playback.py",
+    "function": "remote_config",
+    "manifest_ref": "playback.remote_config",
+    "title": "plugins.builtins.playbackRemoteConfigTitle",
+    "description": "plugins.builtins.playbackRemoteConfigDescription"
+  },
+  "core.http-clients": {
+    "path": "src/movieclaw_api/plugins/core.py",
+    "function": "http_clients",
+    "manifest_ref": "core.http_clients",
+    "title": "plugins.builtins.coreHttpClientsTitle",
+    "description": "plugins.builtins.coreHttpClientsDescription"
+  },
+  "tracker.sites": {
+    "path": "src/movieclaw_api/plugins/core.py",
+    "function": "sites",
+    "manifest_ref": "core.sites",
+    "title": "plugins.builtins.trackerSitesTitle",
+    "description": "plugins.builtins.trackerSitesDescription"
+  },
+  "tracker.site-access": {
+    "path": "src/movieclaw_api/plugins/core.py",
+    "function": "site_access",
+    "manifest_ref": "core.site_access",
+    "title": "plugins.builtins.trackerSiteAccessTitle",
+    "description": "plugins.builtins.trackerSiteAccessDescription"
+  },
+  "selfheal.credentials": {
+    "path": "src/movieclaw_api/plugins/core.py",
+    "function": "selfheal_credentials",
+    "manifest_ref": "core.selfheal_credentials",
+    "title": "plugins.builtins.selfhealCredentialsTitle",
+    "description": "plugins.builtins.selfhealCredentialsDescription"
+  },
+  "library.builtin-collections": {
+    "path": "src/movieclaw_api/plugins/library.py",
+    "function": "builtin_collections",
+    "manifest_ref": "library.builtin_collections",
+    "title": "plugins.builtins.libraryBuiltinCollectionsTitle",
+    "description": "plugins.builtins.libraryBuiltinCollectionsDescription"
+  },
+  "agent.runs": {
+    "path": "src/movieclaw_api/plugins/agent.py",
+    "function": "agent_runs",
+    "manifest_ref": "agent.agent_runs",
+    "title": "plugins.builtins.agentRunsTitle",
+    "description": "plugins.builtins.agentRunsDescription"
+  },
+  "agent.session-index": {
+    "path": "src/movieclaw_api/plugins/agent.py",
+    "function": "agent_session_index",
+    "manifest_ref": "agent.agent_session_index",
+    "title": "plugins.builtins.agentSessionIndexTitle",
+    "description": "plugins.builtins.agentSessionIndexDescription"
+  },
+  "agent.attachments": {
+    "path": "src/movieclaw_api/plugins/agent.py",
+    "function": "agent_attachments",
+    "manifest_ref": "agent.agent_attachments",
+    "title": "plugins.builtins.agentAttachmentsTitle",
+    "description": "plugins.builtins.agentAttachmentsDescription"
+  },
+  "agent.invoke": {
+    "path": "src/movieclaw_api/plugins/agent.py",
+    "function": "agent_invoke",
+    "manifest_ref": "agent.agent_invoke",
+    "title": "plugins.builtins.agentInvokeTitle",
+    "description": "plugins.builtins.agentInvokeDescription"
+  },
+  "enrich.backfill": {
+    "path": "src/movieclaw_api/plugins/library.py",
+    "function": "enrich_backfill",
+    "manifest_ref": "library.enrich_backfill",
+    "title": "plugins.builtins.enrichBackfillTitle",
+    "description": "plugins.builtins.enrichBackfillDescription"
+  },
+  "library.disc-image-durations": {
+    "path": "src/movieclaw_api/plugins/library.py",
+    "function": "disc_image_durations",
+    "manifest_ref": "library.disc_image_durations",
+    "title": "plugins.builtins.libraryDiscImageDurationsTitle",
+    "description": "plugins.builtins.libraryDiscImageDurationsDescription"
+  },
+  "library.dolby-vision-backfill": {
+    "path": "src/movieclaw_api/plugins/library.py",
+    "function": "dolby_vision_backfill",
+    "manifest_ref": "library.dolby_vision_backfill",
+    "title": "plugins.builtins.libraryDolbyVisionBackfillTitle",
+    "description": "plugins.builtins.libraryDolbyVisionBackfillDescription"
+  },
+  "app-update": {
+    "path": "src/movieclaw_api/plugins/scheduling.py",
+    "function": "app_update",
+    "manifest_ref": "scheduling.app_update",
+    "title": "plugins.builtins.appUpdateTitle",
+    "description": "plugins.builtins.appUpdateDescription"
+  },
+  "downloads": {
+    "path": "src/movieclaw_api/plugins/domains.py",
+    "function": "downloads",
+    "manifest_ref": "domains.downloads",
+    "title": "plugins.builtins.downloadsTitle",
+    "description": "plugins.builtins.downloadsDescription"
+  },
+  "boost": {
+    "path": "src/movieclaw_api/plugins/domains.py",
+    "function": "boost",
+    "manifest_ref": "domains.boost",
+    "title": "plugins.builtins.boostTitle",
+    "description": "plugins.builtins.boostDescription"
+  },
+  "subscription": {
+    "path": "src/movieclaw_api/plugins/domains.py",
+    "function": "subscription",
+    "manifest_ref": "domains.subscription",
+    "title": "plugins.builtins.subscriptionTitle",
+    "description": "plugins.builtins.subscriptionDescription"
+  },
+  "tracker.search-runs": {
+    "path": "src/movieclaw_api/plugins/domains.py",
+    "function": "search_runs",
+    "manifest_ref": "domains.search_runs",
+    "title": "plugins.builtins.trackerSearchRunsTitle",
+    "description": "plugins.builtins.trackerSearchRunsDescription"
+  },
+  "library.core": {
+    "path": "src/movieclaw_api/plugins/domains.py",
+    "function": "library_core",
+    "manifest_ref": "domains.library_core",
+    "title": "plugins.builtins.libraryCoreTitle",
+    "description": "plugins.builtins.libraryCoreDescription"
+  },
+  "media.scrape": {
+    "path": "src/movieclaw_api/plugins/domains.py",
+    "function": "media_scrape",
+    "manifest_ref": "domains.media_scrape",
+    "title": "plugins.builtins.mediaScrapeTitle",
+    "description": "plugins.builtins.mediaScrapeDescription"
+  },
+  "subtitle.gen": {
+    "path": "src/movieclaw_api/plugins/domains.py",
+    "function": "subtitle_gen",
+    "manifest_ref": "domains.subtitle_gen",
+    "title": "plugins.builtins.subtitleGenTitle",
+    "description": "plugins.builtins.subtitleGenDescription"
+  },
+  "scheduler": {
+    "path": "src/movieclaw_api/plugins/scheduling.py",
+    "function": "scheduler",
+    "manifest_ref": "scheduling.scheduler",
+    "title": "plugins.builtins.schedulerTitle",
+    "description": "plugins.builtins.schedulerDescription"
+  },
+  "boost.sentinel": {
+    "path": "src/movieclaw_api/plugins/scheduling.py",
+    "function": "boost_sentinel",
+    "manifest_ref": "scheduling.boost_sentinel",
+    "title": "plugins.builtins.boostSentinelTitle",
+    "description": "plugins.builtins.boostSentinelDescription"
+  },
+  "library.watch": {
+    "path": "src/movieclaw_api/plugins/library.py",
+    "function": "library_watch",
+    "manifest_ref": "library.library_watch",
+    "title": "plugins.builtins.libraryWatchTitle",
+    "description": "plugins.builtins.libraryWatchDescription"
+  },
+  "library.ingest-watch": {
+    "path": "src/movieclaw_api/plugins/library.py",
+    "function": "ingest_watch",
+    "manifest_ref": "library.ingest_watch",
+    "title": "plugins.builtins.libraryIngestWatchTitle",
+    "description": "plugins.builtins.libraryIngestWatchDescription"
+  },
+  "channels.hub": {
+    "path": "src/movieclaw_api/plugins/delivery.py",
+    "function": "channel_hub",
+    "manifest_ref": "delivery.channel_hub",
+    "title": "plugins.builtins.channelsHubTitle",
+    "description": "plugins.builtins.channelsHubDescription"
+  },
+  "cloud": {
+    "path": "src/movieclaw_api/plugins/delivery.py",
+    "function": "cloud",
+    "manifest_ref": "delivery.cloud",
+    "title": "plugins.builtins.cloudTitle",
+    "description": "plugins.builtins.cloudDescription"
+  },
+  "push.hub": {
+    "path": "src/movieclaw_api/plugins/delivery.py",
+    "function": "push_hub",
+    "manifest_ref": "delivery.push_hub",
+    "title": "plugins.builtins.pushHubTitle",
+    "description": "plugins.builtins.pushHubDescription"
+  },
+  "webhook.delivery": {
+    "path": "src/movieclaw_api/plugins/delivery.py",
+    "function": "webhook_delivery",
+    "manifest_ref": "delivery.webhook_delivery",
+    "title": "plugins.builtins.webhookDeliveryTitle",
+    "description": "plugins.builtins.webhookDeliveryDescription"
+  },
+  "push.channels-refresh": {
+    "path": "src/movieclaw_api/plugins/delivery.py",
+    "function": "push_channels_refresh",
+    "manifest_ref": "delivery.push_channels_refresh",
+    "title": "plugins.builtins.pushChannelsRefreshTitle",
+    "description": "plugins.builtins.pushChannelsRefreshDescription"
+  },
+  "push.arrivals": {
+    "path": "src/movieclaw_api/plugins/delivery.py",
+    "function": "push_arrivals",
+    "manifest_ref": "delivery.push_arrivals",
+    "title": "plugins.builtins.pushArrivalsTitle",
+    "description": "plugins.builtins.pushArrivalsDescription"
+  },
+  "jellyfin.discovery": {
+    "path": "src/movieclaw_api/plugins/delivery.py",
+    "function": "jellyfin_discovery",
+    "manifest_ref": "delivery.jellyfin_discovery",
+    "title": "plugins.builtins.jellyfinDiscoveryTitle",
+    "description": "plugins.builtins.jellyfinDiscoveryDescription"
+  },
+  "jobs": {
+    "path": "src/movieclaw_api/plugins/scheduling.py",
+    "function": "jobs",
+    "manifest_ref": "scheduling.jobs",
+    "title": "plugins.builtins.jobsTitle",
+    "description": "plugins.builtins.jobsDescription"
+  },
+  "library.search-index": {
+    "path": "src/movieclaw_api/plugins/library.py",
+    "function": "search_index",
+    "manifest_ref": "library.search_index",
+    "title": "plugins.builtins.librarySearchIndexTitle",
+    "description": "plugins.builtins.librarySearchIndexDescription"
+  },
+  "library.media-server-refresh": {
+    "path": "src/movieclaw_api/plugins/library.py",
+    "function": "media_server_refresh",
+    "manifest_ref": "library.media_server_refresh",
+    "title": "plugins.builtins.libraryMediaServerRefreshTitle",
+    "description": "plugins.builtins.libraryMediaServerRefreshDescription"
+  },
+  "storage.guard": {
+    "path": "src/movieclaw_api/plugins/playback.py",
+    "function": "storage_guard",
+    "manifest_ref": "playback.storage_guard",
+    "title": "plugins.builtins.storageGuardTitle",
+    "description": "plugins.builtins.storageGuardDescription"
+  },
+  "subtitle.pgs-warm": {
+    "path": "src/movieclaw_api/plugins/playback.py",
+    "function": "pgs_warm",
+    "manifest_ref": "playback.pgs_warm",
+    "title": "plugins.builtins.subtitlePgsWarmTitle",
+    "description": "plugins.builtins.subtitlePgsWarmDescription"
+  },
+  "library.skip-segments": {
+    "path": "src/movieclaw_api/plugins/library.py",
+    "function": "skip_segments_recovery",
+    "manifest_ref": "library.skip_segments_recovery",
+    "title": "plugins.builtins.librarySkipSegmentsTitle",
+    "description": "plugins.builtins.librarySkipSegmentsDescription"
+  },
+  "playback.remote-workers": {
+    "path": "src/movieclaw_api/plugins/playback.py",
+    "function": "remote_workers",
+    "manifest_ref": "playback.remote_workers",
+    "title": "plugins.builtins.playbackRemoteWorkersTitle",
+    "description": "plugins.builtins.playbackRemoteWorkersDescription"
+  },
+  "drives.sources": {
+    "path": "src/movieclaw_api/plugins/playback.py",
+    "function": "drive_sources",
+    "manifest_ref": "playback.drive_sources",
+    "title": "plugins.builtins.drivesSourcesTitle",
+    "description": "plugins.builtins.drivesSourcesDescription"
+  },
+  "drives.uploads": {
+    "path": "src/movieclaw_api/plugins/playback.py",
+    "function": "drive_uploads",
+    "manifest_ref": "playback.drive_uploads",
+    "title": "plugins.builtins.drivesUploadsTitle",
+    "description": "plugins.builtins.drivesUploadsDescription"
+  },
+  "playback.transcode": {
+    "path": "src/movieclaw_api/plugins/playback.py",
+    "function": "transcode",
+    "manifest_ref": "playback.transcode",
+    "title": "plugins.builtins.playbackTranscodeTitle",
+    "description": "plugins.builtins.playbackTranscodeDescription"
+  },
+  "app-update.startup-check": {
+    "path": "src/movieclaw_api/plugins/scheduling.py",
+    "function": "app_update_startup_check",
+    "title": "plugins.builtins.appUpdateStartupCheckTitle",
+    "description": "plugins.builtins.appUpdateStartupCheckDescription"
+  },
+  "core.demo-seed": {
+    "path": "src/movieclaw_api/plugins/demo.py",
+    "function": "demo_seed",
+    "manifest_ref": "demo.demo_seed",
+    "title": "plugins.builtins.coreDemoSeedTitle",
+    "description": "plugins.builtins.coreDemoSeedDescription"
+  },
+  "core.demo-site": {
+    "path": "src/movieclaw_api/plugins/demo.py",
+    "function": "demo_site",
+    "manifest_ref": "demo.demo_site",
+    "title": "plugins.builtins.coreDemoSiteTitle",
+    "description": "plugins.builtins.coreDemoSiteDescription"
+  }
+}

@@ -33,6 +33,8 @@ from pathlib import Path
 
 from sqlmodel import select
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import reference, stored_fields
 from movieclaw_api.services import jobs
 
 # 与 transfer.py 的内部件共用：批量是单条目的泛化，不是第二套搬运实现。
@@ -44,7 +46,6 @@ from movieclaw_api.services.library.transfer import (
     _transfer,
     _transfer_tasks,
     build_transfer_plan,
-    notify_media_server,
 )
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import Library, LibraryFile, MediaItem, utcnow
@@ -192,7 +193,9 @@ async def enqueue_consolidate_job(
     return await jobs.create_job(
         session,
         job_type=CONSOLIDATE_JOB_TYPE,
-        subject=f"{library.name}：{total} 个条目并入 {into}",
+        subject_ref=reference(
+            "library.batchTransfer.consolidateSubject", library=library.name, count=total, into=into
+        ),
         input_data={
             "source_library_id": library.id,
             "target_library_id": library.id,
@@ -213,7 +216,10 @@ async def enqueue_consolidate_job(
         actor_id=actor_id,
         origin=origin,
         progress={
-            **jobs.default_progress(f"等待归并 {total} 个条目"),
+            **jobs.default_progress(
+                message_key="library.batchTransfer.consolidateQueued",
+                message_params={"count": total},
+            ),
             "total": total,
             "details": {
                 "source_library_id": library.id,
@@ -250,7 +256,9 @@ async def enqueue_batch_transfer_job(
     return await jobs.create_job(
         session,
         job_type=JOB_TYPE,
-        subject=f"{total} 个条目 → {target.name}",
+        subject_ref=reference(
+            "library.batchTransfer.transferSubject", count=total, target=target.name
+        ),
         input_data={
             "source_library_id": source.id,
             "target_library_id": target.id,
@@ -272,7 +280,9 @@ async def enqueue_batch_transfer_job(
         actor_id=actor_id,
         origin=origin,
         progress={
-            **jobs.default_progress(f"等待转移 {total} 个条目"),
+            **jobs.default_progress(
+                message_key="library.batchTransfer.transferQueued", message_params={"count": total}
+            ),
             "total": total,
             "details": {
                 "source_library_id": source.id,
@@ -316,17 +326,17 @@ async def _run_batch_transfer_job(
         source_library_id=source_id,
         target_library_id=target_id,
         media_item_id=0,
-        title=f"{len(members)} 个条目",
+        title=t("library.batchTransfer.stateTitle", count=len(members)),
         total=len(members),
     )
     # 两侧库各占一个任务位，整轮只取一次：扫描/整理/重识别一律挡下。
     # 库内归并时两个 id 相同，只占一次（重复登记会被任务位判成"已在跑"）
     if not _transfer_tasks.try_start(source_id, state):
-        raise jobs.JobRetry("源媒体库仍有搬运任务在收尾", delay_seconds=5)
+        raise jobs.JobRetry(message_key="library.batchTransfer.sourceBusy", delay_seconds=5)
     same_library = source_id == target_id
     if not same_library and not _transfer_tasks.try_start(target_id, state):
         _transfer_tasks.finish(source_id)
-        raise jobs.JobRetry("目标媒体库仍有搬运任务在收尾", delay_seconds=5)
+        raise jobs.JobRetry(message_key="library.batchTransfer.targetBusy", delay_seconds=5)
 
     # **先加后删**：归并到一个当前不在 root_paths 里的新根时，必须在开始搬
     # 之前就把它加进配置。顺序反了会出事——文件先落到库根之外，下一次扫描
@@ -369,9 +379,8 @@ async def _run_batch_transfer_job(
                         force=True,
                     )
                     raise jobs.JobBlocked(
-                        f"连续 {consecutive} 个条目搬运失败，已暂停以免继续扩大影响；"
-                        f"已完成 {outcome.moved} 个。请检查目标盘与源目录后恢复本任务，"
-                        "恢复会从断点继续，不会重搬已完成的部分",
+                        message_key="library.batchTransfer.tooManyFailures",
+                        message_params={"consecutive": consecutive, "moved": outcome.moved},
                         code="LIBRARY_TRANSFER_TOO_MANY_FAILURES",
                     )
             else:
@@ -399,8 +408,7 @@ async def _run_batch_transfer_job(
     if drop_roots and not outcome.failed and not outcome.skipped:
         await _drop_roots(source_id, drop_roots)
 
-    await notify_media_server()
-    return {"message": _summary_message(outcome, len(members)), **asdict(outcome)}
+    return {**asdict(outcome), **_summary_message(outcome, len(members))}
 
 
 async def _transfer_one(
@@ -427,11 +435,10 @@ async def _transfer_one(
         if source is None or target is None:
             # 前提被推翻：继续做只会扩大损害
             raise jobs.JobFailed(
-                "源或目标媒体库已不存在（可能在搬运期间被删除），已停止",
-                code="LIBRARY_GONE",
+                message_key="library.batchTransfer.libraryGone", code="LIBRARY_GONE"
             )
         if item is None:
-            _skip(outcome, member, "条目已不存在（可能已被删除）")
+            _skip(outcome, member, [stored_fields("library.batchTransfer.itemGone")])
             return "skipped"
         rows = list(
             (
@@ -446,7 +453,7 @@ async def _transfer_one(
             .all()
         )
         if not rows:
-            _skip(outcome, member, "这部作品已经不在源媒体库里了")
+            _skip(outcome, member, [stored_fields("library.batchTransfer.notInSource")])
             return "skipped"
         # 预检到轮到它可能已经过了几小时：以此刻的磁盘现场为准重算
         plan = await build_transfer_plan(
@@ -460,16 +467,21 @@ async def _transfer_one(
         )
 
     if plan.blocked:
-        reason = "；".join(plan.blocked)
         if on_conflict == ON_CONFLICT_FAIL:
             raise jobs.JobFailed(
-                f"「{member.title}」{reason}——已按 fail 策略停止整批",
+                message_key="library.batchTransfer.conflictStopped",
+                message_params={"title": member.title, "reason": _reasons(plan.blocked_messages)},
                 code="LIBRARY_TRANSFER_CONFLICT",
             )
-        _skip(outcome, member, reason)
+        _skip(outcome, member, plan.blocked_messages)
         return "skipped"
     if not plan.moves and not plan.missing_file_ids:
-        _skip(outcome, member, "；".join(s.reason for s in plan.skips) or "没有可搬运的内容")
+        _skip(
+            outcome,
+            member,
+            [s.fields for s in plan.skips]
+            or [stored_fields("library.batchTransfer.nothingToMove")],
+        )
         return "skipped"
 
     summary = TransferSummary(
@@ -492,25 +504,25 @@ async def _transfer_one(
             summary,
             context=context,
             checkpoint_id=checkpoint_id,
-            notify_downstream=False,
         )
     except _MoveHalt as exc:
         # 环境性故障：整轮退避重试，已完成的保持已完成。继续试下一个成员
         # 只会把同一个错误重复几百遍，并在目标盘留下一地半截续传文件。
         raise jobs.JobRetry(
-            f"{exc}——已完成 {outcome.moved} 个条目，稍后自动重试；请确认目标盘的剩余空间与挂载状态",
+            message_key="library.batchTransfer.haltRetry",
+            message_params={"reason": exc.fields, "moved": outcome.moved},
             delay_seconds=60,
         ) from exc
     except jobs.JobCancelled:
         raise
     except Exception as exc:  # noqa: BLE001 -- 单条失败不该带走整批
         logger.exception("条目 #%s「%s」批量转移失败", member.media_item_id, member.title)
-        _fail(outcome, member, f"搬运时发生错误：{exc}")
+        _fail(outcome, member, [stored_fields("library.batchTransfer.moveError", detail=str(exc))])
         return "failed"
 
     if summary.errors:
         # 搬了一部分但有文件没搬成：这是失败不是成功，否则用户会以为全好了
-        _fail(outcome, member, "；".join(summary.errors))
+        _fail(outcome, member, summary.error_messages)
         _accumulate(outcome, summary)
         return "failed"
 
@@ -527,17 +539,36 @@ def _accumulate(outcome: BatchOutcome, summary: TransferSummary) -> None:
         outcome.subscriptions_moved += 1
 
 
-def _skip(outcome: BatchOutcome, member: BatchMember, reason: str) -> None:
-    outcome.skipped += 1
-    outcome.skips.append(
-        {"media_item_id": member.media_item_id, "title": member.title, "reason": reason}
+def _reasons(references: list[dict]) -> dict:
+    """One or several reasons as a single reference; the Chinese join stays as the rollback text."""
+    if len(references) == 1:
+        return references[0]
+    return stored_fields(
+        "library.batchTransfer.reasons",
+        items={"message_list": references, "separator_key": "common.list.issueSeparator"},
     )
 
 
-def _fail(outcome: BatchOutcome, member: BatchMember, reason: str) -> None:
+def _reason_fields(references: list[dict]) -> dict:
+    reason = _reasons(references)
+    return {
+        "reason": reason["message"],
+        "reason_key": reason.get("message_key"),
+        "reason_params": reason.get("message_params"),
+    }
+
+
+def _skip(outcome: BatchOutcome, member: BatchMember, references: list[dict]) -> None:
+    outcome.skipped += 1
+    outcome.skips.append(
+        {"media_item_id": member.media_item_id, "title": member.title, **_reason_fields(references)}
+    )
+
+
+def _fail(outcome: BatchOutcome, member: BatchMember, references: list[dict]) -> None:
     outcome.failed += 1
     outcome.failures.append(
-        {"media_item_id": member.media_item_id, "title": member.title, "reason": reason}
+        {"media_item_id": member.media_item_id, "title": member.title, **_reason_fields(references)}
     )
 
 
@@ -557,8 +588,14 @@ async def _save_progress(
     await context.update_progress(
         mode="determinate",
         phase="transferring",
-        message=f"已处理 {index} / {total} 个条目（成功 {outcome.moved}、"
-        f"跳过 {outcome.skipped}、失败 {outcome.failed}）",
+        message_key="library.batchTransfer.progress",
+        message_params={
+            "index": index,
+            "total": total,
+            "moved": outcome.moved,
+            "skipped": outcome.skipped,
+            "failed": outcome.failed,
+        },
         current=index,
         total=total,
         percent=(index / total * 100) if total else 100.0,
@@ -633,10 +670,11 @@ async def _refresh_batch_stats(source_id: int, target_id: int) -> None:
         logger.exception("批量转移收尾刷新媒体库统计失败（下次扫描会自愈）")
 
 
-def _summary_message(outcome: BatchOutcome, total: int) -> str:
-    parts = [f"已转移 {outcome.moved} / {total} 个条目"]
-    if outcome.skipped:
-        parts.append(f"跳过 {outcome.skipped} 个")
-    if outcome.failed:
-        parts.append(f"失败 {outcome.failed} 个")
-    return "，".join(parts)
+def _summary_message(outcome: BatchOutcome, total: int) -> dict:
+    return stored_fields(
+        "library.batchTransfer.summary",
+        moved=outcome.moved,
+        total=total,
+        skipped=outcome.skipped,
+        failed=outcome.failed,
+    )

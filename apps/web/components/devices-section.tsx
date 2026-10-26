@@ -1,5 +1,9 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
@@ -94,6 +98,9 @@ const MEMBER_SCOPES = ["mine"] as const;
  *    无界面容器、命令行模式的转码器，那里没人能按批准。
  */
 export function DevicesSection() {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
+
   const { session } = useSession();
   const isAdmin = session.role === "admin";
   const confirm = useConfirm();
@@ -129,7 +136,7 @@ export function DevicesSection() {
     return () => {
       requestId.current += 1;
     };
-  }, [refreshDevices, reloadTick]);
+  }, [refreshDevices, reloadTick, locale]);
 
   // 在线状态会变（转码器连上 / 断开、手机刚用过）：页面开着时每 15 秒静默刷新一次，
   // 切到后台标签页就不刷
@@ -142,11 +149,11 @@ export function DevicesSection() {
 
   const handleRename = async (device: LoginDeviceView) => {
     const input = await prompt({
-      title: "给设备改名",
-      description: "只改这里显示的名字，方便日后认出是哪台，不影响设备本身。",
+      title: t("settings.devices.ui.renameTitle"),
+      description: t("settings.devices.ui.renameHint"),
       initialValue: device.name,
       maxLength: 64,
-      confirmLabel: "保存",
+      confirmLabel: t("settings.devices.ui.save"),
     });
     const name = input?.trim();
     if (!name || name === device.name) return;
@@ -169,10 +176,10 @@ export function DevicesSection() {
    */
   const signOutHere = async (device: LoginDeviceView) => {
     const ok = await confirm({
-      title: "注销当前这台设备？",
+      title: t("settings.devices.ui.signOutHereTitle"),
       description:
-        "这就是你正在使用的这个浏览器，注销后会立即退出登录。浏览器里还登录着其他账号的话，会自动切换过去。",
-      confirmLabel: "注销并退出登录",
+        t("settings.devices.ui.signOutHereHint"),
+      confirmLabel: t("settings.devices.ui.signOutHere"),
       tone: "danger",
     });
     if (!ok) return;
@@ -193,11 +200,11 @@ export function DevicesSection() {
     }
     // 超管在「全部成员」视图里注销别人的设备：点名是谁的，免得误伤
     const owner =
-      scope === "all" && device.owner_id !== 0 ? `它属于成员「${device.owner_nickname}」。` : "";
+      scope === "all" && device.owner_id !== 0 ? t("settings.devices.ui.ownerWarning", { name: device.owner_nickname }) : "";
     const ok = await confirm({
-      title: `注销「${device.name}」？`,
-      description: `${owner}${revokeConsequence(device.kind, device.family)}其他设备不受影响。`,
-      confirmLabel: "注销",
+      title: t("settings.devices.ui.revokeTitle", { name: device.name }),
+      description: t("settings.devices.ui.revokeHint", { owner, consequence: revokeConsequence(device.kind, device.family, locale) }),
+      confirmLabel: t("settings.devices.ui.revoke"),
       tone: "danger",
     });
     if (!ok) return;
@@ -212,7 +219,7 @@ export function DevicesSection() {
     }
   };
 
-  const groups = devices ? groupDevices(devices) : [];
+  const groups = devices ? groupDevices(devices, locale) : [];
 
   const changeScope = (next: "mine" | "all") => {
     if (next === scope) return;
@@ -234,9 +241,9 @@ export function DevicesSection() {
             <DeviceIcon className="size-[18px]" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-body font-medium text-[var(--text)]">批准新设备登录</span>
+            <span className="block text-body font-medium text-[var(--text)]">{t("settings.devices.ui.approve")}</span>
             <span className="mt-0.5 block text-caption leading-5 text-[var(--text-faint)]">
-              Apple TV、Android TV、Mac、命令行或转码器显示配对码后，到批准页输入
+              {t("settings.devices.ui.approveHint")}
             </span>
           </span>
           <ChevronRightIcon className="size-4 shrink-0 text-[var(--text-faint)] transition-transform group-hover:translate-x-0.5" />
@@ -248,15 +255,15 @@ export function DevicesSection() {
         {isAdmin && (
           <SettingsTabs
             tabs={[
-              { id: "mine", label: "只看我的" },
-              { id: "all", label: "全部成员" },
+              { id: "mine", label: t("settings.devices.ui.mine") },
+              { id: "all", label: t("settings.devices.ui.all") },
             ]}
             value={scope}
             onChange={changeScope}
           />
         )}
         <p className="px-1 text-sub leading-5 text-[var(--text-muted)]">
-          按类型列出当前在线的设备，每类最多 5 台；「查看全部」包含在线和离线记录。
+          {t("settings.devices.ui.summaryHint")}
         </p>
 
         {loadError ? (
@@ -264,7 +271,7 @@ export function DevicesSection() {
         ) : devices === null ? (
           <div className="h-[104px] animate-pulse rounded-xl bg-white/[0.04]" />
         ) : (
-          <div className="space-y-10" aria-label="当前在线设备摘要">
+          <div className="space-y-10" aria-label={t("settings.devices.ui.summaryAria")}>
             {groups.map((group) => {
               const online = group.devices.filter((device) => deviceLive(device));
               return (
@@ -273,21 +280,21 @@ export function DevicesSection() {
                   title={group.label}
                   description={
                     group.devices.length > 0
-                      ? `${online.length} 在线 · 共 ${group.devices.length} 条记录`
-                      : "暂无设备记录，登录或配对后会显示在这里"
+                      ? t("settings.devices.ui.summary", { online: online.length, count: group.devices.length })
+                      : t("settings.devices.ui.none")
                   }
                   action={
                     group.devices.length > 0 && (
                       <button
                         type="button"
-                        aria-label={`查看全部${group.label}设备`}
+                        aria-label={t("settings.devices.ui.viewGroup", { group: group.key })}
                         onClick={() => {
                           setDrawerGroup(group.key);
                           setDrawerOpen(true);
                         }}
                         className={SETTINGS_BUTTON_CLASS}
                       >
-                        查看全部
+                        {t("settings.devices.ui.viewAll")}
                       </button>
                     )
                   }
@@ -307,7 +314,7 @@ export function DevicesSection() {
                       ))}
                       {online.length === 0 && (
                         <p className="px-4 py-4 text-sub text-[var(--text-faint)]">
-                          暂无在线设备，离线记录在「查看全部」里
+                          {t("settings.devices.ui.offlineHint")}
                         </p>
                       )}
                     </SettingsList>
@@ -325,11 +332,11 @@ export function DevicesSection() {
 
       {isAdmin && <ManualTokenSection onCreated={reload} />}
 
-      <SettingsSection title="危险操作">
+      <SettingsSection title={t("settings.devices.ui.danger")}>
         <SettingsCard
           tone="danger"
-          title={scope === "all" ? "清理全部成员长期没用的设备" : "清理长期没用的设备"}
-          description="一次注销一段时间没用过的设备，被注销的要重新登录或配对才能再用。正在用的这台、连着的转码器不会被清理。"
+          title={scope === "all" ? t("settings.devices.cleanup.titleAll") : t("settings.devices.cleanup.title")}
+          description={t("settings.devices.cleanup.hint")}
           action={
             <button
               type="button"
@@ -337,7 +344,7 @@ export function DevicesSection() {
               disabled={!devices?.some((device) => !device.current)}
               className={SETTINGS_DANGER_BUTTON_CLASS}
             >
-              清理…
+              {t("settings.devices.cleanup.open")}
             </button>
           }
         />
@@ -365,6 +372,8 @@ function DevicesDrawer({
   onRename: (device: LoginDeviceView) => Promise<void>;
   onRevoke: (device: LoginDeviceView) => Promise<void>;
 }) {
+  const t = useTranslations();
+
   const [limits, setLimits] = useState<Record<string, number>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [pull, setPull] = useState(0);
@@ -439,7 +448,7 @@ function DevicesDrawer({
   }, [open, groupKey, refresh, refreshing]);
 
   return (
-    <Modal open={open} onClose={onClose} label="全部设备列表" width="lg" placement="right"
+    <Modal open={open} onClose={onClose} label={t("settings.devices.ui.drawerAria")} width="lg" placement="right"
       panelClassName="h-full !max-h-full !rounded-none max-md:h-[88dvh] max-md:!rounded-t-3xl">
       <section ref={panel} className="flex min-h-0 flex-1 flex-col" onKeyDown={(event) => {
         if (event.key !== "Tab" || !event.currentTarget.contains(event.target as Node)) return;
@@ -451,14 +460,14 @@ function DevicesDrawer({
         <div aria-hidden className="mx-auto mt-2 hidden h-1 w-9 shrink-0 rounded-full bg-white/20 max-md:block" />
         <header className="shrink-0 space-y-3 px-4 pb-3 pt-4">
           <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0"><h2 className="text-ui font-semibold text-[var(--text)]">{group?.label ?? "设备"}</h2>
-              <p className="text-caption text-[var(--text-muted)]">{online.length} 在线 · 共 {ordered.length} 条记录</p></div>
+            <div className="min-w-0"><h2 className="text-ui font-semibold text-[var(--text)]">{group?.label ?? t("settings.devices.ui.device")}</h2>
+              <p className="text-caption text-[var(--text-muted)]">{t("settings.devices.ui.summary", { online: online.length, count: ordered.length })}</p></div>
             <div className="flex shrink-0 items-center gap-1">
-              <button type="button" onClick={() => void refresh()} disabled={refreshing} aria-label="刷新设备列表" className="flex size-11 items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-white/[0.07] disabled:opacity-40"><RefreshIcon className={`size-4 ${refreshing ? "animate-spin" : ""}`} /></button>
-              <button type="button" onClick={onClose} className="min-h-11 px-2 text-sub text-[var(--accent)]">完成</button>
+              <button type="button" onClick={() => void refresh()} disabled={refreshing} aria-label={t("settings.devices.ui.refresh")} className="flex size-11 items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-white/[0.07] disabled:opacity-40"><RefreshIcon className={`size-4 ${refreshing ? "animate-spin" : ""}`} /></button>
+              <button type="button" onClick={onClose} className="min-h-11 px-2 text-sub text-[var(--accent)]">{t("settings.devices.ui.done")}</button>
             </div>
           </div>
-          <div role="tablist" aria-label="设备类型" className="grid grid-cols-4 gap-1 rounded-xl bg-white/[0.06] p-1">
+          <div role="tablist" aria-label={t("settings.devices.ui.types")} className="grid grid-cols-4 gap-1 rounded-xl bg-white/[0.06] p-1">
             {groups.map((item) => <button key={item.key} type="button" role="tab" aria-selected={groupKey === item.key} aria-controls="devices-drawer-list"
               onClick={() => onGroupChange(item.key)}
               onKeyDown={(event) => {
@@ -470,23 +479,23 @@ function DevicesDrawer({
                 event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
               }}
               className={`min-h-10 rounded-lg px-1 text-sub ${groupKey === item.key ? "bg-white/[0.14] text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
-              {item.key === "paired" ? "命令行" : item.label}</button>)}
+              {item.key === "paired" ? t("settings.devices.ui.cliTab") : item.label}</button>)}
           </div>
         </header>
-        <div ref={scroller} id="devices-drawer-list" role="tabpanel" aria-label={`${group?.label ?? "设备"}记录`}
+        <div ref={scroller} id="devices-drawer-list" role="tabpanel" aria-label={t("settings.devices.ui.groupRecords", { group: group?.label ?? t("settings.devices.ui.device") })}
           onScroll={(event) => { positions.current[groupKey] = event.currentTarget.scrollTop; }}
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-thin">
-          {(pull > 0 || refreshing) && <p role="status" className="flex items-center justify-center text-caption text-[var(--text-muted)]" style={{ height: refreshing ? 44 : pull }}>{refreshing ? "正在刷新…" : pull >= 55 ? "松开刷新" : "下拉刷新"}</p>}
+          {(pull > 0 || refreshing) && <p role="status" className="flex items-center justify-center text-caption text-[var(--text-muted)]" style={{ height: refreshing ? 44 : pull }}>{refreshing ? t("settings.devices.ui.refreshing") : pull >= 55 ? t("settings.devices.ui.releaseRefresh") : t("settings.devices.ui.pullRefresh")}</p>}
           {error && <p role="alert" className="px-4 py-3 text-sub text-[var(--danger)]">{error}</p>}
-          {ordered.length === 0 && <p className="px-4 py-12 text-center text-sub text-[var(--text-muted)]">暂无设备记录，登录或配对后会显示在这里</p>}
+          {ordered.length === 0 && <p className="px-4 py-12 text-center text-sub text-[var(--text-muted)]">{t("settings.devices.ui.none")}</p>}
           {visible.map((device, index) => <div key={device.id} data-device-id={device.id}>
-            {(index === 0 || index === online.length) && <h3 className="px-5 pb-1 pt-4 text-caption text-[var(--text-faint)]">{deviceLive(device) ? "当前在线" : "离线 · 最近使用优先"}</h3>}
+            {(index === 0 || index === online.length) && <h3 className="px-5 pb-1 pt-4 text-caption text-[var(--text-faint)]">{deviceLive(device) ? t("settings.devices.ui.onlineNow") : t("settings.devices.ui.offlineRecent")}</h3>}
             <DeviceRow device={device} showOwner={showOwner} busy={busy === device.id} onRename={() => void onRename(device)} onRevoke={() => void onRevoke(device)} />
           </div>)}
-          <div ref={sentinel} role="status" className="px-4 py-5 text-center text-caption text-[var(--text-faint)]">{ordered.length > visible.length ? "继续滚动，自动载入" : ordered.length ? "已显示全部记录" : ""}</div>
+          <div ref={sentinel} role="status" className="px-4 py-5 text-center text-caption text-[var(--text-faint)]">{ordered.length > visible.length ? t("settings.devices.ui.scrollMore") : ordered.length ? t("settings.devices.ui.allShown") : ""}</div>
         </div>
         <footer className="flex shrink-0 justify-between gap-3 border-t border-white/[0.07] px-4 py-3 text-caption text-[var(--text-faint)]">
-          <span>{visible.length} / {ordered.length} 条记录</span><span className="md:hidden">下拉刷新</span>
+          <span>{t("settings.devices.ui.shownCount", { shown: visible.length, count: ordered.length })}</span><span className="md:hidden">{t("settings.devices.ui.pullRefresh")}</span>
         </footer>
       </section>
     </Modal>
@@ -508,6 +517,8 @@ const GLYPH_ICON: Record<
 };
 
 function DeviceBadge({ glyph, live }: { glyph: DeviceGlyph; live: boolean }) {
+  const t = useTranslations();
+
   const Icon = GLYPH_ICON[glyph];
   return (
     <span className="relative flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-[var(--text-muted)] max-sm:size-9">
@@ -515,7 +526,7 @@ function DeviceBadge({ glyph, live }: { glyph: DeviceGlyph; live: boolean }) {
       {live && (
         <span
           role="img"
-          aria-label="在线"
+          aria-label={t("settings.devices.ui.online")}
           className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-[var(--ok,#4ade80)] shadow-[0_0_0_2px_rgba(14,15,18,0.95),0_0_8px_rgba(74,222,128,0.55)]"
         />
       )}
@@ -588,11 +599,14 @@ function DeviceRow({
   onRevoke: () => void;
   compact?: boolean;
 }) {
-  const pushNote = devicePushNote(device.push);
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
+
+  const pushNote = devicePushNote(device.push, locale);
   const activity = [
-    device.current ? "正在使用" : activityLabel(device),
-    device.last_seen_ip ? `来自 ${device.last_seen_ip}` : null,
-    `${issuedVerb(device.kind, device.family)} ${formatDateTime(device.created_at)}`,
+    device.current ? t("settings.devices.ui.inUse") : activityLabel(device, Date.now(), locale),
+    device.last_seen_ip ? t("settings.devices.ui.from", { ip: device.last_seen_ip }) : null,
+    `${issuedVerb(device.kind, device.family, locale)} ${formatDateTime(device.created_at, locale)}`,
   ].filter((part): part is string => Boolean(part));
 
   return (
@@ -608,30 +622,26 @@ function DeviceRow({
           </p>
           {device.current && (
             <span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-caption font-semibold text-[var(--accent)]">
-              当前设备
+              {t("settings.devices.ui.current")}
             </span>
           )}
           {/* 权限标注只给配对类：浏览器、App 就是本人在用，标「完全权限」只是噪音 */}
           {device.family === "paired" && (
             <span className="shrink-0 rounded-full bg-white/[0.06] px-2 py-0.5 text-caption text-[var(--text-muted)]">
-              {grantBadge(device.scope, device.owner_id)}
+              {grantBadge(device.scope, device.owner_id, locale)}
             </span>
           )}
         </div>
         {showOwner && (
           <p className="mt-0.5 text-caption text-[var(--text-muted)]">
-            属于{" "}
-            {device.owner_id === 0
-              ? "我"
-              : `${device.owner_nickname}（@${device.owner_username}）`}
+            {t("settings.devices.ui.owner", { name: device.owner_id === 0 ? t("settings.devices.ui.me") : t("settings.devices.ui.memberIdentity", { name: device.owner_nickname, username: device.owner_username }) })}
           </p>
         )}
-        <MetaLine parts={identityParts(device)} />
+        <MetaLine parts={identityParts(device, locale)} />
         {!compact && <MetaLine parts={activity} />}
         {!compact && isStale(device.last_seen_at, device.created_at) && (
           <RowNote icon={ClockIcon} color="var(--warn)">
-            已超过 {STALE_AFTER_DAYS}{" "}
-            天没有活跃（不会自动失效），不再使用的话建议注销。
+            {t("settings.devices.ui.stale", { days: STALE_AFTER_DAYS })}
           </RowNote>
         )}
         {/* App 收不到通知时写一行原因；能收到就什么都不写（docs/design/cloud-push.md §8） */}
@@ -649,12 +659,12 @@ function DeviceRow({
         )}
       </div>
       <SettingsMoreMenu
-        label={`管理「${device.name}」`}
+        label={t("settings.devices.ui.manage", { name: device.name })}
         disabled={busy}
         items={[
-          ...(device.renamable ? [{ label: "改名…", onSelect: onRename }] : []),
+          ...(device.renamable ? [{ label: t("settings.devices.ui.rename"), onSelect: onRename }] : []),
           {
-            label: device.current ? "注销并退出登录…" : "注销…",
+            label: device.current ? t("settings.devices.ui.signOutHereMenu") : t("settings.devices.ui.revokeMenu"),
             onSelect: onRevoke,
             danger: true,
           },
@@ -679,6 +689,8 @@ function CleanupDialog({
   onClose: () => void;
   onCleaned: () => void;
 }) {
+  const t = useTranslations();
+
   const toast = useToast();
   const [days, setDays] = useState<number>(DEFAULT_CLEANUP_DAYS);
   const [preview, setPreview] = useState<DeviceCleanupItem[] | null>(null);
@@ -712,17 +724,17 @@ function CleanupDialog({
   };
 
   return (
-    <Modal open onClose={onClose} label="清理长期没用的设备">
+    <Modal open onClose={onClose} label={t("settings.devices.cleanup.title")}>
       <div className="p-6 max-md:p-5">
         <h2 className="text-title-sm font-bold text-white">
-          {all ? "清理全部成员长期没用的设备" : "清理长期没用的设备"}
+          {all ? t("settings.devices.cleanup.titleAll") : t("settings.devices.cleanup.title")}
         </h2>
         <p className="mt-2 text-sub leading-6 text-[var(--text-muted)]">
-          一次注销一段时间没用过的设备，被注销的要重新登录或配对才能再用。正在用的这台、连着的转码器不会被清理。
+          {t("settings.devices.cleanup.hint")}
         </p>
         <div
           role="radiogroup"
-          aria-label="多久没用过"
+          aria-label={t("settings.devices.cleanup.age")}
           className="mt-4 flex flex-wrap gap-1.5"
         >
           {CLEANUP_DAY_OPTIONS.map((option) => (
@@ -738,7 +750,7 @@ function CleanupDialog({
                   : "text-[var(--text-muted)] hover:bg-white/[0.07] hover:text-[var(--text)]"
               }`}
             >
-              {option} 天没用过
+              {t("settings.devices.cleanup.days", { days: option })}
             </button>
           ))}
         </div>
@@ -746,15 +758,15 @@ function CleanupDialog({
           {previewError ? (
             <p className="text-sub text-[var(--danger)]">{previewError}</p>
           ) : preview === null ? (
-            <p className="text-sub text-[var(--text-faint)]">正在查找…</p>
+            <p className="text-sub text-[var(--text-faint)]">{t("settings.devices.cleanup.finding")}</p>
           ) : preview.length === 0 ? (
             <p className="text-sub text-[var(--text-muted)]">
-              没有超过 {days} 天没用过的设备。
+              {t("settings.devices.cleanup.none", { days })}
             </p>
           ) : (
             <>
               <p className="text-caption text-[var(--text-faint)]">
-                将注销 {preview.length} 台：
+                {t("settings.devices.cleanup.preview", { count: preview.length })}
               </p>
               <ul className="mt-1.5 space-y-1">
                 {preview.map((item) => (
@@ -782,7 +794,7 @@ function CleanupDialog({
             onClick={onClose}
             className={SETTINGS_BUTTON_CLASS}
           >
-            取消
+            {t("settings.devices.ui.cancel")}
           </button>
           <button
             type="button"
@@ -791,10 +803,10 @@ function CleanupDialog({
             className={SETTINGS_DANGER_BUTTON_CLASS}
           >
             {busy
-              ? "注销中…"
+              ? t("settings.devices.cleanup.revoking")
               : preview?.length
-                ? `注销 ${preview.length} 台`
-                : "注销"}
+                ? t("settings.devices.cleanup.submit", { count: preview.length })
+                : t("settings.devices.ui.revoke")}
           </button>
         </div>
       </div>
@@ -804,10 +816,7 @@ function CleanupDialog({
 
 type ManualScope = "full" | "transcode";
 
-const MANUAL_SCOPE_OPTIONS: { value: ManualScope; label: string; hint: string }[] = [
-  { value: "full", label: "完全权限", hint: "给脚本、定时任务、CI 里的 mclaw 用" },
-  { value: "transcode", label: "仅限转码", hint: "给命令行模式（Headless）的转码器用" },
-];
+const MANUAL_SCOPE_OPTIONS = ["full", "transcode"] as const;
 
 /**
  * 「手工创建令牌」分区（超管专属；docs/design/device-auth.md §6.1、login-devices.md §1）。
@@ -832,11 +841,14 @@ const MANUAL_SCOPE_OPTIONS: { value: ManualScope; label: string; hint: string }[
  *    存走：关闭前有确认，关闭后只能注销重建。
  */
 function ManualTokenSection({ onCreated }: { onCreated: () => void }) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
+
   const confirm = useConfirm();
   const [stage, setStage] = useState<"idle" | "form">("idle");
   const [name, setName] = useState("");
   const [scope, setScope] = useState<ManualScope>("full");
-  const [nameError, setNameError] = useState<string | null>(null);
+  const [nameError, setNameError] = useMessageState();
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ name: string; token: string; scope: ManualScope } | null>(
@@ -844,7 +856,7 @@ function ManualTokenSection({ onCreated }: { onCreated: () => void }) {
   );
   // 对外访问地址：进入这个分区就先拉一次，等按下创建再拉会让那一下多等一个往返
   const [externalUrl, setExternalUrl] = useState("");
-  const manualGrant = manualGrantSummary(scope);
+  const manualGrant = manualGrantSummary(scope, locale);
 
   useEffect(() => {
     void getAppConfig()
@@ -862,7 +874,7 @@ function ManualTokenSection({ onCreated }: { onCreated: () => void }) {
   const handleCreate = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      setNameError("先给它起个名字，否则日后没法在列表里认出是哪台机器。");
+      setNameError({ key: "settings.devices.manual.nameRequired" });
       return;
     }
     setCreating(true);
@@ -882,10 +894,10 @@ function ManualTokenSection({ onCreated }: { onCreated: () => void }) {
   // 关闭一次性凭据卡要过确认：明文关掉就再也读不到，误点的代价是注销重建
   const handleDismiss = async () => {
     const ok = await confirm({
-      title: "关闭后就看不到这枚令牌了？",
+      title: t("settings.devices.manual.dismissTitle"),
       description:
-        "令牌明文只显示这一次。确认你已经把它存进目标机器，或者复制到了安全的地方。",
-      confirmLabel: "我已保存",
+        t("settings.devices.manual.dismissHint"),
+      confirmLabel: t("settings.devices.manual.saved"),
     });
     if (ok) setCreated(null);
   };
@@ -898,14 +910,9 @@ function ManualTokenSection({ onCreated }: { onCreated: () => void }) {
 
   return (
     <SettingsSection
-      title="手工创建令牌"
+      title={t("settings.devices.manual.title")}
       description={
-        <>
-          没法在浏览器里按下批准的环境——NAS 上的定时任务、CI、无界面容器——在这里创建一枚令牌，用{" "}
-          {code("MOVIECLAW_SERVER")} 和 {code("MOVIECLAW_TOKEN")}{" "}
-          两个环境变量注入给 mclaw。能打开浏览器的机器请直接运行 mclaw login 配对，不必走这里。
-          命令行模式（Headless）的转码器同样在这里创建，权限选「仅限转码」。
-        </>
+        t.rich("settings.devices.manual.hint", { server: (chunks) => code(String(chunks)), token: (chunks) => code(String(chunks)) })
       }
       action={
         stage === "idle" &&
@@ -916,7 +923,7 @@ function ManualTokenSection({ onCreated }: { onCreated: () => void }) {
             className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1`}
           >
             <PlusIcon className="size-4" />
-            创建令牌
+            {t("settings.devices.manual.create")}
           </button>
         )
       }
@@ -937,7 +944,7 @@ function ManualTokenSection({ onCreated }: { onCreated: () => void }) {
         />
       ) : stage === "form" ? (
         <SettingsCard
-          title="新令牌"
+          title={t("settings.devices.manual.new")}
           action={
             <div className="flex items-center gap-2">
               <button
@@ -946,7 +953,7 @@ function ManualTokenSection({ onCreated }: { onCreated: () => void }) {
                 onClick={resetForm}
                 className={SETTINGS_BUTTON_CLASS}
               >
-                取消
+                {t("settings.devices.ui.cancel")}
               </button>
               <button
                 type="button"
@@ -954,7 +961,7 @@ function ManualTokenSection({ onCreated }: { onCreated: () => void }) {
                 onClick={() => void handleCreate()}
                 className={SETTINGS_PRIMARY_BUTTON_CLASS}
               >
-                {creating ? "创建中…" : "创建令牌"}
+                {creating ? t("settings.devices.manual.creating") : t("settings.devices.manual.create")}
               </button>
             </div>
           }
@@ -962,7 +969,7 @@ function ManualTokenSection({ onCreated }: { onCreated: () => void }) {
           <div className="space-y-4">
             <div className="space-y-1.5">
               <label htmlFor="manual-token-name" className="text-sub font-medium text-[var(--text-muted)]">
-                名字
+                {t("settings.devices.manual.name")}
               </label>
               <input
                 id="manual-token-name"
@@ -985,15 +992,17 @@ function ManualTokenSection({ onCreated }: { onCreated: () => void }) {
               >
                 {nameError ??
                   (scope === "transcode"
-                    ? "建议与转码器的 --worker-id 同名：「设置 → 播放」靠名字对上它的在线状态。"
-                    : "日后在上面的设备列表里就靠它认出这枚令牌、决定要不要注销。")}
+                    ? t("settings.devices.manual.workerNameHint")
+                    : t("settings.devices.manual.nameHint"))}
               </p>
             </div>
 
             <fieldset className="space-y-1.5">
-              <legend className="mb-1.5 text-sub font-medium text-[var(--text-muted)]">权限</legend>
+              <legend className="mb-1.5 text-sub font-medium text-[var(--text-muted)]">{t("settings.devices.manual.permissions")}</legend>
               <div className="grid grid-cols-2 gap-2 max-sm:grid-cols-1">
-                {MANUAL_SCOPE_OPTIONS.map((option) => (
+                {MANUAL_SCOPE_OPTIONS.map((value) => {
+                  const option = { value, label: value === "full" ? t("settings.devices.manual.full") : t("settings.devices.manual.transcode"), hint: value === "full" ? t("settings.devices.manual.fullHint") : t("settings.devices.manual.transcodeHint") };
+                  return (
                   <label
                     key={option.value}
                     className={`cursor-pointer rounded-xl border px-3.5 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent-ring)] ${
@@ -1019,7 +1028,7 @@ function ManualTokenSection({ onCreated }: { onCreated: () => void }) {
                     </span>
                     <span className="mt-0.5 block text-caption text-[var(--text-faint)]">{option.hint}</span>
                   </label>
-                ))}
+                ); })}
               </div>
             </fieldset>
 
@@ -1057,6 +1066,8 @@ function CreatedTokenCard({
   externalUrl: string;
   onDismiss: () => void;
 }) {
+  const t = useTranslations();
+
   const address = resolveServerAddress(
     externalUrl,
     typeof window === "undefined" ? "" : window.location.origin,
@@ -1071,9 +1082,9 @@ function CreatedTokenCard({
       <div className="flex items-start gap-3">
         <CheckIcon className="mt-0.5 size-[18px] shrink-0 text-[var(--ok)]" />
         <div className="min-w-0">
-          <p className="text-body font-semibold text-[var(--text)]">已创建「{name}」</p>
+          <p className="text-body font-semibold text-[var(--text)]">{t("settings.devices.manual.created", { name })}</p>
           <p className="mt-0.5 text-sub leading-relaxed text-[var(--warn)]">
-            令牌明文只显示这一次。关掉这张卡就再也读不到，只能注销后重建。
+            {t("settings.devices.manual.once")}
           </p>
         </div>
       </div>
@@ -1081,11 +1092,11 @@ function CreatedTokenCard({
       <div>
         <div className="mb-2 flex items-center justify-between gap-3">
           <span className="text-sub font-medium text-[var(--text-muted)]">
-            {headless ? "加到转码器的启动命令里" : "粘贴到目标环境"}
+            {headless ? t("settings.devices.manual.headlessHeading") : t("settings.devices.manual.envHeading")}
           </span>
           <CopyButton
             text={snippet}
-            label={headless ? "复制这一行" : "复制两行"}
+            label={headless ? t("settings.devices.manual.copyLine") : t("settings.devices.manual.copyLines")}
             className={SETTINGS_BUTTON_CLASS}
           />
         </div>
@@ -1115,15 +1126,13 @@ function CreatedTokenCard({
           的 Package.swift / Info.plist 一致 */}
       {headless && (
         <p className="text-caption leading-relaxed text-[var(--text-faint)]">
-          接在{" "}
-          <code className="font-mono text-[var(--text-muted)]">movieclaw-transcoder --headless</code>{" "}
-          后面即可，--worker-id、--ffmpeg 等其余参数照常。
+          {t.rich("settings.devices.manual.headlessUsage", { command: (chunks) => <code className="font-mono text-[var(--text-muted)]">{chunks}</code> })}
         </p>
       )}
 
       {address.configured ? (
         <p className="text-caption leading-relaxed text-[var(--text-faint)]">
-          地址取自「设置 → 网络与维护」里填写的对外访问地址。
+          {t("settings.devices.manual.configuredAddress")}
         </p>
       ) : (
         /* 没配对外地址时给的是浏览器地址栏那个值——它未必是目标机器连得到的地址。
@@ -1132,8 +1141,7 @@ function CreatedTokenCard({
         <div className="flex gap-2.5 rounded-xl border border-[var(--warn)]/28 bg-[var(--warn)]/[0.09] px-3.5 py-3">
           <InfoIcon className="mt-0.5 size-4 shrink-0 text-[var(--warn)]" />
           <p className="text-sub leading-relaxed text-[var(--text-muted)]">
-            上面这行地址取自你现在浏览器的地址栏，只是猜测——目标机器不一定连得到。
-            请到「设置 → 网络与维护」填写对外访问地址，之后这里会直接给出正确的一行。
+            {t("settings.devices.manual.guessedAddress")}
           </p>
         </div>
       )}
@@ -1141,7 +1149,7 @@ function CreatedTokenCard({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <CopyButton
           text={token}
-          label="仅复制令牌"
+          label={t("settings.devices.manual.copyToken")}
           className={SETTINGS_BUTTON_CLASS}
         />
         <button
@@ -1149,7 +1157,7 @@ function CreatedTokenCard({
           onClick={onDismiss}
           className={SETTINGS_PRIMARY_BUTTON_CLASS}
         >
-          我已保存，关闭
+          {t("settings.devices.manual.savedClose")}
         </button>
       </div>
     </div>

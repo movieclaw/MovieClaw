@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 
 import { DiscoverView } from "@/components/discover-view";
 import { parseDiscoveryFilters } from "@/lib/discovery-filters";
 import type { MediaSource } from "@/lib/media-types";
 
-export const metadata: Metadata = { title: "发现" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations();
+  return { title: t("nav.main.discover") };
+}
 
 /** 发现页（/discover/movie | /discover/tv）：Hero 精选 + 分类横滚行。 */
 export default async function DiscoverPage({

@@ -251,7 +251,7 @@ final class PlaybackRecord {
             behaviors.append(Behavior(kind: "reenter", atMs: 0, misguess: false))
         }
         sampleResources()
-        event("start", "开始（\(origin.rawValue)）")
+        event("start", "开始（\(origin.rawValue)）") // i18n-ignore: diagnostic timeline, uploaded as-is
     }
 
     /// 距这次播放开始的毫秒数
@@ -276,7 +276,7 @@ final class PlaybackRecord {
 
     func beginUserWait() {
         if userWaitStartedAt == nil { userWaitStartedAt = now() }
-        event("user_wait", "等用户确认")
+        event("user_wait", "等用户确认") // i18n-ignore: diagnostic timeline, uploaded as-is
     }
 
     func endUserWait() {
@@ -292,7 +292,7 @@ final class PlaybackRecord {
             // 起播同跳转落地：首帧上屏后播放头要 0.6～0.8 秒才看得出在走（软件通路 250 毫秒发布一次 + P30 停钟），
             // 给同样的起步宽限。NTSC DVD 镜像两批都记了一次起播「卡顿」774～814 毫秒，引擎时钟其实在走
             awaitingResumeSince = firstFrameAt
-            event("first_frame", "首帧出画")
+            event("first_frame", "首帧出画") // i18n-ignore: diagnostic timeline, uploaded as-is
         }
         closeSwitch()
         closeReconnect()
@@ -337,7 +337,7 @@ final class PlaybackRecord {
         seeks.append(Seek(seq: seekSeq, source: source.rawValue, fromMs: fromMs, toMs: toMs, buffered: buffered,
                           paused: paused, restart: restart, atMs: elapsedMs(start), ms: nil, outcome: "pending"))
         openSeek = (seeks.count - 1, start)
-        event("seek", "跳转 #\(seekSeq) \(fromMs / 1000) → \(toMs / 1000) 秒（\(source.rawValue)\(buffered ? "·缓冲内" : "")\(restart ? "·换会话" : "")）")
+        event("seek", "跳转 #\(seekSeq) \(fromMs / 1000) → \(toMs / 1000) 秒（\(source.rawValue)\(buffered ? "·缓冲内" : "")\(restart ? "·换会话" : "")）") // i18n-ignore: diagnostic timeline, uploaded as-is
     }
 
     var seekInFlight: Bool { openSeek != nil }
@@ -355,12 +355,12 @@ final class PlaybackRecord {
         seeks[open.index].ms = spent
         seeks[open.index].outcome = outcome
         if outcome == "landed" { awaitingResumeSince = now() }
-        event("seek_\(outcome)", "跳转 #\(seeks[open.index].seq) \(outcome) \(spent) 毫秒")
+        event("seek_\(outcome)", "跳转 #\(seeks[open.index].seq) \(outcome) \(spent) 毫秒") // i18n-ignore: diagnostic timeline, uploaded as-is
         #if DEBUG
         let seek = seeks[open.index]
         if outcome == "landed" {
             FileHandle.standardError.write(Data(
-                "[SeekTrace] \(seek.fromMs / 1000) → \(seek.toMs / 1000) 秒（\(seek.buffered ? "缓冲内" : "缓冲外")\(seek.restart ? "·换会话" : "")\(seek.paused ? "·暂停中" : "")·\(seek.source)）耗时 \(spent) 毫秒\n".utf8))
+                "[SeekTrace] \(seek.fromMs / 1000) → \(seek.toMs / 1000) 秒（\(seek.buffered ? "缓冲内" : "缓冲外")\(seek.restart ? "·换会话" : "")\(seek.paused ? "·暂停中" : "")·\(seek.source)）耗时 \(spent) 毫秒\n".utf8)) // i18n-ignore: developer diagnostics
         }
         #endif
         return spent
@@ -382,7 +382,7 @@ final class PlaybackRecord {
         openSwitch = nil
         let spent = immediate ? 0 : ms(since: open.startedAt)
         switches[open.index].ms = spent
-        event("switch_done", "\(switches[open.index].kind) 生效 \(spent) 毫秒")
+        event("switch_done", "\(switches[open.index].kind) 生效 \(spent) 毫秒") // i18n-ignore: diagnostic timeline, uploaded as-is
     }
 
     // MARK: - 稳：卡顿 / 冻帧 / 重连 / 错误
@@ -395,7 +395,7 @@ final class PlaybackRecord {
         // 不能让它们一直挡着卡顿检测
         if let open = openSwitch, now - open.startedAt > .seconds(15) {
             openSwitch = nil
-            event("switch_timeout", "\(switches[open.index].kind) 15 秒没等到生效，作废")
+            event("switch_timeout", "\(switches[open.index].kind) 15 秒没等到生效，作废") // i18n-ignore: diagnostic timeline, uploaded as-is
         }
         if let open = openSeek, now - open.startedAt > .seconds(30) {
             closeSeek(outcome: "timeout")
@@ -430,7 +430,7 @@ final class PlaybackRecord {
         rebufferCount += 1
         rebufferMs += spent
         addInterruption(Interruption(kind: "rebuffer", atMs: open.atMs, ms: spent, cause: open.cause))
-        event("rebuffer", "卡顿 \(spent) 毫秒（\(open.cause)）")
+        event("rebuffer", "卡顿 \(spent) 毫秒（\(open.cause)）") // i18n-ignore: diagnostic timeline, uploaded as-is
     }
 
     /// 每秒采一次软件通路的送帧计数：播放头在走、这一秒一帧都没交到显示层就是画面冻住
@@ -458,12 +458,12 @@ final class PlaybackRecord {
         let spent = ms(since: open.startedAt)
         sawFreeze = true
         addInterruption(Interruption(kind: "freeze", atMs: open.atMs, ms: spent))
-        event("freeze", "画面冻住 \(spent) 毫秒")
+        event("freeze", "画面冻住 \(spent) 毫秒") // i18n-ignore: diagnostic timeline, uploaded as-is
     }
 
     func beginReconnect(reason: String) {
         if reconnectOpen == nil { reconnectOpen = (now(), elapsedMs(), reason) }
-        event("reconnect", "重连：\(reason)")
+        event("reconnect", "重连：\(reason)") // i18n-ignore: diagnostic timeline, uploaded as-is
     }
 
     var reconnecting: Bool { reconnectOpen != nil }
@@ -480,19 +480,19 @@ final class PlaybackRecord {
         errorCategory = category
         errorStage = stage
         addInterruption(Interruption(kind: "error", atMs: elapsedMs(), cause: category, detail: message))
-        event("error", "错误页：\(message)")
+        event("error", "错误页：\(message)") // i18n-ignore: diagnostic timeline, uploaded as-is
     }
 
     /// 引擎报的失败（不一定让用户看到：多半被重连、原位重开接住）
     func noteEngineFailure(reason: String, kind: String?, cause: String) {
         addInterruption(Interruption(kind: "engine_failure", atMs: elapsedMs(), cause: cause,
                                      detail: [kind, reason].compactMap { $0 }.joined(separator: "：")))
-        event("engine_failure", "引擎失败（\(cause)）：\(reason)")
+        event("engine_failure", "引擎失败（\(cause)）：\(reason)") // i18n-ignore: diagnostic timeline, uploaded as-is
     }
 
     func noteFallback(reason: String) {
         addInterruption(Interruption(kind: "fallback", atMs: elapsedMs(), detail: reason))
-        event("fallback", "改走服务端流：\(reason)")
+        event("fallback", "改走服务端流：\(reason)") // i18n-ignore: diagnostic timeline, uploaded as-is
     }
 
     /// 来电、Siri 打断，耳机拔出（不算我们的中断，只看恢复得对不对）
@@ -511,7 +511,7 @@ final class PlaybackRecord {
     func noteDelivery(_ snapshot: Delivery) {
         guard snapshot != delivery else { return }
         if delivery != nil {
-            event("delivery", "规格变化：\(snapshot.route) · 视频 \(snapshot.video.outputFormat ?? "-") · 音频 \(snapshot.audio.delivery ?? "-")")
+            event("delivery", "规格变化：\(snapshot.route) · 视频 \(snapshot.video.outputFormat ?? "-") · 音频 \(snapshot.audio.delivery ?? "-")") // i18n-ignore: diagnostic timeline, uploaded as-is
         }
         delivery = snapshot
         deliveryHistory += 1
@@ -539,7 +539,7 @@ final class PlaybackRecord {
     private func addBehavior(_ behavior: Behavior) {
         guard behaviors.count < Self.maxItems else { return }
         behaviors.append(behavior)
-        event(behavior.kind, "\(behavior.kind) \(behavior.from ?? "-") → \(behavior.to ?? "-")\(behavior.misguess ? "（猜错）" : "")")
+        event(behavior.kind, "\(behavior.kind) \(behavior.from ?? "-") → \(behavior.to ?? "-")\(behavior.misguess ? "（猜错）" : "")") // i18n-ignore: developer diagnostics
     }
 
     // MARK: - 资源（每 10 秒一次）
@@ -664,7 +664,7 @@ final class PlaybackRecord {
     func noteLeaving() {
         if let since = sinceFirstFrameMs, since < 10_000 { noteBehavior("quick_exit") }
         Self.lastExit = (unit.mediaItemId, now())
-        event("leave", "离开")
+        event("leave", "离开") // i18n-ignore: diagnostic timeline, uploaded as-is
     }
 
     private static var lastExit: (mediaItemId: Int, at: ContinuousClock.Instant)?

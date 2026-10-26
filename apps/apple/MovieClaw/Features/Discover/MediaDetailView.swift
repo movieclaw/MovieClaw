@@ -15,6 +15,7 @@ import SwiftUI
 /// 首屏预存（同 Web `getMediaSeed`）：站内点卡片进来时先用列表字段（标题、海报、简介…）渲染，
 /// 详情接口返回后原位替换；有预存时接口失败也不打断页面，只有直达（无预存）才进失败页。
 struct MediaDetailView: View {
+    @Environment(\.cardMetrics) private var cards
     let titleRef: String
 
     @Environment(\.api) private var api
@@ -59,7 +60,7 @@ struct MediaDetailView: View {
                 } else {
                     VStack(spacing: 12) {
                         ProgressView().controlSize(.large)
-                        Text("正在加载详情…").font(.subheadline).foregroundStyle(Theme.textMuted)
+                        Text(String(localized: .mediaDetailLoading)).font(.subheadline).foregroundStyle(Theme.textMuted)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -68,12 +69,12 @@ struct MediaDetailView: View {
                 content(seed!)
             case let .failed(message):
                 ContentUnavailableView {
-                    Label("未能加载该影片详情", systemImage: "film")
+                    Label(String(localized: .mediaDetailLoadFailed), systemImage: "film")
                 } description: {
-                    Text("资源可能已下线，或网络暂时不可达。请返回后重试。\n\(message)")
+                    Text(String(localized: .mediaDetailLoadHint) + "\n" + message)
                 } actions: {
-                    Button("重试") { Task { await load() } }.discoverProminentButton()
-                    Button("返回") { router.pop() }.buttonStyle(.glass)
+                    Button(String(localized: .commonRetry)) { Task { await load() } }.discoverProminentButton()
+                    Button(String(localized: .commonBack)) { router.pop() }.buttonStyle(.glass)
                 }
                 .accessibilityIdentifier("error-state")
             case let .loaded(detail):
@@ -98,13 +99,13 @@ struct MediaDetailView: View {
             SafariView(url: link.url)
                 .ignoresSafeArea()
         }
-        .alert("当前设备无法直连 YouTube", isPresented: Binding(mcGet: { blockedTrailer != nil }, set: { if !$0 { blockedTrailer = nil } }), presenting: blockedTrailer) { video in
+        .alert(String(localized: .mediaDetailYoutubeUnavailableDevice), isPresented: Binding(mcGet: { blockedTrailer != nil }, set: { if !$0 { blockedTrailer = nil } }), presenting: blockedTrailer) { video in
             if let url = WebLink(video.watchUrl)?.url {
-                Button("在 YouTube 打开 ↗") { openURL(url) }
+                Button(String(localized: .mediaDetailOpenYoutube)) { openURL(url) }
             }
-            Button("好的", role: .cancel) {}
+            Button(String(localized: .subscriptionSubscribeOkay), role: .cancel) {}
         } message: { _ in
-            Text("预告片由 YouTube 提供，播放需要本机能访问它。服务端在「设置 → 网络」配的代理只作用于服务端自己抓数据，不经过播放器；给本机挂上代理后即可正常播放。")
+            Text(String(localized: .mediaDetailYoutubeHintDevice))
         }
     }
 
@@ -138,17 +139,19 @@ struct MediaDetailView: View {
                         }
                         // 下拉刷新时整块大图（连同两头的渐变）以底边为锚放大，顶上不露底色（同 Apple Music）
                         .stretchesOnPull()
+                        // iPad 宽窗口剧照铺到侧边栏底下，侧边栏四周不露出纯色底（见 PadBackdropUnderSidebar）
+                        .modifier(PadBackdropUnderSidebar())
                         .accessibilityHidden(true)
                 }
                 header(detail)
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .padding(.top, heroURL == nil ? 12 : -150)
                     .onScrollVisibilityChange(threshold: 0.2) { visible in titleVisible = !visible }
 
                 VStack(alignment: .leading, spacing: 28) {
                     if !item.overview.isEmpty {
                         overview(item.overview)
-                            .padding(.horizontal, Theme.pagePadding)
+                            .padding(.horizontal, cards.edge)
                     }
                     let people = castPeople(detail)
                     if !people.isEmpty {
@@ -164,10 +167,10 @@ struct MediaDetailView: View {
                         DiscoverPosterRow(title: collection.name, items: collection.titles.map(DiscoverPosterItem.init))
                     }
                     if !detail.recommendations.isEmpty {
-                        DiscoverPosterRow(title: "相似推荐", items: detail.recommendations.map(DiscoverPosterItem.init))
+                        DiscoverPosterRow(title: String(localized: .mediaDetailSimilar), items: detail.recommendations.map(DiscoverPosterItem.init))
                     }
                     externalLinks(detail)
-                        .padding(.horizontal, Theme.pagePadding)
+                        .padding(.horizontal, cards.edge)
                 }
                 .padding(.top, 20)
                 .padding(.bottom, 40)
@@ -254,7 +257,7 @@ struct MediaDetailView: View {
                 .foregroundStyle(.white.opacity(0.72))
             }
             if !info.released.isEmpty {
-                Text("\(isMovie ? "上映日期" : "首播日期") · \(info.released)")
+                Text((isMovie ? String(localized: .mediaDetailReleaseDate) : String(localized: .mediaDetailFirstAirDate)) + " · " + info.released)
                     .font(.subheadline)
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(0.55))
@@ -274,7 +277,7 @@ struct MediaDetailView: View {
                                 router.present(.subscribe(SubscribeRequest(titleRef: item.titleRef, title: item.title)))
                             } label: {
                                 Label {
-                                    Text("已订阅 · \(SubscriptionStatusMeta.label(sub.status))")
+                                    Text(String(localized: .mediaDetailSubscribedStatus(SubscriptionStatusMeta.label(sub.status))))
                                 } icon: {
                                     Image(systemName: "checkmark").foregroundStyle(SubscriptionStatusMeta.color(sub.status))
                                 }
@@ -286,7 +289,7 @@ struct MediaDetailView: View {
                             Button {
                                 router.present(.subscribe(SubscribeRequest(titleRef: item.titleRef, title: item.title)))
                             } label: {
-                                Label("订阅追踪", systemImage: "bell").heroActionLabel()
+                                Label(String(localized: .mediaDetailSubscribe), systemImage: "bell").heroActionLabel()
                             }
                             .discoverProminentButton()
                             .accessibilityIdentifier("detail-subscribe")
@@ -294,9 +297,13 @@ struct MediaDetailView: View {
                     }
                     if showSearch {
                         Button {
-                            router.push(.search(.init(q: item.title, scope: SearchScope.ofMediaKind(item.mediaType ?? parts.mediaType).encoded)))
+                            router.push(.search(.init(
+                                q: item.title,
+                                also: SearchScope.titleSearchAlso(info.englishTitle, item.originalTitle),
+                                scope: SearchScope.ofMediaKind(item.mediaType ?? parts.mediaType).encoded
+                            )))
                         } label: {
-                            Label("搜索资源", systemImage: "magnifyingglass").heroActionLabel()
+                            Label(String(localized: .mediaDetailSearch), systemImage: "magnifyingglass").heroActionLabel()
                         }
                         .buttonStyle(.glass)
                         .accessibilityIdentifier("detail-search")
@@ -321,7 +328,7 @@ struct MediaDetailView: View {
     /// 在库条：列出每个包含它的媒体库，点进库内条目详情
     private func libraryBar(_ links: [API.MediaLibraryLink]) -> some View {
         DiscoverFlowLayout(spacing: 10, lineSpacing: 8) {
-            Label("在库", systemImage: "folder")
+            Label(String(localized: .libraryStatusInLibrary), systemImage: "folder")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Color(red: 0.6, green: 0.95, blue: 0.8))
             ForEach(links, id: \.mediaItemId) { link in
@@ -368,7 +375,7 @@ struct MediaDetailView: View {
                     withAnimation { overviewExpanded.toggle() }
                 } label: {
                     HStack(spacing: 2) {
-                        Text(overviewExpanded ? "收起" : "展开全文")
+                        Text(overviewExpanded ? String(localized: .commonCollapse) : String(localized: .mediaDetailExpandPlot))
                         Image(systemName: "chevron.right").rotationEffect(.degrees(overviewExpanded ? -90 : 90)).font(.caption)
                     }
                     .font(.subheadline.weight(.semibold))
@@ -381,7 +388,7 @@ struct MediaDetailView: View {
 
     private func castPeople(_ detail: API.DiscoveredTitleDetailsView) -> [DetailCastRow.Person] {
         let isMovie = detail.title.mediaType != "tv"
-        let credit = isMovie ? "导演" : "主创"
+        let credit = isMovie ? String(localized: .mediaDetailDirector) : String(localized: .mediaDetailCreator)
         let info = detail.metadata
         var people: [DetailCastRow.Person] = []
         if !info.directorCredits.isEmpty {
@@ -392,14 +399,14 @@ struct MediaDetailView: View {
                 people.append(.init(name: name, subtitle: credit, avatarUrl: nil, tmdbPersonId: nil))
             }
         }
-        people += info.cast.map { .init(name: $0.name, subtitle: $0.role.map { "饰 \($0)" }, avatarUrl: $0.avatarUrl, tmdbPersonId: $0.tmdbPersonId) }
+        people += info.cast.map { .init(name: $0.name, subtitle: $0.role.map { String(localized: .mediaPersonCharacter($0)) }, avatarUrl: $0.avatarUrl, tmdbPersonId: $0.tmdbPersonId) }
         return people
     }
 
     private func trailerRow(_ detail: API.DiscoveredTitleDetailsView) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("预告片").font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
-                .padding(.horizontal, Theme.pagePadding)
+            Text(String(localized: .mediaDetailTrailers)).font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
+                .padding(.horizontal, cards.edge)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 12) {
                     ForEach(detail.videos, id: \.key) { video in
@@ -437,10 +444,10 @@ struct MediaDetailView: View {
                             .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("播放预告片：\(video.name)")
+                        .accessibilityLabel(String(localized: .mediaDetailPlayTrailer(video.name)))
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             }
         }
         .discoverContainer("detail-trailers")
@@ -470,9 +477,9 @@ struct MediaDetailView: View {
         let doubanURL = detail.metadata.sourceUrl.flatMap(URL.init(string:))
         if tmdbURL != nil || doubanURL != nil {
             HStack(spacing: 16) {
-                Text("相关链接").foregroundStyle(Theme.textFaint)
-                if let tmdbURL { Button("TMDB ↗") { openURL(tmdbURL) } }
-                if let doubanURL { Button("豆瓣 ↗") { openURL(doubanURL) } }
+                Text(String(localized: .mediaDetailRelatedLinks)).foregroundStyle(Theme.textFaint)
+                if let tmdbURL { Button("TMDB ↗") { Task { await ExternalMediaLink.open(tmdbURL) } } }
+                if let doubanURL { Button(String(localized: .mediaDetailDoubanLink)) { Task { await ExternalMediaLink.open(doubanURL) } } }
             }
             .font(.subheadline)
             .foregroundStyle(Theme.textMuted)
@@ -516,6 +523,7 @@ struct WebLink: Identifiable {
 
 /// 演职员横滚条：2:3 头像卡 + 姓名 + 身份（导演/主创/饰 X）；有 TMDB 影人 ID 的进 TMDB 影人页
 struct DetailCastRow: View {
+    @Environment(\.cardMetrics) private var cards
     struct Person: Hashable {
         var name: String
         var subtitle: String?
@@ -524,21 +532,21 @@ struct DetailCastRow: View {
     }
 
     let people: [Person]
-    var title = "演职员"
+    var title = String(localized: .mediaCardsCast)
     @Environment(\.api) private var api
     @Environment(Router.self) private var router
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 12) {
                     ForEach(Array(people.enumerated()), id: \.offset) { _, person in
                         card(person)
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             }
         }
         .discoverContainer("detail-cast")
@@ -570,7 +578,7 @@ struct DetailCastRow: View {
         if let id = person.tmdbPersonId {
             Button { router.push(.discoveredPerson(tmdbId: id)) } label: { body }
                 .buttonStyle(.plain)
-                .accessibilityLabel("查看 \(person.name) 的影人页")
+                .accessibilityLabel(String(localized: .mediaCardsPersonPage(person.name)))
         } else {
             body
         }
@@ -581,6 +589,7 @@ struct DetailCastRow: View {
 
 /// 剧照 / 海报两个分页的横滚图集；点开灯箱看大图
 struct DetailPhotoWall: View {
+    @Environment(\.cardMetrics) private var cards
     let title: String
     let backdrops: [API.MediaImage]
     let posters: [API.MediaImage]
@@ -590,7 +599,7 @@ struct DetailPhotoWall: View {
     @State private var lightbox: DiscoverLightboxContent?
 
     private var tabs: [(id: String, label: String, images: [API.MediaImage])] {
-        [("backdrops", "剧照", backdrops), ("posters", "海报", posters)].filter { !$0.images.isEmpty }
+        [("backdrops", String(localized: .mediaDetailBackdrops), backdrops), ("posters", String(localized: .mediaDetailPosters), posters)].filter { !$0.images.isEmpty }
     }
 
     var body: some View {
@@ -598,14 +607,14 @@ struct DetailPhotoWall: View {
         let landscape = active.id == "backdrops"
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Text("剧照与海报").font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
+                Text(String(localized: .mediaDetailPhotos)).font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
                 if tabs.count > 1 {
                     ForEach(tabs, id: \.id) { item in
                         DiscoverChip(label: "\(item.label) \(item.images.count)", active: item.id == active.id) { tab = item.id }
                     }
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 10) {
                     ForEach(Array(active.images.enumerated()), id: \.offset) { index, image in
@@ -617,10 +626,10 @@ struct DetailPhotoWall: View {
                                 .clipShape(.rect(cornerRadius: 10))
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("查看\(active.label)第 \(index + 1) 张")
+                        .accessibilityLabel(String(localized: .mediaDetailViewPhoto(active.label, String(index + 1))))
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             }
         }
         .fullScreenCover(item: $lightbox) { DiscoverLightbox(content: $0).sheetFeedback() }

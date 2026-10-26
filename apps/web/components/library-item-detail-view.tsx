@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 import type { CSSProperties, ReactNode } from "react";
 import { Children, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -9,12 +12,14 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { DeleteFollowUps, DeleteOptions, useDeletePreview } from "@/components/library-delete-options";
 import { AddToCollectionDialog } from "@/components/add-to-collection-dialog";
 import { useHeroEdgeColor } from "@/lib/hero-edge-color";
 import { ArtworkPickerDialog } from "@/components/artwork-picker-dialog";
 import { BrandLoader } from "@/components/brand-loader";
 import { CastRow } from "@/components/cast-row";
 import { ChapterStrip } from "@/components/chapter-strip";
+import { LibraryRelatedRows } from "@/components/library-related-rows";
 import { MediaTrackRows } from "@/components/media-track-rows";
 import { PAGE_NAV_BUTTON_CLASS } from "@/components/page-nav";
 import { useResolvedTheme } from "@/themes/registry";
@@ -23,6 +28,7 @@ import {
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  CloudDriveIcon,
   FolderIcon,
   HeartIcon,
   MoreIcon,
@@ -32,13 +38,19 @@ import {
 import { useConfirm, useToast } from "@/components/feedback";
 import { Modal } from "@/components/modal";
 import { PosterImage } from "@/components/poster-image";
-import { markPlayIntent, playHref, rememberPlayerReturnPath } from "@/lib/player/play-links";
+import {
+  markPlayIntent,
+  pickedVersionFileId,
+  playHref,
+  rememberPlayerReturnPath,
+} from "@/lib/player/play-links";
 import { preloadHlsEngine } from "@/lib/player/engine";
 import { getCapabilitySnapshot } from "@/lib/player/capability";
 import { ReidentifyDialog } from "@/components/reidentify-dialog";
 import { ShareDialog } from "@/components/share-dialog";
 import { Tooltip } from "@/components/tooltip";
 import {
+  type FileCloudCopy,
   type ItemDeleteResult,
   type LibraryChapter,
   type LibraryEpisode,
@@ -72,10 +84,10 @@ import {
 } from "@/lib/api/playback";
 import { type ShareView, getItemShare } from "@/lib/api/shares";
 import { useSubscribeEntry } from "@/components/subscribe-entry";
-import { LIBRARY_KIND_LABELS } from "@/lib/media-types";
+import { libraryKindLabels } from "@/lib/media-types";
 import { getDiscoveryReturnPath } from "@/lib/discovery-return-path";
 import { scopeOfMediaKind } from "@/lib/categories";
-import { buildSearchPath } from "@/lib/search-url";
+import { buildSearchPath, titleSearchAlso } from "@/lib/search-url";
 import { formatBytes, formatRuntimeMinutes, formatVideoResolution } from "@/lib/format";
 import { formatClock } from "@/lib/player/timeline";
 import { USER_LOWEST_SOURCE, mediaSourceDisplayLabel } from "@/lib/media-source-annotation";
@@ -90,7 +102,15 @@ import { invalidateLibraryDetailSnapshot } from "@/lib/library-detail-snapshot";
 import { refreshItemConfirm, rereadItemNfoConfirm } from "@/lib/library-confirm";
 import { usePermissions } from "@/lib/permissions";
 import { formatDateTime, formatRelativeTime } from "@/lib/time";
-import { useTheme } from "@/lib/ui-prefs";
+import {
+  type EpisodeRange,
+  episodeRangeLabel,
+  episodeRanges,
+  rangeContaining,
+  rangeEntry,
+  seasonAnchor,
+} from "@/lib/episode-ranges";
+import { useLayout } from "@/lib/ui-prefs";
 import { usePageTitle } from "@/lib/use-page-title";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 
@@ -142,6 +162,8 @@ export function LibraryItemDetailView({
   initialSeason?: number;
   initialEpisode?: number;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const { canManageLibraries, canSearchTorrents, isAdmin } = usePermissions();
   // 洗版入口（quality-upgrade.md §13.3/§13.5）：有订阅并入既有订阅，无订阅走
   // 订阅弹层的洗版变体（库存季预填、建完自动接一轮洗版）
@@ -289,11 +311,11 @@ export function LibraryItemDetailView({
       setFavorite(marks.is_favorite);
     } catch (e) {
       setFavorite(!next);
-      toast.error(e instanceof Error ? e.message : "收藏失败，请稍后重试");
+      toast.error(e instanceof Error ? e.message : t("library.collections.favoriteFailed"));
     } finally {
       setMarking(false);
     }
-  }, [favorite, marking, mediaItemId, toast]);
+  }, [favorite, marking, mediaItemId, toast, t]);
 
   /**
    * 标记当前播放单元已看 / 未看（电影，或剧集当前选中的那一集）。写完重查一次
@@ -309,11 +331,11 @@ export function LibraryItemDetailView({
       setWatched(await fetchResumeState(playUnit));
       setEpisodesVersion((v) => v + 1);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "标记失败，请稍后重试");
+      toast.error(e instanceof Error ? e.message : t("library.item.markFailed"));
     } finally {
       setMarking(false);
     }
-  }, [marking, playUnit, toast, watched]);
+  }, [marking, playUnit, toast, watched, t]);
 
   const handleTransferFinished = useCallback(
     (targetLibraryId: number) => {
@@ -349,29 +371,29 @@ export function LibraryItemDetailView({
   // 的 setOverrideBackdrop。没有横幅剧照时退回海报，覆盖层自己会铺满作氛围色。
   const { setOverrideBackdrop } = useBackdrop();
   const isMobile = useIsMobile();
-  const isNf = useTheme().structural;
-  const isNfDesktop = isNf && !isMobile;
-  // Netflix 桌面的滚动退场（与发现详情页同一套）：挂 html.nf-hero-live 标记类，
-  // 把滚动进度写进 --nf-hero-recede，globals.css 据此给沉浸覆盖层加渐暗 + 模糊、
+  const cinema = useLayout() === "cinema";
+  const cinemaDesktop = cinema && !isMobile;
+  // Netflix 桌面的滚动退场（与发现详情页同一套）：挂 html.hero-live 标记类，
+  // 把滚动进度写进 --hero-recede，globals.css 据此给沉浸覆盖层加渐暗 + 模糊、
   // 左侧纯黑遮罩护住上移后的标题。仅桌面启用——手机的剧照是页内 Hero
   // （showMobileHero），滚动容器铺黑已把全站背景层整个挡住，标记类无处生效。
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasDetail = detail !== null;
   useEffect(() => {
-    if (!isNfDesktop) return;
+    if (!cinemaDesktop) return;
     const root = document.documentElement;
-    root.classList.add("nf-hero-live");
+    root.classList.add("hero-live");
     const el = scrollRef.current;
     if (!el) return () => {
-      root.classList.remove("nf-hero-live");
-      root.style.removeProperty("--nf-hero-recede");
+      root.classList.remove("hero-live");
+      root.style.removeProperty("--hero-recede");
     };
     let frame = 0;
     const sync = () => {
       frame = 0;
       const range = Math.max(320, el.clientHeight * 0.75);
       const progress = Math.min(1, Math.max(0, el.scrollTop / range));
-      root.style.setProperty("--nf-hero-recede", progress.toFixed(3));
+      root.style.setProperty("--hero-recede", progress.toFixed(3));
     };
     const onScroll = () => {
       if (!frame) frame = window.requestAnimationFrame(sync);
@@ -381,10 +403,10 @@ export function LibraryItemDetailView({
     return () => {
       el.removeEventListener("scroll", onScroll);
       if (frame) window.cancelAnimationFrame(frame);
-      root.classList.remove("nf-hero-live");
-      root.style.removeProperty("--nf-hero-recede");
+      root.classList.remove("hero-live");
+      root.style.removeProperty("--hero-recede");
     };
-  }, [isNfDesktop, hasDetail]);
+  }, [cinemaDesktop, hasDetail]);
   // 大图宽度按公式算（桌面整窗铺满、手机按页内 Hero 框铺满，见 useDetailHeroImageWidth）；
   // 量到之前先不取图，免得白拉一张错档的
   const heroWidth = useDetailHeroImageWidth(
@@ -399,7 +421,7 @@ export function LibraryItemDetailView({
   // Logo 靠固有尺寸撑开（max-w 420 / 手机 260、高 120 / 96 封顶），不能用 srcset
   // （w 描述符会改它的固有尺寸），按最大显示宽 × 屏幕倍率拼一个固定 w
   const logoSrc =
-    detail?.logo_url && !isNf && detail.logo_url !== failedLogo
+    detail?.logo_url && !cinema && detail.logo_url !== failedLogo
       ? imageUrl(detail.logo_url, { width: screenImageWidth(isMobile ? 260 : 420) })
       : "";
   // 手机也换全站背景，但页面本身不靠它显示：横版剧照铺满又高又窄的整屏只能按高度放大、
@@ -422,46 +444,46 @@ export function LibraryItemDetailView({
   const showMobileHero = isMobile && mobileHeroSrc !== "";
   // 银玻璃手机：整页底色取大图露出部分的底边色，Hero 底部渐变到同一个颜色
   // （lib/hero-edge-color.ts，与影片详情页、原生 App 同一套）；Netflix 维持纯黑
-  const silverHero = showMobileHero && !isNf;
+  const panelHero = showMobileHero && !cinema;
   const [heroEl, setHeroEl] = useState<HTMLDivElement | null>(null);
-  const edgeColor = useHeroEdgeColor(silverHero ? mobileHeroSrc : undefined, heroEl);
+  const edgeColor = useHeroEdgeColor(panelHero ? mobileHeroSrc : undefined, heroEl);
 
   // 待回收行的恢复 / 立即清理（library-file-recycle.md §7）。
-  // 恢复是可逆动作直接执行；清理真删磁盘，做种保护形态额外讲清断种风险
+  // 恢复是可逆动作直接执行；清理真删磁盘，原地待回收的额外讲清断种风险
   const restoreTrashedFile = useCallback(
     async (file: LibraryItemFile) => {
       try {
         await restoreLibraryFile(libraryId, mediaItemId, file.id);
-        toast.success(`「${file.file_name}」已恢复为在位版本`);
+        toast.success(t("library.item.restored", { file: file.file_name }));
         reload();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "恢复失败，请稍后重试");
+        toast.error(e instanceof Error ? e.message : t("library.item.restoreFailed"));
       }
     },
-    [libraryId, mediaItemId, reload, toast],
+    [libraryId, mediaItemId, reload, toast, t],
   );
   const purgeTrashedFile = useCallback(
     async (file: LibraryItemFile) => {
       const seeding = !file.purge_after;
       const ok = await confirm({
-        title: `立即清理「${file.file_name}」？`,
+        title: t("library.item.purgeTitle", { file: file.file_name }),
         description: seeding
-          ? "该文件处于做种保护，可能仍被下载器做种。清理会从磁盘删除文件并可能中断做种任务（PT 站请留意保种要求），此操作不可恢复。"
-          : "将立即从回收站删除该文件，不再等待保留期，此操作不可恢复。",
-        confirmLabel: "立即清理",
-        cancelLabel: "先不",
+          ? t("library.item.purgeOriginalHint")
+          : t("library.item.purgeTrashHint"),
+        confirmLabel: t("library.item.purgeNow"),
+        cancelLabel: t("library.item.notNow"),
         tone: "danger",
       });
       if (!ok) return;
       try {
         await purgeLibraryFile(libraryId, mediaItemId, file.id);
-        toast.success(`「${file.file_name}」已清理`);
+        toast.success(t("library.item.purged", { file: file.file_name }));
         reload();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "清理失败，请稍后重试");
+        toast.error(e instanceof Error ? e.message : t("library.item.purgeFailed"));
       }
     },
-    [confirm, libraryId, mediaItemId, reload, toast],
+    [confirm, libraryId, mediaItemId, reload, toast, t],
   );
 
   usePageTitle(detail?.title);
@@ -494,10 +516,10 @@ export function LibraryItemDetailView({
   // 向外壳登记「本页自带顶栏」，否则移动端全局顶栏（☰ + logo）会先显示再消失，
   // 顶部闪一下；同时转圈期间就有返回键可点。加载态与正文共用同一兜底目标。
   const navFallback = discoveryReturnPath
-    ? { label: "发现详情", href: discoveryReturnPath }
+    ? { label: t("library.item.discoveryDetails"), href: discoveryReturnPath }
     : fromRecent
-      ? { label: "媒体库", href: "/library" as Route }
-      : { label: library?.name ?? "库存", href: `/library/${libraryId}` as Route };
+      ? { label: t("nav.main.library"), href: "/library" as Route }
+      : { label: library?.name ?? t("library.item.inventory"), href: `/library/${libraryId}` as Route };
   // 详情页返回导航走主题坑位：Netflix 桌面 = 悬浮返回键 + 页面操作簇
   // （fixed z-30，避开 z-40 顶栏的遮挡），银玻璃与移动端 = PageNav 工具条。
   const { slots } = useResolvedTheme();
@@ -512,9 +534,9 @@ export function LibraryItemDetailView({
       <div className="ambient-fallback flex h-full flex-col">
         <DetailNav title="" fallback={navFallback} onBack={back} />
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
-          <p className="text-body-lg font-semibold text-[var(--text)]">未能加载该条目</p>
+          <p className="text-body-lg font-semibold text-[var(--text)]">{t("library.item.loadFailed")}</p>
           <p className="max-w-sm text-ui leading-6 text-[var(--text-muted)]">
-            条目可能已被删除或重新识别为其他作品，请返回后查看。
+            {t("library.item.unavailableHint")}
           </p>
           {/* 失败态的返回出口与全站同一语言：走 useBackNavigation（上方 back，
               有站内历史 router.back()，直达落地 replace 到结构父级），不再用
@@ -525,7 +547,7 @@ export function LibraryItemDetailView({
             className="btn-glass flex items-center gap-2 px-4 py-2 text-ui font-medium text-[var(--text)]"
           >
             <ChevronLeftIcon className="size-4" />
-            返回{navFallback.label}
+            {t("library.item.backTarget", { target: navFallback.label })}
           </button>
         </div>
       </div>
@@ -538,7 +560,7 @@ export function LibraryItemDetailView({
         <DetailNav title="" fallback={navFallback} onBack={back} />
         <div className="flex flex-1 items-center justify-center gap-2.5 text-ui text-[var(--text-muted)]">
           <BrandLoader className="size-5" />
-          正在读取本地刮削信息…
+          {t("library.item.loading")}
         </div>
       </div>
     );
@@ -580,8 +602,8 @@ export function LibraryItemDetailView({
     duplicateUnits === 0
       ? null
       : detail.kind === "tv"
-        ? `${duplicateUnits} 集有重复`
-        : `${detail.files.filter((f) => f.state === "in_place").length} 个版本`;
+        ? t("library.item.duplicates", { count: duplicateUnits })
+        : t("library.item.versionCount", { count: detail.files.filter((f) => f.state === "in_place").length });
   const duplicateHref = `/library/manage?tab=duplicates&item=${mediaItemId}` as Route;
   const selectedTrackFile =
     availableTrackFiles.find((file) => file.id === selectedTrackFileId) ??
@@ -626,11 +648,11 @@ export function LibraryItemDetailView({
       ? meta.director_credits?.length > 0
         ? meta.director_credits.map((director) => ({
             name: director.name,
-            credit: "导演",
+            credit: t("library.item.director"),
             avatarUrl: director.thumb_url ? imageUrl(director.thumb_url) : null,
             tmdbPersonId: director.tmdb_person_id,
           }))
-        : [...new Set(meta.directors)].map((name) => ({ name, credit: "导演" }))
+        : [...new Set(meta.directors)].map((name) => ({ name, credit: t("library.item.director") }))
       : [];
   const itemPlot = isMovie
     ? meta?.plot
@@ -640,7 +662,7 @@ export function LibraryItemDetailView({
     // 重操作先确认：单条目刷新是 force 语义（图片覆盖重下），说清再动手
     // 其他库的视频条目：刷新是重读 NFO + 重新生成封面，不套 TMDB 那份文案
     const ask = detail?.kind === "video" ? rereadItemNfoConfirm : refreshItemConfirm;
-    if (!(await confirm(ask(detail?.title ?? "此条目")))) return;
+    if (!(await confirm(ask(detail?.title ?? t("library.item.thisItem"), locale)))) return;
     setKicking(true);
     try {
       await refreshItemMetadata(libraryId, mediaItemId);
@@ -652,7 +674,7 @@ export function LibraryItemDetailView({
       // 轮询也不会启动，用户会以为没点上
       setTimeout(reload, 1500);
     } catch (err) {
-      setRefreshError(err instanceof Error ? err.message : "元数据刷新失败，请稍后重试");
+      setRefreshError(err instanceof Error ? err.message : t("library.item.refreshFailed"));
     } finally {
       setKicking(false);
     }
@@ -666,10 +688,10 @@ export function LibraryItemDetailView({
       canSearch={canSearchTorrents}
       onClearHistory={() => {
         void confirm({
-          title: `清除《${detail.title}》的观看记录？`,
+          title: t("library.item.clearHistoryTitle", { title: detail.title }),
           description:
-            "续播进度、已看标记和播放次数都会清除，无法恢复。只影响你自己的记录。",
-          confirmLabel: "清除",
+            t("library.item.clearHistoryHint"),
+          confirmLabel: t("library.item.clear"),
           tone: "danger",
         }).then((ok) => {
           if (!ok) return;
@@ -682,12 +704,11 @@ export function LibraryItemDetailView({
       scraped={detail.source === "tmdb"}
       readsNfo={detail.kind === "video"}
       scraping={scrapingNow}
-      // 公开演示站不接资源站点：不给「搜索资源」（canSearchTorrents 为 false）
-      searchHref={
-        canSearchTorrents
-          ? (buildSearchPath({ keyword: detail.title, scope: scopeOfMediaKind(detail.kind) }) as Route)
-          : undefined
-      }
+      searchHref={canSearchTorrents ? buildSearchPath({
+        keyword: detail.title,
+        also: titleSearchAlso(detail.english_title, detail.original_title),
+        scope: scopeOfMediaKind(detail.kind),
+      }) as Route : undefined}
       // 加入合集：任何能看到这部片的人都能把它扔进自己的单子
       onAddToCollection={() => setAddToCollectionOpen(true)}
       // 分享仅超管（media-share.md §2.1）；照片库条目不分享（分享页是影片页）
@@ -711,7 +732,7 @@ export function LibraryItemDetailView({
           ? () => {
               regenerateItemChapterImages(libraryId, mediaItemId)
                 .then(() => {
-                  toast.success("已开始重新生成章节");
+                  toast.success(t("library.item.chaptersStarted"));
                   // 作业在响应发出前已经落库，立刻拉一次就能拿到
                   // chapters_pending=true，由它接管后续轮询
                   reload();
@@ -769,7 +790,7 @@ export function LibraryItemDetailView({
       className={`detail-ambient scroll-thin scroll-safe relative isolate h-full overflow-y-auto rounded-2xl max-md:rounded-none ${
         showMobileHero ? "detail-ambient--hero" : ""
       }`}
-      style={silverHero && edgeColor ? ({ "--detail-page-color": edgeColor } as CSSProperties) : undefined}
+      style={panelHero && edgeColor ? ({ "--detail-page-color": edgeColor } as CSSProperties) : undefined}
     >
       {/* 没有任何 Hero 图层：全站背景此刻就是本片剧照（沉浸覆盖 + 本页豁免
           全局蒙版，见 app-shell 的 isHome），大图直出、零边界；.detail-ambient
@@ -790,7 +811,7 @@ export function LibraryItemDetailView({
         >
           <img src={mobileHeroSrc} alt="" decoding="async" className="size-full object-cover object-center" />
           <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/45 to-transparent" />
-          {silverHero ? (
+          {panelHero ? (
             <div className="detail-hero-fade absolute inset-x-0 bottom-0 h-[260px]" />
           ) : (
             <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent via-black/55 to-black" />
@@ -841,11 +862,7 @@ export function LibraryItemDetailView({
           )}
           {!isMovie && selectedSeriesEpisode && (
             <p className="text-on-image mt-2 text-body text-white/65 max-md:mt-1.5 max-md:text-ui">
-              {`第 ${selectedSeriesEpisode.seasonNumber} 季 第 ${selectedSeriesEpisode.episode.episode_number} 集${
-                selectedSeriesEpisode.episode.name
-                  ? ` - ${selectedSeriesEpisode.episode.name}`
-                  : ""
-              }`}
+              {t("library.item.selectedEpisode", { season: selectedSeriesEpisode.seasonNumber, episode: selectedSeriesEpisode.episode.episode_number, named: selectedSeriesEpisode.episode.name ? "yes" : "no", name: selectedSeriesEpisode.episode.name ?? "" })}
             </p>
           )}
           {(itemFacts.length > 0 ||
@@ -889,7 +906,7 @@ export function LibraryItemDetailView({
               Netflix 的「关于本片」、Plex 的 COLLECTIONS 行都是同一个判断：
               归属用文字，推荐才用卡片。 */}
           {detail?.series_name && (
-            <MetaLinkRow label="系列">
+            <MetaLinkRow label={t("library.collections.series")}>
               {/* 只有本库真的生成了那个合集才给链接——一个点了 404 的入口比
                   不给更糟；没有合集时仍然把系列名说出来，那是这部片的事实 */}
               {detail.series_collection_id ? (
@@ -905,7 +922,7 @@ export function LibraryItemDetailView({
             </MetaLinkRow>
           )}
           {detail && detail.collections.length > 0 && (
-            <MetaLinkRow label="合集">
+            <MetaLinkRow label={t("library.detail.collections")}>
               {detail.collections.slice(0, COLLECTION_ROW_LIMIT).map((row) => (
                 <Link
                   key={row.id}
@@ -921,7 +938,7 @@ export function LibraryItemDetailView({
                   href={`/library/${libraryId}?view=collections` as Route}
                   className="text-white/50 underline-offset-4 hover:underline"
                 >
-                  还有 {detail.collections.length - COLLECTION_ROW_LIMIT} 个
+                  {t("library.item.moreCollections", { count: detail.collections.length - COLLECTION_ROW_LIMIT })}
                 </Link>
               )}
             </MetaLinkRow>
@@ -943,7 +960,7 @@ export function LibraryItemDetailView({
             <PlayAction
               watched={watched}
               favorite={favorite}
-              favoriteLabel={isMovie ? "这部电影" : "这部剧"}
+              favoriteLabel={isMovie ? t("library.item.thisMovie") : t("library.item.thisSeries")}
               marking={marking}
               onToggleFavorite={toggleFavorite}
               onTogglePlayed={togglePlayed}
@@ -964,6 +981,13 @@ export function LibraryItemDetailView({
                       !isMovie && selectedSeriesEpisode
                         ? selectedSeriesEpisode.episode.episode_number
                         : undefined,
+                    // 用户在版本选择器里明确选过：播放页锁定这个文件起播，
+                    // 不做多版本自动择优（否则 720p 测试直出会压过 4K 转码）。
+                    // 没碰过选择器（默认高亮的第一个）不锁：交给服务端按观看场景择优
+                    fileId: pickedVersionFileId(
+                      selectedTrackFileId,
+                      availableTrackFiles.map((file) => file.id),
+                    ),
                   }) as Route,
                 );
               }}
@@ -976,11 +1000,11 @@ export function LibraryItemDetailView({
             <div className="mt-4 flex max-w-2xl items-center gap-2 rounded-xl border border-[var(--info)]/25 bg-[var(--info)]/[0.07] px-4 py-2.5 text-sub font-medium text-[var(--info)]">
               <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-[var(--info)]/30 border-t-[var(--info)]" />
               <span className="truncate">
-                正在刷新元数据
+                {t("library.item.refreshing")}
                 {detail.scraping_phase ? ` · ${detail.scraping_phase}` : ""}
               </span>
               <span className="ml-auto shrink-0 text-caption font-normal text-white/45">
-                完成后自动更新本页
+                {t("library.item.refreshingHint")}
               </span>
             </div>
           )}
@@ -1063,6 +1087,14 @@ export function LibraryItemDetailView({
           />
         )}
 
+        {/* —— 相似推荐 → 作品系列：相似推荐只在自己库里挑（同主创、类型相近），有系列一行时排除同系列的片；
+            系列一行按上映顺序列全（缺的压暗、可订阅）。没有就整行不出 —— */}
+        <LibraryRelatedRows
+          libraryId={libraryId}
+          mediaItemId={detail.media_item_id}
+          seriesCollectionId={isMovie ? (detail.series_collection_id ?? null) : null}
+        />
+
         {/* 文件区固定收尾：电影列全部版本；剧集只列当前选中集的全部版本。
             两者共用同一套弱化、默认折叠样式，未入库集自然不渲染。 */}
         {(() => {
@@ -1071,7 +1103,7 @@ export function LibraryItemDetailView({
           return (
             <FileSection
               files={files}
-              title="文件"
+              title={t("library.item.files")}
               duplicateHref={canManageLibraries ? duplicateHref : null}
               duplicateLabel={duplicateLabel}
               onDeleteFile={canManageLibraries ? setDeleteFileTarget : undefined}
@@ -1085,10 +1117,10 @@ export function LibraryItemDetailView({
             豆瓣在移动端沿用 App 唤起逻辑。 */}
         {(tmdbId > 0 || detail.imdb_id || detail.douban_id) && (
           <nav
-            aria-label="外部词条"
+            aria-label={t("library.item.externalEntry")}
             className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-white/[0.04] pt-4 text-caption"
           >
-            <span className="text-[var(--text-faint)]">相关链接</span>
+            <span className="text-[var(--text-faint)]">{t("library.item.relatedLinks")}</span>
             {tmdbId > 0 && (
               <SourceLink
                 href={`https://www.themoviedb.org/${detail.kind}/${tmdbId}`}
@@ -1107,7 +1139,7 @@ export function LibraryItemDetailView({
                   doubanAppHref ??
                   `https://movie.douban.com/subject/${detail.douban_id}/`
                 }
-                label="豆瓣"
+                label={t("library.item.douban")}
               />
             )}
           </nav>
@@ -1193,9 +1225,7 @@ export function LibraryItemDetailView({
           seasonSummary={
             isMovie
               ? null
-              : `已入库 ${new Set(detail.files.map((f) => f.season_number)).size} 季 ${
-                  new Set(detail.files.map((f) => `${f.season_number}-${f.episode_number}`)).size
-                } 集`
+              : t("library.item.ownedSummary", { seasons: new Set(detail.files.map((f) => f.season_number)).size, episodes: new Set(detail.files.map((f) => `${f.season_number}-${f.episode_number}`)).size })
           }
           initialShare={shareInitial}
         />
@@ -1276,6 +1306,8 @@ export function PlayAction({
   onToggleFavorite?: () => void;
   onTogglePlayed?: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const positionMs = watched?.position_ms ?? 0;
   const durationMs = watched?.duration_ms ?? null;
   const finished = watched?.played ?? false;
@@ -1291,18 +1323,18 @@ export function PlayAction({
     resumable && durationMs && durationMs > positionMs
       ? Math.round((durationMs - positionMs) / 60000)
       : null;
-  const label = resumable ? "继续观看" : finished ? "重新播放" : "播放";
+  const label = resumable ? t("library.item.resume") : finished ? t("library.item.replay") : t("player.controls.play");
   // 窄屏禁用两枚标记钮的 Tooltip：按钮自己已带文字（下方 md:hidden 标签），
   // 且实测 Tooltip 在窄屏未交互即自开、悬停叠压白色主按钮文案（视觉验收
   // 实测，双主题复现）；桌面悬停提示保留
   const isMobile = useIsMobile();
   const progressText = resumable
     ? [
-        `看到 ${formatClock(positionMs)}`,
+        t("library.item.position", { time: formatClock(positionMs) }),
         remainingMinutes && remainingMinutes >= 1
-          ? `剩余 ${formatRuntimeMinutes(remainingMinutes)}`
+          ? t("library.item.remaining", { duration: formatRuntimeMinutes(remainingMinutes, locale) })
           : durationMs
-            ? "即将看完"
+            ? t("library.item.nearlyFinished")
             : null,
       ]
         .filter(Boolean)
@@ -1316,7 +1348,7 @@ export function PlayAction({
         onClick={onPlay}
         aria-label={progressText ? `${label}，${progressText}` : label}
         // media-cta 钩子类：媒体主行动键的主题换皮入口，Netflix 主题下
-        // 白底黑字 → 品牌红（见 themes/netflix/tokens.css）；银玻璃维持白键
+        // 白底黑字 → 品牌红（见 plugins/netflix/src/theme.css）；银玻璃维持白键
         className="media-cta inline-flex h-12 shrink-0 items-center justify-center gap-2.5 rounded-full bg-white px-8 text-body font-semibold text-black shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition duration-200 hover:bg-white/90 active:scale-[0.985] max-md:h-11 max-md:w-full max-md:px-6"
       >
         <PlayIcon className="size-5" />
@@ -1327,7 +1359,7 @@ export function PlayAction({
         <div className="flex items-center gap-2.5">
           {onToggleFavorite && (
             <Tooltip
-              content={favorite ? `取消收藏${favoriteLabel}` : `收藏${favoriteLabel}`}
+              content={favorite ? t("library.item.unfavoriteTitle", { title: favoriteLabel }) : t("library.item.favoriteTitle", { title: favoriteLabel })}
               dismissOnReferencePress
               disabled={isMobile}
             >
@@ -1336,7 +1368,7 @@ export function PlayAction({
                 onClick={onToggleFavorite}
                 disabled={marking}
                 aria-pressed={Boolean(favorite)}
-                aria-label={favorite ? "取消收藏" : "收藏"}
+                aria-label={favorite ? t("library.gallery.unfavorite") : t("library.gallery.favorite")}
                 className={MARK_BUTTON_CLASS}
               >
                 <HeartIcon
@@ -1344,13 +1376,13 @@ export function PlayAction({
                   fill={favorite ? "currentColor" : "none"}
                 />
                 {/* 窄屏没有悬停提示，按钮自己带文字；文字随状态变，一眼知道现在是什么 */}
-                <span className="text-ui font-medium md:hidden">{favorite ? "已收藏" : "收藏"}</span>
+                <span className="text-ui font-medium md:hidden">{favorite ? t("library.item.favorited") : t("library.gallery.favorite")}</span>
               </button>
             </Tooltip>
           )}
           {onTogglePlayed && (
             <Tooltip
-              content={finished ? "标记为未看" : "标记为已看"}
+              content={finished ? t("library.item.markUnwatched") : t("library.item.markWatched")}
               dismissOnReferencePress
               disabled={isMobile}
             >
@@ -1359,7 +1391,7 @@ export function PlayAction({
                 onClick={onTogglePlayed}
                 disabled={marking}
                 aria-pressed={finished}
-                aria-label={finished ? "标记为未看" : "标记为已看"}
+                aria-label={finished ? t("library.item.markUnwatched") : t("library.item.markWatched")}
                 className={MARK_BUTTON_CLASS}
               >
                 <CheckIcon
@@ -1368,7 +1400,7 @@ export function PlayAction({
                   }
                 />
                 <span className="text-ui font-medium md:hidden">
-                  {finished ? "已看完" : "标为已看"}
+                  {finished ? t("library.item.watched") : t("library.item.setWatched")}
                 </span>
               </button>
             </Tooltip>
@@ -1384,7 +1416,7 @@ export function PlayAction({
             aria-valuenow={percent ?? 0}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label="观看进度"
+            aria-label={t("library.item.watchProgress")}
           >
             <div className="h-full rounded-full bg-white/85" style={{ width: `${percent ?? 0}%` }} />
           </div>
@@ -1394,7 +1426,7 @@ export function PlayAction({
 
       {/* 已看态已由对勾变绿表达；只有看过不止一次才值得多说一句 */}
       {finished && !resumable && watched && watched.play_count > 1 && (
-        <p className="tnum text-caption text-white/55">看过 {watched.play_count} 次</p>
+        <p className="tnum text-caption text-white/55">{t("library.item.playCount", { count: watched.play_count })}</p>
       )}
     </div>
   );
@@ -1465,6 +1497,7 @@ function ItemActionsMenu({
   /** 加进手动合集（F4）：这是"我要把这部片扔进那个单子"最自然的落点 */
   onAddToCollection?: () => void;
 }) {
+  const t = useTranslations();
   const router = useRouter();
   const itemClass =
     "glass-row nav-item cursor-pointer px-3 py-2 text-ui font-medium outline-none " +
@@ -1477,7 +1510,7 @@ function ItemActionsMenu({
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          aria-label="更多操作"
+          aria-label={t("library.detail.moreActions")}
           className={`${PAGE_NAV_BUTTON_CLASS} relative data-[state=open]:bg-black/55 data-[state=open]:text-white`}
         >
           <MoreIcon className="size-[18px] max-md:size-[22px]" />
@@ -1499,22 +1532,22 @@ function ItemActionsMenu({
               onSelect={() => router.push(searchHref)}
               className={itemClass}
             >
-              搜索资源
+              {t("library.item.searchReleases")}
             </DropdownMenu.Item>
           )}
           {onAddToCollection && (
             <DropdownMenu.Item onSelect={onAddToCollection} className={itemClass}>
-              加入合集…
+              {t("library.item.addToCollection")}
             </DropdownMenu.Item>
           )}
           {onShare && (
             <DropdownMenu.Item onSelect={onShare} className={itemClass}>
-              分享…
+              {t("library.collections.share")}
             </DropdownMenu.Item>
           )}
           {onUpgrade && (
             <DropdownMenu.Item onSelect={onUpgrade} className={itemClass}>
-              洗版…
+              {t("library.item.upgrade")}
             </DropdownMenu.Item>
           )}
           {canManage && (
@@ -1522,7 +1555,7 @@ function ItemActionsMenu({
               <DropdownMenu.Separator className="my-1 h-px bg-white/[0.07]" />
               {identifiable && (
                 <DropdownMenu.Item onSelect={onReidentify} className={itemClass}>
-                  修正识别结果…
+                  {t("library.item.reidentify")}
                 </DropdownMenu.Item>
               )}
               {scraped && (
@@ -1531,7 +1564,7 @@ function ItemActionsMenu({
                 disabled={scraping}
                 className={itemClass}
               >
-                {scraping ? "正在刷新元数据…" : "刷新元数据"}
+                {scraping ? t("library.item.refreshingMenu") : t("library.item.refreshMetadata")}
               </DropdownMenu.Item>
               )}
               {!scraped && (
@@ -1542,11 +1575,11 @@ function ItemActionsMenu({
                 >
                   {scraping
                     ? readsNfo
-                      ? "正在读取 NFO…"
-                      : "正在生成封面…"
+                      ? t("library.item.readingNfo")
+                      : t("library.item.generatingCover")
                     : readsNfo
-                      ? "重新读取 NFO 与封面"
-                      : "重新生成封面"}
+                      ? t("library.item.rereadNfo")
+                      : t("library.item.regenerateCover")}
                 </DropdownMenu.Item>
               )}
               {onRegenerateChapterImages && (
@@ -1555,23 +1588,23 @@ function ItemActionsMenu({
                   disabled={chaptersPending}
                   className={itemClass}
                 >
-                  {chaptersPending ? "正在生成章节…" : "重新生成章节"}
+                  {chaptersPending ? t("library.item.generatingChapters") : t("library.item.regenerateChapters")}
                 </DropdownMenu.Item>
               )}
               {scraped && (
               <DropdownMenu.Item onSelect={onChangeArtwork} className={itemClass}>
-                更换图片…
+                {t("library.item.changeArtwork")}
               </DropdownMenu.Item>
               )}
               <DropdownMenu.Item onSelect={onTransfer} className={itemClass}>
-                转移到其他库…
+                {t("library.item.transferMenu")}
               </DropdownMenu.Item>
               <DropdownMenu.Separator className="my-1 h-px bg-white/[0.07]" />
               <DropdownMenu.Item
                 onSelect={onDelete}
                 className={`${itemClass} !text-[#ff9f9f] data-[highlighted]:!bg-[rgba(255,90,90,0.16)] data-[highlighted]:!text-[#ffb4b4]`}
               >
-                删除影片
+                {t("library.item.deleteMovie")}
               </DropdownMenu.Item>
             </>
           )}
@@ -1579,7 +1612,7 @@ function ItemActionsMenu({
             <DropdownMenu.Separator className="my-1 h-px bg-white/[0.07]" />
           )}
           <DropdownMenu.Item onSelect={onClearHistory} className={itemClass}>
-            清除观看记录…
+            {t("library.item.clearHistory")}
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -1621,6 +1654,7 @@ function frameRateLabel(frameRate: number | null): string | null {
  * 切换分集会先恢复折叠，再按新文案重新测量，避免沿用上一集的展开状态。
  */
 export function ExpandablePlot({ text }: { text: string }) {
+  const t = useTranslations();
   const paragraphRef = useRef<HTMLParagraphElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [hasOverflow, setHasOverflow] = useState(false);
@@ -1665,7 +1699,7 @@ export function ExpandablePlot({ text }: { text: string }) {
           onClick={() => setExpanded((value) => !value)}
           className="mt-1.5 inline-flex items-center gap-1 text-sub font-medium text-white/55 transition hover:text-white/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-2)]"
         >
-          {expanded ? "收起" : "展开全文"}
+          {expanded ? t("library.item.collapse") : t("library.item.expandPlot")}
           <ChevronRightIcon
             className={`size-3.5 transition-transform ${expanded ? "-rotate-90" : "rotate-90"}`}
           />
@@ -1695,9 +1729,10 @@ export function SourceLink({ href, label }: { href: string; label: string }) {
  * 自己本地存了那么多季。原生 select 收起时显示的就是选中项的文本，所以这个
  * 后缀在展开和收起两种状态下都看得到。
  */
-function seasonLabel(season: number, owned: boolean): string {
-  const name = season === 0 ? "特别篇" : `第 ${season} 季`;
-  return owned ? name : `${name} · 未入库`;
+function seasonLabel(season: number, owned: boolean, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  const name = season === 0 ? t("library.item.specials") : t("library.item.season", { season });
+  return owned ? name : t("library.item.seasonNotOwned", { name });
 }
 
 /**
@@ -1724,6 +1759,8 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
   /** 变化即静默重拉本季分集（页面内改了观看状态后），不重置选中集与滚动位置 */
   refreshKey?: number;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const seasons = detail.seasons;
   // 季选择器列的是「元数据的季 ∪ 库里实有的季」，本地没有的季也在里面（看得到
   // 缺口）。所以要单独算出哪些季真在库——口径与后端 owned_seasons 一致：台账
@@ -1742,8 +1779,13 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
   const [data, setData] = useState<SeasonEpisodes | null>(null);
   const [failed, setFailed] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
   const initialEpisodeScrolled = useRef(false);
+  // 程序改选中集（进页、换段、面板点格子、锚点变了）后要把横排滚到它；
+  // 用户在横排里直接点卡不滚
+  const rowScrollTarget = useRef<number | null>(null);
+  const [rowScrollNonce, setRowScrollNonce] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -1756,15 +1798,16 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
       .then((result) => {
         if (cancelled) return;
         setData(result);
-        // 最近观看入口优先选中目标集；目标已不在库时安全回退到第一集在库内容。
+        // 最近观看入口优先选中目标集；目标已不在库时落在接着看的那一集（锚点）。
         const requested =
           season === requestedSeason && initialEpisode != null
             ? result.episodes.find(
                 (episode) => episode.episode_number === initialEpisode && episode.owned,
               )
             : undefined;
-        const first = requested ?? result.episodes.find((e) => e.owned) ?? result.episodes[0];
-        setSelected(first?.episode_number ?? null);
+        const target = requested?.episode_number ?? seasonAnchor(result);
+        rowScrollTarget.current = target;
+        setSelected(target);
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
@@ -1787,15 +1830,23 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
 
   // Hero 的对勾改了当前集的观看状态：只换分集数据（进度条 / 绿色对勾跟上），
   // 不走上面那条会重置选中集的加载路径。首次渲染（refreshKey=0）不拉。
+  // 锚点变了（看完 1050 → 1051）就选中新锚点、段跟过去；没变不动用户的浏览。
   useEffect(() => {
     if (!refreshKey) return;
     let cancelled = false;
+    const previousResume = data?.season_number === season ? data.resume_episode : undefined;
     (fetchEpisodes
       ? fetchEpisodes(detail.media_item_id, season)
       : getItemEpisodes(libraryId, detail.media_item_id, season)
     )
       .then((result) => {
-        if (!cancelled && result.season_number === season) setData(result);
+        if (cancelled || result.season_number !== season) return;
+        setData(result);
+        if (previousResume !== undefined && result.resume_episode !== previousResume) {
+          const anchor = seasonAnchor(result);
+          rowScrollTarget.current = anchor;
+          setSelected(anchor);
+        }
       })
       // 拉不到就保持旧数据，下次换季自然刷新
       .catch(() => undefined);
@@ -1843,6 +1894,49 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
   );
   const ownedCount = data ? data.episodes.filter((e) => e.owned).length : 0;
 
+  // 长季分段（超过 50 集）：横排只放选中集所在的那一段；≤50 集 ranges 为空，一切照旧
+  const ranges = useMemo(
+    () => (data ? episodeRanges(data.episodes.map((e) => e.episode_number)) : []),
+    [data],
+  );
+  const anchor = useMemo(() => (data ? seasonAnchor(data) : null), [data]);
+  // 「接着看」只标有观看记录的季：一集都没碰过的季，锚点只是退回规则落的第一集，标了是噪音
+  const watched = data?.episodes.some((e) => e.played || e.position_ms > 0) ?? false;
+  const currentRange =
+    ranges.length > 0
+      ? ((selected != null ? rangeContaining(ranges, selected) : undefined) ?? ranges[0])
+      : null;
+  const currentRangePos = currentRange ? ranges.indexOf(currentRange) : -1;
+  const rowEpisodes = useMemo(
+    () =>
+      data && currentRange
+        ? data.episodes.filter(
+            (e) => e.episode_number >= currentRange.first && e.episode_number <= currentRange.last,
+          )
+        : (data?.episodes ?? []),
+    [data, currentRange],
+  );
+  const selectEpisode = (episodeNumber: number) => {
+    rowScrollTarget.current = episodeNumber;
+    setSelected(episodeNumber);
+    // 选的就是当前集（面板里点回原来那一格）时 selected 不变，靠它触发滚动
+    setRowScrollNonce((n) => n + 1);
+  };
+  // 手动换段：段里有锚点选锚点，否则段首
+  const selectRange = (range: EpisodeRange) => selectEpisode(rangeEntry(range, anchor));
+
+  // 程序改了选中集：横排（只横向，不带动整页纵向滚动）把那张卡滚到中间
+  useEffect(() => {
+    const target = rowScrollTarget.current;
+    if (target == null || target !== selected) return;
+    const card = sectionRef.current?.querySelector<HTMLElement>(
+      `[data-episode-number="${target}"]`,
+    );
+    if (!card) return;
+    rowScrollTarget.current = null;
+    centerInScroller(card);
+  }, [selected, rowEpisodes, rowScrollNonce]);
+
   // Hero 的简介、文件、分辨率和轨道必须与分集区保持同一选择；数据加载或
   // 换季期间先清空，避免短暂显示上一季上一集的信息。
   useEffect(() => {
@@ -1861,7 +1955,7 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
     <section ref={sectionRef}>
       <div className="mb-3 flex items-center gap-3">
         <h2 className="text-on-image text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
-          分集
+          {t("library.item.episodes")}
         </h2>
         {seasons.length > 1 ? (
           <select
@@ -1871,29 +1965,50 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
           >
             {seasons.map((s) => (
               <option key={s} value={s}>
-                {seasonLabel(s, ownedSeasons.has(s))}
+                {seasonLabel(s, ownedSeasons.has(s), locale)}
               </option>
             ))}
           </select>
         ) : (
           <span className="text-sub text-[var(--text-muted)]">
-            {seasonLabel(season, ownedSeasons.has(season))}
+            {seasonLabel(season, ownedSeasons.has(season), locale)}
           </span>
         )}
-        {data && (
-          <span className="tnum text-sub text-[var(--text-faint)]">
-            在库 {ownedCount} / {data.episodes.length} 集
-          </span>
-        )}
+        {data &&
+          (ranges.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setPanelOpen(true)}
+              className="tnum ml-auto flex shrink-0 items-center gap-0.5 text-sub text-[var(--text-muted)] transition hover:text-white"
+            >
+              {t("library.item.allEpisodeCount", { count: data.episodes.length })}
+              <ChevronRightIcon className="size-3.5" />
+            </button>
+          ) : (
+            <span className="tnum text-sub text-[var(--text-faint)]">
+              {t("library.item.ownedEpisodeCount", { owned: ownedCount, total: data.episodes.length })}
+            </span>
+          ))}
       </div>
 
+      {/* 集段胶囊：选中段实心，锚点段右上角橙点 */}
+      {data && ranges.length > 0 && (
+        <EpisodeRangeChips
+          ranges={ranges}
+          active={currentRange}
+          anchor={anchor}
+          onSelect={selectRange}
+          className="mb-3"
+        />
+      )}
+
       {failed && (
-        <p className="text-sub text-[var(--text-muted)]">分集信息加载失败，请稍后重试。</p>
+        <p className="text-sub text-[var(--text-muted)]">{t("library.item.episodesFailed")}</p>
       )}
       {!data && !failed && (
         <div className="flex items-center gap-2.5 py-6 text-sub text-[var(--text-muted)]">
           <BrandLoader className="size-5" />
-          正在读取分集信息…
+          {t("library.item.loadingEpisodes")}
         </div>
       )}
 
@@ -1901,17 +2016,266 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
           走 HScroller 以复用发现页海报行的左右翻页钮，避免用户看不出这行可横滑。 */}
       {data && (
         <HScroller className="-mx-1 gap-3 px-1 pb-1 pt-1">
-          {data.episodes.map((episode) => (
+          {currentRangePos > 0 && (
+            <RangeEdgeCard
+              dir={-1}
+              range={ranges[currentRangePos - 1]}
+              onSelect={selectRange}
+            />
+          )}
+          {rowEpisodes.map((episode) => (
             <EpisodeCard
               key={episode.episode_number}
               episode={episode}
               selected={episode.episode_number === selected}
+              resume={watched && episode.episode_number === anchor}
               onSelect={() => setSelected(episode.episode_number)}
             />
           ))}
+          {currentRangePos >= 0 && currentRangePos < ranges.length - 1 && (
+            <RangeEdgeCard
+              dir={1}
+              range={ranges[currentRangePos + 1]}
+              onSelect={selectRange}
+            />
+          )}
         </HScroller>
       )}
+
+      {panelOpen && data && (
+        <AllEpisodesPanel
+          episodes={data.episodes}
+          ranges={ranges}
+          anchor={anchor}
+          selected={selected}
+          ownedCount={ownedCount}
+          onClose={() => setPanelOpen(false)}
+          onPick={(episodeNumber) => {
+            setPanelOpen(false);
+            selectEpisode(episodeNumber);
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+/** 把横滚容器里的某一项滚到容器中间；只动容器自己的 scrollLeft，不带动整页 */
+function centerInScroller(item: HTMLElement) {
+  const scroller = item.parentElement;
+  if (!scroller) return;
+  const box = scroller.getBoundingClientRect();
+  const rect = item.getBoundingClientRect();
+  scroller.scrollLeft += rect.left - box.left - (box.width - rect.width) / 2;
+}
+
+/** 集段胶囊横排：选中段实心，锚点所在段右上角橙点（只标这一种状态） */
+function EpisodeRangeChips({
+  ranges,
+  active,
+  anchor,
+  onSelect,
+  className = "",
+}: {
+  ranges: EpisodeRange[];
+  active: EpisodeRange | null;
+  anchor: number | null;
+  onSelect: (range: EpisodeRange) => void;
+  className?: string;
+}) {
+  const t = useTranslations();
+  const anchorRange = anchor != null ? rangeContaining(ranges, anchor) : undefined;
+  const rowRef = useRef<HTMLDivElement>(null);
+  // 选中段的胶囊滚到中间（打开、换段都跟上）
+  useEffect(() => {
+    const chip = rowRef.current?.querySelector<HTMLElement>(
+      `[data-range-index="${active?.index}"]`,
+    );
+    if (chip) centerInScroller(chip);
+  }, [active?.index]);
+  return (
+    <div ref={rowRef} className={className}>
+      <HScroller className="-mx-1 gap-2 px-1 py-0.5">
+        {ranges.map((range) => {
+          const on = range.index === active?.index;
+          return (
+            <button
+              key={range.index}
+              type="button"
+              data-range-index={range.index}
+              aria-pressed={on}
+              onClick={() => onSelect(range)}
+              className={`tnum relative shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sub transition ${
+                on
+                  ? "bg-white font-semibold text-black"
+                  : "bg-white/[0.06] text-[var(--text-muted)] hover:bg-white/[0.1] hover:text-white"
+              }`}
+            >
+              {episodeRangeLabel(range)}
+              {range.index === anchorRange?.index && (
+                <span
+                  aria-label={t("library.item.resumeRange")}
+                  className="absolute right-1.5 top-1 size-1.5 rounded-full bg-[#ffb340]"
+                />
+              )}
+            </button>
+          );
+        })}
+      </HScroller>
+    </div>
+  );
+}
+
+/** 横排首尾的「← 上一段 / 下一段 →」小卡，高度与分集剧照对齐 */
+function RangeEdgeCard({
+  dir,
+  range,
+  onSelect,
+}: {
+  dir: -1 | 1;
+  range: EpisodeRange;
+  onSelect: (range: EpisodeRange) => void;
+}) {
+  const t = useTranslations();
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(range)}
+      className="tnum flex h-[112.5px] w-[96px] shrink-0 flex-col items-center justify-center gap-0.5 self-start rounded-xl bg-white/[0.04] text-caption text-[var(--text-muted)] ring-1 ring-white/[0.08] transition hover:text-white hover:ring-white/35"
+    >
+      <span>{dir === -1 ? t("library.item.previousRange") : t("library.item.nextRange")}</span>
+      <span className="text-[var(--text-faint)]">{episodeRangeLabel(range)}</span>
+    </button>
+  );
+}
+
+/**
+ * 「全部分集」面板：一排段胶囊 + 数字宫格（网页 10 列、手机 5 列）。
+ * 打开时落在锚点所在的段，锚点格子描橙边并滚到可见；点格子由调用方关面板、选中那一集。
+ */
+function AllEpisodesPanel({
+  episodes,
+  ranges,
+  anchor,
+  selected,
+  ownedCount,
+  onClose,
+  onPick,
+}: {
+  episodes: LibraryEpisode[];
+  ranges: EpisodeRange[];
+  anchor: number | null;
+  selected: number | null;
+  ownedCount: number;
+  onClose: () => void;
+  onPick: (episodeNumber: number) => void;
+}) {
+  const t = useTranslations();
+  const [range, setRange] = useState(
+    () => (anchor != null ? rangeContaining(ranges, anchor) : undefined) ?? ranges[0],
+  );
+  const gridRef = useRef<HTMLDivElement>(null);
+  const cells = episodes.filter(
+    (e) => e.episode_number >= range.first && e.episode_number <= range.last,
+  );
+
+  // 锚点在这一段就把它滚到宫格中间（第 50 集在宫格最底下，不滚看不见）
+  useEffect(() => {
+    const grid = gridRef.current;
+    const hit = grid?.querySelector<HTMLElement>("[data-anchor]");
+    if (!grid) return;
+    if (!hit) {
+      grid.scrollTop = 0;
+      return;
+    }
+    const box = grid.getBoundingClientRect();
+    const rect = hit.getBoundingClientRect();
+    grid.scrollTop += rect.top - box.top - (box.height - rect.height) / 2;
+  }, [range]);
+
+  return (
+    <Modal open onClose={onClose} label={t("library.item.allEpisodes")} width="2xl" panelClassName="flex max-h-[80vh] flex-col">
+      <div className="flex items-center gap-2 px-5 pb-1 pt-4">
+        <h2 className="text-body-lg font-semibold text-[var(--text)]">{t("library.item.allEpisodes")}</h2>
+        <span className="tnum text-caption text-[var(--text-faint)]">
+          {t("library.item.ownedEpisodeFraction", { owned: ownedCount, total: episodes.length })}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="ml-auto text-sub text-[var(--text-muted)] transition hover:text-white"
+        >
+          {t("common.done")}
+        </button>
+      </div>
+      <EpisodeRangeChips
+        ranges={ranges}
+        active={range}
+        anchor={anchor}
+        onSelect={setRange}
+        className="px-5 pt-2"
+      />
+      <div
+        ref={gridRef}
+        className="grid min-h-0 flex-1 grid-cols-10 content-start gap-2 overflow-y-auto scroll-thin px-5 pb-5 pt-3 max-md:grid-cols-5"
+      >
+        {cells.map((episode) => (
+          <EpisodeCell
+            key={episode.episode_number}
+            episode={episode}
+            anchor={episode.episode_number === anchor}
+            selected={episode.episode_number === selected}
+            onPick={() => onPick(episode.episode_number)}
+          />
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+/** 宫格的一格：已看 ✓、看了一半底部进度条、缺集虚线、锚点橙边、选中实心 */
+function EpisodeCell({
+  episode,
+  anchor,
+  selected,
+  onPick,
+}: {
+  episode: LibraryEpisode;
+  anchor: boolean;
+  selected: boolean;
+  onPick: () => void;
+}) {
+  const t = useTranslations();
+  const progress = episode.position_ms > 0 ? (episode.progress_percent ?? null) : null;
+  return (
+    <button
+      type="button"
+      data-cell-episode={episode.episode_number}
+      data-anchor={anchor ? "" : undefined}
+      aria-pressed={selected}
+      aria-label={t("library.item.episodeStatus", { episode: episode.episode_number, owned: episode.owned ? "yes" : "no", played: episode.played ? "yes" : "no" })}
+      onClick={onPick}
+      className={`tnum relative h-11 overflow-hidden rounded-[10px] text-ui transition ${
+        selected
+          ? "bg-white font-semibold text-black"
+          : !episode.owned
+            ? "border border-dashed border-white/[0.18] text-[var(--text-faint)] hover:border-white/35"
+            : episode.played
+              ? "bg-white/[0.03] text-[var(--text-muted)] hover:bg-white/[0.08]"
+              : "bg-white/[0.07] text-[var(--text)] hover:bg-white/[0.12]"
+      } ${anchor ? "shadow-[inset_0_0_0_2px_#ffb340]" : ""}`}
+    >
+      {episode.episode_number}
+      {episode.played && (
+        <CheckIcon className="pointer-events-none absolute right-1 top-1 size-2.5 stroke-[3] text-[var(--ok)]" />
+      )}
+      {progress != null && (
+        <span
+          className="pointer-events-none absolute bottom-0 left-0 h-[3px] bg-[var(--accent-2)]"
+          style={{ width: `${progress}%` }}
+        />
+      )}
+    </button>
   );
 }
 
@@ -1923,12 +2287,16 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
 function EpisodeCard({
   episode,
   selected,
+  resume = false,
   onSelect,
 }: {
   episode: LibraryEpisode;
   selected: boolean;
+  /** 接着看的那一集（只在分段的长季标）：左上角「接着看」 */
+  resume?: boolean;
   onSelect: () => void;
 }) {
+  const t = useTranslations();
   // 看完 = 满条绿；看一半 = 百分比蓝；有记录但算不出百分比（无时长）给
   // 一根 60% 透明的整条兜底——三种形态与 RecentWatchCard 逐一对应。
   // 看完后重看到一半：对勾保留，进度条按这次看到哪画蓝条
@@ -1955,7 +2323,7 @@ function EpisodeCard({
           src={imageUrl(episode.still_url)}
           // 分集卡 200 宽、16:9 框
           width={200}
-          alt={`第 ${episode.episode_number} 集剧照`}
+          alt={t("library.item.episodeStill", { episode: episode.episode_number })}
           className="size-full object-cover"
           fallback={
             <span className="tnum flex size-full items-center justify-center text-[22px] font-bold text-white/20">
@@ -1963,17 +2331,22 @@ function EpisodeCard({
             </span>
           }
         />
+        {resume && (
+          <span className="pointer-events-none absolute left-1.5 top-1.5 rounded bg-[#ffb340] px-1.5 py-px text-micro font-bold text-black">
+            {t("library.item.continue")}
+          </span>
+        )}
         {/* 右上角状态位：缺集与已看对勾同排（看过之后文件丢了两者会同时出现） */}
         {(!episode.owned || episode.played) && (
           <div className="pointer-events-none absolute right-1.5 top-1.5 flex items-center gap-1">
             {!episode.owned && (
               <span className="rounded bg-black/60 px-1.5 py-px text-micro font-semibold text-[var(--warn)]">
-                缺
+                {t("library.item.missingBadge")}
               </span>
             )}
             {episode.played && (
               <span
-                aria-label="已看完"
+                aria-label={t("library.item.watched")}
                 className="flex size-5 items-center justify-center rounded-full bg-[var(--ok)] text-[#07120c] shadow-lg"
               >
                 <CheckIcon className="size-3 stroke-[2.5]" />
@@ -1999,7 +2372,7 @@ function EpisodeCard({
           selected ? "font-semibold text-white" : "text-[var(--text)]"
         }`}
       >
-        {episode.episode_number}. {episode.name ?? `第 ${episode.episode_number} 集`}
+        {episode.episode_number}. {episode.name ?? t("library.item.episode", { episode: episode.episode_number })}
       </p>
     </button>
   );
@@ -2040,6 +2413,7 @@ function FileSection({
   onRestoreFile?: (file: LibraryItemFile) => void;
   onPurgeFile?: (file: LibraryItemFile) => void;
 }) {
+  const t = useTranslations();
   return (
     <section>
       <h2 className="mb-3 flex items-center gap-2 text-ui font-medium tracking-[-0.01em] text-[var(--text-muted)]">
@@ -2054,7 +2428,7 @@ function FileSection({
             href={duplicateHref}
             className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-[var(--warn)]/35 px-2.5 py-0.5 text-caption font-medium text-[var(--warn)] transition hover:bg-[var(--warn)]/10"
           >
-            {duplicateLabel} · 处理重复
+            {duplicateLabel} {t("library.item.manageDuplicates")}
           </Link>
         )}
       </h2>
@@ -2074,15 +2448,26 @@ function FileSection({
 }
 
 /** 待回收行的倒计时文案：直读 purge_after，展示精度与清理周期无关。 */
-function purgeCountdown(purgeAfter: string | null): string {
-  if (!purgeAfter) return "做种保护中，不自动清理";
+/** 文件位置标签：在哪、传到哪一步了（cloud-storage.md §2「界面一律陈述事实」） */
+function cloudLocationLabel(cloud: FileCloudCopy, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  const where = cloud.backend_title;
+  if (cloud.state === "uploading") return t("library.item.uploading", { where });
+  if (cloud.state === "failed") return t("library.item.uploadFailed", { where });
+  if (cloud.state === "lost") return cloud.local ? t("library.item.local") : t("library.item.cloudMissing", { where });
+  return cloud.local ? t("library.item.localAndCloud", { where }) : where;
+}
+
+function purgeCountdown(purgeAfter: string | null, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  if (!purgeAfter) return t("library.item.noAutoPurge");
   const ms = new Date(purgeAfter).getTime() - Date.now();
-  if (ms <= 0) return "即将自动清理";
+  if (ms <= 0) return t("library.item.purgeSoon");
   const days = Math.floor(ms / 86_400_000);
   const hours = Math.floor((ms % 86_400_000) / 3_600_000);
-  if (days > 0) return `预计 ${days} 天 ${hours} 小时后自动清理`;
-  if (hours > 0) return `预计 ${hours} 小时后自动清理`;
-  return "预计 1 小时内自动清理";
+  if (days > 0) return t("library.item.purgeInDays", { days, hours });
+  if (hours > 0) return t("library.item.purgeInHours", { hours });
+  return t("library.item.purgeWithinHour");
 }
 
 function FileRow({
@@ -2096,6 +2481,8 @@ function FileRow({
   onRestore?: () => void;
   onPurge?: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   // 每个物理文件独立展开，多版本无需再维护额外的版本切换状态。
   const [expanded, setExpanded] = useState(false);
   const pictureInfo = [
@@ -2108,7 +2495,7 @@ function FileRow({
   const frameRate = frameRateLabel(file.frame_rate);
   const bitRate = file.bit_rate
     ? `${(file.bit_rate / 1_000_000).toFixed(1)} Mbps`
-    : "尚未探测";
+    : t("library.item.notProbed");
   const detailsId = `file-details-${file.id}`;
 
   return (
@@ -2127,7 +2514,10 @@ function FileRow({
           <Tooltip
             content={
               <span className="tnum break-all font-mono text-caption leading-5">
-                {file.file_path}
+                {/* 只在网盘上的文件本地路径是虚拟位置，悬浮给网盘上的路径 */}
+                {file.cloud && !file.cloud.local && file.cloud.remote_path
+                  ? `${file.cloud.account_name} › ${file.cloud.remote_path}`
+                  : file.file_path}
               </span>
             }
             maxWidth={520}
@@ -2141,14 +2531,28 @@ function FileRow({
             </span>
           </Tooltip>
         </button>
+        {/* 位置标签：只有网盘副本的文件才标（纯本地的保持原样） */}
+        {file.cloud && (
+          <span
+            title={file.cloud.state === "failed" ? (file.cloud.error ?? undefined) : undefined}
+            className={`flex shrink-0 items-center gap-1 rounded border px-1.5 py-px text-micro ${
+              file.cloud.state === "failed"
+                ? "border-[var(--warn)]/30 text-[var(--warn)]/80"
+                : "border-white/15 text-[var(--text-muted)]"
+            }`}
+          >
+            <CloudDriveIcon className="size-3" />
+            {cloudLocationLabel(file.cloud, locale)}
+          </span>
+        )}
         {file.missing && (
           <span className="shrink-0 rounded border border-[var(--warn)]/30 px-1.5 py-px text-micro text-[var(--warn)]/80">
-            文件缺失
+            {t("library.item.fileMissing")}
           </span>
         )}
         {file.state === "trashed" && (
           <span className="shrink-0 rounded border border-white/15 px-1.5 py-px text-micro text-[var(--text-faint)]">
-            待回收
+            {t("library.item.awaitingRecycle")}
           </span>
         )}
         {file.state === "trashed" && onRestore && (
@@ -2157,7 +2561,7 @@ function FileRow({
             onClick={onRestore}
             className="touch-target shrink-0 rounded-md px-2 py-1 text-caption font-medium text-[var(--text-muted)] transition hover:bg-white/[0.06] hover:text-white"
           >
-            恢复
+            {t("library.item.restore")}
           </button>
         )}
         {file.state === "trashed" && onPurge && (
@@ -2166,14 +2570,14 @@ function FileRow({
             onClick={onPurge}
             className="touch-target shrink-0 rounded-md px-2 py-1 text-caption font-medium text-[var(--text-faint)] transition hover:bg-white/[0.06] hover:text-[#ff9f9f]"
           >
-            立即清理
+            {t("library.item.purgeNow")}
           </button>
         )}
         {file.state !== "trashed" && onDelete && (
           <button
             type="button"
-            aria-label="删除此文件"
-            title="删除此文件"
+            aria-label={t("library.item.deleteFileLabel")}
+            title={t("library.item.deleteFileLabel")}
             onClick={onDelete}
             className="touch-reveal touch-target shrink-0 rounded-md p-1.5 text-[var(--text-faint)] opacity-0 transition group-hover/filerow:opacity-100 hover:bg-white/[0.05] hover:text-[#ff9f9f]"
           >
@@ -2183,7 +2587,7 @@ function FileRow({
       </div>
       {file.state === "trashed" && (
         <p className="-mt-1 px-10 pb-2 text-caption leading-5 text-[var(--text-faint)] max-md:px-4">
-          {purgeCountdown(file.purge_after)}
+          {purgeCountdown(file.purge_after, locale)}
           {file.trash_note ? ` · ${file.trash_note}` : ""}
         </p>
       )}
@@ -2193,18 +2597,18 @@ function FileRow({
           className="border-t border-white/[0.035] bg-black/[0.08] px-10 py-4 max-md:px-4"
         >
           <dl className="grid max-w-2xl grid-cols-[72px_minmax(0,1fr)] gap-x-5 gap-y-3 text-sub max-md:grid-cols-[64px_minmax(0,1fr)]">
-            <dt className="text-[var(--text-faint)]">保存目录</dt>
+            <dt className="text-[var(--text-faint)]">{t("library.item.saveDirectory")}</dt>
             <dd className="min-w-0 break-all font-mono text-caption leading-5 text-[var(--text-muted)]">
               {fileDirectory(file.file_path)}
             </dd>
-            <dt className="text-[var(--text-faint)]">入库时间</dt>
+            <dt className="text-[var(--text-faint)]">{t("library.item.addedAt")}</dt>
             <dd className="tnum text-[var(--text-muted)]">
               {formatDateTime(file.added_at)}
               <span className="ml-2 text-[var(--text-faint)]">
                 · {formatRelativeTime(file.added_at)}
               </span>
             </dd>
-            <dt className="text-[var(--text-faint)]">来源</dt>
+            <dt className="text-[var(--text-faint)]">{t("library.item.source")}</dt>
             <dd className="min-w-0 text-[var(--text-muted)]">
               <span className="text-[var(--text)]">{file.origin.label}</span>
               {file.origin.detail && (
@@ -2215,39 +2619,39 @@ function FileRow({
             </dd>
             {file.kept_at && (
               <>
-                <dt className="text-[var(--text-faint)]">多版本</dt>
+                <dt className="text-[var(--text-faint)]">{t("library.item.versions")}</dt>
                 <dd className="text-[var(--text-muted)]">
-                  你留下的 · {formatDateTime(file.kept_at)}
-                  <span className="ml-1.5 text-[var(--text-faint)]">（不会再列为重复文件）</span>
+                  {t("library.item.keptByYou")} {formatDateTime(file.kept_at)}
+                  <span className="ml-1.5 text-[var(--text-faint)]">{t("library.item.notDuplicate")}</span>
                 </dd>
               </>
             )}
-            <dt className="text-[var(--text-faint)]">文件尺寸</dt>
+            <dt className="text-[var(--text-faint)]">{t("library.item.fileSize")}</dt>
             <dd className="tnum text-[var(--text-muted)]">{formatBytes(file.size_bytes)}</dd>
-            <dt className="text-[var(--text-faint)]">片源</dt>
+            <dt className="text-[var(--text-faint)]">{t("library.item.releaseSource")}</dt>
             <dd className="text-[var(--text-muted)]">
-              {mediaSourceDisplayLabel(file.media_source) || "未识别"}
+              {mediaSourceDisplayLabel(file.media_source) || t("library.item.unidentified")}
               {file.media_source_manual && file.media_source !== USER_LOWEST_SOURCE && (
-                <span className="ml-1.5 text-[var(--text-faint)]">（人工标注）</span>
+                <span className="ml-1.5 text-[var(--text-faint)]">{t("library.item.userAnnotated")}</span>
               )}
             </dd>
-            <dt className="text-[var(--text-faint)]">画面规格</dt>
+            <dt className="text-[var(--text-faint)]">{t("library.item.videoSpec")}</dt>
             <dd className="tnum text-[var(--text-muted)]">
-              {pictureInfo || "未能探测（文件不可达或尚未扫描）"}
+              {pictureInfo || t("library.item.probeUnavailable")}
             </dd>
-            <dt className="text-[var(--text-faint)]">视频编码</dt>
-            <dd className="tnum text-[var(--text-muted)]">{codec || "尚未探测"}</dd>
-            <dt className="text-[var(--text-faint)]">色深</dt>
+            <dt className="text-[var(--text-faint)]">{t("library.item.videoCodec")}</dt>
+            <dd className="tnum text-[var(--text-muted)]">{codec || t("library.item.notProbed")}</dd>
+            <dt className="text-[var(--text-faint)]">{t("library.item.bitDepth")}</dt>
             <dd className="tnum text-[var(--text-muted)]">
-              {file.bit_depth ? `${file.bit_depth}-bit` : "尚未探测"}
+              {file.bit_depth ? `${file.bit_depth}-bit` : t("library.item.notProbed")}
             </dd>
-            <dt className="text-[var(--text-faint)]">帧率</dt>
-            <dd className="tnum text-[var(--text-muted)]">{frameRate || "尚未探测"}</dd>
-            <dt className="text-[var(--text-faint)]">色彩空间</dt>
+            <dt className="text-[var(--text-faint)]">{t("library.item.frameRate")}</dt>
+            <dd className="tnum text-[var(--text-muted)]">{frameRate || t("library.item.notProbed")}</dd>
+            <dt className="text-[var(--text-faint)]">{t("library.item.colorSpace")}</dt>
             <dd className="tnum text-[var(--text-muted)]">
-              {file.color_space || "尚未探测"}
+              {file.color_space || t("library.item.notProbed")}
             </dd>
-            <dt className="text-[var(--text-faint)]">视频码率</dt>
+            <dt className="text-[var(--text-faint)]">{t("library.item.videoBitrate")}</dt>
             <dd className="tnum text-[var(--text-muted)]">{bitRate}</dd>
           </dl>
         </div>
@@ -2287,6 +2691,8 @@ function TransferDialog({
   onClose: () => void;
   onTransferred: (targetLibraryId: number) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   // 可选目标库：同类型、非当前库（类型不同是"认错了片子"，该走重新识别）
   const [candidates, setCandidates] = useState<MediaLibrary[] | null>(null);
   const [targetId, setTargetId] = useState<number | null>(null);
@@ -2315,8 +2721,8 @@ function TransferDialog({
       .then((libs) =>
         setCandidates(libs.filter((l) => l.id !== libraryId && l.source === librarySource)),
       )
-      .catch(() => setError("读取媒体库列表失败，请稍后重试"));
-  }, [open, sourceKind, librarySource, libraryId]);
+      .catch(() => setError(t("library.transfer.librariesFailed")));
+  }, [open, sourceKind, librarySource, libraryId, t]);
 
   // 选中目标库就立刻算预览：用户要先看清"搬到哪、搬多少"才谈得上确认
   useEffect(() => {
@@ -2327,12 +2733,12 @@ function TransferDialog({
     setError(null);
     previewItemTransfer(libraryId, detail.media_item_id, targetId)
       .then((data) => alive && setPreview(data))
-      .catch((err) => alive && setError(err instanceof Error ? err.message : "预览失败"))
+      .catch((err) => alive && setError(err instanceof Error ? err.message : t("library.transfer.previewFailed")))
       .finally(() => alive && setLoadingPreview(false));
     return () => {
       alive = false;
     };
-  }, [open, targetId, libraryId, detail.media_item_id]);
+  }, [open, targetId, libraryId, detail.media_item_id, t]);
 
   // 转移进行中：每秒拉一次进度，跑完自动切到结论页（不用 useVisiblePolling——
   // 这是用户正盯着看的短任务，页面切后台也该继续走完，回来直接看到结果）
@@ -2364,7 +2770,7 @@ function TransferDialog({
         onFinished(next.target_library_id);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "转移失败，请稍后重试");
+      setError(err instanceof Error ? err.message : t("library.transfer.failed"));
     } finally {
       setStarting(false);
     }
@@ -2379,7 +2785,7 @@ function TransferDialog({
     <Modal
       open={open}
       onClose={busy ? () => {} : onClose}
-      label="转移到其他媒体库"
+      label={t("library.transfer.title")}
       width="2xl"
       panelClassName="flex max-h-[80vh] flex-col"
     >
@@ -2390,36 +2796,30 @@ function TransferDialog({
           <>
             <h3 className="flex items-center gap-2 text-title-sm font-semibold text-[var(--text)]">
               <FolderIcon className="size-4.5 text-[var(--accent-2)]" />
-              把「{detail.title}」转移到其他媒体库
+              {t("library.transfer.heading", { title: detail.title })}
             </h3>
             {/* 搬运单元按库的能力档案分叉，文案必须跟着分叉：本地内容库
                 （其他 / 图片）一文件一条目，搬的是文件本身而不是条目目录，
                 照抄影视库的说法只会让用户以为整个分组目录都要被搬走 */}
             {fileEntries ? (
               <p className="mt-2 text-sub leading-6 text-[var(--text-muted)]">
-                放错库时用它补救。<span className="text-white/80">这个条目的文件</span>
-                （连同同名的 NFO、字幕）会连同库存记录一起搬到目标库；
-                文件在库里的所在目录结构原样保留，同目录下别的条目留在原地不动。
+                {t.rich("library.transfer.fileHint", { em: (chunks) => <span className="text-white/80">{chunks}</span> })}
               </p>
             ) : (
               <p className="mt-2 text-sub leading-6 text-[var(--text-muted)]">
-                分错库时用它补救（例如韩剧被判进了「大陆华语剧」）。
-                <span className="text-white/80">磁盘上的整个条目目录</span>
-                （视频、NFO、海报、字幕）会连同库存记录一起搬到目标库；
-                目录名原样保留，需要规范化请到目标库运行「整理文件名」。
+                {t.rich("library.transfer.directoryHint", { em: (chunks) => <span className="text-white/80">{chunks}</span> })}
               </p>
             )}
 
             {/* —— 第一步：选目标库 —— */}
             <p className="mt-5 text-caption font-semibold uppercase tracking-[0.16em] text-[var(--text-faint)]">
-              转移到
+              {t("library.transfer.target")}
             </p>
             {candidates == null ? (
-              <p className="mt-2 text-sub text-[var(--text-muted)]">正在读取媒体库…</p>
+              <p className="mt-2 text-sub text-[var(--text-muted)]">{t("library.transfer.loadingLibraries")}</p>
             ) : candidates.length === 0 ? (
               <p className="mt-2 text-sub leading-6 text-[#ffd08a]">
-                没有其他{LIBRARY_KIND_LABELS[sourceKind]}
-                库可选——请先在「媒体库」页新建一个，再回来转移。
+                {t("library.transfer.noTarget", { kind: libraryKindLabels(locale)[sourceKind] })}
               </p>
             ) : (
               <div className="mt-2 space-y-1.5">
@@ -2447,12 +2847,12 @@ function TransferDialog({
                         {lib.name}
                         {lib.is_default && (
                           <span className="ml-2 text-caption font-normal text-[var(--text-faint)]">
-                            默认库
+                            {t("library.transfer.defaultLibrary")}
                           </span>
                         )}
                       </span>
                       <span className="block truncate font-mono text-caption text-white/45">
-                        {lib.primary_root ?? "未配置根路径"}
+                        {lib.primary_root ?? t("library.transfer.noRoot")}
                       </span>
                     </span>
                   </button>
@@ -2464,7 +2864,7 @@ function TransferDialog({
             {loadingPreview && (
               <p className="mt-4 flex items-center gap-2 text-sub text-[var(--text-muted)]">
                 <span className="size-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
-                正在计算转移计划…
+                {t("library.transfer.calculating")}
               </p>
             )}
             {preview && (
@@ -2481,9 +2881,9 @@ function TransferDialog({
           <span className="flex min-w-0 flex-1 items-center gap-2 text-sub text-[var(--info)]">
             <span className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-[var(--info)]/30 border-t-[var(--info)]" />
             <span className="truncate">
-              正在转移
+              {t("library.transfer.moving")}
               {status && status.total > 0 ? ` · ${status.processed}/${status.total}` : ""}
-              ；跨盘转移需要完整复制文件，请勿关闭页面以外的操作
+              {t("library.transfer.crossDiskProgress")}
             </span>
           </span>
         )}
@@ -2495,7 +2895,7 @@ function TransferDialog({
                 onClick={onClose}
                 className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]"
               >
-                留在本页
+                {t("library.transfer.stay")}
               </button>
               {status!.errors.length === 0 && status!.target_library_id != null && (
                 <button
@@ -2503,7 +2903,7 @@ function TransferDialog({
                   onClick={() => onTransferred(status!.target_library_id!)}
                   className="btn-accent rounded-full px-5 py-2 text-ui font-semibold"
                 >
-                  去目标库查看
+                  {t("library.transfer.openTarget")}
                 </button>
               )}
             </>
@@ -2515,7 +2915,7 @@ function TransferDialog({
                 disabled={busy}
                 className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)] disabled:opacity-40"
               >
-                取消
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
@@ -2526,7 +2926,7 @@ function TransferDialog({
                 {starting && (
                   <span className="size-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                 )}
-                确认转移
+                {t("library.transfer.confirm")}
               </button>
             </>
           )}
@@ -2544,6 +2944,7 @@ function TransferPlanPreview({
   preview: TransferPreview;
   sourceName: string | null;
 }) {
+  const t = useTranslations();
   return (
     <div className="mt-4 space-y-3">
       {preview.blocked.length > 0 && (
@@ -2556,17 +2957,14 @@ function TransferPlanPreview({
 
       {preview.cross_device && preview.moves.length > 0 && (
         <div className="rounded-xl border border-[#ffd08a]/30 bg-[#ffd08a]/[0.08] px-4 py-3 text-sub leading-6 text-[#ffd08a]">
-          目标库与当前位置<span className="font-semibold">不在同一块盘</span>
-          ：文件需要完整复制（{formatBytes(preview.total_bytes)}），耗时取决于体积与盘速；
-          复制会产生新文件，与下载器做种目录的硬链接关系将断开，两边各占一份空间。
+          {t.rich("library.transfer.crossDiskHint", { size: formatBytes(preview.total_bytes), em: (chunks) => <span className="font-semibold">{chunks}</span> })}
         </div>
       )}
 
       {preview.moves.length > 0 && (
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5">
           <p className="text-caption text-[var(--text-faint)]">
-            {preview.moves.length} 个路径 · {formatBytes(preview.total_bytes)}
-            {preview.missing_count > 0 && ` · ${preview.missing_count} 个缺失记录随迁`}
+            {t("library.transfer.previewSummary", { paths: preview.moves.length, size: formatBytes(preview.total_bytes), missing: preview.missing_count })}
           </p>
           <div className="scroll-thin mt-2 max-h-44 space-y-2 overflow-y-auto">
             {preview.moves.map((m) => (
@@ -2599,11 +2997,12 @@ function TransferPlanPreview({
 
 /** 转移结论页：搬了哪些路径、随迁多少台账、订阅是否跟着改挂。 */
 function TransferResult({ status }: { status: TransferStatus }) {
+  const t = useTranslations();
   const failed = status.errors.length > 0;
   return (
     <>
       <h3 className="text-title-sm font-semibold text-[var(--text)]">
-        {failed ? "部分转移完成" : `「${status.title}」已转移到「${status.target_library_name}」`}
+        {failed ? t("library.transfer.partial") : t("library.transfer.done", { title: status.title ?? "", library: status.target_library_name ?? "" })}
       </h3>
       <div className="scroll-thin mt-4 max-h-56 overflow-y-auto rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5">
         {status.moved_paths.map((p) => (
@@ -2615,7 +3014,7 @@ function TransferResult({ status }: { status: TransferStatus }) {
           </p>
         ))}
         {status.moved_paths.length === 0 && (
-          <p className="text-sub text-[var(--text-muted)]">没有搬运任何磁盘路径</p>
+          <p className="text-sub text-[var(--text-muted)]">{t("library.transfer.noPathsMoved")}</p>
         )}
       </div>
       {failed && (
@@ -2626,9 +3025,7 @@ function TransferResult({ status }: { status: TransferStatus }) {
         </div>
       )}
       <p className="mt-3 text-sub leading-6 text-[var(--text-muted)]">
-        已随迁 {status.files_relocated} 条库存记录（{formatBytes(status.bytes_moved)}）
-        {status.removed_dirs > 0 && `，清理空目录 ${status.removed_dirs} 个`}。
-        {status.subscription_moved && "该片的订阅已一并改挂到目标库，后续剧集直接入新库。"}
+        {t("library.transfer.resultSummary", { files: status.files_relocated, size: formatBytes(status.bytes_moved), removed: status.removed_dirs, subscription: status.subscription_moved ? "yes" : "no" })}
       </p>
     </>
   );
@@ -2652,16 +3049,20 @@ function DeleteDialog({
   onClose: () => void;
   onDeleted: () => void;
 }) {
+  const t = useTranslations();
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ItemDeleteResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const deletePreview = useDeletePreview(open, libraryId, detail.media_item_id);
 
   useEffect(() => {
     if (open) {
       setConfirmed(false);
       setResult(null);
       setError(null);
+      setSelected(new Set());
     }
   }, [open]);
 
@@ -2669,21 +3070,21 @@ function DeleteDialog({
     setBusy(true);
     setError(null);
     try {
-      setResult(await deleteLibraryItem(libraryId, detail.media_item_id));
+      setResult(await deleteLibraryItem(libraryId, detail.media_item_id, [...selected]));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "删除失败，请稍后重试");
+      setError(err instanceof Error ? err.message : t("library.item.deleteFailedRetry"));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Modal open={open} onClose={busy ? () => {} : onClose} label="删除影片" width="lg">
+    <Modal open={open} onClose={busy ? () => {} : onClose} label={t("library.item.deleteMovie")} width="lg">
       <div className="p-6">
         {result ? (
           <>
             <h3 className="text-title-sm font-semibold text-[var(--text)]">
-              {result.errors.length > 0 ? "部分删除完成" : "已从磁盘彻底删除"}
+              {result.errors.length > 0 ? t("library.item.deletePartial") : t("library.item.deletedPermanently")}
             </h3>
             <div className="scroll-thin mt-4 max-h-56 overflow-y-auto rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5">
               {result.removed_paths.map((p) => (
@@ -2692,7 +3093,7 @@ function DeleteDialog({
                 </p>
               ))}
               {result.removed_paths.length === 0 && (
-                <p className="text-sub text-[var(--text-muted)]">没有删除任何磁盘路径</p>
+                <p className="text-sub text-[var(--text-muted)]">{t("library.item.noPathsDeleted")}</p>
               )}
             </div>
             {result.errors.length > 0 && (
@@ -2703,15 +3104,16 @@ function DeleteDialog({
               </div>
             )}
             <p className="mt-3 text-sub text-[var(--text-muted)]">
-              已清理 {result.rows_deleted} 条台账，释放 {formatBytes(result.freed_bytes)}。
+              {t("library.item.deleteResult", { count: result.rows_deleted, size: formatBytes(result.freed_bytes) })}
             </p>
+            <DeleteFollowUps items={result.follow_ups ?? []} />
             <div className="mt-5 flex justify-end">
               <button
                 type="button"
                 onClick={onDeleted}
                 className="btn-accent rounded-full px-5 py-2 text-ui font-semibold"
               >
-                回到库存页
+                {t("library.item.backToInventory")}
               </button>
             </div>
           </>
@@ -2719,15 +3121,15 @@ function DeleteDialog({
           <>
             <h3 className="flex items-center gap-2 text-title-sm font-semibold text-[var(--text)]">
               <TrashIcon className="size-4.5 text-[#ff9f9f]" />
-              删除「{detail.title}」
+              {t("library.item.deleteHeading", { title: detail.title })}
             </h3>
             <p className="mt-3 text-ui leading-6 text-white/80">
-              这不是「从列表移除」——将把下列目录从磁盘
-              <span className="font-semibold text-[#ff9f9f]">彻底删除</span>
-              ，包括视频文件、NFO、海报、字幕等全部刮削产物，共{" "}
-              <span className="tnum font-semibold">{detail.file_count}</span> 个媒体文件、
-              <span className="tnum font-semibold"> {formatBytes(detail.total_size_bytes)}</span>
-              。此操作不可恢复。
+              {t.rich("library.item.deleteWarning", {
+                count: detail.file_count, size: formatBytes(detail.total_size_bytes),
+                em: (chunks) => <span className="font-semibold text-[#ff9f9f]">{chunks}</span>,
+                amount: (chunks) => <span className="tnum font-semibold">{chunks}</span>,
+                bytes: (chunks) => <span className="tnum font-semibold">{chunks}</span>,
+              })}
             </p>
             <div className="scroll-thin mt-4 max-h-40 overflow-y-auto rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5">
               {(detail.entry_dirs.length > 0
@@ -2740,6 +3142,13 @@ function DeleteDialog({
                 </p>
               ))}
             </div>
+            <DeleteOptions
+              preview={deletePreview.preview}
+              error={deletePreview.error}
+              selected={selected}
+              onToggle={(key) => setSelected((prev) => toggled(prev, key))}
+              disabled={busy}
+            />
             <label className="mt-4 flex cursor-pointer items-start gap-2.5 text-sub leading-6 text-white/80">
               <input
                 type="checkbox"
@@ -2747,7 +3156,7 @@ function DeleteDialog({
                 onChange={(e) => setConfirmed(e.target.checked)}
                 className="mt-1 size-4 accent-[#ff6b6b]"
               />
-              我已明白：以上目录及其中全部文件将被永久删除，无法恢复。
+              {t("library.item.deleteAcknowledge")}
             </label>
             {error && <p className="mt-3 text-sub text-[#ff9f9f]">{error}</p>}
             <div className="mt-5 flex justify-end gap-3">
@@ -2757,7 +3166,7 @@ function DeleteDialog({
                 disabled={busy}
                 className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]"
               >
-                取消
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
@@ -2768,7 +3177,7 @@ function DeleteDialog({
                 {busy && (
                   <span className="size-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                 )}
-                {busy ? "正在删除…" : "彻底删除"}
+                {busy ? t("library.item.deleting") : t("library.item.deletePermanently")}
               </button>
             </div>
           </>
@@ -2798,10 +3207,13 @@ function DeleteFileDialog({
   onClose: () => void;
   onDeleted: (deletedItem: boolean) => void;
 }) {
+  const t = useTranslations();
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ItemDeleteResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const deletePreview = useDeletePreview(file != null, libraryId, detail.media_item_id, file?.id);
   // 条目在本库只剩这一行台账（含 missing 行）→ 后端会升级为整条目删除
   const isLast = detail.files.length === 1;
 
@@ -2810,6 +3222,7 @@ function DeleteFileDialog({
       setConfirmed(false);
       setResult(null);
       setError(null);
+      setSelected(new Set());
     }
   }, [file]);
 
@@ -2819,21 +3232,21 @@ function DeleteFileDialog({
     setBusy(true);
     setError(null);
     try {
-      setResult(await deleteLibraryFile(libraryId, detail.media_item_id, file.id));
+      setResult(await deleteLibraryFile(libraryId, detail.media_item_id, file.id, [...selected]));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "删除失败，请稍后重试");
+      setError(err instanceof Error ? err.message : t("library.item.deleteFailedRetry"));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Modal open onClose={busy ? () => {} : onClose} label="删除文件" width="lg">
+    <Modal open onClose={busy ? () => {} : onClose} label={t("library.item.deleteFile")} width="lg">
       <div className="p-6">
         {result ? (
           <>
             <h3 className="text-title-sm font-semibold text-[var(--text)]">
-              {result.errors.length > 0 ? "删除失败" : "已从磁盘删除"}
+              {result.errors.length > 0 ? t("library.item.deleteFailed") : t("library.item.deleted")}
             </h3>
             <div className="scroll-thin mt-4 max-h-56 overflow-y-auto rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5">
               {result.removed_paths.map((p) => (
@@ -2843,7 +3256,7 @@ function DeleteFileDialog({
               ))}
               {result.removed_paths.length === 0 && (
                 <p className="text-sub text-[var(--text-muted)]">
-                  没有删除任何磁盘路径{file.missing ? "（文件本就缺失，仅清除了台账记录）" : ""}
+                  {t("library.item.deleteNoPaths", { missing: file.missing ? "yes" : "no" })}
                 </p>
               )}
             </div>
@@ -2855,15 +3268,16 @@ function DeleteFileDialog({
               </div>
             )}
             <p className="mt-3 text-sub text-[var(--text-muted)]">
-              已清理 {result.rows_deleted} 条台账，释放 {formatBytes(result.freed_bytes)}。
+              {t("library.item.deleteResult", { count: result.rows_deleted, size: formatBytes(result.freed_bytes) })}
             </p>
+            <DeleteFollowUps items={result.follow_ups ?? []} />
             <div className="mt-5 flex justify-end">
               <button
                 type="button"
                 onClick={() => onDeleted(isLast && result.errors.length === 0)}
                 className="btn-accent rounded-full px-5 py-2 text-ui font-semibold"
               >
-                完成
+                {t("common.done")}
               </button>
             </div>
           </>
@@ -2871,16 +3285,14 @@ function DeleteFileDialog({
           <>
             <h3 className="flex items-center gap-2 text-title-sm font-semibold text-[var(--text)]">
               <TrashIcon className="size-4.5 text-[#ff9f9f]" />
-              删除文件
+              {t("library.item.deleteFile")}
             </h3>
             <p className="mt-3 text-ui leading-6 text-white/80">
               {file.missing ? (
-                <>该文件在磁盘上已缺失，删除只会清掉这条台账记录。</>
+                <>{t("library.item.deleteMissingHint")}</>
               ) : (
                 <>
-                  将把下列文件从磁盘
-                  <span className="font-semibold text-[#ff9f9f]">彻底删除</span>
-                  ，同名的 NFO/字幕/图片附属文件一并清除。此操作不可恢复。
+                  {t.rich("library.item.deleteFileWarning", { em: (chunks) => <span className="font-semibold text-[#ff9f9f]">{chunks}</span> })}
                 </>
               )}
             </p>
@@ -2904,13 +3316,21 @@ function DeleteFileDialog({
             </div>
             {isLast && (
               <p className="mt-3 rounded-xl border border-[var(--warn)]/30 bg-[var(--warn)]/[0.06] px-3.5 py-2.5 text-sub leading-6 text-[var(--warn)]">
-                这是「{detail.title}」在本库的最后一个文件——删除将升级为整条目删除，
-                整个刮削目录（含 NFO/海报）一并清除，条目将从库存消失。
+                {t("library.item.deleteLastWarning", { title: detail.title })}
               </p>
             )}
             <p className="mt-3 text-caption leading-5 text-[var(--text-faint)]">
-              若该作品有订阅且删除后此单元不再有其他拷贝，订阅会将其视为缺失并自动重新下载。
+              {t("library.item.redownloadHint")}
             </p>
+            {!file.missing && (
+              <DeleteOptions
+                preview={deletePreview.preview}
+                error={deletePreview.error}
+                selected={selected}
+                onToggle={(key) => setSelected((prev) => toggled(prev, key))}
+                disabled={busy}
+              />
+            )}
             <label className="mt-4 flex cursor-pointer items-start gap-2.5 text-sub leading-6 text-white/80">
               <input
                 type="checkbox"
@@ -2918,8 +3338,7 @@ function DeleteFileDialog({
                 onChange={(e) => setConfirmed(e.target.checked)}
                 className="mt-1 size-4 accent-[#ff6b6b]"
               />
-              我已明白：{isLast ? "整个条目目录及其中全部文件" : "该文件及其同名附属文件"}
-              将被永久删除，无法恢复。
+              {t("library.item.deleteFileAcknowledge", { last: isLast ? "yes" : "no" })}
             </label>
             {error && <p className="mt-3 text-sub text-[#ff9f9f]">{error}</p>}
             <div className="mt-5 flex justify-end gap-3">
@@ -2929,7 +3348,7 @@ function DeleteFileDialog({
                 disabled={busy}
                 className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]"
               >
-                取消
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
@@ -2940,7 +3359,7 @@ function DeleteFileDialog({
                 {busy && (
                   <span className="size-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                 )}
-                {busy ? "正在删除…" : "彻底删除"}
+                {busy ? t("library.item.deleting") : t("library.item.deletePermanently")}
               </button>
             </div>
           </>
@@ -2948,6 +3367,13 @@ function DeleteFileDialog({
       </div>
     </Modal>
   );
+}
+
+function toggled(set: Set<string>, key: string): Set<string> {
+  const next = new Set(set);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  return next;
 }
 
 /** 「合集」那一行最多摆几个，再多的收进「还有 N 个」。 */

@@ -1,3 +1,4 @@
+import { useLocale, useTranslations } from "next-intl";
 /**
  * 设置页基础组件（Linear / Vercel 式规范的落地，见 docs/design/settings-ui.md）。
  *
@@ -12,11 +13,12 @@
  */
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import type { Route } from "next";
+import Link from "next/link";
 import { Fragment, type ReactNode } from "react";
 
-import { CheckIcon, MoreIcon, XIcon } from "@/components/icons";
+import { CheckIcon, ChevronRightIcon, MoreIcon, XIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
-import { useTheme } from "@/lib/ui-prefs";
 
 /** 设置页文本输入框：聚焦环由 .field-shell 承载 */
 export const SETTINGS_INPUT_CLASS =
@@ -84,6 +86,8 @@ export function SettingsRow({
   leading,
   error,
   children,
+  href,
+  stackOnMobile = false,
 }: {
   label: ReactNode;
   description?: ReactNode;
@@ -93,20 +97,40 @@ export function SettingsRow({
   error?: string | null;
   /** 行尾控件或动作 */
   children?: ReactNode;
+  /** 点行进详情页：名称与说明区域成为链接，行尾控件照常可点 */
+  href?: string;
+  /** Place controls below the label on narrow screens. */
+  stackOnMobile?: boolean;
 }) {
+  const text = (
+    <>
+      <div className="text-body font-medium text-[var(--text)]">{label}</div>
+      {description && (
+        <div className="mt-0.5 text-caption leading-5 text-[var(--text-faint)]">
+          {description}
+        </div>
+      )}
+      {error && <p className="mt-1 text-sub text-[var(--danger)]">{error}</p>}
+    </>
+  );
   return (
-    <div className="flex min-h-[56px] items-center gap-4 px-4 py-3">
+    <div
+      className={`flex min-h-[56px] items-center gap-4 px-4 py-3 ${stackOnMobile ? "max-sm:flex-col max-sm:items-start" : ""} ${href ? "transition-colors hover:bg-white/[0.03]" : ""}`}
+    >
       {leading}
-      <div className="min-w-0 flex-1">
-        <div className="text-body font-medium text-[var(--text)]">{label}</div>
-        {description && (
-          <div className="mt-0.5 text-caption leading-5 text-[var(--text-faint)]">
-            {description}
-          </div>
-        )}
-        {error && <p className="mt-1 text-sub text-[var(--danger)]">{error}</p>}
-      </div>
-      {children != null && <div className="flex shrink-0 items-center gap-2">{children}</div>}
+      {href ? (
+        <Link href={href as Route} className={`group min-w-0 flex-1 ${stackOnMobile ? "max-sm:w-full" : ""}`}>
+          {text}
+        </Link>
+      ) : (
+        <div className={`min-w-0 flex-1 ${stackOnMobile ? "max-sm:w-full" : ""}`}>{text}</div>
+      )}
+      {children != null && <div className={`flex shrink-0 items-center gap-2 ${stackOnMobile ? "max-sm:w-full max-sm:flex-wrap max-sm:justify-end" : ""}`}>{children}</div>}
+      {href && (
+        <Link href={href as Route} aria-hidden tabIndex={-1} className="shrink-0">
+          <ChevronRightIcon className="size-4 text-[var(--text-faint)]" />
+        </Link>
+      )}
     </div>
   );
 }
@@ -160,7 +184,7 @@ export function SettingsCard({
 
 /**
  * 分区内的页签（胶囊）。配合 useTabParam 用：?tab= 深链、切换写回地址栏。
- * Netflix 的选中态是白底黑字（品牌语言），银玻璃是灰底白字。
+ * 选中态默认灰底白字；主题可经公开部件 .settings-tab[aria-pressed="true"] 换形态。
  */
 export function SettingsTabs<T extends string>({
   tabs,
@@ -171,7 +195,6 @@ export function SettingsTabs<T extends string>({
   value: T;
   onChange: (id: T) => void;
 }) {
-  const activeCls = useTheme().structural ? "bg-white text-black" : "bg-white/[0.14] text-white";
   return (
     <div className="flex flex-wrap gap-1.5">
       {tabs.map((t) => (
@@ -180,9 +203,9 @@ export function SettingsTabs<T extends string>({
           type="button"
           aria-pressed={t.id === value}
           onClick={() => onChange(t.id)}
-          className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sub font-medium transition-colors ${
+          className={`settings-tab flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sub font-medium transition-colors ${
             t.id === value
-              ? activeCls
+              ? "bg-white/[0.14] text-white"
               : "text-[var(--text-muted)] hover:bg-white/[0.07] hover:text-[var(--text)]"
           }`}
         >
@@ -325,6 +348,8 @@ export function SettingsDrawer({
   actions?: ReactNode;
   children: ReactNode;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   return (
     <Modal
       open={open}
@@ -344,7 +369,7 @@ export function SettingsDrawer({
         <button
           type="button"
           onClick={onClose}
-          aria-label="关闭"
+          aria-label={t("common.close")}
           className="flex size-8 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text)]"
         >
           <XIcon className="size-4" />
@@ -354,9 +379,9 @@ export function SettingsDrawer({
         {children}
       </div>
       {(hint || actions) && (
-        <footer className="flex min-h-[56px] shrink-0 items-center justify-between gap-3 border-t border-[var(--line)] bg-black/20 px-5 py-3">
-          <div className="min-w-0 text-caption leading-5 text-[var(--text-faint)]">{hint}</div>
-          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+        <footer className={`flex min-h-[56px] shrink-0 items-center justify-between gap-3 border-t border-[var(--line)] bg-black/20 px-5 py-3${locale === "en" ? " flex-wrap" : ""}`}>
+          <div className={`min-w-0 text-caption leading-5 text-[var(--text-faint)]${locale === "en" && hint ? " basis-full" : ""}`}>{hint}</div>
+          {actions && <div className={locale === "en" ? "ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2" : "flex shrink-0 items-center gap-2"}>{actions}</div>}
         </footer>
       )}
     </Modal>
@@ -367,24 +392,25 @@ export function SettingsDrawer({
 export function SettingsSaveStatus({
   state,
   error,
-  savedLabel = "已保存",
+  savedLabel,
 }: {
   state: "idle" | "saving" | "saved" | "error";
   error?: string | null;
   savedLabel?: string;
 }) {
+  const t = useTranslations();
   if (state === "idle") return null;
   return (
     <span className="shrink-0 text-sub">
-      {state === "saving" && <span className="text-[var(--text-faint)]">保存中…</span>}
+      {state === "saving" && <span className="text-[var(--text-faint)]">{t("settings.status.saving")}</span>}
       {state === "saved" && (
         <span className="flex items-center gap-1 text-[var(--ok)]">
           <CheckIcon className="size-3.5" />
-          {savedLabel}
+          {savedLabel ?? t("settings.status.saved")}
         </span>
       )}
       {state === "error" && (
-        <span className="text-[var(--danger)]">保存失败{error ? `：${error}` : ""}</span>
+        <span className="text-[var(--danger)]">{t("settings.status.saveFailed", { reason: error ?? "", hasReason: error ? "yes" : "no" })}</span>
       )}
     </span>
   );

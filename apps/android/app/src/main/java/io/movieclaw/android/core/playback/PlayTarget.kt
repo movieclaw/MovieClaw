@@ -16,13 +16,6 @@ data class PlayTarget(
     val preferredAudio: String? = null,
     val preferredSubtitle: String? = null,
     /**
-     * 片源是原盘（ISO 镜像 / BDMV 目录）。本机引擎读不了盘内结构——mpv 没编 libbluray，
-     * 见 [DeviceCapability.probe] 的说明。带上它，协商时就不申报 `universal`：
-     * 服务端会明确拒绝镜像，或把 BDMV 目录按主播放列表拼接成 HLS（不重编码），
-     * 而不是把一堆我们解析不了的字节丢过来。
-     */
-    val discSource: Boolean = false,
-    /**
      * 起播位置（毫秒，原片时间轴）。null = 交给服务端按观看状态定（续播点）。
      * 刷片的「全屏观看」用它：把这一段的起点带过去，而不是从续播点接着放。
      */

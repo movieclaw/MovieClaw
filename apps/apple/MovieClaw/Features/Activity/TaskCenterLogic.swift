@@ -81,7 +81,7 @@ extension TaskCenter {
         let units = (task.subscriptions.first?.units ?? []).filter(\.contentMissing)
         guard let first = units.first else { return nil }
         let label = "S\(pad2(first.seasonNumber))E\(pad2(first.episodeNumber))"
-        return units.count == 1 ? label : "\(label) 等 \(units.count) 集"
+        return units.count == 1 ? label : String(localized: .activityTasksMissingUnits(label, units.count))
     }
 
     /// 下载任务是否要用户处理。外部任务（非 MovieClaw 投递）只观察不报警。
@@ -195,10 +195,10 @@ extension TaskCenter {
 
     static func badge(_ activity: Activity) -> Badge {
         if activity.attentionTotal > 0 {
-            return Badge(alert: true, count: activity.attentionTotal, hint: "\(activity.attentionTotal) 项需要处理")
+            return Badge(alert: true, count: activity.attentionTotal, hint: String(localized: .navBadgesAttention(activity.attentionTotal)))
         }
         let active = activity.activeTotal
-        return Badge(alert: false, count: active, hint: active > 0 ? "\(active) 个进行中" : "暂无进行中的任务")
+        return Badge(alert: false, count: active, hint: active > 0 ? String(localized: .navBadgesActive(active)) : String(localized: .navBadgesNoActive))
     }
 
     static func nonEmpty(_ value: String?) -> String? {
@@ -211,54 +211,57 @@ extension TaskCenter {
 
 extension TaskCenter {
     static let jobTypeLabels: [String: String] = [
-        "subtitle.generate": "生成 AI 字幕",
-        "library.scan": "扫描媒体库",
-        "library.metadata.refresh": "刷新媒体库元数据",
-        "media.metadata.refresh": "刷新条目元数据",
-        "library.chapter_images": "生成章节",
-        "library.skip_segments": "识别片头片尾",
-        "media.skip_segments": "识别片头片尾",
-        "library.organize": "整理媒体库文件",
-        "library.transfer": "转移媒体库条目",
-        "library.ingest": "自动整理入库",
+        "subtitle.generate": String(localized: .activityJobTypesSubtitleGenerate),
+        "library.scan": String(localized: .activityJobTypesLibraryScan),
+        "library.metadata.refresh": String(localized: .activityJobTypesLibraryMetadata),
+        "media.metadata.refresh": String(localized: .activityJobTypesMediaMetadata),
+        "library.chapter_images": String(localized: .activityJobTypesChapters),
+        "library.skip_segments": String(localized: .activityJobTypesSkipSegments),
+        "media.skip_segments": String(localized: .activityJobTypesSkipSegments),
+        "reels.clips": String(localized: .activityJobTypesReelClips),
+        "library.organize": String(localized: .activityJobTypesOrganize),
+        "library.transfer": String(localized: .activityJobTypesTransfer),
+        "library.ingest": String(localized: .activityJobTypesIngest),
     ]
 
     static let jobStatusLabels: [String: String] = [
-        "queued": "排队中", "running": "进行中", "retry_wait": "等待重试", "cancelling": "正在取消",
-        "waiting": "等待前置任务", "blocked": "需要处理", "succeeded": "已完成", "failed": "未完成", "cancelled": "已取消",
+        "queued": String(localized: .activityJobStatusQueued), "running": String(localized: .activityJobStatusRunning), "retry_wait": String(localized: .activityJobStatusRetryWait), "cancelling": String(localized: .activityJobStatusCancelling),
+        "waiting": String(localized: .activityJobStatusWaiting), "blocked": String(localized: .activityJobStatusBlocked), "succeeded": String(localized: .activityJobStatusSucceeded), "failed": String(localized: .activityJobStatusFailed), "cancelled": String(localized: .activityJobStatusCancelled),
     ]
 
     static let jobPhaseLabels: [String: String] = [
-        "queued": "等待执行", "preparing": "准备", "ocr": "识别图形字幕", "syncing": "校准时间轴",
-        "glossary": "整理术语", "translating": "翻译字幕", "validating": "检查译文", "compressing": "压缩字幕",
-        "writing": "写入文件", "refreshing": "刷新元数据", "walking": "遍历文件", "ingesting": "识别入账",
-        "probing": "分析媒体", "assets": "补齐资产", "analyzing": "识别片头片尾", "organizing": "整理文件", "transferring": "搬运文件",
-        "identifying": "识别条目", "waiting_library": "等待媒体库", "waiting_stable": "等待下载稳定",
-        "finalizing": "收尾", "retry_wait": "等待重试", "blocked": "等待处理", "completed": "已完成", "cancelled": "已取消",
+        "queued": String(localized: .activityJobPhaseQueued), "preparing": String(localized: .activityJobPhasePreparing), "ocr": String(localized: .activityJobPhaseOcr), "syncing": String(localized: .activityJobPhaseSyncing),
+        "glossary": String(localized: .activityJobPhaseGlossary), "translating": String(localized: .activityJobPhaseTranslating), "validating": String(localized: .activityJobPhaseValidating), "compressing": String(localized: .activityJobPhaseCompressing),
+        "writing": String(localized: .activityJobPhaseWriting), "refreshing": String(localized: .activityJobPhaseRefreshing), "walking": String(localized: .activityJobPhaseWalking), "ingesting": String(localized: .activityJobPhaseIngesting),
+        "probing": String(localized: .activityJobPhaseProbing), "assets": String(localized: .activityJobPhaseAssets), "analyzing": String(localized: .activityJobPhaseAnalyzing), "organizing": String(localized: .activityJobPhaseOrganizing), "transferring": String(localized: .activityJobPhaseTransferring),
+        "identifying": String(localized: .activityJobPhaseIdentifying), "waiting_library": String(localized: .activityJobPhaseWaitingLibrary), "waiting_stable": String(localized: .activityJobPhaseWaitingStable),
+        "finalizing": String(localized: .activityJobPhaseFinalizing), "retry_wait": String(localized: .activityJobPhaseRetryWait), "blocked": String(localized: .activityJobPhaseBlocked), "completed": String(localized: .activityJobPhaseCompleted), "cancelled": String(localized: .activityJobPhaseCancelled),
     ]
 
     static let languageLabels: [String: String] = [
-        "chs": "简体中文", "cht": "繁体中文", "eng": "英语", "jpn": "日语", "kor": "韩语", "fre": "法语",
-        "ger": "德语", "spa": "西班牙语", "ita": "意大利语", "por": "葡萄牙语", "rus": "俄语", "tha": "泰语",
+        "chs": String(localized: .activityJobLanguagesChs), "cht": String(localized: .activityJobLanguagesCht), "eng": String(localized: .activityJobLanguagesEng), "jpn": String(localized: .activityJobLanguagesJpn), "kor": String(localized: .activityJobLanguagesKor), "fre": String(localized: .activityJobLanguagesFre),
+        "ger": String(localized: .activityJobLanguagesGer), "spa": String(localized: .activityJobLanguagesSpa), "ita": String(localized: .activityJobLanguagesIta), "por": String(localized: .activityJobLanguagesPor), "rus": String(localized: .activityJobLanguagesRus), "tha": String(localized: .activityJobLanguagesTha),
     ]
 
     static let activeJobActions: [String: String] = [
-        "subtitle.generate": "正在生成字幕", "library.scan": "正在扫描", "library.metadata.refresh": "正在刷新媒体库元数据",
-        "media.metadata.refresh": "正在刷新元数据", "library.chapter_images": "正在生成章节", "library.organize": "正在整理文件",
-        "library.skip_segments": "正在识别片头片尾", "media.skip_segments": "正在识别片头片尾",
-        "library.transfer": "正在转移文件", "library.ingest": "正在入库",
+        "subtitle.generate": String(localized: .activityRunningJobsSubtitles), "library.scan": String(localized: .activityRunningJobsScan), "library.metadata.refresh": String(localized: .activityRunningJobsLibraryMetadata),
+        "media.metadata.refresh": String(localized: .activityRunningJobsMediaMetadata), "library.chapter_images": String(localized: .activityRunningJobsChapters), "library.organize": String(localized: .activityRunningJobsOrganize),
+        "library.skip_segments": String(localized: .activityRunningJobsSkipSegments), "media.skip_segments": String(localized: .activityRunningJobsSkipSegments),
+        "reels.clips": String(localized: .activityRunningJobsClips),
+        "library.transfer": String(localized: .activityRunningJobsTransfer), "library.ingest": String(localized: .activityRunningJobsIngest),
     ]
 
     static let completedJobActions: [String: String] = [
-        "subtitle.generate": "字幕生成", "library.scan": "扫描", "library.metadata.refresh": "元数据刷新",
-        "media.metadata.refresh": "元数据刷新", "library.chapter_images": "章节生成", "library.organize": "文件整理",
-        "library.skip_segments": "片头片尾识别", "media.skip_segments": "片头片尾识别",
-        "library.transfer": "文件转移", "library.ingest": "入库",
+        "subtitle.generate": String(localized: .activityFinishedJobsSubtitles), "library.scan": String(localized: .activityFinishedJobsScan), "library.metadata.refresh": String(localized: .activityFinishedJobsMetadata),
+        "media.metadata.refresh": String(localized: .activityFinishedJobsMetadata), "library.chapter_images": String(localized: .activityFinishedJobsChapters), "library.organize": String(localized: .activityFinishedJobsOrganize),
+        "library.skip_segments": String(localized: .activityFinishedJobsSkipSegments), "media.skip_segments": String(localized: .activityFinishedJobsSkipSegments),
+        "reels.clips": String(localized: .activityFinishedJobsClips),
+        "library.transfer": String(localized: .activityFinishedJobsTransfer), "library.ingest": String(localized: .activityFinishedJobsIngest),
     ]
 
     /// 有自动来源的任务类型：忽略时可以连来源一起静音
     static let autoRecreatedJobTypes: [String: String] = [
-        "subtitle.generate": "不再自动为这个文件生成字幕",
+        "subtitle.generate": String(localized: .activityJobsMuteSubtitle),
     ]
 
     /// Job 卡片错误动作里 App 能执行的类型
@@ -275,28 +278,28 @@ extension TaskCenter {
 
     static func downloadStateMeta(_ state: String) -> StateMeta {
         switch state {
-        case "downloading": StateMeta(label: "下载中", color: Theme.info, pulse: true)
-        case "stalled": StateMeta(label: "等待连接", color: Theme.warning)
-        case "paused": StateMeta(label: "已暂停", color: Theme.warning)
-        case "queued": StateMeta(label: "排队中", color: neutral)
-        case "checking": StateMeta(label: "校验中", color: Theme.info, pulse: true)
-        case "completed": StateMeta(label: "等待入库", color: Theme.success)
-        case "error": StateMeta(label: "下载异常", color: Theme.danger)
-        case "missing": StateMeta(label: "任务缺失", color: Theme.danger)
-        default: StateMeta(label: "状态未知", color: neutral)
+        case "downloading": StateMeta(label: String(localized: .activityDownloadStateDownloading), color: Theme.info, pulse: true)
+        case "stalled": StateMeta(label: String(localized: .activityDownloadStateStalled), color: Theme.warning)
+        case "paused": StateMeta(label: String(localized: .activityDownloadStatePaused), color: Theme.warning)
+        case "queued": StateMeta(label: String(localized: .activityDownloadStateQueued), color: neutral)
+        case "checking": StateMeta(label: String(localized: .activityDownloadStateChecking), color: Theme.info, pulse: true)
+        case "completed": StateMeta(label: String(localized: .activityDownloadStateCompleted), color: Theme.success)
+        case "error": StateMeta(label: String(localized: .activityDownloadStateError), color: Theme.danger)
+        case "missing": StateMeta(label: String(localized: .activityDownloadStateMissing), color: Theme.danger)
+        default: StateMeta(label: String(localized: .activityDownloadStateUnknown), color: neutral)
         }
     }
 
     static func ingestStateMeta(_ status: String) -> StateMeta {
         switch status {
-        case "queued": StateMeta(label: "等待入库", color: neutral)
-        case "running": StateMeta(label: "正在入库", color: Theme.success, pulse: true)
-        case "retry_wait": StateMeta(label: "等待重试", color: Theme.warning)
-        case "cancelling": StateMeta(label: "正在停止", color: Theme.warning)
-        case "waiting": StateMeta(label: "等待条件", color: neutral)
-        case "blocked", "failed": StateMeta(label: "入库待处理", color: Theme.danger)
-        case "succeeded": StateMeta(label: "入库完成", color: Theme.success)
-        default: StateMeta(label: "入库已取消", color: neutral)
+        case "queued": StateMeta(label: String(localized: .activityIngestStateQueued), color: neutral)
+        case "running": StateMeta(label: String(localized: .activityIngestStateRunning), color: Theme.success, pulse: true)
+        case "retry_wait": StateMeta(label: String(localized: .activityIngestStateRetryWait), color: Theme.warning)
+        case "cancelling": StateMeta(label: String(localized: .activityIngestStateCancelling), color: Theme.warning)
+        case "waiting": StateMeta(label: String(localized: .activityIngestStateWaiting), color: neutral)
+        case "blocked", "failed": StateMeta(label: String(localized: .activityIngestStateBlocked), color: Theme.danger)
+        case "succeeded": StateMeta(label: String(localized: .activityIngestStateSucceeded), color: Theme.success)
+        default: StateMeta(label: String(localized: .activityIngestStateCancelled), color: neutral)
         }
     }
 
@@ -321,7 +324,11 @@ extension TaskCenter {
         string(job.progress.details, key) ?? string(job.inputData, key)
     }
 
-    static func jobTypeLabel(_ job: API.JobView) -> String { jobTypeLabels[job.jobType] ?? job.jobType }
+    /// 任务类型的显示名：内置类型用本地文案，插件任务用服务端给的名字（`job_type_label`），都没有显示原始类型。
+    /// 与 Web `jobTypeLabel`（components/job-center.tsx）同一顺序
+    static func jobTypeLabel(_ job: API.JobView) -> String {
+        jobTypeLabels[job.jobType] ?? nonEmpty(job.jobTypeLabel) ?? job.jobType
+    }
 
     /// Job 的错误信息（error.message）
     static func errorMessage(_ job: API.JobView) -> String? { string(job.error, "message") }
@@ -341,16 +348,21 @@ extension TaskCenter {
         }
     }
 
-    /// Feed 主标题优先使用执行结果确认过的作品名（《》/「」包裹）
+    /// Feed 主标题优先使用执行结果确认过的作品名（结构化参数；旧记录从《》里取）
     static func jobFeedIdentity(_ job: API.JobView) -> String? {
+        let structured = job.progress.messageParams?["title"]?.stringValue
         let quoted = job.progress.message.firstMatch(of: /《([^》]+)》/).map { String($0.1) }
-        guard let title = nonEmpty(quoted) ?? jobString(job, "media_title") ?? jobString(job, "title") ?? nonEmpty(job.subject) else {
+        guard let title = nonEmpty(structured) ?? nonEmpty(quoted) ?? jobString(job, "media_title") ?? jobString(job, "title") ?? nonEmpty(job.subject) else {
             return nil
         }
+        // i18n-ignore: legacy built-in subjects; custom subjects and plugin names stay raw.
+        if job.jobType == "library.search-index.refresh", title == "更新媒体库搜索索引" { return String(localized: .activityTasksRefreshSearchIndex) }
+        // i18n-ignore: legacy built-in subject.
+        if job.jobType == "library.duplicate-scan", title == "重复文件" { return String(localized: .libraryManageDuplicates) }
         if title.wholeMatch(of: /^[《「].+[》」]$/) != nil { return title }
-        if job.jobType == "library.scan" { return "「\(title)」" }
+        if job.jobType == "library.scan" { return String(localized: .activityTasksLibraryTitle(title)) }
         if job.jobType == "library.ingest" || job.jobType == "subtitle.generate" || job.jobType.contains("metadata.refresh") {
-            return "《\(title)》"
+            return String(localized: .activityTasksMediaTitle(title))
         }
         return title
     }
@@ -359,13 +371,15 @@ extension TaskCenter {
     static func feedProgressAmount(_ job: API.JobView) -> String? {
         guard let current = job.progress.current, let total = job.progress.total else { return nil }
         if job.jobType == "library.ingest" {
-            return "已处理 \(ActivityFormat.bytes(Double(current))) / \(ActivityFormat.bytes(Double(total)))"
+            return String(localized: .activityTasksProcessedBytes(ActivityFormat.bytes(Double(current)), ActivityFormat.bytes(Double(total))))
         }
-        let unit = job.jobType == "subtitle.generate" ? "个分块"
-            : job.jobType == "library.scan" ? "个文件"
-            : job.jobType == "media.metadata.refresh" ? "张图片"
-            : job.jobType == "library.metadata.refresh" ? "个条目" : "项"
-        return "已处理 \(current) / \(total) \(unit)"
+        return switch job.jobType {
+        case "subtitle.generate": String(localized: .activityTasksProcessedChunks(current, total))
+        case "library.scan": String(localized: .activityTasksProcessedFiles(current, total))
+        case "media.metadata.refresh": String(localized: .activityTasksProcessedImages(current, total))
+        case "library.metadata.refresh": String(localized: .activityTasksProcessedItems(current, total))
+        default: String(localized: .activityTasksProcessedOther(current, total))
+        }
     }
 
     /// Job 卡片进度条下的处理量
@@ -374,24 +388,23 @@ extension TaskCenter {
         if job.jobType == "library.ingest" {
             return "\(ActivityFormat.bytes(Double(current))) / \(ActivityFormat.bytes(Double(total)))"
         }
-        let unit: String = switch job.jobType {
-        case "subtitle.generate": "个分块"
-        case "library.scan", "library.organize": "个文件"
-        case "library.transfer": "个路径"
-        case "media.metadata.refresh": "张图片"
-        case "library.metadata.refresh": "个条目"
-        default: "项"
+        return switch job.jobType {
+        case "subtitle.generate": String(localized: .activityJobsProgressChunks(current, total))
+        case "library.scan", "library.organize": String(localized: .activityJobsProgressFiles(current, total))
+        case "library.transfer": String(localized: .activityJobsProgressPaths(current, total))
+        case "media.metadata.refresh": String(localized: .activityJobsProgressImages(current, total))
+        case "library.metadata.refresh": String(localized: .activityJobsProgressItems(current, total))
+        default: String(localized: .activityJobsProgressOther(current, total))
         }
-        return "\(current) / \(total) \(unit)"
     }
 
     /// 「现在」时间线的发起方：「CLI 发起 · yee」
     static func feedOriginLabel(_ job: API.JobView) -> String {
         let origin = switch job.origin {
-        case "cli": "CLI 发起"
-        case "agent": "Agent 发起"
-        case "scheduler", "system": "系统自动"
-        default: "网页发起"
+        case "cli": String(localized: .activityTasksOriginCli)
+        case "agent": String(localized: .activityTasksOriginAgent)
+        case "scheduler", "system": String(localized: .activityJobsOriginSystem)
+        default: String(localized: .activityTasksOriginWeb)
         }
         return job.actorName.map { "\(origin) · \($0)" } ?? origin
     }
@@ -400,37 +413,47 @@ extension TaskCenter {
     static func cardOriginLabel(_ job: API.JobView) -> String {
         let origin = switch job.origin {
         case "cli": "CLI"
-        case "agent": "智能体"
-        case "scheduler", "system": "系统自动"
-        default: "网页"
+        case "agent": String(localized: .activityJobsOriginAgent)
+        case "scheduler", "system": String(localized: .activityJobsOriginSystem)
+        default: String(localized: .activityJobsOriginWeb)
         }
         return job.actorName.map { "\(origin) · \($0)" } ?? origin
     }
 
     static func activeJobStatus(_ job: API.JobView) -> String {
-        if job.status == "running" { return activeJobActions[job.jobType] ?? "正在处理" }
+        if job.status == "running" { return activeJobActions[job.jobType] ?? String(localized: .activityTasksWorking) }
         return jobStatusLabels[job.status] ?? job.status
     }
 
     /// 历史标题：「《某剧》入库完成」「「电影」扫描已取消」；忽略的失败如实写「未完成」
     static func historicalJobTitle(_ job: API.JobView) -> String {
         let identity = jobFeedIdentity(job)
-        let result = job.status == "cancelled" ? "已取消" : job.status == "failed" ? "未完成" : "完成"
-        if let identity, let action = completedJobActions[job.jobType] { return "\(identity)\(action)\(result)" }
-        return "\(identity ?? jobTypeLabel(job))\(result)"
+        if let identity, let action = completedJobActions[job.jobType] {
+            return switch job.status {
+            case "cancelled": String(localized: .activityTasksHistoryActionCancelled(identity, action))
+            case "failed": String(localized: .activityTasksHistoryActionFailed(identity, action))
+            default: String(localized: .activityTasksHistoryActionCompleted(identity, action))
+            }
+        }
+        let name = identity ?? jobTypeLabel(job)
+        return switch job.status {
+        case "cancelled": String(localized: .activityTasksHistoryCancelled(name))
+        case "failed": String(localized: .activityTasksHistoryFailed(name))
+        default: String(localized: .activityTasksHistoryCompleted(name))
+        }
     }
 
     static func historicalJobSummary(_ job: API.JobView) -> String {
         if job.jobType == "library.scan" {
             var parts: [String] = []
-            if let identified = number(job.progress.details, "identified") { parts.append("识别 \(Int(identified)) 个") }
-            if let unidentified = number(job.progress.details, "unidentified") { parts.append("待识别 \(Int(unidentified)) 个") }
+            if let identified = number(job.progress.details, "identified") { parts.append(String(localized: .activityJobsIdentified(Int(identified)))) }
+            if let unidentified = number(job.progress.details, "unidentified") { parts.append(String(localized: .activityJobsUnidentified(Int(unidentified)))) }
             if !parts.isEmpty { return parts.joined(separator: " · ") }
         }
         if job.status == "failed", isDismissed(job) {
-            return errorMessage(job) ?? nonEmpty(job.progress.message) ?? "任务失败，已被忽略"
+            return errorMessage(job) ?? nonEmpty(job.progress.message) ?? String(localized: .activityTasksFailedDismissed)
         }
-        return nonEmpty(job.progress.message) ?? (job.status == "cancelled" ? "任务已取消" : "任务已完成")
+        return nonEmpty(job.progress.message) ?? (job.status == "cancelled" ? String(localized: .activityTasksCancelled) : String(localized: .activityTasksCompleted))
     }
 
     /// 字幕任务的目标语言（「简体中文 + 英语（双语）」）
@@ -438,7 +461,7 @@ extension TaskCenter {
         guard job.jobType == "subtitle.generate", let target = jobString(job, "target_language") else { return nil }
         let primary = languageLabels[target] ?? target
         guard let secondary = jobString(job, "secondary_language") else { return primary }
-        return "\(primary) + \(languageLabels[secondary] ?? secondary)（双语）"
+        return String(localized: .activityJobsBilingual(primary, languageLabels[secondary] ?? secondary))
     }
 
     /// 卡片上的领域明细小标签（最多 4 个，alert 为琥珀色）
@@ -460,46 +483,46 @@ extension TaskCenter {
         case "subtitle.generate":
             if let language = subtitleLanguageLabel(job) { items.append(DetailItem(label: language)) }
             if let done = int("done_events"), let total = int("total_events"), total != 0 {
-                items.append(DetailItem(label: "\(done) / \(total) 条字幕"))
+                items.append(DetailItem(label: String(localized: .activityJobsSubtitleEvents(done, total))))
             }
             if details["uses_ocr"]?.boolValue == true { items.append(DetailItem(label: "PGS OCR")) }
-            if let parallelism = int("parallelism"), parallelism > 1 { items.append(DetailItem(label: "\(parallelism) 路并行")) }
-            if let limits = int("rate_limit_count"), limits != 0 { items.append(DetailItem(label: "限流重试 \(limits) 次", alert: true)) }
+            if let parallelism = int("parallelism"), parallelism > 1 { items.append(DetailItem(label: String(localized: .activityJobsParallelism(parallelism)))) }
+            if let limits = int("rate_limit_count"), limits != 0 { items.append(DetailItem(label: String(localized: .activityJobsRateLimitRetries(limits)), alert: true)) }
         case "library.scan":
-            if let v = int("identified"), v != 0 { items.append(DetailItem(label: "识别 \(v) 个")) }
-            if let v = int("probed"), v != 0 { items.append(DetailItem(label: "补探 \(v) 个")) }
-            if let v = int("unidentified"), v != 0 { items.append(DetailItem(label: "待识别 \(v) 个", alert: true)) }
-            if let v = int("marked_missing"), v != 0 { items.append(DetailItem(label: "缺失 \(v) 个", alert: true)) }
+            if let v = int("identified"), v != 0 { items.append(DetailItem(label: String(localized: .activityJobsIdentified(v)))) }
+            if let v = int("probed"), v != 0 { items.append(DetailItem(label: String(localized: .activityJobsProbed(v)))) }
+            if let v = int("unidentified"), v != 0 { items.append(DetailItem(label: String(localized: .activityJobsUnidentified(v)), alert: true)) }
+            if let v = int("marked_missing"), v != 0 { items.append(DetailItem(label: String(localized: .activityJobsMissing(v)), alert: true)) }
             let errors = count(details, "errors")
-            if errors != 0 { items.append(DetailItem(label: "\(errors) 个问题", alert: true)) }
+            if errors != 0 { items.append(DetailItem(label: String(localized: .activityJobsIssues(errors)), alert: true)) }
         case "library.organize":
             let errors = count(details, "errors")
-            if errors != 0 { items.append(DetailItem(label: "\(errors) 个问题", alert: true)) }
+            if errors != 0 { items.append(DetailItem(label: String(localized: .activityJobsIssues(errors)), alert: true)) }
         case "library.transfer":
             if let moved = number(details, "bytes_moved"), moved != 0 {
-                items.append(DetailItem(label: "已搬运 \(ActivityFormat.bytes(moved))"))
+                items.append(DetailItem(label: String(localized: .activityJobsMovedBytes(ActivityFormat.bytes(moved)))))
             } else if let total = number(details, "total_bytes"), total != 0 {
-                items.append(DetailItem(label: "共 \(ActivityFormat.bytes(total))"))
+                items.append(DetailItem(label: String(localized: .activityJobsTotalBytes(ActivityFormat.bytes(total)))))
             }
-            if details["cross_device"]?.boolValue == true { items.append(DetailItem(label: "跨盘复制")) }
+            if details["cross_device"]?.boolValue == true { items.append(DetailItem(label: String(localized: .activityJobsCrossDevice))) }
         case "library.ingest":
             if let name = string(details, "file_name") { items.append(DetailItem(label: name)) }
         case "library.metadata.refresh", "media.metadata.refresh":
             // 同 Web：正在刷新哪部、到哪一步已写在摘要文案里，这里只补失败（琥珀色）与图片记账
             if let failed = int("failed"), failed != 0 {
-                items.append(DetailItem(label: "\(failed) 个条目未完成", alert: true))
+                items.append(DetailItem(label: String(localized: .activityJobsUnfinishedItems(failed)), alert: true))
             }
             let images: [String: API.JSONValue]? = if case let .object(value)? = details["images"] { value } else { nil }
             func image(_ key: String) -> Int { number(images, key).map { Int($0) } ?? 0 }
-            if image("failed") != 0 { items.append(DetailItem(label: "\(image("failed")) 张图片未下载", alert: true)) }
+            if image("failed") != 0 { items.append(DetailItem(label: String(localized: .activityJobsFailedImages(image("failed"))), alert: true)) }
             if image("downloaded") != 0 {
                 let size = ActivityFormat.bytes(number(images, "bytes") ?? 0)
-                items.append(DetailItem(label: "新下载 \(image("downloaded")) 张 · \(size)"))
+                items.append(DetailItem(label: String(localized: .activityJobsDownloadedImages(image("downloaded"), size))))
             }
-            if image("reused") != 0 { items.append(DetailItem(label: "沿用 \(image("reused")) 张")) }
-            if image("adopted") != 0 { items.append(DetailItem(label: "从媒体目录收编 \(image("adopted")) 张")) }
-            if image("derived") != 0 { items.append(DetailItem(label: "本地缩图 \(image("derived")) 张")) }
-            if image("grabbed") != 0 { items.append(DetailItem(label: "截取 \(image("grabbed")) 张剧照")) }
+            if image("reused") != 0 { items.append(DetailItem(label: String(localized: .activityJobsReusedImages(image("reused"))))) }
+            if image("adopted") != 0 { items.append(DetailItem(label: String(localized: .activityJobsAdoptedImages(image("adopted"))))) }
+            if image("derived") != 0 { items.append(DetailItem(label: String(localized: .activityJobsDerivedImages(image("derived"))))) }
+            if image("grabbed") != 0 { items.append(DetailItem(label: String(localized: .activityJobsGrabbedImages(image("grabbed"))))) }
         default:
             break
         }
@@ -533,7 +556,7 @@ extension TaskCenter {
 
     static func formatModelDuration(_ milliseconds: Double) -> String {
         if milliseconds <= 0 { return "—" }
-        if milliseconds < 1000 { return "\(Int(milliseconds.rounded())) 毫秒" }
+        if milliseconds < 1000 { return String(localized: .activityJobsMilliseconds(Int(milliseconds.rounded()))) }
         return ActivityFormat.duration(seconds: max(1, (milliseconds / 1000).rounded()))
     }
 }
@@ -568,7 +591,9 @@ extension TaskCenter {
 
     static func partialIngestLabel(_ task: API.DownloadTaskView) -> String? {
         guard let summary = ingestUnitSummary(task), summary.total > 1 else { return nil }
-        return "\(summary.upgrade ? "已替换" : "已入库") \(summary.done)/\(summary.total) 集"
+        return summary.upgrade
+            ? String(localized: .activityLifecyclePartialReplacedUnits(summary.done, summary.total))
+            : String(localized: .activityLifecyclePartialImportedUnits(summary.done, summary.total))
     }
 
     /// 时间线圆点：有在执行的（下载中/校验中/正在入库）为蓝，否则黄（等待）
@@ -580,31 +605,31 @@ extension TaskCenter {
 
     static func sourceLabel(_ task: API.DownloadTaskView) -> String {
         switch task.source {
-        case "subscription": "订阅投递"
-        case "manual": "手动下载"
-        default: "下载器任务"
+        case "subscription": String(localized: .activityTaskCenterSubscriptionSource)
+        case "manual": String(localized: .activityTaskCenterManualSource)
+        default: String(localized: .activityTaskCenterDownloaderSource)
         }
     }
 
     /// 下载任务的说明文字（Web `downloadTaskNote`）：原因优先，出路其次
     static func downloadTaskNote(_ task: API.DownloadTaskView, ingestJob: API.JobView?) -> String? {
         if let missing = contentMissingLabel(task) {
-            return "种子里没有 \(missing)（声明的覆盖范围与实际内容不符），这部分已退回重新寻找资源；包里其余集不受影响"
+            return String(localized: .activityLifecycleContentMissingHint(missing))
         }
         if let ingestJob {
             switch ingestJob.status {
             case "succeeded":
                 if let summary = ingestUnitSummary(task), summary.done < summary.total {
                     return summary.upgrade
-                        ? "已完成 \(summary.done)/\(summary.total) 集替换，其余等待下载完成后自动校验替换"
-                        : "已入库 \(summary.done)/\(summary.total) 集，其余等待下载完成后自动入库"
+                        ? String(localized: .activityLifecyclePartialReplaceHint(summary.done, summary.total))
+                        : String(localized: .activityLifecyclePartialImportHint(summary.done, summary.total))
                 }
                 if ingestUnitSummary(task)?.upgrade == true {
-                    return task.state != "completed" ? "已完成的部分已替换为新版本，其余等待下载完成" : "替换已完成，等待活动页同步收尾"
+                    return task.state != "completed" ? String(localized: .activityLifecyclePartialReplacedHint) : String(localized: .activityLifecycleReplaceSyncPending)
                 }
-                return task.state != "completed" ? "已完成的部分已入库，其余等待下载完成" : "入库已完成，等待活动页同步收尾"
+                return task.state != "completed" ? String(localized: .activityLifecyclePartialImportedHint) : String(localized: .activityLifecycleImportSyncPending)
             case "cancelled":
-                return "上次入库已取消，等待重新处理"
+                return String(localized: .activityLifecyclePreviousImportCancelled)
             case "blocked", "failed":
                 return errorMessage(ingestJob) ?? ingestJob.progress.message
             default:
@@ -614,21 +639,21 @@ extension TaskCenter {
         if let landing = task.landingError { return landing }
         switch task.state {
         case "error":
-            let reason = nonEmpty(task.errorMessage) ?? "下载器报告该任务出错，请在下载器中查看具体原因"
-            if task.source == "external" { return "\(reason)（非 MovieClaw 投递的任务，仅观察）" }
-            if let rescue = nonEmpty(task.rescueMessage) { return "\(reason)；\(rescue)" }
+            let reason = nonEmpty(task.errorMessage) ?? String(localized: .activityLifecycleDownloaderError)
+            if task.source == "external" { return String(localized: .activityLifecycleExternalError(reason)) }
+            if let rescue = nonEmpty(task.rescueMessage) { return String(localized: .activityLifecycleRescueError(reason, rescue)) }
             return reason
         default: break
         }
         if let rescue = nonEmpty(task.rescueMessage) { return rescue }
         switch task.state {
-        case "missing": return "已投递记录仍在，但下载器中找不到对应任务；系统确认后会自动退回重新寻找资源"
-        case "completed": return "下载已完成，等待自动入库或媒体库扫描收尾"
-        case "paused": return "已在下载器中暂停"
-        case "queued": return "下载器正在排队，暂停无进度计时"
-        case "checking": return "下载器正在校验数据，暂停无进度计时"
-        case "stalled": return "暂无可用连接，等待继续下载"
-        case "unknown": return "下载器未返回可识别的状态"
+        case "missing": return String(localized: .activityLifecycleMissingTaskHint)
+        case "completed": return String(localized: .activityLifecycleCompletedTaskHint)
+        case "paused": return String(localized: .activityLifecyclePausedTaskHint)
+        case "queued": return String(localized: .activityLifecycleQueuedTaskHint)
+        case "checking": return String(localized: .activityLifecycleCheckingTaskHint)
+        case "stalled": return String(localized: .activityLifecycleStalledTaskHint)
+        case "unknown": return String(localized: .activityLifecycleUnknownTaskHint)
         default: return nil
         }
     }
@@ -648,33 +673,46 @@ extension TaskCenter {
     /// 下载完成后还没发生的几步，按后端推导的落点如实展开
     static func plannedSteps(_ task: API.DownloadTaskView, downloaded: Bool, upgrade: Bool, keepOld: Bool) -> [LifecycleStep] {
         guard let plan = task.plan else {
-            return [LifecycleStep(label: downloaded ? "等待入库" : "等待下载完成", detail: "下一步", tone: .future)]
+            return [LifecycleStep(label: downloaded ? String(localized: .activityLifecycleWaitImport) : String(localized: .activityLifecycleWaitDownload), detail: String(localized: .commonNext), tone: .future)]
         }
         if plan.mode == "downloader_default" {
-            return [LifecycleStep(label: "不会自动入库", detail: "未配置媒体库或库缺少根路径，文件将留在下载器默认目录，需手动处理", tone: .attention)]
+            return [LifecycleStep(label: String(localized: .activityLifecycleNoAutoImport), detail: String(localized: .activityLifecycleNoAutoImportHint), tone: .attention)]
         }
-        let libraryText = plan.libraryName.map { "「\($0)」" } ?? "按收藏范围自动匹配的媒体库"
+        let libraryText = plan.libraryName.map { String(localized: .activityLifecycleNamedLibrary($0)) } ?? String(localized: .activityLifecycleMatchedLibrary)
         var steps: [LifecycleStep] = []
         if plan.mode == "watch" {
-            let verb = plan.strategy == "hardlink" ? "硬链接" : plan.strategy == "copy" ? "复制" : "整理"
-            steps.append(LifecycleStep(label: "待\(verb)", detail: plan.destPath.map { "\(verb)到 \($0)" } ?? "\(verb)到目标目录", tone: .future))
+            let step: LifecycleStep = switch plan.strategy {
+            case "hardlink": LifecycleStep(
+                label: String(localized: .activityLifecyclePendingHardlink),
+                detail: plan.destPath.map { String(localized: .activityLifecycleHardlinkTo($0)) } ?? String(localized: .activityLifecycleHardlinkToTarget),
+                tone: .future)
+            case "copy": LifecycleStep(
+                label: String(localized: .activityLifecyclePendingCopy),
+                detail: plan.destPath.map { String(localized: .activityLifecycleCopyTo($0)) } ?? String(localized: .activityLifecycleCopyToTarget),
+                tone: .future)
+            default: LifecycleStep(
+                label: String(localized: .activityLifecyclePendingOrganize),
+                detail: plan.destPath.map { String(localized: .activityLifecycleOrganizeTo($0)) } ?? String(localized: .activityLifecycleOrganizeToTarget),
+                tone: .future)
+            }
+            steps.append(step)
         }
         if !plan.entersLibrary {
-            steps.append(LifecycleStep(label: "不直接入库", detail: "按规则整理到该目录后不写库台账，文件出现在库根时由扫描收尾", tone: .future))
+            steps.append(LifecycleStep(label: String(localized: .activityLifecycleNoDirectImport), detail: String(localized: .activityLifecycleNoDirectImportHint), tone: .future))
             return steps
         }
         steps.append(LifecycleStep(
-            label: "待入库",
+            label: String(localized: .activityLifecyclePendingImport),
             detail: plan.mode == "inplace" && plan.destPath != nil
-                ? "已下载在库内目录，扫描后入库到\(libraryText)：\(plan.destPath!)"
-                : "入库到\(libraryText)并刮削元数据",
+                ? String(localized: .activityLifecycleScanIntoLibrary(libraryText, plan.destPath!))
+                : String(localized: .activityLifecycleImportAndScrape(libraryText)),
             tone: .future
         ))
         if upgrade {
-            steps.append(LifecycleStep(label: "待替换", detail: "校验档位，确认新版本更优才替换\(libraryText)中的旧版本", tone: .future))
+            steps.append(LifecycleStep(label: String(localized: .activityLifecyclePendingReplace), detail: String(localized: .activityLifecycleVerifyReplacement(libraryText)), tone: .future))
             steps.append(keepOld
-                ? LifecycleStep(label: "旧版本保留", detail: "按规则组的保留共存设置，旧版本不删除，与新版本并存", tone: .future)
-                : LifecycleStep(label: "待回收", detail: "旧版本移入回收站，保留期内可恢复，到期自动清理释放空间", tone: .future))
+                ? LifecycleStep(label: String(localized: .activityLifecycleKeepOld), detail: String(localized: .activityLifecycleKeepOldHint), tone: .future)
+                : LifecycleStep(label: String(localized: .activityLifecyclePendingRecycle), detail: String(localized: .activityLifecyclePendingRecycleHint), tone: .future))
         }
         return steps
     }
@@ -685,21 +723,21 @@ extension TaskCenter {
         let downloadAttention = task.state == "error" || task.state == "missing"
         let downloadWaiting = ["stalled", "paused", "queued", "unknown"].contains(task.state)
         let percent = task.progress.map { Int(($0 * 100).rounded(.down)) }
-        let source = nonEmpty(task.downloaderName) ?? "下载器"
+        let source = nonEmpty(task.downloaderName) ?? String(localized: .activityTasksDownloader)
 
         let downloadStep: LifecycleStep
         if downloadAttention {
             downloadStep = LifecycleStep(
                 label: downloadStateMeta(task.state).label,
-                detail: task.state == "missing" ? "等待恢复关联" : "需要在下载器中处理",
+                detail: task.state == "missing" ? String(localized: .activityLifecycleWaitAssociation) : String(localized: .activityLifecycleHandleInDownloader),
                 tone: .attention
             )
         } else if downloaded {
-            downloadStep = LifecycleStep(label: "下载完成", detail: task.sizeBytes.map { ActivityFormat.bytes(Double($0)) } ?? "文件已就绪", tone: .done)
+            downloadStep = LifecycleStep(label: String(localized: .activityLifecycleDownloadComplete), detail: task.sizeBytes.map { ActivityFormat.bytes(Double($0)) } ?? String(localized: .activityLifecycleFilesReady), tone: .done)
         } else {
             downloadStep = LifecycleStep(
                 label: downloadStateMeta(task.state).label,
-                detail: percent.map { "\($0)%" } ?? "读取实时进度",
+                detail: percent.map { "\($0)%" } ?? String(localized: .activityLifecycleReadProgress),
                 tone: downloadWaiting ? .waiting : .current
             )
         }
@@ -712,34 +750,37 @@ extension TaskCenter {
 
         var ingestStep: LifecycleStep?
         if let job = ingestJob, jobNeedsAttention(job) {
-            ingestStep = LifecycleStep(label: "入库待处理", detail: errorMessage(job) ?? job.progress.message, tone: .attention)
+            ingestStep = LifecycleStep(label: String(localized: .activityLifecycleImportAttention), detail: errorMessage(job) ?? job.progress.message, tone: .attention)
         } else if let job = ingestJob, job.status == "failed", isDismissed(job) {
-            ingestStep = LifecycleStep(label: "入库已忽略", detail: "已按你的选择不再提醒；如需处理可在「已结束」里撤销忽略", tone: .waiting)
+            ingestStep = LifecycleStep(label: String(localized: .activityLifecycleImportDismissed), detail: String(localized: .activityLifecycleImportDismissedHint), tone: .waiting)
         } else if let job = ingestJob, job.status == "running" {
-            ingestStep = LifecycleStep(label: "正在入库", detail: job.progress.message, tone: .current)
+            ingestStep = LifecycleStep(label: String(localized: .activityLifecycleImporting), detail: job.progress.message, tone: .current)
         } else if let job = ingestJob, activeFeedJobStatuses.contains(job.status) {
             ingestStep = LifecycleStep(label: ingestStateMeta(job.status).label, detail: job.progress.message, tone: .waiting)
         } else if let missing {
             ingestStep = LifecycleStep(
-                label: "内容不符",
-                detail: (partial.map { "\($0)；" } ?? "") + "种子里没有 \(missing)，已退回重新寻找资源",
+                label: String(localized: .activityLifecycleContentMismatch),
+                detail: partial.map { String(localized: .activityLifecycleContentMissingPartial($0, missing)) }
+                    ?? String(localized: .activityLifecycleContentMissingOnly(missing)),
                 tone: .attention
             )
         } else if (ingestJob?.status == "succeeded" && !upgrade) || (summary.map { $0.done > 0 } ?? false) {
             let done = downloaded && fullyDelivered
-            let label = done ? (upgrade ? "替换完成" : "入库完成") : (upgrade ? "部分替换" : "部分入库")
+            let label = done ? (upgrade ? String(localized: .activityLifecycleReplaceComplete) : String(localized: .activityLifecycleImportComplete)) : (upgrade ? String(localized: .activityLifecyclePartialReplace) : String(localized: .activityLifecyclePartialImport))
             let detail = done
-                ? (upgrade ? "已全部替换为新版本" : (ingestJob?.progress.message ?? "已全部入库"))
-                : (upgrade ? "\(partial ?? "已替换")，其余等待下载与校验" : "\(partial ?? "已入库")，其余等待下载完成")
+                ? (upgrade ? String(localized: .activityLifecycleAllReplaced) : (ingestJob?.progress.message ?? String(localized: .activityLifecycleAllImported)))
+                : upgrade
+                    ? partial.map { String(localized: .activityLifecyclePartialReplaceWaitWith($0)) } ?? String(localized: .activityLifecyclePartialReplaceWaitOnly)
+                    : partial.map { String(localized: .activityLifecyclePartialImportWaitWith($0)) } ?? String(localized: .activityLifecyclePartialImportWaitOnly)
             ingestStep = LifecycleStep(label: label, detail: detail, tone: done ? .done : .waiting)
         } else if ingestJob?.status == "cancelled" {
-            ingestStep = LifecycleStep(label: "入库已取消", detail: "等待重新处理", tone: .waiting)
+            ingestStep = LifecycleStep(label: String(localized: .activityLifecycleImportCancelled), detail: String(localized: .activityLifecycleWaitReprocess), tone: .waiting)
         } else if task.landingError != nil {
-            ingestStep = LifecycleStep(label: "无法入库", detail: "movieclaw 看不到已下载的文件", tone: .attention)
+            ingestStep = LifecycleStep(label: String(localized: .activityLifecycleCannotImport), detail: String(localized: .activityLifecycleFilesInvisible), tone: .attention)
         } else if upgrade {
             ingestStep = LifecycleStep(
-                label: downloaded ? "等待替换" : "等待下载完成",
-                detail: downloaded ? "新版本入库后校验档位再替换" : "下一步",
+                label: downloaded ? String(localized: .activityLifecycleWaitReplace) : String(localized: .activityLifecycleWaitDownload),
+                detail: downloaded ? String(localized: .activityLifecycleVerifyAfterImport) : String(localized: .commonNext),
                 tone: .future
             )
         }
@@ -747,7 +788,7 @@ extension TaskCenter {
             task, downloaded: downloaded, upgrade: upgrade,
             keepOld: task.subscriptions.first?.upgradeKeepOld == true
         )
-        return [LifecycleStep(label: "已投递", detail: source, tone: .done), downloadStep] + tail
+        return [LifecycleStep(label: String(localized: .activityLifecycleDispatched), detail: source, tone: .done), downloadStep] + tail
     }
 }
 
@@ -778,14 +819,18 @@ extension TaskCenter {
                 seasons.append((range.season, [label]))
             }
         }
-        return seasons.map { "S\(pad2($0.season))\($0.labels.joined(separator: "、"))" }.joined(separator: " · ")
+        return seasons.map { "S\(pad2($0.season))\($0.labels.joined(separator: rangeSeparator))" }.joined(separator: " · ")
     }
+
+    /// 同季多个区间的分隔：中文顿号，其它语言逗号（同 Web episode-units）
+    static var rangeSeparator: String { AppLanguage.identifier == "zh-Hans" ? "、" : ", " }
 
     /// 连续集号压成区间；超过 3 个区间时只保留前 2 个并标出隐藏集数
     static func summarizeEpisodeUnits(_ units: [API.DownloadTaskUnitView]) -> EpisodeSummary? {
         guard !units.isEmpty else { return nil }
         if units.contains(where: { $0.seasonNumber == 0 && $0.episodeNumber == 0 }) {
-            return EpisodeSummary(isMovie: true, label: "正片", fullLabel: "正片", episodeCount: 0, seasons: [])
+            let feature = String(localized: .mediaKindFeature)
+            return EpisodeSummary(isMovie: true, label: feature, fullLabel: feature, episodeCount: 0, seasons: [])
         }
         var unique = Set<[Int]>()
         let sorted = units.filter { unique.insert([$0.seasonNumber, $0.episodeNumber]).inserted }
@@ -814,7 +859,7 @@ extension TaskCenter {
         }
         let hidden = ranges.dropFirst(2).reduce(0) { $0 + $1.end - $1.start + 1 }
         return EpisodeSummary(
-            isMovie: false, label: "\(formatRanges(Array(ranges.prefix(2)))) · 另 \(hidden) 集",
+            isMovie: false, label: String(localized: .activityTasksMoreEpisodes(formatRanges(Array(ranges.prefix(2))), hidden)),
             fullLabel: full, episodeCount: sorted.count, seasons: seasons
         )
     }
@@ -857,7 +902,7 @@ extension TaskCenter {
             for episode in seasons[season]!.sorted() {
                 if let last = ranges.last, episode == last.1 + 1 { ranges[ranges.count - 1].1 = episode } else { ranges.append((episode, episode)) }
             }
-            let text = ranges.map { $0.0 == $0.1 ? "E\(pad2($0.0))" : "E\(pad2($0.0))–E\(pad2($0.1))" }.joined(separator: "、")
+            let text = ranges.map { $0.0 == $0.1 ? "E\(pad2($0.0))" : "E\(pad2($0.0))–E\(pad2($0.1))" }.joined(separator: rangeSeparator)
             return "S\(pad2(season))\(text)"
         }.joined(separator: " · ")
     }
@@ -870,26 +915,32 @@ extension TaskCenter {
         let present = strings(job.progress.details, "already_present_files")
         let ready = readyFilePaths(job.inputData["ready_files"])
         let noMove = message.contains(/已全部在库|无需搬运|未复制/)
-        let context = message.firstMatch(of: /入库到(?:订阅指定的)?[「“"]([^」”"]+)[」”"]/).map { "已入库到「\($0.1)」" }
+        let context = message.firstMatch(of: /入库到(?:订阅指定的)?[「“\x{22}]([^」”\x{22}]+)[」”\x{22}]/).map { String(localized: .activityIngestHistoryTarget(String($0.1))) }
+        let existingGroup = String(localized: .activityIngestHistoryExistingGroup)
 
         if !imported.isEmpty {
-            let summary = episodeLabel(imported).map { "新增 \($0) · 复制 \(imported.count) 个文件" } ?? "新增 \(imported.count) 个文件"
-            var groups: [(String, [String])] = [("本次新增", imported)]
-            if !present.isEmpty { groups.append(("已在库", present)) }
+            let summary = episodeLabel(imported).map { String(localized: .activityIngestHistoryAddedEpisodes($0, imported.count)) }
+                ?? String(localized: .activityIngestHistoryAddedFiles(imported.count))
+            var groups: [(String, [String])] = [(String(localized: .activityIngestHistoryAddedGroup), imported)]
+            if !present.isEmpty { groups.append((existingGroup, present)) }
             return IngestHistoryDetail(summary: summary, context: context, fileGroups: groups)
         }
         if noMove {
             let existing = present.isEmpty ? ready : present
-            let inspected = episodeLabel(existing).map { "检查 \($0)" } ?? (existing.isEmpty ? "检查完成" : "检查 \(existing.count) 个文件")
-            return IngestHistoryDetail(summary: "\(inspected) · 均已在库，未复制", context: context, fileGroups: existing.isEmpty ? [] : [("已在库", existing)])
+            let inspected = episodeLabel(existing).map { String(localized: .activityIngestHistoryCheckedEpisodes($0)) }
+                ?? (existing.isEmpty ? String(localized: .activityIngestHistoryCheckedDone) : String(localized: .activityIngestHistoryCheckedFiles(existing.count)))
+            return IngestHistoryDetail(summary: String(localized: .activityIngestHistoryNoCopy(inspected)), context: context,
+                                       fileGroups: existing.isEmpty ? [] : [(existingGroup, existing)])
         }
         if let match = message.firstMatch(of: /复制\s*(\d+)\s*个文件/), let copied = Int(match.1), !ready.isEmpty {
-            let inspected = episodeLabel(ready).map { "检查 \($0)" } ?? "检查 \(ready.count) 个文件"
-            return IngestHistoryDetail(summary: "\(inspected) · 复制 \(copied) 个文件（旧记录未保存具体文件名）", context: context, fileGroups: [("本次检查", ready)])
+            let inspected = episodeLabel(ready).map { String(localized: .activityIngestHistoryCheckedEpisodes($0)) }
+                ?? String(localized: .activityIngestHistoryCheckedFiles(ready.count))
+            return IngestHistoryDetail(summary: String(localized: .activityIngestHistoryLegacyCopy(inspected, copied)), context: context,
+                                       fileGroups: [(String(localized: .activityIngestHistoryCheckGroup), ready)])
         }
         return IngestHistoryDetail(
-            summary: nonEmpty(message) ?? (job.status == "cancelled" ? "任务已取消" : "任务已完成"),
-            context: context, fileGroups: present.isEmpty ? [] : [("已在库", present)]
+            summary: nonEmpty(message) ?? (job.status == "cancelled" ? String(localized: .activityTasksCancelled) : String(localized: .activityTasksCompleted)),
+            context: context, fileGroups: present.isEmpty ? [] : [(existingGroup, present)]
         )
     }
 }
@@ -918,19 +969,19 @@ enum ActivityFormat {
     /// 秒 → 「45 秒」「15 分钟」「1.5 小时」（Web `formatDuration`）
     static func duration(seconds: Double) -> String {
         guard seconds.isFinite, seconds > 0 else { return "—" }
-        if seconds < 60 { return "\(Int(seconds)) 秒" }
-        if seconds < 3600 { return "\(Int((seconds / 60).rounded())) 分钟" }
+        if seconds < 60 { return String(localized: .unitsDurationSeconds(Int(seconds))) }
+        if seconds < 3600 { return String(localized: .unitsDurationMinutes(Int((seconds / 60).rounded()))) }
         let hours = seconds / 3600
-        return hours == hours.rounded() ? "\(Int(hours)) 小时" : String(format: "%.1f 小时", hours)
+        return hours == hours.rounded() ? String(localized: .unitsDurationHours(Int(hours))) : String(localized: .unitsDurationDecimalHours(hours))
     }
 
     /// 分钟 → 「2 小时 6 分钟」（Web `formatRuntimeMinutes`）
     static func runtime(minutes: Double) -> String {
         guard minutes.isFinite, minutes > 0 else { return "—" }
         let rounded = Int(minutes.rounded())
-        if rounded < 60 { return "\(rounded) 分钟" }
+        if rounded < 60 { return String(localized: .unitsDurationMinutes(rounded)) }
         let remainder = rounded % 60
-        return remainder > 0 ? "\(rounded / 60) 小时 \(remainder) 分钟" : "\(rounded / 60) 小时"
+        return remainder > 0 ? String(localized: .unitsDurationHoursMinutesLong(rounded / 60, remainder)) : String(localized: .unitsDurationHours(rounded / 60))
     }
 
     /// 毫秒观看时长 → 「2 小时 6 分钟」；不足一分钟按一分钟，零显示「—」
@@ -946,7 +997,7 @@ enum ActivityFormat {
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
     }
 
-    static func integer(_ value: Int) -> String { value.formatted(.number.locale(Locale(identifier: "zh_CN"))) }
+    static func integer(_ value: Int) -> String { AppFormatting.number(value) }
 
     private static var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
@@ -972,16 +1023,21 @@ enum ActivityFormat {
     static func dayLabel(_ raw: String?) -> String {
         guard let date = Formatters.date(raw) else { return raw ?? "" }
         let calendar = calendar
-        if calendar.isDateInToday(date) { return "今天早些时候" }
-        if calendar.isDateInYesterday(date) { return "昨天" }
+        if calendar.isDateInToday(date) { return String(localized: .commonEarlierToday) }
+        if calendar.isDateInYesterday(date) { return String(localized: .commonYesterday) }
+        let thisYear = calendar.component(.year, from: date) == calendar.component(.year, from: .now)
+        guard AppLanguage.identifier == "zh-Hans" else {
+            let style = Date.FormatStyle(locale: AppLanguage.locale).month(.abbreviated).day()
+            return date.formatted(thisYear ? style : style.year())
+        }
         let c = calendar.dateComponents([.year, .month, .day], from: date)
-        if c.year == calendar.component(.year, from: .now) { return "\(c.month ?? 0)月\(c.day ?? 0)日" }
-        return "\(c.year ?? 0)年\(c.month ?? 0)月\(c.day ?? 0)日"
+        // i18n-ignore: Chinese keeps its legacy date wording; the system style renders 9/3.
+        return thisYear ? "\(c.month ?? 0)月\(c.day ?? 0)日" : "\(c.year ?? 0)年\(c.month ?? 0)月\(c.day ?? 0)日"
     }
 
     /// 相对时间「几秒前」「3 分钟前」（Web formatRelativeTime，算法统一在 Formatters.fromNow）
     static func relative(_ raw: String?) -> String {
-        guard let date = Formatters.date(raw) else { return raw == nil ? "从未" : "" }
+        guard let date = Formatters.date(raw) else { return raw == nil ? String(localized: .commonNever) : "" }
         return Formatters.fromNow(date)
     }
 

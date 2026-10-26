@@ -24,8 +24,13 @@ struct TVHomeView: View {
     @Environment(TVLibraryDirectory.self) private var directory
 
     private var store: LibraryHomeStore { .shared }
-    /// 首屏的焦点：大图区的「继续播放」「详情」，或「接下来继续」里的某张卡
+    /// 首屏的焦点：大图区的「继续播放」「详情」。「接下来继续」里卡片的焦点由那一行自己管（`TVUpNextRow`），
+    /// 挂在首页上的话，焦点每在卡片间挪一下整个首页（连同下面所有行）重算三五遍（2026-10-11 模拟器打点）
     @FocusState private var focus: TVHomeFocus?
+    /// 「接下来继续」那一行回报的焦点（不参与界面刷新）
+    @State private var upNextFocus = TVUpNextFocus()
+    /// 焦点在「接下来继续」那一行里：只在进出这一行时变，卡片间挪动不变（卡片行让位按它重新计时）
+    @State private var upNextFocused = false
     /// 大图区正在讲的那一部（条目 id）：焦点停稳后才跟过去，按住方向键一路划过时不逐张闪
     @State private var stageId: Int?
     /// 剧照边缘色（首屏底色）
@@ -69,14 +74,14 @@ struct TVHomeView: View {
         Group {
             if store.libraries == nil {
                 if store.failed {
-                    TVStateView(symbol: "wifi.exclamationmark", title: "连不上服务器", message: "首页加载失败，请检查网络后重试。",
-                                actionTitle: "重试") { Task { await reload() } }
+                    TVStateView(symbol: "wifi.exclamationmark", title: String(localized: .authServerUnreachable), message: String(localized: .libraryHomeLoadFailedRetry),
+                                actionTitle: String(localized: .commonRetry)) { Task { await reload() } }
                 } else {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else if rows.allSatisfy(isEmpty) {
-                TVStateView(symbol: "film.stack", title: "媒体库里还没有内容",
-                            message: "在网页或手机上添加媒体库并扫描后，影片会出现在这里。")
+                TVStateView(symbol: "film.stack", title: String(localized: .libraryMediaEmpty),
+                            message: String(localized: .libraryAddOnWebOrPhoneHint))
             } else {
                 content
             }
@@ -104,11 +109,13 @@ struct TVHomeView: View {
                     // 没有大图区时第一行别和标签栏贴在一起
                     Color.clear.frame(height: 30)
                 }
+                let collections = HomeRows.pinnedCollections(visibleRows)
                 ForEach(visibleRows) { row in
-                    rowView(row)
-                        // 卡片行让位时下面各行跟着往下走、淡掉（首屏底边露着下一行的标题与海报顶）
-                        .offset(y: yieldOffset)
-                        .opacity(rowYielded ? 0 : 1)
+                    // 每一行按值比较：换大图、换焦点时首页重算，行的数据没变就不跟着重画
+                    TVHomeRow(row: row, collections: collections, yielded: rowYielded, yieldOffset: yieldOffset) { focused in
+                        scrollToRow(row, focused: focused)
+                    }
+                    .equatable()
                 }
             }
             .padding(.bottom, 80)
@@ -145,16 +152,21 @@ struct TVHomeView: View {
         .onChange(of: previewing) { _, now in
             if now { previewSince = .now }
         }
-        .onChange(of: focus) { lastInput = .now }
-        .task(id: RowYieldTrigger(previewing: previewing, focus: focus, stageId: stage?.mediaItemId, wakes: wakes)) {
-            guard previewing, let stage, focus == .card(stage.mediaItemId), cardTop != nil else {
+        .task(id: RowYieldTrigger(previewing: previewing, inRow: upNextFocused, stageId: stage?.mediaItemId, wakes: wakes)) {
+            guard previewing, let stage, upNextFocused, cardTop != nil else {
                 if rowYielded { withAnimation(Self.rowRise) { rowYielded = false } }
                 return
             }
             // 视频淡入 0.9 秒之后再让：先让人看清换成了视频。还要离上一次操作 4 秒：刚进这一行、刚叫回来的人
-            // 正在挑卡（焦点停在按钮上时预告就已经在放了，进这一行别 1 秒就沉下去）
-            try? await Task.sleep(until: max(previewSince + .seconds(1.2), lastInput + .seconds(4)))
-            guard !Task.isCancelled else { return }
+            // 正在挑卡（焦点停在按钮上时预告就已经在放了，进这一行别 1 秒就沉下去）。卡片间挪动不重启这个任务，
+            // 到点时再看一眼最近一次操作，没静够就接着等
+            while true {
+                let deadline = max(previewSince + .seconds(1.2), lastInput + .seconds(4))
+                guard ContinuousClock.now < deadline else { break }
+                try? await Task.sleep(until: deadline)
+                guard !Task.isCancelled else { return }
+            }
+            guard upNextFocus.card == stage.mediaItemId else { return }
             withAnimation(Self.rowSink) { rowYielded = true }
         }
         .background {
@@ -181,7 +193,7 @@ struct TVHomeView: View {
                 // 被取消（这段任务在主界面出现时会被系统重启一次）不算数，名额留给下一遍
                 guard !Task.isCancelled else { return }
                 // 焦点已经在首页里（落上了、或用户自己挪进来了）、或播放器盖在上面：这次开机的事办完了
-                guard router.player == nil, focus == nil else {
+                guard router.player == nil, focus == nil, upNextFocus.card == nil else {
                     router.launchFocusPending = false
                     return
                 }
@@ -195,34 +207,11 @@ struct TVHomeView: View {
             guard router.reclaimHomeFocus > 0, upNext.first != nil else { return }
             for delay in [0, 150, 300, 500] {
                 try? await Task.sleep(for: .milliseconds(delay))
-                guard !Task.isCancelled, router.player == nil, focus == nil else { return }
+                guard !Task.isCancelled, router.player == nil, focus == nil, upNextFocus.card == nil else { return }
                 focus = .play
             }
         }
-        .onChange(of: focus) { old, new in
-            switch (old, new) {
-            case (.card, .card):
-                break
-            case (_, .card):
-                // 进「接下来继续」这一行：从按钮往下、从下面的行（收藏等）往上，都滚到同一个位置。
-                // 系统自己滚的量跟来路有关——从下面上来时按「上一行刚好露全」滚，比从按钮下来多滚 400 多点，
-                // 大图跟着上移、下沿整个露出来（2026-10-03 真机实测）
-                withAnimation(.easeInOut(duration: 0.35)) { position.scrollTo(y: Self.rowScrollOffset) }
-            case (.card, .play), (.card, .details):
-                // 从卡片行按「上」回到按钮区：列表滚回顶部恢复首屏——系统只滚到按钮刚好露出为止，大图会被文字压着半截
-                withAnimation(.easeInOut(duration: 0.35)) { position.scrollTo(edge: .top) }
-            default:
-                break
-            }
-        }
-        // 焦点停稳 0.16 秒再换大图：按住方向键一路划过去时，中间那些不逐张加载、逐张闪。
-        // 焦点回到「继续播放」「详情」上时大图不变，按下去就是刚才看的那一部
-        .task(id: focus) {
-            guard case let .card(id) = focus, id != stageId else { return }
-            try? await Task.sleep(for: .milliseconds(160))
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.45)) { stageId = id }
-        }
+        .onChange(of: focus) { lastInput = .now }
         // 换了一部：取剧照边缘色铺底；预载左右两部的剧照，焦点移过去时直接从内存出图
         .task(id: backdrop) {
             if let stage, let index = upNext.firstIndex(where: { $0.mediaItemId == stage.mediaItemId }) {
@@ -274,31 +263,45 @@ struct TVHomeView: View {
             } actions: {
                 stageActions(stage)
             }
-            TVShelf(title: "接下来继续", titleHidden: rowYielded) {
-                ForEach(Array(items.enumerated()), id: \.element.mediaItemId) { index, item in
-                    let current = item.mediaItemId == stage.mediaItemId
-                    upNextCard(item)
-                        .focused($focus, equals: .card(item.mediaItemId))
-                        .accessibilityIdentifier("tv-home-continue-\(index)")
-                        // 让位时只留正在预告的这张，上面一条预告进度
-                        .opacity(rowYielded && !current ? 0 : 1)
-                        .overlay(alignment: .top) {
-                            if rowYielded, current {
-                                TVPreviewProgressLine()
-                                    .offset(y: -26)
-                                    .transition(.opacity)
-                            }
-                        }
-                        // 量卡片上沿（没让位时）：同一行的卡上沿都一样，量哪张都行
-                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { top in
-                            if !rowYielded { cardTop = top }
-                        }
-                }
-            }
+            TVUpNextRow(
+                items: items, stageId: stage.mediaItemId, rowYielded: rowYielded,
+                resume: { resume($0) },
+                details: { router.push(.item(libraryId: $0.libraryId, itemId: $0.mediaItemId)) },
+                focusChanged: { old, new in upNextFocusChanged(from: old, to: new) },
+                // 量卡片上沿（没让位时）：同一行的卡上沿都一样，量哪张都行
+                cardTop: { top in if !rowYielded { cardTop = top } }
+            )
             .offset(y: yieldOffset)
-            // 从按钮往下回到这一行：落在大图正讲的那张卡上，而不是按位置挑按钮正下方的第一张——
-            // 否则看到第五部、上去看一眼按钮再下来，大图就跳回第一部了
-            .defaultFocus($focus, .card(stage.mediaItemId), priority: .userInitiated)
+        }
+    }
+
+    /// 「接下来继续」里的焦点变了（`TVUpNextRow` 回报；离开这一行时新的为 nil）
+    private func upNextFocusChanged(from old: Int?, to new: Int?) {
+        upNextFocus.card = new
+        lastInput = .now
+        if old == nil, new != nil {
+            upNextFocused = true
+            // 进「接下来继续」这一行：从按钮往下、从下面的行（收藏等）往上，都滚到同一个位置。
+            // 系统自己滚的量跟来路有关——从下面上来时按「上一行刚好露全」滚，比从按钮下来多滚 400 多点，
+            // 大图跟着上移、下沿整个露出来（2026-10-03 真机实测）
+            withAnimation(.easeInOut(duration: 0.35)) { position.scrollTo(y: Self.rowScrollOffset) }
+        } else if new == nil {
+            upNextFocused = false
+            // 从卡片行按「上」回到按钮区：列表滚回顶部恢复首屏——系统只滚到按钮刚好露出为止，大图会被文字压着半截。
+            // 两边的焦点状态在同一次更新里变，等这一轮走完再看焦点落在了哪儿
+            DispatchQueue.main.async {
+                guard focus != nil else { return }
+                withAnimation(.easeInOut(duration: 0.35)) { position.scrollTo(edge: .top) }
+            }
+        }
+        // 焦点停稳 0.16 秒再换大图：按住方向键一路划过去时，中间那些不逐张加载、逐张闪。
+        // 焦点回到「继续播放」「详情」上时大图不变，按下去就是刚才看的那一部
+        upNextFocus.settle?.cancel()
+        guard let new, new != stageId else { return }
+        upNextFocus.settle = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(160))
+            guard !Task.isCancelled, upNextFocus.card == new else { return }
+            withAnimation(.easeInOut(duration: 0.45)) { stageId = new }
         }
     }
 
@@ -306,7 +309,7 @@ struct TVHomeView: View {
     private func stageActions(_ stage: API.UpNextItemView) -> some View {
         HStack(spacing: 24) {
             Button { resume(stage) } label: {
-                Label(stage.positionMs > 0 ? "继续播放" : "播放", systemImage: "play.fill")
+                Label(stage.positionMs > 0 ? String(localized: .subscriptionFeedResume) : String(localized: .libraryHeroPlay), systemImage: "play.fill")
                     .padding(.horizontal, 8)
             }
             .focused($focus, equals: .play)
@@ -315,7 +318,7 @@ struct TVHomeView: View {
             Button {
                 router.push(.item(libraryId: stage.libraryId, itemId: stage.mediaItemId))
             } label: {
-                Label("详情", systemImage: "info.circle")
+                Label(String(localized: .searchTorrentDetails), systemImage: "info.circle")
                     .padding(.horizontal, 8)
             }
             .focused($focus, equals: .details)
@@ -348,8 +351,228 @@ struct TVHomeView: View {
         api.image(item.backdropUrl ?? item.episodeStillUrl ?? item.posterUrl, width: ImageWidth.screen)
     }
 
+    /// 焦点进了一行选中展开的海报行：把这一行滚到屏幕上方，行下面的类型、简介才露得全
+    /// （系统自己只滚到卡片刚好露出为止，说明会落在屏幕外）
+    private func scrollToRow(_ row: HomeRows.Row, focused: Bool) {
+        guard focused else { return }
+        withAnimation(.easeInOut(duration: 0.35)) { position.scrollTo(id: row.id, anchor: .top) }
+    }
+
+    /// 「查看全部」上写的总数：只在确切知道时写——媒体库没加筛选时用库的统计（「最近观看」「只看未看」的量不知道）
+    static func rowTotal(_ row: HomeRows.Row) -> Int? {
+        if case let .library(library, sort, _, unwatched, _, _) = row.kind, !unwatched, sort != "last_played" {
+            return library.stats.itemCount
+        }
+        return nil
+    }
+
+    /// 卡片底部暗带里的紧凑写法（卡片 400 点宽，放不下「第 2 季 第 6 集 · 剩 18 分钟」）：
+    /// 「S2 E6 · 剩 18 分钟」「剩 1 小时 5 分」；还没开始看的写全长：「S1 E2 · 41 分钟」「1 小时 58 分」
+    static func upNextBand(_ item: API.UpNextItemView) -> String? {
+        var parts: [String] = []
+        if item.kind == "tv" { parts.append("S\(item.seasonNumber) E\(item.episodeNumber)") }
+        if item.positionMs > 0, let remaining = Formatters.remaining(positionMs: item.positionMs, durationMs: item.durationMs) {
+            parts.append(remaining)
+        } else if let durationMs = item.durationMs, durationMs >= 60_000 {
+            parts.append(Formatters.duration(minutes: durationMs / 60_000))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// 「第 1 季 第 3 集 · 剩 23 分钟」「剩 1 小时 5 分」
+    static func upNextSubtitle(_ item: API.UpNextItemView) -> String? {
+        var parts: [String] = []
+        if item.kind == "tv" { parts.append(String(localized: .offlineSeasonEpisode(item.seasonNumber, item.episodeNumber))) }
+        if item.positionMs > 0, let remaining = Formatters.remaining(positionMs: item.positionMs, durationMs: item.durationMs) {
+            parts.append(remaining)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// 按确认键直接续播（续播点由服务端按这一集 / 这部片的进度给）
+    private func resume(_ item: API.UpNextItemView) {
+        let isEpisode = item.kind == "tv"
+        router.play(PlayRequest(
+            mediaItemId: item.mediaItemId,
+            season: isEpisode ? item.seasonNumber : nil,
+            episode: isEpisode ? item.episodeNumber : nil
+        ))
+    }
+
+    /// 库行的条目里没带库 id 时，用行本身的库
+    static func libraryId(of row: HomeRows.Row) -> Int? {
+        if case let .library(library, _, _, _, _, _) = row.kind { return library.id }
+        return nil
+    }
+
+    private func isEmpty(_ row: HomeRows.Row) -> Bool {
+        switch row.kind {
+        case .upNext: (store.upNext ?? []).isEmpty
+        case .favorites: (store.favorites?.items ?? []).isEmpty
+        case .libraries: directory.browsable.isEmpty && homeCollections.isEmpty
+        case let .genres(kind, _): (store.genresByKind[kind] ?? []).isEmpty
+        case .library, .mediaKind, .collection: (store.itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []).isEmpty
+        }
+    }
+
+    private func reload() async {
+        await store.reload(api: api, owner: owner)
+    }
+}
+
+/// 卡片行该不该让位，取决于这几样：其中任何一样变了都重新计时（进出卡片行、换了一部、视频开播 / 放完、被叫回来）
+private struct RowYieldTrigger: Equatable {
+    let previewing: Bool
+    let inRow: Bool
+    let stageId: Int?
+    let wakes: Int
+}
+
+/// 卡片行让位时露在焦点卡上方的预告进度：一条细线，走完就是这段放完了
+private struct TVPreviewProgressLine: View {
+    var body: some View {
+        // 播放器的位置不是可观察的：每 0.25 秒读一次（片段 30～45 秒，线宽 400 点，一次走不到 3 点）
+        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            let progress = TVStagePreview.shared.progress
+            Capsule()
+                .fill(.white.opacity(0.25))
+                .overlay(alignment: .leading) {
+                    Capsule()
+                        .fill(.white.opacity(0.9))
+                        .frame(width: TVMetrics.landscapeWidth * progress)
+                        .animation(.linear(duration: 0.25), value: progress)
+                }
+                .frame(width: TVMetrics.landscapeWidth, height: 4)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// 首页首屏按钮的焦点位置（「接下来继续」卡片的焦点在 `TVUpNextRow` 里）
+enum TVHomeFocus: Hashable {
+    case play
+    case details
+}
+
+/// 「接下来继续」那一行回报给首页的焦点（普通引用、不可观察：只在闭包、任务里读，不让首页跟着焦点重算）
+@MainActor
+private final class TVUpNextFocus {
+    /// 拿着焦点的那张卡（nil 为焦点不在这一行）
+    var card: Int?
+    /// 等焦点停稳再换大图的任务
+    var settle: Task<Void, Never>?
+}
+
+/// 「接下来继续」一行（首屏底部）：焦点由这一行自己管，在卡片间挪动时首页不跟着重算。
+/// 焦点状态、卡片的 `.focused`、`defaultFocus` 写在同一个视图里（见详情页的 `TVEpisodeRow`）
+private struct TVUpNextRow: View {
+    let items: [API.UpNextItemView]
+    /// 大图正讲的那一部
+    let stageId: Int
+    let rowYielded: Bool
+    let resume: (API.UpNextItemView) -> Void
+    let details: (API.UpNextItemView) -> Void
+    /// 焦点在这一行里变了（旧、新；离开这一行时新的为 nil）
+    let focusChanged: (Int?, Int?) -> Void
+    /// 卡片图片上沿在屏幕上的位置
+    let cardTop: (CGFloat) -> Void
+
+    @FocusState private var focused: Int?
+
+    var body: some View {
+        TVShelf(title: String(localized: .libraryRowsUpNext), titleHidden: rowYielded) {
+            ForEach(Array(items.enumerated()), id: \.element.mediaItemId) { index, item in
+                let current = item.mediaItemId == stageId
+                TVContinueCard(item: item, resume: resume, details: details)
+                    .equatable()
+                    .focused($focused, equals: item.mediaItemId)
+                    .accessibilityIdentifier("tv-home-continue-\(index)")
+                    // 让位时只留正在预告的这张，上面一条预告进度
+                    .opacity(rowYielded && !current ? 0 : 1)
+                    .overlay(alignment: .top) {
+                        if rowYielded, current {
+                            TVPreviewProgressLine()
+                                .offset(y: -26)
+                                .transition(.opacity)
+                        }
+                    }
+                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { top in cardTop(top) }
+            }
+        }
+        // 从按钮往下回到这一行：落在大图正讲的那张卡上，而不是按位置挑按钮正下方的第一张——
+        // 否则看到第五部、上去看一眼按钮再下来，大图就跳回第一部了
+        .defaultFocus($focused, stageId, priority: .userInitiated)
+        .onChange(of: focused) { old, new in focusChanged(old, new) }
+    }
+}
+
+/// 「接下来继续」的一张卡：剧集用这一集的本地剧照（母版现在默认存原图，按卡宽取 `w`；不再用 TMDB 远程原图
+/// `episodeStillOriginalUrl`，断网也有图），电影用剧照。确认键续播；长按确认键出菜单（续播 / 详情）。
+/// 按值比较、不比两个动作（它们只在按下时调用首页给的闭包）
+private struct TVContinueCard: View, Equatable {
+    let item: API.UpNextItemView
+    let resume: (API.UpNextItemView) -> Void
+    let details: (API.UpNextItemView) -> Void
+
+    @Environment(\.api) private var api
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.item == rhs.item }
+
+    var body: some View {
+        let isEpisode = item.kind == "tv"
+        let still = isEpisode
+            ? (item.episodeStillUrl ?? item.backdropUrl)
+            : (item.backdropUrl ?? item.posterUrl)
+        TVLandscapeCard(
+            title: item.title,
+            subtitle: nil,
+            imageURL: api.image(still, width: ImageWidth.tvCard(TVMetrics.landscapeWidth)),
+            progress: item.progressPercent.map { Double($0) / 100 },
+            badge: item.advanced ? String(localized: .playerControlsNextEpisode) : nil,
+            // 第几集、剩多久压在图片底部；片名一直写在剧照下面——剧照上认不出是哪部
+            detail: TVHomeView.upNextBand(item),
+            caption: .always
+        ) {
+            resume(item)
+        }
+        .contextMenu {
+            Button(item.positionMs > 0 ? String(localized: .subscriptionFeedResume) : String(localized: .libraryHeroPlay), systemImage: "play.fill") { resume(item) }
+            Button(String(localized: .searchTorrentViewDetails), systemImage: "info.circle") { details(item) }
+        }
+    }
+}
+
+/// 首页的一行（「接下来继续」之外）：按值比较（行的配置、合集、让位状态），首页因为换大图、换焦点重算时，
+/// 行没变就不重画；行里的数据（`LibraryHomeStore`、库目录）是可观察的，变了它自己会刷新
+private struct TVHomeRow: View, Equatable {
+    let row: HomeRows.Row
+    /// 「我的媒体库」里接在库后面的合集
+    let collections: [API.CollectionView]
+    /// 卡片行让位时下面各行跟着往下走、淡掉（首屏底边露着下一行的标题与海报顶）
+    let yielded: Bool
+    let yieldOffset: CGFloat
+    /// 焦点进 / 出这一行（海报行据此滚到屏幕上方）
+    let onRowFocus: (Bool) -> Void
+
+    @Environment(\.api) private var api
+    @Environment(TVRouter.self) private var router
+    @Environment(TVLibraryDirectory.self) private var directory
+
+    private var store: LibraryHomeStore { .shared }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.row == rhs.row && lhs.collections == rhs.collections && lhs.yielded == rhs.yielded
+            && lhs.yieldOffset == rhs.yieldOffset
+    }
+
+    var body: some View {
+        content
+            .offset(y: yieldOffset)
+            .opacity(yielded ? 0 : 1)
+    }
+
     @ViewBuilder
-    private func rowView(_ row: HomeRows.Row) -> some View {
+    private var content: some View {
         switch row.kind {
         case .upNext:
             // 已经是首屏的大图区
@@ -361,12 +584,12 @@ struct TVHomeView: View {
                                     backdropURL: $0.backdropUrl, seasonCount: $0.seasons.filter { $0 > 0 }.count)
                 }
                 let libraryIds = Dictionary(items.map { ($0.mediaItemId, $0.libraryId) }, uniquingKeysWith: { first, _ in first })
-                TVShowcaseShelf(title: row.title, entries: entries, onRowFocus: { scrollToRow(row, focused: $0) }) { entry in
+                TVShowcaseShelf(title: row.title, entries: entries, onRowFocus: onRowFocus) { entry in
                     if let libraryId = libraryIds[entry.id] {
                         router.push(.item(libraryId: libraryId, itemId: entry.id))
                     }
                 } trailing: {
-                    seeAll(row, total: store.favorites?.total)
+                    seeAll(total: store.favorites?.total)
                 }
                 .id(row.id)
             }
@@ -374,7 +597,6 @@ struct TVHomeView: View {
             // 各个库的入口：标签栏只放固定的几项，库从这里进各自的海报墙。
             // 库后面接「显示在首页」的合集（虚拟库卡片，同网页与 iPhone，docs/design/library-collections.md）：
             // 封面是服务端用同一套货架样式拼好的图（`/collections/{id}/cover`），点进合集的海报墙
-            let collections = homeCollections
             if !directory.browsable.isEmpty || !collections.isEmpty {
                 TVShelf(title: row.title) {
                     ForEach(directory.browsable, id: \.id) { library in
@@ -416,28 +638,21 @@ struct TVHomeView: View {
                                     backdropURL: $0.backdropUrl, seasonCount: $0.seasons.filter { $0 > 0 }.count)
                 }
                 let libraryIds = Dictionary(items.map { ($0.mediaItemId, $0.libraryId) }, uniquingKeysWith: { first, _ in first })
-                TVShowcaseShelf(title: row.title, entries: entries, onRowFocus: { scrollToRow(row, focused: $0) }) { entry in
-                    if let libraryId = libraryIds[entry.id] ?? Self.libraryId(of: row) {
+                TVShowcaseShelf(title: row.title, entries: entries, onRowFocus: onRowFocus) { entry in
+                    if let libraryId = libraryIds[entry.id] ?? TVHomeView.libraryId(of: row) {
                         router.push(.item(libraryId: libraryId, itemId: entry.id))
                     }
                 } trailing: {
-                    seeAll(row, total: Self.rowTotal(row))
+                    seeAll(total: TVHomeView.rowTotal(row))
                 }
                 .id(row.id)
             }
         }
     }
 
-    /// 焦点进了一行选中展开的海报行：把这一行滚到屏幕上方，行下面的类型、简介才露得全
-    /// （系统自己只滚到卡片刚好露出为止，说明会落在屏幕外）
-    private func scrollToRow(_ row: HomeRows.Row, focused: Bool) {
-        guard focused else { return }
-        withAnimation(.easeInOut(duration: 0.35)) { position.scrollTo(id: row.id, anchor: .top) }
-    }
-
     /// 行末尾的「查看全部」：进与这一行同一套取数参数的完整海报墙（每行只取前 20 部），与这一行的海报同大
     @ViewBuilder
-    private func seeAll(_ row: HomeRows.Row, total: Int?) -> some View {
+    private func seeAll(total: Int?) -> some View {
         if let source = TVWallSource(row.kind) {
             TVSeeAllCard(total: total, width: TVMetrics.showcasePosterWidth) {
                 router.push(.rowWall(title: row.title, source: source))
@@ -445,127 +660,4 @@ struct TVHomeView: View {
             .accessibilityIdentifier("tv-see-all-\(row.id)")
         }
     }
-
-    /// 「查看全部」上写的总数：只在确切知道时写——媒体库没加筛选时用库的统计（「最近观看」「只看未看」的量不知道）
-    static func rowTotal(_ row: HomeRows.Row) -> Int? {
-        if case let .library(library, sort, _, unwatched, _, _) = row.kind, !unwatched, sort != "last_played" {
-            return library.stats.itemCount
-        }
-        return nil
-    }
-
-    /// 「接下来继续」的一张卡：剧集用这一集的本地剧照（母版现在默认存原图，按卡宽取 `w`；不再用 TMDB 远程原图
-    /// `episodeStillOriginalUrl`，断网也有图），电影用剧照。确认键续播；长按确认键出菜单（续播 / 详情）
-    private func upNextCard(_ item: API.UpNextItemView) -> some View {
-        let isEpisode = item.kind == "tv"
-        let still = isEpisode
-            ? (item.episodeStillUrl ?? item.backdropUrl)
-            : (item.backdropUrl ?? item.posterUrl)
-        return TVLandscapeCard(
-            title: item.title,
-            subtitle: nil,
-            imageURL: api.image(still, width: ImageWidth.tvCard(TVMetrics.landscapeWidth)),
-            progress: item.progressPercent.map { Double($0) / 100 },
-            badge: item.advanced ? "下一集" : nil,
-            // 第几集、剩多久压在图片底部；片名一直写在剧照下面——剧照上认不出是哪部
-            detail: Self.upNextBand(item),
-            caption: .always
-        ) {
-            resume(item)
-        }
-        .contextMenu {
-            Button(item.positionMs > 0 ? "继续播放" : "播放", systemImage: "play.fill") { resume(item) }
-            Button("查看详情", systemImage: "info.circle") {
-                router.push(.item(libraryId: item.libraryId, itemId: item.mediaItemId))
-            }
-        }
-    }
-
-    /// 卡片底部暗带里的紧凑写法（卡片 400 点宽，放不下「第 2 季 第 6 集 · 剩 18 分钟」）：
-    /// 「S2 E6 · 剩 18 分钟」「剩 1 小时 5 分」；还没开始看的写全长：「S1 E2 · 41 分钟」「1 小时 58 分」
-    static func upNextBand(_ item: API.UpNextItemView) -> String? {
-        var parts: [String] = []
-        if item.kind == "tv" { parts.append("S\(item.seasonNumber) E\(item.episodeNumber)") }
-        if item.positionMs > 0, let remaining = Formatters.remaining(positionMs: item.positionMs, durationMs: item.durationMs) {
-            parts.append(remaining)
-        } else if let durationMs = item.durationMs, durationMs >= 60_000 {
-            parts.append(Formatters.duration(minutes: durationMs / 60_000))
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
-    /// 「第 1 季 第 3 集 · 剩 23 分钟」「剩 1 小时 5 分」
-    static func upNextSubtitle(_ item: API.UpNextItemView) -> String? {
-        var parts: [String] = []
-        if item.kind == "tv" { parts.append("第 \(item.seasonNumber) 季 第 \(item.episodeNumber) 集") }
-        if item.positionMs > 0, let remaining = Formatters.remaining(positionMs: item.positionMs, durationMs: item.durationMs) {
-            parts.append(remaining)
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
-    /// 按确认键直接续播（续播点由服务端按这一集 / 这部片的进度给）
-    private func resume(_ item: API.UpNextItemView) {
-        let isEpisode = item.kind == "tv"
-        router.play(PlayRequest(
-            mediaItemId: item.mediaItemId,
-            season: isEpisode ? item.seasonNumber : nil,
-            episode: isEpisode ? item.episodeNumber : nil
-        ))
-    }
-
-    /// 库行的条目里没带库 id 时，用行本身的库
-    static func libraryId(of row: HomeRows.Row) -> Int? {
-        if case let .library(library, _, _, _, _, _) = row.kind { return library.id }
-        return nil
-    }
-
-    private func isEmpty(_ row: HomeRows.Row) -> Bool {
-        switch row.kind {
-        case .upNext: (store.upNext ?? []).isEmpty
-        case .favorites: (store.favorites?.items ?? []).isEmpty
-        case .libraries: directory.browsable.isEmpty && homeCollections.isEmpty
-        case let .genres(kind, _): (store.genresByKind[kind] ?? []).isEmpty
-        case .library, .mediaKind, .collection: (store.itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []).isEmpty
-        }
-    }
-
-    private func reload() async {
-        await store.reload(api: api, owner: owner)
-    }
-}
-
-/// 卡片行该不该让位，取决于这几样：其中任何一样变了都重新计时（换卡、视频开播 / 放完、被叫回来）
-private struct RowYieldTrigger: Equatable {
-    let previewing: Bool
-    let focus: TVHomeFocus?
-    let stageId: Int?
-    let wakes: Int
-}
-
-/// 卡片行让位时露在焦点卡上方的预告进度：一条细线，走完就是这段放完了
-private struct TVPreviewProgressLine: View {
-    var body: some View {
-        // 播放器的位置不是可观察的：每 0.25 秒读一次（片段 30～45 秒，线宽 400 点，一次走不到 3 点）
-        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-            let progress = TVStagePreview.shared.progress
-            Capsule()
-                .fill(.white.opacity(0.25))
-                .overlay(alignment: .leading) {
-                    Capsule()
-                        .fill(.white.opacity(0.9))
-                        .frame(width: TVMetrics.landscapeWidth * progress)
-                        .animation(.linear(duration: 0.25), value: progress)
-                }
-                .frame(width: TVMetrics.landscapeWidth, height: 4)
-        }
-        .allowsHitTesting(false)
-    }
-}
-
-/// 首页首屏的焦点位置
-enum TVHomeFocus: Hashable {
-    case play
-    case details
-    case card(Int)
 }

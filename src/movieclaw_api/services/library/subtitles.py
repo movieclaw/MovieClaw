@@ -38,7 +38,9 @@ LANGUAGE_TOKENS: dict[str, str] = {
     # 中文（含字幕组常用中文命名）
     "chs": "chi", "cht": "chi", "zh": "chi", "zh-cn": "chi", "zh-tw": "chi",
     "zh-hans": "chi", "zh-hant": "chi", "chi": "chi", "zho": "chi",
+    # i18n-ignore: subtitle language tags parsed from file names
     "简中": "chi", "简体": "chi", "繁中": "chi", "繁体": "chi",
+    # i18n-ignore: subtitle language tags parsed from file names
     "中字": "chi", "中英": "chi", "双语": "chi", "简繁": "chi",
     # 常见外语
     "en": "eng", "eng": "eng", "english": "eng",
@@ -53,6 +55,7 @@ LANGUAGE_TOKENS: dict[str, str] = {
     "th": "tha", "tha": "tha",
     "hin": "hin", "hindi": "hin",
     "ar": "ara", "ara": "ara",
+    # i18n-ignore: subtitle language tags parsed from file names
     "yue": "yue", "粤语": "yue", "粤": "yue",
 }
 
@@ -210,17 +213,26 @@ async def delete_external_subtitle(
     """
     video = Path(row.file_path)
     if "/" in filename or "\\" in filename or filename.startswith("."):
-        raise BadRequestException(f"字幕文件名不合法：{filename!r}")
+        raise BadRequestException(
+            message_key="errors.subtitles.filenameInvalid", params={"name": f"{filename!r}"}
+        )
     if match_subtitle_filename(video.stem, filename) is None:
-        raise BadRequestException(f"「{filename}」不是「{video.name}」的外挂字幕，拒绝删除")
+        raise BadRequestException(
+            message_key="errors.subtitles.deleteNotAttached",
+            params={"subtitle": filename, "video": video.name},
+        )
 
     path = video.parent / filename
     try:
         freed = await asyncio.to_thread(_unlink_with_size, path)
     except FileNotFoundError as exc:
-        raise NotFoundException(f"这个字幕文件已经不在磁盘上：{path}") from exc
+        raise NotFoundException(
+            message_key="errors.subtitles.fileOffDisk", params={"path": path}
+        ) from exc
     except OSError as exc:
-        raise BadRequestException(f"字幕文件删除失败（库目录是否只读？）：{path}（{exc}）") from exc
+        raise BadRequestException(
+            message_key="errors.subtitles.deleteFailed", params={"path": path, "error": exc}
+        ) from exc
 
     # 台账即时刷新：详情页与播放器都不必等下一次扫描就能看到少了这一条
     row.external_subtitles = await discover_external_subtitles_async(video)

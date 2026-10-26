@@ -1,0 +1,50 @@
+.friends-panel {position:absolute;z-index:45;left:16px;top:68px;bottom:136px;width:340px;max-width:calc(100% - 32px);display:flex;flex-direction:column;background:rgba(24,25,30,.98);border:1px solid rgba(255,255,255,.14);border-radius:18px;box-shadow:0 16px 50px #0007;color:#f4f4f7;overflow:hidden}
+.friends-panel[hidden] {display:none}
+#btnPlayerFriends {width:auto;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;gap:7px;padding:0 14px;border-radius:999px;white-space:nowrap;font-size:12px}
+#btnPlayerFriends[hidden] {display:none}
+#btnBrowseFriends {width:100%;border:0;background:transparent;font:inherit;text-align:left;cursor:pointer}
+#btnBrowseFriends[hidden] {display:none}
+.friends-home-dialog {margin:auto;padding:0;width:min(640px,calc(100vw - 32px));max-height:calc(100vh - 64px);color:#f4f4f7;background:#202126;border:1px solid #ffffff24;border-radius:18px;box-shadow:0 16px 50px #0007;overflow:hidden}
+.friends-home-dialog[open] {display:flex;flex-direction:column}
+.friends-home-dialog::backdrop {background:#0008}
+.friends-home-dialog > header {display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid #ffffff14;gap:16px}
+.friends-home-dialog h2 {font-size:20px;margin:0}
+.friends-home-dialog header p {margin:6px 0 0}
+.friends-home-dialog .friends-content {padding:20px 24px}
+.friends-home-dialog .friends-close {align-self:flex-start}
+.friends-guide {margin:0 0 18px;padding:10px 12px;border-radius:10px;background:#548cff12}
+.friends-help {margin:14px 0;padding:12px 14px;border:1px solid #ffffff18;border-radius:10px}
+.friends-help summary {cursor:pointer;color:#c1d5ff;font-size:13px}
+.friends-help code {display:block;overflow-wrap:anywhere;user-select:all;margin-top:8px;font-size:12px;color:#d8deed}
+.friends-panel > header {display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid #ffffff14}
+.friends-panel h2 {margin:0;flex:1;font-size:17px}
+.friends-panel button {cursor:pointer}
+.friends-content {padding:16px;overflow:auto;min-height:0;overscroll-behavior:contain}
+.friends-content h3 {font-size:15px;margin:16px 0 8px}
+.friends-content [role=alert] {color:#ffb5a5}
+.friends-member + .friends-member {margin-top:22px;padding-top:18px;border-top:1px solid #ffffff14}
+.friends-member > header {display:flex;align-items:center;gap:10px;min-width:0;margin-bottom:12px}
+.friends-member > header strong {flex:1;overflow:hidden;text-overflow:ellipsis}
+.friends-avatar {display:grid;place-items:center;width:32px;height:32px;flex:none;border-radius:50%;background:#747ac62b;color:#c2c8ff;font-weight:600}
+.friends-watch {display:grid;gap:8px;padding:14px;margin-top:10px;border:1px solid #ffffff12;border-radius:12px;background:#ffffff05}
+.friends-watch strong {font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+.friends-watch small,.friends-muted {font-size:12px;color:#a9aab5;line-height:1.7}
+.friends-watch progress {height:4px;width:100%;border:none;border-radius:4px;overflow:hidden;accent-color:#9faaff}
+.friends-watch progress::-webkit-progress-bar {background:#ffffff15}
+.friends-watch progress::-webkit-progress-value {background:#9faaff}
+.friends-watch-actions {display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.friends-watch-actions button {flex:1;white-space:nowrap;font-size:12px;padding:8px 10px}
+.friends-watch-actions .btn-primary {background:#548cff;color:#fff;border:1px solid #80abff;border-radius:10px;font:inherit;font-size:12px;font-weight:600;min-height:38px}
+.friends-watch-actions .btn-primary:hover {background:#6799ff}
+.friends-watch-actions button:disabled {opacity:.45;cursor:default}
+.friends-close {border:none;background:transparent;color:inherit;font-size:20px;padding:2px 6px}
+.friends-settings {grid-column:1 / -1}
+.friends-settings .settings-row > span {min-width:0}
+.friends-settings small {display:block;max-width:460px}
+.friends-libraries {margin:18px 0;padding:14px 16px;border:1px solid #ffffff18;border-radius:12px}
+.friends-libraries legend {padding:0 6px;font-size:13px;color:#d5d6df}
+.friends-library {display:flex;align-items:center;gap:12px;padding:8px 0;cursor:pointer}
+.friends-library input {accent-color:#9faaff;width:16px;height:16px;flex:none}
+.friends-library:has(input:disabled) {opacity:.55;cursor:default}
+.native-pip .friends-panel,.native-pip #btnPlayerFriends {display:none}
+@media(max-width:680px) {.friends-panel {left:8px;top:60px;max-width:calc(100% - 16px)}.friends-settings .settings-row {gap:16px;align-items:flex-start}.friends-settings .settings-toggle {flex:none;margin-top:4px}}

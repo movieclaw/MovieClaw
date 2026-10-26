@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.app_update import (
     GithubTokenPayload,
     GithubTokenView,
@@ -72,7 +73,7 @@ async def get_pending_update() -> ApiResponse[PendingUpdateView]:
 )
 async def apply_update() -> ApiResponse[UpdateProgressView]:
     view = await app_update.start_update()
-    return ok(view, message="更新已开始，可通过进度接口跟踪")
+    return ok(view, message=t("settings.app.updateStarted"))
 
 
 @router.get(
@@ -93,7 +94,7 @@ async def get_update_progress() -> ApiResponse[UpdateProgressView]:
 )
 async def dismiss_last_abnormal_exit() -> ApiResponse[None]:
     app_update.dismiss_last_abnormal_exit()
-    return ok(None, message="已确认，该告警不再展示")
+    return ok(None, message=t("settings.app.warningAcknowledged"))
 
 
 @router.post(
@@ -114,7 +115,7 @@ async def check_model_update() -> ApiResponse[ModelUpdateCheckView]:
 )
 async def apply_model_update() -> ApiResponse[UpdateProgressView]:
     view = await app_update.start_model_update()
-    return ok(view, message="模型更新已开始，可通过进度接口跟踪")
+    return ok(view, message=t("settings.app.modelUpdateStarted"))
 
 
 @router.get(
@@ -150,7 +151,7 @@ async def rollback_update(payload: RollbackPayload | None = None) -> ApiResponse
 )
 async def set_update_retention(payload: UpdateRetentionPayload) -> ApiResponse[None]:
     value = await app_update.save_update_retention(payload.keep_versions)
-    return ok(None, message=f"本地将保留最近 {value} 个版本")
+    return ok(None, message=t("settings.app.retentionSaved", count=value))
 
 
 @router.get(
@@ -171,4 +172,9 @@ async def get_github_token() -> ApiResponse[GithubTokenView]:
 )
 async def set_github_token(payload: GithubTokenPayload) -> ApiResponse[GithubTokenView]:
     view = await app_update.save_github_token(payload.token)
-    return ok(view, message="GitHub 访问令牌已保存" if view.configured else "GitHub 访问令牌已清除")
+    return ok(
+        view,
+        message=t("settings.app.githubTokenSaved")
+        if view.configured
+        else t("settings.app.githubTokenCleared"),
+    )

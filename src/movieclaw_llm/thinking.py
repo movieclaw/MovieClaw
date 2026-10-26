@@ -43,6 +43,8 @@ def translate_thinking_level(level: ThinkingLevel, model: ModelInfo) -> dict:
     """
     control = model.thinking_control
     assert control is not None, "translate 之前必须先 resolve"
+    if level == "off" and control.off_body is not None:
+        return dict(control.off_body)
     if control.kind == "effort":
         # 档位原词直传；off 的关闭编码是 reasoning_effort="none"
         return {"reasoning_effort": "none" if level == "off" else level}

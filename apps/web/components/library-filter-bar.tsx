@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -23,7 +26,7 @@ import {
   isFilterEmpty,
 } from "@/lib/api/libraries";
 import { filterKey, rulesToFilter } from "@/lib/library-filter";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 
 /**
@@ -62,6 +65,8 @@ export function LibraryFilterBar({
   sortControl?: React.ReactNode;
   className?: string;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [open, setOpen] = useState(false);
   // 「更多筛选」是第二层展开：一级四维已经能答大多数问题，二级是它答不了
   // 的时候才要的。它一打开就要多算十几条 COUNT（tier=all），所以按需请求
@@ -99,7 +104,7 @@ export function LibraryFilterBar({
     return () => {
       alive = false;
     };
-  }, [libraryId, filter, open, empty, needsAllFacets]);
+  }, [libraryId, filter, open, empty, needsAllFacets, locale]);
 
   const toggle = useCallback(
     (dim: "genres" | "countries" | "decades", value: string) => {
@@ -173,7 +178,7 @@ export function LibraryFilterBar({
           }`}
         >
           <FilterIcon className="size-3.5 opacity-70" />
-          筛选
+          {t("library.filters.title")}
           {selectedCount > 0 && (
             <span className="font-mono text-caption font-semibold tabular-nums text-white/85">
               {selectedCount}
@@ -196,29 +201,29 @@ export function LibraryFilterBar({
         <div className="mt-2.5 flex items-center gap-2">
         <div className="flex flex-1 flex-wrap items-center gap-2">
           <MultiFilterMenu
-            label="类型"
-            hint="可多选 · 维度内是「或」"
+            label={t("library.filters.genres")}
+            hint={t("library.filters.multiSelectHint")}
             selected={(filter.genres ?? []).map(String)}
             options={facets?.genres ?? []}
             onToggle={(v) => toggle("genres", v)}
           />
           <MultiFilterMenu
-            label="年代"
-            hint="按时间排下来，底条就是分布"
+            label={t("library.filters.decades")}
+            hint={t("library.filters.decadeHint")}
             selected={filter.decades ?? []}
             options={facets?.decades ?? []}
             onToggle={(v) => toggle("decades", v)}
           />
           <MultiFilterMenu
-            label="地区"
-            hint="可多选 · 维度内是「或」"
+            label={t("library.filters.regions")}
+            hint={t("library.filters.multiSelectHint")}
             selected={filter.countries ?? []}
             options={facets?.countries ?? []}
             onToggle={(v) => toggle("countries", v)}
           />
           <MultiFilterMenu
-            label="观看"
-            hint="单选"
+            label={t("library.filters.watch")}
+            hint={t("library.filters.singleSelectHint")}
             selected={filter.watch ? [filter.watch] : []}
             options={facets?.watch ?? []}
             onToggle={toggleWatch}
@@ -232,7 +237,7 @@ export function LibraryFilterBar({
               more ? "!bg-[var(--glass-fill-active)] !text-[var(--text)]" : "text-white/70"
             }`}
           >
-            更多筛选
+            {t("library.filters.more")}
           </button>
         </div>
       )}
@@ -280,18 +285,20 @@ export function LibraryFilterBar({
  * 自己筛了什么」；只画一级四维的话，用 4K 筛完再收起面板，界面上只剩一个
  * 「筛选 1」的角标和「筛出 8 部」——筛的是什么、怎么取消，都无从得知。
  */
-const DIMS = [
-  { key: "genres", label: "类型" },
-  { key: "decades", label: "年代" },
-  { key: "countries", label: "地区" },
-  { key: "watch", label: "观看" },
-  { key: "ratingGte", label: "评分" },
-  { key: "runtimes", label: "片长" },
-  { key: "languages", label: "语言" },
-  { key: "resolutions", label: "画质" },
-  { key: "hdr", label: "动态范围" },
-  { key: "stock", label: "库存" },
-] as const;
+function dimensions(t: ReturnType<typeof appTranslator>) {
+  return [
+    { key: "genres", label: t("library.filters.genres") },
+    { key: "decades", label: t("library.filters.decades") },
+    { key: "countries", label: t("library.filters.regions") },
+    { key: "watch", label: t("library.filters.watch") },
+    { key: "ratingGte", label: t("library.filters.rating") },
+    { key: "runtimes", label: t("library.filters.runtime") },
+    { key: "languages", label: t("library.filters.language") },
+    { key: "resolutions", label: t("library.filters.quality") },
+    { key: "hdr", label: t("library.filters.dynamicRange") },
+    { key: "stock", label: t("library.filters.stock") },
+  ] as const;
+}
 
 /**
  * 取值本身就是人话的维度：facet 里它们的 label 等于 value（"2160p"、"ja"）。
@@ -370,6 +377,7 @@ function ConditionRow({
   collectionName?: string;
   onSaveAsCollection?: () => void;
 }) {
+  const t = useTranslations();
   /** 取值 → 展示名。查不到就给省略号，**绝不把裸值印出来**（见 labelFallback）。 */
   const labelOf = (dim: string, value: string): string =>
     poolOf(dim, facets)?.find((row) => row.value === value)?.label ?? labelFallback(dim, value);
@@ -386,7 +394,7 @@ function ConditionRow({
     onFilterChange({ ...filter, [key]: current.filter((v) => v !== typed) });
   };
 
-  const groups = DIMS.map(({ key, label }) => {
+  const groups = dimensions(t).map(({ key, label }) => {
     let values: string[] = [];
     if (key === "watch") {
       values = filter.watch ? [filter.watch] : [];
@@ -407,14 +415,13 @@ function ConditionRow({
           用户一改条件就没了——那正是他从"在看合集"切换到"在自己筛"的时刻 */}
       {collectionName && (
         <span className="flex h-7 items-center gap-1 rounded-lg bg-white/[0.10] px-2 text-caption text-white/70">
-          ＝ 合集
-          <span className="font-semibold text-white">「{collectionName}」</span>
+          {t.rich("library.filters.collectionEquals", { name: collectionName, nameTag: (chunks) => <span className="font-semibold text-white">{chunks}</span> })}
         </span>
       )}
       {groups.map((group, index) => (
         <div key={group.key} className="flex items-center gap-2">
           {/* 维度之间是「且」——语义画出来，不写在脚注里 */}
-          {index > 0 && <span className="text-caption tracking-wide text-white/30">且</span>}
+          {index > 0 && <span className="text-caption tracking-wide text-white/30">{t("library.filters.and")}</span>}
           <span className="glass-row flex h-7 !w-auto items-center gap-1.5 rounded-lg !bg-[var(--glass-fill-active)] !px-2 py-0">
             <span className="rounded bg-black/25 px-1.5 py-0.5 text-caption text-white/40">
               {group.label}
@@ -422,12 +429,12 @@ function ConditionRow({
             {group.values.map((value, i) => (
               <span key={value} className="flex items-center gap-1.5">
                 {/* 同一维度内的多个值是「或」 */}
-                {i > 0 && <span className="text-caption text-white/30">或</span>}
+                {i > 0 && <span className="text-caption text-white/30">{t("library.filters.or")}</span>}
                 <span className="flex items-center gap-0.5 text-caption font-semibold text-white">
                   {labelOf(group.key, value)}
                   <button
                     type="button"
-                    aria-label={`取消 ${group.label} ${labelOf(group.key, value)}`}
+                    aria-label={t("library.filters.removeCondition", { dimension: group.label, value: labelOf(group.key, value) })}
                     onClick={() => drop(group.key, value)}
                     className="rounded-full px-1 text-white/40 hover:bg-white/15 hover:text-white"
                   >
@@ -444,7 +451,7 @@ function ConditionRow({
         onClick={onClear}
         className="rounded-full px-2.5 py-1 text-caption text-white/50 hover:bg-white/10 hover:text-white"
       >
-        清空
+        {t("common.clear")}
       </button>
       {/* 已经等于某个合集时不再提「存为合集」——那只会存出一个重名的孪生体 */}
       {onSaveAsCollection && !collectionName && (
@@ -453,12 +460,12 @@ function ConditionRow({
           onClick={onSaveAsCollection}
           className="rounded-full px-2.5 py-1 text-caption text-white/50 hover:bg-white/10 hover:text-white"
         >
-          存为合集
+          {t("library.filters.saveCollection")}
         </button>
       )}
       {facets && (
         <span className="ml-auto text-caption tabular-nums text-white/60">
-          筛出 <span className="font-mono font-semibold text-white">{facets.total}</span> 部
+          {t.rich("library.filters.foundCount", { count: facets.total, strong: (chunks) => <span className="font-mono font-semibold text-white">{chunks}</span> })}
         </span>
       )}
     </div>
@@ -466,18 +473,23 @@ function ConditionRow({
 }
 
 /** 排序档位 → 展示值。默认档在不同墙上叫法不同，由调用方传入。 */
-export const SORT_LABELS: Record<LibraryItemSort, string> = {
-  title: "按标题",
-  added_at: "最近添加",
-  release_date: "按时间",
-  probing: "待补探优先",
-  rating: "按评分",
-  runtime: "按片长",
-  size: "按体积",
-  last_played: "最近观看",
-  release_date_asc: "按上映正序",
-  random: "随便看看",
-};
+export function librarySortLabels(locale?: AppLocale): Record<LibraryItemSort, string> {
+  const t = appTranslator(locale);
+  return {
+    title: t("library.sort.title"),
+    added_at: t("library.sort.recentAdded"),
+    release_date: t("library.sort.contentDate"),
+    probing: t("library.sort.probing"),
+    rating: t("library.sort.rating"),
+    runtime: t("library.sort.runtime"),
+    size: t("library.sort.size"),
+    last_played: t("library.sort.lastPlayed"),
+    release_date_asc: t("library.sort.releaseAscending"),
+    random: t("library.sort.randomBrowse"),
+  };
+}
+
+export const SORT_LABELS = librarySortLabels("zh-Hans");
 
 /**
  * 墙的排序控件——**显值、无边框**的文字下拉。
@@ -514,6 +526,7 @@ export function WallSortControl<T extends string>({
     onToggle: () => void;
   };
 }) {
+  const t = useTranslations();
   // 当前档不在这组选项里（图廊只有两档，偏好却是"按评分"）时显示第一档，不把键名裸露出来
   const current = options.find(([key]) => key === value)?.[1] ?? options[0]?.[1] ?? value;
   return (
@@ -522,7 +535,7 @@ export function WallSortControl<T extends string>({
         <button
           type="button"
           disabled={disabled}
-          aria-label="排序"
+          aria-label={t("library.sort.titleLabel")}
           title={direction ? `${current} · ${direction.label}` : undefined}
           className="flex h-8 shrink-0 items-center gap-1 rounded-full px-2.5 text-caption text-white/55 hover:bg-white/[0.08] hover:text-white disabled:pointer-events-none disabled:opacity-40 data-[state=open]:bg-white/[0.12] data-[state=open]:text-white"
         >
@@ -566,7 +579,7 @@ export function WallSortControl<T extends string>({
                     direction.onToggle();
                   }}
                   aria-label={
-                    selected && direction ? `${label}，${direction.label}，再点一次反转顺序` : undefined
+                    selected && direction ? t("library.sort.reverseHint", { label, direction: direction.label }) : undefined
                   }
                   className="glass-row nav-item flex cursor-pointer items-center justify-between gap-3 px-3 py-2 text-sub outline-none data-[highlighted]:!bg-[var(--glass-fill-hover)]"
                 >
@@ -611,10 +624,12 @@ export function FilterEmptyState({
   filter: LibraryFilter;
   onFilterChange: (next: LibraryFilter) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [relax, setRelax] = useState<LibraryRelax | null>(null);
   // Netflix 主题下宿主页面（单库页）已提供全页 4vw 留白，这张空态卡不再自带
   // mx-6（否则双重缩进）；银玻璃维持原样
-  const insetMx = useTheme().structural ? "" : "mx-6 max-md:mx-4";
+  const insetMx = useLayout() === "cinema" ? "" : "mx-6 max-md:mx-4";
 
   useEffect(() => {
     let alive = true;
@@ -624,7 +639,7 @@ export function FilterEmptyState({
     return () => {
       alive = false;
     };
-  }, [libraryId, filter]);
+  }, [libraryId, filter, locale]);
 
   // 数的是**全部**条件，不只是一级四维：只数一级的话，用「4K + 评分≥9」筛空
   // 时标题会写「没有同时满足这 0 个条件的作品」
@@ -646,12 +661,12 @@ export function FilterEmptyState({
   return (
     <div className={`mt-8 max-w-[34rem] rounded-2xl border border-dashed border-white/[0.14] p-6 ${insetMx} max-md:mt-6 max-md:p-4`}>
       <h3 className="text-body-lg font-semibold text-white">
-        没有同时满足这 {count} 个条件的作品
+        {t("library.filters.noMatches", { count })}
       </h3>
       <p className="mt-1 text-sub text-[var(--text-muted)]">
         {suggestions.length > 0
-          ? "放宽一条就能找回内容。"
-          : "这几个条件两两之间就没有交集，去掉任意一条也救不回来。"}
+          ? t("library.filters.relaxHint")
+          : t("library.filters.noOverlapHint")}
       </p>
       <div className="mt-4 flex flex-col gap-1.5">
         {suggestions.map((row) => (
@@ -662,14 +677,10 @@ export function FilterEmptyState({
             className="glass-row flex items-center gap-3 rounded-xl px-3 py-2 text-left text-sub text-white/80 hover:!bg-[var(--glass-fill-hover)] hover:text-white"
           >
             <span className="min-w-0 flex-1">
-              去掉「
-              <span className="font-semibold text-white">
-                {row.dim_label} = {row.label}
-              </span>
-              」
+              {t.rich("library.filters.dropCondition", { dimension: row.dim_label, value: row.label, strong: (chunks) => <span className="font-semibold text-white">{chunks}</span> })}
             </span>
             <span className="shrink-0 font-mono text-caption tabular-nums text-[var(--info)]">
-              → {row.count} 部
+              {t("library.filters.relaxedCount", { count: row.count })}
             </span>
           </button>
         ))}
@@ -679,7 +690,7 @@ export function FilterEmptyState({
         onClick={() => onFilterChange({})}
         className="mt-3 rounded-full px-3 py-1.5 text-caption text-white/50 hover:bg-white/10 hover:text-white"
       >
-        清空全部条件
+        {t("library.filters.clearAll")}
       </button>
     </div>
   );
@@ -760,6 +771,7 @@ function MoreFiltersPanel({
   filter: LibraryFilter;
   onFilterChange: (next: LibraryFilter) => void;
 }) {
+  const t = useTranslations();
   const toggleList = (key: "runtimes" | "languages" | "resolutions" | "stock", value: string) => {
     const current = filter[key] ?? [];
     onFilterChange({
@@ -774,7 +786,7 @@ function MoreFiltersPanel({
   if (loading) {
     return (
       <div className="solid-card mt-2.5 rounded-2xl border border-white/[0.1] bg-black/20 px-4 py-6 text-center text-sub text-[var(--text-faint)] max-md:mt-0 max-md:rounded-none max-md:border-x-0 max-md:border-b-0 max-md:border-white/[0.08] max-md:bg-transparent max-md:px-0 max-md:py-4">
-        正在数各档位还剩多少部…
+        {t("library.filters.counting")}
       </div>
     );
   }
@@ -782,13 +794,13 @@ function MoreFiltersPanel({
     <div className="solid-card mt-2.5 grid grid-cols-2 gap-x-6 rounded-2xl border border-white/[0.1] bg-black/20 p-4 max-md:mt-0 max-md:grid-cols-1 max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:p-0">
       <div className="max-md:border-t max-md:border-white/[0.08] max-md:pt-3">
         <p className="mb-3 border-b border-white/[0.08] pb-2 text-sub font-semibold text-white max-md:mb-2.5 max-md:border-b-0 max-md:pb-0">
-          找片
+          {t("library.filters.findTitles")}
           <span className="ml-2 text-caption font-normal text-[var(--text-faint)]">
-            作品是什么样的 · 来自刮削档案
+            {t("library.filters.findTitlesHint")}
           </span>
         </p>
         <PillGroup
-          label="评分"
+          label={t("library.filters.rating")}
           options={facets?.ratings ?? []}
           selected={filter.ratingGte != null ? [String(filter.ratingGte)] : []}
           onToggle={(v) =>
@@ -800,13 +812,13 @@ function MoreFiltersPanel({
           }
         />
         <PillGroup
-          label="片长"
+          label={t("library.filters.runtime")}
           options={facets?.runtimes ?? []}
           selected={filter.runtimes ?? []}
           onToggle={(v) => toggleList("runtimes", v)}
         />
         <PillGroup
-          label="原始语言"
+          label={t("library.filters.originalLanguage")}
           options={facets?.languages ?? []}
           selected={filter.languages ?? []}
           onToggle={(v) => toggleList("languages", v)}
@@ -814,19 +826,19 @@ function MoreFiltersPanel({
       </div>
       <div className="border-l border-white/[0.08] pl-6 max-md:border-l-0 max-md:border-t max-md:pl-0 max-md:pt-3">
         <p className="mb-3 border-b border-white/[0.08] pb-2 text-sub font-semibold text-white max-md:mb-2.5 max-md:border-b-0 max-md:pb-0">
-          查库
+          {t("library.filters.inspectInventory")}
           <span className="ml-2 text-caption font-normal text-[var(--text-faint)]">
-            文件是什么规格 · 来自库存台账
+            {t("library.filters.inspectInventoryHint")}
           </span>
         </p>
         <PillGroup
-          label="分辨率"
+          label={t("library.filters.resolution")}
           options={facets?.resolutions ?? []}
           selected={filter.resolutions ?? []}
           onToggle={(v) => toggleList("resolutions", v)}
         />
         <PillGroup
-          label="动态范围"
+          label={t("library.filters.dynamicRange")}
           options={facets?.hdr ?? []}
           selected={filter.hdr == null ? [] : [filter.hdr ? "1" : "0"]}
           onToggle={(v) => {
@@ -835,8 +847,8 @@ function MoreFiltersPanel({
           }}
         />
         <PillGroup
-          label="库存状态"
-          hint="要处理的事"
+          label={t("library.filters.inventoryStatus")}
+          hint={t("library.filters.issues")}
           options={facets?.stock ?? []}
           selected={filter.stock ?? []}
           onToggle={(v) => toggleList("stock", v)}
@@ -871,6 +883,7 @@ function CollectionChips({
   activeId: number | null;
   onApply: (collection: Collection) => void;
 }) {
+  const t = useTranslations();
   // **chip 行只放自建的**：一个 300 部的库可能有 40+ 个自动生成的系列，
   // 混进来的话用户自己存的那三五个就被挤没了——而 chip 行的全部价值就是
   // "把我常用的那几组条件放在手边"。系列在合集视图里有自己的分组
@@ -911,7 +924,7 @@ function CollectionChips({
           href={`/library/${libraryId}?view=collections` as Route}
           className="flex h-7 shrink-0 items-center rounded-full px-2 text-caption text-white/50 hover:text-white"
         >
-          全部合集 ›
+          {t("library.filters.allCollections")}
         </Link>
       )}
     </div>
@@ -957,6 +970,7 @@ function FilterSheet({
   onToggleWatch: (value: string) => void;
   onClose: () => void;
 }) {
+  const t = useTranslations();
   // Esc / 点上方留白都收起（与全站弹层一致）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -977,7 +991,7 @@ function FilterSheet({
       {/* 上半截只压一层很淡的幕：压黑了就等于全屏，看不见墙在变 */}
       <button
         type="button"
-        aria-label="收起筛选"
+        aria-label={t("library.filters.collapse")}
         onClick={onClose}
         className="flex-1 cursor-default bg-black/25"
       />
@@ -989,28 +1003,28 @@ function FilterSheet({
         <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-4">
           {/* 一级四维：与宽屏那排下拉同一份取值与计数，只是换成平铺 */}
           <PillGroup
-            label="类型"
-            hint="可多选 · 维度内是「或」"
+            label={t("library.filters.genres")}
+            hint={t("library.filters.multiSelectHint")}
             options={facets?.genres ?? []}
             selected={(filter.genres ?? []).map(String)}
             onToggle={(v) => onToggle("genres", v)}
           />
           <PillGroup
-            label="年代"
+            label={t("library.filters.decades")}
             options={facets?.decades ?? []}
             selected={filter.decades ?? []}
             onToggle={(v) => onToggle("decades", v)}
           />
           <PillGroup
-            label="地区"
-            hint="可多选 · 维度内是「或」"
+            label={t("library.filters.regions")}
+            hint={t("library.filters.multiSelectHint")}
             options={facets?.countries ?? []}
             selected={filter.countries ?? []}
             onToggle={(v) => onToggle("countries", v)}
           />
           <PillGroup
-            label="观看"
-            hint="单选"
+            label={t("library.filters.watch")}
+            hint={t("library.filters.singleSelectHint")}
             options={facets?.watch ?? []}
             selected={filter.watch ? [filter.watch] : []}
             onToggle={onToggleWatch}
@@ -1028,7 +1042,7 @@ function FilterSheet({
             onClick={() => onFilterChange({})}
             className="h-10 shrink-0 rounded-full px-4 text-ui text-white/60 hover:bg-white/10"
           >
-            清空
+            {t("common.clear")}
           </button>
           {/* 不是「确定」：条件早就生效了，这颗只是把抽屉收起来看结果 */}
           <button
@@ -1036,7 +1050,7 @@ function FilterSheet({
             onClick={onClose}
             className="btn-glass h-10 flex-1 text-ui font-medium"
           >
-            {facets ? `查看 ${facets.total} 部` : "查看结果"}
+            {facets ? t("library.filters.viewCount", { count: facets.total }) : t("library.filters.viewResults")}
           </button>
         </div>
       </div>

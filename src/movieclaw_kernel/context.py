@@ -11,8 +11,14 @@ from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from movieclaw_kernel.contracts import Contract, RegistryKey, ServiceKey, internal_for_third_party
-from movieclaw_kernel.events import DURABLE_EVENTS, Delivery, Event, EventBus
-from movieclaw_kernel.observe import DeliveryInfo, Origin, current_delivery, current_origin
+from movieclaw_kernel.events import DURABLE_EVENTS, Event, EventBus
+from movieclaw_kernel.observe import (
+    DeliveryInfo,
+    Origin,
+    current_delivery,
+    current_locale,
+    current_origin,
+)
 from movieclaw_kernel.plugin import Plugin
 from movieclaw_kernel.registry import Registry, RegistryChange
 
@@ -42,6 +48,11 @@ class Context(Generic[C]):
         return self._fiber.plugin.title
 
     @property
+    def locale(self) -> str:
+        """Current caller language; request-local and inherited by child tasks."""
+        return current_locale.get()
+
+    @property
     def settings(self) -> Any:
         return self._kernel.settings
 
@@ -49,6 +60,11 @@ class Context(Generic[C]):
     def permissions(self) -> tuple[str, ...]:
         """插件声明需要的宿主操作（由宿主解释，见 ``@plugin(permissions=...)``）。"""
         return self._fiber.plugin.permissions
+
+    @property
+    def source(self) -> str:
+        """条目来源：``builtin`` / ``local``（本地受信插件）/ ``package``（插件包）等。"""
+        return self._fiber.entry.source
 
     @property
     def third_party(self) -> bool:
@@ -65,7 +81,7 @@ class Context(Generic[C]):
 
     @property
     def delivery(self) -> DeliveryInfo | None:
-        """正在处理的可靠事件的投递信息；不在可靠事件监听器里时为 ``None``。"""
+        """正在处理的事件的投递信息（可靠与实时订阅都有）；不在事件监听器里时为 ``None``。"""
         return current_delivery.get()
 
     @property
@@ -113,8 +129,10 @@ class Context(Generic[C]):
         # 第三方贡献自动加插件 id 前缀，避免撞名；内置贡献保留原 id（库里存着这些 key）。
         # 例外是显式覆盖（override=True）：第三方明确要替换某个已有贡献（例如整段替换内置的
         # 订阅定时阶段），必须用原 id 才能压进同一个覆盖栈；卸载时内置实现自动恢复
-        prefixed = fiber.third_party and not override
-        cid = f"{fiber.id}:{contribution_id}" if prefixed else contribution_id
+        # 已写全前缀（``<插件 id>:<名字>``）的不再重复加：随带版与同 id 的替换包贡献出同样的 id
+        prefix = f"{fiber.id}:"
+        prefixed = fiber.third_party and not override and not contribution_id.startswith(prefix)
+        cid = f"{prefix}{contribution_id}" if prefixed else contribution_id
         remove = self.registry(key).add(
             cid,
             item,
@@ -138,16 +156,29 @@ class Context(Generic[C]):
         *,
         id: str | None = None,
         priority: int = 0,
-    ) -> None:
+        durable: bool = False,
+    ) -> Callable[[], Any]:
+        """订阅事件。``durable=True``：可靠订阅（落库、至少一次、跨重启续投，须注入
+        ``DURABLE_EVENTS``、须有稳定 ``id``）；默认实时订阅（内存、至多一次）。
+
+        返回取消订阅的函数（可靠订阅的是协程函数）：按配置动态增减订阅时用；不调也行，
+        插件卸载时自动取消。"""
         fiber = self._fiber
         self._guard(event)
-        if event.delivery is Delivery.DURABLE:
+        guard = self._kernel.event_guard
+        if fiber.third_party and guard is not None:
+            reason = guard(fiber.id, event)
+            if reason:
+                raise PermissionError(reason)
+        if durable:
+            if not event.durable:
+                raise TypeError(f"事件 {event.name} 不能可靠订阅（高频事件或钩子）")
             if not id:
-                raise ValueError(f"可靠事件 {event.name} 的监听器必须有稳定 id")
+                raise ValueError(f"可靠订阅 {event.name} 的监听器必须有稳定 id")
             store = self.use(DURABLE_EVENTS)
             unsubscribe = store.subscribe(event, entry_id=fiber.id, listener_id=id, handler=handler)
             self._kernel._add_disposer(fiber, f"on:{event.name}:{id}", unsubscribe)
-            return
+            return unsubscribe
         remove = self._kernel.bus.add(
             event,
             handler,
@@ -158,6 +189,7 @@ class Context(Generic[C]):
             spawn=lambda coro, name: self.task(coro, name=name),
         )
         self._kernel._add_disposer(fiber, f"on:{event.name}:{id or ''}", remove)
+        return remove
 
     # ------------------------------------------------------------------ 生命周期
     def effect(self, disposer: Callable[[], Any], *, label: str = "effect") -> None:

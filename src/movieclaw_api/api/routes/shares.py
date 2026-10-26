@@ -30,6 +30,7 @@ from movieclaw_api.api.routes import libraries as libraries_routes
 from movieclaw_api.api.routes import playback as playback_routes
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import AppException, NotFoundException
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.library import (
     LibraryItemDetailView,
     LocalMetaView,
@@ -113,7 +114,7 @@ async def _share_view(session: AsyncSession, row: MediaShare) -> ShareView:
     if row.collection_id is not None:
         collection = await session.get(Collection, row.collection_id)
         if collection is None:
-            raise NotFoundException("合集不存在（可能已被删除）")
+            raise NotFoundException(message_key="errors.collections.missing")
         return ShareView(
             collection_id=row.collection_id,
             title=collection.name,
@@ -124,7 +125,7 @@ async def _share_view(session: AsyncSession, row: MediaShare) -> ShareView:
         )
     item = await session.get(MediaItem, row.media_item_id)
     if item is None:
-        raise NotFoundException("媒体条目不存在（可能已被删除）")
+        raise NotFoundException(message_key="errors.share.mediaRemoved")
     return ShareView(
         media_item_id=row.media_item_id,
         title=item.title,
@@ -198,11 +199,11 @@ async def create_item_share(
     )
     view = await _share_view(session, row)
     if not created:
-        return ok(view, code="SHARE_EXISTS", message="这部影片已有一条有效分享")
+        return ok(view, code="SHARE_EXISTS", message=t("library.shares.movieAlreadyShared"))
     logger.info(
         "创建影片分享：%s（条目 %d，%d 天）", row.slug, media_item_id, payload.expires_in_days
     )
-    return ok(view, message="分享链接已生成")
+    return ok(view, message=t("library.shares.created"))
 
 
 @admin_router.delete(
@@ -227,7 +228,7 @@ async def revoke_item_share(
     if row is not None:
         await share_service.revoke(session, row)
         logger.info("取消影片分享：%s（条目 %d）", row.slug, media_item_id)
-    return ok({"revoked": row is not None}, message="分享已取消")
+    return ok({"revoked": row is not None}, message=t("library.shares.cancelled"))
 
 
 async def _collection_for_share(
@@ -240,7 +241,7 @@ async def _collection_for_share(
     """
     row = await session.get(Collection, collection_id)
     if row is None:
-        raise NotFoundException("合集不存在（可能已被删除）")
+        raise NotFoundException(message_key="errors.collections.missing")
     if row.library_id is not None:
         await assert_library_visible(session, principal, row.library_id)
     return row
@@ -290,11 +291,11 @@ async def create_collection_share(
     )
     view = await _share_view(session, row)
     if not created:
-        return ok(view, code="SHARE_EXISTS", message="这个合集已有一条有效分享")
+        return ok(view, code="SHARE_EXISTS", message=t("library.shares.collectionAlreadyShared"))
     logger.info(
         "创建合集分享：%s（合集 %d，%d 天）", row.slug, collection_id, payload.expires_in_days
     )
-    return ok(view, message="分享链接已生成")
+    return ok(view, message=t("library.shares.created"))
 
 
 @admin_router.delete(
@@ -314,7 +315,7 @@ async def revoke_collection_share(
     if row is not None:
         await share_service.revoke(session, row)
         logger.info("取消合集分享：%s（合集 %d）", row.slug, collection_id)
-    return ok({"revoked": row is not None}, message="分享已取消")
+    return ok({"revoked": row is not None}, message=t("library.shares.cancelled"))
 
 
 @admin_router.get(
@@ -358,10 +359,10 @@ async def revoke_share(
     """
     row = await session.get(MediaShare, share_id)
     if row is None:
-        raise NotFoundException("分享不存在")
+        raise NotFoundException(message_key="errors.share.missing")
     await share_service.revoke(session, row)
     logger.info("取消影片分享：%s（条目 %d）", row.slug, row.media_item_id)
-    return ok({"revoked": True}, message="分享已取消")
+    return ok({"revoked": True}, message=t("library.shares.cancelled"))
 
 
 # ---------------------------------------------------------------------------
@@ -377,9 +378,13 @@ async def _load_share(session: AsyncSession, slug: str) -> MediaShare:
     """
     row = await share_service.get_by_slug(session, slug)
     if row is None or row.revoked_at is not None:
-        raise AppException(status_code=404, code="SHARE_NOT_FOUND", message="分享不存在或已取消")
+        raise AppException(
+            status_code=404, code="SHARE_NOT_FOUND", message_key="errors.share.cancelled"
+        )
     if not share_service.is_active(row):
-        raise AppException(status_code=404, code="SHARE_EXPIRED", message="分享已过期")
+        raise AppException(
+            status_code=404, code="SHARE_EXPIRED", message_key="errors.share.expired"
+        )
     return row
 
 
@@ -397,7 +402,9 @@ async def require_share_access(
     """访客端点的鉴权依赖：分享有效且（有密码时）本浏览器已解锁，产出分享主体。"""
     row = await _load_share(session, slug)
     if not await _unlocked(row, unlock_cookie):
-        raise AppException(status_code=401, code="SHARE_LOCKED", message="请先输入分享密码")
+        raise AppException(
+            status_code=401, code="SHARE_LOCKED", message_key="errors.share.passwordRequired"
+        )
     return share_service.share_principal(row)
 
 
@@ -467,7 +474,7 @@ async def unlock_share(
             media_item_id=row.media_item_id,
             collection_id=row.collection_id,
         ),
-        message="已解锁",
+        message=t("library.shares.unlocked"),
     )
 
 
@@ -589,7 +596,7 @@ async def _shared_item(session: AsyncSession, principal: Principal, item: int | 
     if grant.collection_id is None:
         return grant.media_item_id or 0
     if item is None:
-        raise NotFoundException("请指定要看合集里的哪一部")
+        raise NotFoundException(message_key="errors.share.collectionItemRequired")
     await assert_item_visible(session, principal, item)
     return item
 
@@ -611,7 +618,7 @@ async def _shared_library(session: AsyncSession, principal: Principal, media_ite
         )
     ).scalar_one_or_none()
     if library_id is None:
-        raise NotFoundException("媒体条目不存在")
+        raise NotFoundException(message_key="errors.share.mediaMissing")
     return int(library_id)
 
 
@@ -630,10 +637,10 @@ async def get_shared_collection(
     也会出现在对方那边。"""
     grant = _grant(principal)
     if grant.collection_id is None:
-        raise NotFoundException("这条分享不是一个合集")
+        raise NotFoundException(message_key="errors.share.notCollection")
     collection = await session.get(Collection, grant.collection_id)
     if collection is None:
-        raise NotFoundException("合集不存在（可能已被删除）")
+        raise NotFoundException(message_key="errors.collections.missing")
     ids = await resolve_members(session, collection)
     rows = (
         (await session.execute(select(MediaItem).where(MediaItem.id.in_(ids)))).scalars().all()
@@ -759,7 +766,7 @@ async def get_shared_asset(
     （详情投影里认不出的地址已经置空，访客不会请求到这里）。"""
     head = path.split("/", 1)[0]
     if not head.isdigit():
-        raise NotFoundException("图片资产不存在")
+        raise NotFoundException(message_key="errors.share.artworkMissing")
     # 合集分享盖得住多个条目，所以判定不能是"等于那一个"，而是"在范围里"——
     # 走 access 的收口，不在这里另写一套
     await assert_item_visible(session, principal, int(head))
@@ -832,9 +839,9 @@ async def _assert_file_in_share(session: AsyncSession, principal: Principal, fil
     grant = _grant(principal)
     row = await session.get(LibraryFile, file_id)
     if row is None or row.media_item_id is None:
-        raise NotFoundException("文件不存在")
+        raise NotFoundException(message_key="errors.share.fileMissing")
     if grant.library_id is not None and row.library_id != grant.library_id:
-        raise NotFoundException("文件不存在")
+        raise NotFoundException(message_key="errors.share.fileMissing")
     await assert_item_visible(session, principal, row.media_item_id)
 
 
@@ -845,7 +852,7 @@ async def _assert_decide_payload(
     if payload.file_id is not None:
         await _assert_file_in_share(session, principal, payload.file_id)
     elif payload.media_item_id is None:
-        raise NotFoundException("没有找到可播放的文件")
+        raise NotFoundException(message_key="errors.share.noPlayableFile")
     else:
         await assert_item_visible(session, principal, payload.media_item_id)
 

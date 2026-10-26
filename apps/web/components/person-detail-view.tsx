@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
@@ -26,8 +27,9 @@ import { usePageTitle } from "@/lib/use-page-title";
  * 会误导（看着像在讲那部片）。
  */
 export function PersonDetailView({ tmdbPersonId }: { tmdbPersonId: number | string }) {
+  const t = useTranslations();
   const [person, setPerson] = useState<PersonDetail | null>(null);
-  const navFallback = { label: "媒体库", href: "/library" as Route };
+  const navFallback = { label: t("nav.main.library"), href: "/library" as Route };
   // Netflix 桌面返回语言一套：全出血(isHome)详情页用 NetflixBackButton；带
   // PageNav 工具条的页面用 PageNav 内返回键；两者同图标 / 同尺寸档 / 同 4vw
   // 基线 / 同 useBackNavigation 行为。本页 Netflix 桌面换 NetflixBackButton
@@ -75,7 +77,7 @@ export function PersonDetailView({ tmdbPersonId }: { tmdbPersonId: number | stri
         <DetailNav title="" fallback={navFallback} onBack={back} />
         <div className="flex flex-1 items-center justify-center gap-2.5 text-ui text-[var(--text-muted)]">
           <BrandLoader className="size-5" />
-          正在读取影人档案…
+          {t("media.person.loading")}
         </div>
       </div>
     );
@@ -117,7 +119,7 @@ export function PersonDetailView({ tmdbPersonId }: { tmdbPersonId: number | stri
         </div>
         <div className="min-w-0 flex-1 pb-1">
           <p className="text-caption font-semibold uppercase tracking-[0.22em] text-[var(--accent-2)]">
-            影人
+            {t("media.person.person")}
           </p>
           <h1 className="text-on-image mt-2 text-[32px] font-bold leading-[1.12] tracking-[-0.02em] text-white max-md:mt-1 max-md:text-[20px]">
             {person.name}
@@ -128,17 +130,17 @@ export function PersonDetailView({ tmdbPersonId }: { tmdbPersonId: number | stri
             </p>
           )}
           <p className="tnum mt-3 text-ui text-white/70 max-md:mt-2 max-md:text-sub">
-            库内 {person.credits.length} 部
+            {t("media.person.libraryCount", { count: person.credits.length })}
             {cast.length > 0 && directed.length > 0
-              ? `（参演 ${cast.length} · 执导 ${directed.length}）`
+              ? t("media.person.creditSummary", { cast: cast.length, directed: directed.length })
               : ""}
           </p>
         </div>
       </header>
 
       <div className={`mt-8 space-y-8 max-md:mt-6 max-md:space-y-6 content-inset`}>
-        <CreditGrid title="参演" credits={cast} showCharacter />
-        <CreditGrid title="执导" credits={directed} />
+        <CreditGrid title={t("media.person.cast")} credits={cast} showCharacter />
+        <CreditGrid title={t("media.person.directed")} credits={directed} />
       </div>
     </div>
   );
@@ -178,6 +180,7 @@ function CreditGrid({
 }
 
 function CreditCard({ credit, showCharacter }: { credit: PersonCredit; showCharacter: boolean }) {
+  const t = useTranslations();
   const body = (
     <>
       <div className="aspect-[2/3] overflow-hidden rounded-xl bg-[var(--poster-placeholder)] ring-1 ring-white/[0.08] transition-all duration-300 ease-out group-hover/credit:-translate-y-1 group-hover/credit:shadow-[0_18px_44px_rgba(0,0,0,0.55)] group-hover/credit:ring-white/25">
@@ -185,7 +188,7 @@ function CreditCard({ credit, showCharacter }: { credit: PersonCredit; showChara
           src={credit.posterUrl}
           // 作品格子 minmax(126px,1fr)，按 180 取
           width={180}
-          alt={`${credit.title} 海报`}
+          alt={t("media.artwork.posterLabel", { title: credit.title })}
           className="size-full object-cover"
         />
       </div>
@@ -193,7 +196,7 @@ function CreditCard({ credit, showCharacter }: { credit: PersonCredit; showChara
         {credit.title}
       </p>
       <p className="text-on-image tnum truncate text-caption text-[var(--text-faint)]">
-        {showCharacter && credit.character ? `饰 ${credit.character}` : credit.year || ""}
+        {showCharacter && credit.character ? t("media.person.character", { character: credit.character }) : credit.year || ""}
       </p>
     </>
   );
@@ -205,7 +208,7 @@ function CreditCard({ credit, showCharacter }: { credit: PersonCredit; showChara
   return (
     <Link
       href={`/library/${credit.libraryId}/item/${credit.mediaItemId}` as Route}
-      aria-label={`查看《${credit.title}》`}
+      aria-label={t("media.person.viewTitle", { title: credit.title })}
       className="group/credit block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
     >
       {body}
@@ -221,26 +224,26 @@ function CreditCard({ credit, showCharacter }: { credit: PersonCredit; showChara
  *   2. 他参演的片都已从库里删掉（影人行只增不删，会留下孤儿）。
  */
 function PersonFallback({ failure }: { failure: "missing" | "error" }) {
+  const t = useTranslations();
   return (
     // flex-1 而非 h-full：调用处在其上方叠了一条 PageNav（flex 纵向布局）
     <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
       {failure === "missing" ? (
         <>
-          <p className="text-body-lg font-semibold text-[var(--text)]">库内没有这位影人的作品</p>
+          <p className="text-body-lg font-semibold text-[var(--text)]">{t("media.person.emptyLibrary")}</p>
           <p className="max-w-md text-ui leading-6 text-[var(--text-muted)]">
-            可能是他参演的片都已从库里移除；也可能这个库是早前扫描的——影人档案随入库刮削
-            一并建立，对它执行一次「刷新元数据」即可补齐，之后这里就会列出他在库内的全部作品。
+            {t("media.person.emptyLibraryHint")}
           </p>
           <Link href={"/library" as Route} className="btn-glass px-4 py-2 text-ui font-medium">
             <ChevronLeftIcon className="size-4" />
-            去媒体库
+            {t("media.person.openLibrary")}
           </Link>
         </>
       ) : (
         <>
-          <p className="text-body-lg font-semibold text-[var(--text)]">未能加载影人档案</p>
+          <p className="text-body-lg font-semibold text-[var(--text)]">{t("media.person.loadFailed")}</p>
           <p className="max-w-sm text-ui leading-6 text-[var(--text-muted)]">
-            请稍后重试；若持续失败，请查看系统日志。
+            {t("media.person.retryHint")}
           </p>
         </>
       )}

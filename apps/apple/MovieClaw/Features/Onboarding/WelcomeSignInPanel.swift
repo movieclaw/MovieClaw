@@ -127,7 +127,7 @@ struct WelcomeSignInPanel: View {
             .accessibilityIdentifier("login-submit")
 
             if let onSwitchAccount {
-                Button("切换到其他账号", action: onSwitchAccount)
+                Button(String(localized: .authAccountsSwitchOther), action: onSwitchAccount)
                     .font(.subheadline)
                     .foregroundStyle(Theme.accentStrong)
                     .frame(maxWidth: .infinity)
@@ -148,7 +148,7 @@ struct WelcomeSignInPanel: View {
     private var fields: some View {
         VStack(spacing: 0) {
             row(icon: "server.rack") {
-                TextField("服务器地址", text: $address, prompt: Text(verbatim: "例如 http://192.168.0.100:3000"))
+                TextField(String(localized: .authInputServerAddress), text: $address, prompt: Text(verbatim: String(localized: .authInputServerExample)))
                     .keyboardType(.URL)
                     .textContentType(.URL)
                     .textInputAutocapitalization(.never)
@@ -166,13 +166,13 @@ struct WelcomeSignInPanel: View {
                             .foregroundStyle(Theme.textFaint)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("清空服务器地址")
+                    .accessibilityLabel(String(localized: .authInputClearServer))
                     .accessibilityIdentifier("server-address-clear")
                 }
             }
             Divider().overlay(Theme.line)
             row(icon: "person") {
-                TextField("用户名", text: $username, prompt: Text(setup ? "管理员用户名" : "用户名"))
+                TextField(String(localized: .authInputUsername), text: $username, prompt: Text(setup ? String(localized: .authInputAdminUsername) : String(localized: .authInputUsername)))
                     .textContentType(Self.autofill ? .username : nil)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -183,7 +183,7 @@ struct WelcomeSignInPanel: View {
             }
             Divider().overlay(Theme.line)
             row(icon: "lock") {
-                SecureField("密码", text: $password, prompt: Text(setup ? "密码（至少 8 位）" : "密码"))
+                SecureField(String(localized: .authInputPassword), text: $password, prompt: Text(setup ? String(localized: .authInputPasswordMinimum) : String(localized: .authInputPassword)))
                     .textContentType(Self.autofill ? (setup ? .newPassword : .password) : nil)
                     .focused($focus, equals: .password)
                     .submitLabel(setup ? .next : .go)
@@ -193,7 +193,7 @@ struct WelcomeSignInPanel: View {
             if setup {
                 Divider().overlay(Theme.line)
                 row(icon: "lock.rotation") {
-                    SecureField("确认密码", text: $confirm)
+                    SecureField(String(localized: .authInputConfirmPassword), text: $confirm)
                         .textContentType(Self.autofill ? .newPassword : nil)
                         .focused($focus, equals: .confirm)
                         .submitLabel(.go)
@@ -214,13 +214,13 @@ struct WelcomeSignInPanel: View {
         case .searching where address.isEmpty:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.mini)
-                Text("正在局域网里寻找 MovieClaw…")
+                Text(String(localized: .authServerSearching))
             }
             .font(.footnote)
             .foregroundStyle(Theme.textMuted)
         case let .found(name, filled) where filled == address:
             Label {
-                Text("已填入局域网里发现的「\(name)」")
+                Text(String(localized: .authServerFilled(name)))
             } icon: {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.success)
             }
@@ -229,9 +229,9 @@ struct WelcomeSignInPanel: View {
             .accessibilityIdentifier("discovery-found")
         case .notFound where address.isEmpty:
             HStack(spacing: 6) {
-                Text("没在局域网里找到服务器，请手动填写")
+                Text(String(localized: .authServerNotFoundPhone))
                     .foregroundStyle(Theme.textMuted)
-                Button("重新查找") { discoveryRun += 1 }
+                Button(String(localized: .authServerSearchAgain)) { discoveryRun += 1 }
                     .foregroundStyle(Theme.accentStrong)
             }
             .font(.footnote)
@@ -275,35 +275,35 @@ struct WelcomeSignInPanel: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("关闭")
+        .accessibilityLabel(String(localized: .commonClose))
         .accessibilityIdentifier("welcome-close")
     }
 
     private var title: String {
-        if setup { return "初始化这台服务器" }
+        if setup { return String(localized: .authSetupServer) }
         switch purpose {
-        case .connect: return "连接服务器"
-        case .signIn: return "登录 MovieClaw"
-        case .reauth: return "重新登录"
-        case .addAccount: return "添加账号"
+        case .connect: return String(localized: .authServerConnect)
+        case .signIn: return String(localized: .authLoginTitle)
+        case .reauth: return String(localized: .authLoginAgain)
+        case .addAccount: return String(localized: .authAccountsAdd)
         }
     }
 
     private var subtitle: String {
         if setup {
-            return "这是一台全新的服务器。将用下面的账号创建超级管理员——它是本站唯一的管理身份，此流程仅在首次部署时出现。"
+            return String(localized: .authSetupIntro)
         }
         switch purpose {
-        case .connect: return "服务器地址即在浏览器里打开 MovieClaw 时地址栏中的那一串。"
-        case .signIn: return "服务器地址沿用上次的；要登录别的服务器，改一下地址就行。"
-        case .reauth: return "「\(prefill.username ?? "")」的登录已失效，请重新输入密码。"
-        case .addAccount: return "可以是这台服务器上的另一个账号；要登录别的服务器，改一下地址就行。"
+        case .connect: return String(localized: .authServerAddressHintPhone)
+        case .signIn: return String(localized: .authServerSavedHint)
+        case .reauth: return String(localized: .authLoginExpiredPhone(prefill.username ?? ""))
+        case .addAccount: return String(localized: .authAccountsAddPhoneHint)
         }
     }
 
     private var buttonTitle: String {
-        if setup { return busy ? "创建中…" : "创建账号并进入" }
-        return busy ? "正在连接…" : "登录"
+        if setup { return busy ? String(localized: .authSetupCreating) : String(localized: .authSetupCreateAndEnter) }
+        return busy ? String(localized: .authServerConnecting) : String(localized: .authLoginSubmit)
     }
 
     /// 按传进来的预填填好地址与用户名，光标落到第一个还空着的格子
@@ -358,9 +358,9 @@ struct WelcomeSignInPanel: View {
         let name = username.trimmingCharacters(in: .whitespaces)
         if setup {
             // 与 Web /setup 相同的前端校验，后端仍会再校验一次
-            if name.count < 3 { error = "用户名至少 3 个字符"; return }
-            if password.count < 8 { error = "密码至少 8 位，建议混用字母与数字"; return }
-            if password != confirm { error = "两次输入的密码不一致"; return }
+            if name.count < 3 { error = String(localized: .authValidationUsernameShort); return }
+            if password.count < 8 { error = String(localized: .authValidationPasswordShort); return }
+            if password != confirm { error = String(localized: .authValidationPasswordMismatch); return }
         }
         error = nil
         busy = true
@@ -368,11 +368,13 @@ struct WelcomeSignInPanel: View {
         let typed = address
         Task {
             defer { busy = false }
+            // 只写了主机（如 192.168.1.10）时试一下 3000 / 80 / https，免得默认落到 80 端口连不上
+            let target = await ServerDiscovery.settle(server, typed: typed)
             do {
                 if setup {
-                    try await model.createAdmin(on: server, username: name, password: password)
+                    try await model.createAdmin(on: target, username: name, password: password)
                     onSignedIn?()
-                } else if try await model.signIn(to: server, username: name, password: password) == .needsSetup {
+                } else if try await model.signIn(to: target, username: name, password: password) == .needsSetup {
                     setupAddress = typed
                     focus = .confirm
                 } else {

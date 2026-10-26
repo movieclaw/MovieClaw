@@ -49,7 +49,7 @@ nonisolated enum MainThreadProbe {
                     until = max(until, s.at + s.waited)
                 }
                 if start >= 0 { line.append("\(start)+\(until - start)") }
-                print("[MainBusy] 打开播放器后主线程忙碌段（起点毫秒+持续毫秒）：\(line.joined(separator: " "))")
+                print("[MainBusy] 打开播放器后主线程忙碌段（起点毫秒+持续毫秒）：\(line.joined(separator: " "))") // i18n-ignore: developer diagnostics
             }
         }
     }

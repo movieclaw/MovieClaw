@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from pydantic import TypeAdapter
 from sqlalchemy import update
@@ -48,6 +48,9 @@ async def recover_submissions(session, *, now=None):
         payload = intent.submission
         if not payload:
             continue
+        retry_at = payload.get("retry_at")
+        if retry_at and datetime.fromisoformat(retry_at) > now:
+            continue  # 上次恢复失败，退避中
         subscription = await session.get(Subscription, intent.subscription_id)
         if subscription is None:
             continue
@@ -88,6 +91,7 @@ async def recover_submissions(session, *, now=None):
                 upgrade_rows=[r for r in rows if r.id in payload["upgrade_ids"]],
                 candidate=candidate,
                 verdict=RuleVerdict(accepted=True),
+                # i18n-ignore: audit source label for logs and activity payload
                 source="智能提交恢复",
                 submission_intent=intent,
             )
@@ -118,6 +122,7 @@ async def run_due(session, *, now=None):
     if due:
         # 无站点请求；共享管线从持久化候选恢复并重新核验。
         return await evaluate_and_dispatch(
+            # i18n-ignore: audit source label for logs and activity payload
             session, [], source="智能等待到期", subscription_ids={r[0] for r in due}
         )
     return None
@@ -126,9 +131,11 @@ async def run_due(session, *, now=None):
 @register_task(
     "smart_selection_due",
     title="智能订阅等待到期",
+    title_key="settings.scheduledTasks.catalog.smartSelectionDueTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=30,
     description="恢复智能提交意图，并执行固定截止或观察窗口到期决策",
+    description_key="settings.scheduledTasks.catalog.smartSelectionDueDescription",
 )
 async def smart_selection_due():
     async with _lock, get_database().session() as session:
@@ -141,5 +148,6 @@ async def evaluate_requested(subscription_id: int):
 
     async with _lock, get_database().session() as session:
         await evaluate_and_dispatch(
+            # i18n-ignore: audit source label for logs and activity payload
             session, [], source="用户请求立即下载", subscription_ids={subscription_id}
         )

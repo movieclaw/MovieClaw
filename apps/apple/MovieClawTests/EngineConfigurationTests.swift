@@ -25,6 +25,7 @@ struct EngineConfigurationTests {
             "persistsSourceByteCache": "true",
             "sourceByteCacheKeepsSpareRuns": "true",
             "sourceByteCacheTrimKeepsMetadata": "true",
+            "presentsBaseLayerOfContradictedProfile5": "true",
         ])
     }
 

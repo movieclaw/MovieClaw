@@ -92,11 +92,14 @@ import kotlinx.coroutines.delay
 @Composable
 fun LoginScreen(
     presetUsername: String?,
+    presetServer: String? = null,
     onDone: (() -> Unit)? = null,
     vm: LoginViewModel = hiltViewModel(),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     LaunchedEffect(presetUsername) { presetUsername?.let { vm.presetUsername(it) } }
+    // 地址只在空的时候预填（不覆盖用户手输；iOS applyPrefill 同规则）
+    LaunchedEffect(presetServer) { presetServer?.let { vm.presetServer(it) } }
     LaunchedEffect(ui.loggedIn) { if (ui.loggedIn) onDone?.invoke() }
 
     var cardStage by remember { mutableStateOf(false) }

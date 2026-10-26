@@ -31,7 +31,7 @@ struct MacPairingLogin: View {
         HStack(alignment: .top, spacing: 20) {
             qrCode
             VStack(alignment: .leading, spacing: 10) {
-                Text("配对码")
+                Text(String(localized: .authPairingCode))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Theme.textMuted)
                 Text(challenge?.userCode ?? "—")
@@ -43,7 +43,7 @@ struct MacPairingLogin: View {
                 if let challenge {
                     // 同 Netflix 的「访问 netflix.com/tv8」：批准页地址直接写出来，不扫码也找得到
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("或在已登录的浏览器里打开")
+                        Text(String(localized: .authPairingBrowserHint))
                             .font(.system(size: 11))
                             .foregroundStyle(Theme.textMuted)
                         Text(Self.displayAddress(challenge.verificationUri))
@@ -70,16 +70,16 @@ struct MacPairingLogin: View {
     private var statusLine: some View {
         switch status {
         case .requesting:
-            progress("正在向服务器申请配对码…")
+            progress(String(localized: .authPairingRequesting))
         case .waiting:
-            progress("等待在手机上批准…（5 分钟内有效）")
+            progress(String(localized: .authPairingWaitingMac))
         case .signingIn:
-            progress("已批准，正在登录…")
+            progress(String(localized: .authPairingApproved))
         case let .failed(message):
             VStack(alignment: .leading, spacing: 6) {
                 MacWelcomeError(message: message)
                     .accessibilityIdentifier("mac-pairing-error")
-                Button("换一个码") { attempt += 1 }
+                Button(String(localized: .authPairingNewCode)) { attempt += 1 }
                     .buttonStyle(.link)
                     .font(.system(size: 12))
                     .accessibilityIdentifier("mac-pairing-retry")
@@ -135,7 +135,7 @@ struct MacPairingLogin: View {
             ))
         } catch let error as APIError where error.status == 400 || error.status == 404 || error.status == 405 {
             // 老服务器不认 macos 这种配对（或没有配对接口）：只能用账号密码
-            status = .failed("这台服务器还不支持 Mac 扫码登录：请先在网页「设置 → 更新与维护」里把服务器升级到最新版，或改用账号密码登录。")
+            status = .failed(String(localized: .authPairingUnsupportedMac))
             return
         } catch {
             status = .failed(error.localizedDescription)
@@ -149,7 +149,7 @@ struct MacPairingLogin: View {
             try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled else { return }
             if Date.now > deadline {
-                status = .failed("配对码已过期，请换一个码重新扫。")
+                status = .failed(String(localized: .authPairingExpiredMac))
                 return
             }
             do {
@@ -162,10 +162,10 @@ struct MacPairingLogin: View {
                 // 轮询过快：退避，不重置配对
                 interval += 2
             } catch let error as APIError where error.status == 400 {
-                if case let .http(_, _, code) = error, code == "AUTHORIZATION_DENIED" {
-                    status = .failed("在手机上点了拒绝。要登录的话请换一个码重新扫。")
+                if case let .http(_, _, code, _) = error, code == "AUTHORIZATION_DENIED" {
+                    status = .failed(String(localized: .authPairingRejectedMac))
                 } else {
-                    status = .failed("配对码已过期，请换一个码重新扫。")
+                    status = .failed(String(localized: .authPairingExpiredMac))
                 }
                 return
             } catch {

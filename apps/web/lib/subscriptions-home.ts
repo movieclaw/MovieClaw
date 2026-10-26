@@ -13,6 +13,10 @@
  *
  * 本文件只做纯计算（node --test 直接跑），运行时依赖一律走相对 .ts 路径。
  */
+import { appTranslator } from "./i18n/translate.ts";
+import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
+import { formatDate } from "./i18n/format.ts";
+
 import type { DownloadTask } from "@/lib/api/downloaders";
 import type {
   RecentSubscriptionArrival,
@@ -22,6 +26,8 @@ import type {
 } from "@/lib/api/subscriptions";
 
 import {
+  arrivalStageOf,
+  arrivalStatusText,
   groupTodayArrivals,
   subscriptionCollectionMeta,
   subscriptionFullyCollected,
@@ -220,8 +226,8 @@ export interface SubsHomeArrivalGroup {
 
 /** 预告阶段的先后：整理中 > 下载中 > 其余（与 subscription-ui 的 arrivalStageOrder 同值） */
 function stageOrder(presentation: TodayArrivalPresentation): number {
-  if (presentation.statusLabel === "整理中") return 2;
-  if (presentation.statusLabel === "下载中") return 1;
+  if (arrivalStageOf(presentation) === "organizing") return 2;
+  if (arrivalStageOf(presentation) === "downloading") return 1;
   return 0;
 }
 
@@ -239,6 +245,7 @@ export function arrivalGroups(
   arrivals: TodaySubscriptionArrival[],
   tasks: DownloadTask[],
   now: Date,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): SubsHomeArrivalGroup[] {
   const taskByHash = new Map<string, DownloadTask>();
   for (const task of tasks) {
@@ -253,11 +260,11 @@ export function arrivalGroups(
     const task = arrival.info_hash ? taskByHash.get(arrival.info_hash.toLowerCase()) : undefined;
     const key = `${arrival.subscription_id}:${arrival.days_ahead}`;
     const list = rows.get(key) ?? [];
-    list.push({ arrival, presentation: todayArrivalPresentation(arrival, task, now), task });
+    list.push({ arrival, presentation: todayArrivalPresentation(arrival, task, now, locale), task });
     rows.set(key, list);
   }
   return [...rows.values()].map((group) => {
-    const [summary] = groupTodayArrivals(group);
+    const [summary] = groupTodayArrivals(group, locale);
     const first = group[0].arrival;
     const downloading = group
       .filter((row) => row.arrival.status === "grabbed" && row.task?.progress != null)
@@ -300,6 +307,7 @@ export function heroSlides(
   groups: SubsHomeArrivalGroup[],
   recent: RecentSubscriptionArrival[],
   now: Date,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): SubsHomeHeroSlide[] {
   const subsById = new Map(subscriptions.map((sub) => [sub.id, sub]));
   const nowMs = now.getTime();
@@ -337,11 +345,11 @@ export function heroSlides(
     seen.add(slide.subscriptionId);
     slides.push(slide);
   };
-  for (const group of pipeline) append(groupSlide(group, subsById.get(group.subscriptionId)?.media, now));
-  for (const card of fresh) append(arrivedSlide(card, now));
-  for (const group of today) append(groupSlide(group, subsById.get(group.subscriptionId)?.media, now));
-  for (const card of older) append(arrivedSlide(card, now));
-  for (const group of upcoming) append(groupSlide(group, subsById.get(group.subscriptionId)?.media, now));
+  for (const group of pipeline) append(groupSlide(group, subsById.get(group.subscriptionId)?.media, now, locale));
+  for (const card of fresh) append(arrivedSlide(card, now, locale));
+  for (const group of today) append(groupSlide(group, subsById.get(group.subscriptionId)?.media, now, locale));
+  for (const card of older) append(arrivedSlide(card, now, locale));
+  for (const group of upcoming) append(groupSlide(group, subsById.get(group.subscriptionId)?.media, now, locale));
 
   if (slides.length === 0) {
     // 退路：在追的优先，其次最近动过的；讲它处在什么状态，不编时间
@@ -351,7 +359,7 @@ export function heroSlides(
       if (l !== r) return l - r;
       return (parsedTime(right.updated_at) ?? 0) - (parsedTime(left.updated_at) ?? 0);
     });
-    for (const sub of ranked.slice(0, 3)) append(restingSlide(sub));
+    for (const sub of ranked.slice(0, 3)) append(restingSlide(sub, locale));
   }
   return slides;
 }
@@ -381,48 +389,49 @@ function groupSlide(
   group: SubsHomeArrivalGroup,
   media: SubscriptionMedia | undefined,
   now: Date,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): SubsHomeHeroSlide | null {
+  const t = appTranslator(locale);
   if (!media) return null;
   const pres = group.presentation;
   const label = group.episodeLabel;
   const isMovie = group.kind === "movie";
-  const slide = emptySlide(group.subscriptionId, media, "today", { text: "今天更新", tone: "today" });
-  if (pres.statusLabel === "下载中") {
+  const slide = emptySlide(group.subscriptionId, media, "today", { text: t("subscription.feed.updatesToday"), tone: "today" });
+  if (arrivalStageOf(pres) === "downloading") {
     slide.stage = "downloading";
-    const percent = group.progress != null ? ` · ${Math.round(group.progress * 100)}%` : "";
-    slide.eyebrow = { text: `下载中${percent}`, tone: "live", pulse: true };
+    slide.eyebrow = { text: t("subscription.feed.downloadPercent", { hasPercent: group.progress != null ? "yes" : "no", percent: Math.round((group.progress ?? 0) * 100) }), tone: "live", pulse: true };
     slide.progress = group.progress;
     if (pres.estimatedAt != null) {
-      slide.clockLabel = isMovie ? "预计可看" : `${label} · 预计可看`;
-      slide.clock = clockText(pres.estimatedAt, now);
+      slide.clockLabel = isMovie ? t("subscription.feed.expectedReady") : t("subscription.feed.episodeReady", { episode: label });
+      slide.clock = clockText(pres.estimatedAt, now, locale);
     } else {
       // 给不出预计时间时，信息行得自己把「在下载」说出来（状态只剩一颗蓝点，不写就看不出在干什么）
-      slide.detail = isMovie ? "正在下载" : `${label} · 正在下载`;
-      slide.footnote = "下载完成后自动整理入库";
+      slide.detail = isMovie ? t("subscription.feed.downloading") : t("subscription.feed.episodeDownloading", { episode: label });
+      slide.footnote = t("subscription.feed.importAfterDownload");
     }
-  } else if (pres.statusLabel === "整理中") {
+  } else if (arrivalStageOf(pres) === "organizing") {
     slide.stage = "organizing";
-    slide.eyebrow = { text: "整理中", tone: "ok", pulse: true };
+    slide.eyebrow = { text: t("subscription.arrivals.statusOrganizing"), tone: "ok", pulse: true };
     // 已下载完、正在整理入库：有历史耗时就给出预计能看的时刻，超时了只说「马上就好」
     if (group.readyAt != null && group.readyAt > now.getTime()) {
-      slide.clockLabel = isMovie ? "下载完成 · 预计可看" : `${label} · 预计可看`;
-      slide.clock = clockText(group.readyAt, now);
+      slide.clockLabel = isMovie ? t("subscription.feed.downloadedReady") : t("subscription.feed.episodeReady", { episode: label });
+      slide.clock = clockText(group.readyAt, now, locale);
     } else {
-      slide.clockLabel = isMovie ? "下载完成" : `${label} · 下载完成`;
-      slide.clock = "马上就好";
+      slide.clockLabel = isMovie ? t("subscription.feed.downloadComplete") : t("subscription.feed.episodeDownloaded", { episode: label });
+      slide.clock = t("subscription.feed.almostReady");
     }
   } else if (group.daysAhead > 0) {
     slide.stage = "upcoming";
-    slide.eyebrow = { text: "即将更新", tone: "calm" };
-    slide.clockLabel = [label, formatCalendarDay(group.expectedDay)].filter(Boolean).join(" · ");
+    slide.eyebrow = { text: t("subscription.feed.upcoming"), tone: "calm" };
+    slide.clockLabel = [label, formatCalendarDay(group.expectedDay, locale)].filter(Boolean).join(" · ");
     slide.clock =
-      group.daysAhead === 1 ? "明天" : (weekdayOf(group.expectedDay) ?? `${group.daysAhead} 天后`);
+      group.daysAhead === 1 ? t("subscription.arrivals.tomorrowBadge") : (weekdayOf(group.expectedDay, locale) ?? t("subscription.feed.daysAhead", { count: group.daysAhead }));
   } else {
     slide.stage = "today";
-    if (pres.statusLabel === "等待资源") slide.eyebrow = { text: "等待资源", tone: "warn" };
+    if (arrivalStageOf(pres) === "waiting") slide.eyebrow = { text: t("subscription.arrivals.statusWaiting"), tone: "warn" };
     if (pres.estimatedAt != null) {
-      slide.clockLabel = `${label} · 预计入库`;
-      slide.clock = clockText(pres.estimatedAt, now);
+      slide.clockLabel = t("subscription.feed.episodeExpectedImport", { episode: label });
+      slide.clock = clockText(pres.estimatedAt, now, locale);
     } else {
       slide.detail = label;
       slide.footnote = pres.timeLabel;
@@ -431,44 +440,52 @@ function groupSlide(
   return slide;
 }
 
-function arrivedSlide(card: RecentSubscriptionArrival, now: Date): SubsHomeHeroSlide {
+function arrivedSlide(
+  card: RecentSubscriptionArrival,
+  now: Date,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
+): SubsHomeHeroSlide {
+  const t = appTranslator(locale);
   const isTV = card.media.kind === "tv";
   const imported = importedAtOf(card);
   const fresh = imported != null && now.getTime() - imported <= 24 * 3600 * 1000;
-  let footnote = imported != null ? `${fromNow(imported, now)}入库` : "已入库";
-  if (card.units.length > 1) footnote += ` · 共 ${card.units.length} 集新内容`;
+  const footnote = t("subscription.feed.recentFootnote", { hasDate: imported != null ? "yes" : "no", when: imported != null ? fromNow(imported, now, locale) : "", hasMore: card.units.length > 1 ? "yes" : "no", count: card.units.length });
   const slide = emptySlide(card.subscription_id, card.media, "arrived", {
-    text: fresh ? "刚刚入库" : isTV ? "新一集" : "新入库",
+    text: fresh ? t("subscription.sections.recent") : isTV ? t("subscription.feed.newEpisode") : t("subscription.feed.newInLibrary"),
     tone: "ok",
   });
-  slide.detail = recentDetail(card);
+  slide.detail = recentDetail(card, locale);
   slide.footnote = footnote;
   slide.play = playRequest(card);
   slide.resumePercent = card.progress_percent;
   return slide;
 }
 
-function restingSlide(sub: Subscription): SubsHomeHeroSlide {
+function restingSlide(
+  sub: Subscription,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
+): SubsHomeHeroSlide {
+  const t = appTranslator(locale);
   const eyebrow: SubsHomeChip =
     sub.status === "paused"
-      ? { text: "已暂停", tone: "calm" }
+      ? { text: t("subscription.sections.paused"), tone: "calm" }
       : sub.status === "completed"
-        ? { text: sub.media.kind === "movie" ? "已入库" : "已收齐", tone: "ok" }
-        : { text: "追踪中", tone: "calm" };
+        ? { text: sub.media.kind === "movie" ? t("subscription.progress.imported") : t("subscription.sections.collected"), tone: "ok" }
+        : { text: t("subscription.status.active"), tone: "calm" };
   const slide = emptySlide(sub.id, sub.media, "resting", eyebrow);
   const year = sub.media.year != null ? String(sub.media.year) : null;
   if (sub.media.kind === "movie") {
-    slide.detail = [year, "电影"].filter(Boolean).join(" · ");
+    slide.detail = [year, t("media.kind.movie")].filter(Boolean).join(" · ");
     slide.footnote =
       sub.progress.imported > 0
-        ? "已在媒体库里"
+        ? t("subscription.feed.alreadyInLibrary")
         : released(sub)
-          ? "找到合适的资源就会自动下载"
-          : "上映后开始找资源";
+          ? t("subscription.feed.autoDownloadMatch")
+          : t("subscription.feed.searchAfterRelease");
   } else {
-    const meta = subscriptionCollectionMeta(sub);
-    slide.detail = meta ? `${meta.label} · ${meta.value}` : (year ?? "剧集");
-    slide.footnote = sub.status === "active" ? "有新一集会自动下载入库" : null;
+    const meta = subscriptionCollectionMeta(sub, locale);
+    slide.detail = meta ? `${meta.label} · ${meta.value}` : (year ?? t("media.kind.tv"));
+    slide.footnote = sub.status === "active" ? t("subscription.feed.autoNewEpisodes") : null;
   }
   return slide;
 }
@@ -478,21 +495,30 @@ function pad(value: number): string {
 }
 
 /** 刚刚入库卡的说明：剧集「S04E01 · 集名」，电影「2025 · 电影」 */
-export function recentDetail(card: RecentSubscriptionArrival): string {
+export function recentDetail(
+  card: RecentSubscriptionArrival,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
+): string {
+  const t = appTranslator(locale);
   if (card.media.kind !== "tv") {
-    return [card.media.year != null ? String(card.media.year) : null, "电影"].filter(Boolean).join(" · ");
+    return [card.media.year != null ? String(card.media.year) : null, t("media.kind.movie")].filter(Boolean).join(" · ");
   }
   const code = `S${pad(card.season_number)}E${pad(card.episode_number)}`;
   return card.episode_name ? `${code} · ${card.episode_name}` : code;
 }
 
 /** 刚刚入库卡的第三行：什么时候到的、这一批还有几集、看到哪了 */
-export function recentNote(card: RecentSubscriptionArrival, now: Date): string {
+export function recentNote(
+  card: RecentSubscriptionArrival,
+  now: Date,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
+): string {
+  const t = appTranslator(locale);
   const parts: string[] = [];
   const imported = importedAtOf(card);
-  if (imported != null) parts.push(`${fromNow(imported, now)}入库`);
-  if (card.units.length > 1) parts.push(`共 ${card.units.length} 集新内容`);
-  if (card.progress_percent != null) parts.push(`看到 ${card.progress_percent}%`);
+  if (imported != null) parts.push(t("subscription.feed.importedAgo", { when: fromNow(imported, now, locale) }));
+  if (card.units.length > 1) parts.push(t("subscription.feed.newContent", { count: card.units.length }));
+  if (card.progress_percent != null) parts.push(t("subscription.feed.watchedPercent", { percent: card.progress_percent }));
   return parts.join(" · ");
 }
 
@@ -513,48 +539,61 @@ function localDayKey(value: Date): string {
 }
 
 /** 本地 24 小时制「HH:mm」 */
-export function clockOf(timestamp: number): string {
+export function clockOf(
+  timestamp: number,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
+): string {
   const value = new Date(timestamp);
-  return `${pad(value.getHours())}:${pad(value.getMinutes())}`;
+  return formatDate(value, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }, locale);
 }
 
 /** 大号时刻：同一天只写时刻，跨天写「明天 08:10」「10/1 08:10」 */
-export function clockText(timestamp: number, now: Date): string {
+export function clockText(
+  timestamp: number,
+  now: Date,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
+): string {
+  const t = appTranslator(locale);
   const value = new Date(timestamp);
-  const clock = clockOf(timestamp);
+  const clock = clockOf(timestamp, locale);
   if (localDayKey(value) === localDayKey(now)) return clock;
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
-  if (localDayKey(value) === localDayKey(tomorrow)) return `明天 ${clock}`;
-  return `${value.getMonth() + 1}/${value.getDate()} ${clock}`;
+  if (localDayKey(value) === localDayKey(tomorrow)) return t("subscription.feed.tomorrowClock", { time: clock });
+  return locale === "zh-Hans" ? `${value.getMonth() + 1}/${value.getDate()} ${clock}` : `${formatDate(value, { month: "short", day: "numeric" }, locale)} ${clock}`;
 }
 
 /**
  * 「2 小时前」这类相对时间，阈值同 dayjs relativeTime（与全站 formatRelativeTime、
  * iOS Formatters.fromNow 同一口径）。这里自带一份是为了让本文件保持纯函数、可在 node 下单测。
  */
-export function fromNow(timestamp: number, now: Date): string {
+export function fromNow(
+  timestamp: number,
+  now: Date,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
+): string {
+  const t = appTranslator(locale);
   const delta = now.getTime() - timestamp;
   const seconds = Math.abs(delta) / 1000;
   const r = Math.round;
-  let text: string;
-  if (r(seconds) <= 44) text = "几秒";
-  else if (r(seconds) <= 89) text = "1 分钟";
-  else if (r(seconds / 60) <= 44) text = `${Math.max(1, r(seconds / 60))} 分钟`;
-  else if (r(seconds / 60) <= 89) text = "1 小时";
-  else if (r(seconds / 3600) <= 21) text = `${Math.max(1, r(seconds / 3600))} 小时`;
-  else if (r(seconds / 3600) <= 35) text = "1 天";
-  else if (r(seconds / 86400) <= 25) text = `${Math.max(1, r(seconds / 86400))} 天`;
-  else if (r(seconds / 86400) <= 45) text = "1 个月";
+  const future = delta < 0 ? "yes" : "no";
+  if (r(seconds) <= 44) return t("subscription.feed.relativeFewSeconds", { future });
+  let unit: "Minutes" | "Hours" | "Days" | "Months" | "Years", count: number;
+  if (r(seconds) <= 89) { unit = "Minutes"; count = 1; }
+  else if (r(seconds / 60) <= 44) { unit = "Minutes"; count = Math.max(1, r(seconds / 60)); }
+  else if (r(seconds / 60) <= 89) { unit = "Hours"; count = 1; }
+  else if (r(seconds / 3600) <= 21) { unit = "Hours"; count = Math.max(1, r(seconds / 3600)); }
+  else if (r(seconds / 3600) <= 35) { unit = "Days"; count = 1; }
+  else if (r(seconds / 86400) <= 25) { unit = "Days"; count = Math.max(1, r(seconds / 86400)); }
+  else if (r(seconds / 86400) <= 45) { unit = "Months"; count = 1; }
   else {
-    // 刚刚入库只回看 30 天以内，走不到月以上；按平均月长近似即可
     const months = seconds / 86400 / 30.44;
-    text = r(months) <= 10 ? `${Math.max(1, r(months))} 个月` : r(months) <= 17 ? "1 年" : `${Math.max(1, r(months / 12))} 年`;
+    unit = r(months) <= 10 ? "Months" : "Years";
+    count = r(months) <= 10 ? Math.max(1, r(months)) : r(months) <= 17 ? 1 : Math.max(1, r(months / 12));
   }
-  return delta >= 0 ? `${text}前` : `${text}内`;
+  const keys = { Minutes: "subscription.feed.relativeMinutes", Hours: "subscription.feed.relativeHours", Days: "subscription.feed.relativeDays", Months: "subscription.feed.relativeMonths", Years: "subscription.feed.relativeYears" } as const;
+  return t(keys[unit], { count, future });
 }
-
-const WEEKDAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
 /** 站点日历日 YYYY-MM-DD → UTC 零点时间戳（按日历日本身算，不经时区换算） */
 function calendarDay(day: string): number | null {
@@ -564,17 +603,24 @@ function calendarDay(day: string): number | null {
 }
 
 /** 站点日历日 →「周四」 */
-export function weekdayOf(day: string): string | null {
+export function weekdayOf(
+  day: string,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
+): string | null {
   const time = calendarDay(day);
-  return time == null ? null : WEEKDAY_NAMES[new Date(time).getUTCDay()];
+  return time == null ? null : formatDate(new Date(time), { weekday: "short", timeZone: "UTC" }, locale);
 }
 
 /** 站点日历日 →「10月1日」 */
-function formatCalendarDay(day: string): string | null {
+function formatCalendarDay(
+  day: string,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
+): string | null {
+  const t = appTranslator(locale);
   const time = calendarDay(day);
   if (time == null) return null;
   const value = new Date(time);
-  return `${value.getUTCMonth() + 1}月${value.getUTCDate()}日`;
+  return locale === "zh-Hans" ? t("subscription.feed.calendarDay", { month: value.getUTCMonth() + 1, day: value.getUTCDate() }) : formatDate(value, { month: "short", day: "numeric", timeZone: "UTC" }, locale);
 }
 
 // —— 日程 ——
@@ -587,7 +633,9 @@ export function scheduleDays(
   groups: SubsHomeArrivalGroup[],
   subscriptions: Subscription[],
   now: Date,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): SubsHomeScheduleDay[] {
+  const t = appTranslator(locale);
   const anchor = groups[0];
   const anchorTime = anchor ? calendarDay(anchor.expectedDay) : null;
   if (!anchor || anchorTime == null) return [];
@@ -605,7 +653,7 @@ export function scheduleDays(
   for (let offset = 0; offset <= lastDay; offset += 1) {
     const date = new Date(siteToday + offset * dayMs);
     const entries = (byDay.get(offset) ?? [])
-      .map((group) => scheduleEntry(group, subsById.get(group.subscriptionId)?.media ?? null, now))
+      .map((group) => scheduleEntry(group, subsById.get(group.subscriptionId)?.media ?? null, now, locale))
       .toSorted((left, right) => {
         const glow = Number(toneGlows(right.tone)) - Number(toneGlows(left.tone));
         if (glow !== 0) return glow;
@@ -615,9 +663,9 @@ export function scheduleDays(
       });
     days.push({
       daysAhead: offset,
-      weekday: offset === 0 ? "今天" : WEEKDAY_NAMES[date.getUTCDay()],
+      weekday: offset === 0 ? t("subscription.arrivals.todayBadge") : formatDate(date, { weekday: "short", timeZone: "UTC" }, locale),
       dayNumber: String(date.getUTCDate()),
-      dateLabel: `${date.getUTCMonth() + 1}月${date.getUTCDate()}日`,
+      dateLabel: formatCalendarDay(`${date.getUTCFullYear()}-${date.getUTCMonth() + 1}-${date.getUTCDate()}`, locale) ?? "",
       entries,
     });
   }
@@ -628,29 +676,31 @@ function scheduleEntry(
   group: SubsHomeArrivalGroup,
   media: SubscriptionMedia | null,
   now: Date,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): SubsHomeScheduleEntry {
+  const t = appTranslator(locale);
   const pres = group.presentation;
   const tone: SubsHomeTone =
-    pres.statusLabel === "下载中"
+    arrivalStageOf(pres) === "downloading"
       ? "live"
-      : pres.statusLabel === "整理中"
+      : arrivalStageOf(pres) === "organizing"
         ? "ok"
-        : pres.statusLabel === "等待资源"
+        : arrivalStageOf(pres) === "waiting"
           ? "warn"
           : "calm";
-  let status: string = pres.statusLabel;
-  if (pres.statusLabel === "下载中" && group.progress != null) {
-    status += ` ${Math.round(group.progress * 100)}%`;
+  let status = arrivalStatusText(pres, locale);
+  if (arrivalStageOf(pres) === "downloading" && group.progress != null) {
+    status = t("subscription.feed.statusProgress", { status, percent: Math.round(group.progress * 100) });
   }
   let time: string | null;
-  if (pres.statusLabel === "整理中") {
+  if (arrivalStageOf(pres) === "organizing") {
     // 整理超时（过了预计时刻还没入库）不再报一个过去的时刻
-    time = group.readyAt != null && group.readyAt > now.getTime() ? clockOf(group.readyAt) : "即将";
-  } else if (pres.statusLabel === "下载中") {
+    time = group.readyAt != null && group.readyAt > now.getTime() ? clockOf(group.readyAt, locale) : t("subscription.feed.soon");
+  } else if (arrivalStageOf(pres) === "downloading") {
     // 下载器给不出 ETA 时，已经在路上的东西说「稍后」，比「待定」更贴切
-    time = pres.estimatedAt != null ? clockOf(pres.estimatedAt) : "稍后";
+    time = pres.estimatedAt != null ? clockOf(pres.estimatedAt, locale) : t("subscription.feed.later");
   } else {
-    time = pres.estimatedAt != null ? clockOf(pres.estimatedAt) : null;
+    time = pres.estimatedAt != null ? clockOf(pres.estimatedAt, locale) : null;
   }
   return {
     subscriptionId: group.subscriptionId,
@@ -659,7 +709,7 @@ function scheduleEntry(
     time,
     status,
     tone,
-    progress: pres.statusLabel === "下载中" ? group.progress : null,
+    progress: arrivalStageOf(pres) === "downloading" ? group.progress : null,
     media,
   };
 }
@@ -673,14 +723,15 @@ export function subscriptionsHomeState(
   recent: RecentSubscriptionArrival[],
   tasks: DownloadTask[],
   now: Date,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): SubsHomeState {
-  const groups = arrivalGroups(week, tasks, now);
+  const groups = arrivalGroups(week, tasks, now, locale);
   return {
     groups,
-    slides: heroSlides(subscriptions, groups, recent, now),
-    days: scheduleDays(groups, subscriptions, now),
-    tv: shelf("tv", subscriptions, groups, recent),
-    movie: shelf("movie", subscriptions, groups, recent),
+    slides: heroSlides(subscriptions, groups, recent, now, locale),
+    days: scheduleDays(groups, subscriptions, now, locale),
+    tv: shelf("tv", subscriptions, groups, recent, locale),
+    movie: shelf("movie", subscriptions, groups, recent, locale),
   };
 }
 
@@ -695,7 +746,9 @@ export function shelf(
   subscriptions: Subscription[],
   groups: SubsHomeArrivalGroup[],
   recent: RecentSubscriptionArrival[],
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): SubsHomeShelf {
+  const t = appTranslator(locale);
   // 每部作品只看它最近的那一天
   const nearestGroup = new Map<number, SubsHomeArrivalGroup>();
   for (const group of groups) {
@@ -712,12 +765,12 @@ export function shelf(
   const done: SubsHomeShelfItem[] = [];
   for (const sub of subscriptions) {
     if (sub.media.kind !== kind) continue;
-    const standing = subscriptionStanding(sub, nearestGroup.get(sub.id) ?? null, recentBySub.get(sub.id) ?? null);
+    const standing = subscriptionStanding(sub, nearestGroup.get(sub.id) ?? null, recentBySub.get(sub.id) ?? null, locale);
     const item: SubsHomeShelfItem = {
       sub,
       phase: standing.phase,
       chip: standing.chip,
-      meta: shelfMeta(sub, standing.phase),
+      meta: shelfMeta(sub, standing.phase, locale),
       resting: standing.phase !== "active",
     };
     if (standing.phase === "active") active.push({ rank: standing.rank, item });
@@ -731,13 +784,13 @@ export function shelf(
     const r = right.sub.media.title;
     return l < r ? -1 : l > r ? 1 : 0;
   };
-  const doneLabel = kind === "movie" ? "已入库" : "已收齐";
+  const doneLabel = kind === "movie" ? t("subscription.progress.imported") : t("subscription.sections.collected");
   const restingLabel =
     paused.length > 0 && done.length > 0
-      ? `暂停·${doneLabel.slice(1)}`
+      ? t("subscription.feed.pausedDone", { kind })
       : paused.length === 0
         ? doneLabel
-        : "已暂停";
+        : t("subscription.sections.paused");
   return {
     active: active
       .toSorted((left, right) => left.rank - right.rank || recentFirst(left.item, right.item))
@@ -749,20 +802,28 @@ export function shelf(
 }
 
 /** 一排的计数：「5 部进行中 · 共 12 部」（全部进行中或一部都没有时只说总数）。首页与海报墙同一口径 */
-export function shelfCountSummary(shelf: SubsHomeShelf): string {
+export function shelfCountSummary(
+  shelf: SubsHomeShelf,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
+): string {
+  const t = appTranslator(locale);
   const total = shelf.active.length + shelf.paused.length + shelf.done.length;
   const active = shelf.active.length;
-  if (active === 0 || active >= total) return `共 ${total} 部`;
-  return `${active} 部进行中 · 共 ${total} 部`;
+  if (active === 0 || active >= total) return t("subscription.feed.shelfTotal", { count: total });
+  return t("subscription.feed.shelfActiveTotal", { active, total });
 }
 
 /** 海报墙页头：「共 12 部剧集 · 5 部进行中」 */
-export function wallSummary(shelf: SubsHomeShelf, kind: "movie" | "tv"): string {
+export function wallSummary(
+  shelf: SubsHomeShelf,
+  kind: "movie" | "tv",
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
+): string {
+  const t = appTranslator(locale);
   const total = shelf.active.length + shelf.paused.length + shelf.done.length;
   const active = shelf.active.length;
-  const noun = kind === "movie" ? "电影" : "剧集";
-  if (active === 0 || active >= total) return `共 ${total} 部${noun}`;
-  return `共 ${total} 部${noun} · ${active} 部进行中`;
+  if (active === 0 || active >= total) return t("subscription.feed.wallTotal", { count: total, kind });
+  return t("subscription.feed.wallActiveTotal", { total, kind, active });
 }
 
 /**
@@ -778,7 +839,9 @@ export function subscriptionStanding(
   sub: Subscription,
   group: SubsHomeArrivalGroup | null,
   recent: RecentSubscriptionArrival | null,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): SubsHomeStanding {
+  const t = appTranslator(locale);
   const isTV = sub.media.kind === "tv";
   const active = (rank: number, chip: SubsHomeChip | null): SubsHomeStanding => ({
     phase: "active",
@@ -786,40 +849,43 @@ export function subscriptionStanding(
     chip,
   });
   if (sub.status === "paused") {
-    return { phase: "paused", rank: 0, chip: { text: "已暂停", tone: "calm" } };
+    return { phase: "paused", rank: 0, chip: { text: t("subscription.sections.paused"), tone: "calm" } };
   }
   const missing = isTV ? missingAired(sub) : 0;
   const pending = missing > 0 || sub.progress.wanted + sub.progress.grabbed + sub.progress.downloaded > 0;
   // 旧集洗版不降低新集缺口的优先级；纯洗版即使有下载预告，也留在进行中末尾。
   if ((sub.progress.upgrading ?? 0) > 0 && !pending) {
-    return active(8, { text: "洗版中", tone: "upgrade" });
+    return active(8, { text: t("subscription.feed.upgrading"), tone: "upgrade" });
   }
   // 正在下载 / 整理：有预告按预告，没有（老服务端 / 预告还没取到）按订阅进度判断
   const pipeline =
-    group?.presentation.statusLabel ??
-    (sub.progress.downloaded > 0 ? "整理中" : sub.progress.grabbed > 0 ? "下载中" : null);
-  if (pipeline === "下载中") return active(0, { text: "下载中", tone: "live", pulse: true });
-  if (pipeline === "整理中") return active(0, { text: "整理中", tone: "ok", pulse: true });
+    group ? arrivalStageOf(group.presentation) :
+    (sub.progress.downloaded > 0 ? "organizing" : sub.progress.grabbed > 0 ? "downloading" : null);
+  if (pipeline === "downloading") return active(0, { text: t("subscription.arrivals.statusDownloading"), tone: "live", pulse: true });
+  if (pipeline === "organizing") return active(0, { text: t("subscription.arrivals.statusOrganizing"), tone: "ok", pulse: true });
 
   if (!pending && (subscriptionFullyCollected(sub) || sub.status === "completed")) {
     return { phase: "done", rank: 0, chip: null };
   }
   if (isTV && recent) {
     const count = recent.units.length;
-    return active(1, { text: count > 1 ? `新 ${count} 集` : "新一集", tone: "ok" });
+    return active(1, { text: count > 1 ? t("subscription.feed.newEpisodes", { count }) : t("subscription.feed.newEpisode"), tone: "ok" });
   }
   if (group) {
-    if (group.daysAhead === 0) return active(2, { text: "今天更新", tone: "today" });
+    if (group.daysAhead === 0) return active(2, { text: t("subscription.feed.updatesToday"), tone: "today" });
     const when =
-      group.daysAhead === 1 ? "明天" : (weekdayOf(group.expectedDay) ?? `${group.daysAhead} 天后`);
-    return active(3 + group.daysAhead / 100, { text: `${when}更新`, tone: "calm" });
+      group.daysAhead === 1 ? t("subscription.arrivals.tomorrowBadge") : (weekdayOf(group.expectedDay, locale) ?? t("subscription.feed.daysAhead", { count: group.daysAhead }));
+    return active(3 + group.daysAhead / 100, { text: t("subscription.feed.updateWhen", { when }), tone: "calm" });
   }
   if (isTV) {
-    return missing > 0 ? active(5, { text: `缺 ${missing} 集`, tone: "warn" }) : active(6, null);
+    if (missing > 0) return active(5, { text: t("subscription.feed.missingEpisodes", { count: missing }), tone: "warn" });
+    // 订阅上限截断了本季，这一批已就绪：等用户决定要不要继续订阅
+    if (sub.episode_windows?.length) return active(6, { text: t("subscription.feed.canContinue"), tone: "calm" });
+    return active(6, null);
   }
   return released(sub)
-    ? active(5, { text: "找资源中", tone: "warn" })
-    : active(7, { text: "未上映", tone: "calm" });
+    ? active(5, { text: t("subscription.feed.findingRelease"), tone: "warn" })
+    : active(7, { text: t("subscription.feed.unreleased"), tone: "calm" });
 }
 
 /**
@@ -837,19 +903,35 @@ export function missingAired(sub: Subscription): number {
     );
     scoped = latest ? [latest] : [];
   }
-  return scoped.reduce((sum, season) => sum + Math.max(0, season.aired_count - season.owned_count), 0);
+  // 被订阅窗口截断的季只算订阅范围内的集：窗口外的集用户还没订阅，不是缺集。
+  // 完结季是「前 N 集」（≤ end），在播季是「从第 start 集起」（≥ start）
+  const windows = new Map((sub.episode_windows ?? []).map((win) => [win.season_number, win]));
+  return scoped.reduce((sum, season) => {
+    const win = windows.get(season.season_number);
+    const expected = win
+      ? win.end === null
+        ? Math.max(0, season.aired_count - win.start + 1)
+        : Math.min(season.aired_count, win.end)
+      : season.aired_count;
+    return sum + Math.max(0, expected - season.owned_count);
+  }, 0);
 }
 
 /** 海报下第二行 */
-export function shelfMeta(sub: Subscription, phase: SubsHomePhase): string {
+export function shelfMeta(
+  sub: Subscription,
+  phase: SubsHomePhase,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
+): string {
+  const t = appTranslator(locale);
   const year = sub.media.year != null ? String(sub.media.year) : null;
   if (sub.media.kind === "movie") {
-    if (sub.progress.imported > 0) return [year, "已入库"].filter(Boolean).join(" · ");
-    return year ?? "电影";
+    if (sub.progress.imported > 0) return [year, t("subscription.progress.imported")].filter(Boolean).join(" · ");
+    return year ?? t("media.kind.movie");
   }
-  const meta = subscriptionCollectionMeta(sub);
-  if (!meta) return year ?? "剧集";
-  if (phase === "done") return `已收齐 · ${meta.label}`;
+  const meta = subscriptionCollectionMeta(sub, locale);
+  if (!meta) return year ?? t("media.kind.tv");
+  if (phase === "done") return t("subscription.feed.collectedMeta", { label: meta.label });
   return `${meta.label} · ${meta.value}`;
 }
 

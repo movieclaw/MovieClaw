@@ -9,8 +9,9 @@ import SwiftUI
 /// 视觉统一走系统液态玻璃（`PlayerGlass`）：按钮压在画面上用透明玻璃叠薄黑、可交互（按下有系统的形变高光），
 /// 菜单与弹窗承载文字用常规玻璃。同一组按钮合进一枚胶囊，而不是各自一块底——这是 iOS 26 的分组方式。
 ///
-/// 菜单仍是自绘面板而不是系统 Menu：字幕菜单里要放时间轴/字号的步进器与开关，系统菜单放不下；
+/// 音轨、字幕菜单是自绘面板而不是系统 Menu：字幕菜单里要放时间轴/字号的步进器与开关，系统菜单放不下；
 /// 面板外观向系统菜单看齐（玻璃底、大圆角、行首对勾表示选中、行尾放图标）。
+/// ⋯ 设置只有几组单选，用系统菜单（`PlayerSettingsMenu`），`.settings` 只表示它开着。
 enum PlayerMenu: Equatable {
     case none, audio, subtitles, settings
 }
@@ -54,7 +55,7 @@ struct PlayerTopBar: View {
                 // 返回箭头笔画细，用大一号的符号尺度，与胶囊里的图标视觉上一样重（系统返回键也是这样）
                 GlassIconButton(
                     systemImage: "chevron.backward",
-                    label: controller.clip != nil ? "退出全屏" : (landscape ? "退出横屏" : "退出播放"),
+                    label: controller.clip != nil ? String(localized: .playerControlsExitFullscreen) : (landscape && PlayerOrientation.appControlsRotation ? String(localized: .playerControlsExitLandscape) : String(localized: .playerControlsExit)),
                     identifier: "player-close", scale: .large, action: onBack
                 )
                 VStack(alignment: .leading, spacing: 2) {
@@ -84,7 +85,7 @@ struct PlayerTopBar: View {
                     if controller.pictureInPictureAvailable {
                         PlayerIconButton(
                             systemImage: controller.pipActive ? "pip.exit" : "pip.enter",
-                            label: controller.pipActive ? "退出画中画" : "画中画",
+                            label: controller.pipActive ? String(localized: .playerControlsExitPip) : String(localized: .playerControlsPip),
                             identifier: "player-pip",
                             action: controller.togglePictureInPicture
                         )
@@ -105,7 +106,7 @@ struct PlayerCenterControls: View {
     var body: some View {
         GlassEffectContainer(spacing: 8) {
             HStack(spacing: 36) {
-                TransportButton(label: "后退 10 秒", size: 56, action: {
+                TransportButton(label: String(localized: .playerControlsSeekBack), size: 56, action: {
                     backTaps += 1
                     controller.seek(by: -10, source: .button)
                 }) {
@@ -117,7 +118,7 @@ struct PlayerCenterControls: View {
                     Image(systemName: playSymbol)
                         .contentTransition(.symbolEffect(.replace))
                 }
-                TransportButton(label: "前进 10 秒", size: 56, action: {
+                TransportButton(label: String(localized: .playerControlsSeekForward), size: 56, action: {
                     forwardTaps += 1
                     controller.seek(by: 10, source: .button)
                 }) {
@@ -133,7 +134,7 @@ extension PlayerCenterControls {
     /// 片段放完了：播放键就是「重播」（从片段起点再放一遍）
     private var clipEnded: Bool { controller.clip != nil && controller.phase == .ended }
     private var playSymbol: String { clipEnded ? "arrow.counterclockwise" : (controller.paused ? "play.fill" : "pause.fill") }
-    private var playLabel: String { clipEnded ? "重播" : (controller.paused ? "播放" : "暂停") }
+    private var playLabel: String { clipEnded ? String(localized: .playerControlsReplay) : (controller.paused ? String(localized: .playerControlsPlay) : String(localized: .playerControlsPause)) }
 }
 
 /// 中央的玻璃圆钮：整颗圆都能点，按下由交互玻璃给出系统的形变反馈
@@ -193,6 +194,83 @@ struct PlayerIconButton: View {
     }
 }
 
+/// ⋯ 设置：系统菜单（液态玻璃、从按钮长出、子菜单原地展开都是系统的），同发现页的筛选菜单。
+/// 一级「画质 ›」「倍速 ›」两个子菜单，标题下一行写当前值；下一节是「播放诊断」开关。
+/// 访客分享没有画质（服务端按分享的设定给流）。选一项菜单即收起（docs/design/playback-speed.md）
+struct PlayerSettingsMenu: View {
+    let controller: PlaybackController
+    /// 菜单开着时记成 `.settings`：控制层常显、收起别的菜单（系统菜单自己管弹出与收起）
+    @Binding var menu: PlayerMenu
+
+    var body: some View {
+        Menu {
+            Group {
+                if controller.scope.shareSlug == nil {
+                    Menu {
+                        // 画质：语义是上限——源不超所选档就照常直通（无损），超了才转码降下去
+                        ForEach(QualityOption.all) { option in
+                            Toggle(isOn: Binding(mcGet: { controller.quality == option.maxHeight },
+                                                 set: { _ in controller.selectQuality(option.maxHeight) })) {
+                                Text(option.label)
+                                Text(option.hint)
+                            }
+                        }
+                    } label: {
+                        Label(String(localized: .playerControlsQuality), systemImage: "sparkles.tv")
+                        Text(QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? String(localized: .playerQualityOriginal))
+                    }
+                }
+                Menu {
+                    ForEach(PlayerDisplayMode.allCases, id: \.self) { mode in
+                        Toggle(isOn: Binding(mcGet: { controller.displayMode == mode },
+                                             set: { _ in controller.selectDisplayMode(mode) })) {
+                            Text(mode.label)
+                            Text(mode.hint)
+                        }
+                    }
+                } label: {
+                    Label(String(localized: .playerControlsDisplay), systemImage: controller.displayMode.symbol)
+                    Text(controller.displayMode.label)
+                }
+                Menu {
+                    ForEach(PlaybackSpeed.all, id: \.self) { rate in
+                        Toggle(PlaybackSpeed.label(rate), isOn: Binding(mcGet: { controller.rate == rate },
+                                                                        set: { _ in controller.selectRate(rate) }))
+                    }
+                } label: {
+                    Label(String(localized: .playerControlsSpeed), systemImage: "gauge.with.dots.needle.67percent")
+                    Text(PlaybackSpeed.label(controller.rate))
+                }
+                Section {
+                    Toggle(isOn: Binding(mcGet: { controller.diagnosticsOpen }, set: { controller.diagnosticsOpen = $0 })) {
+                        Label(String(localized: .playerControlsDiagnostics), systemImage: "waveform.path.ecg")
+                    }
+                }
+            }
+            .onAppear {
+                controller.noteUserActivity()
+                menu = .settings
+            }
+            .onDisappear {
+                if menu == .settings { menu = .none }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: PlayerLayout.button, height: PlayerLayout.button)
+                // 同 PlayerIconButton：整块都能点，不只是三个小圆点
+                .contentShape(.rect)
+        }
+        // 菜单从底栏往上弹：系统默认把离按钮最近的项排前面（诊断到了最上、倍速成了 2× → 0.5×），固定按写的顺序
+        .menuOrder(.fixed)
+        .menuStyle(.button)
+        .buttonStyle(PlayerIconButtonStyle(highlighted: menu == .settings, pressFeedback: true))
+        .accessibilityLabel(String(localized: .playerControlsSettings))
+        .accessibilityIdentifier("player-设置") // i18n-ignore: UI test identifier
+    }
+}
+
 /// 图标按钮的浅色圆：比按钮内缩 4pt，放在胶囊两端时正好与胶囊端头同心
 private struct PlayerIconButtonStyle: ButtonStyle {
     let highlighted: Bool
@@ -243,20 +321,20 @@ struct PlayerBottomBar: View {
                     // 不加内边距：两端按钮与胶囊端头同心，按下的高亮圆正好嵌在端头里
                     HStack(spacing: 0) {
                         if !controller.audioOptions.isEmpty {
-                            PlayerIconButton(systemImage: "waveform", label: "音轨", identifier: "player-音轨", highlighted: menu == .audio) { toggle(.audio) }
+                            PlayerIconButton(systemImage: "waveform", label: String(localized: .playerControlsAudio), identifier: "player-音轨", highlighted: menu == .audio) { toggle(.audio) } // i18n-ignore: UI test identifier
                         }
                         PlayerIconButton(
                             systemImage: controller.selectedSubtitle == nil ? "captions.bubble" : "captions.bubble.fill",
-                            label: "字幕", identifier: "player-字幕", highlighted: menu == .subtitles
+                            label: String(localized: .playerControlsSubtitles), identifier: "player-字幕", highlighted: menu == .subtitles // i18n-ignore: UI test identifier
                         ) { toggle(.subtitles) }
-                        PlayerIconButton(systemImage: "ellipsis", label: "设置", identifier: "player-设置", highlighted: menu == .settings) { toggle(.settings) }
+                        PlayerSettingsMenu(controller: controller, menu: $menu)
                     }
                     .glassEffect(PlayerGlass.control, in: .capsule)
                     Spacer()
                     if controller.clip != nil {
                         // 片段模式：原地转成正常播放，从这里接着放整部
                         Button(action: controller.leaveClip) {
-                            Label("看全片", systemImage: "play.rectangle")
+                            Label(String(localized: .playerControlsFullMovie), systemImage: "play.rectangle")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 16)
@@ -268,11 +346,14 @@ struct PlayerBottomBar: View {
                         .accessibilityIdentifier("player-watch-full")
                     }
                     // 片段模式只有横屏这一种样子：转回竖屏就是退出全屏、回到刷片
-                    let rotateLabel = controller.clip != nil ? "退出全屏" : (landscape ? "退出横屏" : "横屏")
-                    GlassIconButton(
-                        systemImage: landscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
-                        label: rotateLabel, identifier: "player-\(rotateLabel)", action: onToggleLandscape
-                    )
+                    // iPad 方向跟随设备，没有横屏键（片段模式的「退出全屏」照留）
+                    if PlayerOrientation.appControlsRotation || controller.clip != nil {
+                        let rotateLabel = controller.clip != nil ? String(localized: .playerControlsExitFullscreen) : (landscape ? String(localized: .playerControlsExitLandscape) : String(localized: .playerControlsLandscape))
+                        GlassIconButton(
+                            systemImage: landscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
+                            label: rotateLabel, identifier: "player-\(rotateLabel)", action: onToggleLandscape
+                        )
+                    }
                 }
             }
             // 拖进度时让出这一行：预览缩略图正好浮在这里，按钮留着只会和它叠成一团
@@ -288,6 +369,12 @@ struct PlayerBottomBar: View {
                     .accessibilityIdentifier("player-time")
                     .accessibilityValue(String(position / 1000))
                 Spacer()
+                // 不是正常速度时常驻一个角标，免得忘了自己开着倍速（长按倍速另有顶部 HUD）
+                if controller.rate != 1, !controller.holdSpeedActive {
+                    Text(PlaybackSpeed.short(controller.rate))
+                        .foregroundStyle(.white)
+                        .accessibilityIdentifier("player-rate-badge")
+                }
                 Text(remainingText)
             }
             .font(.caption.monospacedDigit())
@@ -321,6 +408,9 @@ struct PlayerBottomBar: View {
 /// 进度条上不画章节：原先在细条上切深色竖线，章节一多整条就像断成了十几截（真机反馈：蜘蛛侠 16 个章节）；
 /// 改成拖动时在细条上方点小圆点也被否了——电影的章节多是压片时按编号随手分的（「Part 01」「Chapter 3」），
 /// 位置不对应剧情，点出来没有信息量。系统播放器同样不在进度条上画章节。章节名只在拖动预览里跟着落点显示。
+///
+/// 可跳过的段（片头、广告等，docs/design/skip-intro.md §5）倒是画：一集只有两三段，位置正对应内容，
+/// 拖动时一眼能看出哪截是片头。画在已播放的部分之上，琥珀色，播过了也看得见
 struct PlayerProgressBar: View {
     let controller: PlaybackController
     let trickplay: TrickplayImages
@@ -353,6 +443,16 @@ struct PlayerProgressBar: View {
                 Capsule().fill(.white.opacity(0.22)).frame(height: track)
                 Capsule().fill(.white.opacity(0.35)).frame(width: x(buffered), height: track)
                 Capsule().fill(Theme.accentStrong).frame(width: x(ratio), height: track)
+                if duration > 0, controller.clip == nil {
+                    ForEach(controller.session?.segments ?? [], id: \.startMs) { segment in
+                        let from = min(1, max(0, Double(controller.timelineMs(fromFileMs: segment.startMs)) / duration))
+                        let to = min(1, max(0, Double(controller.timelineMs(fromFileMs: segment.endMs)) / duration))
+                        Capsule()
+                            .fill(Theme.skippable.opacity(0.9))
+                            .frame(width: max(2, x(to) - x(from)), height: track)
+                            .offset(x: x(from))
+                    }
+                }
                 Circle()
                     .fill(.white)
                     .frame(width: dragging ? 18 : 12, height: dragging ? 18 : 12)
@@ -397,7 +497,7 @@ struct PlayerProgressBar: View {
                     }
             )
             .accessibilityElement()
-            .accessibilityLabel("播放进度")
+            .accessibilityLabel(String(localized: .playerControlsProgress))
             .accessibilityIdentifier("player-progress")
             .accessibilityValue(Formatters.clock(position / 1000))
         }

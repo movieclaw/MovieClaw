@@ -1,5 +1,9 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
@@ -39,9 +43,11 @@ import { useSession } from "@/lib/session";
  * 读出直接查询；处理完从地址栏抹掉 code——否则一刷新又去查那条已处理的请求。
  */
 export function DeviceApproval() {
+  const t = useTranslations();
+
   const { session } = useSession();
   const [draft, setDraft] = useState("");
-  const [lookupError, setLookupError] = useState<string | null>(null);
+  const [lookupError, setLookupError] = useMessageState();
   const [looking, setLooking] = useState(false);
   const [request, setRequest] = useState<DeviceRequestView | null>(null);
   const [deciding, setDeciding] = useState(false);
@@ -52,7 +58,7 @@ export function DeviceApproval() {
   const lookup = useCallback(async (raw: string) => {
     const code = normalizePairingCode(raw);
     if (!code) {
-      setLookupError("配对码形如 MCLW-7F3K，请对照设备上显示的重新输入。");
+      setLookupError({ key: "settings.devices.approval.invalidCode" });
       return;
     }
     setDraft(code);
@@ -67,7 +73,7 @@ export function DeviceApproval() {
     } finally {
       setLooking(false);
     }
-  }, []);
+  }, [setLookupError]);
 
   // 读取放在 effect 而非 state 初值：服务端渲染阶段没有 window。先回填输入框：
   // 链接里的码格式不对时，人得看得到它才能对照着改
@@ -106,11 +112,11 @@ export function DeviceApproval() {
   if (outcome) {
     return (
       <WelcomeCard
-        title={outcome.approved ? "已批准" : "已拒绝"}
+        title={outcome.approved ? t("settings.devices.approval.approved") : t("settings.devices.approval.denied")}
         subtitle={
           outcome.approved
-            ? `「${outcome.name}」会在几秒内自动登录，回到那台设备上继续就好。`
-            : "这台设备不会登录。如果它其实是你的，让它重新发起配对即可。"
+            ? t("settings.devices.approval.approvedHint", { name: outcome.name })
+            : t("settings.devices.approval.deniedHint")
         }
       >
         <div className="space-y-2.5">
@@ -118,10 +124,10 @@ export function DeviceApproval() {
             href={accessiblePathFor(session, "/") as Route}
             className="flex h-[50px] w-full items-center justify-center rounded-full bg-[var(--accent-strong)] text-[17px] font-semibold text-black/85 transition active:scale-[0.98]"
           >
-            进入 MovieClaw
+            {t("settings.devices.approval.enter")}
           </Link>
           <button type="button" onClick={startOver} className={SECONDARY_BUTTON}>
-            批准另一台设备
+            {t("settings.devices.approval.another")}
           </button>
         </div>
       </WelcomeCard>
@@ -130,7 +136,7 @@ export function DeviceApproval() {
 
   if (request) {
     return (
-      <WelcomeCard title="批准这台设备登录？" subtitle="先核对配对码与设备屏幕上显示的完全一致。">
+      <WelcomeCard title={t("settings.devices.approval.confirmTitle")} subtitle={t("settings.devices.approval.checkCode")}>
         <form
           className="space-y-4"
           onSubmit={(e) => {
@@ -144,7 +150,7 @@ export function DeviceApproval() {
             {!(request.requires_admin && session.role !== "admin") && (
               <WelcomeSubmit busy={deciding} disabled={deciding}>
                 <CheckIcon className="size-[18px]" />
-                批准登录
+                {t("settings.devices.approval.approve")}
               </WelcomeSubmit>
             )}
             <button
@@ -154,7 +160,7 @@ export function DeviceApproval() {
               className={`${SECONDARY_BUTTON} text-[var(--danger)]`}
             >
               <XIcon className="size-4" />
-              不是我发起的，拒绝
+              {t("settings.devices.approval.deny")}
             </button>
             <button
               type="button"
@@ -162,7 +168,7 @@ export function DeviceApproval() {
               onClick={startOver}
               className="w-full py-1.5 text-sub text-[var(--text-faint)] transition-colors hover:text-[var(--text-muted)] disabled:opacity-40"
             >
-              暂不处理，换一个配对码
+              {t("settings.devices.approval.anotherCode")}
             </button>
           </div>
           <AccountLine />
@@ -173,8 +179,8 @@ export function DeviceApproval() {
 
   return (
     <WelcomeCard
-      title="批准设备登录"
-      subtitle="输入 Apple TV、Android TV、Mac、命令行（mclaw login）或转码器上显示的配对码。"
+      title={t("settings.devices.approval.title")}
+      subtitle={t("settings.devices.approval.hint")}
     >
       <form
         className="space-y-4"
@@ -186,7 +192,7 @@ export function DeviceApproval() {
         <WelcomeFields>
           <WelcomeField
             icon={<DeviceIcon className="size-[18px]" />}
-            aria-label="配对码"
+            aria-label={t("settings.devices.approval.code")}
             placeholder="MCLW-XXXX"
             value={draft}
             onChange={(e) => {
@@ -203,7 +209,7 @@ export function DeviceApproval() {
         </WelcomeFields>
         <WelcomeError message={lookupError} />
         <WelcomeSubmit busy={looking} disabled={looking || !draft.trim()}>
-          {looking ? "查询中…" : "继续"}
+          {looking ? t("settings.devices.approval.looking") : t("settings.devices.approval.continue")}
         </WelcomeSubmit>
         <AccountLine />
       </form>
@@ -228,11 +234,12 @@ function clearCodeParam() {
  * 换账号走登录页的「添加账号」，登录后带着配对码回到这里。
  */
 function AccountLine() {
+  const t = useTranslations();
+
   const { session } = useSession();
   return (
     <p className="text-center text-caption leading-relaxed text-[var(--text-faint)]">
-      将以「{session.nickname || session.username}」的身份批准 ·{" "}
-      <a
+      {t.rich("settings.devices.approval.account", { name: session.nickname || session.username, switchAccount: (chunks) => (<a
         href="/login?add=1"
         onClick={(e) => {
           // 带上当前地址（含配对码）：登录后回到这里继续批准
@@ -242,8 +249,7 @@ function AccountLine() {
         }}
         className="text-[var(--text-muted)] underline-offset-2 hover:text-[var(--text)] hover:underline"
       >
-        换个账号
-      </a>
+        {chunks}</a>) })}
     </p>
   );
 }
@@ -255,7 +261,10 @@ function AccountLine() {
  * 这是防钓鱼的实际动作，字号小了就没人会真的比。
  */
 function RequestDetails({ request, role }: { request: DeviceRequestView; role: ViewerRole }) {
-  const grant = grantSummary(request.client_type, role);
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
+
+  const grant = grantSummary(request.client_type, role, locale);
   // 转码器只能由超管批准（转码占用的是整台服务器的资源）：成员看到时说清原因、
   // 不给批准按钮，而不是让他按下去再吃一个 403
   const blocked = request.requires_admin && role !== "admin";
@@ -269,21 +278,21 @@ function RequestDetails({ request, role }: { request: DeviceRequestView; role: V
           </span>
         </div>
         <dl className="mt-2.5 grid grid-cols-[auto_1fr] gap-x-5 gap-y-1.5 text-sub">
-          <dt className="text-[var(--text-faint)]">类型</dt>
-          <dd className="text-[var(--text-muted)]">{clientTypeLabel(request.client_type)}</dd>
+          <dt className="text-[var(--text-faint)]">{t("settings.devices.approval.type")}</dt>
+          <dd className="text-[var(--text-muted)]">{clientTypeLabel(request.client_type, locale)}</dd>
           {request.platform && (
             <>
-              <dt className="text-[var(--text-faint)]">系统</dt>
+              <dt className="text-[var(--text-faint)]">{t("settings.devices.approval.platform")}</dt>
               <dd className="text-[var(--text-muted)]">{request.platform}</dd>
             </>
           )}
           {request.client_version && (
             <>
-              <dt className="text-[var(--text-faint)]">版本</dt>
+              <dt className="text-[var(--text-faint)]">{t("settings.devices.approval.version")}</dt>
               <dd className="text-[var(--text-muted)]">{request.client_version}</dd>
             </>
           )}
-          <dt className="text-[var(--text-faint)]">来源</dt>
+          <dt className="text-[var(--text-faint)]">{t("settings.devices.approval.source")}</dt>
           {request.source_ip ? (
             <dd className="font-mono text-[var(--text-muted)]">{request.source_ip}</dd>
           ) : (
@@ -292,8 +301,8 @@ function RequestDetails({ request, role }: { request: DeviceRequestView; role: V
                与其摆一个「172.17.0.1」让人以为那是对方的地址，不如直说看不到，
                并把判断依据推回配对码——那本来就是这张卡真正的安全控制。 */
             <dd className="text-[var(--text-faint)]">
-              无法确定
-              <span className="ml-1.5 text-caption">容器网络改写了源地址，请以配对码为准</span>
+              {t("settings.devices.approval.unknownSource")}<span className="ml-1.5 text-caption">{t("settings.devices.approval.sourceHint")}
+            </span>
             </dd>
           )}
         </dl>
@@ -303,7 +312,7 @@ function RequestDetails({ request, role }: { request: DeviceRequestView; role: V
         <div className="flex gap-2.5 rounded-2xl border border-[var(--warn)]/28 bg-[var(--warn)]/[0.09] px-3.5 py-3">
           <InfoIcon className="mt-0.5 size-4 shrink-0 text-[var(--warn)]" />
           <p className="text-sub leading-relaxed text-[var(--text-muted)]">
-            转码器只能由管理员批准——转码占用的是整台服务器的资源。请把这个配对码告诉管理员，让他在自己的网页或 App 上输入并批准。
+            {t("settings.devices.approval.blocked")}
           </p>
         </div>
       ) : (

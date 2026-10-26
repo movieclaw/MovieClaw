@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -72,7 +71,7 @@ def client(tmp_path, monkeypatch):
 
     app = create_app()
     app.dependency_overrides[require_login] = lambda: Principal(kind="admin", name="tester")
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         yield c
     get_settings.cache_clear()
     reset_agent_session_store()
@@ -364,60 +363,62 @@ def test_stop_session_ends_with_cancelled_event(client, monkeypatch) -> None:
 
 def test_system_prompt_external_url_injection(client) -> None:
     """外部访问地址注入系统提示词环境段：未配置不出现，配置后原文出现。"""
-    from movieclaw_api.api.routes.agent import _agent_system_prompt
+    from movieclaw_api.services.agent_toolkit import agent_system_prompt, get_agent_tools
 
-    prompt = asyncio.run(_agent_system_prompt())
-    assert "外部访问地址" not in prompt
+    tools = get_agent_tools({})
+    prompt = asyncio.run(agent_system_prompt(tools))
+    assert "本应用的外部访问地址" not in prompt
 
     saved = client.put(
         "/api/v1/app/config",
         json={"port": 0, "external_url": "http://192.168.1.10:3000/"},
     )
     assert saved.status_code == 200
-    prompt = asyncio.run(_agent_system_prompt())
+    prompt = asyncio.run(agent_system_prompt(tools))
     # 保存时规范化掉了尾部斜杠
     assert "外部访问地址：http://192.168.1.10:3000。" in prompt
 
 
-def test_page_routes_match_web_app_pages() -> None:
-    """路由表守护：声明的页面必须真实存在，前端新增页面必须显式处理（进表或豁免）。
-
-    归一化规则：路由表的 {参数} 与 Next.js 的 [参数] 目录都归一为 *，
-    只比较路径形状，参数叫什么名字不影响同步判断。
-    """
-    from movieclaw_api.api.routes.agent import _PAGE_ROUTES
-
-    web_app = Path(__file__).resolve().parents[2] / "apps" / "web" / "app" / "(app)"
-    assert web_app.is_dir(), f"前端页面目录不存在：{web_app}"
-
-    fs_routes = set()
-    for page in web_app.rglob("page.tsx"):
-        rel = page.parent.relative_to(web_app).as_posix()
-        if rel == ".":
-            fs_routes.add("/")
-        else:
-            fs_routes.add(
-                "/" + "/".join("*" if seg.startswith("[") else seg for seg in rel.split("/"))
-            )
-
-    def normalize(pattern: str) -> str:
-        if pattern == "/":
-            return "/"
-        return "/" + "/".join(
-            "*" if seg.startswith("{") else seg for seg in pattern.strip("/").split("/")
-        )
-
-    declared = {normalize(pattern) for pattern, _ in _PAGE_ROUTES}
-
-    # /settings 子分区由 /settings 兜底，不逐项写进提示词路由表；
-    # /tasks 是重构为 /activity 后保留的重定向壳（保住旧收藏与站内深链），
-    # 不是可导航的页面，不该出现在给模型的路由表里
-    exempt = {"/settings/*", "/tasks"}
-
-    ghosts = declared - fs_routes
-    assert not ghosts, f"路由表声明了前端不存在的页面：{sorted(ghosts)}"
-    unhandled = fs_routes - declared - exempt
-    assert not unhandled, (
-        f"前端新增了路由表未覆盖的页面：{sorted(unhandled)}——"
-        "要么补进 _PAGE_ROUTES 告知模型，要么加入本测试的豁免清单"
+def test_system_prompt_names_the_speaker(client) -> None:
+    """环境段写上这一轮说话人的昵称：超管、成员各用各的；程序主体（Agent / MCP）不写。"""
+    from movieclaw_api.services.agent_toolkit import (
+        agent_system_prompt,
+        get_agent_tools,
+        speaker_member_id,
     )
+    from movieclaw_api.services.auth import Principal
+
+    client.post("/api/v1/auth/bootstrap", json={"username": "admin", "password": "s3cret-pass"})
+    assert client.put("/api/v1/auth/profile", json={"nickname": "小鹏"}).status_code == 200
+    created = client.post(
+        "/api/v1/members",
+        json={"username": "kid01", "password": "password123", "nickname": "小美"},
+    )
+    assert created.status_code in (200, 201), created.text
+    member_id = created.json()["data"]["id"]
+
+    tools = get_agent_tools({})
+    assert "- 当前用户的昵称：小鹏" in asyncio.run(agent_system_prompt(tools, speaker=0))
+    assert "- 当前用户的昵称：小美" in asyncio.run(agent_system_prompt(tools, speaker=member_id))
+    assert "当前用户的昵称" not in asyncio.run(agent_system_prompt(tools))
+
+    assert speaker_member_id(Principal(kind="admin", name="tester")) == 0
+    assert speaker_member_id(Principal(kind="agent", name="agent:s")) is None
+    assert speaker_member_id(Principal(kind="mcp", name="mcp:1")) is None
+
+
+def test_system_prompt_sections_follow_mounted_tools(client) -> None:
+    """提示词从实际挂上的工具推导：没有 bash/read 不写源码、日志与技能，没有 mclaw 不写服务目录。"""
+    from movieclaw_api.services.agent_toolkit import agent_system_prompt, get_agent_tools
+
+    tools = get_agent_tools({})
+    full = asyncio.run(agent_system_prompt(tools))
+    mclaw_only = asyncio.run(agent_system_prompt([t for t in tools if t.name == "mclaw"]))
+    bare = asyncio.run(agent_system_prompt([]))
+
+    for section in ("后端源码", "运行日志目录", "# 技能"):
+        assert section in full
+        assert section not in mclaw_only
+        assert section not in bare
+    assert full.endswith("</mclaw_service>") and mclaw_only.endswith("</mclaw_service>")
+    assert "<mclaw_service>" not in bare

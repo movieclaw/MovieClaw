@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -44,7 +43,6 @@ import io.movieclaw.android.core.designsystem.Bg
 import io.movieclaw.android.core.designsystem.ErrorPane
 import io.movieclaw.android.core.designsystem.LineSoft
 import io.movieclaw.android.core.designsystem.LibraryItemCard
-import io.movieclaw.android.core.designsystem.McMetrics
 import io.movieclaw.android.core.designsystem.McTopBar
 import io.movieclaw.android.core.designsystem.McTopBarVariant
 import io.movieclaw.android.core.designsystem.McType
@@ -62,6 +60,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import io.movieclaw.android.core.designsystem.mcGridCells
+import io.movieclaw.android.core.designsystem.mcCards
 
 /**
  * 按类型的跨库海报墙（`/library/kind/{movie|tv|video}`，网页 `/library/kind/{类型}` 的对应物）：
@@ -233,7 +233,7 @@ fun KindWallScreen(
         Column(Modifier.fillMaxSize()) {
             // 页头只有一行统计（标题在顶栏，与 iOS 同版式）：带类型写「N 部电影 · 来自 M 个库」
             // （计数走筛后口径），不带类型写「N 部作品」并说明去重口径——文案与 Web/iOS 逐字一致
-            Column(Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 14.dp)) {
+            Column(Modifier.padding(horizontal = mcCards.pagePadding, vertical = 14.dp)) {
                 if (state.total > 0) {
                     Text(
                         if (vm.genre == null) {
@@ -249,7 +249,7 @@ fun KindWallScreen(
 
             // 排序档（横向 chips）：只有排序，没有筛选条与索引条（网页这面墙刻意做薄）
             LazyRow(
-                contentPadding = PaddingValues(horizontal = McMetrics.pagePadding),
+                contentPadding = PaddingValues(horizontal = mcCards.pagePadding),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(sortOptionsFor(vm.kind), key = { it.sort }) { option ->
@@ -279,10 +279,10 @@ fun KindWallScreen(
                 }
                 else -> LazyVerticalGrid(
                     state = gridState,
-                    columns = GridCells.Fixed(2),
+                    columns = mcGridCells(phoneColumns = 2),
                     contentPadding = PaddingValues(
-                        start = McMetrics.pagePadding,
-                        end = McMetrics.pagePadding,
+                        start = mcCards.pagePadding,
+                        end = mcCards.pagePadding,
                         bottom = 24.dp,
                     ),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -297,7 +297,7 @@ fun KindWallScreen(
                         )
                     }
                     if (state.loadingMore) {
-                        item(span = { GridItemSpan(3) }) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
                             Box(Modifier.fillMaxWidth().padding(14.dp), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(color = TextMuted, modifier = Modifier.size(20.dp))
                             }

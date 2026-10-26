@@ -1,3 +1,4 @@
+import { appTranslator } from "@/lib/i18n/translate";
 import { resolveRequestUrl, redirectToLoginOn401, HttpError, request } from "@/lib/http";
 
 /** Agent 执行事件（见 movieclaw_agent.events.AgentEvent）。 */
@@ -112,6 +113,7 @@ export interface SessionMessageEntry {
   parent_id?: string;
   timestamp: string;
   message: AgentTranscriptMessage;
+  generated_skill_instruction?: boolean | null;
   /** 以下仅 assistant 消息携带（运行元数据） */
   model?: string | null;
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null;
@@ -144,6 +146,7 @@ export interface SessionHandoffEntry {
   source_session_id: string;
   source_leaf_id?: string | null;
   source_title?: string | null;
+  source_title_ref?: SessionLabelRef | null;
   /** 完整快照只在 fork 创建响应里下发一次；常规轨迹读取固定为空数组。页面只展示来源卡片，不重复渲染旧消息。 */
   replacement_history: AgentTranscriptMessage[];
 }
@@ -153,15 +156,26 @@ export type SessionAnyEntry =
   | SessionCompactionEntry
   | SessionHandoffEntry;
 
+/** Automatic presentation only; raw user text never receives a message reference. */
+export interface SessionLabelRef {
+  message_key: string;
+  params?: Record<string, string | number | SessionLabelRef>;
+  message?: string;
+}
+
 /** 会话列表项；后台运行编号是服务端实现细节，不进入公开协议。 */
 export interface SessionSummary {
   id: string;
   title: string | null;
+  title_ref?: SessionLabelRef | null;
+  last_prompt_ref?: SessionLabelRef | null;
   last_prompt: string | null;
   entry_count: number;
   running: boolean;
   created_at: string;
   updated_at: string;
+  /** 会话归属：null = 网页 / 管理员发起；"plugin:<条目 id>" = 插件发起（docs/design/plugin-agent.md） */
+  owner: string | null;
 }
 
 export interface SessionTranscript {
@@ -399,7 +413,7 @@ export async function streamSession(
 
     if (!response.ok) throw await responseError(response);
     if (!response.body) {
-      throw new HttpError("当前环境不支持流式响应", response.status, null);
+      throw new HttpError(appTranslator()("common.streamUnsupported"), response.status, null);
     }
 
     retryDelay = 500;

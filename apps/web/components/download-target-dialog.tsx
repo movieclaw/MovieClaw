@@ -1,5 +1,10 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+
 /**
  * 下载目标选择弹窗（手动下载的保存位置确认）。
  *
@@ -40,7 +45,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FolderIcon } from "@/components/icons";
-import { CATEGORY_LABEL, type TorrentCategory } from "@/lib/categories";
+import { categoryLabel, type TorrentCategory } from "@/lib/categories";
 import { formatRelativeTime } from "@/lib/time";
 import { Modal } from "@/components/modal";
 import { listLibraries, type MediaLibrary } from "@/lib/api/libraries";
@@ -154,7 +159,7 @@ function resolveClues(request: DownloadTargetRequest, hint: string | null) {
   return { ...(request.identity ?? {}), subtitle: request.subtitle, hint };
 }
 
-const KIND_LABEL = { movie: "电影", tv: "剧集" } as const;
+const KIND_LABEL = { movie: "media.kind.movie", tv: "media.kind.tv" } as const;
 
 /** 一个可选的保存目标。 */
 interface TargetOption {
@@ -230,6 +235,8 @@ function DialogContent({
   onSubmitted: (result: DownloadSubmitResult) => void;
   topmost: boolean;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   // 记忆是「智能入库」时不必展开目录列表——预选的就是它
   const rememberedTarget = remembered;
   // 既没身份也没搜索词才一开始就摊开目录；有线索时先让用户回答「这是哪部」，
@@ -262,7 +269,7 @@ function DialogContent({
   // 首次下载该分类默认不勾（见文件头注释）
   const [remember, setRemember] = useState(rememberedTarget !== null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   // 下载器切换/候选确认都可能重发预检，只允许最后一次请求更新界面。
   const targetRequestId = useRef(0);
 
@@ -343,6 +350,13 @@ function DialogContent({
     [request],
   );
 
+  const previewLocale = useRef(locale);
+  useEffect(() => {
+    if (previewLocale.current === locale) return;
+    previewLocale.current = locale;
+    reloadManualTarget(downloaderId, selectedCandidate, hint);
+  }, [locale, reloadManualTarget, downloaderId, selectedCandidate, hint]);
+
   // “其他保存位置”展开后才读取下载器配置；加载完成后若最终选中的不是
   // 初始预检使用的下载器，再补一次预检以保持路径映射口径一致。
   useEffect(() => {
@@ -405,16 +419,16 @@ function DialogContent({
       const detail =
         manualTarget.mode === "watch"
           ? manualTarget.staging_path
-            ? `${manualTarget.route_reason ?? ""}；投递到自动入库的监听目录 ${manualTarget.path}，完成后整理到 ${manualTarget.staging_path}（外部流转回库根后入账）`
-            : `${manualTarget.route_reason ?? ""}；投递到自动入库的监听目录 ${manualTarget.path}，完成后自动整理入库`
+            ? t("download.target.watchStaging", { reason: manualTarget.route_reason ?? "", path: manualTarget.path ?? "", staging: manualTarget.staging_path })
+            : t("download.target.watch", { reason: manualTarget.route_reason ?? "", path: manualTarget.path ?? "" })
           : manualTarget.mode === "inplace"
-            ? `${manualTarget.route_reason ?? ""}；直接下载到 ${entryDir?.replace(/\/+$/, "")}，完成后自动入账`
+            ? t("download.target.inplace", { reason: manualTarget.route_reason ?? "", path: entryDir?.replace(/\/+$/, "") ?? "" })
             : null;
       result.push({
         key: "smart",
         kind: "smart",
         savePath: null,
-        label: `自动入库到「${manualTarget.library_name}」`,
+        label: t("download.target.automaticLibrary", { name: manualTarget.library_name ?? "" }),
         detail,
         warning: null,
       });
@@ -423,11 +437,11 @@ function DialogContent({
       const seen = new Set<string>();
       const dirs: { path: string; source: string }[] = [];
       if (downloader?.save_path) {
-        dirs.push({ path: downloader.save_path, source: "默认保存目录" });
+        dirs.push({ path: downloader.save_path, source: t("download.target.defaultPathSource") });
       }
       for (const m of downloader?.path_mappings ?? []) {
         if (!seen.has(m.local) && m.local !== downloader?.save_path) {
-          dirs.push({ path: m.local, source: "路径映射" });
+          dirs.push({ path: m.local, source: t("download.target.mappingSource") });
         }
         seen.add(m.local);
       }
@@ -438,7 +452,7 @@ function DialogContent({
           kind: "dir",
           savePath: dir.path,
           label: dir.path,
-          detail: remote !== dir.path ? `下载器视角：${remote}（${dir.source}）` : dir.source,
+          detail: remote !== dir.path ? t("download.target.remoteView", { path: remote, source: dir.source }) : dir.source,
           warning: null,
         });
       }
@@ -446,13 +460,13 @@ function DialogContent({
         key: "default",
         kind: "default",
         savePath: null,
-        label: "下载器默认目录",
-        detail: "不指定路径，由下载器按自身设置决定；movieclaw 不会自动整理入库",
+        label: t("download.target.downloaderDirectory"),
+        detail: t("download.target.defaultDirectoryHint"),
         warning: null,
       });
     }
     return result;
-  }, [manualTarget, downloader, showOtherTargets]);
+  }, [manualTarget, downloader, showOtherTargets, t]);
 
   // 换下载器后目录候选整组换血：选中的目录项若已不存在，退回未选中让下方
   // 默认选中逻辑重新挑一个
@@ -522,15 +536,15 @@ function DialogContent({
         onSubmitted(result);
         onClose();
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "提交失败，请重试"))
+      .catch((e) => setError(e instanceof Error ? e.message : { key: "download.target.failed" }))
       .finally(() => setBusy(false));
   };
 
   return (
-    <Modal open topmost={topmost} onClose={onClose} label="选择保存位置">
+    <Modal open topmost={topmost} onClose={onClose} label={t("download.target.title")}>
       {/* 头部常驻：目录一多就得滚，标题不跟着滚走才知道自己在选什么 */}
       <div className="border-b border-white/[0.07] px-6 pb-4 pt-6">
-        <h2 className="text-title font-bold text-white">选择保存位置</h2>
+        <h2 className="text-title font-bold text-white">{t("download.target.title")}</h2>
       </div>
 
       <div className="scroll-thin min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
@@ -569,17 +583,17 @@ function DialogContent({
               )}
               {loadingTarget && (
                 <div className="flex h-[52px] items-center rounded-xl border border-white/[0.06] bg-white/[0.03] px-3.5 text-caption text-[var(--text-faint)]">
-                  {selectedCandidate ? "正在预演自动入库…" : "正在识别影视条目并预演智能入库…"}
+                  {selectedCandidate ? t("download.target.previewing") : t("download.target.identifying")}
                 </div>
               )}
               {!loadingTarget && canResolve && manualTarget === null && (
                 <p className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-3.5 py-2.5 text-caption leading-relaxed text-amber-100">
-                  自动识别暂不可用；为避免投错库请手选保存目录后再下载。
+                  {t("download.target.unavailable")}
                 </p>
               )}
               {!loadingTarget && manualTarget?.status === "ready" && !manualTarget.ok && (
                 <p className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-3.5 py-2.5 text-caption leading-relaxed text-amber-100">
-                  已识别资源，但当前不能自动入库：{manualTarget.warning ?? "请检查媒体库和自动入库配置。"}
+                  {t("download.target.blocked", { reason: manualTarget.warning ?? t("download.target.checkConfig") })}
                 </p>
               )}
               {showOtherTargets && loadingDownloaders && (
@@ -595,7 +609,7 @@ function DialogContent({
                 >
                   <FolderIcon className="mt-0.5 size-4 shrink-0 text-[var(--accent)]/80" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-mono text-ui font-medium text-[var(--text)]">
+                    <span className={`block text-ui font-medium text-[var(--text)] ${locale === "en" && option.kind !== "dir" ? "break-words" : "truncate font-mono"}`}>
                       {option.label}
                     </span>
                     {option.detail && (
@@ -618,7 +632,7 @@ function DialogContent({
                   onClick={() => setShowOtherTargets(true)}
                   className="w-full rounded-xl border border-dashed border-white/[0.1] px-3.5 py-2.5 text-left text-ui text-[var(--text-muted)] transition-colors hover:border-white/20 hover:bg-white/[0.03] hover:text-white/90"
                 >
-                  其他保存位置
+                  {t("download.target.otherDestinations")}
                 </button>
               )}
             </div>
@@ -626,7 +640,7 @@ function DialogContent({
           {/* 下载器分流：≥2 台可用才出现（单台用户界面零变化），默认预选默认台 */}
           {showOtherTargets && downloaders.length >= 2 && (
             <div className="flex items-center gap-2.5">
-              <span className="shrink-0 text-sub text-[var(--text-muted)]">下载器</span>
+              <span className="shrink-0 text-sub text-[var(--text-muted)]">{t("download.target.downloader")}</span>
               <select
                 value={downloaderId ?? undefined}
                 onChange={(e) => {
@@ -638,8 +652,7 @@ function DialogContent({
               >
                 {downloaders.map((d) => (
                   <option key={d.id} value={d.id}>
-                    {d.name}
-                    {d.is_default ? "（默认）" : ""}
+                    {t("download.target.namedDownloader", { name: d.name, isDefault: d.is_default ? "yes" : "no" })}
                   </option>
                 ))}
               </select>
@@ -658,48 +671,39 @@ function DialogContent({
             />
             <span className="min-w-0 flex-1">
               <span className="block text-ui text-[var(--text)]">
-                记住本次选择，作为「
-                {CATEGORY_LABEL[request.category as TorrentCategory] ?? request.category}
-                」的默认位置
+                {t("download.target.remember", { category: categoryLabel(request.category as TorrentCategory, locale) })}
               </span>
               <span className="mt-0.5 block text-caption leading-relaxed text-[var(--text-faint)]">
                 {remember
-                  ? "之后点「下载」先给你确认一次落点，随时可以改，或在确认条上「不再记住」。"
-                  : "不勾选就只对这一次下载生效，不会留下默认位置。"}
+                  ? t("download.target.rememberedHint")
+                  : t("download.target.temporaryHint")}
               </span>
             </span>
           </label>
 
           {showOtherTargets && (
             <p className="text-caption leading-relaxed text-[var(--text-faint)]">
-              movieclaw 与下载器不在同一容器/主机、看到的路径不同？到
-              <Link
-                href="/settings/downloaders"
-                className="mx-0.5 text-[var(--accent)] hover:underline"
-              >
-                设置 → 下载器
-              </Link>
-              配置路径映射，提交时会自动翻译成下载器视角。
+              {t.rich("download.target.mappingHint", { link: (chunks) => <Link href="/settings/downloaders" className="mx-0.5 text-[var(--accent)] hover:underline">{chunks}</Link> })}
             </p>
           )}
       </div>
 
       {/* 底栏常驻：确认按钮永远在屏幕上，不必先把长列表滚到底才找得到 */}
       <div className="flex justify-end gap-3 border-t border-white/[0.07] px-6 py-4">
-        <button type="button" onClick={onClose} className="btn-glass h-9 px-4 text-ui font-medium">
-          取消
+        <button type="button" onClick={onClose} className={`btn-glass px-4 text-ui font-medium ${locale === "en" ? "min-h-9 py-2" : "h-9"}`}>
+          {t("common.cancel")}
         </button>
         <button
           type="button"
           onClick={submit}
           disabled={busy || selected === null}
-          className="btn-accent h-9 rounded-full px-5 text-ui font-semibold disabled:opacity-40"
+          className={`btn-accent rounded-full px-5 text-ui font-semibold disabled:opacity-40 ${locale === "en" ? "min-h-9 break-words py-2" : "h-9"}`}
         >
           {busy
-            ? "提交中…"
+            ? t("download.target.submitting")
             : selected === "smart" && manualTarget?.library_name
-              ? `下载到「${manualTarget.library_name}」`
-              : "确认下载"}
+              ? t("download.target.libraryDownload", { name: manualTarget.library_name })
+              : t("download.target.confirm")}
         </button>
       </div>
     </Modal>
@@ -728,11 +732,13 @@ function MemberDialogContent({
   onSubmitted: (result: DownloadSubmitResult) => void;
   topmost: boolean;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   // null = 加载中；拉失败按空列表处理，仍可选下载器默认目录
   const [libraries, setLibraries] = useState<MediaLibrary[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   const kind = request.identity?.kind ?? null;
 
   useEffect(() => {
@@ -779,7 +785,7 @@ function MemberDialogContent({
         onSubmitted(result);
         onClose();
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "提交失败，请重试"))
+      .catch((e) => setError(e instanceof Error ? e.message : { key: "download.target.failed" }))
       .finally(() => setBusy(false));
   };
 
@@ -791,9 +797,9 @@ function MemberDialogContent({
     "flex w-full items-start gap-2.5 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2.5 text-left transition-colors hover:border-[var(--accent)]/50 data-[active=true]:border-[var(--accent)]/70 data-[active=true]:bg-[var(--accent-soft)]";
 
   return (
-    <Modal open topmost={topmost} onClose={onClose} label="选择保存位置">
+    <Modal open topmost={topmost} onClose={onClose} label={t("download.target.title")}>
       <div className="border-b border-white/[0.07] px-6 pb-4 pt-6">
-        <h2 className="text-title font-bold text-white">选择保存位置</h2>
+        <h2 className="text-title font-bold text-white">{t("download.target.title")}</h2>
       </div>
 
       <div className="scroll-thin min-h-0 flex-1 space-y-2 overflow-y-auto px-6 py-4">
@@ -816,13 +822,13 @@ function MemberDialogContent({
               >
                 <FolderIcon className="mt-0.5 size-4 shrink-0 text-[var(--accent)]/80" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-ui font-medium text-[var(--text)]">
-                    下载到「{library.name}」
+                  <span className={`block text-ui font-medium text-[var(--text)] ${locale === "en" ? "break-words" : "truncate"}`}>
+                    {t("download.target.libraryDownload", { name: library.name })}
                   </span>
                   <span className="mt-0.5 block text-caption leading-relaxed text-[var(--text-faint)]">
                     {library.kind === kind || !kind
-                      ? "按该库的入库规则保存，下载完成后自动整理入库"
-                      : `该库是${LIBRARY_KIND_LABEL[library.kind] ?? "其他"}库，与这条资源的类型不一致`}
+                      ? t("download.target.memberLibraryHint")
+                      : t("download.target.kindMismatch", { kind: library.kind })}
                   </span>
                 </span>
               </button>
@@ -835,11 +841,11 @@ function MemberDialogContent({
             >
               <FolderIcon className="mt-0.5 size-4 shrink-0 text-[var(--accent)]/80" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-ui font-medium text-[var(--text)]">
-                  下载器默认目录
+                <span className={`block text-ui font-medium text-[var(--text)] ${locale === "en" ? "break-words" : "truncate"}`}>
+                  {t("download.target.downloaderDirectory")}
                 </span>
                 <span className="mt-0.5 block text-caption leading-relaxed text-[var(--text-faint)]">
-                  不指定位置，由下载器按自身设置决定；不会自动整理入库
+                  {t("download.target.memberDefaultHint")}
                 </span>
               </span>
             </button>
@@ -848,27 +854,22 @@ function MemberDialogContent({
       </div>
 
       <div className="flex justify-end gap-3 border-t border-white/[0.07] px-6 py-4">
-        <button type="button" onClick={onClose} className="btn-glass h-9 px-4 text-ui font-medium">
-          取消
+        <button type="button" onClick={onClose} className={`btn-glass px-4 text-ui font-medium ${locale === "en" ? "min-h-9 py-2" : "h-9"}`}>
+          {t("common.cancel")}
         </button>
         <button
           type="button"
           onClick={submit}
           disabled={busy || selected === null}
-          className="btn-accent h-9 rounded-full px-5 text-ui font-semibold disabled:opacity-40"
+          className={`btn-accent rounded-full px-5 text-ui font-semibold disabled:opacity-40 ${locale === "en" ? "min-h-9 break-words py-2" : "h-9"}`}
         >
-          {busy ? "提交中…" : picked ? `下载到「${picked.name}」` : "确认下载"}
+          {busy ? t("download.target.submitting") : picked ? t("download.target.libraryDownload", { name: picked.name }) : t("download.target.confirm")}
         </button>
       </div>
     </Modal>
   );
 }
 
-const LIBRARY_KIND_LABEL: Partial<Record<MediaLibrary["kind"], string>> = {
-  movie: "电影",
-  tv: "剧集",
-  video: "视频",
-};
 
 /**
  * 「这是哪部作品？」：自动识别没收敛时的条目确认区。
@@ -898,14 +899,15 @@ function CandidatePicker({
   onPick: (candidate: ManualDownloadTargetCandidate) => void;
   onSearch: (q: string) => void;
 }) {
+  const t = useTranslations();
   const caption =
     !busy && status === "not_found"
       ? hint
-        ? `没找到与「${hint}」匹配的作品，换个片名试试（中文名搜不到时可试英文/原名）。`
-        : "输入片名搜索，确认后会自动分配媒体库。"
+        ? t("download.target.noCandidates", { hint })
+        : t("download.target.searchHint")
       : candidates.length > 0
-        ? "没能自动认出这条资源。点选正确的作品，媒体库会按收藏范围自动分配。"
-        : "输入片名搜索，确认后会自动分配媒体库。";
+        ? t("download.target.unidentified")
+        : t("download.target.searchHint");
   const submitSearch = () => {
     const q = draft.trim();
     if (q) onSearch(q);
@@ -913,7 +915,7 @@ function CandidatePicker({
   return (
     <div className="space-y-2.5 rounded-xl border border-amber-400/20 bg-amber-500/[0.06] px-3.5 py-3">
       <div>
-        <p className="text-ui font-medium text-[var(--text)]">这是哪部作品？</p>
+        <p className="text-ui font-medium text-[var(--text)]">{t("download.target.whichTitle")}</p>
         <p className="mt-0.5 text-caption leading-relaxed text-[var(--text-faint)]">{caption}</p>
       </div>
       {candidates.length > 0 && (
@@ -950,8 +952,8 @@ function CandidatePicker({
                     {candidate.year ? ` (${candidate.year})` : ""}
                   </span>
                   <span className="block text-caption text-[var(--text-faint)]">
-                    {KIND_LABEL[candidate.kind]}
-                    {candidate.episode_count ? ` · ${candidate.episode_count} 集` : ""}
+                    {t(KIND_LABEL[candidate.kind])}
+                    {candidate.episode_count ? t("download.target.episodeSuffix", { count: candidate.episode_count }) : ""}
                   </span>
                 </span>
               </button>
@@ -967,8 +969,8 @@ function CandidatePicker({
           onKeyDown={(e) => {
             if (e.key === "Enter") submitSearch();
           }}
-          placeholder={candidates.length > 0 ? "都不对？换个片名搜" : "输入片名"}
-          aria-label="按片名搜索作品"
+          placeholder={candidates.length > 0 ? t("download.target.searchAgain") : t("download.target.enterTitle")}
+          aria-label={t("download.target.searchTitleLabel")}
           className="min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-sub text-[var(--text)] outline-none placeholder:text-white/30 focus:border-[var(--accent)]/60"
         />
         <button
@@ -977,7 +979,7 @@ function CandidatePicker({
           onClick={submitSearch}
           className="btn-glass shrink-0 px-3.5 py-1.5 text-sub font-medium disabled:opacity-40"
         >
-          搜索
+          {t("common.search")}
         </button>
       </div>
     </div>
@@ -987,9 +989,10 @@ function CandidatePicker({
 /* —— 确认条：命中记忆时代替静默提交 —— */
 
 /** 记忆里存的目标翻译成人话（确认条主行）。 */
-function targetHeadline(target: DownloadTargetPref, resolvedPath: string | null): string | null {
+function targetHeadline(target: DownloadTargetPref, resolvedPath: string | null, locale: AppLocale): string | null {
+  const t = appTranslator(locale);
   if (target.kind === "dir") return target.save_path;
-  if (target.kind === "default") return "下载器的默认目录";
+  if (target.kind === "default") return t("download.target.defaultHeadline");
   return resolvedPath; // smart：要等预检算出来
 }
 
@@ -1026,6 +1029,8 @@ export function DownloadTargetConfirmBar({
   onForget: () => void;
   onClose: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   // smart 目标存的是策略不是路径，得重跑预检才知道这次落到哪
   const [resolvedPath, setResolvedPath] = useState<string | null>(null);
   const [preflighting, setPreflighting] = useState(target.kind === "smart");
@@ -1057,61 +1062,58 @@ export function DownloadTargetConfirmBar({
     };
   }, [request, target]);
 
-  const label = CATEGORY_LABEL[request.category as TorrentCategory] ?? request.category;
-  const headline = targetHeadline(target, resolvedPath);
+  const label = categoryLabel(request.category as TorrentCategory, locale);
+  const headline = targetHeadline(target, resolvedPath, locale);
 
   return (
-    <Modal open topmost={topmost} onClose={onClose} label="确认保存位置">
+    <Modal open topmost={topmost} onClose={onClose} label={t("download.target.confirmTitle")}>
       <div className="flex items-start gap-3 px-5 pb-3 pt-5">
         <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-[9px] bg-[var(--accent-soft)]">
           <FolderIcon className="size-4 text-[var(--accent)]" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-caption uppercase tracking-[0.09em] text-[var(--text-faint)]">
-            保存到
+            {t("download.target.saveTo")}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-2">
             <b className="text-body font-semibold text-white">{label}</b>
             <span className="size-[3px] rounded-full bg-[var(--text-faint)]" />
             <span className="text-sub text-[var(--text-muted)]">
               {target.kind === "smart"
-                ? "智能入库"
-                : (target.downloader_name ?? "默认下载器")}
+                ? t("download.target.smart")
+                : (target.downloader_name ?? t("download.target.defaultDownloader"))}
             </span>
           </div>
           {/* 预检未回来时占位骨架：先让用户看到「在确认什么」，比整条延迟出现
               少一次视觉跳变 */}
           {preflighting ? (
-            <div className="mt-1.5 space-y-1.5" aria-label="正在确认归宿">
+            <div className="mt-1.5 space-y-1.5" aria-label={t("download.target.checking")}>
               <div className="h-2.5 w-3/4 animate-pulse rounded bg-white/10" />
               <div className="h-2.5 w-2/5 animate-pulse rounded bg-white/10" />
             </div>
           ) : (
             <p className="mt-1 break-all font-mono text-caption leading-relaxed text-white">
-              {headline ?? "由下载器决定"}
+              {headline ?? t("download.target.chosenByDownloader")}
             </p>
           )}
         </div>
       </div>
 
-      <div className="flex flex-col gap-2.5 border-t border-white/[0.07] px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className={`flex flex-col gap-2.5 border-t border-white/[0.07] px-5 py-3 ${locale === "en" ? "" : "sm:flex-row sm:items-center sm:justify-between"}`}>
         <span className="text-center text-caption text-[var(--text-faint)] sm:text-left">
-          上次用过 · {formatRelativeTime(target.updated_at)} ·{" "}
-          <button
+          {t.rich("download.target.lastUsed", { time: formatRelativeTime(target.updated_at, locale), forget: (chunks) => <button
             type="button"
             onClick={onForget}
             className="text-[var(--accent-2)] underline underline-offset-2 hover:text-[var(--accent)]"
-          >
-            不再记住
-          </button>
+          >{chunks}</button> })}
         </span>
-        <div className="flex gap-2">
+        <div className={`flex gap-2 ${locale === "en" ? "justify-end" : ""}`}>
           <button
             type="button"
             onClick={onChange}
-            className="btn-glass h-9 flex-1 px-4 text-ui font-medium sm:flex-none"
+            className={`btn-glass flex-1 px-4 text-ui font-medium sm:flex-none ${locale === "en" ? "min-h-9 py-2" : "h-9"}`}
           >
-            更改
+            {t("download.target.change")}
           </button>
           <button
             type="button"
@@ -1120,9 +1122,9 @@ export function DownloadTargetConfirmBar({
               setBusy(true);
               onConfirm();
             }}
-            className="btn-accent h-9 flex-1 rounded-full px-5 text-ui font-semibold disabled:opacity-40 sm:flex-none"
+            className={`btn-accent flex-1 rounded-full px-5 text-ui font-semibold disabled:opacity-40 sm:flex-none ${locale === "en" ? "min-h-9 break-words py-2" : "h-9"}`}
           >
-            {busy ? "提交中…" : "确认下载"}
+            {busy ? t("download.target.submitting") : t("download.target.confirm")}
           </button>
         </div>
       </div>

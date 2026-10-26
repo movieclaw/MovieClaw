@@ -99,6 +99,57 @@ def describe(archive: Path) -> dict:
     return entry
 
 
+def dmg_contents(dmg: Path) -> tuple[str, str, bool, bool] | None:
+    """挂载安装盘读里面 App 的版本、构建号，并复核 DMG 的签名与公证；非 macOS 返回 None。"""
+    if sys.platform != "darwin":
+        return None
+    with tempfile.TemporaryDirectory(prefix="movieclaw-dmg-") as mount:
+        subprocess.run(
+            ["hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen",
+             "-mountpoint", mount, str(dmg)],
+            check=True, capture_output=True,
+        )
+        try:
+            apps = [p for p in Path(mount).iterdir()
+                    if p.suffix == ".app" and not p.is_symlink()]
+            if len(apps) != 1:
+                raise ValueError(f"{dmg.name} 必须只包含一个 App")
+            info = plistlib.loads((apps[0] / "Contents/Info.plist").read_bytes())
+        finally:
+            subprocess.run(["hdiutil", "detach", mount, "-quiet"], check=False)
+    details = subprocess.run(
+        ["codesign", "-dv", "--verbose=4", str(dmg)], capture_output=True, text=True
+    )
+    valid = subprocess.run(["codesign", "--verify", "--verbose=2", str(dmg)], capture_output=True)
+    signed = valid.returncode == 0 and "Authority=Developer ID Application:" in details.stderr
+    notarized = signed and subprocess.run(
+        ["xcrun", "stapler", "validate", str(dmg)], capture_output=True
+    ).returncode == 0
+    return str(info["CFBundleShortVersionString"]), str(info["CFBundleVersion"]), signed, notarized
+
+
+def describe_dmg(dmg: Path, update: dict) -> dict:
+    """Mac 版安装盘：给人下载安装（variant installer），与同版本的更新包 zip（update）成对。
+
+    版本、芯片、最低系统取自同一 Release 里的 zip；在 macOS 上挂载核对里面确实是同一个构建，
+    并复核 DMG 自己的签名与公证。
+    """
+    entry = {**update, "variant": "installer", "asset": dmg.name, "size": dmg.stat().st_size}
+    entry.pop("edSignature", None)  # 签名只属于更新包
+    with dmg.open("rb") as f:
+        entry["sha256"] = hashlib.file_digest(f, "sha256").hexdigest()
+    contents = dmg_contents(dmg)
+    if contents is None:
+        entry["signed"], entry["notarized"] = None, None
+    else:
+        version, build, entry["signed"], entry["notarized"] = contents
+        if (version, build) != (update["version"], update["build"]):
+            raise ValueError(
+                f"{dmg.name} 里是 {version}（{build}），与更新包 {update['asset']} 不是同一个构建"
+            )
+    return entry
+
+
 def describe_android(
     apk: Path, product: str = "android", application_id: str = "io.movieclaw.android",
     arch: str = "arm64",
@@ -127,14 +178,91 @@ def describe_android(
     return entry
 
 
+def describe_ipa(ipa: Path) -> dict:
+    """iPhone 未签名 IPA：版本、构建号与最低 iOS 从包内 Info.plist 读。"""
+    with zipfile.ZipFile(ipa) as z:
+        plists = [n for n in z.namelist() if re.fullmatch(r"Payload/[^/]+\.app/Info\.plist", n)]
+        if len(plists) != 1:
+            raise ValueError(f"{ipa.name} 必须只包含一个 Payload/*.app")
+        info = plistlib.loads(z.read(plists[0]))
+    if info.get("CFBundleIdentifier") != "io.movieclaw.app":
+        raise ValueError(f"{ipa.name} 不是 MovieClaw iPhone App：{info.get('CFBundleIdentifier')}")
+    with ipa.open("rb") as f:
+        digest = hashlib.file_digest(f, "sha256").hexdigest()
+    entry = {
+        "product": "iphone",
+        "version": str(info["CFBundleShortVersionString"]),
+        "build": str(info["CFBundleVersion"]),
+        "arch": "arm64",
+        "minimumSystemVersion": str(info["MinimumOSVersion"]),
+        "asset": ipa.name,
+        "size": ipa.stat().st_size,
+        "sha256": digest,
+        "signed": False,
+    }
+    for field in ("version", "minimumSystemVersion"):
+        if not re.fullmatch(r"\d+(?:\.\d+){1,3}", entry[field]):
+            raise ValueError(f"{ipa.name} 的 {field} 不合法：{entry[field]}")
+    return entry
+
+
+def describe_windows(directory: Path) -> list[dict]:
+    """Windows 安装版与便携版：以 Desktop CI 的 release-manifest.json 为准，核对实际文件。"""
+    manifest = json.loads((directory / "release-manifest.json").read_text(encoding="utf-8-sig"))
+    version = manifest["version"]
+    signed = manifest.get("signatures", {}).get("installer", {}).get("status") == "Valid"
+    packages = []
+    for item in manifest["files"]:
+        variant = {"Setup-x64.exe": "installer", "portable-x64.zip": "portable"}.get(
+            item["name"].removeprefix(f"MovieClaw-Windows-{version}-")
+        )
+        path = directory / item["name"]
+        with path.open("rb") as f:
+            digest = hashlib.file_digest(f, "sha256").hexdigest()
+        if variant is None or (path.stat().st_size, digest) != (item["size"], item["sha256"]):
+            raise ValueError(f"{item['name']} 与 release-manifest.json 不一致")
+        packages.append({
+            "product": "windows",
+            "variant": variant,
+            "version": version,
+            "build": str(manifest.get("buildNumber") or version),
+            "arch": "x86_64",
+            "minimumSystemVersion": "10",
+            "asset": item["name"],
+            "size": item["size"],
+            "sha256": digest,
+            "signed": signed,
+        })
+    return sorted(packages, key=lambda p: p["variant"])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()
-    if not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[\w.-]+)?", args.tag):
-        parser.error("tag 必须是应用 Release 的 vX.Y.Z")
+    client = re.fullmatch(
+        r"(android|androidtv|macos|transcoder|ios|windows)-v(\d+\.\d+\.\d+)", args.tag
+    )
+    if not client and not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[\w.-]+)?", args.tag):
+        parser.error("tag 必须是 vX.Y.Z，或客户端前缀（如 android-v、macos-v）加 X.Y.Z")
     packages = [describe(p) for p in sorted(args.directory.glob("MovieClaw*-macos-*.zip"))]
+    # 更新包的 EdDSA 签名（package-mac-app.sh 签好、用 App 里的公钥核对过，随 Release 上传）：
+    # 官网只把带签名的放进更新源
+    for p in packages:
+        sig = args.directory / f"{p['asset']}.edsig"
+        if p["product"] == "mac" and sig.exists():
+            p["edSignature"] = sig.read_text().strip()
+            if not re.fullmatch(r"[A-Za-z0-9+/]{86}==", p["edSignature"]):
+                sys.exit(f"{sig.name} 不是 EdDSA 签名")
+    # Mac 版安装盘与同芯片的 zip 成对：有安装盘时 zip 只作自动更新的更新包，官网下载页给安装盘
+    for dmg in sorted(args.directory.glob("MovieClaw-macos-*.dmg")):
+        update = next((p for p in packages if p["product"] == "mac"
+                       and p["asset"] == dmg.name.removesuffix(".dmg") + ".zip"), None)
+        if update is None:
+            sys.exit(f"{dmg.name} 缺少同名的更新包 zip")
+        update["variant"] = "update"
+        packages.append(describe_dmg(dmg, update))
     packages += [
         describe_android(p) for p in sorted(args.directory.glob("MovieClaw-Android-*.apk"))
     ]
@@ -142,6 +270,17 @@ def main() -> None:
         describe_android(p, "androidtv", "io.movieclaw.androidtv", "arm")
         for p in sorted(args.directory.glob("MovieClaw-AndroidTV.apk"))
     ]
+    packages += [describe_ipa(p) for p in sorted(args.directory.glob("MovieClaw-iOS-*.ipa"))]
+    if (args.directory / "release-manifest.json").exists():
+        packages += describe_windows(args.directory)
+    # 客户端独立 Release 只放自己的包（Windows 是安装版与便携版两个），包内版本必须就是 tag 的版本
+    if client:
+        product = {"macos": "mac", "ios": "iphone"}.get(client.group(1), client.group(1))
+        # Windows 是安装版与便携版两个；Mac 版是安装盘与更新包两个（只有 zip 的旧 Release 是一个）
+        with_dmg = any(p.get("variant") == "installer" for p in packages if p["product"] == "mac")
+        count = 2 if product == "windows" or with_dmg else 1
+        if [(p["product"], p["version"]) for p in packages] != [(product, client.group(2))] * count:
+            sys.exit(f"{args.tag} 只能包含版本 {client.group(2)} 的 {product} 安装包")
     manifest = {"schema": 1, "release": args.tag, "packages": packages}
     output = args.directory / "downloads.json"
     output.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")

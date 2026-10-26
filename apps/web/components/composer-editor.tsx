@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import {
   forwardRef,
   useCallback,
@@ -279,6 +281,7 @@ const slashTrigger: TriggerFn = (text) => {
 };
 
 function SkillTypeaheadPlugin() {
+  const t = useTranslations();
   const [editor] = useLexicalComposerContext();
   const [skills, setSkills] = useState<AgentSkill[]>([]);
   const [query, setQuery] = useState<string | null>(null);
@@ -336,10 +339,10 @@ function SkillTypeaheadPlugin() {
           ? createPortal(
               <div
                 role="listbox"
-                aria-label="技能快捷选择"
+                aria-label={t("agent.conversation.skillShortcuts")}
                 className="menu-surface absolute bottom-[1.8em] left-0 z-50 max-h-64 w-72 overflow-y-auto p-1.5"
               >
-                <p className="px-2.5 pb-0.5 pt-1 text-caption text-[var(--text-faint)]">使用技能</p>
+                <p className="px-2.5 pb-0.5 pt-1 text-caption text-[var(--text-faint)]">{t("agent.conversation.useSkill")}</p>
                 {options.map((option, index) => (
                   <button
                     key={option.key}
@@ -393,6 +396,7 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
     { value, onChange, onSubmit, placeholder, disabled, autoFocus, skillPicker, onPasteFiles },
     ref,
   ) {
+    const t = useTranslations();
     const editorRef = useRef<LexicalEditor | null>(null);
     // 最近一次向外发出的序列化文本：区分「内部输入」与「外部改值」
     const lastEmitted = useRef(value);
@@ -463,7 +467,7 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
           <PlainTextPlugin
             contentEditable={
               <ContentEditable
-                aria-label="消息输入框"
+                aria-label={t("agent.conversation.input")}
                 className="scroll-thin block h-[66px] w-full overflow-y-auto whitespace-pre-wrap bg-transparent px-4 pb-1 pt-3.5 text-body leading-6 text-[var(--text)] focus:outline-none"
               />
             }

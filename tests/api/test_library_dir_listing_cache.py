@@ -47,7 +47,8 @@ def test_listing_is_cached_while_directory_unchanged(tmp_path: Path, monkeypatch
     real_scandir = os.scandir
 
     def counting_scandir(path):  # noqa: ANN001
-        calls.append(Path(path))
+        if not isinstance(path, int):  # rmtree 清 tmp_path 时按 fd 列目录，放过
+            calls.append(Path(path))
         return real_scandir(path)
 
     monkeypatch.setattr(os, "scandir", counting_scandir)

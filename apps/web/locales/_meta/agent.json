@@ -1,0 +1,383 @@
+{
+  "composer.imageUnsupported": {
+    "sourceHash": "46cf4ae9c51c71a6c78f299702f3b082ae170b7f96d7387063a0d608a2cd26a2"
+  },
+  "composer.imageLimit": {
+    "sourceHash": "d67abe3e85fba006a3a53f349401148c88844a52b7dd1f14a12fc30cb0077b66"
+  },
+  "composer.uploading": {
+    "sourceHash": "ce1c9d61565f624b209c48f9dada4e83d51cb22a7864ebd779d3fe336c13f900"
+  },
+  "composer.busyPlaceholder": {
+    "sourceHash": "1da00d81ed586edb7bee6cdd4fcb5d18452bcd0b2077727aa6007c10f2c2aed7"
+  },
+  "composer.placeholder": {
+    "sourceHash": "a67e327034777519549ca845e147aa12bbffccb19755763535ec00d4ad089d70"
+  },
+  "composer.generating": {
+    "sourceHash": "969ef41f7e5bf3a8b5c80c2c3363b36c62fc6e261648cffa16336bae76f48592"
+  },
+  "composer.send": {
+    "sourceHash": "edecf0ae6e5144f9e297af730f9f6ce2ac17914f3368e72ead50c22aacd15db6"
+  },
+  "composer.stop": {
+    "sourceHash": "9ad0aac32ea304beabf5259cfb5b7bb26b43490b671d3f4ae7ee1a3157be8e0e"
+  },
+  "composer.removeImage": {
+    "sourceHash": "68b4b1c32835e241d38e8c39cfdd65fbdbcc08ec10cb63daaeab72165d86d473"
+  },
+  "composer.addContent": {
+    "sourceHash": "d07674d338b5588a68a231b5c8119e69785110193cf6b43295148de4357c2f21"
+  },
+  "composer.uploadImage": {
+    "sourceHash": "9fbb4750bb3911335eec540164ef57b697f03d491cc56a2e20cc2fb6f4821842"
+  },
+  "composer.useSkill": {
+    "sourceHash": "37a41b2e983b06ee9554ce6b39fa4f972eaf4fb1f1caa8a2819c0971ce16d23f"
+  },
+  "composer.loading": {
+    "sourceHash": "4927a53bcc886afb9211eb1143351cf8e32ec830c381832e6060223c8b84f3d6"
+  },
+  "composer.skillsFailed": {
+    "sourceHash": "ce20677f09565c98b23730047d8e70ff6717b2b3b2a98ebbc486979644dfd532"
+  },
+  "composer.noSkills": {
+    "sourceHash": "bfa06e4c4e90d8ee8932c4b370d1dd6b0ac7bf3b25aa3e4c6625f29eded0bdc3"
+  },
+  "composer.addImageOrSkill": {
+    "sourceHash": "0da2ee7e9ec2d87de532cf6fabefa7dbcd6adcc12b0b67565584159861923742"
+  },
+  "composer.modelThinking": {
+    "sourceHash": "b7810611d31386a30cb96468b6dc9cbdc4f5b24d96c006fa98b0e42d9366d4b7"
+  },
+  "composer.model": {
+    "sourceHash": "c98e118e0a43f078bac8043a1ac8ccac8a554f8e8bca6a7c57de386a7970c71f"
+  },
+  "composer.thinkingUnsupported": {
+    "sourceHash": "1f609d7238092bc3bae9c4dbe7bf8226b4d244a4b12ec931d131d256b3bba5c7"
+  },
+  "composer.modelThinkingLabel": {
+    "sourceHash": "b1713678bb016e3866241d4e76e863e626d633c45c3a2f82bf0c3a561d864d53"
+  },
+  "composer.reasoningEffort": {
+    "sourceHash": "8bdeb022614750b57f8d4dc6cf370fb4a6ea99e80e1f355fea18d8957bfad588"
+  },
+  "composer.resetDefault": {
+    "sourceHash": "ba2e93e73037c71e5522101bb084c5b5a52dcd9e615c9f955275f25611eccc37"
+  },
+  "composer.modelDecides": {
+    "sourceHash": "74d64b5501f73464e79fe562e869367c0aa156a05b1307d5ed4cc7452fcc80d4"
+  },
+  "composer.faster": {
+    "sourceHash": "550008868854b675694f6bd798a5c3cf73aa3e46aff8c409f7d59cc58017a50b"
+  },
+  "composer.smarter": {
+    "sourceHash": "dbb677817fbdeb0bf5abfcb547fb5f1b4f39a212cec32f5ce40e8114a5799577"
+  },
+  "composer.reasoning": {
+    "sourceHash": "56cd05fd1f34faa09290c7dd9e5002fe3b5e3a887dbbb94d73cad17fdabc43d2"
+  },
+  "composer.reasoningToggle": {
+    "sourceHash": "f47e259012d3bc86353b4aefe3943a61a63a095561571fa2dc7b38f929e7d785"
+  },
+  "modelGate.defaultFeature": {
+    "sourceHash": "eb026ba4ffcc1f8c53c00fa41c4f4fd3c22c92e96a905de2609be50698dea1fd"
+  },
+  "modelGate.description": {
+    "sourceHash": "fc79003094d5ba59f24c4c277a594b79e56b069ce2445500d7182ad8377609bf"
+  },
+  "modelGate.connect": {
+    "sourceHash": "5df42fc77469d4b8d0a53d59313beccf68cf10b58dd47ec4b029c8fa69454d95"
+  },
+  "thinking.off": {
+    "sourceHash": "5d0ae622f61f8ebf1e88af1f321cb116c594d1be3d0583a91ed4fb471e414ca5"
+  },
+  "thinking.minimal": {
+    "sourceHash": "477e3eac404332b3fbe0c0dd41b6d8ea0c4394414ad925e316bbf012da5cc6db"
+  },
+  "thinking.low": {
+    "sourceHash": "aa9e366f68d3d097d4890b65882090beea51c8bcec6eece03c78c007fd81c8d1"
+  },
+  "thinking.medium": {
+    "sourceHash": "a567bdaa11367f260f0708391f4d10766b5962f565d9e432f17981a3584fe1e2"
+  },
+  "thinking.high": {
+    "sourceHash": "b1c27820fec23edbd70cecde2f968ad3f392c5be332a7606c7ea8d9fa75c846f"
+  },
+  "thinking.xhigh": {
+    "sourceHash": "8696c49ac55b8c71559a13f0c0e052a582e3a4dcec40477818362f9c2724924b"
+  },
+  "thinking.max": {
+    "sourceHash": "8672864e9041713891eb1fdddfa13fc6450905ece015347bc68e45e2904634f0"
+  },
+  "thinking.enabled": {
+    "sourceHash": "a1f8f67d8f87d978d66a04099e7834b21e0149cfb2ca3437ff40acf7508d6d20"
+  },
+  "thinking.enabledDescription": {
+    "sourceHash": "233b7d8b84bd22698c59bf766b3d50fc759aafa7831274b312a1e6331e201707"
+  },
+  "thinking.disabled": {
+    "sourceHash": "3fd47edce45b3603d4192f61dbf3e51162589b0951042a18d244132ac92e7bb7"
+  },
+  "thinking.disabledDescription": {
+    "sourceHash": "1beee7a252b872abe2a87f0cf9304877f3a66cc6ab681cdfc18dd86e4d2b20e0"
+  },
+  "thinking.default": {
+    "sourceHash": "844b8cc8dff7c1d87b0f840c0a1271b227b332288a1a947f24fd376bfd12c1c9"
+  },
+  "thinking.defaultDescription": {
+    "sourceHash": "e60887043988eed9f741a6c3a6d5cfbba41c580ac3defc4c82adab0f2595989f"
+  },
+  "thinking.levelDescription": {
+    "sourceHash": "730b363f3b540d94702dd547551597bba7c6e995c6ad77eca9be2729c51ecc5d"
+  },
+  "conversation.forkHere": {
+    "sourceHash": "c941afc224b4b9d415fb9c08d9e184dbbb31644d56814760c38084c8ea78a97a"
+  },
+  "conversation.openFailed": {
+    "sourceHash": "d007faefb3a1c61a7ada1a4b003ecb0258501d9f4fce51ea021ae0974dff0e71"
+  },
+  "conversation.loading": {
+    "sourceHash": "ea9e465d5905de59ff3878396db99df0df7cc257f67cb0206984877e610760a0"
+  },
+  "conversation.rewriteTitle": {
+    "sourceHash": "fe45185460d467720c42855e73ad86612e77b9e248b1db2bfa2a611834fc4ac4"
+  },
+  "conversation.rewriteHint": {
+    "sourceHash": "c8fc0045b2633595b768953f539490274ea26e61a1ad90fecc29c28e1ffe7f22"
+  },
+  "conversation.rewriteConfirm": {
+    "sourceHash": "ce9cb18504a1f834934d46c3683a8f4772d16737bc5f48bc6b142120ad3e15ba"
+  },
+  "conversation.latest": {
+    "sourceHash": "690710fc2d0bc2795921a5309b540802d95946f7f0695b72629b7d7b91438b53"
+  },
+  "conversation.rewriting": {
+    "sourceHash": "0dc649243a6e1d0a647d2aec249595a5b40c2a48747d78ec8006a3dddfd3c257"
+  },
+  "conversation.cancelRewrite": {
+    "sourceHash": "230bf2260c3aa19285181d98bc929266f1720c5173056a62d641f490ae3321dc"
+  },
+  "conversation.configure": {
+    "sourceHash": "65fdb9654660a96305e0a86b4a9968334af91e918ab9ed7875905fa1f74693ca"
+  },
+  "conversation.rewritePlaceholder": {
+    "sourceHash": "fa0ba186c309d6196d9975c15e462af1df57f13ecf97ea307b2a3f875423efea"
+  },
+  "conversation.handoffHint": {
+    "sourceHash": "4f40e50e52a56e1234b5779b0770db31d65c4b326eae63523af0b5a2b6f93bc4"
+  },
+  "conversation.original": {
+    "sourceHash": "ea37bfb1b058b22ce9c3795aaa763babd4ee5d936f09e17f03b63373957c90e5"
+  },
+  "conversation.image": {
+    "sourceHash": "d24c10d37db0feea7bd73498118e280e6b33ca93f53f34d5e1cca1ba3e83730d"
+  },
+  "conversation.editQuestion": {
+    "sourceHash": "84a79e5f0b07bc55b5124531b2804b5c2cce2f1a06d8c46fc9d26605ab8aa48b"
+  },
+  "conversation.stopped": {
+    "sourceHash": "f006455e3baf2b0bbc0919fa635b04b9cfece6205210dac1fb6a445d3b1c2459"
+  },
+  "conversation.interruptedHint": {
+    "sourceHash": "5dfbcf10239e17342bad1676f12663b7d3e17246ffbbc9c0f93166abb11cf78e"
+  },
+  "conversation.interrupted": {
+    "sourceHash": "88cf2dc00c34d3d48c286f06f9b3751110187522f291bcad127740c184777fd3"
+  },
+  "conversation.copy": {
+    "sourceHash": "63d90d977348ab1f9aa34ebb42b103216ce161feb0a1c08e237607bf42c3cf79"
+  },
+  "conversation.thinking": {
+    "sourceHash": "64088d8cd78a0e8920a180deb3afbd9064cc946273950bf07164528d7206654f"
+  },
+  "conversation.executing": {
+    "sourceHash": "195f0f04971f01b6e933dbe0a48800562c2dea9e7860ca9229f1c5edd8788654"
+  },
+  "conversation.compacted": {
+    "sourceHash": "88e6e5293a1923337ff8a7f88280d9d844f6e499b79a7c0d15685d6f12da990e"
+  },
+  "conversation.compactionHint": {
+    "sourceHash": "78486a52c59d86304d2061ca4044975a4b8e541ed30bec1d524e7fc078d3b635"
+  },
+  "conversation.skillShortcuts": {
+    "sourceHash": "3255fbbfb07595d52df18b03c98ba7d2296d795a9fa5d0fb29162956280a9356"
+  },
+  "conversation.useSkill": {
+    "sourceHash": "37a41b2e983b06ee9554ce6b39fa4f972eaf4fb1f1caa8a2819c0971ce16d23f"
+  },
+  "conversation.input": {
+    "sourceHash": "1817f0f80020fceaa08ec310b6a3b567f0d8fadeb1cbc1f6f26e2a7929891525"
+  },
+  "conversation.forkHereTitle": {
+    "sourceHash": "e4ee8c9213afca089d5d24cfc1eb1239e3d4dead5a01b49e8dea277599695b0c"
+  },
+  "conversation.forkHint": {
+    "sourceHash": "a9f5e2e3227e85db369d1c19bce2941b27ac6fcf10fe140a8c526c48c2b3c729"
+  },
+  "conversation.forkConfirm": {
+    "sourceHash": "e054907454b86b803d4060a4e97c40ce62035e0c6379a5c0515615a196847102"
+  },
+  "conversation.renameTitle": {
+    "sourceHash": "5f64610f9fec945106deaa40bbab8297b5cdffbe3f0b49e6806498a30056c3f6"
+  },
+  "conversation.deleteHint": {
+    "sourceHash": "29cda0a2f2b0b7279693ba04928117f33e42a7b37034c35ed182fae9a41a4eb4"
+  },
+  "conversation.deleteConfirm": {
+    "sourceHash": "7aa6d0ef5feb745c45d2f52f85673904c311a37d9c1e47a94d102d97baf74b06"
+  },
+  "conversation.fork": {
+    "sourceHash": "ff63d45ac706d1735c56a319ea759935cfa3225d3a9fe4c6c9b3a336c9479cd6"
+  },
+  "conversation.actions": {
+    "sourceHash": "e6f6d875638eca0753721086684ea753bc1398979bb7b66cea0d129d5b157ba1"
+  },
+  "conversation.rename": {
+    "sourceHash": "0d0cbac2eee541136ec2dbba111676952076525a565f02bf688c31970ece1f1a"
+  },
+  "conversation.delete": {
+    "sourceHash": "d51250d14a5142e5ff2571d44de184d6b93abcb379a25be7e9e37009e6828f59"
+  },
+  "conversation.handoff": {
+    "sourceHash": "c9e92611d0d7e066ddcffb36d27f7b94dfdb84c1a5260299b514230af74dfdd3"
+  },
+  "conversation.sourceFallback": {
+    "sourceHash": "92a88e2db47d90c8ec5f5d302bebc23192dab7d21e42af0e2ee5e43ee1d4f2a6"
+  },
+  "conversation.previewImage": {
+    "sourceHash": "a866a7d97a13adf2883711e7f755a5741cb467db47044073dfec4903a5213d35"
+  },
+  "conversation.minuteDuration": {
+    "sourceHash": "9b0c78ad95ef6d3017e8ad5b80bcb3d44b13ca6464e3dcc1da6fcd8b79be4248"
+  },
+  "conversation.trace": {
+    "sourceHash": "60d250a368bb08bf04fbfa3be1d32a0eac8f923c83bccc68b097a9e2b7c72651"
+  },
+  "conversation.preparingTool": {
+    "sourceHash": "dc34758f7b0c89dc4a2d0f7dcfafe580ac7999421b070bf4468bc252450d2af9"
+  },
+  "conversation.runningTool": {
+    "sourceHash": "b7225eebc15e373374140312496a349c6af0928a30f8a749d199da067a716e7d"
+  },
+  "conversation.compactedTokens": {
+    "sourceHash": "2db01ff4a081392855257d6ab3b35a4a21c12f7ba7f58618cbd7b028c99bda3c"
+  },
+  "conversation.forkTitle": {
+    "sourceHash": "5bc80cb1f5ec7e42477f29f22f959d453f795a36c972493a752a86bc32785054"
+  },
+  "conversation.forkFailed": {
+    "sourceHash": "c635545ac2f505d3e84b1f31114b843ad2d8dd58de95e3dedb923d5be34df04d"
+  },
+  "conversation.renameFailed": {
+    "sourceHash": "c64c0cf19e1fdfed951814d0554e4a52fa1eff9c2223275d0d00a1a5a36156da"
+  },
+  "conversation.deleteTitle": {
+    "sourceHash": "1514c09c95423c64b06ec52641c4274daa54b09901276906296105dd5f840dbf"
+  },
+  "conversation.deleteFailed": {
+    "sourceHash": "9b681cd027f3b0dad052e54d48818340aeef51fcb9785ded1e63cf17c0fba719"
+  },
+  "conversation.runUnknown": {
+    "sourceHash": "b7d4458462cec0e94e0de48dbc41aa378141fafef527e9efaadc5df2e3aad3cf"
+  },
+  "conversation.runMissing": {
+    "sourceHash": "d33b29647f26b5e741885bb7d3af367f110ebae3631c31e4f49bf2febf16f485"
+  },
+  "conversation.questionMissing": {
+    "sourceHash": "4774681cc6e522973c78c89ec5ab6b6599b4257b31fbe4a1b0777ada25cd2fa9"
+  },
+  "conversation.pageTitle": {
+    "sourceHash": "5edbd9bc388e5a543476101a90d60af9ac5ae180bef7d0da8cbca1d51fe202f8"
+  },
+  "conversation.processSummary": {
+    "sourceHash": "304d883f3f403435192e41592ecb8f106f733e0f44d5b7aef76b8e10a3087066"
+  },
+  "companion.idle": {
+    "sourceHash": "5238e2cc698f00d3d4f9f22064095b7d404e51ad8884516264947833e5fd2347"
+  },
+  "companion.attentive": {
+    "sourceHash": "fe81cbc9d6098cc3633b10a6844eedb717745177e9eb619dc55c379a310caa87"
+  },
+  "companion.departing": {
+    "sourceHash": "35e39d5875ede56afce56060e3e57d45c7b214d3778e40d96bd9fe9c3d0c02ac"
+  },
+  "companion.working": {
+    "sourceHash": "0e81c9bb331f34bc2e684811f7f04cc039fed2f837667f12818dacb141b0c38c"
+  },
+  "companion.complete": {
+    "sourceHash": "4672694482cbec27b8869d3e8f8084071b1662004b7376898e32eeac56fd4384"
+  },
+  "companion.failed": {
+    "sourceHash": "13421355d86eed281465779a50522fbc811c3b158490738770387867ccde3b1c"
+  },
+  "companion.greet": {
+    "sourceHash": "4fbd58d410fe0863a9c05d76cba5c46f034eb18346f397b460e4c9d57a11876b"
+  },
+  "session.continued": {
+    "sourceHash": "aaf8a4cd2a7065e5fdab64b5fad185e15564fdb0172d2c392981a1876492698c"
+  },
+  "session.skill": {
+    "sourceHash": "7790cc21e95ad289fbecbb6b372f978915d527df7de34fe42625d70ef137e428"
+  },
+  "session.skillOnly": {
+    "sourceHash": "c5c02020c3baa8de9a5359312aacfd9d14703e47d3c1197ec05318ec3be176a7"
+  },
+  "session.image": {
+    "sourceHash": "a71f445d35779eded53cea1e54f9bbf22b62267f629e30f18bc54f5fa7057c40"
+  },
+  "session.images": {
+    "sourceHash": "113d8d4f8306c4959b9cac0a53696b0c73b601caccaeafc4acea4d03e315d03f"
+  },
+  "session.unnamed": {
+    "sourceHash": "a91ae60350922a63b3a0f0c94146209eba1ff31f944512b769e45cecff2633fa"
+  },
+  "session.defaultInstruction": {
+    "sourceHash": "c6cf789703f862c7780e04b2791ba4242466a8115ec830a763a6b5006b880004"
+  },
+  "cards.notFound": {
+    "sourceHash": "12129b289261ad0f6a7eceeda59396e0b4d85cb54ed7eee915766d6faa3fb8be"
+  },
+  "cards.libraryMissing": {
+    "sourceHash": "0e2bbe23cc69a13e53d62a31b234adcbd7578598594965759f93043dad1c1fe0"
+  },
+  "cards.openLibrary": {
+    "sourceHash": "dd9ced10878d59695d79b5dd1d1ed833ea69f377429f99a058790a184c677a17"
+  },
+  "cards.itemMissing": {
+    "sourceHash": "e6dbb7ccd43a3edc0f5c36f547b5c045ba2116064b312082a046f81d0bd1e5e9"
+  },
+  "cards.resume": {
+    "sourceHash": "11a6c8e68b591c9fc2a8b13899efb57da77ee23d35559624c4ef40b570c42de9"
+  },
+  "cards.replay": {
+    "sourceHash": "dc4db96376ef9185596ea8cd0ff8596ac5e3c3a6b336f26a0549c36df9112abd"
+  },
+  "cards.itemContext": {
+    "sourceHash": "1f59b29d3c0683f67149b064c4d229c49aee67c52622d97e10dd79b2991d0248"
+  },
+  "cards.stillLabel": {
+    "sourceHash": "2f113b78c81286d6d5f0801c7c6b1945260bf59e646e9ee3aa834bc2335a642f"
+  },
+  "cards.played": {
+    "sourceHash": "4715b1c2316b458de284168fd1099a47f06c4a5def2a2cfe113ce2d0252671ce"
+  },
+  "cards.playTitle": {
+    "sourceHash": "33f6368b6fd3511b4e7bc84056bc1ae1cc98378a2f35203175f4c8d47925a754"
+  },
+  "cards.subscriptionMissing": {
+    "sourceHash": "346e8596c568d64988a48cff4e736f5970a62a7f72b792e6d3a00e078650ec5b"
+  },
+  "handoff.failed": {
+    "sourceHash": "add72283fde4c0fb0ca751c97b53d746fb9846cea4ff36ae90696f5d3569f4d5"
+  },
+  "handoff.preparing": {
+    "sourceHash": "d3d14311b872b035b982eec6814eea95ad257056d0e6343707f5df2a2d9a084f"
+  },
+  "handoff.analyze": {
+    "sourceHash": "4303315cec1e5646195ae8269e54924cf985998ae02080823647d3e39f36c391"
+  },
+  "composer.imageTypeUnsupported": {
+    "sourceHash": "46cf4ae9c51c71a6c78f299702f3b082ae170b7f96d7387063a0d608a2cd26a2"
+  }
+}

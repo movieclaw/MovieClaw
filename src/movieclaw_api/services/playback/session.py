@@ -39,6 +39,8 @@ from typing import Any
 from urllib.parse import quote, urlsplit
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n.stored import reference, source_render
+from movieclaw_api.services.drives.messages import error_reference
 from movieclaw_api.services.playback.cache import (
     Manifest,
     cache_components,
@@ -46,6 +48,7 @@ from movieclaw_api.services.playback.cache import (
     new_manifest,
 )
 from movieclaw_api.services.playback.disc_source import CONCAT_LIST_NAME
+from movieclaw_api.services.playback.errors import PlaybackError
 from movieclaw_api.services.playback.ffmpeg_args import (
     LIVE_PLAYLIST_NAME,
     PLAYLIST_NAME,
@@ -69,6 +72,14 @@ from movieclaw_events import new_ulid
 from movieclaw_playback import activity
 from movieclaw_playback.decide import PlaybackPlan, PlaybackTier
 from movieclaw_playback.hls_vod import SegmentPlan
+from movieclaw_playback.streaming import (
+    StrmError,
+    cloud_link,
+    is_cloud,
+    is_strm,
+    parse_strm,
+    strm_source_input,
+)
 
 logger = logging.getLogger("movieclaw_api.playback.session")
 
@@ -84,6 +95,9 @@ logger = logging.getLogger("movieclaw_api.playback.session")
 #: 网页播放器另有兜底：心跳收到 404 会带着当前位置原地重开会话
 #: （components/player/video-player.tsx 的「掉线自愈」）。
 SESSION_IDLE_TIMEOUT_S = 180.0
+#: 分片响应被掐断后，心跳与请求都没再来超过这个秒数的会话提前回收（页签直接关闭的场景）。
+#: 心跳 15 秒一次，所以这里是「错过一拍还多等几秒」。
+STREAM_DISCONNECT_REAP_S = 20.0
 #: 回收巡检间隔。
 REAP_INTERVAL_S = 15.0
 #: 等 playlist 出现的上限。playlist 先行——会话起来后 ffmpeg 立刻写出
@@ -144,6 +158,11 @@ _RECENT_REQUESTS_KEEP = 32
 CACHE_RETENTION_S = 24 * 3600.0
 
 
+def _remote_export(session: TranscodeSession) -> bool:
+    """跑在外置 Worker 上的离线导出：不占本机名额，播放要转码器时由名额登记表让路。"""
+    return session.export_id is not None and session.remote
+
+
 def _dir_size(directory: Path) -> int:
     try:
         return sum(f.stat().st_size for f in directory.rglob("*") if f.is_file())
@@ -162,25 +181,38 @@ def _segment_index_from_name(name: str) -> int | None:
     return int(number)
 
 
-def _remote_job_failure_message(job_state: dict[str, Any]) -> str:
-    """把 Worker 终态消息拼成可读的会话错误，保留实际 ffmpeg 线索。"""
+def _remote_job_failure_message(job_state: dict[str, Any]) -> dict:
+    """把 Worker 终态消息拼成可读的会话错误（文案引用），保留实际 ffmpeg 线索。"""
     error = job_state.get("error")
-    message = (
-        error.strip()
-        if isinstance(error, str) and error.strip()
-        else "远程 Worker 未产出请求的分片"
-    )
+    worker_text = error.strip() if isinstance(error, str) and error.strip() else None
+    parts: list[str | dict] = [
+        job_state.get("error_ref")
+        or worker_text
+        or reference("player.session.remoteNoSegment")
+    ]
     exit_code = job_state.get("exit_code")
     if (
         isinstance(exit_code, int)
         and not isinstance(exit_code, bool)
-        and "退出码" not in message
+        # i18n-ignore: matches the remote worker's own Chinese error text
+        and "退出码" not in (worker_text or "")
     ):
-        message += f"；ffmpeg 退出码：{exit_code}"
+        parts.append(reference("player.session.exitCode", code=exit_code))
     stderr_tail = job_state.get("stderr_tail")
     if isinstance(stderr_tail, str) and stderr_tail.strip():
-        message += f"；ffmpeg stderr：{stderr_tail.strip()[-1000:]}"
-    return message
+        parts.append(reference("player.session.stderr", tail=stderr_tail.strip()[-1000:]))
+    return reference(
+        "player.session.failure",
+        detail={"message_list": parts, "separator_key": "common.list.issueSeparator"},
+    )
+
+
+def _set_error(session: TranscodeSession, error: str | dict | None) -> None:
+    """记会话错误：引用（自己的话）连同中文原文一起记，原文（异常/Worker）只记文本。"""
+    if isinstance(error, dict):
+        session.error, session.error_ref = source_render(error), error
+    else:
+        session.error, session.error_ref = error, None
 
 
 def _startup_breakdown(session: TranscodeSession) -> str:
@@ -191,20 +223,30 @@ def _startup_breakdown(session: TranscodeSession) -> str:
     来要得晚）。只取每种事件的第一次——之后的跳转各有自己的时间线，诊断接口里看。
     """
     labels = (
+        # i18n-ignore: session summary log and stop reasons (log only)
         ("dispatch", "派单"),
+        # i18n-ignore: session summary log and stop reasons (log only)
         ("spawn", "起进程"),
+        # i18n-ignore: session summary log and stop reasons (log only)
         ("accepted", "接单"),
+        # i18n-ignore: session summary log and stop reasons (log only)
         ("src", "首次取源"),
+        # i18n-ignore: session summary log and stop reasons (log only)
         ("w_ffmpeg", "Worker 起 ffmpeg"),
+        # i18n-ignore: session summary log and stop reasons (log only)
         ("w_init", "Worker 收到 init"),
+        # i18n-ignore: session summary log and stop reasons (log only)
         ("w_seg", "Worker 收到首片"),
+        # i18n-ignore: session summary log and stop reasons (log only)
         ("landed", "首个产物落盘"),
+        # i18n-ignore: session summary log and stop reasons (log only)
         ("served", "交付"),
     )
     first: dict[str, int] = {}
     for entry in session.timeline:
         first.setdefault(entry["ev"], entry["t"])
     parts = [f"{label} {first[event]}" for event, label in labels if event in first]
+    # i18n-ignore: session summary log and stop reasons (log only)
     return f"；分段（毫秒，距会话创建）：{' · '.join(parts)}" if parts else ""
 
 
@@ -240,15 +282,15 @@ def _job_payload(
     return payload
 
 
-class SessionLimitError(RuntimeError):
+class SessionLimitError(PlaybackError):
     """并发已满。message 面向用户，中文。"""
 
 
-class DiskQuotaError(RuntimeError):
+class DiskQuotaError(PlaybackError):
     """磁盘配额不足。message 面向用户，中文。"""
 
 
-class SessionStartError(RuntimeError):
+class SessionStartError(PlaybackError):
     """会话启动失败（ffmpeg 起不来或迟迟不产出 playlist）。"""
 
 
@@ -319,8 +361,16 @@ class TranscodeSession:
     process: asyncio.subprocess.Process | None = None
     state: str = "spawning"  # spawning | ready | failed | stopped
     last_ping: float = field(default_factory=time.monotonic)
+    #: 最近一次分片响应「中途断开」的时刻（页签直接关闭、播放器被杀）。
+    #: None = 没发生过，或断开之后又有动静（``touch()`` 会清掉）；心跳巡检据此把
+    #: 「断开后心跳和请求都没再来」的会话提前回收——不然 ffmpeg 会对着没人看的片
+    #: 转满整个空闲超时（GPU 空转数分钟）。
+    last_stream_disconnect_at: float | None = None
     created_at: float = field(default_factory=time.monotonic)
     error: str | None = None
+    #: ``error`` 是 MovieClaw 自己的话时的文案引用（诊断面板按读者语言渲染）；
+    #: Worker / ffmpeg 原文与异常文本没有引用
+    error_ref: dict | None = None
     stderr_tail: deque[str] = field(default_factory=lambda: deque(maxlen=_STDERR_KEEP_LINES))
     #: 当前挂起（SIGSTOP / 远程 job.pause）的原因集合：``PAUSE_DISK``（磁盘
     #: 低水位）与 ``PAUSE_LEAD``（转码头领先播放头过多）。两个来源各自独立
@@ -432,6 +482,12 @@ class TranscodeSession:
     #: 起会话的浏览器设备标识（web-<成员>-<浏览器>），管理员「结束播放」按它
     #: 找到并停掉这台浏览器的全部会话。
     device_id: str = ""
+    #: 离线下载的转码导出（offline-download.md §5.3）由一个「只下载、不看」的会话驱动：
+    #: 非 None 即导出号。播放要名额时它让路（services/offline/exports.py），本机执行时
+    #: ffmpeg 降优先级跑。
+    export_id: str | None = None
+    #: 被播放挤掉而停的（导出据此知道不是失败，稍后从断点接着转）
+    preempted: bool = False
     #: App 的播放编号（docs/design/playback-qoe.md §2）：会话结束时把摘要交给这次播放的记录
     attempt_id: str | None = None
     #: 首个分片距会话创建的毫秒数（起播最后一公里），交给播放记录用
@@ -489,6 +545,8 @@ class TranscodeSession:
 
     def touch(self) -> None:
         self.last_ping = time.monotonic()
+        # 播放器还在（seek 也会掐掉在途的分片请求，随后照常来请求、发心跳）
+        self.last_stream_disconnect_at = None
 
     @property
     def paused(self) -> bool:
@@ -683,6 +741,7 @@ class TranscodeSessionManager:
                     await task
                 setattr(self, attr, None)
         for session_id in list(self._sessions):
+            # i18n-ignore: session summary log and stop reasons (log only)
             await self.stop(session_id, reason="服务关闭或重启")
 
     async def _reap_loop(self) -> None:
@@ -745,7 +804,7 @@ class TranscodeSessionManager:
         return bool(state) and state.get("type") == "job.finished"
 
     @staticmethod
-    def _mark_failed(session: TranscodeSession, error: str) -> None:
+    def _mark_failed(session: TranscodeSession, error: str | dict) -> None:
         """判会话失败，并在状态切换的那一刻记一条日志。
 
         失败后每个分片请求都会再走到这里，只在切换时记，免得播放器重试把同一句
@@ -756,10 +815,10 @@ class TranscodeSessionManager:
                 "转码会话失败：session=%s（%s）%s",
                 session.id,
                 session.display_name or "-",
-                error,
+                source_render(error),
             )
         session.state = "failed"
-        session.error = error
+        _set_error(session, error)
 
     async def _throttle_session(self, session: TranscodeSession) -> None:
         """按领先量决定这一路该停还是该走（迟滞两档，见 LEAD_HIGH_S）。"""
@@ -774,11 +833,7 @@ class TranscodeSessionManager:
                     "转码领先播放 %.0f 秒，暂停供片：session=%s（头=%d 播放头=%s）",
                     lead, session.id, session.head_segment, session.last_requested_segment,
                 )
-        elif (
-            lead <= LEAD_LOW_S
-            and session.lead_paused
-            and await self._resume(session, PAUSE_LEAD)
-        ):
+        elif lead <= LEAD_LOW_S and session.lead_paused and await self._resume(session, PAUSE_LEAD):
             logger.info("转码领先回落到 %.0f 秒，恢复供片：session=%s", lead, session.id)
 
     async def throttle(self) -> None:
@@ -877,6 +932,12 @@ class TranscodeSessionManager:
             return
         self._signal_group(session, signal.SIGCONT)
 
+    def note_stream_disconnect(self, session_id: str) -> None:
+        """取流响应中途断开（客户端没了）。只记账；回收判定在 reap。"""
+        session = self._sessions.get(session_id)
+        if session is not None:
+            session.last_stream_disconnect_at = time.monotonic()
+
     async def reap(self) -> int:
         """回收超时无心跳的会话，返回回收数量。顺带跑一遍磁盘水位哨兵，并把
         活跃会话的台账刷一遍（进程崩了也只丢最近十几秒的登记）。"""
@@ -885,16 +946,27 @@ class TranscodeSessionManager:
             if session.manifest is not None:
                 await asyncio.to_thread(self._save_manifest, session)
         now = time.monotonic()
-        stale = [
-            sid
-            for sid, s in self._sessions.items()
-            if now - s.last_ping > SESSION_IDLE_TIMEOUT_S
-        ]
-        for sid in stale:
-            await self.stop(
-                sid,
-                reason=f"超过 {SESSION_IDLE_TIMEOUT_S:.0f} 秒无心跳回收（播放器已关闭或网络中断）",
-            )
+        stale: list[tuple[str, str]] = []
+        for sid, s in self._sessions.items():
+            idle = now - s.last_ping
+            if idle > SESSION_IDLE_TIMEOUT_S:
+                # i18n-ignore: session summary log and stop reasons (log only)
+                reason = f"超过 {SESSION_IDLE_TIMEOUT_S:.0f} 秒无心跳回收（播放器已关闭或网络中断）"
+                stale.append((sid, reason))
+            elif (
+                s.last_stream_disconnect_at is not None
+                and now - s.last_stream_disconnect_at > STREAM_DISCONNECT_REAP_S
+            ):
+                # 页签被直接关闭时 DELETE 发不出来：在途的分片响应被掐断，之后心跳与
+                # 请求都没再来（再来 touch() 就清掉了标记）。没有任何人在看了——
+                # 提前回收，别让 ffmpeg 对着空会话转满整个空闲超时。
+                quiet = now - s.last_stream_disconnect_at
+                stale.append(
+                    # i18n-ignore: session summary log and stop reasons (log only)
+                    (sid, f"分片取流中断后 {quiet:.0f} 秒无心跳无请求（播放器直接关闭），提前回收")
+                )
+        for sid, reason in stale:
+            await self.stop(sid, reason=reason)
         return len(stale)
 
     # -- 会话操作 ---------------------------------------------------------
@@ -919,6 +991,7 @@ class TranscodeSessionManager:
         cache: bool = True,
         source_concat: str | None = None,
         attempt_id: str | None = None,
+        export_id: str | None = None,
     ) -> TranscodeSession:
         """起一个会话。playlist 出现即返回，不等全部分片转完。
 
@@ -935,10 +1008,13 @@ class TranscodeSessionManager:
         命名、结束即删。
         """
         if plan.tier is PlaybackTier.DIRECT_PLAY:
+            # i18n-ignore: session summary log and stop reasons (log only)
             raise ValueError("档 0 是原文件直出，不需要会话")
 
         await self.reap()  # 顺手清掉超时的，给新会话腾位置
         transcoding = plan.tier >= PlaybackTier.HARDWARE_TRANSCODE
+        if transcoding and export_id is None:
+            await self._evict_export_for_local(max_transcode)
         self._check_capacity(transcoding, max_transcode, max_remux)
         self._check_disk(quota_bytes)
 
@@ -971,6 +1047,7 @@ class TranscodeSessionManager:
             hw_backend=hw_backend,
             remote=use_remote,
             concat_list=source_concat,
+            export_id=export_id,
         )
         if cache and segment_plan is not None:
             self._assign_cache_directory(session)
@@ -986,8 +1063,10 @@ class TranscodeSessionManager:
         # 目录与台账就绪（认领缓存要 stat 源文件，媒体在网络挂载上时这一步可能不便宜）
         session.mark("prep", hit=session.cache_hit)
         try:
-            if session.manifest is not None and session.cache_hit and self._segment_ready(
-                session, head_segment
+            if (
+                session.manifest is not None
+                and session.cache_hit
+                and self._segment_ready(session, head_segment)
             ):
                 # 起播分片已在缓存里：先不起写者，让播放器直接读文件；播到
                 # 没转过的分片时 ensure_segment 的「无写者」分支再把 ffmpeg
@@ -1005,6 +1084,7 @@ class TranscodeSessionManager:
                 # 再由统一降档逻辑决定是否展示 consent 或使用本地软转。
                 await self._spawn_remote(session, remote_base_url or "")
             else:
+                await self._prepare_cloud_source(session)
                 command = self._local_command(
                     session, start_number=head_segment if segment_plan is not None else None
                 )
@@ -1016,16 +1096,58 @@ class TranscodeSessionManager:
             # 表里、ffmpeg 继续空转到超时回收——「关了播放 ffmpeg 还在跑」
             # 的一条服务端来路。清理后原样重抛，取消语义不变。
             with contextlib.suppress(Exception):
+                # i18n-ignore: session summary log and stop reasons (log only)
                 await self.stop(session.id, reason="启动失败或起播途中客户端断开")
             raise
         return session
 
+    async def _prepare_cloud_source(self, session: TranscodeSession) -> None:
+        """只在网盘上的片源：在事件循环上先取好直链（``_local_command`` 是同步的，只读缓存），
+        并占一个网盘名额（转码会话读网盘就是一路播放，会话结束时让出，cloud-storage.md §7.3）。"""
+        if not is_cloud(session.source_path):
+            return
+        from movieclaw_api.services.drives import sources
+        from movieclaw_sdk.drives import DriveError
+
+        item = sources.cloud_file(session.source_path)
+        try:
+            if item is not None:
+                await sources.take_slot(item.account_id, f"transcode:{session.id}", pinned=True)
+            await sources.prefetch(session.source_path)
+        except sources.SlotsFull as exc:
+            error = error_reference(exc)
+            _set_error(session, error)
+            raise SessionStartError(error) from exc
+        except DriveError as exc:
+            error = reference("player.session.cloudFileUnavailable", reason=exc.message)
+            _set_error(session, error)
+            raise SessionStartError(error) from exc
+
     def _local_command(self, session: TranscodeSession, *, start_number: int | None):
         """本地 ffmpeg 命令：起播与 seek 重启共用一处装配，输入形态在这里分叉。"""
         # 只在 concat 形态下才传 input_format：普通文件的调用形状保持不变
-        extra: dict[str, str] = {}
+        extra: dict[str, Any] = {}
         source_path = session.source_path
-        if session.concat_list is not None:
+        if is_cloud(source_path):
+            # 只在网盘上的库文件：ffmpeg 读网盘直链（取链与占名额在 _prepare_cloud_source）
+            link = cloud_link(source_path)
+            if link is None:
+                error = reference("player.session.cloudLinkUnavailable")
+                _set_error(session, error)
+                raise SessionStartError(error)
+            source_path, extra["input_options"] = strm_source_input(link)
+        elif is_strm(source_path):
+            # 网盘（strm）条目：ffmpeg 直接读直链（或 strm 指向的挂载文件）。每轮（含 seek
+            # 重启）都现读 strm——直链多带时效签名，开播时解析的那条可能已经过期；缓存指纹仍按
+            # strm 文件算（cache.py）
+            try:
+                source = parse_strm(source_path)
+            except StrmError as exc:
+                error = reference("player.session.strmUnusable", reason=exc)
+                _set_error(session, error)
+                raise SessionStartError(error) from exc
+            source_path, extra["input_options"] = strm_source_input(source)
+        elif session.concat_list is not None:
             source_path = str(session.directory / CONCAT_LIST_NAME)
             extra["input_format"] = "concat"
             if "'subfile," in session.concat_list or "'concat:subfile," in session.concat_list:
@@ -1117,10 +1239,7 @@ class TranscodeSessionManager:
         """
         base = (base_override or connection.observed_base_url).rstrip("/")
         if not base:
-            raise SessionStartError(
-                "无法确定远程转码地址：Worker 连接未携带可用的 Host，"
-                "请在「应用 → 远程转码」填写专用地址"
-            )
+            raise SessionStartError(reference("errors.playback.remoteAddress"))
         source_token = await issue_remote_grant(
             session_id=session.id, file_id=session.file_id, kind="source"
         )
@@ -1170,21 +1289,27 @@ class TranscodeSessionManager:
         # 先登记 job_id 再做任何可能失败的事：外层 start() 的兜底清理靠
         # session.remote_job_id 找任务，晚一步登记就会漏掉一条清理路径。
         session.remote_job_id = job_id
+        await self._evict_export_for_remote(session)
         # 先占位再拼 URL：得先知道是谁接单，才能用它连上来的地址拼。
         try:
+            if not session.hw_backend:
+                raise SessionStartError(reference("errors.playback.remoteBackendMissing"))
             connection = registry.reserve(
                 job_id,
-                backend=session.hw_backend or "videotoolbox",
+                backend=session.hw_backend,
                 segment_type=segment_type(session.plan),
                 attempt_id=job_id,
                 disc=session.concat_list is not None,
                 plan=session.plan,
                 source_id=session.file_id,
                 learn_speed=session.segment_plan is not None,
+                preemptible=session.export_id is not None,
             )
         except RemoteWorkerUnavailable as exc:
-            session.error = str(exc)
-            raise SessionStartError(f"远程转码不可用：{exc}") from exc
+            _set_error(session, exc.ref)
+            raise SessionStartError(
+                reference("errors.playback.remoteUnavailable", reason=exc.ref)
+            ) from exc
         # 占位之后到 start_job 之前的任何失败都必须归还槽位，否则这台 Worker
         # 的并发位会被一个从未下发的任务永久占住。
         session.progressive = _wants_progressive(session, connection)
@@ -1224,8 +1349,11 @@ class TranscodeSessionManager:
             session.remote_worker_id = worker_id
             event = await registry.wait_job_event(job_id)
             if event.get("type") != "job.accepted":
-                error = str(event.get("error") or "远程 Worker 拒绝任务")
-                raise SessionStartError(error)
+                raise SessionStartError(
+                    event.get("error_ref")
+                    or str(event.get("error") or "")
+                    or reference("player.session.remoteRejected")
+                )
             session.mark("accepted", job=job_id[-6:])
             if session.segment_plan is None:
                 await self._wait_for_remote_playlist(session, job_id)
@@ -1235,11 +1363,13 @@ class TranscodeSessionManager:
                 "远程转码会话已接单：session=%s worker=%s backend=%s",
                 session.id,
                 worker_id,
-                session.hw_backend or "videotoolbox",
+                session.hw_backend,
             )
         except RemoteWorkerUnavailable as exc:
-            session.error = str(exc)
-            raise SessionStartError(f"远程转码不可用：{exc}") from exc
+            _set_error(session, exc.ref)
+            raise SessionStartError(
+                reference("errors.playback.remoteUnavailable", reason=exc.ref)
+            ) from exc
         finally:
             registry.remove_job_waiter(job_id)
 
@@ -1251,19 +1381,76 @@ class TranscodeSessionManager:
         registry = get_remote_worker_registry()
         while time.monotonic() < deadline:
             if session.state == "stopped":
-                raise SessionStartError("远程转码会话已结束")
+                raise SessionStartError(reference("errors.playback.remoteEnded"))
             if session.playlist_path.exists():
                 return
             state = registry.job_state(job_id)
             if state and state.get("type") in {"job.failed", "job.finished"}:
-                session.error = _remote_job_failure_message(state)
-                raise SessionStartError(session.error)
+                error = _remote_job_failure_message(state)
+                _set_error(session, error)
+                raise SessionStartError(error)
             if not registry.worker_online(session.remote_worker_id):
-                session.error = "远程 Worker 已断开连接"
-                raise SessionStartError(session.error)
+                error = reference("player.session.remoteDisconnected")
+                _set_error(session, error)
+                raise SessionStartError(error)
             await asyncio.sleep(0.05)
-        session.error = "远程 Worker 超时未上传播放列表"
-        raise SessionStartError(session.error)
+        error = reference("player.session.remotePlaylistTimeout")
+        _set_error(session, error)
+        raise SessionStartError(error)
+
+    async def _preempt(self, victim: TranscodeSession) -> None:
+        victim.preempted = True
+        # i18n-ignore: session summary log and stop reasons (log only)
+        await self.stop(victim.id, reason="播放要用转码名额，离线导出让路（稍后从断点接着转）")
+
+    async def _evict_export_for_local(self, max_transcode: int) -> None:
+        """本机转码名额满了、其中有离线导出：先停导出，播放优先。"""
+        if self.active_transcodes() < max_transcode:
+            return
+        victim = next(
+            (
+                s
+                for s in self._sessions.values()
+                if s.export_id is not None
+                and not s.remote
+                and s.is_transcoding
+                and s.state in ("spawning", "ready")
+            ),
+            None,
+        )
+        if victim is not None:
+            await self._preempt(victim)
+
+    async def _evict_export_for_remote(self, session: TranscodeSession) -> None:
+        """播放要派远程任务、转码器只剩离线导出占着的名额：停掉那个导出。"""
+        if session.export_id is not None or not any(
+            s.export_id is not None and s.remote for s in self._sessions.values()
+        ):
+            return
+        if not session.hw_backend:
+            return
+        job_id = get_remote_worker_registry().preemptible_job_for(
+            session.hw_backend,
+            segment_type(session.plan),
+            disc=session.concat_list is not None,
+        )
+        if job_id is None:
+            return
+        victim = next(
+            (s for s in self._sessions.values() if s.remote_job_id == job_id), None
+        )
+        if victim is not None:
+            await self._preempt(victim)
+        else:  # 台账不同步的边角：至少把名额还出来
+            get_remote_worker_registry().remove_job(job_id)
+
+    def active_transcodes(self) -> int:
+        """占本机转码名额的会话数。外置 Worker 上的离线导出不占（它让路走转码器的名额）。"""
+        return sum(
+            1
+            for s in self._sessions.values()
+            if s.state in ("spawning", "ready") and s.is_transcoding and not _remote_export(s)
+        )
 
     def _check_capacity(self, transcoding: bool, max_transcode: int, max_remux: int) -> None:
         """两个独立信号量：转码按 CPU/GPU 算，直通按 IO 算。
@@ -1271,19 +1458,22 @@ class TranscodeSessionManager:
         机械盘上两路 4K remux 就能打满随机读，而 CPU 几乎是空的——瓶颈不在
         算力，合成一个上限会误判。
         """
-        active = [s for s in self._sessions.values() if s.state in ("spawning", "ready")]
+        active = [
+            s
+            for s in self._sessions.values()
+            if s.state in ("spawning", "ready") and not _remote_export(s)
+        ]
         if transcoding:
             used = sum(1 for s in active if s.is_transcoding)
             if used >= max_transcode:
                 raise SessionLimitError(
-                    f"当前转码会话已满（{used}/{max_transcode}），"
-                    "请稍候或停止其它正在转码的播放。"
+                    reference("errors.playback.transcodeLimit", used=used, limit=max_transcode)
                 )
         else:
             used = sum(1 for s in active if not s.is_transcoding)
             if used >= max_remux:
                 raise SessionLimitError(
-                    f"当前直通播放已达上限（{used}/{max_remux}），请稍候或停止其它播放。"
+                    reference("errors.playback.remuxLimit", used=used, limit=max_remux)
                 )
 
     def _check_disk(self, quota_bytes: int | None) -> None:
@@ -1296,11 +1486,7 @@ class TranscodeSessionManager:
         if free < MIN_FREE_BYTES and self.evict_cold(quota_bytes=0):
             free = shutil.disk_usage(self._root).free
         if free < MIN_FREE_BYTES:
-            raise DiskQuotaError(
-                f"磁盘剩余空间不足（{free / 1024**3:.1f} GB），已拒绝新的转码会话。"
-                "转码缓存与数据库同在 data 目录，写满会导致整个应用不可用。"
-                "请清理磁盘后重试。"
-            )
+            raise DiskQuotaError(reference("errors.playback.lowDisk", free=f"{free / 1024**3:.1f}"))
         if quota_bytes is None:
             return
         # 统计占用要把整个转码缓存 stat 一遍（NAS 上两千多个分片），开会话的必经路上只做一次，
@@ -1310,9 +1496,7 @@ class TranscodeSessionManager:
             usage = self.usage_bytes()
         if usage >= quota_bytes:
             raise DiskQuotaError(
-                f"转码缓存已达配额上限（{quota_bytes / 1024**3:.1f} GB，"
-                "按磁盘剩余空间自动设定）。请稍候——正在播放的会话结束后会"
-                "自动清理，清理磁盘腾出空间也会自动调高配额。"
+                reference("errors.playback.cacheQuota", quota=f"{quota_bytes / 1024**3:.1f}")
             )
 
     async def _enforce_disk_watermark(self) -> None:
@@ -1387,9 +1571,13 @@ class TranscodeSessionManager:
     async def _spawn(self, session: TranscodeSession, command: TranscodeCommand) -> None:
         # 新进程从不挂起态起步：旧进程的挂起原因随它一起消失
         session.pause_reasons.clear()
+        argv = list(command.argv)
+        if session.export_id is not None and shutil.which("nice"):
+            # 离线导出在本机转：让着实时播放（宁可导出慢，不让播放卡）
+            argv = ["nice", "-n", "10", *argv]
         # 契约 1+2：异步子进程 + 独立进程组
         process = await asyncio.create_subprocess_exec(
-            *command.argv,
+            *argv,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
@@ -1411,11 +1599,15 @@ class TranscodeSessionManager:
         # 先把进程抓在手里：seek 重启会把 session.process 换成新进程
         process = session.process
         assert process is not None and process.stderr is not None
+        # 只属于这个进程的输出：会话级的 stderr_tail 跨重启累积，拿它记退出原因会把
+        # 上一轮的行混进来
+        own_tail: deque[str] = deque(maxlen=_STDERR_KEEP_LINES)
         try:
             async for raw in process.stderr:
                 line = raw.decode(errors="replace").rstrip()
                 if line:
                     session.stderr_tail.append(line)
+                    own_tail.append(line)
             # stderr 读到头 = 进程在退出。此前转码中途崩溃没有任何日志，只剩下一次
             # 分片请求触发的重启，看不出它为什么死。我们自己杀的（stop / seek 重启）
             # 不记；起步阶段就死的由开会话那条路径带着 stderr 报错，这里也不重复。
@@ -1428,6 +1620,7 @@ class TranscodeSessionManager:
                 signal_note = ""
                 if returncode < 0:
                     with contextlib.suppress(ValueError):
+                        # i18n-ignore: session summary log and stop reasons (log only)
                         signal_note = f"（被信号 {signal.Signals(-returncode).name} 终止）"
                 logger.warning(
                     "本地转码进程异常退出：session=%s（%s）退出码=%s%s stderr 末尾：%s",
@@ -1435,7 +1628,9 @@ class TranscodeSessionManager:
                     session.display_name or "-",
                     returncode,
                     signal_note,
-                    " | ".join(list(session.stderr_tail)[-5:]) or "（无输出）",
+                    # 整段都记：-loglevel warning 下本来就没几行，真正的原因常在
+                    # 倒数第五行之前（issue #763 只留了末尾的连带报错）
+                    " | ".join(own_tail) or "（无输出）",
                 )
         except asyncio.CancelledError:
             raise
@@ -1459,14 +1654,16 @@ class TranscodeSessionManager:
                 return
             process = session.process
             if process is not None and process.returncode is not None:
-                tail = " / ".join(list(session.stderr_tail)[-5:])
-                session.error = tail or f"ffmpeg 退出码 {process.returncode}"
-                raise SessionStartError(f"转码进程启动失败：{session.error}")
+                tail = " / ".join(session.stderr_tail)
+                error = tail or reference("player.session.processExit", code=process.returncode)
+                _set_error(session, error)
+                raise SessionStartError(reference("errors.playback.processStart", reason=error))
             await asyncio.sleep(0.05)
         if vod:
             return
-        session.error = "ffmpeg 超时未产出播放列表"
-        raise SessionStartError(session.error)
+        error = reference("player.session.playlistTimeout")
+        _set_error(session, error)
+        raise SessionStartError(error)
 
     # -- VOD 分片按需供给（§12） -----------------------------------------
 
@@ -1661,7 +1858,7 @@ class TranscodeSessionManager:
                 if job_state.get("type") != "job.finished" and not registry.worker_online(
                     session.remote_worker_id
                 ):
-                    self._mark_failed(session, "远程 Worker 已断开连接")
+                    self._mark_failed(session, reference("player.session.remoteDisconnected"))
                     return None
             try:
                 await self._maybe_restart_for(session, index)
@@ -1879,9 +2076,7 @@ class TranscodeSessionManager:
                     session.remote_job_id is None and not session.remote_restarting
                 ) or self._remote_job_finished(session)
             else:
-                writer_missing = (
-                    session.process is None or session.process.returncode is not None
-                )
+                writer_missing = session.process is None or session.process.returncode is not None
             # 进程还活着且全体等待者都在覆盖范围内：等它转过来即可
             if not (
                 retry_failed
@@ -1900,6 +2095,21 @@ class TranscodeSessionManager:
                 session.empty_restarts[wanted] = empties
                 if empties > self._MAX_EMPTY_RESTARTS:
                     session.unreachable_segments.add(wanted)
+                    if not session.remote and not session.completed_segments:
+                        # 本会话一段都没产出过：不是源短，是这条命令在这台机器上就起不来
+                        # （issue #763：VAAPI 链路起步即退出）。判会话失败，init/分片
+                        # 立即 404、诊断带上原因，播放器才能走降档换一档，而不是对着
+                        # 一个死会话一直缓冲
+                        self._mark_failed(
+                            session,
+                            reference(
+                                "player.session.startupExit",
+                                # 两轮进程报的是同一套错：去重，免得一条原因念两遍
+                                detail=" / ".join(dict.fromkeys(session.stderr_tail))
+                                or reference("player.session.noOutput"),
+                            ),
+                        )
+                        return
                     logger.warning(
                         "转码进程从第 %d 段起转了 %d 次都没产出它就退出了，本会话不再为它"
                         "重启（源文件可能比台账时长短、还在下载或已损坏）：session=%s（%s）",
@@ -1916,10 +2126,13 @@ class TranscodeSessionManager:
                     session.remote_segment_retries.get(index, 0) + 1
                 )
             if retry_failed:
+                # i18n-ignore: session summary log and stop reasons (log only)
                 restart_reason = "上传失败补片"
             elif only_writer_gone:
+                # i18n-ignore: session summary log and stop reasons (log only)
                 restart_reason = "远程任务已结束" if session.remote else "转码进程已退出"
             else:
+                # i18n-ignore: session summary log and stop reasons (log only)
                 restart_reason = "seek/追赶"
             logger.info(
                 "转码重启直奔分片：session=%s seg=%05d（原因=%s 当前头=%d 已产出到=%d "
@@ -1949,7 +2162,8 @@ class TranscodeSessionManager:
             session.head_segment = index
             session.start_ms = int(plan.boundaries[index] * 1000)
             session.state = "spawning"
-            session.error = None
+            _set_error(session, None)
+            await self._prepare_cloud_source(session)
             command = self._local_command(session, start_number=index)
             # 旧轮次的清单先并入台账再删：这一轮转出的分片下次回看直接可用；
             # 跨会话台账也顺手刷一遍，进程崩了这一轮的产出也不丢
@@ -2030,7 +2244,7 @@ class TranscodeSessionManager:
             session.start_ms = int(session.segment_plan.boundaries[index] * 1000)
             session.remote_failed_segments.discard(index)
             session.state = "spawning"
-            session.error = None
+            _set_error(session, None)
             self._sync_completed(session)
             session.playlist_path.unlink(missing_ok=True)
             job_id = new_ulid()
@@ -2041,15 +2255,19 @@ class TranscodeSessionManager:
                 # 必须用**接单的这台** Worker 连上来的地址拼（理由见
                 # ``_spawn_remote``）。不能沿用上一轮的地址——seek 完全可能被
                 # 另一台从不同入口连进来的 Worker 接走。
+                await self._evict_export_for_remote(session)
+                if not session.hw_backend:
+                    raise SessionStartError(reference("errors.playback.remoteBackendMissing"))
                 connection = registry.reserve(
                     job_id,
-                    backend=session.hw_backend or "videotoolbox",
+                    backend=session.hw_backend,
                     segment_type=segment_type(session.plan),
                     attempt_id=job_id,
                     disc=session.concat_list is not None,
                     plan=session.plan,
                     source_id=session.file_id,
                     learn_speed=session.segment_plan is not None,
+                    preemptible=session.export_id is not None,
                 )
                 session.progressive = _wants_progressive(session, connection)
                 try:
@@ -2084,9 +2302,13 @@ class TranscodeSessionManager:
                 session.remote_worker_id = worker_id
                 event = await registry.wait_job_event(job_id)
                 if event.get("type") != "job.accepted":
-                    error = str(event.get("error") or "远程 Worker 拒绝 seek 任务")
+                    error = (
+                        event.get("error_ref")
+                        or str(event.get("error") or "")
+                        or reference("player.session.remoteSeekRejected")
+                    )
                     session.state = "failed"
-                    session.error = error
+                    _set_error(session, error)
                     raise SessionStartError(error)
                 session.mark("accepted", job=job_id[-6:])
                 session.state = "ready"
@@ -2103,14 +2325,18 @@ class TranscodeSessionManager:
                     session.remote_worker_id = None
                     session.remote_job_id = None
                 session.state = "failed"
-                session.error = str(exc)
+                _set_error(session, str(exc))
                 if not isinstance(exc, Exception):
                     raise
                 if isinstance(exc, RemoteWorkerUnavailable):
-                    raise SessionStartError(f"远程 seek 不可用：{exc}") from exc
+                    raise SessionStartError(
+                        reference("errors.playback.remoteSeekUnavailable", reason=str(exc))
+                    ) from exc
                 if isinstance(exc, SessionStartError):
                     raise
-                raise SessionStartError(f"远程 seek 启动失败：{exc}") from exc
+                raise SessionStartError(
+                    reference("errors.playback.remoteSeekStart", reason=str(exc))
+                ) from exc
             finally:
                 registry.remove_job_waiter(job_id)
         finally:
@@ -2130,6 +2356,10 @@ class TranscodeSessionManager:
         while (produced + 1) in session.completed_segments:
             produced += 1
         return produced
+
+    def files_in_use(self) -> set[int]:
+        """正在被转码会话（含离线导出驱动的会话）读的库文件 id。"""
+        return {s.file_id for s in self._sessions.values()}
 
     def get(self, session_id: str, *, member_id: int | None = None) -> TranscodeSession | None:
         """取会话。``member_id`` 非空时校验归属——会话是私人资源。"""
@@ -2225,12 +2455,19 @@ class TranscodeSessionManager:
                 {"t": origin + int(event["ms"]), "ev": f"w_{name}", "wt": int(event["ms"]), **extra}
             )
 
+    # i18n-ignore: session summary log and stop reasons (log only)
     async def stop(self, session_id: str, *, reason: str = "播放器结束播放") -> bool:
         """结束会话。``reason`` 只进结束小结日志，说明是谁、为什么停的。"""
         session = self._sessions.pop(session_id, None)
         if session is None:
             return False
         self._log_session_summary(session, reason)
+        if is_cloud(session.source_path):
+            from movieclaw_api.services.drives import sources
+
+            item = sources.cloud_file(session.source_path)
+            if item is not None:
+                sources.release_slot(item.account_id, f"transcode:{session.id}")
         # 先置状态再抢重启锁：正在排队等锁的 VOD 分片重启会在临界区入口看到
         # stopped 直接放弃。终止必须与 _maybe_restart_for 互斥——不互斥的话，
         # 一次「杀旧进程 → 拉新进程」的重启可能在本次 killpg **之后**才把新
@@ -2269,15 +2506,19 @@ class TranscodeSessionManager:
         的是它怎么过完的：供了多少片、重启与等待超时各几次、最后停在哪、有没有
         错误。有错误或超时记 WARNING，正常结束记 INFO。"""
         if session.remote:
+            # i18n-ignore: session summary log and stop reasons (log only)
             where = f"远程 Worker {session.remote_worker_id or '（已断开）'}"
         elif session.is_transcoding:
+            # i18n-ignore: session summary log and stop reasons (log only)
             where = f"本地 {session.hw_backend}" if session.hw_backend else "本地软件转码"
         else:
+            # i18n-ignore: session summary log and stop reasons (log only)
             where = "本地直通"
         # 错误里可能带多行 stderr：压成一行，日志按行检索才不会断开
         error = " | ".join(line.strip() for line in (session.error or "").splitlines() if line)
         log = logger.warning if (error or session.segment_timeouts) else logger.info
         log(
+            # i18n-ignore: session summary log and stop reasons (log only)
             "转码会话结束：session=%s（%s）原因=%s · 档 %d %s · 持续 %.1f 分钟 · 供片 %d 段"
             " · 重启 %d 次 · 等待超时 %d 次 · 最后请求第 %s 段%s（attempt=%s）",
             session.id,
@@ -2290,6 +2531,7 @@ class TranscodeSessionManager:
             session.restart_generation,
             session.segment_timeouts,
             "-" if session.last_requested_segment is None else session.last_requested_segment,
+            # i18n-ignore: session summary log and stop reasons (log only)
             f" · 错误：{error[:500]}" if error else "",
             session.attempt_id or "-",
         )
@@ -2328,6 +2570,7 @@ class TranscodeSessionManager:
                 count += 1
         return count
 
+    # i18n-ignore: session summary log and stop reasons (log only)
     async def stop_for_device(self, device_id: str, *, reason: str = "设备结束播放") -> int:
         """停掉一台设备的全部会话（管理员「结束播放」、播放器按设备停播）。"""
         if not device_id:
@@ -2352,6 +2595,7 @@ class TranscodeSessionManager:
             if s.device_id == device_id and s.file_id != keep_file_id
         ]
         for sid in victims:
+            # i18n-ignore: session summary log and stop reasons (log only)
             await self.stop(sid, reason="同一台设备开始播放别的片子，旧会话已没人在看")
         if victims:
             logger.info("同一设备的旧会话 %d 个已停（device=%s）", len(victims), device_id)
@@ -2370,6 +2614,7 @@ class TranscodeSessionManager:
         ]
         started_at = time.monotonic()
         for sid in victims:
+            # i18n-ignore: session summary log and stop reasons (log only)
             await self.stop(sid, reason="同一文件开了新会话（换清晰度 / 换音轨 / 重开）")
         if victims:
             # 换字幕烧录/换音轨/seek 重开会话都要先走这里，SIGTERM 的收尾
@@ -2410,6 +2655,13 @@ class TranscodeSessionManager:
         first_signal = signal.SIGTERM if graceful else signal.SIGKILL
         try:
             os.killpg(os.getpgid(process.pid), first_signal)
+        except AttributeError:
+            # Windows 没有进程组：直接杀单个进程（本机开发/测试环境）
+            with contextlib.suppress(ProcessLookupError):
+                if graceful:
+                    process.terminate()
+                else:
+                    process.kill()
         except (ProcessLookupError, PermissionError):
             with contextlib.suppress(ProcessLookupError):
                 if graceful:

@@ -14,28 +14,28 @@ import UIKit
 enum DeviceVitals {
     static func line() -> String {
         let thermal = switch ProcessInfo.processInfo.thermalState {
-        case .nominal: "正常"
-        case .fair: "偏热"
-        case .serious: "严重"
-        case .critical: "临界"
-        @unknown default: "未知"
+        case .nominal: "正常" // i18n-ignore: developer diagnostics
+        case .fair: "偏热" // i18n-ignore: developer diagnostics
+        case .serious: "严重" // i18n-ignore: developer diagnostics
+        case .critical: "临界" // i18n-ignore: developer diagnostics
+        @unknown default: "未知" // i18n-ignore: developer diagnostics
         }
-        let resources = "本进程CPU=\(String(format: "%.0f", processCPU()))% 内存=\(Int(footprintMB()))MB"
+        let resources = "本进程CPU=\(String(format: "%.0f", processCPU()))% 内存=\(Int(footprintMB()))MB" // i18n-ignore: developer diagnostics
         #if os(iOS)
         let device = UIDevice.current
         device.isBatteryMonitoringEnabled = true
         let battery = device.batteryLevel < 0 ? "?" : "\(Int((device.batteryLevel * 100).rounded()))%"
         let charging = switch device.batteryState {
-        case .charging: "充电中"
-        case .full: "已充满"
-        case .unplugged: "未插电"
-        default: "未知"
+        case .charging: "充电中" // i18n-ignore: developer diagnostics
+        case .full: "已充满" // i18n-ignore: developer diagnostics
+        case .unplugged: "未插电" // i18n-ignore: developer diagnostics
+        default: "未知" // i18n-ignore: developer diagnostics
         }
-        let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled ? " 低电量模式" : ""
-        return "温度=\(thermal) 电量=\(battery)(\(charging)) \(resources)\(lowPower)"
+        let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled ? " 低电量模式" : "" // i18n-ignore: developer diagnostics
+        return "温度=\(thermal) 电量=\(battery)(\(charging)) \(resources)\(lowPower)" // i18n-ignore: developer diagnostics
         #else
         // Apple TV 插电运行、没有电池；Mac 的电量不影响播放策略，不读
-        return "温度=\(thermal) \(resources)"
+        return "温度=\(thermal) \(resources)" // i18n-ignore: developer diagnostics
         #endif
     }
 

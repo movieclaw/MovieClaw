@@ -27,6 +27,7 @@ from typing import Any
 
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import keyed_error
 from movieclaw_db.models import PluginCallback
 from movieclaw_db.models.base import utcnow
 from movieclaw_sdk.callbacks import (
@@ -131,6 +132,7 @@ class PluginCallbacks:
         record = pkg.installed(self._settings).get(entry_id)
         if record is not None and name not in record.callbacks:
             raise ValueError(
+                # i18n-ignore: response body for the external platform or developer contract error
                 f"回调端点 {name} 没有在清单 [permissions] callbacks 里声明（用户没有批准开放它）"
             )
 
@@ -161,10 +163,12 @@ class PluginCallbacks:
     ) -> Any:
         """登记端点（宿主内部用，如通道中枢替通道插件登记）；返回撤销函数。"""
         if not NAME.match(name):
+            # i18n-ignore: response body for the external platform or developer contract error
             raise ValueError(f"回调端点名 {name} 不合规：小写字母开头，字母、数字、连字符")
         self._declared(entry_id, name)
         key = (entry_id, name)
         if key in self._endpoints:
+            # i18n-ignore: response body for the external platform or developer contract error
             raise ValueError(f"回调端点 {name} 重复登记")
         endpoint = _Endpoint(
             handler=handler,
@@ -195,6 +199,7 @@ class PluginCallbacks:
 
     async def issue(self, ctx: Any, name: str, *, scope: str = "plugin") -> Issued:
         if not NAME.match(name):
+            # i18n-ignore: response body for the external platform or developer contract error
             raise ValueError(f"回调端点名 {name} 不合规")
         self._declared(ctx.entry_id, name)
         return await self._issue(ctx.entry_id, name, scope)
@@ -236,7 +241,7 @@ class PluginCallbacks:
         """换地址：作废旧密钥、按同样的归属发一把新的。"""
         row = await self._get(key_id)
         if row is None or row.revoked_at is not None:
-            raise LookupError(f"没有有效的回调地址 #{key_id}")
+            raise keyed_error(LookupError, "plugins.callbacks.noActive", id=key_id)
         await self._revoke(key_id)
         return await self._issue(row.entry_id, row.name, row.scope)
 
@@ -268,21 +273,26 @@ class PluginCallbacks:
     ) -> CallbackResponse:
         row = await self._lookup(key)
         if row is None or row.entry_id != entry_id or row.name != name:
+            # i18n-ignore: response body for the external platform or developer contract error
             raise CallbackError(404, "地址无效")
         endpoint = self._endpoints.get((entry_id, name))
         if endpoint is None:
+            # i18n-ignore: response body for the external platform or developer contract error
             raise CallbackError(503, "插件当前没有运行")
         if method.upper() not in endpoint.methods:
+            # i18n-ignore: response body for the external platform or developer contract error
             raise CallbackError(405, "不支持这个请求方法")
         stats = self._stats.setdefault(row.id or 0, _Stats())
         now = time.monotonic()
         while stats.hits and now - stats.hits[0] > 60:
             stats.hits.popleft()
         if len(stats.hits) >= RATE_PER_MINUTE:
+            # i18n-ignore: response body for the external platform or developer contract error
             raise CallbackError(429, "请求太频繁")
         stats.hits.append(now)
         body = await read_body(endpoint.max_body)
         if body is None:
+            # i18n-ignore: response body for the external platform or developer contract error
             raise CallbackError(413, "请求体太大")
         request = CallbackRequest(
             method=method.upper(),
@@ -296,18 +306,27 @@ class PluginCallbacks:
         )
         stats.calls += 1
         stats.last_called_at = utcnow()
+        from movieclaw_api.services.plugin_routes import current_zone
+
+        # 外部平台调进来的：插件在这里面驱动 Agent 时不带工具（plugin-agent.md §6）
+        zone = current_zone.set("callback")
         try:
             response = await asyncio.wait_for(endpoint.handler(request), endpoint.timeout)
         except TimeoutError:
             stats.last_status = 504
+            # i18n-ignore: response body for the external platform or developer contract error
             raise CallbackError(504, "插件处理超时") from None
         except Exception:
             stats.last_status = 500
             logger.exception("插件 %s 的回调端点 %s 处理出错", entry_id, name)
+            # i18n-ignore: response body for the external platform or developer contract error
             raise CallbackError(500, "插件处理出错") from None
+        finally:
+            current_zone.reset(zone)
         if not isinstance(response, CallbackResponse):
             stats.last_status = 500
             logger.error("插件 %s 的回调端点 %s 没有返回 CallbackResponse", entry_id, name)
+            # i18n-ignore: response body for the external platform or developer contract error
             raise CallbackError(500, "插件处理出错")
         stats.last_status = response.status
         await self._record(entry_id, name, stats, response.status)
@@ -327,13 +346,13 @@ class PluginCallbacks:
                         dedupe_key=_notice_key(entry_id, name),
                         severity=NoticeSeverity.WARNING,
                         source="plugin",
-                        title=f"插件 {entry_id} 的回调地址连续验证失败",
-                        message=(
-                            f"回调端点 {name} 连续 {FAILURE_NOTICE_AFTER} 次没通过插件的验证："
-                            "可能是平台后台填的令牌 / 密钥和插件里的不一致，"
-                            "也可能有人在试探这个地址。"
-                            "必要时在插件页换一个回调地址。"
-                        ),
+                        title_key="notify.callbackFailure.title",
+                        message_key="notify.callbackFailure.body",
+                        message_params={
+                            "plugin": entry_id,
+                            "endpoint": name,
+                            "count": FAILURE_NOTICE_AFTER,
+                        },
                         payload={"entry_id": entry_id, "endpoint": name},
                     )
             return
@@ -363,7 +382,7 @@ class PluginCallbacks:
         async with self._db.session() as session:
             row = await session.get(PluginCallback, key_id)
             if row is None or (entry_id is not None and row.entry_id != entry_id):
-                raise LookupError(f"没有回调地址 #{key_id}")
+                raise keyed_error(LookupError, "plugins.callbacks.missing", id=key_id)
             if row.revoked_at is None:
                 row.revoked_at = utcnow()
                 session.add(row)

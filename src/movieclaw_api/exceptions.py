@@ -1,5 +1,9 @@
 from typing import Any
 
+from fastapi.encoders import jsonable_encoder
+
+from movieclaw_api.i18n.stored import stored_message
+
 
 class AppException(Exception):
     def __init__(
@@ -7,9 +11,15 @@ class AppException(Exception):
         *,
         status_code: int,
         code: str,
-        message: str,
+        message: str = "",
         details: list[dict[str, Any]] | None = None,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
+        self.message_key = message_key
+        self.params = jsonable_encoder(params or {}, custom_encoder={Exception: str})
+        if message_key:
+            message = stored_message(message, message_key, self.params)
         super().__init__(message)
         self.status_code = status_code
         self.code = code
@@ -22,12 +32,17 @@ class BadRequestException(AppException):
         self,
         message: str = "bad request",
         details: list[dict[str, Any]] | None = None,
+        *,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(
             status_code=400,
             code="BAD_REQUEST",
             message=message,
             details=details,
+            message_key=message_key,
+            params=params,
         )
 
 
@@ -36,12 +51,17 @@ class UnauthorizedException(AppException):
         self,
         message: str = "unauthorized",
         details: list[dict[str, Any]] | None = None,
+        *,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(
             status_code=401,
             code="UNAUTHORIZED",
             message=message,
             details=details,
+            message_key=message_key,
+            params=params,
         )
 
 
@@ -50,12 +70,17 @@ class ForbiddenException(AppException):
         self,
         message: str = "forbidden",
         details: list[dict[str, Any]] | None = None,
+        *,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(
             status_code=403,
             code="FORBIDDEN",
             message=message,
             details=details,
+            message_key=message_key,
+            params=params,
         )
 
 
@@ -64,12 +89,17 @@ class NotFoundException(AppException):
         self,
         message: str = "resource not found",
         details: list[dict[str, Any]] | None = None,
+        *,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(
             status_code=404,
             code="RESOURCE_NOT_FOUND",
             message=message,
             details=details,
+            message_key=message_key,
+            params=params,
         )
 
 
@@ -80,12 +110,17 @@ class UpstreamServiceException(AppException):
         self,
         message: str = "upstream service error",
         details: list[dict[str, Any]] | None = None,
+        *,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(
             status_code=502,
             code="UPSTREAM_ERROR",
             message=message,
             details=details,
+            message_key=message_key,
+            params=params,
         )
 
 
@@ -97,12 +132,22 @@ class UpstreamUnreachableException(AppException):
     （说明原因 + 跳转「设置 → 网络」），而不是一句裸的 502。
     """
 
-    def __init__(self, message: str, *, service: str, hint: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        service: str,
+        hint: str,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(
             status_code=502,
             code="UPSTREAM_UNREACHABLE",
             message=message,
             details=[{"service": service, "hint": hint}],
+            message_key=message_key,
+            params=params,
         )
 
 
@@ -111,12 +156,17 @@ class ConflictException(AppException):
         self,
         message: str = "conflict",
         details: list[dict[str, Any]] | None = None,
+        *,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(
             status_code=409,
             code="CONFLICT",
             message=message,
             details=details,
+            message_key=message_key,
+            params=params,
         )
 
 
@@ -132,12 +182,17 @@ class ServiceUnavailableException(AppException):
         self,
         message: str = "service unavailable",
         details: list[dict[str, Any]] | None = None,
+        *,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(
             status_code=503,
             code="SERVICE_UNAVAILABLE",
             message=message,
             details=details,
+            message_key=message_key,
+            params=params,
         )
 
 
@@ -148,10 +203,24 @@ class InsufficientStorageException(AppException):
         self,
         message: str = "insufficient storage",
         details: list[dict[str, Any]] | None = None,
+        *,
+        message_key: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(
             status_code=507,
             code="INSUFFICIENT_STORAGE",
             message=message,
             details=details,
+            message_key=message_key,
+            params=params,
         )
+
+
+def exception_fields(error: Exception) -> dict[str, Any]:
+    """Preserve a domain/SDK error reference when assigning its HTTP status."""
+    return {
+        "message": getattr(error, "message", str(error)),
+        "message_key": getattr(error, "message_key", None),
+        "params": getattr(error, "message_params", getattr(error, "params", None)),
+    }

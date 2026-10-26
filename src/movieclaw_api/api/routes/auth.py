@@ -49,6 +49,8 @@ from movieclaw_api.exceptions import (
     NotFoundException,
     UnauthorizedException,
 )
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.labels import device_kind
 from movieclaw_api.schemas.auth import (
     AccountView,
     ApiTokenCreatedView,
@@ -111,9 +113,7 @@ def _avatar_url(stem: str | None = None) -> str | None:
     版本号取文件 mtime 纳秒值：换头像 → URL 变化，绕开浏览器 <img> 缓存。
     超管与成员共用 GET /auth/avatar 端点（各读各的槽位），URL 形态一致。
     """
-    version = (
-        avatar_media.avatar_version(stem) if stem else avatar_media.avatar_version()
-    )
+    version = avatar_media.avatar_version(stem) if stem else avatar_media.avatar_version()
     if version is None:
         return None
     return f"{get_settings().api_v1_prefix}/auth/avatar?v={version}"
@@ -143,6 +143,7 @@ def _member_session_view(member: Member) -> SessionView:
             allow_subscribe=member.allow_subscribe,
             allow_search=member.allow_search,
             allow_direct_download=member.allow_direct_download,
+            allow_video_download=member.allow_video_download,
         ),
         demo=demo_service.is_demo_mode(),
     )
@@ -307,7 +308,13 @@ async def bootstrap_status() -> ApiResponse[BootstrapStatus]:
             notice=accounts.notice,
             accounts=[DemoAccountView(**a.model_dump()) for a in accounts.accounts],
         )
-    return ok(BootstrapStatus(initialized=await auth_service.is_admin_initialized(), demo=demo))
+    return ok(
+        BootstrapStatus(
+            initialized=await auth_service.is_admin_initialized(),
+            native_device_kinds=list(login_devices.APP_KINDS),
+            demo=demo,
+        )
+    )
 
 
 @router.post(
@@ -321,13 +328,23 @@ async def bootstrap_create(
 ) -> ApiResponse[SessionView]:
     """创建管理员并自动登录。管理员已存在时一律 409，锁在服务端，不可绕过。"""
     account = await auth_service.create_admin(payload.username, payload.password)
+    from movieclaw_api.i18n import current_locale
+    from movieclaw_api.services.scrape_config import current_scrape_setting, save_scrape_setting
+
+    scrape = current_scrape_setting()
+    if not scrape.language_priority and "tmdb_language" not in get_settings().model_fields_set:
+        from movieclaw_api.services.media_discover import invalidate_discover_language
+
+        languages = ["en-US"] if current_locale.get() == "en" else ["zh-CN", "en-US"]
+        await save_scrape_setting(scrape.model_copy(update={"language_priority": languages}))
+        await invalidate_discover_language()
     await mark_initialized()
 
     token, max_age = await _issue_web_session(request, owner_id=0, remember=False)
     await _remember_login(
         request, response, token, max_age, Principal(kind="admin", name=account.username)
     )
-    return ok(_session_view(account), message="初始化完成，已自动登录")
+    return ok(_session_view(account), message=t("auth.status.setupComplete"))
 
 
 @router.post(
@@ -361,7 +378,7 @@ async def login(
             member=identity,
         )
         await _remember_login(request, response, token, max_age, principal)
-        return ok(_member_session_view(identity), message="登录成功")
+        return ok(_member_session_view(identity), message=t("auth.status.signedIn"))
 
     token, max_age = await _issue_web_session(request, owner_id=0, remember=payload.remember)
     if demo_service.is_review_username(payload.username):
@@ -370,7 +387,7 @@ async def login(
     await _remember_login(
         request, response, token, max_age, Principal(kind="admin", name=identity.username)
     )
-    return ok(_session_view(identity), message="登录成功")
+    return ok(_session_view(identity), message=t("auth.status.signedIn"))
 
 
 @router.post(
@@ -400,15 +417,15 @@ async def logout(
         if active_token:
             await login_devices.revoke_token(active_token)
         await _activate(response, [], None)
-        return ok(None, message="已退出全部账号")
+        return ok(None, message=t("auth.status.allSignedOut"))
 
     if active_token:
         await login_devices.revoke_token(active_token)
     remaining = [a for a in await _saved_accounts(request) if a.token != active_token]
     view = await _activate(response, remaining, remaining[0] if remaining else None)
     if view is None:
-        return ok(None, message="已退出登录")
-    return ok(view, message=f"已退出登录，已切换到 {view.nickname}")
+        return ok(None, message=t("auth.status.signedOut"))
+    return ok(view, message=t("auth.status.signedOutSwitched", name=view.nickname))
 
 
 @router.get(
@@ -438,9 +455,9 @@ async def update_profile(
         member = await members_service.update_own_nickname(
             session, principal.member_id, payload.nickname
         )
-        return ok(_member_session_view(member), message="个人信息已更新")
+        return ok(_member_session_view(member), message=t("auth.status.profileUpdated"))
     account = await auth_service.update_nickname(payload.nickname.strip())
-    return ok(_session_view(account), message="个人信息已更新")
+    return ok(_session_view(account), message=t("auth.status.profileUpdated"))
 
 
 def _avatar_stem_for(principal: Principal) -> str | None:
@@ -466,14 +483,16 @@ async def upload_avatar(
     错误信息为中文，方便非开发者按提示处理。
     """
     if not avatar_media.is_supported_content_type(file.content_type):
-        raise BadRequestException("不支持的图片格式，请上传 JPG / PNG / WebP / GIF / AVIF 图片")
+        raise BadRequestException(message_key="errors.auth.imageUnsupported")
 
     data = await file.read()
     if not data:
-        raise BadRequestException("上传的图片为空，请重新选择")
+        raise BadRequestException(message_key="errors.auth.imageEmpty")
     if len(data) > avatar_media.MAX_AVATAR_BYTES:
         limit_mb = avatar_media.MAX_AVATAR_BYTES // (1024 * 1024)
-        raise BadRequestException(f"图片过大，请控制在 {limit_mb}MB 以内")
+        raise BadRequestException(
+            message_key="errors.auth.imageTooLarge", params={"limit": limit_mb}
+        )
 
     stem = _avatar_stem_for(principal)
     # 已在上面校验过 content_type 属于受支持集合，此处必定命中
@@ -481,7 +500,7 @@ async def upload_avatar(
         avatar_media.save_avatar(data, file.content_type)  # type: ignore[arg-type]
     else:
         avatar_media.save_avatar(data, file.content_type, stem)  # type: ignore[arg-type]
-    return ok(await _principal_session_view(principal), message="头像已更新")
+    return ok(await _principal_session_view(principal), message=t("auth.status.avatarUpdated"))
 
 
 @router.get(
@@ -504,12 +523,12 @@ async def read_avatar(
     if account is not None:
         saved = _find_account(await _saved_accounts(request), account)
         if saved is None:
-            raise NotFoundException("尚未上传头像")
+            raise NotFoundException(message_key="errors.auth.avatarMissing")
         principal = saved.principal
     stem = _avatar_stem_for(principal)
     path = avatar_media.find_avatar(stem) if stem else avatar_media.find_avatar()
     if path is None:
-        raise NotFoundException("尚未上传头像")
+        raise NotFoundException(message_key="errors.auth.avatarMissing")
     return await sized_file(
         path,
         source_key=f"account-avatar:{path.name}",
@@ -597,10 +616,8 @@ async def change_password(
             kept.append(saved)
         await _set_accounts_cookie(response, kept)
 
-    message = "密码已修改，其他登录已全部下线"
     paired = [r for r in revoked if login_devices.spec_of(r.kind).family == "paired"]
-    if paired:
-        message += f"，命令行与转码器也已注销（{len(paired)} 台）"
+    message = t("auth.status.passwordChanged", count=len(paired))
     return ok(view, message=message)
 
 
@@ -642,10 +659,10 @@ async def switch_account(
     accounts = await _saved_accounts(request)
     target = _find_account(accounts, payload.username)
     if target is None:
-        raise NotFoundException("该账号的登录状态已失效，请重新登录该账号")
+        raise NotFoundException(message_key="errors.auth.otherAccountExpired")
     view = await _activate(response, accounts, target)
     assert view is not None  # target 非空时 _activate 必有返回
-    return ok(view, message=f"已切换到 {view.nickname}")
+    return ok(view, message=t("auth.accounts.switched", name=view.nickname))
 
 
 @router.delete(
@@ -664,12 +681,12 @@ async def remove_account(
     accounts = await _saved_accounts(request)
     target = _find_account(accounts, username)
     if target is None:
-        raise NotFoundException("该账号不在本浏览器的已登录列表里")
+        raise NotFoundException(message_key="errors.auth.accountNotInBrowser")
     # 从本浏览器移除 = 这个账号在本浏览器退出登录：服务端一并作废这枚会话
     await login_devices.revoke_token(target.token)
     remaining = [a for a in accounts if a.token != target.token]
     view = await _activate(response, remaining, remaining[0] if remaining else None)
-    return ok(view, message="已移除该账号")
+    return ok(view, message=t("auth.status.accountRemoved"))
 
 
 # ---------------------------------------------------------------------------
@@ -740,7 +757,7 @@ async def device_login(
             device=_device_view(device, principal=principal, owners=owners),
             session=session_view,
         ),
-        message="登录成功",
+        message=t("auth.status.signedIn"),
     )
 
 
@@ -772,7 +789,7 @@ async def create_api_token(payload: ApiTokenCreateRequest) -> ApiResponse[ApiTok
             created_at=device.created_at,
             token=plaintext,
         ),
-        message="令牌已创建；明文不会再次显示，请立即保存",
+        message=t("auth.status.tokenCreated"),
     )
 
 
@@ -833,7 +850,7 @@ async def authorize_device(
             interval=auth_service.DEVICE_POLL_INTERVAL_SECONDS,
             expires_in=auth_service.DEVICE_CODE_TTL_SECONDS,
         ),
-        message="请在浏览器或 App 里核对配对码并批准",
+        message=t("auth.status.pairingApprove"),
     )
 
 
@@ -859,14 +876,14 @@ async def redeem_device_token(
 
     if result.status == "pending":
         response.status_code = 202
-        return ok(None, code="AUTHORIZATION_PENDING", message="等待用户在浏览器或 App 里批准")
+        return ok(None, code="AUTHORIZATION_PENDING", message=t("auth.status.pairingPending"))
     if result.status == "slow_down":
         response.status_code = 429
-        return ok(None, code="SLOW_DOWN", message="轮询过快，请按 interval 退避后重试")
+        return ok(None, code="SLOW_DOWN", message=t("auth.status.pairingSlowDown"))
     if result.status == "denied":
-        raise BadRequestException("接入请求已被拒绝，请重新发起配对")
+        raise BadRequestException(message_key="errors.auth.pairingRejected")
     if result.status == "expired":
-        raise BadRequestException("配对码已过期或不存在，请重新发起配对")
+        raise BadRequestException(message_key="errors.auth.pairingCodeExpired")
 
     assert result.token is not None and result.device is not None  # status == "granted"
     return ok(
@@ -876,7 +893,7 @@ async def redeem_device_token(
             client_type=result.device.kind,
             granted_by=result.approver_name or "",
         ),
-        message="配对成功；令牌明文不会再次显示，请立即保存",
+        message=t("auth.status.pairingComplete"),
     )
 
 
@@ -921,7 +938,9 @@ async def approve_device_request(
     转码器只能由超管批准。
     """
     challenge = await auth_service.approve_device_request(user_code, principal)
-    return ok(None, message=f"已批准「{challenge.client_name}」以 {principal.name} 的身份接入")
+    return ok(
+        None, message=t("auth.devices.approved", client=challenge.client_name, name=principal.name)
+    )
 
 
 @router.post(
@@ -935,7 +954,7 @@ async def approve_device_request(
 async def deny_device_request(user_code: str) -> ApiResponse[None]:
     """拒绝不生成任何令牌，也不在磁盘上留痕。"""
     challenge = auth_service.deny_device_request(user_code)
-    return ok(None, message=f"已拒绝「{challenge.client_name}」的接入请求")
+    return ok(None, message=t("auth.devices.rejected", client=challenge.client_name))
 
 
 # ---------------------------------------------------------------------------
@@ -976,14 +995,19 @@ def _device_view(
     assert device.id is not None
     spec = login_devices.spec_of(device.kind)
     push = None
-    if push_channels is not None and device.kind in push_registration.PUSH_KINDS:
-        status, text, _channel = push_me.device_status(device, push_channels)
+    # 实时通知设备不靠通道（cloud-push.md §4.1）：服务器没开推送通道时也照常显示
+    if device.kind in push_registration.PUSH_KINDS and (
+        push_channels is not None or device.push_stream
+    ):
+        status, text, _channel = push_me.device_status(device, push_channels or [])
         push = DevicePushView(status=status, status_text=text)
-    username, nickname = owners.get(device.member_id, (f"#{device.member_id}", "已删除的成员"))
+    username, nickname = owners.get(
+        device.member_id, (f"#{device.member_id}", t("auth.status.deletedMember"))
+    )
     return LoginDeviceView(
         id=login_devices.playback_device_id(device.id),
         kind=device.kind,
-        kind_label=spec.label,
+        kind_label=device_kind(device.kind, spec.label),
         family=spec.family,
         name=device.name,
         scope=device.scope,
@@ -1008,13 +1032,15 @@ def _jellyfin_view(
 ) -> LoginDeviceView:
     """Jellyfin 播放器（Infuse 等）：凭证仍在自己的表里，只在列表上合并展示。"""
     assert device.id is not None
-    username, nickname = owners.get(device.member_id, (f"#{device.member_id}", "已删除的成员"))
+    username, nickname = owners.get(
+        device.member_id, (f"#{device.member_id}", t("auth.status.deletedMember"))
+    )
     return LoginDeviceView(
         id=f"jf-{device.id}",
         kind="jellyfin",
-        kind_label=device.client or "Jellyfin 播放器",
+        kind_label=device.client or device_kind("player"),
         family="login",
-        name=device.device_name or device.client or "播放器",
+        name=device.device_name or device.client or t("auth.status.player"),
         scope="full",
         platform=None,
         client_version=device.version or None,
@@ -1040,7 +1066,7 @@ def _assert_manageable(principal: Principal, owner_id: int) -> None:
     """只能管理自己的设备；超管能管理所有人的。"""
     if principal.is_admin or principal.owner_id == owner_id:
         return
-    raise NotFoundException("设备不存在或已被注销")
+    raise NotFoundException(message_key="errors.auth.deviceMissing")
 
 
 async def _find_device(
@@ -1055,7 +1081,7 @@ async def _find_device(
         found = await login_devices.get_device(session, parsed)
         if found is not None:
             return found
-    raise NotFoundException("设备不存在或已被注销")
+    raise NotFoundException(message_key="errors.auth.deviceMissing")
 
 
 @router.get(
@@ -1080,7 +1106,7 @@ async def list_devices(
     from sqlalchemy import select
 
     if all_members and not principal.is_admin:
-        raise ForbiddenException("只有管理员能查看全部成员的设备")
+        raise ForbiddenException(message_key="errors.auth.allDevicesAdmin")
     owner_filter = None if all_members else principal.owner_id
     owners = await _owner_labels(session)
     connected = _connected_device_ids()
@@ -1149,7 +1175,7 @@ async def cleanup_devices(
     from movieclaw_api.services.playback_activity import revoke_device as revoke_player
 
     if payload.all and not principal.is_admin:
-        raise ForbiddenException("只有管理员能清理全部成员的设备")
+        raise ForbiddenException(message_key="errors.auth.cleanupDevicesAdmin")
     owner_filter = None if payload.all else principal.owner_id
     cutoff = utcnow() - timedelta(days=payload.inactive_days)
     owners = await _owner_labels(session)
@@ -1174,14 +1200,14 @@ async def cleanup_devices(
         DeviceCleanupItem(
             id=login_devices.playback_device_id(row.id or 0),
             name=row.name,
-            owner_nickname=owners.get(row.member_id, ("", "已删除的成员"))[1],
+            owner_nickname=owners.get(row.member_id, ("", t("auth.status.deletedMember")))[1],
         )
         for row in logins
     ] + [
         DeviceCleanupItem(
             id=f"jf-{row.id}",
-            name=row.device_name or row.client or "播放器",
-            owner_nickname=owners.get(row.member_id, ("", "已删除的成员"))[1],
+            name=row.device_name or row.client or t("auth.status.player"),
+            owner_nickname=owners.get(row.member_id, ("", t("auth.status.deletedMember")))[1],
         )
         for row in players
     ]
@@ -1193,10 +1219,11 @@ async def cleanup_devices(
         await revoke_player(session, row.device_id)
     if items:
         logger.info("清理了 %d 台 %d 天没用过的设备", len(items), payload.inactive_days)
-    message = (
-        f"已注销 {len(items)} 台设备"
-        if items
-        else f"没有超过 {payload.inactive_days} 天没用过的设备"
+    message = t(
+        "auth.status.devicesCleaned",
+        hasDevices="yes" if items else "no",
+        count=len(items),
+        days=payload.inactive_days,
     )
     return ok(DeviceCleanupView(devices=items), message=message)
 
@@ -1213,10 +1240,10 @@ async def current_device(
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[LoginDeviceView]:
     if principal.device is None:
-        raise NotFoundException("当前登录不是设备凭证（升级前的旧网页会话），重新登录后即可查看")
+        raise NotFoundException(message_key="errors.auth.legacyDeviceSession")
     device = await login_devices.get_device(session, principal.device.id)
     if device is None:
-        raise NotFoundException("设备不存在或已被注销")
+        raise NotFoundException(message_key="errors.auth.deviceMissing")
     return ok(
         _device_view(
             device,
@@ -1240,10 +1267,10 @@ async def revoke_current_device(
 ) -> ApiResponse[None]:
     """所有凭证都能注销自己：命令行 ``mclaw logout``、App 退出登录、转码器断开配对。"""
     if principal.device is None:
-        raise NotFoundException("当前登录不是设备凭证（升级前的旧网页会话），请直接退出登录")
+        raise NotFoundException(message_key="errors.auth.legacyDeviceSignOut")
     device = await login_devices.get_device(session, principal.device.id)
     if device is None:
-        raise NotFoundException("设备不存在或已被注销")
+        raise NotFoundException(message_key="errors.auth.deviceMissing")
     member_id, kind, installation_id, name = (
         device.member_id,
         device.kind,
@@ -1252,10 +1279,8 @@ async def revoke_current_device(
     )
     await login_devices.revoke(session, device)
     # 设备自己退出登录：之后同一台登录回来，不给本人的其他设备推「新设备登录」
-    from movieclaw_api.services.push import events as push_events
-
-    await push_events.remember_signed_out(member_id, kind, installation_id)
-    return ok(None, message=f"已注销「{name}」")
+    await login_devices.remember_signed_out(member_id, kind, installation_id)
+    return ok(None, message=t("auth.sessions.revoked", name=name))
 
 
 @router.patch(
@@ -1274,7 +1299,7 @@ async def rename_device(
     device = await _find_device(session, device_id)
     _assert_manageable(principal, device.member_id)
     if isinstance(device, JellyfinDevice):
-        raise BadRequestException("播放器的名字由它自己上报，不能在这里修改")
+        raise BadRequestException(message_key="errors.auth.playerNameReadOnly")
     device = await login_devices.rename(session, device, payload.name)
     return ok(
         _device_view(
@@ -1283,7 +1308,7 @@ async def rename_device(
             owners=await _owner_labels(session),
             connected=_connected_device_ids(),
         ),
-        message="设备已改名",
+        message=t("auth.status.deviceRenamed"),
     )
 
 
@@ -1306,6 +1331,6 @@ async def revoke_device(
         from movieclaw_api.services.playback_activity import revoke_device as revoke_player
 
         label = await revoke_player(session, device.device_id)
-        return ok(None, message=f"已注销「{label or device.device_name}」")
+        return ok(None, message=t("auth.status.deviceRevoked", name=label or device.device_name))
     await login_devices.revoke(session, device)
-    return ok(None, message=f"已注销「{device.name}」")
+    return ok(None, message=t("auth.status.deviceRevoked", name=device.name))

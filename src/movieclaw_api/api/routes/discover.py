@@ -21,6 +21,7 @@ from movieclaw_api.exceptions import (
     UpstreamServiceException,
     UpstreamUnreachableException,
 )
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.discover import (
     DiscoveredPersonDetailsView,
     DiscoveredTitleDetailsView,
@@ -44,7 +45,7 @@ from movieclaw_api.services.title_discovery import (
     TitleDiscoveryService,
     get_title_discovery_service,
 )
-from movieclaw_db.engine import get_session
+from movieclaw_db.engine import get_database, get_session
 from movieclaw_db.repositories.search_history_repo import SearchHistoryRepository
 from movieclaw_media import (
     DoubanError,
@@ -67,13 +68,16 @@ search_router = APIRouter(prefix="/search", tags=["search"])
 
 async def get_projection(
     principal: Principal = Depends(require_login),
-    session: AsyncSession = Depends(get_session),
 ) -> DiscoverLibraryProjectionService:
     """库存投影服务（按主体可见库过滤——成员的"已入库"徽标与深链
-    只反映他看得见的库，避免点进去 404）。"""
-    return DiscoverLibraryProjectionService(
-        session, visible_library_ids=await visible_library_ids(session, principal)
-    )
+    只反映他看得见的库，避免点进去 404）。
+
+    不用请求级会话：它要到响应发完才还连接，而这期间大半是在等上游（#965）。
+    """
+    db = get_database()
+    async with db.session() as session:
+        visible = await visible_library_ids(session, principal)
+    return DiscoverLibraryProjectionService(db, visible_library_ids=visible)
 
 
 def _translate(exc: TmdbError | DoubanError) -> AppException:
@@ -88,13 +92,13 @@ def _translate(exc: TmdbError | DoubanError) -> AppException:
         return UpstreamUnreachableException(
             str(exc),
             service="tmdb",
-            hint="到「设置 → 网络」为 TMDB 配置代理或镜像地址，保存后用连通性测试验证",
+            hint=t("errors.upstream.tmdbHint"),
         )
     if isinstance(exc, DoubanNetworkError):
         return UpstreamUnreachableException(
             str(exc),
             service="douban",
-            hint="到「设置 → 网络」为豆瓣配置代理或反代地址，保存后用连通性测试验证",
+            hint=t("errors.upstream.doubanHint"),
         )
     return UpstreamServiceException(str(exc))
 

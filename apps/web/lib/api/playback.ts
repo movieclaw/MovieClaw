@@ -1,3 +1,4 @@
+import { appTranslator } from "@/lib/i18n/translate";
 import { publicEnv } from "@/lib/env";
 import { getPlayerDeviceId } from "@/lib/player/device";
 import type { TrickplayIndex } from "@/lib/player/trickplay";
@@ -220,6 +221,8 @@ export interface PlaybackFileSpec {
 export interface PlaybackDelivery {
   /** direct=直连原文件；remux=重封装；audio=只转音频（视频直通）；transcode=视频转码 */
   mode: string;
+  /** Stable executor classification; older servers omit it. */
+  execution_kind?: string | null;
   /** 简短中文标识：直连 / 重封装 / 音频转码 / 硬件转码 / 软件转码 / 远程转码 */
   label: string;
   /** 转码输出规格，如「1080p · H.264 · 8 Mbps」；直连 / 重封装为 null */
@@ -508,6 +511,9 @@ export interface ClientCapability {
   is_mobile: boolean;
   /** 能原生播 HLS（Safari/AVPlayer）。服务端不消费，前端选引擎用 */
   native_hls: boolean;
+  /** 硬件转码时能接 HEVC 输出，且 HEVC 放不了会不带它重来、不记硬件档失败（#1008）。
+   * 不进能力快照（缓存）：每次请求按播放器状态现填 */
+  hevc_transcode?: boolean;
 }
 
 /** 播放单元：电影用 (0, 0) 哨兵，与台账、playback_state 的约定一致。 */
@@ -672,6 +678,17 @@ export interface PlaybackSegment {
   to_end: boolean;
 }
 
+/**
+ * 自动跳过的个人设定（docs/design/skip-intro.md §5），跟账号走、随会话下发。
+ * 旧服务端与分享访客没有（undefined / null）：按默认（广告直接跳、片头只给按钮），也学不了片头。
+ */
+export interface PlaybackAutoSkip {
+  /** 总开关，默认开 */
+  enabled: boolean;
+  /** 这部剧学过片头（手动跳过过一次）：片头也自动跳 */
+  intro: boolean;
+}
+
 export interface PlaybackSession {
   decision: PlaybackDecision;
   /** 档 0 没有会话（原文件直出），此处为 null */
@@ -696,6 +713,8 @@ export interface PlaybackSession {
   chapters?: PlaybackChapterMark[];
   /** 片头 / 片尾 / 其他可跳过的段；剧集库开了「识别片头片尾」且这一季识别过才有 */
   segments?: PlaybackSegment[];
+  /** 自动跳过的个人设定；旧服务端、分享访客没有 */
+  auto_skip?: PlaybackAutoSkip | null;
   /** 本单元的观看状态快照（§6.10）。续播点已由服务端并入 start_ms，这里
    * 整份带回给前端预填时间轴、恢复字幕记忆——起播不再单独问 /resume */
   watch: PlaybackWatchState | null;
@@ -779,7 +798,7 @@ export async function fetchPlaybackDiagnostics(
   );
   const token = resolvedUrl.searchParams.get("token");
   if (!token) {
-    throw new Error("播放地址缺少诊断凭据");
+    throw new Error(appTranslator()("player.diagnostics.missingCredentials"));
   }
   const response = await request<ApiEnvelope<PlaybackDiagnostics>>(
     `${scope.base}/sessions/${encodeURIComponent(sessionId)}/diagnostics?token=${encodeURIComponent(token)}`,
@@ -791,9 +810,12 @@ export async function fetchPlaybackDiagnostics(
  * 会话续命，兼探活。用户关页面不会发任何信号，服务端的超时回收是唯一可靠
  * 兜底，所以播放中必须定时喂这个。
  *
- * 返回值分三态，**调用方必须区分**：
+ * 返回值分四态，**调用方必须区分**：
  *
  * - `true`  —— 会话还在；
+ * - `"failed"` —— 会话还在，但服务端已判它的本机转码起不来（起步即退出、一段都没
+ *   产出，issue #763）。这一档在这台服务器上放不了，该直接降档——干等分片 404 要被
+ *   层层重试拖十几分钟；
  * - `false` —— 服务端明确说它没了（404，多半是页面被浏览器冻在后台、心跳
  *   被节流到喂不上，会话让巡检回收了）。此时继续放下去只会卡在「正在缓冲」，
  *   要原地重开一个会话；
@@ -803,13 +825,13 @@ export async function fetchPlaybackDiagnostics(
 export async function pingPlaybackSession(
   sessionId: string,
   scope: PlaybackApiScope = DEFAULT_PLAYBACK_SCOPE,
-): Promise<boolean | null> {
+): Promise<boolean | "failed" | null> {
   try {
-    await request<ApiEnvelope<unknown>>(
+    const res = await request<ApiEnvelope<{ failed?: boolean }>>(
       `${scope.base}/sessions/${encodeURIComponent(sessionId)}/ping`,
       { method: "POST" },
     );
-    return true;
+    return res.data?.failed ? "failed" : true;
   } catch (error) {
     return error instanceof HttpError && error.status === 404 ? false : null;
   }
@@ -988,6 +1010,14 @@ export async function setPlaybackMarks(
   return response.data;
 }
 
+/** 记下 / 忘掉这部剧的片头自动跳（下一次开播随会话的 `auto_skip` 带回） */
+export async function setAutoSkipIntro(mediaItemId: number, enabled: boolean): Promise<void> {
+  await request<ApiEnvelope<unknown>>(`/playback/auto-skip/intro/${mediaItemId}`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
 export interface PlaybackProgressBody extends PlaybackUnit {
   event: "start" | "progress" | "stop";
   /** 播到文件的哪个位置。**不报（undefined）视同播到结尾**，与报 0 不同。 */
@@ -1067,9 +1097,31 @@ export interface PlaybackPolicy {
   trickplay_enabled: boolean;
   /** 转码产物保留供续播、重看复用（§B）；关闭即会话结束即删 */
   transcode_cache_enabled: boolean;
+  /** 片段预切（docs/design/reels.md §8）：预告与刷片放预先切好的 1080p 小文件 */
+  reel_clips_enabled: boolean;
+  /** 片段预切进度（开关开着才有） */
+  reel_clips_progress: ReelClipProgress | null;
+  /** 在外面播放网盘上的片子（docs/design/cloud-storage.md §7.2）；老服务器没有 */
+  cloud_stream_mode?: CloudStreamMode | null;
   /** 实测结果而非配置项——用户改不了自己有没有显卡 */
   hardware_available: boolean;
   hw_backends: string[];
+}
+
+/** 在外面播放网盘上的片子：自动 / 总是经家里转发 / 总是直连网盘 */
+export type CloudStreamMode = "auto" | "relay" | "direct";
+
+/** 片段预切进度：电影与剧集一共几部、切好了几部；state 为 paused 时是在给播放让路 */
+export interface ReelClipProgress {
+  ready: number;
+  total: number;
+  state: "running" | "paused" | "done";
+}
+
+/** 已切片段的总量（关开关前问要不要删） */
+export interface ReelClipStats {
+  count: number;
+  bytes: number;
 }
 
 /** 读取播放策略当前取值（设置页「播放」分区展示用）。 */
@@ -1080,11 +1132,27 @@ export async function fetchPlaybackPolicy(): Promise<PlaybackPolicy> {
 
 /** 按字段增量保存：没给的项保持原值，不会覆盖别处刚改的设置。 */
 export async function savePlaybackPolicy(
-  changes: Partial<Omit<PlaybackPolicy, "hardware_available" | "hw_backends">>,
+  changes: Partial<
+    Omit<PlaybackPolicy, "hardware_available" | "hw_backends" | "reel_clips_progress">
+  >,
 ): Promise<PlaybackPolicy> {
   const response = await request<ApiEnvelope<PlaybackPolicy>>("/playback/policy", {
     method: "PUT",
     body: JSON.stringify(changes),
+  });
+  return response.data;
+}
+
+/** 已切片段的数量与占用空间。 */
+export async function fetchReelClipStats(): Promise<ReelClipStats> {
+  const response = await request<ApiEnvelope<ReelClipStats>>("/reels/clips/stats");
+  return response.data;
+}
+
+/** 删除全部已切片段；返回删掉前的统计。 */
+export async function deleteReelClips(): Promise<ReelClipStats> {
+  const response = await request<ApiEnvelope<ReelClipStats>>("/reels/clips", {
+    method: "DELETE",
   });
   return response.data;
 }

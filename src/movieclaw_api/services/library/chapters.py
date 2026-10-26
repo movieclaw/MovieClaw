@@ -35,6 +35,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import stored_fields
 from movieclaw_api.schemas.library import ChapterJobView
 from movieclaw_api.services import jobs
 from movieclaw_api.services.library.layout import STRM_EXT
@@ -209,11 +210,15 @@ def still_plan(
     if not chapters:
         return [], None
     if len(chapters) > _MAX_STILLS:
-        return [], f"有效章节 {len(chapters)} 个，超过 {_MAX_STILLS} 张上限"
+        return (
+            [],
+            # i18n-ignore: log text
+            f"有效章节 {len(chapters)} 个，超过 {_MAX_STILLS} 张上限",
+        )
     if len(chapters) >= 2:
         gaps = [b.start_ms - a.start_ms for a, b in zip(chapters, chapters[1:], strict=False)]
         if sum(gaps) / len(gaps) < _MIN_AVG_GAP_MS:
-            return [], "章节平均间隔不足 1 秒"
+            return [], "章节平均间隔不足 1 秒"  # i18n-ignore: log text
     if not duration_seconds:
         return list(chapters), None
     total_ms = duration_seconds * 1000
@@ -668,7 +673,7 @@ async def enqueue_library_chapter_images_job(
         actor_name=actor_name,
         actor_id=actor_id,
         origin=origin,
-        progress=jobs.default_progress("等待生成章节"),
+        progress=jobs.default_progress(message_key="library.chapters.waiting"),
     )
 
 
@@ -704,8 +709,9 @@ async def apply_library_switch(
             await jobs.request_cancel(
                 session,
                 job.id,
-                requested_by="媒体库配置变更",
-                reason=f"「{library.name}」已关闭「生成章节」，未完成的章节生成随之取消",
+                requested_by="媒体库配置变更",  # i18n-ignore: internal audit label
+                reason_key="library.chapters.cancelledDisabled",
+                reason_params={"name": library.name},
             )
         return
     if rescan_queued or not profile_of(library).playable:
@@ -836,7 +842,8 @@ async def _run_targets(
             await context.update_progress(
                 mode="determinate",
                 phase="extracting",
-                message=f"正在生成章节 {processed}/{total}",
+                message_key="library.chapters.progress",
+                message_params={"processed": processed, "total": total},
                 current=processed,
                 total=total,
                 percent=round(processed * 100 / total, 1) if total else 100.0,
@@ -859,24 +866,31 @@ async def _run_chapter_images_job(
     # 路径。作业不占库租约（见 enqueue_library_chapter_images_job），所以这道
     # 检查要自己做——与 scan_library 同一处理：退回队列，稍后自动继续
     if is_organizing(library_id) or is_transferring(library_id):
-        raise jobs.JobRetry("媒体库正在变更文件路径，章节生成稍后自动继续", delay_seconds=30)
+        raise jobs.JobRetry(message_key="library.chapters.pathsChanging", delay_seconds=30)
     db = get_database()
     async with db.session() as session:
         library = await session.get(Library, library_id)
         if library is None:
-            raise jobs.JobFailed("媒体库已不存在，无法生成章节", code="LIBRARY_NOT_FOUND")
+            raise jobs.JobFailed(
+                message_key="library.chapters.libraryMissing", code="LIBRARY_NOT_FOUND"
+            )
         if not library.extract_chapter_images:
-            return {"message": f"「{library.name}」已关闭章节生成，本次未生成", "processed": 0}
+            return {**stored_fields("library.chapters.disabled", name=library.name), "processed": 0}
         targets = await _job_targets(session, library_id, force=force)
     processed, failed = await _run_targets(
-        context, targets, force=force, subject=f"媒体库 #{library_id}"
+        context,
+        targets,
+        force=force,
+        subject=f"媒体库 #{library_id}",  # i18n-ignore: log subject
     )
     async with db.session() as session:
         await cleanup_library_orphan_dirs(session, library_id)
-    message = f"章节生成完成：处理 {processed} 个文件"
-    if failed:
-        message += f"，{failed} 个失败（可在库菜单重新生成）"
-    return {"message": message, "processed": processed, "failed": failed}
+    message = (
+        stored_fields("library.chapters.doneLibraryFailures", processed=processed, failed=failed)
+        if failed
+        else stored_fields("library.chapters.done", processed=processed)
+    )
+    return {**message, "processed": processed, "failed": failed}
 
 
 # ---------------------------------------------------------------------------
@@ -929,7 +943,10 @@ async def enqueue_item_chapter_images_job(
         actor_id=actor_id,
         origin=origin,
         progress=jobs.default_progress(
-            f"等待重新生成《{title}》的章节" if force else f"等待生成《{title}》的章节"
+            message_key="library.chapters.waitingRegenerate"
+            if force
+            else "library.chapters.waitingTitle",
+            message_params={"title": title},
         ),
     )
 
@@ -986,7 +1003,9 @@ async def _run_item_chapter_images_job(
     async with db.session() as session:
         rows = await _item_rows(session, media_item_id)
         if not rows:
-            raise jobs.JobFailed("条目已不存在，无法生成章节", code="MEDIA_ITEM_NOT_FOUND")
+            raise jobs.JobFailed(
+                message_key="library.chapters.itemMissing", code="MEDIA_ITEM_NOT_FOUND"
+            )
         live_ids = {row.id for row, _ in rows if row.id is not None}
         targets = [
             row.id
@@ -994,10 +1013,15 @@ async def _run_item_chapter_images_job(
             if enabled and row.id is not None and stills_eligible(row)
         ]
     processed, failed = await _run_targets(
-        context, targets, force=force, subject=f"条目 #{media_item_id}"
+        context,
+        targets,
+        force=force,
+        subject=f"条目 #{media_item_id}",  # i18n-ignore: log subject
     )
     await asyncio.to_thread(cleanup_orphan_dirs, media_item_id, live_ids, assets_root())
-    message = f"章节生成完成：处理 {processed} 个文件"
-    if failed:
-        message += f"，{failed} 个失败（可再次重新生成）"
-    return {"message": message, "processed": processed, "failed": failed}
+    message = (
+        stored_fields("library.chapters.doneItemFailures", processed=processed, failed=failed)
+        if failed
+        else stored_fields("library.chapters.done", processed=processed)
+    )
+    return {**message, "processed": processed, "failed": failed}

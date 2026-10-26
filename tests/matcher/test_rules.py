@@ -383,3 +383,59 @@ def test_hdr_spec_roundtrip_is_stable() -> None:
     assert RuleSetSpec.model_validate(dumped).model_dump(
         exclude_defaults=True, mode="json"
     ) == dumped
+
+
+# ---------------------------------------------------------------------------
+# 不要的格式：DV P5（docs/design/avoid-dv-p5.md）
+# ---------------------------------------------------------------------------
+
+_P5 = {"hdr": ["DV"], "media_source": "WEB-DL"}  # WEB 源只标 DV：单层，即 Profile 5
+_P8 = {"hdr": ["DV", "HDR10"], "media_source": "WEB-DL"}  # 带 HDR10 兼容层
+
+
+def test_hdr_block_dv_p5_rejects_p5_but_keeps_p8_and_the_rest() -> None:
+    spec = RuleSetSpec(hdr_block=["DV P5"])
+    verdict = evaluate_rules(_candidate(**_P5), spec)
+    assert not verdict.accepted
+    assert verdict.reason_code == "hdr_blocked"
+    assert "DV P5" in verdict.reason_text and "Profile 5" in verdict.reason_text
+    assert evaluate_rules(_candidate(**_P8), spec).accepted
+    assert evaluate_rules(_candidate(hdr=["HDR10"], media_source="WEB-DL"), spec).accepted
+    assert evaluate_rules(_candidate(media_source="WEB-DL"), spec).accepted  # 没有杜比视界
+    assert evaluate_rules(_candidate(hdr=["DV"]), spec).accepted  # 片源不明：不猜
+
+
+def test_dv_p5_stacks_with_a_dv_whitelist() -> None:
+    """「只要 DV」+「不要 DV P5」= 只要带 HDR10 兼容层的杜比视界。"""
+    spec = RuleSetSpec(hdr_levels=["DV"], hdr_block=["DV P5"])
+    assert evaluate_rules(_candidate(**_P8), spec).accepted
+    assert evaluate_rules(_candidate(**_P5), spec).reason_code == "hdr_blocked"
+    assert evaluate_rules(_candidate(hdr=["HDR10"], media_source="WEB-DL"), spec).reason_code == (
+        "hdr_not_allowed"
+    )
+
+
+def test_dv_p5_is_block_only_and_its_spellings_are_normalized(caplog) -> None:
+    """P5 只有「排除」的意义：写进白名单按未知值丢掉并留一条日志；黑名单认几种写法。"""
+    with caplog.at_level(logging.WARNING, logger="movieclaw_matcher.models"):
+        spec = RuleSetSpec(hdr_levels=["DV P5", "DV"])
+    assert spec.hdr_levels == ["DV"]
+    assert "DV P5" in caplog.text
+    assert RuleSetSpec(hdr_block=["dv-p5"]).hdr_block == ["DV P5"]
+    assert RuleSetSpec(hdr_block=["DV_P5", "DV"]).hdr_block == ["DV P5", "DV"]
+
+
+def test_dv_p5_block_roundtrips_and_old_versions_read_it_as_no_constraint() -> None:
+    spec = RuleSetSpec.model_validate({"hdr_block": ["DV P5"]})
+    dumped = spec.model_dump(exclude_defaults=True, mode="json")
+    assert RuleSetSpec.model_validate(dumped).hdr_block == ["DV P5"]
+    # 回退到不认识它的旧版本：旧三态读到的是「不限」，值域外的 "DV P5" 被旧版宽容地丢掉
+    assert (spec.hdr.value, spec.dv.value) == ("any", "any")
+
+
+def test_site_labels_can_overrule_a_title_that_only_says_dv() -> None:
+    spec = RuleSetSpec(hdr_block=["DV P5"])
+    mislabeled = _candidate(**_P5, site_labels=["中字", "4k", "hdr10", "DoVi"])
+    assert evaluate_rules(mislabeled, spec).accepted
+    missing_in_title = _candidate(media_source="WEB-DL", site_labels=["4k", "DoVi"])
+    assert evaluate_rules(missing_in_title, spec).reason_code == "hdr_blocked"

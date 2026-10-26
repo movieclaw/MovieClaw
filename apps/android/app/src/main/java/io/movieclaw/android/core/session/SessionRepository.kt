@@ -32,6 +32,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
@@ -48,6 +49,8 @@ data class SessionUi(
     val session: SessionView? = null,
     val cached: Boolean = false,
     val presetUsername: String? = null,
+    /** 重登预填的服务器地址（对齐 iOS Prefill.server；随 presetUsername 一起给） */
+    val presetOrigin: String? = null,
 )
 
 @Serializable
@@ -81,7 +84,20 @@ class SessionRepository @Inject constructor(
     private val apiFactory: ApiFactory,
     @GeneralChannel private val rawClient: OkHttpClient,
     private val cacheCleaner: SessionCacheCleaner,
+    private val addressBook: dagger.Lazy<io.movieclaw.android.core.network.ServerAddressBook>,
 ) {
+
+    /**
+     * 「Agent 会话列表变了」信号：新建会话成功、对话页拉到新轨迹时 +1。
+     * 「我的」页的最近会话订阅它立即重拉——替代之前的 5 秒轮询（实机反馈"新建完要等一会"）。
+     * iOS 那边是靠一个共享 store（AgentConversationStore）天然做到这一点，这里用信号达成同样效果。
+     */
+    private val _agentSessionsVersion = kotlinx.coroutines.flow.MutableStateFlow(0)
+    val agentSessionsVersion: kotlinx.coroutines.flow.StateFlow<Int> = _agentSessionsVersion
+
+    fun notifyAgentSessionsChanged() {
+        _agentSessionsVersion.value += 1
+    }
     private val scope = AppScopes.io("SessionRepository")
     private val sessionMutex = Mutex()
 
@@ -108,7 +124,11 @@ class SessionRepository @Inject constructor(
             }
             val token = if (server != null && account != null) vault.token(server.origin, account.username) else null
             if (server == null || account == null || token == null) {
-                _ui.value = SessionUi(phase = SessionPhase.NEEDS_LOGIN, presetUsername = account?.username)
+                _ui.value = SessionUi(
+                    phase = SessionPhase.NEEDS_LOGIN,
+                    presetUsername = account?.username,
+                    presetOrigin = server?.origin,
+                )
                 return@withLock null
             }
             server.apiBase?.let { apiFactory.registerApiBase(server.origin, it) }
@@ -121,7 +141,11 @@ class SessionRepository @Inject constructor(
             )
             server.origin
         }
-        restored?.let { revalidate(it) }
+        restored?.let {
+            revalidate(it)
+            // 内外双地址自动选连：冷启动恢复会话后选一次入口（§4.5 事件驱动，之后靠网络回调）
+            addressBook.get().selectAndApply(it)
+        }
     }
 
     /** 播放/实时请求捕获同一份身份，回调只允许更新仍活跃的这一代。 */
@@ -145,7 +169,11 @@ class SessionRepository @Inject constructor(
                     if (!vault.isCurrent(expected)) return@withLock
                     markExpired(origin, expected.username)
                     vault.deactivateActive(expected)
-                    _ui.value = SessionUi(phase = SessionPhase.NEEDS_LOGIN, presetUsername = expected.username)
+                    _ui.value = SessionUi(
+                        phase = SessionPhase.NEEDS_LOGIN,
+                        presetUsername = expected.username,
+                        presetOrigin = origin,
+                    )
                 }
             }
         }
@@ -198,6 +226,8 @@ class SessionRepository @Inject constructor(
             setActive = true,
         )
         _ui.value = SessionUi(phase = SessionPhase.READY, origin = origin, session = view.session, cached = false)
+        // 首次登录也立刻拿一次地址簿（§1）：之后在家/出门由网络回调与久别回前台事件驱动
+        addressBook.get().selectAndApply(origin)
         view.session
     }
 
@@ -237,6 +267,8 @@ class SessionRepository @Inject constructor(
         _servers.value = emptyList()
         persistServers(emptyList())
         vault.deactivateActive()
+        // 账号切换/退出：路由可信地址不能跨账号沿用（否则新账号的令牌会发到上一个账号验证过的入口）
+        io.movieclaw.android.core.network.ServerTrust.clear()
         cacheCleaner.clear()
         _ui.value = SessionUi(phase = SessionPhase.NEEDS_LOGIN)
     }
@@ -251,6 +283,7 @@ class SessionRepository @Inject constructor(
                 _ui.value = SessionUi(
                     phase = SessionPhase.NEEDS_LOGIN,
                     presetUsername = username,
+                    presetOrigin = origin,
                 )
                 return@withLock false
             }
@@ -279,6 +312,7 @@ class SessionRepository @Inject constructor(
             clearActiveFlag(origin)
         }
         vault.deactivateActive()
+        io.movieclaw.android.core.network.ServerTrust.clear()
         cacheCleaner.clear()
         _ui.value = SessionUi(phase = SessionPhase.NEEDS_LOGIN, presetUsername = preset)
     }
@@ -297,6 +331,16 @@ class SessionRepository @Inject constructor(
                 (body.contains("movieclaw", ignoreCase = true) || body.contains("spec_hash"))
             if (!isMovieClaw) {
                 throw ApiException("NOT_MOVIECLAW", "不是 MovieClaw 服务器或接口不可用(HTTP ${r.code})")
+            }
+            // App 独立发版后，兼容性只能靠运行时判断；v0.30.0 及更早没有 version 字段，交给登录接口的 404 兜底
+            val version = runCatching {
+                (json.parseToJsonElement(body).jsonObject["version"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            }.getOrNull()
+            if (version != null && !serverVersionAtLeast(version, MIN_SERVER_VERSION)) {
+                throw ApiException(
+                    "SERVER_TOO_OLD",
+                    "服务器版本 v$version 太旧,App 需要 v$MIN_SERVER_VERSION 或更新版本。请先在网页「设置 → 更新与维护」里把服务器升级到最新版",
+                )
             }
             val finalUrl = r.request.url
             val apiBase = finalUrl.toString().removeSuffix("/health").trimEnd('/')
@@ -461,5 +505,20 @@ class SessionRepository @Inject constructor(
 
     private companion object {
         const val KEY_SERVERS = "servers_json"
+        /** 最低服务器版本：首个附带 Android 的服务器版本；App 开始依赖更新的接口时上调 */
+        const val MIN_SERVER_VERSION = "0.33.0"
     }
+}
+
+/** 比较 `0.33.0`、`0.33.1-dev.20261008` 这类版本号的数字部分 */
+internal fun serverVersionAtLeast(version: String, minimum: String): Boolean {
+    fun parts(v: String) = v.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
+    val a = parts(version)
+    val b = parts(minimum)
+    for (i in 0 until maxOf(a.size, b.size)) {
+        val x = a.getOrElse(i) { 0 }
+        val y = b.getOrElse(i) { 0 }
+        if (x != y) return x > y
+    }
+    return true
 }

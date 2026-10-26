@@ -4,6 +4,7 @@ import SwiftUI
 /// 参演与幕后合并去重的完整 TMDB 影视履历。海报自带「已入库」绿斜标，未入库但已订阅的打「已订阅」蓝斜标；
 /// 点海报进发现详情。
 struct DiscoveredPersonView: View {
+    @Environment(\.cardMetrics) private var cards
     let tmdbId: Int
 
     @Environment(\.api) private var api
@@ -15,14 +16,14 @@ struct DiscoveredPersonView: View {
         Group {
             if let failure {
                 ContentUnavailableView {
-                    Label(failure == .missing ? "TMDB 中没有这位影人" : "未能加载影人作品", systemImage: "person.crop.rectangle")
+                    Label(failure == .missing ? String(localized: .mediaPersonNotFound) : String(localized: .mediaPersonCreditsFailed), systemImage: "person.crop.rectangle")
                 } description: {
-                    Text(failure == .missing ? "这条影人记录可能已被 TMDB 合并或移除。" : "请稍后重试；若持续失败，请检查 TMDB 网络连接。")
+                    Text(failure == .missing ? String(localized: .mediaPersonNotFoundHint) : String(localized: .mediaPersonCreditsHint))
                 } actions: {
                     if failure == .error {
-                        Button("重试") { Task { await load() } }.discoverProminentButton()
+                        Button(String(localized: .commonRetry)) { Task { await load() } }.discoverProminentButton()
                     }
-                    Button("返回发现页") { router.open(.discover()) }.buttonStyle(.glass)
+                    Button(String(localized: .mediaPersonBackDiscovery)) { router.open(.discover()) }.buttonStyle(.glass)
                 }
                 .accessibilityIdentifier("error-state")
             } else if let person {
@@ -31,11 +32,11 @@ struct DiscoveredPersonView: View {
                         PersonHeader(
                             name: person.name,
                             avatarUrl: person.avatarUrl,
-                            eyebrow: "TMDB 影人",
-                            summary: "共 \(person.titles.count) 部影视作品"
+                            eyebrow: String(localized: .mediaPersonTmdbPerson),
+                            summary: String(localized: .mediaPersonCreditsCount(person.titles.count))
                         )
                         if person.titles.isEmpty {
-                            Text("TMDB 暂未收录这位影人的影视作品")
+                            Text(String(localized: .mediaPersonEmptyCredits))
                                 .foregroundStyle(Theme.textMuted)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 32)
@@ -43,7 +44,7 @@ struct DiscoveredPersonView: View {
                         } else {
                             VStack(alignment: .leading, spacing: 12) {
                                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                    Text("全部作品").font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
+                                    Text(String(localized: .mediaPersonAllCredits)).font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
                                     Text("\(person.titles.count)").font(.subheadline).foregroundStyle(Theme.textFaint)
                                 }
                                 LazyVGrid(columns: DiscoverGrid.columns, spacing: 20) {
@@ -55,7 +56,7 @@ struct DiscoveredPersonView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .padding(.bottom, 40)
                 }
                 .refreshable { await load() }
@@ -63,7 +64,7 @@ struct DiscoveredPersonView: View {
             } else {
                 VStack(spacing: 12) {
                     ProgressView().controlSize(.large)
-                    Text("正在读取 TMDB 影人作品…").font(.subheadline).foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .mediaPersonLoadingCredits)).font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

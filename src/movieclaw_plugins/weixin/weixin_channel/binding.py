@@ -40,6 +40,46 @@ _POLL_INTERVAL_S = 1.0
 _TERMINAL_STATUSES = {"confirmed", "already_bound", "expired", "failed"}
 
 
+_BINDING_MESSAGES = {
+    "scan": ("请用手机微信扫描二维码", "Scan the QR code with WeChat on your phone"),
+    "timeout": ("绑定超时,请重新发起", "Linking timed out. Start again"),
+    "replaced": (
+        "已发起新的绑定,本流程终止",
+        "A new linking request has started. This request has ended",
+    ),
+    "error": (
+        "绑定过程出错,请重试(详情见日志)",
+        ("An error occurred while linking. Try again and check the logs for details"),
+    ),
+    "scanned": ("已扫码,请在手机上确认", "Code scanned. Confirm on your phone"),
+    "incorrect": ("配对码不正确,请重新输入", "Incorrect pairing code. Enter it again"),
+    "input": ("请输入手机微信上显示的数字", "Enter the digits shown in WeChat on your phone"),
+    "checking": ("正在校验配对码…", "Checking the pairing code\u2026"),
+    "blocked": (
+        "配对码错误次数过多,请稍后重新发起绑定",
+        "Too many incorrect pairing codes. Try linking again later",
+    ),
+    "refreshed": ("二维码已刷新,请重新扫描", "The QR code has refreshed. Scan it again"),
+    "expired": (
+        "二维码多次过期,请重新发起绑定",
+        "The QR code has expired repeatedly. Start linking again",
+    ),
+    "alreadyLinked": (
+        "该微信已绑定过本实例,无需重复绑定",
+        "This WeChat account is already linked to this instance",
+    ),
+    "confirmed": ("绑定完成,微信通道已启动", "Linked. The WeChat channel is running"),
+    "incomplete": (
+        "绑定失败:服务端未返回完整凭据",
+        "Could not link: the server returned incomplete credentials",
+    ),
+    "saveFailed": (
+        "绑定成功但保存/启动失败,请查看日志后重试",
+        ("Linked, but saving or starting failed. Check the logs and try again"),
+    ),
+}
+
+
 @dataclass(frozen=True, slots=True)
 class BindingResult:
     """扫码确认后服务端签发的凭据。"""
@@ -60,7 +100,7 @@ class BindingChallenge:
     status: str = "pending"
     qrcode_url: str = ""
     #: 面向用户的中文提示(配对码错误、失败原因等)
-    message: str = "请用手机微信扫描二维码"
+    message: str = _BINDING_MESSAGES["scan"][0]
     result: BindingResult | None = None
     # ---- 以下为内部字段 ----
     qrcode: str = ""
@@ -69,6 +109,11 @@ class BindingChallenge:
     code_event: asyncio.Event = field(default_factory=asyncio.Event)
     started_at: float = field(default_factory=time.monotonic)
     task: asyncio.Task[None] | None = None
+    message_localized: dict = field(default_factory=lambda: {"en": _BINDING_MESSAGES["scan"][1]})
+
+    def set_message(self, key: str) -> None:
+        self.message, english = _BINDING_MESSAGES[key]
+        self.message_localized = {"en": english}
 
 
 class WeixinBindingRegistry:
@@ -97,7 +142,7 @@ class WeixinBindingRegistry:
         for old in self._challenges.values():
             if old.status not in _TERMINAL_STATUSES:
                 old.status = "expired"
-                old.message = "已发起新的绑定,本流程终止"
+                old.set_message("replaced")
                 if old.task is not None and not old.task.done():
                     old.task.cancel()
         tokens = await self._get_local_tokens()
@@ -152,14 +197,12 @@ class WeixinBindingRegistry:
                     # 带码轮询后回到 scaned = 配对码正确,清除暂存
                     ch.verify_code = None
                     ch.status = "scanned"
-                    ch.message = "已扫码,请在手机上确认"
+                    ch.set_message("scanned")
                 elif status == "need_verifycode":
                     rejected = ch.verify_code is not None
                     ch.verify_code = None
                     ch.status = "need_verify_code"
-                    ch.message = (
-                        "配对码不正确,请重新输入" if rejected else "请输入手机微信上显示的数字"
-                    )
+                    ch.set_message("incorrect" if rejected else "input")
                     ch.code_event.clear()
                     # 等用户在网页上输入配对码(或整体超时)
                     remaining = deadline - time.monotonic()
@@ -170,24 +213,24 @@ class WeixinBindingRegistry:
                     except TimeoutError:
                         break
                     ch.status = "scanned"
-                    ch.message = "正在校验配对码…"
+                    ch.set_message("checking")
                     continue  # 立即带码重查
                 elif status == "verify_code_blocked":
                     ch.status = "failed"
-                    ch.message = "配对码错误次数过多,请稍后重新发起绑定"
+                    ch.set_message("blocked")
                     return
                 elif status == "expired":
                     qr_refresh_count += 1
                     if qr_refresh_count > _MAX_QR_REFRESH:
                         ch.status = "expired"
-                        ch.message = "二维码多次过期,请重新发起绑定"
+                        ch.set_message("expired")
                         return
                     tokens = await self._get_local_tokens()
                     qr = await fetch_qrcode(DEFAULT_BASE_URL, tokens)
                     ch.qrcode = str(qr.get("qrcode") or "")
                     ch.qrcode_url = str(qr.get("qrcode_img_content") or "")
                     ch.status = "pending"
-                    ch.message = "二维码已刷新,请重新扫描"
+                    ch.set_message("refreshed")
                     logger.info(
                         "绑定二维码已刷新(%d/%d) challenge=%s",
                         qr_refresh_count,
@@ -202,14 +245,14 @@ class WeixinBindingRegistry:
                         logger.info("绑定轮询已重定向到 %s", host)
                 elif status == "binded_redirect":
                     ch.status = "already_bound"
-                    ch.message = "该微信已绑定过本实例,无需重复绑定"
+                    ch.set_message("alreadyLinked")
                     return
                 elif status == "confirmed":
                     bot_id = str(resp.get("ilink_bot_id") or "")
                     bot_token = str(resp.get("bot_token") or "")
                     if not bot_id or not bot_token:
                         ch.status = "failed"
-                        ch.message = "绑定失败:服务端未返回完整凭据"
+                        ch.set_message("incomplete")
                         return
                     result = BindingResult(
                         bot_id=bot_id,
@@ -223,11 +266,11 @@ class WeixinBindingRegistry:
                     except Exception:
                         logger.exception("绑定确认回调失败 challenge=%s", ch.challenge_id)
                         ch.status = "failed"
-                        ch.message = "绑定成功但保存/启动失败,请查看日志后重试"
+                        ch.set_message("saveFailed")
                         return
                     ch.result = result
                     ch.status = "confirmed"
-                    ch.message = "绑定完成,微信通道已启动"
+                    ch.set_message("confirmed")
                     logger.info("微信绑定完成 bot=%s", bot_id)
                     return
                 else:
@@ -236,13 +279,13 @@ class WeixinBindingRegistry:
                 await asyncio.sleep(_POLL_INTERVAL_S)
 
             ch.status = "expired"
-            ch.message = "绑定超时,请重新发起"
+            ch.set_message("timeout")
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("绑定状态机异常 challenge=%s", ch.challenge_id)
             ch.status = "failed"
-            ch.message = "绑定过程出错,请重试(详情见日志)"
+            ch.set_message("error")
 
     def _purge_expired(self) -> None:
         """清掉已终态且超过 TTL 的历史 challenge,防止内存泄漏。"""

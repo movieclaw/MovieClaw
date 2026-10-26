@@ -7,10 +7,17 @@
 # 装配完成后的整棵命令树（精选层 + 生成层，含分组名），一行一条命令路径。
 activity
 app
+app addresses
+app addresses add
+app addresses list
+app addresses remove
 app features
 app features list
 app features set
 app plugins
+app plugins bundled
+app plugins bundled restore
+app plugins bundled uninstall
 app plugins callbacks
 app plugins callbacks list
 app plugins callbacks revoke
@@ -19,15 +26,31 @@ app plugins dead-letters
 app plugins dead-letters dismiss
 app plugins dead-letters replay
 app plugins list
+app plugins market
+app plugins market install
+app plugins market list
+app plugins market refresh
+app plugins market show
 app plugins packages
 app plugins packages approve
 app plugins packages discard
 app plugins packages list
+app plugins packages retry-dependencies
 app plugins packages rollback
 app plugins packages uninstall
 app plugins packages upload
+app plugins pages
+app plugins pages list
 app plugins safe-mode
 app plugins safe-mode exit
+app plugins settings
+app plugins settings show
+app plugins settings update
+app plugins show
+app plugins switch
+app plugins web
+app plugins web revoke
+app plugins web update
 app port
 app port set
 app restart
@@ -118,6 +141,8 @@ dl add
 dl default
 dl default set
 dl delete
+dl file-sources
+dl file-sources list
 dl limits
 dl limits set
 dl list
@@ -133,9 +158,30 @@ dl tasks
 dl torrent
 dl torrent delete
 dl torrent replace
+dl types
+dl types list
 dl update
 dl verify
 download
+drives
+drives accounts
+drives accounts cookie
+drives accounts delete
+drives accounts dirs
+drives accounts form
+drives accounts list
+drives accounts refresh
+drives accounts update
+drives backends
+drives backends list
+drives logins
+drives logins cancel
+drives logins start
+drives logins status
+drives settings
+drives settings get
+drives settings update
+drives status
 extension
 extension cookies
 extension cookies push
@@ -195,6 +241,7 @@ library items
 library items annotate-media-source
 library items delete
 library items delete-file
+library items delete-preview
 library items facets
 library items get
 library items get-transfer-status
@@ -236,6 +283,9 @@ library scan
 library scan start
 library scan stop
 library set-default
+library strm
+library strm list-pending
+library strm probe
 library subtitles
 library subtitles calibrate-timing
 library subtitles delete
@@ -243,10 +293,13 @@ library subtitles generate
 library subtitles preview-generation
 library update
 llm
+llm chatgpt
+llm chatgpt login
 llm defaults
 llm defaults show
 llm defaults update
 llm models
+llm models discover
 llm presets
 llm providers
 llm providers create
@@ -303,6 +356,10 @@ playback history
 playback stats
 playback stats qoe
 playback stats watch
+playback sync
+playback sync catalog
+playback sync import
+playback sync state
 plugin
 plugin dev
 plugin pack
@@ -356,6 +413,8 @@ site delete
 site list
 site protection
 site protection set
+site proxy
+site proxy request
 site ratio-boost
 site ratio-boost pause
 site ratio-boost set
@@ -371,8 +430,11 @@ subscriptions check-automation-readiness
 subscriptions cleanup-seasons
 subscriptions create
 subscriptions delete
+subscriptions dismiss-episode-hint
 subscriptions download-selected-torrent
 subscriptions get
+subscriptions get-smart-defaults
+subscriptions get-smart-memory
 subscriptions get-smart-profile
 subscriptions list
 subscriptions list-active-downloads
@@ -381,11 +443,13 @@ subscriptions list-today-arrivals
 subscriptions preview-download-routing
 subscriptions preview-removal
 subscriptions search-missing-resources
+subscriptions save-smart-defaults
 subscriptions save-smart-profile
 subscriptions set-follow-future
 subscriptions set-tracking-state
 subscriptions unsubscribe
 subscriptions update
+subscriptions update-smart-memory
 subscriptions update-smart-wait
 subscriptions upgrade-run
 transcode

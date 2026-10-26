@@ -94,7 +94,7 @@ final class CloudConnection {
 extension APIError {
     /// 断开时云端连不上（409 `CLOUD_UNREACHABLE`）：要再问一次是否只删本地凭证
     var isCloudUnreachable: Bool {
-        if case let .http(_, _, code) = self { return code == "CLOUD_UNREACHABLE" }
+        if case let .http(_, _, code, _) = self { return code == "CLOUD_UNREACHABLE" }
         return false
     }
 }

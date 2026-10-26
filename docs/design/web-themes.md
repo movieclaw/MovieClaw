@@ -262,6 +262,34 @@ localStorage 偏好缓存，把 `data-theme` 写上 `<html>`（与 next-themes �
 SSR 首屏无属性 = 银玻璃默认；登录后才渲染的结构层在客户端拿 Context 值渲染，
 首帧即正确主题。
 
+#### 3.4.1 按设备类取主题（2026-09-24 起；2026-10-21 修正判据）
+
+主题可以手机、电脑分开选：`ui.preferences` 里的 `theme_mobile` / `theme_desktop` 是覆盖字段，
+没单独设置时回落通用 `theme`（老账号的唯一数据）。取哪一份由**设备类**决定，判据只在一处
+定义——`lib/themes.ts` 的 `PHONE_THEME_QUERY`：
+
+```
+(max-width: 767px), (pointer: coarse) and (max-height: 500px)
+```
+
+即页面宽不到 768，或触屏设备（粗指针）且视口高不到 500。**不能只看宽度**：手机系统转横屏后宽
+844~956，越过 768，会被当成电脑、取了电脑那份（2026-10-21 用户发现：手机竖着是银玻璃，转横屏
+变成电脑上选的 Netflix）。手机横拿的高只有 320~440，平板与电脑都在 700 以上；粗指针看的是
+主输入设备，带触屏的笔记本主输入是鼠标 / 触控板，不会被误判。转屏时手机始终落在同一类，
+`matchMedia` 的结果不翻转，主题也就不会闪。
+
+三处必须是同一个判据：防闪烁脚本（`layout.tsx`，首帧）、`UiPrefsProvider` 写 `data-theme`
+（`lib/ui-prefs.tsx` 的 `useIsPhone`）、设置页把选择落到哪份覆盖字段（`settings-view.tsx`
+的 ThemeGroup）。判据放在无组件依赖的 `lib/themes.ts` 里，是因为 `layout.tsx` 是服务端
+组件，拿不到「use client」模块里的非组件导出。
+
+**只管「取哪份主题偏好」**。外壳结构（侧栏 / 底栏、各页的移动端分支）仍按页面宽度分叉
+（`use-media-query.ts` 的 `useIsMobile`）：横屏手机拿到手机那份主题，版式照旧是宽屏版。
+两个判据目前刻意不同——样式里的断点全是宽度（`max-md:` 等），只把结构分叉改成「按设备」会
+让 JS 与 CSS 各走各的；要让横屏手机也走手机版式，是另一件事。
+
+验证：`tests/e2e/test_theme_device_class_browser.py`（真浏览器按设备形态开页读 `data-theme`）。
+
 ### 3.5 与现有氛围体系的兼容：Netflix 主题下停用「玻璃三件套」
 
 Netflix 主题是**纯色平铺**设计，现有的三大氛围机制整体停用（不是隐藏——是不渲染）：

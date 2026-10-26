@@ -169,7 +169,7 @@ async def test_bash_cancel_kills_process_group(tmp_path):
     tools = toolmap(tmp_path)
     marker = "movieclaw-test-reap-cancel"
     task = asyncio.create_task(
-        tools["bash"].handler({"command": f"sleep 987654 # {marker} & wait"})
+        tools["bash"].handler({"command": f"sleep 987654 & : {marker}; wait"})
     )
     # 等命令真正跑起来（后台 sleep 属于同一进程组）
     deadline = time.monotonic() + 5

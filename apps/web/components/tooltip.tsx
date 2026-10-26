@@ -46,7 +46,7 @@ export function Tooltip({
   /** 触发元素：必须是可接收 ref 的单个元素（原生标签即可） */
   children: React.ReactElement<Record<string, unknown>>;
   placement?: Placement;
-  maxWidth?: number;
+  maxWidth?: number | string;
   /** 触屏或需显式点按的提示可开启；默认仍只响应悬停与键盘聚焦。 */
   openOnClick?: boolean;
   /** 临时停用提示；用于详情弹窗打开时保证两种浮层互斥。 */

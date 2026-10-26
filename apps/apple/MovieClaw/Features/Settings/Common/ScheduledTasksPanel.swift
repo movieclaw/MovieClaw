@@ -19,14 +19,14 @@ struct ScheduledTasksPanel: View {
             SettingsFormSection {
                 if let error {
                     SettingsNotice(text: error)
-                    Button("重试") { Task { await load() } }
+                    Button(String(localized: .commonRetry)) { Task { await load() } }
                 }
                 if let reconcile = tasks?.first(where: { $0.key == "library_reconcile" }),
                    SettingsSchedule.suggestReconcile(reconcile, anyNetwork: anyNetwork) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("有媒体库放在网络挂载上：实时监控收不到远端变化，新文件全靠「媒体库对账」发现。现在是\(SettingsSchedule.describe(reconcile))，建议调到每 1 小时——增量对账通常只需几秒。")
+                        Text(String(localized: .settingsScheduledTasksNativeNetworkHint(SettingsSchedule.describe(reconcile))))
                             .font(.subheadline)
-                        Button("调到每 1 小时") {
+                        Button(String(localized: .settingsScheduledTasksUiApplySuggestion)) {
                             Task { error = await save(reconcile, .init(enabled: true, triggerType: "interval", intervalSeconds: 3600, cronExpr: nil)) }
                         }
                         .buttonStyle(.glass).controlSize(.small)
@@ -34,7 +34,7 @@ struct ScheduledTasksPanel: View {
                     }
                 }
                 if tasks == nil, error == nil {
-                    SettingsLoadingRow(text: "正在加载…")
+                    SettingsLoadingRow(text: String(localized: .commonLoadingActive))
                 }
             }
             SettingsFormSection {
@@ -45,7 +45,7 @@ struct ScheduledTasksPanel: View {
                                 .foregroundStyle(task.enabled ? Theme.accent : .secondary)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(task.title).foregroundStyle(.primary)
-                                Text(task.enabled ? SettingsSchedule.describe(task) : "已暂停")
+                                Text(task.enabled ? SettingsSchedule.describe(task) : String(localized: .settingsScheduledTasksPaused))
                                     .font(.subheadline).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -53,7 +53,7 @@ struct ScheduledTasksPanel: View {
                         }
                     }.accessibilityIdentifier("task-row-\(task.key)")
                 }
-            } footer: { Text("点选任务调整周期。保存后在服务器生效，无需重启。") }
+            } footer: { Text(String(localized: .settingsScheduledTasksFooter)) }
         }
         .task { await load() }
         .sheet(isPresented: Binding(get: { selected != nil }, set: { if !$0 { selected = nil } })) {
@@ -94,6 +94,11 @@ struct ScheduledTasksPanel: View {
 // MARK: - 周期形状（Web lib/scheduled-tasks.ts）
 
 enum SettingsSchedule {
+    // Keep legacy Chinese String interpolation ungrouped; English uses the shared number formatter.
+    static func number(_ value: Int) -> String {
+        AppLanguage.identifier == "zh-Hans" ? String(value) : AppFormatting.number(value)
+    }
+
     /// 「分 时 * * *」形状的 cron → 每天固定时刻；其它形状返回 nil
     static func dailyTime(_ cron: String?) -> (hour: Int, minute: Int)? {
         guard let cron else { return nil }
@@ -110,15 +115,27 @@ enum SettingsSchedule {
     static func describe(_ task: API.ScheduledTaskView) -> String {
         if task.triggerType == "interval" {
             let seconds = task.intervalSeconds ?? 0
-            if seconds <= 0 { return "间隔未设置" }
-            if seconds % 3600 == 0 { return "每 \(seconds / 3600) 小时" }
-            if seconds % 60 == 0 { return "每 \(seconds / 60) 分钟" }
-            return "每 \(seconds) 秒"
+            if seconds <= 0 { return String(localized: .settingsScheduledTasksScheduleIntervalUnset) }
+            if seconds % 3600 == 0 {
+                let hours = seconds / 3600
+                return hours == 1
+                    ? String(localized: .settingsScheduledTasksEveryHour(number(hours)))
+                    : String(localized: .settingsScheduledTasksEveryHours(number(hours)))
+            }
+            if seconds % 60 == 0 {
+                let minutes = seconds / 60
+                return minutes == 1
+                    ? String(localized: .settingsScheduledTasksEveryMinute(number(minutes)))
+                    : String(localized: .settingsScheduledTasksEveryMinutes(number(minutes)))
+            }
+            return seconds == 1
+                ? String(localized: .settingsScheduledTasksEverySecond(number(seconds)))
+                : String(localized: .settingsScheduledTasksEverySeconds(number(seconds)))
         }
         if let daily = dailyTime(task.cronExpr) {
-            return String(format: "每天 %02d:%02d", daily.hour, daily.minute)
+            return String(localized: .settingsScheduledTasksScheduleDaily(String(format: "%02d", daily.hour), String(format: "%02d", daily.minute)))
         }
-        return task.cronExpr.map { "cron：\($0)" } ?? "未设置"
+        return task.cronExpr.map { String(localized: .settingsScheduledTasksScheduleCron($0)) } ?? String(localized: .settingsScheduledTasksScheduleUnset)
     }
 
     /// 固定时刻 = 一天一次，比一小时长；间隔超过一小时也建议
@@ -192,7 +209,7 @@ private struct TaskEditor: View {
     var body: some View {
         SubsSheetScaffold(title: task.title, onClose: {
             if draft.dirty { discarding = true } else { dismiss() }
-        }, confirm: SubsSheetConfirm(title: "保存", enabled: draft.dirty && (draft.mode != .cron || !draft.cron.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
+        }, confirm: SubsSheetConfirm(title: String(localized: .commonSave), enabled: draft.dirty && (draft.mode != .cron || !draft.cron.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
                                      busy: busy, identifier: "task-save-\(task.key)") {
             Task {
                 busy = true
@@ -202,35 +219,35 @@ private struct TaskEditor: View {
             }
         }) {
             SettingsFormSection {
-                Toggle("启用任务", isOn: $draft.enabled).accessibilityIdentifier("task-enabled-\(task.key)")
-                Picker("运行方式", selection: $draft.mode) {
-                    Text("每隔一段时间").tag(TaskScheduleDraft.Mode.interval)
-                    Text("每天固定时刻").tag(TaskScheduleDraft.Mode.daily)
-                    Text("自定义周期").tag(TaskScheduleDraft.Mode.cron)
+                Toggle(String(localized: .settingsScheduledTasksEditorEnable), isOn: $draft.enabled).accessibilityIdentifier("task-enabled-\(task.key)")
+                Picker(String(localized: .settingsScheduledTasksEditorMode), selection: $draft.mode) {
+                    Text(String(localized: .settingsScheduledTasksEditorInterval)).tag(TaskScheduleDraft.Mode.interval)
+                    Text(String(localized: .settingsScheduledTasksUiDaily)).tag(TaskScheduleDraft.Mode.daily)
+                    Text(String(localized: .settingsScheduledTasksEditorCron)).tag(TaskScheduleDraft.Mode.cron)
                 }.pickerStyle(.menu).accessibilityIdentifier("task-mode-\(task.key)")
                 switch draft.mode {
                 case .interval:
                     Stepper(value: $draft.hours, in: 1 ... 168) {
-                        LabeledContent("间隔", value: draft.payload.intervalSeconds == draft.hours * 3600 ? "\(draft.hours) 小时" : SettingsSchedule.describe(task))
+                        LabeledContent(String(localized: .settingsScheduledTasksEditorIntervalLabel), value: draft.payload.intervalSeconds == draft.hours * 3600 ? String(localized: .settingsScheduledTasksIntervalValue(SettingsSchedule.number(draft.hours))) : SettingsSchedule.describe(task))
                     }.accessibilityIdentifier("task-hours-\(task.key)")
                 case .daily:
-                    DatePicker("运行时间", selection: $draft.time, displayedComponents: .hourAndMinute)
+                    DatePicker(String(localized: .settingsScheduledTasksEditorTime), selection: $draft.time, displayedComponents: .hourAndMinute)
                 case .cron:
-                    TextField("分 时 日 月 周", text: $draft.cron)
+                    TextField(String(localized: .settingsScheduledTasksEditorCronPlaceholder), text: $draft.cron)
                         .font(.body.monospaced()).textInputAutocapitalization(.never).autocorrectionDisabled()
                 }
             } footer: { Text(task.description) }
             SettingsFormSection {
-                LabeledContent("上次运行", value: task.lastRunAt.map(Formatters.relative) ?? "尚未运行")
-                if task.enabled, let next = task.nextRunAt { LabeledContent("下次运行", value: Formatters.dateTime(next)) }
+                LabeledContent(String(localized: .settingsScheduledTasksEditorLastRun), value: task.lastRunAt.map(Formatters.relative) ?? String(localized: .settingsScheduledTasksEditorNeverRun))
+                if task.enabled, let next = task.nextRunAt { LabeledContent(String(localized: .settingsScheduledTasksEditorNextRun), value: Formatters.dateTime(next)) }
             }
             if let error { SettingsFormSection { Text(error).foregroundStyle(Theme.danger) } }
         }
         .disabled(busy)
         .interactiveDismissDisabled(busy || draft.dirty)
-        .alert("放弃未保存的修改？", isPresented: $discarding) {
-            Button("继续编辑", role: .cancel) { }
-            Button("放弃修改", role: .destructive) { dismiss() }
+        .alert(String(localized: .settingsScheduledTasksEditorDiscardTitle), isPresented: $discarding) {
+            Button(String(localized: .settingsScheduledTasksEditorContinueEditing), role: .cancel) { }
+            Button(String(localized: .settingsScheduledTasksEditorDiscard), role: .destructive) { dismiss() }
         }
     }
 }

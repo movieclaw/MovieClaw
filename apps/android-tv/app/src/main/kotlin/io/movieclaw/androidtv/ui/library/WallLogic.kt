@@ -24,6 +24,9 @@ data class WallQuery(
     val w: String? = null,
     val g: String? = null,
     val unwatchedFirst: Boolean? = null,
+    val d: String? = null,
+    val res: String? = null,
+    val hdr: Boolean? = null,
 ) {
     enum class Endpoint { Library, MediaKind, Collection, Favorites }
 }
@@ -64,17 +67,34 @@ object WallLogic {
         else -> if (reversed) "最早添加" else "最近添加"
     }
 
-    /** 排序按钮上的字：「最近添加」「评分最高 · 未看」 */
-    fun sortButtonLabel(sort: String, unwatched: Boolean): String = shortLabel(sort) + if (unwatched) " · 未看" else ""
+    /** 媒体库墙右上角按钮上的字：「排序与筛选 · 最近添加」（条件写在标题旁的摘要里） */
+    fun sortButtonLabel(sort: String): String = "排序与筛选 · " + shortLabel(sort)
 
-    /** 媒体库墙的请求：排序、反转才带 order、只看未看带 w */
-    fun libraryQuery(libraryId: Long, sort: WallSort, unwatched: Boolean) = WallQuery(
+    /** 媒体库墙的请求：排序、反转才带 order，再带上筛选条件（墙、索引、计数、放宽建议同一份展开） */
+    fun libraryQuery(libraryId: Long, sort: WallSort, filter: WallFilter = WallFilter()) = WallQuery(
         WallQuery.Endpoint.Library,
         id = libraryId,
         sort = sort.sort,
         order = orderParam(sort.sort, sort.reversed),
-        w = if (unwatched) "unwatched" else null,
+        w = filter.w,
+        g = filter.g,
+        d = filter.d,
+        res = filter.res,
+        hdr = filter.hdr,
     )
+
+    /** 合集墙提供的排序：「合集顺序」= 不传排序，由服务端按合集自己的顺序给 */
+    const val COLLECTION_ORDER = "collection"
+    val COLLECTION_SORTS = listOf(COLLECTION_ORDER, "added_at", "release_date", "rating", "title")
+
+    fun collectionLabel(sort: String): String = if (sort == COLLECTION_ORDER) "合集顺序" else shortLabel(sort)
+
+    fun collectionQuery(collectionId: Long, sort: WallSort): WallQuery {
+        val key = sort.sort.takeIf { it != COLLECTION_ORDER }
+        return WallQuery(WallQuery.Endpoint.Collection, id = collectionId, sort = key, order = key?.let { orderParam(it, sort.reversed) })
+    }
+
+    fun collectionSortKey(collectionId: Long) = "movieclaw.tv.collection-sort.$collectionId"
 
     /** 首页一行「查看全部」/ 按类型墙的请求（TVRowWallView.reload） */
     fun rowQuery(source: WallSource): WallQuery = when (source) {

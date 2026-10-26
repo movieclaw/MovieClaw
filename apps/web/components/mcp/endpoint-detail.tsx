@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useCallback, useEffect, useState } from "react";
 
 import { ChevronLeftIcon } from "@/components/icons";
@@ -37,11 +39,7 @@ import {
 
 type Tab = "overview" | "tools" | "settings";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "overview", label: "概览" },
-  { id: "tools", label: "工具" },
-  { id: "settings", label: "设置" },
-];
+
 
 /**
  * 端点详情：一个端点的全部真相都在这一屏，按「读 → 用 → 改 → 删」分三栏。
@@ -75,6 +73,13 @@ export function EndpointDetail({
   onRotate: () => void;
   onDelete: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+  const TABS: { id: Tab; label: string }[] = [
+  { id: "overview", label: t("settings.mcp.controls.overview") },
+  { id: "tools", label: t("settings.mcp.controls.tools") },
+  { id: "settings", label: t("settings.mcp.controls.settings") },
+];
   const [preview, setPreview] = useState<McpPreview | null>(null);
   const [confirmText, setConfirmText] = useState("");
   const [check, setCheck] = useState<McpSelfCheck | null>(null);
@@ -90,7 +95,7 @@ export function EndpointDetail({
       // 抛给 React——自检的全部意义就是给出结论，静默失败是最坏的结果
       setCheck({
         ok: false,
-        message: `自检请求失败：${(e as Error).message}`,
+        message: t("settings.mcp.controls.checkRequestFailed", { detail: (e as Error).message }),
         protocol_version: "",
         tool_count: 0,
         elapsed_ms: 0,
@@ -115,7 +120,7 @@ export function EndpointDetail({
 
   const fullUrl = endpoint.url.startsWith("http")
     ? endpoint.url
-    : `${baseUrl || "http://<你的地址>"}${endpoint.url}`;
+    : `${baseUrl || t("settings.mcp.controls.addressPlaceholder")}${endpoint.url}`;
 
   return (
     <div className="space-y-5">
@@ -134,18 +139,18 @@ export function EndpointDetail({
           className="btn-glass mb-3 px-2.5 py-1 text-caption font-medium text-[var(--text-muted)]"
         >
           <ChevronLeftIcon className="size-3.5" />
-          全部端点
+          {t("settings.mcp.controls.allEndpoints")}
         </button>
 
         <div className="flex items-start justify-between gap-4">
           <h2 className="min-w-0 truncate text-xl font-medium tracking-tight">{endpoint.name}</h2>
           <div className="flex shrink-0 items-center gap-2.5">
             <span className="text-caption text-[var(--text-muted)]">
-              {endpoint.enabled ? "已启用" : "已停用"}
+              {endpoint.enabled ? t("settings.mcp.controls.enabled") : t("settings.mcp.controls.disabled")}
             </span>
             <Toggle
               checked={endpoint.enabled}
-              label={`启用 ${endpoint.name}`}
+              label={t("settings.mcp.controls.enableNamed", { name: endpoint.name })}
               onChange={(next) => {
                 if (!busy) onToggleEnabled(next);
               }}
@@ -155,13 +160,13 @@ export function EndpointDetail({
 
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-[var(--text-muted)]">
           <span className="flex items-center gap-1.5">
-            <StatusDot on={endpoint.enabled} title={endpoint.enabled ? "运行中" : "已停用"} />
-            {endpoint.enabled ? "运行中" : "已停用"}
+            <StatusDot on={endpoint.enabled} title={endpoint.enabled ? t("settings.mcp.controls.running") : t("settings.mcp.controls.disabled")} />
+            {endpoint.enabled ? t("settings.mcp.controls.running") : t("settings.mcp.controls.disabled")}
           </span>
           <span className="text-[var(--text-faint)]">·</span>
           <span className="font-mono">/mcp/{endpoint.slug}</span>
           <span className="text-[var(--text-faint)]">·</span>
-          <span>{endpoint.expand_tools ? "一命令一工具" : "一服务一工具"}</span>
+          <span>{endpoint.expand_tools ? t("settings.mcp.controls.commandMode") : t("settings.mcp.controls.serviceMode")}</span>
         </div>
       </div>
 
@@ -188,30 +193,28 @@ export function EndpointDetail({
               而那个页签在去掉各端示例后只剩这两样，还和概览重复了一遍端点地址——
               一个页签换一次点击、看到的是别处已经有的内容，不如并进来。 */}
           <div>
-            <p className="mb-1.5 text-caption text-[var(--text-muted)]">端点地址</p>
-            <CopyField value={fullUrl} label="复制地址" />
+            <p className="mb-1.5 text-caption text-[var(--text-muted)]">{t("settings.mcp.controls.address")}</p>
+            <CopyField value={fullUrl} label={t("settings.mcp.controls.copyAddress")} />
             {!endpoint.url.startsWith("http") && (
               <p className="mt-1.5 text-caption text-[var(--warn,#f5c451)]">
-                还没配置外部访问地址，这里只有相对路径。外部客户端要连上，先去「设置 → 网络」填对外地址。
+                {t("settings.mcp.controls.externalHint")}
               </p>
             )}
           </div>
 
           <div>
-            <p className="mb-1.5 text-caption text-[var(--text-muted)]">认证请求头</p>
-            <CodeBlock code="Authorization: Bearer <你的端点令牌>" lang="http" />
+            <p className="mb-1.5 text-caption text-[var(--text-muted)]">{t("settings.mcp.controls.authHeader")}</p>
+            <CodeBlock code={t("settings.mcp.controls.authPlaceholder")} lang="http" />
             <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-muted)]">
-              令牌明文只在创建和轮换时显示一次（服务端只存哈希），忘了就在下面轮换一枚新的。
-              传输是 Streamable HTTP，客户端里选「HTTP」而不是 SSE；claude.ai 网页版的自定义
-              连接器只支持 OAuth，暂时接不进来，Claude Code、Cursor、Cline 等本地客户端都可以。
+              {t("settings.mcp.controls.transportHint")}
             </p>
           </div>
 
           {/* 自检：配完之后最想问的那句「它现在能用吗」，就地给答案 */}
           <SettingsList>
             <SettingsRow
-              label="连通性自检"
-              description="跑一遍真实协议，只试调只读工具，不改任何状态。"
+              label={t("settings.mcp.controls.checkTitle")}
+              description={t("settings.mcp.controls.checkHint")}
             >
               <button
                 type="button"
@@ -219,31 +222,31 @@ export function EndpointDetail({
                 disabled={checking}
                 className={SETTINGS_BUTTON_CLASS}
               >
-                {checking ? "自检中…" : check ? "重新自检" : "运行自检"}
+                {checking ? t("settings.mcp.controls.checking") : check ? t("settings.mcp.controls.checkAgain") : t("settings.mcp.controls.runCheck")}
               </button>
             </SettingsRow>
 
             {check && (
               <div className="space-y-2 px-4 py-3">
                 <p className="flex items-center gap-2 text-sub">
-                  <StatusDot on={check.ok} title={check.ok ? "通过" : "未通过"} />
+                  <StatusDot on={check.ok} title={check.ok ? t("settings.mcp.controls.passed") : t("settings.mcp.controls.notPassed")} />
                   <span className={check.ok ? "" : "text-[var(--danger)]"}>{check.message}</span>
                   <span className="text-caption tabular-nums text-[var(--text-faint)]">
                     {check.elapsed_ms} ms
                   </span>
                 </p>
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-caption">
-                  <dt className="text-[var(--text-faint)]">协议</dt>
+                  <dt className="text-[var(--text-faint)]">{t("settings.mcp.controls.protocol")}</dt>
                   <dd className="font-mono">{check.protocol_version || "—"}</dd>
-                  <dt className="text-[var(--text-faint)]">工具</dt>
-                  <dd className="tabular-nums">{check.tool_count} 个</dd>
+                  <dt className="text-[var(--text-faint)]">{t("settings.mcp.controls.tools")}</dt>
+                  <dd className="tabular-nums">{t("settings.mcp.controls.countUnit", { count: check.tool_count })}</dd>
                   {check.probe_tool && (
                     <>
-                      <dt className="text-[var(--text-faint)]">试调</dt>
+                      <dt className="text-[var(--text-faint)]">{t("settings.mcp.controls.probe")}</dt>
                       <dd className="min-w-0">
                         <span className="font-mono text-[var(--accent)]">{check.probe_tool}</span>
                         <span className={check.probe_ok ? "ml-2" : "ml-2 text-[var(--danger)]"}>
-                          {check.probe_ok ? "成功" : "失败"}
+                          {check.probe_ok ? t("settings.mcp.controls.succeeded") : t("settings.mcp.controls.failed")}
                         </span>
                         {check.probe_message && (
                           <span className="ml-2 text-[var(--text-faint)]">
@@ -267,17 +270,17 @@ export function EndpointDetail({
           </SettingsList>
 
           <div className="css-glass !rounded-xl px-4 py-2">
-            <MetaRow label="服务">
+            <MetaRow label={t("settings.mcp.controls.services")}>
               {/* 详情页不设上限：这一屏就是要看全「到底开放了什么」 */}
               <ServiceChips services={endpoint.services} max={endpoint.services.length} />
             </MetaRow>
             {/* 只留这几行：工具体积、令牌、最近调用。
                 工具数在页签上、工具形态在标题下的元信息行里、超时在「设置」页签里可改，
                 创建时间答不了任何问题——重复一遍只是把真正要看的三行冲淡。 */}
-            <MetaRow label="工具">
-              {preview ? `定义约 ${formatBytes(preview.approx_bytes)}` : "计算中…"}
+            <MetaRow label={t("settings.mcp.controls.tools")}>
+              {preview ? t("settings.mcp.controls.definitionSize", { bytes: formatBytes(preview.approx_bytes) }) : t("settings.mcp.controls.calculating")}
             </MetaRow>
-            <MetaRow label="令牌">
+            <MetaRow label={t("settings.mcp.controls.token")}>
               <span className="font-mono">{endpoint.token_hint}</span>
               <button
                 type="button"
@@ -285,18 +288,18 @@ export function EndpointDetail({
                 disabled={busy}
                 className="btn-glass ml-2 px-2.5 py-0.5 text-caption"
               >
-                轮换
+                {t("settings.mcp.controls.rotate")}
               </button>
             </MetaRow>
-            <MetaRow label="最近调用">
-              {endpoint.last_used_at ? relativeTime(endpoint.last_used_at) : "从未调用"}
+            <MetaRow label={t("settings.mcp.controls.lastCalled")}>
+              {endpoint.last_used_at ? relativeTime(endpoint.last_used_at, undefined, locale) : t("settings.mcp.controls.neverCalled")}
             </MetaRow>
           </div>
 
           {endpoint.missing_services.length > 0 && (
             <p className="rounded-lg border border-[var(--warn,#f5c451)]/35 bg-[var(--warn,#f5c451)]/10 px-3 py-2 text-caption">
-              配置里有 {endpoint.missing_services.length} 个服务在当前版本已不存在，已忽略：
-              <span className="font-mono">{endpoint.missing_services.join("、")}</span>
+              {t("settings.mcp.controls.missingServices", { count: endpoint.missing_services.length })}
+              <span className="font-mono">{endpoint.missing_services.join(t("settings.mcp.controls.listSeparator"))}</span>
             </p>
           )}
         </div>
@@ -306,7 +309,7 @@ export function EndpointDetail({
         (preview ? (
           <ToolCatalog tools={preview.tools} />
         ) : (
-          <p className="text-sub text-[var(--text-muted)]">正在计算工具目录…</p>
+          <p className="text-sub text-[var(--text-muted)]">{t("settings.mcp.controls.loadingCatalog")}</p>
         ))}
 
       {tab === "settings" && (
@@ -324,22 +327,21 @@ export function EndpointDetail({
             baseUrl={baseUrl}
             busy={busy}
             slugEditable={false}
-            submitLabel="保存修改"
+            submitLabel={t("settings.mcp.controls.saveChanges")}
             onSubmit={onSave}
             onCancel={onBack}
           />
 
           {/* 危险区：沉到最底，删除要打字确认——和 Stripe/GitHub 的处理一致，
               因为端点一删，接入它的客户端立刻全断，而且不可恢复 */}
-          <SettingsSection title="危险操作">
+          <SettingsSection title={t("settings.mcp.controls.danger")}>
             <SettingsCard
               tone="danger"
-              title="删除这个端点"
+              title={t("settings.mcp.controls.deleteEndpoint")}
               description={
                 <>
-                  删除后地址与令牌一并作废，不可恢复；已接入的客户端会立刻失败。
-                  确认请输入端点标识{" "}
-                  <span className="font-mono text-[var(--text)]">{endpoint.slug}</span>。
+                  {t("settings.mcp.controls.deleteHint")}{" "}
+                  <span className="font-mono text-[var(--text)]">{endpoint.slug}</span>{t("settings.mcp.controls.period")}
                 </>
               }
               action={
@@ -349,7 +351,7 @@ export function EndpointDetail({
                   onClick={onDelete}
                   className={SETTINGS_DANGER_BUTTON_CLASS}
                 >
-                  删除这个端点
+                  {t("settings.mcp.controls.deleteEndpoint")}
                 </button>
               }
             >
@@ -358,7 +360,7 @@ export function EndpointDetail({
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
                 placeholder={endpoint.slug}
-                aria-label="输入端点标识确认删除"
+                aria-label={t("settings.mcp.controls.deleteConfirmPlaceholder")}
                 className={`${INPUT_CLASS} max-w-[220px] font-mono`}
               />
             </SettingsCard>

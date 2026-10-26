@@ -43,12 +43,18 @@ class LlmProvider(TimestampMixin, table=True):
     # 自定义 User-Agent：留空用 openai SDK 自带 UA。自建网关/反代常按 UA
     # 放行或限流，官方渠道用不到，故仅在可自填端点的供应商上开放配置。
     user_agent: str | None = Field(default=None, description="自定义 User-Agent（留空用 SDK 默认）")
+    # 线协议：openai_chat / openai_responses；NULL = 跟随预设默认。仅预设声明了
+    # selectable_protocols 的类型可切换（中转站对 /v1/responses 的支持参差不齐）
+    api_protocol: str | None = Field(
+        default=None, description="API 协议（留空跟随预设默认）：openai_chat / openai_responses"
+    )
     # 连接测试用的模型：目录里第一个，服务层自动填；也是 AI 设定未配置时的兜底
     default_model: str = Field(description="连接测试用的模型 id，如 qwen-plus")
 
     # 验证状态机（语义见 ConfigStatus）
     status: ConfigStatus = Field(default=ConfigStatus.PENDING, description="连接验证状态")
     last_error: str | None = Field(default=None, description="最近一次测试失败原因（中文）")
+    last_error_ref: dict | None = Field(default=None, sa_column=Column(JSON))
     last_checked_at: datetime | None = Field(default=None, description="最近一次测试时间")
     # 最近一次验证成功时端点上报的可用模型列表（JSON 数组），供设置页选择
     available_models: list[str] | None = Field(

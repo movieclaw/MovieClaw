@@ -1,0 +1,170 @@
+{
+  "main.new": {
+    "sourceHash": "c57c30bc05f744ab3cb81c74183f0408deb55a002422c41f30fbe3ae3d87edaa"
+  },
+  "main.library": {
+    "sourceHash": "d771576fc05c241bada9731f5fa997d50f63c3433cbcdd2141bc07d4ca6c1949"
+  },
+  "main.subscriptions": {
+    "sourceHash": "79aad303b15f3ed3b98e70e16dfe905c14b228535d6bffa5e4cc5a675cd33d5b"
+  },
+  "main.activity": {
+    "sourceHash": "9e9bead81498b8980af6092ce91f0161f6b1eea4d1836b3fdc1338e140b7a481"
+  },
+  "main.discover": {
+    "sourceHash": "10493d06b90f6b186f60556f8a597819b8e4ba9dcaf18b97f7d467a2e948fc50"
+  },
+  "actions.home": {
+    "sourceHash": "6774a77de4da950cc149cd575d3c91d1dff1e97849ee673438159110ddb0e97a"
+  },
+  "actions.expandSidebar": {
+    "sourceHash": "658ff1eade42c4b40bcd23bb10af0a0b039fbc7dabdd556695f8c22dc4b6d5bf"
+  },
+  "actions.collapseSidebar": {
+    "sourceHash": "bb0b6e36b3ae63825f914a92cfeec4cd641df1dbb629a900df7ed60eee92e9b9"
+  },
+  "actions.back": {
+    "sourceHash": "572cf45ba43634b3448aadbc48d5398a1b32ad8a97bf42b689c394de222c30a1"
+  },
+  "actions.library": {
+    "sourceHash": "073b1b80246225ed32ea50e76c21184b24161606e1befe060552795bda10e3be"
+  },
+  "actions.workspace": {
+    "sourceHash": "de7efab05d739c462aa22a236a748052b78dc5507767a6d42c55dfa6a0a25481"
+  },
+  "actions.backFallback": {
+    "sourceHash": "4af0e7f0e95428d2424f3550f325c5297ef2c65fabfe66ceb4a8f6c14d74fa43"
+  },
+  "sessions.renameTitle": {
+    "sourceHash": "5f64610f9fec945106deaa40bbab8297b5cdffbe3f0b49e6806498a30056c3f6"
+  },
+  "sessions.renameFailed": {
+    "sourceHash": "2a22b95875af3449fecb1bcd5c7d1a21fa92858754bb888f9477aa2c86a820ea"
+  },
+  "sessions.forkFailed": {
+    "sourceHash": "dc5d034b16047c3079df26fcf0d2dcb2e4475cf22bbf890215666bdb17f584bf"
+  },
+  "sessions.idCopied": {
+    "sourceHash": "3afb54a607c5141afc6714cbbf0b68297d585be0ee6e34b03e868b47235c9948"
+  },
+  "sessions.copyFailed": {
+    "sourceHash": "4ac7e38f612ed27ccbbc2b1330ae02244e3628ec7fab6239308d428f3e1c55ff"
+  },
+  "sessions.deleteTitle": {
+    "sourceHash": "d69514ce4e9f775e71d15fa69dba45d3b9bc2bfec3e609d5f5ea8f7e55ea7b5c"
+  },
+  "sessions.deleteDescription": {
+    "sourceHash": "29cda0a2f2b0b7279693ba04928117f33e42a7b37034c35ed182fae9a41a4eb4"
+  },
+  "sessions.deleteConfirm": {
+    "sourceHash": "7aa6d0ef5feb745c45d2f52f85673904c311a37d9c1e47a94d102d97baf74b06"
+  },
+  "sessions.deleteFailed": {
+    "sourceHash": "1d21589749074dcd16b4e827bffdeccfe0e81f7205c347ef9c663efd6952e0e8"
+  },
+  "sessions.recent": {
+    "sourceHash": "807883eff57fcdc5d5b5f926c2681c6b80419746f923c4ddeb94ba7a8018fe2a"
+  },
+  "sessions.empty": {
+    "sourceHash": "53c2cd7e867b2a955694944a2f059a83e1544c4e616d5918bb107eda07edcbed"
+  },
+  "sessions.loading": {
+    "sourceHash": "4927a53bcc886afb9211eb1143351cf8e32ec830c381832e6060223c8b84f3d6"
+  },
+  "sessions.updated": {
+    "sourceHash": "1a8d798db18dd93bfa55f99dd2f11de59250685d630bc2cc0f7834e90b6802e9"
+  },
+  "sessions.pluginOwner": {
+    "sourceHash": "c45b236f8426b1d802315311e0b6930b6e10e6da32833f817b97503aaa8e3215"
+  },
+  "sessions.plugin": {
+    "sourceHash": "e806fbbe8ec6e82d06a9159025db9cdb0f664fe56cce96181d192fd1242e4a09"
+  },
+  "sessions.actions": {
+    "sourceHash": "e6f6d875638eca0753721086684ea753bc1398979bb7b66cea0d129d5b157ba1"
+  },
+  "sessions.continue": {
+    "sourceHash": "ff63d45ac706d1735c56a319ea759935cfa3225d3a9fe4c6c9b3a336c9479cd6"
+  },
+  "sessions.copyId": {
+    "sourceHash": "7df96a6bb1dd160b1d1cea3508b653a11af2145699ddcffa21e4b92cc5571828"
+  },
+  "sessions.rename": {
+    "sourceHash": "0d0cbac2eee541136ec2dbba111676952076525a565f02bf688c31970ece1f1a"
+  },
+  "sessions.delete": {
+    "sourceHash": "d51250d14a5142e5ff2571d44de184d6b93abcb379a25be7e9e37009e6828f59"
+  },
+  "tabs.subscriptions": {
+    "sourceHash": "cf8efc450f718fbfd2ee60e9871ef625b47c2ef58d2e31635ed848de846a79f8"
+  },
+  "tabs.my": {
+    "sourceHash": "7f1d9dd04cd1c7b8d8ab488980624bde64ea370ebafc9eb7b1c4d8dc757c976a"
+  },
+  "tabs.primary": {
+    "sourceHash": "9bae680405099fc82a22dd3d3e52f6862c77fd88e8163dc12442427d870df40b"
+  },
+  "tabs.expand": {
+    "sourceHash": "93b42069c0e4a3b5978a7d795e51532038be2ee1e3eae0bd1e0eb4d5ce7bae7d"
+  },
+  "badges.watching": {
+    "sourceHash": "918c218eae71cb22548d90b8142674a9dd7735465d3416dfd8fdb6ae3dc5ca86"
+  },
+  "badges.update": {
+    "sourceHash": "5f3ed861a0b132ca1cc4b09a443a6d32b6465403c17e29ae548f23f0eab99c2b"
+  },
+  "badges.attention": {
+    "sourceHash": "de1cf48075ebcc0e09fb42fa4bbd95303b2bf91f8d78777496f89b92435c00e3"
+  },
+  "badges.active": {
+    "sourceHash": "6f31013314254d9b03793bdfaf6b02893e4eab7dfe71c0c0272654bd3304b79d"
+  },
+  "badges.noActive": {
+    "sourceHash": "b1bca3abc648315141cfb5fe79d41e3dc1dbec2d55645084e86a6fd5c01c51ad"
+  },
+  "badges.activityHint": {
+    "sourceHash": "822c7c4d737eb64f09a56c3a76c2febb0a1da81bb7f21941bcf4129de0772208"
+  },
+  "cinema.browse": {
+    "sourceHash": "a8c81f93f2e0e3b6aa64520bd90c504ef506987b7a411637782e562e755d3cba"
+  },
+  "cinema.sessions": {
+    "sourceHash": "5edbd9bc388e5a543476101a90d60af9ac5ae180bef7d0da8cbca1d51fe202f8"
+  },
+  "cinema.emptySessions": {
+    "sourceHash": "735897f834317f5e9a097bb3b1a5dfd98b8321e3540fd3e3684fcefecd7f40a1"
+  },
+  "cinema.myEntries": {
+    "sourceHash": "1cc7d217402373f51b2fa55f54571918728bb293cbf63493be4863b1cd100221"
+  },
+  "cinema.pluginPages": {
+    "sourceHash": "4545782540fe4bf98f71d11f7afe24fc9eab1504a2e3a7c298dfc24cdcd8c580"
+  },
+  "cinema.accountActions": {
+    "sourceHash": "dc9aed464cd8994e03cf69b5c86cce5940b9b805399e23bb28ca1bd001974731"
+  },
+  "cinema.back": {
+    "sourceHash": "b6050ccef3099b4b8a67db772af22d3536ca637cc27617f590397d935256c103"
+  },
+  "cinema.newTask": {
+    "sourceHash": "2aea9b9c0279b27a6e02b6a9de645ebe3375f2a12ceb30ce3775b6d50b38b038"
+  },
+  "cinema.accountMenu": {
+    "sourceHash": "61fda3606981006b5c9d43258b76cc9c4025b2feb6e63ab49947f30034831fb3"
+  },
+  "more.quickAccess": {
+    "sourceHash": "4563c57b5143deaa74ff41804744da8ce8af543939c516fd86c809b4334cddd7"
+  },
+  "more.account": {
+    "sourceHash": "311bb313fdeca6aa2ce7d9415821a0b0247e064340241f68bac3ca5b19ae6d76"
+  },
+  "more.noSessions": {
+    "sourceHash": "d25465ff48fa8c6d6d00985a877eb72a2d6fc234e5c659db6505fd1d55fee0b4"
+  },
+  "more.loadingMore": {
+    "sourceHash": "f1ccf01dde3d3bfa65757e284b8da5b5e3f450f10d5ab2d285e16b9be66c68c8"
+  },
+  "more.profileAria": {
+    "sourceHash": "b12e19e5454597b26f9e8c1df8f13092c606030d5dad6fa13be637a60ad00758"
+  }
+}

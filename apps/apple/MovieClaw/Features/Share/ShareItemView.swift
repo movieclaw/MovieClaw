@@ -6,6 +6,7 @@ import SwiftUI
 /// 文件规格行、音轨 / 字幕（只读）→ 播放 → 简介 → （剧集）季集横滚 → 章节条 → 演职员 → 外部词条。
 /// 播放走 `router.play(PlayRequest(… shareSlug:))`，播放器用 `/share/{slug}/playback` 接口族，进度只存本机。
 struct ShareItemView: View {
+    @Environment(\.cardMetrics) private var cards
     let slug: String
     /// 合集分享时看哪一部；条目分享不传（范围就那一个）
     let mediaItemId: Int?
@@ -37,7 +38,7 @@ struct ShareItemView: View {
             } else {
                 HStack(spacing: 10) {
                     ProgressView()
-                    Text("正在读取影片信息…").font(.subheadline).foregroundStyle(.white.opacity(0.6))
+                    Text(String(localized: .libraryShareItemLoading)).font(.subheadline).foregroundStyle(.white.opacity(0.6))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -68,7 +69,7 @@ struct ShareItemView: View {
                         .shadow(color: .black.opacity(0.5), radius: 8)
                         .accessibilityIdentifier("share-item-title")
                     if !isMovie, let selected {
-                        Text("第 \(selected.season) 季 第 \(selected.episode.episodeNumber) 集" + (selected.episode.name.map { " - \($0)" } ?? ""))
+                        Text(String(localized: .offlineSeasonEpisode(selected.season, selected.episode.episodeNumber)) + (selected.episode.name.map { " - \($0)" } ?? ""))
                             .font(.subheadline).foregroundStyle(.white.opacity(0.65))
                     }
                     let facts = facts(item, available: available)
@@ -83,7 +84,7 @@ struct ShareItemView: View {
                             current.container?.uppercased(),
                             current.videoCodec?.uppercased(),
                             libraryBytes(current.sizeBytes),
-                            available.count > 1 ? "共 \(available.count) 个版本" : nil,
+                            available.count > 1 ? String(localized: .libraryShareVersions(available.count)) : nil,
                         ].compactMap { $0 }.joined(separator: " · "))
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.white.opacity(0.5))
@@ -96,7 +97,7 @@ struct ShareItemView: View {
                         playButton(item)
                             .padding(.top, 8)
                     } else {
-                        Text(isMovie || selected != nil ? "暂时没有可播放的文件。" : "请选择一集。")
+                        Text(isMovie || selected != nil ? String(localized: .libraryShareNoPlayable) : String(localized: .libraryShareChooseEpisode))
                             .font(.subheadline).foregroundStyle(.white.opacity(0.55))
                             .padding(.top, 8)
                     }
@@ -104,7 +105,7 @@ struct ShareItemView: View {
                         ExpandablePlot(text: plot).padding(.top, 8)
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
 
                 VStack(alignment: .leading, spacing: 24) {
                     if !isMovie, !item.seasons.isEmpty {
@@ -149,19 +150,19 @@ struct ShareItemView: View {
         HStack(spacing: 10) {
             if let onBack {
                 Button(action: onBack) {
-                    Label("返回合集", systemImage: "chevron.left").font(.subheadline)
+                    Label(String(localized: .libraryShareBackCollection), systemImage: "chevron.left").font(.subheadline)
                 }
                 .buttonStyle(.glass)
                 .accessibilityIdentifier("share-back-collection")
             }
             Text("MOVIECLAW").font(.footnote.weight(.semibold)).tracking(3).foregroundStyle(.white.opacity(0.7))
             Spacer()
-            Text("链接 \(ShareLinkKit.expiryHint(item.expiresAt))")
+            Text(String(localized: .libraryShareLinkExpiryText(ShareLinkKit.expiryHint(item.expiresAt))))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.white.opacity(0.55))
                 .accessibilityIdentifier("share-expiry")
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 8)
     }
 
@@ -194,9 +195,9 @@ struct ShareItemView: View {
 
     /// 同 Web `formatRuntimeMinutes`：「52 分钟」/「2 小时 8 分钟」
     static func runtimeLabel(_ minutes: Int) -> String {
-        if minutes < 60 { return "\(minutes) 分钟" }
+        if minutes < 60 { return String(localized: .libraryCloudReportMinutes(minutes)) }
         let rest = minutes % 60
-        return rest > 0 ? "\(minutes / 60) 小时 \(rest) 分钟" : "\(minutes / 60) 小时"
+        return rest > 0 ? String(localized: .unitsDurationHoursMinutes(minutes / 60, rest)) : String(localized: .libraryRecycleShortHours(minutes / 60))
     }
 
     /// 演职员：导演在前（有头像的导演条目优先），演员随后；访客页不给影人跳转
@@ -204,14 +205,14 @@ struct ShareItemView: View {
         guard let meta = item.localMeta else { return [] }
         var people: [DetailCastRow.Person] = []
         if !meta.directorCredits.isEmpty {
-            people += meta.directorCredits.map { .init(name: $0.name, subtitle: "导演", avatarUrl: $0.thumbUrl) }
+            people += meta.directorCredits.map { .init(name: $0.name, subtitle: String(localized: .mediaDetailDirector), avatarUrl: $0.thumbUrl) }
         } else {
             var seen: [String] = []
             for name in meta.directors where !seen.contains(name) { seen.append(name) }
-            people += seen.map { .init(name: $0, subtitle: "导演") }
+            people += seen.map { .init(name: $0, subtitle: String(localized: .mediaDetailDirector)) }
         }
         // 演员角色前缀「饰」（同 Web CastRow：有岗位的直接写岗位，演员写「饰 角色」）
-        people += meta.actors.map { .init(name: $0.name, subtitle: $0.role.map { "饰 \($0)" }, avatarUrl: $0.thumbUrl) }
+        people += meta.actors.map { .init(name: $0.name, subtitle: $0.role.map { String(localized: .mediaPersonCharacter($0)) }, avatarUrl: $0.thumbUrl) }
         return people
     }
 
@@ -219,7 +220,7 @@ struct ShareItemView: View {
     private func externalLinks(_ item: API.SharedItemView) -> some View {
         if item.tmdbId != nil || item.imdbId != nil || item.doubanId != nil {
             HStack(spacing: 16) {
-                Text("相关链接").foregroundStyle(Theme.textFaint)
+                Text(String(localized: .mediaDetailRelatedLinks)).foregroundStyle(Theme.textFaint)
                 if let tmdb = item.tmdbId, let url = URL(string: "https://www.themoviedb.org/\(item.kind == "tv" ? "tv" : "movie")/\(tmdb)") {
                     Link("TMDB ↗", destination: url)
                 }
@@ -227,14 +228,14 @@ struct ShareItemView: View {
                     Link("IMDb ↗", destination: url)
                 }
                 if let douban = item.doubanId, let url = URL(string: "https://movie.douban.com/subject/\(douban)/") {
-                    Link("豆瓣 ↗", destination: url)
+                    Link(String(localized: .mediaDetailDoubanLink), destination: url)
                 }
             }
             .font(.caption)
             .tint(.white.opacity(0.7))
             .padding(.top, 12)
             .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.04)).frame(height: 1) }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .accessibilityIdentifier("share-external-links")
         }
     }
@@ -257,8 +258,8 @@ struct ShareItemView: View {
     /// 所以进度条是空条、文案只有「看到 hh:mm」）
     private func playButton(_ item: API.SharedItemView) -> some View {
         let record = resume(item)
-        let label = record != nil ? "继续观看" : "播放"
-        let progressText = record.map { "看到 \(Formatters.clock(Double($0.positionMs) / 1000))" }
+        let label = record != nil ? String(localized: .libraryItemResume) : String(localized: .libraryHeroPlay)
+        let progressText = record.map { String(localized: .libraryItemPosition(Formatters.clock(Double($0.positionMs) / 1000))) }
         return VStack(alignment: .leading, spacing: 12) {
             Button {
                 play(item, start: nil)
@@ -312,9 +313,9 @@ struct ShareItemView: View {
             failed = nil
         } catch is CancellationError {
         } catch let error as APIError where error.status != nil {
-            failed = error.localizedDescription.isEmpty ? "读取影片信息失败" : error.localizedDescription
+            failed = error.localizedDescription.isEmpty ? String(localized: .libraryShareItemFailed) : error.localizedDescription
         } catch {
-            failed = "无法连接到服务器，请检查网络后重试"
+            failed = String(localized: .libraryShareNetworkFailed)
         }
     }
 }
@@ -323,6 +324,7 @@ struct ShareItemView: View {
 
 /// 分享页的分集区：季选择 + 分集横滚卡（`GET /share/{slug}/episodes`）；默认落在第一个在库的季与集
 private struct ShareSeasonEpisodes: View {
+    @Environment(\.cardMetrics) private var cards
     let slug: String
     let item: API.SharedItemView
     /// 合集分享才带（`?item=`）
@@ -339,17 +341,17 @@ private struct ShareSeasonEpisodes: View {
     private var currentSeason: Int { season ?? item.seasons.first { ownedSeasons.contains($0) } ?? item.seasons.first ?? 1 }
 
     private func label(_ s: Int) -> String {
-        let name = s == 0 ? "特别篇" : "第 \(s) 季"
-        return ownedSeasons.contains(s) ? name : "\(name) · 未入库"
+        let name = s == 0 ? String(localized: .mediaSeasonSpecials) : String(localized: .mediaSeasonTitle(s))
+        return ownedSeasons.contains(s) ? name : String(localized: .libraryItemSeasonNotOwned(name))
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Text("分集").font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
+                Text(String(localized: .libraryItemEpisodes)).font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
                 if item.seasons.count > 1 {
                     Menu {
-                        Picker("季", selection: Binding(mcGet: { currentSeason }, set: { season = $0 })) {
+                        Picker(String(localized: .searchFiltersSeason), selection: Binding(mcGet: { currentSeason }, set: { season = $0 })) {
                             ForEach(item.seasons, id: \.self) { Text(label($0)).tag($0) }
                         }
                     } label: {
@@ -367,14 +369,14 @@ private struct ShareSeasonEpisodes: View {
                     Text(label(currentSeason)).font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
                 if let data {
-                    Text("在库 \(data.episodes.filter(\.owned).count) / \(data.episodes.count) 集")
+                    Text(String(localized: .libraryItemOwnedEpisodeCount(data.episodes.filter(\.owned).count, data.episodes.count)))
                         .font(.subheadline.monospacedDigit()).foregroundStyle(Theme.textFaint)
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             if failed {
-                Text("分集信息加载失败，请稍后重试。").font(.subheadline).foregroundStyle(Theme.textMuted)
-                    .padding(.horizontal, Theme.pagePadding)
+                Text(String(localized: .libraryItemEpisodesFailed)).font(.subheadline).foregroundStyle(Theme.textMuted)
+                    .padding(.horizontal, cards.edge)
             } else if let data {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 12) {
@@ -382,15 +384,15 @@ private struct ShareSeasonEpisodes: View {
                             card(episode)
                         }
                     }
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                 }
             } else {
                 HStack(spacing: 8) {
                     ProgressView()
-                    Text("正在读取分集信息…")
+                    Text(String(localized: .libraryItemLoadingEpisodes))
                 }
                 .font(.subheadline).foregroundStyle(Theme.textMuted)
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             }
         }
         .task(id: currentSeason) { await load() }
@@ -410,13 +412,13 @@ private struct ShareSeasonEpisodes: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(isSelected ? .white.opacity(0.85) : .white.opacity(0.08), lineWidth: isSelected ? 2 : 1))
                     .overlay(alignment: .topTrailing) {
                         if !episode.owned {
-                            Text("缺").font(.caption2.weight(.semibold)).foregroundStyle(Theme.warning)
+                            Text(String(localized: .libraryItemMissingBadge)).font(.caption2.weight(.semibold)).foregroundStyle(Theme.warning)
                                 .padding(.horizontal, 5).padding(.vertical, 1)
                                 .background(.black.opacity(0.6), in: .rect(cornerRadius: 4))
                                 .padding(6)
                         }
                     }
-                Text("\(episode.episodeNumber). \(episode.name ?? "第 \(episode.episodeNumber) 集")")
+                Text("\(episode.episodeNumber). " + (episode.name ?? String(localized: .mediaEpisodeNumber(episode.episodeNumber))))
                     .font(.footnote.weight(isSelected ? .semibold : .regular))
                     .foregroundStyle(isSelected ? .white : Theme.text)
                     .lineLimit(1)

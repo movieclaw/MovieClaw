@@ -1,6 +1,6 @@
 package io.movieclaw.androidtv.core.session
 
-import io.movieclaw.androidtv.core.network.ServerAddress
+import io.movieclaw.core.network.ServerAddress
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

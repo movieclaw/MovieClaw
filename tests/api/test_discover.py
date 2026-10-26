@@ -45,7 +45,7 @@ def client(tmp_path, monkeypatch):
     from movieclaw_api.app import create_app
 
     app = create_app()
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         # 建号即自动登录，后续请求携带会话 Cookie
         c.post(
             "/api/v1/auth/bootstrap",

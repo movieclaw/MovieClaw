@@ -32,9 +32,12 @@ import argparse
 import asyncio
 import getpass
 import logging
+import os
 import secrets
 import sys
 from pathlib import Path
+
+from movieclaw_api.i18n import t, use_locale
 
 # 密码长度下限与网页首次引导保持一致（schemas/auth.py 的 BootstrapRequest）
 MIN_PASSWORD_LENGTH = 8
@@ -66,20 +69,25 @@ def _database_file(database_url: str) -> Path | None:
     return Path(database_url[len(prefix) :])
 
 
+def _terminal_locale() -> str | None:
+    """终端声明的语言（LC_ALL / LC_MESSAGES / LANG）；没声明或认不出返回 None。"""
+    for name in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        value = os.environ.get(name, "").lower()
+        if value.startswith("zh"):
+            return "zh-Hans"
+        if value.startswith("en"):
+            return "en"
+    return None
+
+
 def _check_data_dir() -> str | None:
-    """数据库文件不存在时，返回一条可行动的中文提示（说明大概率跑错了地方）。"""
+    """数据库文件不存在时，返回一条可行动的提示（说明大概率跑错了地方）。"""
     from movieclaw_api.core.config import get_settings
 
     db_file = _database_file(get_settings().database_url)
     if db_file is None or db_file.is_file():
         return None
-    return (
-        f"未找到数据库文件：{db_file.resolve()}\n"
-        "说明当前不在 movieclaw 的数据目录下。请确认：\n"
-        "  · Docker 部署：在宿主机执行 docker exec -it movieclaw "
-        "python -m movieclaw_api.reset_password\n"
-        "  · 源码部署：先 cd 到项目根目录（data/ 的上一级）再执行本命令"
-    )
+    return t("auth.resetPassword.dataDirMissing", path=str(db_file.resolve()))
 
 
 def _read_new_password(supplied: str | None) -> tuple[str, bool]:
@@ -97,87 +105,86 @@ def _read_new_password(supplied: str | None) -> tuple[str, bool]:
         return secrets.token_urlsafe(12), True
 
     while True:
-        first = getpass.getpass("请输入新密码（输入时不显示）：")
+        first = getpass.getpass(t("auth.resetPassword.prompt"))
         if len(first) < MIN_PASSWORD_LENGTH:
-            print(f"密码至少 {MIN_PASSWORD_LENGTH} 位，请重新输入。", file=sys.stderr)
+            print(t("auth.resetPassword.tooShortRetry", min=MIN_PASSWORD_LENGTH), file=sys.stderr)
             continue
-        if first != getpass.getpass("请再输入一次确认："):
-            print("两次输入不一致，请重新输入。", file=sys.stderr)
+        if first != getpass.getpass(t("auth.resetPassword.confirm")):
+            print(t("auth.resetPassword.mismatch"), file=sys.stderr)
             continue
         return first, False
 
 
 def _validate(password: str) -> None:
     if len(password) < MIN_PASSWORD_LENGTH:
-        raise SystemExit(f"密码太短：至少需要 {MIN_PASSWORD_LENGTH} 位")
+        raise SystemExit(t("auth.resetPassword.tooShort", min=MIN_PASSWORD_LENGTH))
     if len(password) > MAX_PASSWORD_LENGTH:
-        raise SystemExit(f"密码太长：最多 {MAX_PASSWORD_LENGTH} 位")
+        raise SystemExit(t("auth.resetPassword.tooLong", max=MAX_PASSWORD_LENGTH))
 
 
 async def _run(args: argparse.Namespace) -> int:
-    if hint := _check_data_dir():
+    with use_locale(_terminal_locale() or "zh-Hans"):
+        hint = _check_data_dir()
+    if hint:
         print(hint, file=sys.stderr)
         return 1
 
     await _bootstrap_runtime()
 
-    from movieclaw_api.services import auth as auth_service
+    from movieclaw_api.services.locale_preferences import member_locale
     from movieclaw_db.engine import dispose_db
 
     try:
-        account = await auth_service.get_admin_account()
-        if not account.password_hash:
-            print(
-                "系统尚未初始化：还没有创建过管理员账号。\n请直接打开网页按引导创建，无需本命令。",
-                file=sys.stderr,
-            )
-            return 1
-
-        if args.show:
-            print(f"当前管理员用户名：{account.username}")
-            return 0
-
-        new_password, generated = _read_new_password(args.password)
-        _validate(new_password)
-
-        await auth_service.reset_admin_password(new_password)
-
-        print("✅ 管理员密码已重置，所有配置与数据未受影响。")
-        print(f"   用户名：{account.username}")
-        if generated:
-            print(f"   新密码：{new_password}")
-            print("   （随机生成，请立即登录后到「个人信息」里改成自己的密码）")
-        print(
-            "\n提示：网页与 App 上用旧密码的登录已立即失效；升级前签发的旧网页会话"
-            "要重启一次服务才会失效（docker restart movieclaw）。\n"
-            "      命令行与转码器的配对不受影响；不重启也能用新密码登录。"
-        )
-        return 0
+        # 终端没声明语言（Docker 里常见）：跟管理员在网页上用的语言
+        locale = _terminal_locale() or await member_locale(0)
+        with use_locale(locale):
+            return await _reset(args)
     finally:
         await dispose_db()
 
 
+async def _reset(args: argparse.Namespace) -> int:
+    from movieclaw_api.services import auth as auth_service
+
+    account = await auth_service.get_admin_account()
+    if not account.password_hash:
+        print(t("auth.resetPassword.notInitialized"), file=sys.stderr)
+        return 1
+
+    if args.show:
+        print(t("auth.resetPassword.username", username=account.username))
+        return 0
+
+    new_password, generated = _read_new_password(args.password)
+    _validate(new_password)
+
+    await auth_service.reset_admin_password(new_password)
+
+    print(t("auth.resetPassword.done"))
+    print(t("auth.resetPassword.doneUsername", username=account.username))
+    if generated:
+        print(t("auth.resetPassword.donePassword", password=new_password))
+        print(t("auth.resetPassword.generatedHint"))
+    print(t("auth.resetPassword.sessionsHint"))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="python -m movieclaw_api.reset_password",
-        description="重置 movieclaw 管理员密码（忘记密码时使用，不影响任何配置）",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "示例：\n"
-            "  docker exec -it movieclaw python -m movieclaw_api.reset_password\n"
-            "  docker exec -it movieclaw python -m movieclaw_api.reset_password --show\n"
-        ),
-    )
-    parser.add_argument(
-        "--show",
-        action="store_true",
-        help="只显示当前管理员用户名（连用户名也忘了时用），不修改任何内容",
-    )
-    parser.add_argument(
-        "--password",
-        help="直接指定新密码（会留在 shell 历史里；建议省略本参数，改用交互式输入）",
-    )
-    args = parser.parse_args(argv)
+    # 帮助与数据目录提示在连上数据库之前：只能看终端声明的语言，没声明用中文（原有行为）
+    with use_locale(_terminal_locale() or "zh-Hans"):
+        parser = argparse.ArgumentParser(
+            prog="python -m movieclaw_api.reset_password",
+            description=t("auth.resetPassword.description"),
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=(
+                t("auth.resetPassword.examples") + "\n"
+                "  docker exec -it movieclaw python -m movieclaw_api.reset_password\n"
+                "  docker exec -it movieclaw python -m movieclaw_api.reset_password --show\n"
+            ),
+        )
+        parser.add_argument("--show", action="store_true", help=t("auth.resetPassword.showHelp"))
+        parser.add_argument("--password", help=t("auth.resetPassword.passwordHelp"))
+        args = parser.parse_args(argv)
 
     # 只让警告及以上的日志露面：正常路径下的输出全部由 print 负责，
     # 面向的是不看日志的普通部署者

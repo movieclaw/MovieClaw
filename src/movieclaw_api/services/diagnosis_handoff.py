@@ -91,6 +91,7 @@ def _units(units: list) -> str:
     if not units:
         return "—"
     return "、".join(f"S{int(s):02d}E{int(e):02d}" for s, e in units[:12]) + (
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f" 等 {len(units)} 个" if len(units) > 12 else ""
     )
 
@@ -103,22 +104,30 @@ def _units(units: list) -> str:
 async def _downloader_lines(session: AsyncSession, downloader_id: int | None) -> list[str]:
     """下载器配置 + 此刻的路径体检（不读缓存，现场 stat）。"""
     if downloader_id is None:
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         return ["- 未关联下载器"]
     row = await session.get(DownloaderClient, downloader_id)
     if row is None:
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         return [f"- 下载器 #{downloader_id} 已不存在"]
     lines = [
-        f"- 下载器「{row.name}」#{row.id}：{row.client_type.value} {row.version or ''} @ {row.url}",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
+        f"- 下载器「{row.name}」#{row.id}：{row.client_type} {row.version or ''} @ {row.url}",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"  连接状态 {row.status.value}，启用={row.enabled}，最近测试 {_dt(row.last_checked_at)}"
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         + (f"，最近错误：{row.last_error}" if row.last_error else ""),
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"  路径映射：{_brief(row.path_mappings or [])}",
     ]
     probes = probe_mappings(row.path_mappings)
     if probes:
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         lines.append(f"  路径体检（{_dt(utcnow())} 现场执行）：")
         for p in probes:
             lines.append(f"    · {p.local} → {p.remote}：{p.state.value}，{p.detail}")
     else:
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         lines.append("  未配置路径映射（两边视角一致）")
     return lines
 
@@ -129,6 +138,7 @@ async def _torrent_lines(session: AsyncSession, info_hash: str) -> list[str]:
     from movieclaw_api.services.torrent_submit import translate_to_local
 
     info_hash = info_hash.lower()
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     lines: list[str] = [f"- 种子 info_hash：{info_hash}"]
     attempts = (
         (
@@ -143,17 +153,24 @@ async def _torrent_lines(session: AsyncSession, info_hash: str) -> list[str]:
     )
     for a in attempts[:3]:
         lines.append(
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             f"- 投递台账 #{a.id}：状态 {a.status}，目的 {a.purpose}，下载器 #{a.downloader_id}，"
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             f"投递目录 {a.save_path or '—'}，覆盖 {_units(a.units)}，"
             f"movieclaw 投递={a.owned_by_movieclaw}，H&R={a.hit_and_run}"
         )
         lines.append(
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             f"  最近进度 {_dt(a.last_progress_at)}，完成于 {_dt(a.completed_at)}，"
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             f"搜索次数 {a.search_attempts}，下次换源搜索 {_dt(a.next_search_at)}"
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             + (f"，备注：{a.cleanup_note}" if a.cleanup_note else "")
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             + (f"，替换自 #{a.replaces_attempt_id}" if a.replaces_attempt_id else "")
         )
         if a.content_missing:
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             lines.append(f"  实测缺失：{_brief(a.content_missing)}")
     wanted = (
         await session.execute(
@@ -164,8 +181,11 @@ async def _torrent_lines(session: AsyncSession, info_hash: str) -> list[str]:
     ).all()
     for w, item in wanted[:12]:
         lines.append(
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             f"- 工单 #{w.id}《{item.title}》S{w.season_number:02d}E{w.episode_number:02d}："
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             f"状态 {w.status}，在范围={w.in_scope}，"
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             f"投递于 {_dt(w.grabbed_at)}，入库于 {_dt(w.imported_at)}"
         )
 
@@ -173,15 +193,20 @@ async def _torrent_lines(session: AsyncSession, info_hash: str) -> list[str]:
     match = await _query_torrent(info_hash, downloaders)
     if match is None:
         lines.append(
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             f"- 下载器实时状态：{len(downloaders)} 台可用下载器中都查不到该种子（可能已被删除）"
         )
         return lines
     downloader, status = match
     lines.append(
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 下载器「{downloader.name}」实时状态（{_dt(utcnow())}）：{status.state}，"
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"进度 {status.progress * 100:.1f}%，已完成={status.completed}，"
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"体积 {_gb(status.size_bytes)}，保存目录 {status.save_path}"
         + (
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             f"，错误：{getattr(status, 'error_message', None)}"
             if getattr(status, "error_message", None)
             else ""
@@ -190,17 +215,23 @@ async def _torrent_lines(session: AsyncSession, info_hash: str) -> list[str]:
     files = list(status.files or [])
     if files:
         shown = "、".join(f.path for f in files[:6]) + (
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             f" 等 {len(files)} 个文件" if len(files) > 6 else ""
         )
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         lines.append(f"  文件清单：{shown}")
     local_dir = translate_to_local(status.save_path, downloader.path_mappings)
     root = files[0].path.split("/")[0] if files else status.name
     probe = diagnose_landing(local_dir, downloader.path_mappings)
     visible = bool(local_dir and root and (Path(local_dir) / root).exists())
     lines.append(
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 落点核验（现场）：下载器视角 {status.save_path} → "
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"movieclaw 视角 {local_dir or '无法翻译'}；"
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"目录体检 {probe.state.value}（{probe.detail}）；内容「{root}」在 movieclaw 侧"
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         + ("可见" if visible else "**不可见**")
     )
     return lines
@@ -220,6 +251,7 @@ async def _activity_lines(session: AsyncSession, subscription_id: int) -> list[s
         .all()
     )
     if not rows:
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         return ["- 无"]
     return [f"- {_dt(r.created_at)} [{r.type}] {r.message}" for r in reversed(rows)]
 
@@ -227,10 +259,13 @@ async def _activity_lines(session: AsyncSession, subscription_id: int) -> list[s
 async def _subscription_head(session: AsyncSession, subscription_id: int) -> list[str]:
     sub = await session.get(Subscription, subscription_id)
     if sub is None:
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         return [f"- 订阅 #{subscription_id} 已不存在"]
     item = await session.get(MediaItem, sub.media_item_id)
     return [
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 订阅 #{sub.id}《{item.title if item else '?'}》（{sub.kind}）：状态 {sub.status}，"
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"选季 {_brief(sub.selected_seasons)}，追新={sub.follow_future}，库 #{sub.library_id}"
     ]
 
@@ -261,8 +296,10 @@ async def _braked_attempts(session: AsyncSession, downloader_id: int, local_dir:
         )
     ]
     if not hit:
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         return ["- 该目录下没有在途的投递"]
     return [
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- #{r.id} 订阅 #{r.subscription_id}「{r.torrent_title[:50]}」状态 {r.status}，"
         f"下次换源搜索 {_dt(r.next_search_at)}"
         for r in hit[:12]
@@ -275,59 +312,88 @@ async def _braked_attempts(session: AsyncSession, downloader_id: int, local_dir:
 
 _ACTIONS: dict[str, list[str]] = {
     "downloader": [
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "「设置 → 下载器」重新测试连接（dl.verify）：连接与路径体检都会重跑",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "「设置 → 下载器」修改路径映射（dl.update）",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "重启 movieclaw 容器 —— 这在宿主机上做，你做不了，只能建议用户去做",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "忽略这条告警（notices.dismiss）—— 问题不会消失，只是不再提醒",
     ],
     "torrent": [
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "活动页「删除下载任务」（**破坏性**，会把工单退回重新寻找资源）",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "活动页「立即换种」（仅在连续 15 分钟无进度时可用）",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "订阅详情「立即搜索」/「手动选种」",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "「设置 → 下载器」重新测试连接与路径体检",
     ],
     "job": [
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "重新执行（retry）",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "取消（仅进行中/阻塞的任务）",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "忽略（仅失败任务；阻塞任务占着资源锁不能忽略，要么处理要么取消）",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "「设置 → 监听导入」清单里认领身份或忽略条目（入库阻塞时）",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "「设置 → AI 模型」配置模型（字幕任务阻塞时）",
     ],
     "ingest": [
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "「设置 → 监听导入」清单：搜索 TMDB 认领（claim）、忽略（ignore）、恢复处理（restore）",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "改文件名让指纹变化，系统会自动重跑识别",
     ],
     "site": [
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "「设置 → 站点」更新凭据并重新验证（site.verify）",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "检查站点是否开启了「站点保护」（订阅链路会绕开它）",
     ],
     "subscription": [
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "订阅详情：季标题「标注片源」、手动选种、调整规则组、暂停/恢复追踪",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "库详情：查看该集文件的实测规格（分辨率/编码/HDR/片源）",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         "忽略这条告警（notices.dismiss）",
     ],
 }
 
 _RULES = [
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     "工单里的「现场」数据是生成那一刻的快照。先用只读操作复核关键事实，再下结论。",
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     '给出：① 根因判断（一句话）② 证据 ③ 最短处理路径。判断要确定，不要写"可能是 A 或 B"——'
     "如果证据不足以确定，说清楚还缺哪条证据、怎么取。",
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     "只读与非破坏性动作可以直接执行。删除下载任务、删除文件、清理记录、忽略告警这类动作"
     "先说明后果，等用户确认再做。",
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     "系统已经自动做过的事不要重复做。",
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     "如果上面列出的动作都解决不了，明确说出来并解释为什么，不要编造一个看起来可行的步骤。",
 ]
 
 
 def _render(title: str, sections: list[tuple[str, list[str]]], actions: list[str]) -> str:
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     out = [f"# MovieClaw 诊断工单：{title}", ""]
     for heading, lines in sections:
         out.append(f"## {heading}")
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         out.extend(lines or ["- 无"])
         out.append("")
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     out.append("## 你可以执行的动作（与界面一致，不要越过这份清单）")
     out.extend(f"- {a}" for a in actions)
     out.append("")
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     out.append("## 请你做什么")
     out.extend(f"{i}. {r}" for i, r in enumerate(_RULES, 1))
     return "\n".join(out)
@@ -341,16 +407,22 @@ def _render(title: str, sections: list[tuple[str, list[str]]], actions: list[str
 async def _for_notice(session: AsyncSession, notice_id: int) -> HandoffPrompt:
     notice = await session.get(SystemNotice, notice_id)
     if notice is None:
-        raise NotFoundException(f"待处理事项不存在：id={notice_id}")
+        raise NotFoundException(message_key="errors.notices.missing", params={"id": notice_id})
     key = notice.dedupe_key
     payload = notice.payload or {}
     happened = [
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 告警：{notice.title}",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 说明：{notice.message}",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 严重度 {notice.severity}，来源 {notice.source}，状态 {notice.status}，"
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"首次 {_dt(notice.created_at)}，最近刷新 {_dt(notice.updated_at)}",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 关联数据：{_brief(payload)}",
     ]
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     sections: list[tuple[str, list[str]]] = [("1. 发生了什么", happened)]
     actions = _ACTIONS["subscription"]
 
@@ -373,21 +445,27 @@ async def _for_notice(session: AsyncSession, notice_id: int) -> HandoffPrompt:
                 .all()
             )
             mine = [c for c in children if c.payload.get("grouped_under") == key]
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             facts.append(f"- 被收编的单种子告警 {len(mine)} 条：")
             facts.extend(
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 f"  · {c.title}（{_gb(c.payload.get('size_bytes'))}，"
                 f"订阅 #{c.payload.get('subscription_id')}）"
                 for c in mine[:_ENTRY_LIMIT]
             )
             done.append(
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 "- 目录级红灯活跃期间，落在该目录的订阅**自动换源已刹车**（一小时复查一次）；"
                 "手动换种不受限"
             )
             done.extend(await _braked_attempts(session, did, local_dir))
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         sections.append(("2. 系统已判定的事实（现场自检）", facts))
         sections.append(
             (
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 "3. 系统已经自动做过的事",
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 done or ["- 连接失败时订阅投递与完成检测全部停摆，等待重测通过"],
             )
         )
@@ -398,17 +476,22 @@ async def _for_notice(session: AsyncSession, notice_id: int) -> HandoffPrompt:
         facts = await _subscription_head(session, int(sub_id)) + await _torrent_lines(
             session, info_hash
         )
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         sections.append(("2. 系统已判定的事实（现场自检）", facts))
         sections.append(
             (
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 "3. 系统已经自动做过的事",
                 [
+                    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                     "- 落点核验失败**不会**退回工单重找"
                     "（数据真实存在，重找只会重复下载到同一个黑洞）",
+                    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                     "- 用户在活动页删掉该任务时工单立即退回、红灯熄灭",
                 ],
             )
         )
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         sections.append(("4. 相关时间线", await _activity_lines(session, int(sub_id))))
         actions = _ACTIONS["torrent"]
 
@@ -426,8 +509,11 @@ async def _for_notice(session: AsyncSession, notice_id: int) -> HandoffPrompt:
         ).scalar_one_or_none()
         if wanted is not None:
             facts.append(
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 f"- 工单 #{wanted.id} S{int(season):02d}E{int(episode):02d}：状态 {wanted.status}，"
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 f"质量快照 {_brief(wanted.quality)}，"
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 f"洗版证伪次数 {wanted.upgrade_verify_failures}，"
                 f"最近拒绝原因：{wanted.last_reject_reason or '—'}"
             )
@@ -446,22 +532,29 @@ async def _for_notice(session: AsyncSession, notice_id: int) -> HandoffPrompt:
             )
             for f in files[:5]:
                 facts.append(
+                    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                     f"- 库内文件：{f.file_path}（{_gb(f.size_bytes)}，"
                     f"{f.resolution or '?'} {f.video_codec or '?'} "
+                    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                     f"{f.hdr or 'SDR'} {f.media_source or '?'}，状态 {f.state}，"
                     f"片源手动标注={f.media_source_manual}）"
                 )
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         sections.append(("2. 系统已判定的事实", facts))
         sections.append(
             (
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 "3. 系统已经自动做过的事",
                 [
+                    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                     "- 洗版连续证伪后该单元转入 30 天冷却"
                     if "upgrade" in key
+                    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                     else "- 只记录，不自动替换；该告警没有自动熄灭路径，需要用户复查后忽略"
                 ],
             )
         )
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         sections.append(("4. 相关时间线", await _activity_lines(session, int(sub_id))))
 
     elif key.startswith("ingest:"):
@@ -471,11 +564,15 @@ async def _for_notice(session: AsyncSession, notice_id: int) -> HandoffPrompt:
         ).scalar_one_or_none()
         facts = []
         if rule is None:
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             facts.append(f"- 监听规则 {source} 已不存在")
         else:
             facts.append(
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 f"- 监听规则 #{rule.id}：{rule.source_path} → "
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 f"库 #{rule.library_id}（{rule.kind or '自动'}），"
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 f"策略 {rule.strategy}，处理存量={rule.process_existing}"
             )
             entries = (
@@ -493,14 +590,19 @@ async def _for_notice(session: AsyncSession, notice_id: int) -> HandoffPrompt:
             )
             for e in entries:
                 facts.append(
+                    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                     f"- 条目 #{e.id} [{e.status}] {Path(e.entry_path).name}：{e.message or '—'}"
+                    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                     f"（最近尝试 {_dt(e.attempted_at)}，认领 TMDB={e.claimed_tmdb_id}）"
                 )
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         sections.append(("2. 系统已判定的事实", facts))
         sections.append(
             (
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 "3. 系统已经自动做过的事",
                 [
+                    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                     "- failed 条目每小时退避重试一次；"
                     "pending 条目不重试、不告警，只等人工认领或文件改名"
                 ],
@@ -514,18 +616,25 @@ async def _for_notice(session: AsyncSession, notice_id: int) -> HandoffPrompt:
             await session.execute(select(SiteCredential).where(SiteCredential.site_id == site_id))
         ).scalar_one_or_none()
         facts = (
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             [f"- 站点 {site_id} 未配置凭据"]
             if cred is None
             else [
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 f"- 站点 {site_id}：认证 {cred.auth_type.value}，启用={cred.enabled}，"
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 f"站点保护={cred.protected}，状态 {cred.status.value}，"
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 f"最近验证成功 {_dt(cred.last_verified_at)}，"
                 f"最近尝试 {_dt(cred.last_checked_at)}"
+                # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                 + (f"，最近错误：{cred.last_error}" if cred.last_error else "")
             ]
         )
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         sections.append(("2. 系统已判定的事实", facts))
         sections.append(
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             ("3. 系统已经自动做过的事", ["- 该站点已从搜索与投递中摘除，直到重新验证通过"])
         )
         actions = _ACTIONS["site"]
@@ -536,7 +645,9 @@ async def _for_notice(session: AsyncSession, notice_id: int) -> HandoffPrompt:
 async def _for_download(session: AsyncSession, info_hash: str) -> HandoffPrompt:
     facts = await _torrent_lines(session, info_hash)
     sections: list[tuple[str, list[str]]] = [
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         ("1. 发生了什么", ["- 活动页上这条下载任务被标为「需要处理」，用户要求诊断"]),
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         ("2. 系统已判定的事实（现场自检）", facts),
     ]
     jobs = (
@@ -556,11 +667,14 @@ async def _for_download(session: AsyncSession, info_hash: str) -> HandoffPrompt:
         .all()
     )
     done = [
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 关联入库任务 {j.id}（{j.job_type}）：状态 {j.status}，"
         f"{(j.error or {}).get('code') or ''} "
         f"{(j.error or {}).get('message') or j.progress.get('message') or ''}".rstrip()
         for j in jobs
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     ] or ["- 尚未触发入库任务"]
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     sections.append(("3. 系统已经自动做过的事", done))
     sub_ids = sorted(
         {
@@ -577,9 +691,12 @@ async def _for_download(session: AsyncSession, info_hash: str) -> HandoffPrompt:
     timeline: list[str] = []
     for sid in sub_ids[:2]:
         timeline.extend(await _activity_lines(session, sid))
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     sections.append(("4. 相关时间线", timeline))
     return HandoffPrompt(
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         title=f"下载任务 {info_hash[:8]}",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         prompt=_render(f"下载任务 {info_hash[:8]}", sections, _ACTIONS["torrent"]),
     )
 
@@ -587,19 +704,27 @@ async def _for_download(session: AsyncSession, info_hash: str) -> HandoffPrompt:
 async def _for_job(session: AsyncSession, job_id: str) -> HandoffPrompt:
     job = await session.get(Job, job_id)
     if job is None:
-        raise NotFoundException(f"任务不存在：{job_id}")
+        raise NotFoundException(message_key="errors.jobs.missingId", params={"id": job_id})
     error = job.error or {}
     happened = [
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 任务 {job.id}（{job.job_type}）：{job.subject or '—'}",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 状态 {job.status}，尝试 {job.attempt}/{job.max_attempts}，来源 {job.origin}"
         + (f"（{job.actor_name}）" if job.actor_name else ""),
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 错误码 {error.get('code') or '—'}："
         f"{error.get('message') or job.progress.get('message') or '—'}",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 系统给出的动作：{_brief(error.get('actions') or [])}",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 输入：{_brief(job.input_data, 500)}",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 进度：{_brief(job.progress, 300)}",
+        # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
         f"- 创建 {_dt(job.created_at)}，开始 {_dt(job.started_at)}，结束 {_dt(job.finished_at)}",
     ]
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     sections: list[tuple[str, list[str]]] = [("1. 发生了什么", happened)]
     facts: list[str] = []
     resources = (
@@ -612,14 +737,19 @@ async def _for_job(session: AsyncSession, job_id: str) -> HandoffPrompt:
             e = await session.get(IngestEntry, int(r.resource_id))
             if e is not None:
                 facts.append(
+                    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                     f"- 监听条目 #{e.id} [{e.status}] {e.entry_path}：{e.message or '—'}"
+                    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                     f"（认领 TMDB={e.claimed_tmdb_id}/{e.claimed_kind}，"
+                    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
                     f"已入库 {e.imported_count} 个文件）"
                 )
         elif r.resource_type == "download":
             facts.extend(await _torrent_lines(session, r.resource_id))
         else:
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             facts.append(f"- 关联资源 {r.resource_type}:{r.resource_id}（{r.relation}）")
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     sections.append(("2. 系统已判定的事实", facts))
     events = (
         (
@@ -639,10 +769,13 @@ async def _for_job(session: AsyncSession, job_id: str) -> HandoffPrompt:
     ]
     sections.append(
         (
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             "3. 系统已经自动做过的事",
+            # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
             [f"- 已自动重试 {job.attempt} 次" if job.attempt else "- 无自动重试"],
         )
     )
+    # i18n-ignore: agent prompt body stays Chinese (i18n design 8.4)
     sections.append(("4. 任务事件时间线", timeline))
     title = f"{job.job_type} {job.subject or job.id}"
     return HandoffPrompt(title=title, prompt=_render(title, sections, _ACTIONS["job"]))

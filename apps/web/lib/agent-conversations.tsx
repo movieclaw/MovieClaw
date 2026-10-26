@@ -14,6 +14,11 @@
  * 中断由 SSE 客户端按事件序号续传，关闭页面也不会取消后端任务。
  */
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { sessionLabel, optimisticSessionLabel } from "@/lib/agent-session-label";
+import type { AppMessageKey } from "@/lib/i18n/translate";
+
 import {
   createContext,
   useCallback,
@@ -30,6 +35,7 @@ import {
   type AgentTranscriptMessage,
   type SessionAnyEntry,
   type SessionSummary,
+  type SessionLabelRef,
   type SessionTranscript,
   deleteSession,
   forkSession,
@@ -42,7 +48,7 @@ import {
   streamSession,
 } from "@/lib/api/agent";
 import { applyTurns } from "@/lib/agent-activity";
-import { parseSkillTokens, toTokenForm } from "@/lib/agent-skills";
+import { toTokenForm } from "@/lib/agent-skills";
 import { HttpError } from "@/lib/http";
 import { nanoid } from "nanoid";
 import { usePermissions } from "@/lib/permissions";
@@ -98,6 +104,7 @@ export interface AgentTurn {
    *  Turn 只是前端从消息序列派生的展示分组，不是服务端协议实体。 */
   messageId?: string;
   input: string;
+  generatedSkillInstruction?: boolean;
   /** 随本轮用户消息发送的图片（气泡里渲染缩略图）；无图时省略 */
   images?: AgentTurnImage[];
   /** 本轮生效的思维链档位（null=模型默认）；回放数据必有值，乐观轮次
@@ -118,6 +125,7 @@ export interface AgentTurn {
   segments: AgentTurnSegment[];
   result?: AgentDone;
   error?: string;
+  errorKey?: AppMessageKey;
   /** 用户主动停止：status 为 done 但结果不完整 */
   stopped?: boolean;
   /** 回放派生的中断标记：本轮没有以「无工具调用的 assistant 正文」正常收
@@ -130,6 +138,7 @@ export interface AgentConversation {
   /** 服务端会话 id（路由 /sessions/[id] 与所有会话动作都用它） */
   id: string;
   title: string;
+  titleRef?: SessionLabelRef | null;
   /** 最近活跃时间（epoch ms），侧栏「最近会话」的排序键。只在用户提交一轮
    *  与轮次落终态时刷新，流式产出不刷新（口径见 lib/agent-activity.ts） */
   updatedAt: number;
@@ -138,10 +147,13 @@ export interface AgentConversation {
   turns: AgentTurn[];
   /** 详情是否已从服务端回放；false 表示只有列表摘要壳 */
   loaded: boolean;
+  /** 会话归属：插件发起的是 "plugin:<条目 id>"，侧栏据此标出来源 */
+  owner?: string | null;
   /** 从旧会话续开时的来源快照；只用于展示来源，实际上下文由服务端持久化。 */
   handoff?: {
     sourceSessionId: string;
     sourceTitle?: string;
+    sourceTitleRef?: SessionLabelRef | null;
   };
 }
 
@@ -198,8 +210,6 @@ const Ctx = createContext<AgentConversationsValue | null>(null);
 /** 会话列表的分页页长：首屏与滚动加载共用一个页长，offset 按已取回条数推进。 */
 const PAGE_SIZE = 20;
 
-/** 没有任何消息可供命名时的会话名（服务端把 title 置空，这里是渲染兜底）。 */
-const UNNAMED_TITLE = "未命名会话";
 
 /* —— 转录 entry → AgentTurn 时间线的回放映射 —— */
 
@@ -276,6 +286,7 @@ function entriesToTurns(entries: SessionAnyEntry[]): AgentTurn[] {
         // 显式技能调用的展开块还原成 /skill:名字 token 形态：气泡渲染 chip、
         // 改写重问可直接编辑、重发时服务端重新展开（agent-skills.md §9.4）
         input: toTokenForm(messageText(message)),
+        generatedSkillInstruction: entry.generated_skill_instruction ?? false,
         ...(images.length > 0 ? { images } : {}),
         thinkingLevel: entry.thinking_level ?? null,
         modelRef: entry.model ?? null,
@@ -329,11 +340,13 @@ function entriesToTurns(entries: SessionAnyEntry[]): AgentTurn[] {
 function conversationFromSummary(summary: SessionSummary): AgentConversation {
   return {
     id: summary.id,
-    title: summary.title ?? summary.last_prompt ?? UNNAMED_TITLE,
+    title: summary.title ?? summary.last_prompt ?? "",
+    titleRef: summary.title != null ? summary.title_ref : summary.last_prompt_ref,
     updatedAt: Date.parse(summary.updated_at),
     running: summary.running,
     turns: [],
     loaded: false,
+    owner: summary.owner ?? null,
   };
 }
 
@@ -354,6 +367,7 @@ function conversationFromDetail(detail: SessionTranscript): AgentConversation {
         endedAt: undefined,
         result: undefined,
         error: undefined,
+        errorKey: undefined,
         stopped: undefined,
         interrupted: undefined,
       };
@@ -361,16 +375,19 @@ function conversationFromDetail(detail: SessionTranscript): AgentConversation {
   }
   return {
     id: summary.id,
-    title: summary.title ?? summary.last_prompt ?? UNNAMED_TITLE,
+    title: summary.title ?? summary.last_prompt ?? "",
+    titleRef: summary.title != null ? summary.title_ref : summary.last_prompt_ref,
     updatedAt: Date.parse(summary.updated_at),
     running,
     turns,
     loaded: true,
+    owner: summary.owner ?? null,
     handoff:
       handoffEntry?.type === "handoff"
         ? {
             sourceSessionId: handoffEntry.source_session_id,
             sourceTitle: handoffEntry.source_title ?? undefined,
+            sourceTitleRef: handoffEntry.source_title_ref,
           }
         : undefined,
   };
@@ -532,7 +549,7 @@ function applyAgentEvent(turn: AgentTurn, event: AgentEvent): AgentTurn {
     case "agent_done":
       return { ...turn, status: "done", result: event.result };
     case "agent_error":
-      return { ...turn, status: "error", error: event.error ?? "运行失败，原因未知" };
+      return { ...turn, status: "error", error: event.error, errorKey: event.error == null ? "agent.conversation.runUnknown" : undefined };
     case "agent_cancelled":
       return { ...turn, status: "done", stopped: true };
     default:
@@ -541,6 +558,8 @@ function applyAgentEvent(turn: AgentTurn, event: AgentEvent): AgentTurn {
 }
 
 export function AgentConversationsProvider({ children }: { children: React.ReactNode }) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   const { isAdmin } = usePermissions();
   const [conversations, setConversations] = useState<AgentConversation[]>([]);
   // sessionId → 当前 SSE 读取器；仅用于页面卸载时关闭连接，不负责停止后台运行。
@@ -714,7 +733,7 @@ export function AgentConversationsProvider({ children }: { children: React.React
           if ((error as Error).name === "AbortError") return;
           const message =
             error instanceof HttpError && error.status === 404
-              ? "运行记录不存在或已过期，可能是服务已重启，请重新发起任务"
+              ? undefined
               : (error as Error).message;
           // 先冲刷缓冲中的事件再落错误态，保证时间线不乱序
           flushEvents();
@@ -722,6 +741,7 @@ export function AgentConversationsProvider({ children }: { children: React.React
             ...turn,
             status: "error",
             error: message,
+            errorKey: error instanceof HttpError && error.status === 404 ? "agent.conversation.runMissing" : undefined,
           }));
         })
         .finally(() => {
@@ -810,14 +830,13 @@ export function AgentConversationsProvider({ children }: { children: React.React
         model,
       );
       const turnId = nanoid();
-      const { names: skillNames, text: plainInput } = parseSkillTokens(input);
-      const optimisticTitle = skillNames.length > 0 ? `[技能] ${plainInput}`.trim() : input;
+      const label = optimisticSessionLabel(input, images?.length);
       setConversations((previous) => [
         {
           id: sessionId,
           // 标题取首轮输入的前 30 字（服务端索引同款朴素策略；纯图消息占位；
           // 技能 token 折叠成 [技能] 占位，与服务端预览同口径）
-          title: optimisticTitle.slice(0, 30) || (images?.length ? "[图片]" : ""),
+          ...label,
           updatedAt: Date.now(),
           running: true,
           turns: [
@@ -875,8 +894,8 @@ export function AgentConversationsProvider({ children }: { children: React.React
                 running: true,
                 // 会话被截空后重新开口的第一句，同 start 那样给它命名
                 // （服务端也是这条规则：title 为空时由下一条消息回填）
-                title:
-                  conversation.turns.length === 0 ? input.slice(0, 30) : conversation.title,
+                ...(conversation.turns.length === 0 && !conversation.handoff
+                  ? optimisticSessionLabel(input, images?.length) : {}),
                 turns: [
                   ...conversation.turns,
                   {
@@ -917,7 +936,7 @@ export function AgentConversationsProvider({ children }: { children: React.React
     await renameSession(conversationId, title);
     setConversations((previous) =>
       previous.map((conversation) =>
-        conversation.id === conversationId ? { ...conversation, title } : conversation,
+        conversation.id === conversationId ? { ...conversation, title, titleRef: undefined } : conversation,
       ),
     );
   }, []);
@@ -936,7 +955,7 @@ export function AgentConversationsProvider({ children }: { children: React.React
     ) => {
       const conversation = conversationsRef.current.find((item) => item.id === conversationId);
       const index = conversation?.turns.findIndex((turn) => turn.messageId === messageId) ?? -1;
-      if (!conversation || index < 0) throw new Error("这条提问已不在当前会话里");
+      if (!conversation || index < 0) throw new Error(t("agent.conversation.questionMissing"));
       const original = conversation.turns[index];
       const input = content ?? original.input;
       // 服务端 retry 不传 attachments 即沿用原消息的图；本地轮次同样保留
@@ -956,7 +975,7 @@ export function AgentConversationsProvider({ children }: { children: React.React
                 ...item,
                 updatedAt: Date.now(),
                 running: true,
-                title: index === 0 ? input.slice(0, 30) : item.title,
+                ...(index === 0 && !item.handoff ? optimisticSessionLabel(input, images?.length) : {}),
                 turns: [
                   ...item.turns.slice(0, index),
                   {
@@ -985,7 +1004,7 @@ export function AgentConversationsProvider({ children }: { children: React.React
       );
       connectSession(conversationId, turnId);
     },
-    [connectSession],
+    [connectSession, t],
   );
 
   const remove = useCallback(async (conversationId: string) => {
@@ -999,13 +1018,21 @@ export function AgentConversationsProvider({ children }: { children: React.React
     );
   }, []);
 
+  // Re-render metadata on language changes without reconnecting a running stream.
+  const displayed = useMemo(() => conversations.map((item) => ({
+    ...item,
+    title: sessionLabel(item.title, item.titleRef, locale) || t("agent.session.unnamed"),
+    handoff: item.handoff ? {...item.handoff, sourceTitle: item.handoff.sourceTitle
+      ? sessionLabel(item.handoff.sourceTitle, item.handoff.sourceTitleRef, locale) : undefined} : undefined,
+  })), [conversations, locale, t]);
+
   const value = useMemo<AgentConversationsValue>(
     () => ({
-      conversations: [...conversations].sort((a, b) => b.updatedAt - a.updatedAt),
+      conversations: [...displayed].sort((a, b) => b.updatedAt - a.updatedAt),
       hasMore,
       loadingMore,
       loadMore,
-      get: (id) => conversations.find((conversation) => conversation.id === id),
+      get: (id) => displayed.find((conversation) => conversation.id === id),
       open,
       start,
       fork: forkConversation,
@@ -1016,7 +1043,7 @@ export function AgentConversationsProvider({ children }: { children: React.React
       remove,
     }),
     [
-      conversations,
+      displayed,
       hasMore,
       loadingMore,
       loadMore,

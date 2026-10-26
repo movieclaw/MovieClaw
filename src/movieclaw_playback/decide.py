@@ -26,10 +26,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import IntEnum
 
-from movieclaw_playback.capability import ClientCapability
+from movieclaw_playback.capability import AudioSupport, ClientCapability
+from movieclaw_playback.text import Text, reference
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -41,6 +42,14 @@ MAX_KEYFRAME_INTERVAL_S = 15.0
 
 #: 能被 ``<video src>`` 直接消费的容器。其余（mkv/ts/m2ts…）都要 remux。
 DIRECT_PLAY_CONTAINERS = frozenset({"mp4", "m4v", "mov"})
+
+#: MP4 里音轨每秒的样本数（48 kHz，见 ``_overflows_mp4_sample_limit``）。TrueHD 每个访问单元
+#: 1/1200 秒，是唯一的大头；没列的按 100 估上限。视频按帧率，不知道按 60
+_AUDIO_SAMPLES_PER_S = {
+    "truehd": 1200, "dts": 94, "aac": 47, "ac3": 32, "eac3": 32, "mp3": 42, "opus": 50, "flac": 12,
+}
+_OTHER_AUDIO_SAMPLES_PER_S = 100
+_UNKNOWN_FRAME_RATE = 60
 
 #: 归一化分辨率标签 → 高度。media_probe 只落标签不落 width/height。
 _RESOLUTION_HEIGHT = {
@@ -143,6 +152,7 @@ class MediaProfile:
     color_space: str | None = None
     bit_depth: int | None = None
     duration_ms: int | None = None
+    frame_rate: float | None = None
     audio_tracks: tuple[AudioTrack, ...] = ()
     subtitle_tracks: tuple[SubtitleTrack, ...] = ()
     keyframe_interval_s: float | None = None
@@ -154,6 +164,9 @@ class MediaProfile:
     #: 原盘主播放列表的文件名（如 ``00800.mpls``）：目录直推时随计划下发，播放器按名字
     #: 选同一部主片——服务端的诱饵判定与台账时长同一口径
     disc_playlist: str | None = None
+    #: 原盘的种类："bluray"（原盘目录或蓝光镜像）/ "dvd"（DVD 镜像）；非原盘、或镜像读不出为 None。
+    #: 能按剪辑清单播放的播放器只接蓝光（disc-clip-play.md）
+    disc_format: str | None = None
     #: DVD 目录（VIDEO_TS 文件夹）：没有单个文件可直连，服务端也不解析它的结构；
     #: 能读目录的播放器按目录直推，自己读 IFO 选正片、拼接 VOB（disc-direct-play.md §2.7）
     dvd_folder: bool = False
@@ -162,6 +175,17 @@ class MediaProfile:
     def height(self) -> int | None:
         """由归一化分辨率标签反推高度；标签缺失或不认识返回 None。"""
         return _RESOLUTION_HEIGHT.get(self.resolution or "")
+
+    @property
+    def dolby_vision_ignored(self) -> bool:
+        """带杜比视界记录、却按基础层认定的片（记录写 P5、码流标着 BT.2020 YCbCr HDR，
+        见 media_probe._dv_record_contradicted）。
+
+        原文件里那份记录还在：自己读原文件的播放器（ExoPlayer 认 MKV 的杜比视界记录、老版本
+        自研引擎）照记录按 P5 还原 YCbCr，整片偏绿或偏紫。服务端换封装出来的流不带记录
+        （封装恒打 hvc1），只剩基础层——所以这种片不给原文件直出，除非播放器申报自己会核对。
+        """
+        return self.dv_profile is not None and self.hdr is not None and self.hdr != "Dolby Vision"
 
 
 @dataclass(frozen=True)
@@ -220,6 +244,16 @@ class VideoPlan:
     #: 放在计划里而不是命令装配的参数上：它和高度一样是「对这部片做了什么」
     #: 的一部分，诊断面板要显示、转码缓存的指纹要包含。
     bitrate_cap_bps: int | None = None
+    #: 杜比视界元数据怎么处理（None = 不是杜比视界，或按滤镜默认）：
+    #: - ``"apply"``：转码，基础层是 IPT（P5 那一类），色调映射必须吃 RPU 才出得了对的颜色——
+    #:   VAAPI / QSV 的硬件映射不认 RPU，选执行后端时优先交给认 RPU 的（Mac 转码器）；
+    #: - ``"ignore"``：转码，记录不可信、只认基础层（``MediaProfile.dolby_vision_ignored``），
+    #:   色调映射显式关掉 ``apply_dovi``，否则 P5 的还原套在 YCbCr 上整片发绿；
+    #: - ``"keep"``：换封装给能原生解杜比视界的播放器，封装打 dvh1 保住记录——打 hvc1 会把
+    #:   记录丢掉，P5 的 IPT 基础层被当 HDR10 解，同样发绿发紫；
+    #: - ``"strip"``：换封装给解不了杜比视界的 HDR 屏，P7 只留 HDR10 基础层——增强层与 RPU
+    #:   夹在同一条码流里，要剥掉（``_strips_to_base_layer``）。
+    dolby_vision: str | None = None
 
 
 @dataclass(frozen=True)
@@ -259,9 +293,8 @@ class PlaybackPlan:
     #: 前端不再回头去查文件详情——播放器只认「一次决策 + 一次会话」这一组
     #: 数据，多一次往返就多一次能不一致的机会。
     audio_tracks: tuple[AudioTrack, ...] = ()
-    #: ★ 中文，为什么是这个档。**一等公民字段**，不是调试信息：同时供给
-    #: 诊断面板与失败提示（硬边界 5）。
-    reason: str = ""
+    #: 为什么是这个档的消息引用，由协议层渲染；同时供给诊断与失败提示（硬边界 5）。
+    reason: Text = ""
     #: 若为自动降档的结果，记录原档位（§6.3）。
     degraded_from: PlaybackTier | None = None
     #: 光盘直推的形态（disc-direct-play.md）："image" = ISO 原字节、"folder" = 原盘目录
@@ -276,8 +309,8 @@ class ConsentRequired:
     """决策落到需要用户显式同意的档位（当前只有档 4 软件转码）。"""
 
     tier: PlaybackTier
-    reason: str
-    cost_hint: str
+    reason: Text
+    cost_hint: Text
     can_self_enable: bool
     setting_namespace: str = _POLICY_NAMESPACE
     setting_key: str = _SOFTWARE_TRANSCODE_KEY
@@ -287,8 +320,8 @@ class ConsentRequired:
 class PlaybackRejected:
     """放不了。``suggestion`` 必须给出可操作的下一步。"""
 
-    reason: str
-    suggestion: str
+    reason: Text
+    suggestion: Text
 
 
 PlaybackDecision = PlaybackPlan | ConsentRequired | PlaybackRejected
@@ -324,20 +357,19 @@ def decide_playback(
     ``max_height`` 是用户在播放器里选的画质上限（§10 预案的「手动选清晰度」，
     弱网救急用）。语义是**上限而不是目标**：源分辨率不超它就照常直通——
     直通是无损的，比转出来的同分辨率画质更好也更省资源；超了才强制转码降
-    到该高度。None = 自动（不限制）。strm 与 universal 分支不受它影响：
-    前者禁止转码（硬边界 2），后者是全解码客户端自己拉流。
+    到该高度。None = 自动（不限制）。universal 分支与未探测到规格的 strm
+    不受它影响：前者是全解码客户端自己拉流，后者无从判断、只能乐观直连。
 
     ``preferred_subtitle`` 是**用户选中的字幕轨**（None/"off" 与文本轨都是
     no-op）。只有当它指向本文件的**内封 PGS 轨**时才改变决策：视频强制转码、
     字幕烧录进画面（Emby 语义的「字幕压制」）。这是硬边界 1 唯一的例外，
-    由用户的显式选择触发；文本字幕永远旁挂，视频策略不因它变。strm 与
-    universal 分支同样不受影响——前者禁转码，位图字幕退回前端 canvas 渲染。
+    由用户的显式选择触发；文本字幕永远旁挂，视频策略不因它变。universal
+    分支与未探测到规格的 strm 同样不受影响，位图字幕退回前端 canvas 渲染。
     """
-    # 1. strm 网盘条目：硬规则分支，只允许直连（硬边界 2）。
-    #    一旦允许转码，服务端就得先把云端内容拉下来再转，直接推翻
-    #    strm-workflow.md 的「零网盘流量」，且用户点一部网盘 4K 就能同时打爆
-    #    NAS 上行与网盘流量额度，还完全无感。
-    if media.is_strm:
+    # 1. 网盘（strm）条目：播放时按需探测过规格的，与本地文件走同一套判定——服务端的
+    #    ffmpeg 直接读直链换封装 / 转码（docs/design/strm-playback.md）。探测不到规格
+    #    （直链失效、ffprobe 缺失）才走这里：无从判断，乐观直连
+    if _unprobed_strm(media):
         return _decide_strm(media, failed_tiers)
 
     # 光盘镜像（ISO）：自己拉原文件的全解码播放器（Infuse、带 libbluray 的播放器都认 ISO）
@@ -358,16 +390,15 @@ def decide_playback(
                 ),
                 subtitles=plan_subtitles(media),
                 audio_tracks=media.audio_tracks,
-                reason="光盘镜像原字节直推，盘内结构由播放器在本机读取",
+                reason=reference("player.decision.discImage"),
                 disc="image" if capability.disc_image else None,
             )
         # 服务端读出了镜像里的正片（蓝光主片各段 / DVD 正片节目链在镜像上的字节区间，
         # iso_source.py）：与原盘目录一样按下面的常规判定换封装或转码
         if media.disc_clips < 1:
             return PlaybackRejected(
-                reason="服务端读不了这个光盘镜像（ISO）的盘内结构，没法为这个播放器换封装或转码",
-                suggestion="请用能直接播放 ISO 的播放器（MovieClaw 的 iOS / Apple TV App、"
-                "Infuse 等），或把镜像里的正片解出来后重新入库",
+                reason=reference("player.decision.discImageUnreadable"),
+                suggestion=reference("player.decision.discImageHint"),
             )
 
     # 2. 恒等快照（全解码播放器）：永远直连，与 jellyfin-compat.md 行为一致。
@@ -392,10 +423,9 @@ def decide_playback(
             subtitles=plan_subtitles(media),
             audio_tracks=media.audio_tracks,
             reason=(
-                f"原盘主片由 {media.disc_clips} 段剪辑组成，播放器按播放列表在本机拼接，"
-                "服务端只按文件供字节"
+                reference("player.decision.discClips", count=media.disc_clips)
                 if media.disc_clips > 1
-                else "原盘目录直推：播放器读播放列表与剪辑信息在本机定位，服务端只按文件供字节"
+                else reference("player.decision.discFolder")
             ),
             disc="folder",
             disc_playlist=media.disc_playlist,
@@ -414,7 +444,7 @@ def decide_playback(
             ),
             subtitles=plan_subtitles(media),
             audio_tracks=media.audio_tracks,
-            reason="DVD 目录直推：播放器读 IFO 选正片、在本机拼接 VOB，服务端只按文件供字节",
+            reason=reference("player.decision.dvdFolder"),
             disc="folder",
         )
     if capability.universal and media.disc_clips > 1:
@@ -428,12 +458,9 @@ def decide_playback(
             audio=_copy_audio_plan(fmp4_copy_audio_track(media.audio_tracks, preferred_audio)),
             subtitles=plan_subtitles(media),
             audio_tracks=media.audio_tracks,
-            reason=(
-                f"原盘主片由 {media.disc_clips} 段剪辑拼接而成，"
-                "按播放列表拼接后原样封装为 HLS，不转码"
-            ),
+            reason=(reference("player.decision.discRemux", count=media.disc_clips)),
         )
-    if capability.universal:
+    if _takes_universal_shortcut(media, capability):
         # 全解码播放器在本机切音轨：计划里带上用户点选 / 记住的那条，客户端据此选轨
         chosen = next((t for t in media.audio_tracks if t.ref == preferred_audio), None)
         return PlaybackPlan(
@@ -446,12 +473,11 @@ def decide_playback(
             ),
             subtitles=plan_subtitles(media),
             audio_tracks=media.audio_tracks,
-            reason="播放器自述具备完整解码能力，原文件直连播放",
+            reason=reference("player.decision.universal"),
         )
 
     # 3–5. 视频、HDR、音频三项判定，各自算出「能不能 copy」。
     video_verdict = _judge_video(media, capability, policy, max_height)
-    audio_verdict = _judge_audio(media, capability, preferred_audio)
 
     # 用户显式选中内封 PGS → 烧录：视频不再允许 copy（硬边界 1 唯一例外）。
     # blocked（如 HDR 无 GPU）原样保留——烧录也救不了放不出来的画面。
@@ -459,12 +485,12 @@ def decide_playback(
     if burn_track is not None and video_verdict.blocked is None:
         video_verdict = _VideoVerdict(
             can_copy=False,
-            reason="已选中 PGS 图形字幕，按你的选择转码并把字幕压制进画面",
+            reason=reference("player.decision.burnPgs"),
         )
-
-    # 6–7. 综合定档。
-    tier, container, reason, degraded_from = _resolve_tier(
-        media, video_verdict, audio_verdict, policy, failed_tiers, capability=capability
+    # 音轨放在视频之后判：剪辑直推能不能成，要看视频最终能不能 copy
+    # 6–7. 综合定档（音轨能不能 copy 还取决于落在哪一档，见 _judge_audio_and_tier）。
+    audio_verdict, (tier, container, reason, degraded_from) = _judge_audio_and_tier(
+        media, video_verdict, capability, policy, failed_tiers, preferred_audio
     )
     if isinstance(tier, PlaybackRejected):
         return tier
@@ -474,10 +500,7 @@ def decide_playback(
         return ConsentRequired(
             tier=tier,
             reason=reason,
-            cost_hint=(
-                "软件转码会占用大量 CPU，可能让搜索、扫描、订阅等后台任务明显"
-                "变慢，首帧也需要更长时间。"
-            ),
+            cost_hint=(reference("player.decision.softwareCost")),
             can_self_enable=can_self_enable,
         )
 
@@ -495,12 +518,163 @@ def decide_playback(
             policy,
             max_height,
             burn_subtitle=burn_track.ref if burn_track is not None else None,
+            capability=capability,
         ),
         audio=_build_audio_plan(media, audio_verdict, tier),
         subtitles=subtitles,
         audio_tracks=media.audio_tracks,
         reason=reason,
         degraded_from=degraded_from,
+        **(
+            {"disc": "clips", "disc_playlist": media.disc_playlist}
+            if tier is PlaybackTier.DIRECT_PLAY and _plays_bluray_clips(media, capability)
+            else {}
+        ),
+    )
+
+
+def _plays_bluray_clips(media: MediaProfile, capability: ClientCapability) -> bool:
+    """蓝光主片交给播放器按剪辑清单直推（disc-clip-play.md）：服务端选主片、给各剪辑的
+    取流地址与入口点表，播放器只解复用与拼接，NAS 不起 ffmpeg。编码能不能直通照常判定，
+    解不了的（VC-1、播放器没有的音频编码）仍走换封装 / 转码。"""
+    return (
+        capability.bluray_clips
+        and media.disc_format == "bluray"
+        and media.disc_clips >= 1
+        # 播放器的剪辑解复用器没有 VC-1 读取器：放过去只有声音，播放器也不会报错退回
+        and (media.video_codec or "").lower() in _CLIP_VIDEO_CODECS
+    )
+
+
+#: 剪辑直推时播放器能解复用的视频编码（disc-clip-play.md）
+_CLIP_VIDEO_CODECS = frozenset({"h264", "hevc", "mpeg2video"})
+
+
+def _clip_audio_capability(
+    media: MediaProfile, capability: ClientCapability, video: _VideoVerdict
+) -> ClientCapability:
+    """剪辑直推时补上蓝光 LPCM（pcm_bluray）的直通能力。
+
+    LPCM 只有剪辑解复用器读得了（播放器的 BdLpcmReader），换封装进 fMP4 根本封不进去。
+    所以播放器不在能力里申报它——申报了，换封装和转码档也会把它当成可直通的轨原样复制，
+    一律失败；而旧服务器不认剪辑清单，只会走那些档。这里只在这次确定能按剪辑直推
+    （视频能 copy、不因杜比视界记录被改走换封装）时补上。
+    """
+    if not (video.can_copy and _plays_bluray_clips(media, capability)):
+        return capability
+    if media.dolby_vision_ignored and not capability.dolby_vision_record_audit:
+        return capability
+    if _strips_to_base_layer(media, capability):
+        return capability
+    if capability.audio_support("pcm_bluray") is not None:
+        return capability
+    return replace(capability, audio=(*capability.audio, AudioSupport("pcm_bluray")))
+
+
+def _judge_audio_and_tier(
+    media: MediaProfile,
+    video_verdict: _VideoVerdict,
+    capability: ClientCapability,
+    policy: PlaybackPolicy,
+    failed_tiers: frozenset[PlaybackTier],
+    preferred_audio: str | None,
+    *,
+    enforce_keyframe_gate: bool = True,
+) -> tuple[_AudioVerdict, tuple[PlaybackTier | PlaybackRejected, str, Text, PlaybackTier | None]]:
+    """判音轨并定档。
+
+    播放器申报能解的音频编码只对档 0（原文件直出）作数：档 1 起输出一律是 HLS fMP4，
+    原样 copy 的轨还得封得进 MP4。TrueHD 封不进（mov 封装器写头报「Experimental
+    feature」，#884：Android 申报了 TrueHD，杜比视界片转码整条失败），所以没落在档 0
+    时，按「能封进 fMP4 的编码」重判一次——换同语言能封装的轨（蓝光 TrueHD 的 AC-3
+    核心）或转码。重判只会让音轨从 copy 变成转码，档位不会因此回到档 0。
+    """
+    audio_capability = _clip_audio_capability(media, capability, video_verdict)
+    audio = _judge_audio(media, audio_capability, preferred_audio)
+    resolved = _resolve_tier(
+        media,
+        video_verdict,
+        audio,
+        policy,
+        failed_tiers,
+        capability=capability,
+        enforce_keyframe_gate=enforce_keyframe_gate,
+    )
+    if (
+        resolved[0] is PlaybackTier.DIRECT_PLAY
+        or isinstance(resolved[0], PlaybackRejected)
+        or not audio.can_copy
+        or audio.track is None
+        or (audio.track.codec or "").lower() in FMP4_COPY_AUDIO_CODECS
+    ):
+        return _degraded_audio(audio, resolved, capability)
+    fmp4_capability = replace(
+        audio_capability,
+        audio=tuple(a for a in audio_capability.audio if a.codec in FMP4_COPY_AUDIO_CODECS),
+    )
+    audio = _judge_audio(media, fmp4_capability, preferred_audio)
+    if not audio.can_copy:
+        label = _track_label(audio.track) if audio.track else reference("player.decision.unknown")
+        audio = replace(
+            audio,
+            reason=reference(
+                "player.decision.audioContainer",
+                track=label,
+                codec=(audio.target_codec or "").upper(),
+            ),
+        )
+    resolved = _resolve_tier(
+        media,
+        video_verdict,
+        audio,
+        policy,
+        failed_tiers,
+        capability=capability,
+        enforce_keyframe_gate=enforce_keyframe_gate,
+    )
+    return _degraded_audio(audio, resolved, capability)
+
+
+def _degraded_audio(
+    audio: _AudioVerdict,
+    resolved: tuple[PlaybackTier | PlaybackRejected, str, Text, PlaybackTier | None],
+    capability: ClientCapability,
+) -> tuple[_AudioVerdict, tuple[PlaybackTier | PlaybackRejected, str, Text, PlaybackTier | None]]:
+    """被失败顶到档 2 及以下的会话，音轨固定为 AAC-LC 双声道（#906）。
+
+    音轨在定档之前就判完了，降档回路只推档位号：「可直通」的结论不会因为落进档 2 而改变，
+    档 2「音频单转」就成了档 1 换个编号，档 3/4 也照旧原样输出那条音轨。小米电视申报能解
+    AC3、实际一放就停滞，整条阶梯从头到尾没换过它，全档失败。上一档的失败已经让播放器
+    申报的音频能力不可信（转出来的 E-AC-3 也可能交给同一个解码器），降下来就换各端都放得
+    了的格式。源轨本身是 AAC 双声道的不白编一遍；没被失败顶下来的会话不动。
+    """
+    tier, container, reason, degraded_from = resolved
+    track = audio.track
+    if (
+        degraded_from is None
+        or isinstance(tier, PlaybackRejected)
+        or tier < PlaybackTier.AUDIO_TRANSCODE
+        or track is None
+    ):
+        return audio, resolved
+    codec, channels = (
+        ((track.codec or "").lower(), track.channels or 2)
+        if audio.can_copy
+        else (audio.target_codec, audio.target_channels or 2)
+    )
+    if codec == "aac" and channels <= 2:
+        return audio, resolved
+    safe = _transcode_audio(
+        track,
+        capability,
+        prefix=reference("player.decision.degradedAudioPrefix", track=_track_label(track)),
+        force_aac=True,
+    )
+    return safe, (
+        tier,
+        container,
+        {**reason, "params": {**reason["params"], "audio": safe.reason}},
+        degraded_from,
     )
 
 
@@ -519,16 +693,16 @@ class _VideoVerdict:
     """
 
     can_copy: bool
-    reason: str
+    reason: Text
     #: 无法直通且连转码也不该做（如 HDR 需 tone-map 但没有 GPU）
-    blocked: str | None = None
+    blocked: Text | None = None
 
 
 @dataclass(frozen=True)
 class _AudioVerdict:
     can_copy: bool
     track: AudioTrack | None
-    reason: str
+    reason: Text
     target_codec: str | None = None
     target_channels: int | None = None
     downmix: bool = False
@@ -538,11 +712,60 @@ class _AudioVerdict:
     needs_remap: bool = False
 
 
-def _no_hardware(policy: PlaybackPolicy) -> str:
+def _takes_universal_shortcut(media: MediaProfile, capability: ClientCapability) -> bool:
+    """全解码播放器直接给原文件、不逐项判定。
+
+    例外是杜比视界记录不可信的片：播放器会照原文件里的记录按 P5 还原，画面整片偏色。
+    申报了自己核对记录的（App 新版自研引擎，引擎补丁 P62）照常直出；其余（老版本 App）
+    走下面的逐项判定——它申报的编码与容器清单足够让判定落到「换封装」，那条流只剩基础层。
+    """
+    if not capability.universal:
+        return False
+    return not media.dolby_vision_ignored or capability.dolby_vision_record_audit
+
+
+def _overflows_mp4_sample_limit(media: MediaProfile, capability: ClientCapability) -> bool:
+    """MP4 / MOV 原文件的样本表估算超出播放器申报的上限（#962）。
+
+    ExoPlayer 解析 moov 时把所有轨的样本表整个建进 Java 堆（约 31 字节 / 样本，JVM 实测）。
+    144 分钟的 TrueHD 轨有一千多万个样本，起播后缓冲一涨就内存溢出、整个 App 闪退——不报错，
+    降档回路也接不住。换封装出来的 HLS 分片各自只带几秒的样本表，视频照旧 copy。
+    """
+    limit = capability.mp4_sample_limit
+    if not limit or not media.duration_ms:
+        return False
+    if (media.container or "").lower() not in DIRECT_PLAY_CONTAINERS:
+        return False
+    per_second = (media.frame_rate or _UNKNOWN_FRAME_RATE) + sum(
+        _AUDIO_SAMPLES_PER_S.get((t.codec or "").lower(), _OTHER_AUDIO_SAMPLES_PER_S)
+        for t in media.audio_tracks
+    )
+    return media.duration_ms / 1000 * per_second > limit
+
+
+def _no_hardware(policy: PlaybackPolicy) -> Text:
     """「没有可用硬件」的那半句：远程转码器在线但正忙时说清楚是暂时的。"""
     if policy.hardware_busy:
-        return "但能做色调映射的转码器正忙（转码名额已满），请稍候或停止其它正在转码的播放后重试。"
-    return "但未检测到可用的硬件加速设备。"
+        return reference("player.decision.hardwareBusy")
+    return reference("player.decision.hardwareMissing")
+
+
+def _strips_to_base_layer(media: MediaProfile, capability: ClientCapability) -> bool:
+    """杜比视界 Profile 7（基础层兼容）换封装时只留 HDR10 基础层（web-player.md §3.3 步骤 4）。
+
+    P7 是 UHD 原盘的双层结构：基础层本身就是 HDR10，增强层（NAL 63）与 RPU（NAL 62）夹在
+    同一条码流里。设备没有能解 P7 的杜比视界解码器时，ExoPlayer 不会像 P8 那样改用 HEVC
+    解码器解基础层（Media3 只对 P4 / P8 这么做），原文件直出放不了；服务端换封装时把这两种
+    NAL 剥掉、封装打 hvc1 不带杜比视界记录，出来就是一条普通的 HDR10 HEVC。播放器自己申报了
+    P7（能解、或能退回基础层）的照申报走，不剥。
+    """
+    return (
+        media.hdr == "Dolby Vision"
+        and media.dv_profile == 7
+        and bool(media.dv_bl_compatible)
+        and 7 not in capability.dolby_vision_profiles
+        and 7 not in capability.dolby_vision_base_layer_profiles
+    )
 
 
 def _judge_video(
@@ -553,11 +776,13 @@ def _judge_video(
 ) -> _VideoVerdict:
     """视频编码 + HDR + 用户画质上限，三项判定（§3.3 步骤 3–4）。"""
     support = capability.video_support(media.video_codec)
-    codec_label = (media.video_codec or "未知").upper()
+    codec_label = (
+        media.video_codec.upper() if media.video_codec else reference("player.decision.unknown")
+    )
 
     if support is None:
         return _VideoVerdict(
-            can_copy=False, reason=f"视频编码 {codec_label} 浏览器不支持"
+            can_copy=False, reason=reference("player.decision.videoUnsupported", codec=codec_label)
         )
     # smooth / power_efficient **只作参考，不再作硬闸**（§12.15 Jellyfin 对照）。
     # 实测 Safari 对 HEVC 会整族报 smooth=false，而同一台设备直通同一文件
@@ -570,7 +795,7 @@ def _judge_video(
     if height is not None and height > support.max_height:
         return _VideoVerdict(
             can_copy=False,
-            reason=f"{media.resolution} 超出设备可解码的分辨率，已降分辨率",
+            reason=reference("player.decision.resolutionUnsupported", resolution=media.resolution),
         )
     # 原生 HLS 会把 fMP4 交给 AVPlayer。Safari 的能力探测只代表「存在
     # 某种可能的解码路径」，不能证明 4K 长时间播放不会触发硬件解码失败；
@@ -586,8 +811,7 @@ def _judge_video(
         return _VideoVerdict(
             can_copy=False,
             reason=(
-                f"移动端原生 HLS 播放限制为 {policy.max_transcode_height}p，"
-                "已转码降分辨率"
+                reference("player.decision.nativeHlsResolution", height=policy.max_transcode_height)
             ),
         )
     # 用户选了画质上限且源超出：强制转码降下去。放在设备判定之后——
@@ -595,20 +819,24 @@ def _judge_video(
     if max_height is not None and height is not None and height > max_height:
         return _VideoVerdict(
             can_copy=False,
-            reason=f"按所选画质上限 {max_height}p 转码（源为 {media.resolution}）",
+            reason=reference(
+                "player.decision.qualityCap", height=max_height, resolution=media.resolution
+            ),
         )
 
     # HDR 判定。Dolby Vision 按 profile 分：
     # - 播放设备申报能解这个 profile（电视的杜比视界解码器 + 屏幕支持杜比视界）→ 原样直通；
     # - 基础层能直接解读（P8 / P7 带 HDR10 基础层）、设备申报会退回基础层、屏幕能直出 HDR
     #   → 直通，设备只放 HDR10 基础层（丢掉杜比视界的动态元数据，画面正确）；
+    # - P7 带 HDR10 基础层、设备没申报、屏幕能直出 HDR → 换封装剥掉增强层与 RPU，只给基础层
+    #   （_strips_to_base_layer）。不用显卡，也不色调映射；
     # - 其余（P5 的 IPTPQc2 基础层当成 HDR10 会输出**绿紫画面**，§7-④；或 profile 未知）
     #   → 转码 + tone-map。
     if media.hdr == "Dolby Vision" and media.dv_profile is not None:
         if media.dv_profile in capability.dolby_vision_profiles:
             return _VideoVerdict(
                 can_copy=True,
-                reason=f"Dolby Vision Profile {media.dv_profile} 由播放设备直接解码",
+                reason=reference("player.decision.dolbyDirect", profile=media.dv_profile),
             )
         if (
             media.dv_bl_compatible
@@ -617,37 +845,48 @@ def _judge_video(
         ):
             return _VideoVerdict(
                 can_copy=True,
-                reason=(
-                    f"播放 Dolby Vision Profile {media.dv_profile} 的 HDR10 基础层"
-                    "（设备不能解杜比视界）"
-                ),
+                reason=(reference("player.decision.dolbyBaseLayer", profile=media.dv_profile)),
+            )
+        if capability.hdr_passthrough and _strips_to_base_layer(media, capability):
+            return _VideoVerdict(
+                can_copy=True,
+                reason=(reference("player.decision.dolbySevenBaseLayer")),
             )
     if media.hdr == "Dolby Vision":
         if not policy.hardware_available:
             return _VideoVerdict(
                 can_copy=False,
-                reason="Dolby Vision 需要转换色彩空间才能正确显示",
+                reason=reference("player.decision.dolbyColorConversion"),
                 blocked=(
-                    "这部片是 Dolby Vision，需要显卡做色调映射才能正常播放，"
-                    f"{_no_hardware(policy)}软件色调映射转 4K 太慢，不予启用。"
+                    reference(
+                        "player.decision.dolbyHardwareRequired", hardware=_no_hardware(policy)
+                    )
                 ),
             )
-        return _VideoVerdict(can_copy=False, reason="Dolby Vision 已转换为 SDR 显示")
+        return _VideoVerdict(can_copy=False, reason=reference("player.decision.dolbySdr"))
 
     if media.hdr and not capability.hdr_passthrough:
         if not policy.hardware_available:
             return _VideoVerdict(
                 can_copy=False,
-                reason=f"{media.hdr} 需要转换为 SDR",
+                reason=reference("player.decision.hdrConversionRequired", hdr=media.hdr),
                 blocked=(
-                    f"这部片是 {media.hdr}，当前设备不支持 HDR 显示，需要显卡做"
-                    f"色调映射；{_no_hardware(policy)}"
+                    reference(
+                        "player.decision.hdrHardwareRequired",
+                        hdr=media.hdr,
+                        hardware=_no_hardware(policy),
+                    )
                 ),
             )
-        return _VideoVerdict(can_copy=False, reason=f"{media.hdr} 已转换为 SDR 显示")
+        return _VideoVerdict(
+            can_copy=False, reason=reference("player.decision.hdrSdr", hdr=media.hdr)
+        )
 
-    hdr_note = f"（{media.hdr} 直通）" if media.hdr else ""
-    return _VideoVerdict(can_copy=True, reason=f"视频编码 {codec_label} 可直通{hdr_note}")
+    hdr_note = reference("player.decision.hdrDirectNote", hdr=media.hdr) if media.hdr else ""
+    return _VideoVerdict(
+        can_copy=True,
+        reason=reference("player.decision.videoCopy", codec=codec_label, hdrNote=hdr_note),
+    )
 
 
 def _judge_audio(
@@ -663,7 +902,7 @@ def _judge_audio(
     """
     tracks = media.audio_tracks
     if not tracks:
-        return _AudioVerdict(can_copy=True, track=None, reason="无音轨")
+        return _AudioVerdict(can_copy=True, track=None, reason=reference("player.decision.noAudio"))
 
     default = _preferred_audio(tracks)
     # 直出时浏览器放的那条（容器默认轨）：放的不是它就得重封装（needs_remap）
@@ -685,13 +924,13 @@ def _judge_audio(
             return _AudioVerdict(
                 can_copy=True,
                 track=track,
-                reason=f"音轨 {_track_label(track)} 已是 AAC-LC 双声道，可直通",
+                reason=reference("player.decision.audioAlreadyAac", track=_track_label(track)),
                 needs_remap=track.ref != container_default.ref,
             )
         return _transcode_audio(
             track,
             capability,
-            prefix=f"移动端原生 HLS 音轨 {_track_label(track)}",
+            prefix=reference("player.decision.nativeHlsAudioPrefix", track=_track_label(track)),
             force_aac=True,
         )
 
@@ -703,10 +942,12 @@ def _judge_audio(
             return _AudioVerdict(
                 can_copy=True,
                 track=chosen,
-                reason=f"音轨 {label} 可直通",
+                reason=reference("player.decision.audioCopy", track=label),
                 needs_remap=chosen.ref != container_default.ref,
             )
-        return _transcode_audio(chosen, capability, prefix=f"选中的音轨 {label}")
+        return _transcode_audio(
+            chosen, capability, prefix=reference("player.decision.selectedAudioPrefix", track=label)
+        )
 
     # 用户没表态：首选轨能直通最好；否则在**同语言**的其它轨里找一条能直通的（换轨优于转码）。
     # 只在同语言里换（2026-09-29）：为省一路音频转码把国语换成英语，是拿听感换服务器的 CPU，
@@ -719,16 +960,27 @@ def _judge_audio(
         channels = track.channels or 2
         if channels > support.max_channels:
             continue  # 声道数超限要降混，那是转码，留给下面
-        note = "" if is_preferred else "，已切换到可直通的音轨"
+        note = "" if is_preferred else reference("player.decision.audioSwitched")
         return _AudioVerdict(
             can_copy=True,
             track=track,
-            reason=f"音轨 {(track.codec or '未知').upper()} 可直通{note}",
+            reason=reference(
+                "player.decision.audioCodecCopy",
+                codec=track.codec.upper() if track.codec else reference("player.decision.unknown"),
+                note=note,
+            ),
             needs_remap=track.ref != container_default.ref,
         )
 
     # 都不能直通 → 转码首选轨。
-    return _transcode_audio(default, capability, prefix=f"音轨 {(default.codec or '未知').upper()}")
+    return _transcode_audio(
+        default,
+        capability,
+        prefix=reference(
+            "player.decision.audioPrefix",
+            codec=default.codec.upper() if default.codec else reference("player.decision.unknown"),
+        ),
+    )
 
 
 def _same_language(a: AudioTrack, b: AudioTrack) -> bool:
@@ -748,7 +1000,7 @@ def _transcode_audio(
     track: AudioTrack,
     capability: ClientCapability,
     *,
-    prefix: str,
+    prefix: Text,
     force_aac: bool = False,
 ) -> _AudioVerdict:
     source_channels = track.channels or 2
@@ -757,34 +1009,39 @@ def _transcode_audio(
         # 也让后续的 HLS CODECS/音频参数保持固定，避免设备分支再次漂移。
         target_codec = "aac"
         target_channels = 2
-        reason = f"{prefix}已固定为 AAC-LC 双声道"
+        reason = reference("player.decision.audioFixedStereo", prefix=prefix)
     else:
         eac3 = capability.audio_support("eac3")
         if eac3 is not None and source_channels > 2:
-            target_codec, max_channels = "eac3", eac3.max_channels
+            # 申报的是播放器能解几声道，编码却是 ffmpeg 的 eac3 编码器做：它最多 5.1，
+            # 7.1 布局直接拒绝（Android 申报 8 声道，7.1 的 TrueHD 转过来就挂）
+            target_codec, max_channels = "eac3", min(eac3.max_channels, _EAC3_MAX_CHANNELS)
         else:
             aac = capability.audio_support("aac")
             target_codec = "aac"
             max_channels = aac.max_channels if aac else 2
         target_channels = min(source_channels, max_channels)
-        reason = f"{prefix} 浏览器不支持，已转为 {target_codec.upper()}"
+        reason = reference(
+            "player.decision.audioTranscoded", prefix=prefix, codec=target_codec.upper()
+        )
     return _AudioVerdict(
         can_copy=False,
         track=track,
         reason=reason,
         target_codec=target_codec,
         target_channels=target_channels,
-        downmix=target_channels < source_channels,
+        # downmix 是「降混成立体声」（滤镜只有立体声那一套）；7.1 → 5.1 交给 -ac 由重采样器折叠
+        downmix=target_channels < source_channels and target_channels <= 2,
     )
 
 
-def _track_label(track: AudioTrack) -> str:
+def _track_label(track: AudioTrack) -> Text:
     """音轨的中文短标签：语言 + 编码 + 声道，缺项自动省略。"""
     bits = [track.language] if track.language else []
-    bits.append((track.codec or "未知").upper())
+    bits.append(track.codec.upper() if track.codec else reference("player.decision.unknown"))
     if track.channels:
-        bits.append(f"{track.channels} 声道")
-    return " ".join(bits)
+        bits.append(reference("player.decision.channels", count=track.channels))
+    return {"message_list": bits, "separator_key": "player.decision.spaceSeparator"}
 
 
 def _resolve_tier(
@@ -796,7 +1053,7 @@ def _resolve_tier(
     *,
     capability: ClientCapability,
     enforce_keyframe_gate: bool = True,
-) -> tuple[PlaybackTier | PlaybackRejected, str, str, PlaybackTier | None]:
+) -> tuple[PlaybackTier | PlaybackRejected, str, Text, PlaybackTier | None]:
     """综合定档（§3.3 步骤 6–7）。返回 (档位或拒绝, 容器, 中文理由,
     降档起点)。
 
@@ -809,30 +1066,63 @@ def _resolve_tier(
         return (
             PlaybackRejected(
                 reason=video.blocked,
-                suggestion="可以用 Infuse、VidHub 等第三方播放器直连播放这部片。",
+                suggestion=reference("player.decision.nativePlayerHint"),
             ),
             "",
             "",
             None,
         )
 
-    reason = f"{video.reason}；{audio.reason}"
+    reason = reference(
+        "player.decision.combined",
+        video=video.reason,
+        audio=audio.reason,
+        notes={"message_list": [], "separator_key": "player.decision.noSeparator"},
+    )
 
     if video.can_copy and audio.can_copy:
         container = (media.container or "").lower()
         # 播放器申报能直接解封装的容器（原生播放器的 mkv / ts / webm……）同样直连；
         # 能在本机切轨的播放器不用为「选中的不是默认轨」重封装
-        direct = container in DIRECT_PLAY_CONTAINERS or container in capability.containers
-        if direct and (not audio.needs_remap or capability.local_tracks):
+        direct = (
+            container in DIRECT_PLAY_CONTAINERS
+            or container in capability.containers
+            or _plays_bluray_clips(media, capability)
+        )
+        if direct and media.dolby_vision_ignored and not capability.dolby_vision_record_audit:
+            # 原文件里的杜比视界记录与画面不符，播放器照记录解会整片偏色；换封装的流不带记录
+            tier = PlaybackTier.REMUX
+            reason["params"]["notes"]["message_list"].append(
+                reference("player.decision.invalidDolbyRecord")
+            )
+        elif direct and _strips_to_base_layer(media, capability):
+            # P7 原文件只有杜比视界解码器放得了；换封装的流剥掉了增强层与 RPU
+            tier = PlaybackTier.REMUX
+            reason["params"]["notes"]["message_list"].append(
+                reference("player.decision.dolbyEnhancementRemoved")
+            )
+        elif direct and _overflows_mp4_sample_limit(media, capability):
+            tier = PlaybackTier.REMUX
+            reason["params"]["notes"]["message_list"].append(
+                reference("player.decision.sampleTableTooLarge")
+            )
+        elif direct and (not audio.needs_remap or capability.local_tracks):
             tier = PlaybackTier.DIRECT_PLAY
         elif audio.needs_remap:
             # 直出档整份文件交给 <video>，浏览器只会放容器里的默认轨——我们
             # 选的那条到不了用户耳朵里。必须重封装，让 ffmpeg 把它 map 出来。
             tier = PlaybackTier.REMUX
-            reason += "；选中的不是默认音轨，已重封装以带上它"
+            reason["params"]["notes"]["message_list"].append(
+                reference("player.decision.nonDefaultAudio")
+            )
         else:
             tier = PlaybackTier.REMUX
-            reason += f"；{container.upper() or '未知'} 容器已重封装为 fMP4"
+            reason["params"]["notes"]["message_list"].append(
+                reference(
+                    "player.decision.containerRemux",
+                    container=container.upper() or reference("player.decision.unknown"),
+                )
+            )
     elif video.can_copy:
         tier = PlaybackTier.AUDIO_TRANSCODE
     else:
@@ -855,10 +1145,10 @@ def _resolve_tier(
                 if policy.hardware_available
                 else PlaybackTier.SOFTWARE_TRANSCODE
             )
-            reason += (
-                "；源片关键帧过于稀疏，直通反而更慢，已改为转码"
+            reason["params"]["notes"]["message_list"].append(
+                reference("player.decision.sparseKeyframes")
                 if interval is not None
-                else "；源片关键帧索引尚未就绪，已改为转码"
+                else reference("player.decision.keyframesPending")
             )
 
     # 降档回路：已失败的档位直接跳过，逐级下降。
@@ -874,11 +1164,8 @@ def _resolve_tier(
         if tier >= PlaybackTier.SOFTWARE_TRANSCODE:
             return (
                 PlaybackRejected(
-                    reason="这部片在当前浏览器上尝试了所有播放方式都失败了。",
-                    suggestion=(
-                        "可以在「播放诊断」里查看详细信息，或用 Infuse、VidHub "
-                        "等第三方播放器直连播放。"
-                    ),
+                    reason=reference("player.decision.allMethodsFailed"),
+                    suggestion=(reference("player.decision.allMethodsHint")),
                 ),
                 "",
                 "",
@@ -899,15 +1186,15 @@ def _resolve_tier(
         # 33 秒卡 3 次）。这里补上
         return (
             PlaybackRejected(
-                reason=f"这部片是 {media.hdr}，转码需要显卡做色调映射，但硬件转码刚才没能执行。",
-                suggestion="稍后重试；或用 Infuse、VidHub 等第三方播放器直连播放。",
+                reason=reference("player.decision.hdrHardwareFailed", hdr=media.hdr),
+                suggestion=reference("player.decision.retryNativeHint"),
             ),
             "",
             "",
             None,
         )
     if degraded_from is not None:
-        reason += "；上一档播放失败，已自动降档"
+        reason["params"]["notes"]["message_list"].append(reference("player.decision.degraded"))
 
     container = "mp4" if tier is PlaybackTier.DIRECT_PLAY else "hls-fmp4"
     return tier, container, reason, degraded_from
@@ -945,15 +1232,15 @@ def plan_capped_transcode(
     ``CAPPED_COPY_AUDIO_CODECS`` 就 copy，否则多声道转 E-AC-3（最多 5.1）、
     立体声转 AAC。
     """
-    if media.is_strm:
+    if _unprobed_strm(media):
         return PlaybackRejected(
-            reason="网盘（strm）条目不支持转码：转码要先把云端内容拉到服务器。",
-            suggestion="请在播放器里选择原画直连播放。",
+            reason=reference("player.decision.strmSpecsMissing"),
+            suggestion=reference("player.decision.strmSpecsHint"),
         )
     if media.disc_clips > 0:
         return PlaybackRejected(
-            reason="原盘（BDMV）暂不支持按码率转码，仍按直连/原样封装播放。",
-            suggestion="请在播放器里选择原画播放。",
+            reason=reference("player.decision.discBitrateUnsupported"),
+            suggestion=reference("player.decision.originalQualityHint"),
         )
     if policy.hardware_available:
         tier = PlaybackTier.HARDWARE_TRANSCODE
@@ -961,24 +1248,21 @@ def plan_capped_transcode(
         tier = PlaybackTier.SOFTWARE_TRANSCODE
     else:
         return PlaybackRejected(
-            reason="未检测到可用的硬件加速，且软件转码未开启。",
-            suggestion=(
-                "在网页播放器里首次播放需要转码的影片时开启软件转码，或为容器"
-                "配置显卡后在「播放」诊断里重新检测硬件加速。"
-            ),
+            reason=reference("player.decision.noTranscoder"),
+            suggestion=(reference("player.decision.noTranscoderHint")),
         )
     if media.hdr and not policy.hardware_available:
         # 与网页端同一条底线：软件 tone-map 是幻灯片，不硬撑
         return PlaybackRejected(
-            reason=f"这部片是 {media.hdr}，转码需要显卡做色调映射，但未检测到可用的硬件加速。",
-            suggestion="请选择原画直连播放，或为容器配置显卡。",
+            reason=reference("player.decision.hdrNoHardware", hdr=media.hdr),
+            suggestion=reference("player.decision.hdrNoHardwareHint"),
         )
 
     audio = _capped_audio_plan(
         media, preferred_audio, allowed_codecs=audio_codecs, max_channels=max_audio_channels
     )
-    label = (media.video_codec or "未知").upper()
-    reason = f"播放器要求限制码率，视频 {label} 按上限重新编码为 H.264；{audio_note(audio)}"
+    label = media.video_codec.upper() if media.video_codec else reference("player.decision.unknown")
+    reason = reference("player.decision.cappedVideo", codec=label, audio=audio_note(audio))
     return PlaybackPlan(
         tier=tier,
         file_id=media.file_id,
@@ -992,13 +1276,19 @@ def plan_capped_transcode(
     )
 
 
-def audio_note(audio: AudioPlan) -> str:
-    """音频计划的一句中文说明（诊断/日志用）。"""
-    codec = (audio.codec or "未知").upper()
+def audio_note(audio: AudioPlan) -> Text:
+    """音频计划的消息引用（诊断/日志用）。"""
+    codec = audio.codec.upper() if audio.codec else reference("player.decision.unknown")
     if audio.action == "copy":
-        return f"音轨 {codec} 原样保留" if audio.track_ref else "无音轨"
-    channels = f" {audio.channels} 声道" if audio.channels else ""
-    return f"音轨已转为 {codec}{channels}"
+        return (
+            reference("player.decision.audioKept", codec=codec)
+            if audio.track_ref
+            else reference("player.decision.noAudio")
+        )
+    channels = (
+        reference("player.decision.audioChannels", count=audio.channels) if audio.channels else ""
+    )
+    return reference("player.decision.audioTarget", codec=codec, channels=channels)
 
 
 def _capped_audio_plan(
@@ -1033,7 +1323,8 @@ def _capped_audio_plan(
             track_ref=track.ref,
             codec="eac3",
             channels=min(target_channels, _EAC3_MAX_CHANNELS),
-            downmix=channels > min(target_channels, _EAC3_MAX_CHANNELS),
+            # 出的仍是多声道：不挂立体声降混（挂了就是把立体声塞进 5.1，中置环绕全哑），交给 -ac
+            downmix=False,
         )
     stereo = min(target_channels, 2)
     return AudioPlan(
@@ -1062,25 +1353,23 @@ def needs_keyframe_probe(
     时，调用方才启动有存储开销的 ffprobe。这个预判不会把未经探测的结果交给
     用户，最终的 ``decide_playback`` 仍会执行原有的保守门槛。
     """
-    if media.is_strm or capability.universal:
+    if _unprobed_strm(media) or _takes_universal_shortcut(media, capability):
         return False
 
     video_verdict = _judge_video(media, capability, policy, max_height)
-    audio_verdict = _judge_audio(media, capability, preferred_audio)
     burn_track = _burn_target(media, preferred_subtitle)
     if burn_track is not None and video_verdict.blocked is None:
         video_verdict = _VideoVerdict(
             can_copy=False,
-            reason="已选中 PGS 图形字幕，按你的选择转码并把字幕压制进画面",
+            reason=reference("player.decision.burnPgs"),
         )
-
-    tier, _, _, _ = _resolve_tier(
+    _, (tier, _, _, _) = _judge_audio_and_tier(
         media,
         video_verdict,
-        audio_verdict,
+        capability,
         policy,
         failed_tiers,
-        capability=capability,
+        preferred_audio,
         enforce_keyframe_gate=False,
     )
     return tier in (PlaybackTier.REMUX, PlaybackTier.AUDIO_TRANSCODE)
@@ -1097,11 +1386,29 @@ def _build_video_plan(
     policy: PlaybackPolicy,
     max_height: int | None = None,
     burn_subtitle: str | None = None,
+    capability: ClientCapability | None = None,
 ) -> VideoPlan:
     if tier <= PlaybackTier.AUDIO_TRANSCODE:
         # copy 也要记录流经的编码：下游装 ffmpeg 命令时据此决定要不要打
         # ``-tag:v hvc1``——HEVC 进 fMP4 不打这个标签，Safari 是静默黑屏。
-        return VideoPlan(action="copy", codec=(media.video_codec or None))
+        keeps_dolby_vision = (
+            tier is not PlaybackTier.DIRECT_PLAY
+            and capability is not None
+            and media.hdr == "Dolby Vision"
+            and media.dv_profile in capability.dolby_vision_profiles
+        )
+        strips_dolby_vision = (
+            tier is not PlaybackTier.DIRECT_PLAY
+            and capability is not None
+            and _strips_to_base_layer(media, capability)
+        )
+        return VideoPlan(
+            action="copy",
+            codec=(media.video_codec or None),
+            dolby_vision=(
+                "keep" if keeps_dolby_vision else "strip" if strips_dolby_vision else None
+            ),
+        )
     # 三个上限取最小：源高度、管理员配置、用户画质选择
     candidates = [media.height or policy.max_transcode_height, policy.max_transcode_height]
     if max_height is not None:
@@ -1117,7 +1424,21 @@ def _build_video_plan(
         tone_map=bool(media.hdr),
         source_color=_transcode_source_color(media),
         burn_subtitle=burn_subtitle,
+        dolby_vision=_transcode_dolby_vision(media),
     )
+
+
+def _transcode_dolby_vision(media: MediaProfile) -> str | None:
+    """转码时杜比视界元数据的处理（``VideoPlan.dolby_vision``）。
+
+    基础层不能直接解读（P5；profile 未知也按这类保守算）的必须吃 RPU；记录不可信的必须不吃；
+    P7 / P8 的基础层本身就是 HDR10，吃不吃都对，交给滤镜默认。
+    """
+    if media.dolby_vision_ignored:
+        return "ignore"
+    if media.hdr == "Dolby Vision" and not media.dv_bl_compatible:
+        return "apply"
+    return None
 
 
 def _transcode_source_color(media: MediaProfile) -> str | None:
@@ -1249,22 +1570,24 @@ def plan_subtitles(media: MediaProfile) -> tuple[SubtitlePlan, ...]:
 # ---------------------------------------------------------------------------
 
 
+def _unprobed_strm(media: MediaProfile) -> bool:
+    """网盘（strm）条目且没有探测到规格（播放前的按需探测失败了）。"""
+    return media.is_strm and media.video_codec is None
+
+
 def _decide_strm(
     media: MediaProfile, failed_tiers: frozenset[PlaybackTier]
 ) -> PlaybackDecision:
-    """strm 网盘条目：只允许档 0（硬边界 2）。
+    """没探测到规格的 strm 网盘条目：只能乐观直连。
 
-    strm 通常没有探测数据（media_probe 不探云端内容，保持零网盘流量），
-    所以这里不做能力比对——乐观把直链交给浏览器，播不了再由降档回路
-    带着失败标记回来，届时明确告知而不是偷偷起转码。
+    规格是播放前按需探测直链得到的；探测失败多半是直链失效或服务器连不上网盘，
+    服务端自己也读不了它，换封装 / 转码无从谈起。乐观把直链交给播放器，播不了
+    再由降档回路带着失败标记回来，届时明确告知。
     """
     if PlaybackTier.DIRECT_PLAY in failed_tiers:
         return PlaybackRejected(
-            reason="这是网盘（strm）条目，浏览器无法直接播放它的编码格式。",
-            suggestion=(
-                "网盘条目不支持转码播放（转码需要先把云端内容下载到服务器，"
-                "会消耗大量网盘流量）。请用 Infuse、VidHub 等第三方播放器打开。"
-            ),
+            reason=reference("player.decision.strmUnplayable"),
+            suggestion=(reference("player.decision.strmUnplayableHint")),
         )
     return PlaybackPlan(
         tier=PlaybackTier.DIRECT_PLAY,
@@ -1275,7 +1598,7 @@ def _decide_strm(
             _preferred_audio(media.audio_tracks) if media.audio_tracks else None
         ),
         subtitles=plan_subtitles(media),
-        reason="网盘条目直连云端播放，服务器零流量",
+        reason=reference("player.decision.strmDirect"),
     )
 
 

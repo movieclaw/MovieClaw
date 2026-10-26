@@ -17,6 +17,7 @@ import SwiftUI
 
 /// 以 .sheet 呈现，自带 NavigationStack 与关闭按钮
 struct IssueDrawerView: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     var initialTab: String? = nil
     var onChanged: () -> Void = {}
@@ -44,16 +45,16 @@ struct IssueDrawerView: View {
             AsyncContent(state, retry: load) { snapshot in
                 content(snapshot, tab: tab ?? snapshot.pendingTab)
             }
-            .navigationTitle("待处理")
+            .navigationTitle(String(localized: .libraryActionsPending))
             .navigationBarTitleDisplayMode(.inline)
             .searchable(
                 text: $query,
                 placement: .navigationBarDrawer(displayMode: .always),
-                prompt: (tab ?? .unidentified) == .missing ? "按片名过滤…" : "按文件名过滤…"
+                prompt: (tab ?? .unidentified) == .missing ? String(localized: .libraryIssuesFilterTitles) : String(localized: .libraryIssuesFilterFiles)
             )
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                    Button(String(localized: .commonClose)) { dismiss() }
                 }
                 if let snapshot = state.value {
                     ToolbarItem(placement: .primaryAction) { batchButton(snapshot) }
@@ -83,7 +84,7 @@ struct IssueDrawerView: View {
 
                 // 「放错库了」修复引导：认领解决不了这一类，不给引导用户会在认领里打转
                 if tab == .unidentified, snapshot.kindMismatchFiles > 0 {
-                    Text("有 \(snapshot.kindMismatchFiles) 个文件的实际类型与本库不符（\(snapshot.movie ? "剧集文件在电影库" : "电影文件在剧集库")），认领无法解决。个别文件放错了：把文件移到对应类型的库即可；整库类型建错了：删除本库并以正确类型重建（删库不会动磁盘文件），重新扫描即可恢复。")
+                    Text(snapshot.movie ? String(localized: .libraryIssuesKindMismatchMovieLib(snapshot.kindMismatchFiles)) : String(localized: .libraryIssuesKindMismatchTvLib(snapshot.kindMismatchFiles)))
                         .font(.caption)
                         .foregroundStyle(Theme.warning)
                         .padding(.horizontal, 12)
@@ -94,7 +95,7 @@ struct IssueDrawerView: View {
 
                 rows(snapshot, tab: tab, keyword: keyword)
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.interactively)
@@ -104,7 +105,7 @@ struct IssueDrawerView: View {
     /// 页签：缺失 N / 待识别 N（文件数）/ 身份复核 N / 已忽略 N（文件数，没有内容就不占位）
     private func tabPicker(_ snapshot: IssueSnapshot, current: IssueTab) -> some View {
         let tabs = IssueTab.allCases.filter { $0 != .ignored || snapshot.ignoredFileTotal > 0 || current == .ignored }
-        return Picker("待处理", selection: Binding(mcGet: { current }, set: { tab = $0 })) {
+        return Picker(String(localized: .notifyCenterPending), selection: Binding(mcGet: { current }, set: { tab = $0 })) {
             ForEach(tabs, id: \.self) { item in
                 let count = snapshot.count(for: item)
                 Text(count > 0 ? "\(item.title) \(count)" : item.title).tag(item)
@@ -150,7 +151,7 @@ struct IssueDrawerView: View {
     }
 
     private func emptyNote(keyword: String, tab: IssueTab) -> some View {
-        Text(!keyword.isEmpty ? "没有匹配的条目" : tab == .ignored ? "没有忽略过的文件" : "没有需要处理的了 🎉")
+        Text(!keyword.isEmpty ? String(localized: .libraryIssuesNoMatchingTitles) : tab == .ignored ? String(localized: .libraryIssuesNoIgnoredFiles) : String(localized: .libraryIssuesAllDone))
             .font(.subheadline)
             .foregroundStyle(Theme.textMuted)
             .frame(maxWidth: .infinity)
@@ -163,19 +164,19 @@ struct IssueDrawerView: View {
     private func batchButton(_ snapshot: IssueSnapshot) -> some View {
         let current = tab ?? snapshot.pendingTab
         if current == .missing, !snapshot.missing.isEmpty {
-            Button("全部清理") { Task { await clearAllMissing(snapshot) } }
+            Button(String(localized: .libraryIssuesClearAll)) { Task { await clearAllMissing(snapshot) } }
                 .disabled(busy)
         } else if current == .unidentified, !snapshot.unidentified.isEmpty {
-            Button("全部忽略") { Task { await ignoreAllUnidentified(snapshot) } }
+            Button(String(localized: .libraryIssuesIgnoreAll)) { Task { await ignoreAllUnidentified(snapshot) } }
                 .disabled(busy)
         }
     }
 
     private func clearAllMissing(_ snapshot: IssueSnapshot) async {
         guard await feedback.confirm(
-            "清理全部 \(snapshot.missingFileTotal) 条缺失记录？",
-            message: "只删台账，不动磁盘。",
-            confirmTitle: "全部清理",
+            String(localized: .libraryIssuesClearAllTitle(snapshot.missingFileTotal)),
+            message: String(localized: .libraryIssuesRecordsOnly),
+            confirmTitle: String(localized: .libraryIssuesClearAll),
             destructive: true
         ) else { return }
         await runBatch {
@@ -185,9 +186,9 @@ struct IssueDrawerView: View {
 
     private func ignoreAllUnidentified(_ snapshot: IssueSnapshot) async {
         guard await feedback.confirm(
-            "忽略全部 \(snapshot.unidentifiedFileTotal) 个待识别文件？",
-            message: "之后扫描不再过问它们（不动磁盘；可在「已忽略」里恢复）。",
-            confirmTitle: "全部忽略",
+            String(localized: .libraryIssuesIgnoreAllTitle(snapshot.unidentifiedFileTotal)),
+            message: String(localized: .libraryIssuesIgnoreAllHint),
+            confirmTitle: String(localized: .libraryIssuesIgnoreAll),
             destructive: true
         ) else { return }
         await runBatch {
@@ -246,10 +247,10 @@ private enum IssueTab: String, CaseIterable, Hashable {
 
     var title: String {
         switch self {
-        case .missing: "缺失"
-        case .unidentified: "待识别"
-        case .review: "身份复核"
-        case .ignored: "已忽略"
+        case .missing: String(localized: .libraryIssuesMissing)
+        case .unidentified: String(localized: .libraryIssuesUnidentified)
+        case .review: String(localized: .libraryIssuesReview)
+        case .ignored: String(localized: .libraryIssuesIgnored)
         }
     }
 
@@ -257,13 +258,13 @@ private enum IssueTab: String, CaseIterable, Hashable {
     var explanation: String {
         switch self {
         case .missing:
-            "文件已不在磁盘；「重新下载」交给订阅管线补回，「清理记录」只删台账（都不动磁盘）；文件回归会自动恢复。经常自己删片子的话，可在库设置里打开「扫描后自动清理丢失记录」，以后扫完即对齐。"
+            String(localized: .libraryIssuesMissingHint)
         case .unidentified:
-            "同一目录的文件聚成一组，认领一次整组生效；点候选可先核对海报简介再确认。状态标签悬停看完整原因。"
+            String(localized: .libraryIssuesAssignHint)
         case .review:
-            "识别器升级后重新核对了这些条目，新结论与现有身份不一致。身份没有被自动改动——由你拍板：采纳新结论改挂条目，或维持现状。拍板后不再提醒。"
+            String(localized: .libraryIssuesReviewHint)
         case .ignored:
-            "这些文件你选择过「忽略」，之后每次扫描都会直接跳过，不再占用待识别清单（磁盘文件一直都在）。识别器在持续变强，当初认不出的现在未必认不出——「恢复」即可让它重新参与识别。"
+            String(localized: .libraryIssuesIgnoredHint)
         }
     }
 }
@@ -390,17 +391,17 @@ private struct IssueMissingRow: View {
                 Text(done).font(.subheadline).foregroundStyle(Theme.success)
             } else {
                 HStack(spacing: 8) {
-                    Button("重新下载") { Task { await redownload() } }
+                    Button(String(localized: .libraryIssuesDownloadAgain)) { Task { await redownload() } }
                         .buttonStyle(.glassProminent)
                         .fontWeight(.semibold)
-                    Button("清理记录") { Task { await clear() } }
+                    Button(String(localized: .libraryIssuesClearRecords)) { Task { await clear() } }
                         .buttonStyle(.glass)
                 }
                 .controlSize(.small)
                 .disabled(busy)
             }
             if item.subscriptionId != nil, done == nil {
-                Text("该条目有订阅在追踪").font(.caption).foregroundStyle(Theme.warning.opacity(0.8))
+                Text(String(localized: .libraryIssuesTracked)).font(.caption).foregroundStyle(Theme.warning.opacity(0.8))
             }
             if let error {
                 Text(error).font(.caption).foregroundStyle(Theme.danger)
@@ -411,11 +412,11 @@ private struct IssueMissingRow: View {
 
     /// 剧集：「第 1 季缺 3 集、特别篇 1 集」；电影：「N 个文件」
     private var summary: String {
-        guard item.kind == "tv" else { return "\(item.files.count) 个文件" }
+        guard item.kind == "tv" else { return String(localized: .libraryStatusFileCount(item.files.count)) }
         let bySeason = Dictionary(grouping: item.files, by: \.seasonNumber)
         return bySeason.keys.sorted().map { season in
             let n = bySeason[season]?.count ?? 0
-            return season == 0 ? "特别篇 \(n) 集" : "第 \(season) 季缺 \(n) 集"
+            return season == 0 ? String(localized: .libraryIssuesMissingSpecials(n)) : String(localized: .libraryIssuesMissingSeason(String(season), n))
         }
         .joined(separator: "、")
     }
@@ -423,17 +424,17 @@ private struct IssueMissingRow: View {
     private func redownload() async {
         await issueRun(busy: $busy, error: $error, onChanged: onChanged) {
             let result = try await api.libraryMissingRedownload(body: .init(libraryId: libraryId, mediaItemId: item.mediaItemId))
-            done = "已交给订阅管线（\(result["requeued"]?.intValue ?? 0) 个工单排队）"
+            done = String(localized: .libraryIssuesRequeued(result["requeued"]?.intValue ?? 0))
         }
     }
 
     private func clear() async {
         guard await feedback.confirm(
-            "清理「\(item.title)」的 \(item.files.count) 条缺失记录？",
+            String(localized: .libraryIssuesClearTitle(item.title, item.files.count)),
             message: item.subscriptionId != nil
-                ? "该条目有正在追踪的订阅，只清记录的话订阅可能把它重新下回来。（只删台账，不动磁盘）"
-                : "只删台账，不动磁盘。",
-            confirmTitle: "清理记录",
+                ? String(localized: .libraryIssuesTrackedClearHint)
+                : String(localized: .libraryIssuesRecordsOnly),
+            confirmTitle: String(localized: .libraryIssuesClearRecords),
             destructive: true
         ) else { return }
         await issueRun(busy: $busy, error: $error, onChanged: onChanged) {
@@ -458,13 +459,13 @@ private struct IssueStatusBadge: View {
 
     private var meta: (label: String, warn: Bool) {
         switch group.code {
-        case "tmdb_unreachable": ("TMDB 不可达", true)
-        case "kind_mismatch": ("放错库了", true)
-        case "ambiguous": ("\(group.candidates.count) 个候选待定", false)
-        case "no_match": ("TMDB 无匹配", false)
-        case "unparsable": ("认不出片名", false)
+        case "tmdb_unreachable": (String(localized: .libraryIssuesTmdbUnavailable), true)
+        case "kind_mismatch": (String(localized: .libraryIssuesWrongLibrary), true)
+        case "ambiguous": (String(localized: .libraryIssuesCandidates(group.candidates.count)), false)
+        case "no_match": (String(localized: .libraryIssuesNoTmdbMatch), false)
+        case "unparsable": (String(localized: .libraryIssuesNoTitle), false)
         // 旧数据没有 code：退回按有无候选粗分，不至于空着
-        default: group.candidates.isEmpty ? ("TMDB 无匹配", false) : ("\(group.candidates.count) 个候选待定", false)
+        default: group.candidates.isEmpty ? (String(localized: .libraryIssuesNoTmdbMatch), false) : (String(localized: .libraryIssuesCandidates(group.candidates.count)), false)
         }
     }
 
@@ -520,17 +521,17 @@ private struct IssueUnidentifiedGroupRow: View {
             // 状态、多大、主动作
             HStack(spacing: 8) {
                 IssueStatusBadge(group: group)
-                Text("\(group.fileCount) 个 · \(Formatters.bytes(group.totalSizeBytes))")
+                Text(String(localized: .libraryIssuesGroupSize(group.fileCount, Formatters.bytes(group.totalSizeBytes))))
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
                 Spacer(minLength: 0)
                 // TMDB 不可达有确定解法，直接给按钮；其余给搜索入口
                 if group.code == "tmdb_unreachable" {
-                    Button("重新扫描") { Task { await rescan() } }
+                    Button(String(localized: .libraryIssuesScanAgain)) { Task { await rescan() } }
                         .buttonStyle(.glass)
                         .disabled(busy)
                 } else {
-                    Button("搜索") { panel = panel == .search ? nil : .search }
+                    Button(String(localized: .commonSearch)) { panel = panel == .search ? nil : .search }
                         .buttonStyle(.glass)
                         .tint(panel == .search ? Theme.accentStrong : nil)
                         .disabled(busy)
@@ -541,10 +542,10 @@ private struct IssueUnidentifiedGroupRow: View {
             // no_match 的两条真实出口：等扫描自动重试，或自己去 TMDB 补录
             if group.code == "no_match" {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("每次扫描会自动重试识别。TMDB 是社区维护的数据库，确认缺这个条目可以")
-                    Link("去 TMDB 补录 ↗", destination: IssueTMDBLink.new(movie: movie))
+                    Text(String(localized: .libraryIssuesTmdbLead))
+                    Link(String(localized: .libraryIssuesAddToTmdb), destination: IssueTMDBLink.new(movie: movie))
                         .underline()
-                    Text("，收录后回来搜索认领；自录、花絮这类本就不会有条目的内容用「忽略」即可。")
+                    Text(String(localized: .libraryIssuesTmdbTail))
                 }
                 .font(.caption)
                 .foregroundStyle(Theme.textFaint)
@@ -591,9 +592,9 @@ private struct IssueUnidentifiedGroupRow: View {
     private var moreMenu: some View {
         Menu {
             if group.fileCount > 1 {
-                Button(expanded ? "收起文件" : "查看文件") { expanded.toggle() }
+                Button(expanded ? String(localized: .libraryIssuesCollapseFiles) : String(localized: .libraryIssuesViewFiles)) { expanded.toggle() }
             }
-            Button("忽略") { Task { await ignoreGroup() } }
+            Button(String(localized: .libraryIssuesIgnore)) { Task { await ignoreGroup() } }
                 .disabled(busy)
         } label: {
             Image(systemName: "ellipsis")
@@ -604,7 +605,7 @@ private struct IssueUnidentifiedGroupRow: View {
         .buttonStyle(.glass)
         .buttonBorderShape(.capsule)
         .controlSize(.small)
-        .accessibilityLabel("更多操作")
+        .accessibilityLabel(String(localized: .libraryDetailMoreActions))
     }
 
     private func rescan() async {
@@ -623,9 +624,9 @@ private struct IssueUnidentifiedGroupRow: View {
     private func ignoreGroup() async {
         if group.fileCount > 1 {
             guard await feedback.confirm(
-                "忽略「\(group.label)」的全部 \(group.fileCount) 个文件？",
-                message: "之后扫描不再过问（不动磁盘；可在「已忽略」里恢复）。适合自录、花絮这类 TMDB 本就不会有条目的内容——只是暂时认不出的建议先搜索认领。",
-                confirmTitle: "全部忽略",
+                String(localized: .libraryIssuesIgnoreGroupTitle(group.label, group.fileCount)),
+                message: String(localized: .libraryIssuesIgnoreGroupHint),
+                confirmTitle: String(localized: .libraryIssuesIgnoreAll),
                 destructive: true
             ) else { return }
         }
@@ -663,7 +664,7 @@ private struct IssueReviewGroupRow: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Theme.text.opacity(0.85))
                     .lineLimit(2)
-                Text("\(group.fileCount) 个文件 · \(Formatters.bytes(group.totalSizeBytes))")
+                Text(String(localized: .libraryIssuesFilesSize(group.fileCount, Formatters.bytes(group.totalSizeBytes))))
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
             }
@@ -679,11 +680,11 @@ private struct IssueReviewGroupRow: View {
                 Button {
                     Task { await resolve(accept: true) }
                 } label: {
-                    Text("采纳新结论").fontWeight(.semibold).foregroundStyle(Self.suggestionTint)
+                    Text(String(localized: .libraryIssuesAcceptIdentity)).fontWeight(.semibold).foregroundStyle(Self.suggestionTint)
                 }
                 .buttonStyle(.glass)
                 .tint(Self.suggestionTint)
-                Button("维持现状") { Task { await resolve(accept: false) } }
+                Button(String(localized: .libraryIssuesKeepIdentity)) { Task { await resolve(accept: false) } }
                     .buttonStyle(.glass)
             }
             .controlSize(.small)
@@ -702,7 +703,7 @@ private struct IssueReviewGroupRow: View {
                 .frame(width: 36, height: 54)
                 .clipShape(.rect(cornerRadius: 6))
             VStack(alignment: .leading, spacing: 1) {
-                Text(suggestion ? "新识别结论" : "现身份")
+                Text(suggestion ? String(localized: .libraryIssuesNewIdentity) : String(localized: .libraryIssuesCurrentIdentity))
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(Theme.textFaint)
                 Text(info.title + (info.year.map { " (\($0))" } ?? ""))
@@ -746,20 +747,20 @@ private struct IssueIgnoredGroupRow: View {
                 .foregroundStyle(Theme.text.opacity(0.7))
                 .lineLimit(2)
             HStack(spacing: 10) {
-                Text("\(group.fileCount) 个文件 · \(Formatters.bytes(group.totalSizeBytes))")
+                Text(String(localized: .libraryIssuesFilesSize(group.fileCount, Formatters.bytes(group.totalSizeBytes))))
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
                 Spacer(minLength: 0)
                 if group.fileCount > 1 {
                     Button { expanded.toggle() } label: {
-                        Text(expanded ? "收起文件" : "查看文件")
+                        Text(expanded ? String(localized: .libraryIssuesCollapseFiles) : String(localized: .libraryIssuesViewFiles))
                             .font(.caption)
                             .foregroundStyle(Theme.textMuted)
                             .expandedHitArea(vertical: 14)
                     }
                     .buttonStyle(.plain)
                 }
-                Button("恢复") { Task { await restore() } }
+                Button(String(localized: .libraryIssuesRestore)) { Task { await restore() } }
                     .buttonStyle(.glass)
                     .controlSize(.small)
                     .disabled(busy)

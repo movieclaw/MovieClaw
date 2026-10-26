@@ -2,6 +2,27 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { upgradeLadderPreview } from "../lib/upgrade-ladder.ts";
+import { ruleSetLabel } from "../lib/rule-set-label.ts";
+
+test("English ladder uses the same tier order and renders each reader's labels", () => {
+  const spec = { resolutions: ["2160p", "1080p"], upgrade_source: "blu-ray", cutoff_resolution: "1080p" };
+  const english = upgradeLadderPreview(spec, id => id, "en");
+  assert.deepEqual(english.dimensions, ["Resolution", "Source"]);
+  assert.equal(english.target, "1080p · Blu-ray");
+  assert.equal(english.ceiling, "2160p · Remux");
+  assert.deepEqual(english.below, ["1080p · WEB-DL", "1080p · Rips", "1080p · TV recordings"]);
+  assert.equal(upgradeLadderPreview(spec).target, "1080p · 蓝光");
+  assert.equal(english.moreBelow, upgradeLadderPreview(spec).moreBelow);
+});
+
+test("Only a marked built-in name is localized, including in custom default groups", () => {
+  assert.equal(ruleSetLabel({ name: "默认规则组" }, "en"), "默认规则组");
+  assert.equal(ruleSetLabel({ name: "默认规则组", name_key: null }, "en"), "默认规则组");
+  assert.equal(ruleSetLabel({ name: "我的规则", name_key: "future.key" }, "en"), "我的规则");
+  const seeded = { name: "默认规则组", name_key: "subscription.rules.defaultName" };
+  assert.equal(ruleSetLabel(seeded, "en"), "Default rule set");
+  assert.equal(ruleSetLabel(seeded, "zh-Hans"), "默认规则组");
+});
 
 test("不洗版的规则组没有阶梯可言", () => {
   assert.equal(upgradeLadderPreview({ resolutions: ["1080p"] }), null);

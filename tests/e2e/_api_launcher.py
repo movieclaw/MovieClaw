@@ -20,6 +20,28 @@ from _fake_tmdb import serve  # noqa: E402  (同目录，以脚本方式运行)
 _server, _port = serve(Path(os.environ["E2E_TMDB_LOG"]))
 os.environ["TMDB_API_KEY"] = "e2e-fake-key"
 os.environ["TMDB_API_BASE_URL"] = f"http://127.0.0.1:{_port}/3"
+if os.environ.get("E2E_I18N_DISCOVERY") == "1":
+    os.environ["TMDB_IMAGE_BASE_URL"] = f"http://127.0.0.1:{_port}/t/p"
+
+if os.environ.get("E2E_I18N_ARTWORK") == "1":
+    from urllib.parse import urlsplit
+
+    from movieclaw_api.services.image_proxy import ImageProxy
+
+    _validate_image_host = ImageProxy._validated_host
+
+    async def _fixture_image_host(self, url):
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme == "http"
+            and parsed.netloc == f"127.0.0.1:{_port}"
+            and parsed.path.startswith("/t/p/")
+        ):
+            return "127.0.0.1"
+        return await _validate_image_host(self, url)
+
+    # Only this isolated HTTP fixture may use a loopback address and random port.
+    ImageProxy._validated_host = _fixture_image_host
 
 import uvicorn  # noqa: E402
 

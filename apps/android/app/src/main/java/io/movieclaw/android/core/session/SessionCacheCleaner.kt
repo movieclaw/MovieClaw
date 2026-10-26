@@ -4,7 +4,7 @@ package io.movieclaw.android.core.session
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
-import io.movieclaw.android.core.playback.SourceByteCache
+import io.movieclaw.core.playback.SourceByteCache
 import javax.inject.Inject
 import javax.inject.Singleton
 

@@ -26,10 +26,7 @@ SIGNATURE = "Signer #1 certificate SHA-256 digest: " + "a" * 64
 class AndroidReleaseTest(unittest.TestCase):
     def apk(self, directory, *, omit=""):
         apk = Path(directory) / "MovieClaw-Android-arm64.apk"
-        libraries = (
-            "movieclaw_jni", "mp2", "c++_shared", "avcodec", "avformat", "avfilter",
-            "avutil", "swscale", "swresample", "avdevice",
-        )
+        libraries = ("ffmpegJNI", "avcodec", "avutil", "swresample", "ass", "asskt", "c++_shared")
         with zipfile.ZipFile(apk, "w") as archive:
             for library in libraries:
                 if library != omit:
@@ -47,7 +44,16 @@ class AndroidReleaseTest(unittest.TestCase):
             self.assertEqual(entry["certificateSha256"], "a" * 64)
             self.assertTrue(entry["signed"])
 
-    def test_missing_mpv_dependency_is_not_a_publishable_package(self):
+    def test_per_scheme_signer_output_is_accepted(self):
+        # apksigner 37 起按签名方案逐行列出：「V2 Signer: certificate SHA-256 digest: …」
+        per_scheme = "V2 Signer: certificate SHA-256 digest: " + "b" * 64
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            module.subprocess, "check_output", side_effect=[BADGING, per_scheme]
+        ):
+            entry = module.describe(self.apk(tmp), "aapt2", "apksigner")
+            self.assertEqual(entry["certificateSha256"], "b" * 64)
+
+    def test_missing_ffmpeg_audio_decoder_is_not_a_publishable_package(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(
             module.subprocess, "check_output", return_value=BADGING
         ), self.assertRaisesRegex(ValueError, "libavcodec.so"):

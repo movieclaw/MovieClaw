@@ -7,6 +7,7 @@ import SwiftUI
 /// 视图切换（分组 / 列表 / 图览）在顶栏右上角（`TorrentViewModeMenu`，由 `SearchResultsView` 挂）。
 /// 行点按打开资源操作面板（下载 / 投给订阅 / 浏览图片 / 站点详情页）。
 struct TorrentResultsView: View {
+    @Environment(\.cardMetrics) private var cards
     @Bindable var model: TorrentSearchModel
     /// 手动选种模式：目标订阅（id + 标题）
     let grabTarget: (id: Int, title: String)?
@@ -22,13 +23,16 @@ struct TorrentResultsView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10, pinnedViews: []) {
+            // 头部（横幅、状态行、条件胶囊）不进懒加载，只有结果走 LazyVStack：头部和结果同在一个
+            // LazyVStack 里时，甩到底的回弹会停在离底约 500pt 处，最后几行怎么滑都到不了（模拟器实测，
+            // 分组 / 列表都有，结果行高度是稳的）；头部挪出来后回弹正常停在底部
+            VStack(alignment: .leading, spacing: 10) {
                 if let grabTarget {
                     grabBanner(grabTarget)
                 }
                 header
                 if model.phase == .done, model.sites.isEmpty, model.snapshotAt == nil {
-                    Text("当前没有「已启用且验证通过」的站点，请先在设置里配置站点。")
+                    Text(String(localized: .searchResultsNoSites))
                         .font(.subheadline)
                         .foregroundStyle(Theme.textMuted)
                         .accessibilityIdentifier("torrent-no-sites")
@@ -39,9 +43,11 @@ struct TorrentResultsView: View {
                 if model.streaming {
                     progressBar
                 }
-                results
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    results
+                }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.bottom, 40)
         }
         .scrollDismissesKeyboard(.immediately)
@@ -62,7 +68,8 @@ struct TorrentResultsView: View {
         .sheet(item: $actions.dialogRequest) { request in
             DownloadTargetSheet(request: request, remembered: actions.prefs.byCategory[request.category]) { result in
                 actions.downloadStates[request.hitKey] = result.alreadyExists ? .exists : .done
-                feedback.success(result.alreadyExists ? "该种子已在下载器中，未重复添加" : "已提交到「\(result.downloaderName)」\(result.savePath.map { " · \($0)" } ?? "")")
+                feedback.success(result.alreadyExists ? String(localized: .searchDownloadExistsHint) : (result.savePath.map { String(localized: .searchDownloadSubmittedToPath(result.downloaderName, $0)) }
+                ?? String(localized: .searchDownloadSubmittedTo(result.downloaderName))))
                 // 记忆只给超管记（成员提交不写记忆），成员不必回头再拉
                 if permissions.isAdmin { Task { await actions.prefs.refresh(api: api) } }
             }
@@ -75,7 +82,7 @@ struct TorrentResultsView: View {
                 onChange: { actions.reopenDialog(confirming.request, reason: nil) },
                 onForget: {
                     Task { await actions.prefs.forget(confirming.target.category, api: api) }
-                    actions.reopenDialog(confirming.request, reason: "已清除「\(TorrentCategories.label(confirming.target.category))」的默认位置。想重新设一个，在下面勾上「记住本次选择」。")
+                    actions.reopenDialog(confirming.request, reason: String(localized: .searchDownloadForgot(TorrentCategories.label(confirming.target.category))))
                 }
             )
         }
@@ -89,12 +96,12 @@ struct TorrentResultsView: View {
 
     private func grabBanner(_ target: (id: Int, title: String)) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("正在为《\(target.title)》手动选种——点资源上的「投给订阅」直接下载并计入该订阅（跳过规则组限制）")
+            Text(String(localized: .searchResultsManualGrabText(target.title)))
                 .font(.subheadline)
             Button {
                 router.push(.subscription(id: target.id))
             } label: {
-                Label("返回订阅", systemImage: "chevron.left").font(.subheadline.weight(.semibold))
+                Label(String(localized: .searchResultsBackSubscription), systemImage: "chevron.left").font(.subheadline.weight(.semibold))
             }
         }
         .foregroundStyle(Color(red: 0.6, green: 0.78, blue: 1))
@@ -106,16 +113,17 @@ struct TorrentResultsView: View {
     }
 
     /// 结果状态行：左边条数，右边站点状态；快照回放时下面再给一行快照时间与「重新搜索」。
-    /// 关键词不在这里重复——顶栏正中的搜索词胶囊已经写着（见 `SearchResultsView`）
+    /// 关键词不在这里重复——顶栏正中的搜索词胶囊已经写着（见 `SearchResultsView`）；
+    /// 详情页带来的同搜词（英文名/原名）胶囊里没有，单独一行写「另含」，结果是几个词合并的
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 switch model.phase {
                 case .streaming:
                     Circle().fill(Theme.accent).frame(width: 6, height: 6)
-                    Text(verbatim: "已找到 \(model.items.count) 条")
+                    Text(verbatim: String(localized: .searchResultsFound(model.items.count)))
                 case .done:
-                    Text(model.filters.isActive ? "筛选后 \(model.filtered.count) / 共 \(model.items.count) 条" : "共 \(model.items.count) 条结果")
+                    Text(model.filters.isActive ? String(localized: .searchResultsFilteredCount(String(model.filtered.count), model.items.count)) : String(localized: .searchResultsCount(model.items.count)))
                 default:
                     EmptyView()
                 }
@@ -124,12 +132,18 @@ struct TorrentResultsView: View {
                     siteSummaryButton
                 }
             }
+            if !model.alsoSearched.isEmpty {
+                Text(String(localized: .searchResultsAlso(model.alsoSearched.joined(separator: " · "))))
+                    .font(.caption)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("torrent-also-keywords")
+            }
             if let snapshotAt = model.snapshotAt, model.phase == .done {
                 HStack(spacing: 8) {
-                    Label("\(SubsFormat.relative(snapshotAt))的快照", systemImage: "clock")
+                    Label(String(localized: .searchResultsSnapshotAge(SubsFormat.relative(snapshotAt))), systemImage: "clock")
                         .font(.caption)
                     if let onResearch {
-                        Button("重新搜索", action: onResearch)
+                        Button(String(localized: .searchResultsResearch), action: onResearch)
                             .font(.caption.weight(.semibold))
                             .accessibilityIdentifier("torrent-research")
                     }
@@ -153,10 +167,10 @@ struct TorrentResultsView: View {
                     .fill(model.streaming ? Theme.accent : model.failedCount > 0 ? Theme.danger : Theme.success)
                     .frame(width: 6, height: 6)
                 if model.streaming {
-                    Text("\(model.settledCount)/\(model.sites.count) 站点")
+                    Text(String(localized: .searchStatusProgress(model.settledCount, model.sites.count)))
                 } else {
-                    Text("\(model.sites.count) 站点")
-                    if model.failedCount > 0 { Text("· \(model.failedCount) 失败").foregroundStyle(Theme.danger) }
+                    Text(String(localized: .searchStatusSiteCount(model.sites.count)))
+                    if model.failedCount > 0 { Text(String(localized: .searchResultsFailedCount(model.failedCount))).foregroundStyle(Theme.danger) }
                 }
                 Image(systemName: "chevron.down").font(.caption2)
             }
@@ -193,13 +207,13 @@ struct TorrentResultsView: View {
                 Button {
                     model.filters = TorrentFilters()
                 } label: {
-                    conditionLabel(Label("清空", systemImage: "xmark").labelStyle(.titleAndIcon), active: false, chevron: false)
+                    conditionLabel(Label(String(localized: .commonClear), systemImage: "xmark").labelStyle(.titleAndIcon), active: false, chevron: false)
                 }
                 .buttonStyle(.plain)
-                .padding(.leading, Theme.pagePadding)
+                .padding(.leading, cards.edge)
                 .padding(.vertical, 4)
                 .transition(.move(edge: .leading).combined(with: .opacity))
-                .accessibilityLabel("清空全部筛选条件")
+                .accessibilityLabel(String(localized: .searchFiltersClearLabel))
                 .accessibilityIdentifier("torrent-filter-clear")
             }
             ScrollView(.horizontal) {
@@ -211,8 +225,8 @@ struct TorrentResultsView: View {
                         }
                     }
                     // 左边钉着「清空」时只留胶囊间距，胶囊横滑时从它右侧滑进滑出
-                    .padding(.leading, clearing ? 8 : Theme.pagePadding)
-                    .padding(.trailing, Theme.pagePadding)
+                    .padding(.leading, clearing ? 8 : cards.edge)
+                    .padding(.trailing, cards.edge)
                     .padding(.vertical, 4)
                 }
             }
@@ -221,22 +235,22 @@ struct TorrentResultsView: View {
         }
         .animation(.snappy, value: clearing)
         // 横滑出页边距：胶囊能滑到屏幕边缘再消失，而不是在 16pt 页边距处被一刀切掉
-        .padding(.horizontal, -Theme.pagePadding)
+        .padding(.horizontal, -cards.edge)
     }
 
     /// 排序胶囊：写当前键与方向；菜单分「常规 / 智能」，点当前项翻转升降序（同 Web SortDropdown）
     private var sortChip: some View {
         let smart = TorrentSortKey.smart.filter { model.smartSortKeys.contains($0) || $0 == model.sort.key }
         return Menu {
-            Section("常规") {
+            Section(String(localized: .searchSortRegular)) {
                 ForEach(TorrentSortKey.regular, id: \.self) { key in sortItem(key) }
             }
             if !smart.isEmpty {
-                Section("智能") {
+                Section(String(localized: .searchSortSmart)) {
                     ForEach(smart, id: \.self) { key in sortItem(key) }
                 }
             }
-            Section { Text("点当前项可切换升降序") }
+            Section { Text(String(localized: .searchSortDirectionHintShort)) }
         } label: {
             conditionLabel(
                 HStack(spacing: 4) {
@@ -247,7 +261,8 @@ struct TorrentResultsView: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("排序：\(model.sort.key.label)\(model.sort.descending ? "降序" : "升序")")
+        .accessibilityLabel(model.sort.descending ? String(localized: .searchSortAccessibleDescending(model.sort.key.label))
+                : String(localized: .searchSortAccessibleAscending(model.sort.key.label)))
         .accessibilityIdentifier("torrent-sort")
     }
 
@@ -275,14 +290,14 @@ struct TorrentResultsView: View {
                     set: { _ in model.filters.toggle(dim, facet.value) }
                 )) {
                     Text(TorrentSearchLogic.facetLabel(dim, facet.value, siteName: model.siteName))
-                    Text("\(facet.count) 条")
+                    Text(String(localized: .searchFiltersOptionCount(facet.count)))
                 }
                 // 菜单使用系统勾选项，不能继承 App 全局的 SystemSwitchStyle 滑动开关。
                 .toggleStyle(.automatic)
             }
             if !selected.isEmpty {
                 Section {
-                    Button("移除此条件", systemImage: "xmark", role: .destructive) {
+                    Button(String(localized: .searchFiltersRemove), systemImage: "xmark", role: .destructive) {
                         model.filters.selected[dim] = nil
                     }
                 }
@@ -299,7 +314,7 @@ struct TorrentResultsView: View {
     private func chipSummary(_ dim: TorrentFilterDim, selected: Set<String>) -> String? {
         guard !selected.isEmpty else { return nil }
         let labels = selected.sorted().map { TorrentSearchLogic.facetLabel(dim, $0, siteName: model.siteName) }
-        return labels.count <= 2 ? labels.joined(separator: "、") : "\(labels[0])等 \(labels.count) 个"
+        return labels.count <= 2 ? labels.joined(separator: "、") : String(localized: .searchFiltersSelectedCount(labels[0], String(labels.count)))
     }
 
     /// 胶囊外观（与发现页结果头部胶囊同一套玻璃）：启用态加粗、叠一层白色 tint
@@ -344,7 +359,7 @@ struct TorrentResultsView: View {
             .clipShape(.capsule)
         }
         .frame(height: 2)
-        .accessibilityLabel("搜索进度")
+        .accessibilityLabel(String(localized: .searchStatusProgressLabel))
     }
 
     // MARK: 结果
@@ -354,7 +369,7 @@ struct TorrentResultsView: View {
         if model.streaming, model.items.isEmpty {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text(model.sites.isEmpty ? "正在连接搜索服务…" : "正在搜索 \(model.sites.count) 个站点，结果将实时呈现…")
+                Text(model.sites.isEmpty ? String(localized: .searchResultsConnecting) : String(localized: .searchResultsSearchingSites(model.sites.count)))
             }
             .font(.subheadline)
             .foregroundStyle(Theme.textMuted)
@@ -363,7 +378,7 @@ struct TorrentResultsView: View {
             }
         }
         if model.phase == .error {
-            emptyHint("搜索出错", model.fatalError ?? "搜索失败，请稍后重试")
+            emptyHint(String(localized: .searchResultsErrorTitle), model.fatalError ?? String(localized: .searchResultsFailed))
         }
         if !model.sorted.isEmpty {
             switch model.view {
@@ -377,15 +392,15 @@ struct TorrentResultsView: View {
                 }
             }
         } else if !model.items.isEmpty {
-            emptyHint("没有符合筛选条件的结果", "放宽或清除顶部的筛选条件试试。")
+            emptyHint(String(localized: .searchResultsFilteredEmpty), String(localized: .searchResultsRelaxFilters))
         } else if model.phase == .done {
-            emptyHint("没有找到匹配的资源", model.keyword.isEmpty ? "换个分类，或检查已配置站点是否验证通过。" : "换个关键词，或检查已配置站点是否验证通过。")
+            emptyHint(String(localized: .searchResultsEmpty), model.keyword.isEmpty ? String(localized: .searchResultsTryCategory) : String(localized: .searchResultsTryKeyword))
         }
         if model.phase == .done, model.snapshotAt == nil, !model.items.isEmpty, !model.exhausted {
             Button {
                 model.loadMore(api: api)
             } label: {
-                Text(model.loadingMore ? "正在加载…" : "加载更多（第 \(model.page + 1) 页）")
+                Text(model.loadingMore ? String(localized: .commonLoadingActive) : String(localized: .searchResultsLoadPage(model.page + 1)))
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 8)
             }
@@ -396,7 +411,7 @@ struct TorrentResultsView: View {
             .accessibilityIdentifier("torrent-load-more")
         }
         if model.phase == .done, model.exhausted, !model.items.isEmpty {
-            Text("已加载全部 \(model.page) 页结果")
+            Text(String(localized: .searchResultsAllPages(model.page)))
                 .font(.caption).foregroundStyle(Theme.textFaint)
                 .frame(maxWidth: .infinity)
         }
@@ -431,7 +446,7 @@ struct TorrentResultsView: View {
         }
         if !withoutPoster.isEmpty {
             if !withPoster.isEmpty {
-                Text("以下 \(withoutPoster.count) 条结果没有海报，按列表展示")
+                Text(String(localized: .searchResultsNoPoster(withoutPoster.count)))
                     .font(.caption).foregroundStyle(Theme.textMuted)
                     .padding(.top, 8)
             }
@@ -489,7 +504,7 @@ private struct TorrentGroupSection: View {
                         .padding(.leading, 12)
                 }
                 if !showAll, rows.count > Self.cap {
-                    Button("展开其余 \(rows.count - Self.cap) 个版本 ▾") { withAnimation { showAll = true } }
+                    Button(String(localized: .searchGroupExpand(rows.count - Self.cap))) { withAnimation { showAll = true } }
                         .font(.caption)
                         .foregroundStyle(Theme.textMuted)
                         .padding(.leading, 12)
@@ -504,7 +519,7 @@ private struct TorrentGroupSection: View {
         let topRes = TorrentSearchLogic.maxResolution(rows)
         let hasPack = rows.contains { $0.attrs?.complete == true }
         let info: String = {
-            guard let entity else { return "按原始名展示" }
+            guard let entity else { return String(localized: .searchGroupRawNames) }
             return [
                 entity.year.map(String.init),
                 entity.mediaType.flatMap { TorrentSearchLogic.mediaTypeLabels[$0] },
@@ -517,7 +532,7 @@ private struct TorrentGroupSection: View {
                     .font(.caption2)
                     .rotationEffect(.degrees(collapsed ? 0 : 90))
                     .foregroundStyle(Theme.textFaint)
-                Text(entity.map { $0.nameZh ?? $0.nameEn ?? "" } ?? "未识别")
+                Text(entity.map { $0.nameZh ?? $0.nameEn ?? "" } ?? String(localized: .searchGroupUnidentified))
                     .font(.body.weight(.semibold))
                     .foregroundStyle(Theme.text)
                     .lineLimit(1)
@@ -529,10 +544,10 @@ private struct TorrentGroupSection: View {
                 }
             }
             HStack(spacing: 6) {
-                DiscoverTag(text: "\(rows.count) 个版本")
-                if let topRes { DiscoverTag(text: "最高 \(topRes)", foreground: Theme.accent2) }
-                if hasPack { DiscoverTag(text: "全集包", foreground: Color(red: 0.6, green: 0.78, blue: 1), background: Theme.info.opacity(0.18)) }
-                if free > 0 { DiscoverTag(text: "\(free) 个免费", foreground: Color(red: 0.47, green: 0.82, blue: 0.58), background: Theme.success.opacity(0.15), weight: .semibold) }
+                DiscoverTag(text: String(localized: .searchGroupVersions(rows.count)))
+                if let topRes { DiscoverTag(text: String(localized: .searchGroupHighest(topRes)), foreground: Theme.accent2) }
+                if hasPack { DiscoverTag(text: String(localized: .searchGroupCompletePack), foreground: Color(red: 0.6, green: 0.78, blue: 1), background: Theme.info.opacity(0.18)) }
+                if free > 0 { DiscoverTag(text: String(localized: .searchGroupFree(free)), foreground: Color(red: 0.47, green: 0.82, blue: 0.58), background: Theme.success.opacity(0.15), weight: .semibold) }
             }
             .padding(.leading, 16)
         }
@@ -549,20 +564,20 @@ enum TorrentSubmitState: Hashable {
 
     var downloadLabel: String {
         switch self {
-        case .idle: "下载"
-        case .submitting: "提交中…"
-        case .done: "已提交"
-        case .exists: "已在下载器"
-        case .error: "失败·重试"
+        case .idle: String(localized: .searchDownloadIdle)
+        case .submitting: String(localized: .searchDownloadSubmitting)
+        case .done: String(localized: .searchDownloadDone)
+        case .exists: String(localized: .searchDownloadExists)
+        case .error: String(localized: .searchDownloadError)
         }
     }
 
     var grabLabel: String {
         switch self {
-        case .idle: "投给订阅"
-        case .submitting: "投递中…"
-        case .done, .exists: "已投递"
-        case .error: "失败·重试"
+        case .idle: String(localized: .searchGrabIdle)
+        case .submitting: String(localized: .searchGrabSubmitting)
+        case .done, .exists: String(localized: .searchGrabDone)
+        case .error: String(localized: .searchDownloadError)
         }
     }
 }
@@ -635,7 +650,7 @@ struct TorrentRow: View {
         .buttonStyle(.plain)
         .allowsHitTesting(TorrentHitItem.hasActions(hit))
         .accessibilityIdentifier("torrent-row")
-        .accessibilityLabel(TorrentHitItem.hasActions(hit) ? "打开「\(hit.title)」的资源操作" : hit.title)
+        .accessibilityLabel(TorrentHitItem.hasActions(hit) ? String(localized: .searchTorrentOpenActions(hit.title)) : hit.title)
     }
 
     private var metrics: some View {
@@ -654,7 +669,7 @@ struct TorrentRow: View {
                 Text(verbatim: "\(hit.leechers)")
             }
             .foregroundStyle(Theme.textFaint)
-            if hit.snatched > 0 { Text(verbatim: "完成 \(hit.snatched)") }
+            if hit.snatched > 0 { Text(verbatim: String(localized: .searchTorrentCompleted(hit.snatched))) }
             Spacer(minLength: 0)
             if let time = hit.uploadTime { Text(SubsFormat.relative(time)) }
         }
@@ -696,7 +711,7 @@ struct TorrentPromoBadges: View {
         ForEach(TorrentSearchLogic.promos(hit), id: \.self) { promo in
             switch promo {
             case .free:
-                DiscoverTag(text: "免费", foreground: solid ? Color(red: 0.02, green: 0.18, blue: 0.09) : Color(red: 0.47, green: 0.82, blue: 0.58), background: Theme.success.opacity(solid ? 0.9 : 0.15), weight: .semibold)
+                DiscoverTag(text: String(localized: .searchTorrentFree), foreground: solid ? Color(red: 0.02, green: 0.18, blue: 0.09) : Color(red: 0.47, green: 0.82, blue: 0.58), background: Theme.success.opacity(solid ? 0.9 : 0.15), weight: .semibold)
             case let .discount(text):
                 DiscoverTag(text: text, foreground: solid ? .white : Color(red: 0.6, green: 0.78, blue: 1), background: Theme.info.opacity(solid ? 0.85 : 0.15), weight: .semibold)
             case let .upload(text):
@@ -786,7 +801,7 @@ struct TorrentPosterCard: View {
                     .clipShape(.rect(cornerRadius: 12))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("浏览「\(hit.title)」的 \(slides.count) 张图片")
+            .accessibilityLabel(String(localized: .searchTorrentBrowseLabel(hit.title, slides.count)))
 
             Button {
                 actions.sheetHit = TorrentHitItem(hit: hit, fromGallery: true)
@@ -817,7 +832,7 @@ struct TorrentPosterCard: View {
             }
             .buttonStyle(.plain)
             .allowsHitTesting(TorrentHitItem.hasActions(hit))
-            .accessibilityLabel("打开「\(hit.title)」的资源操作")
+            .accessibilityLabel(String(localized: .searchTorrentOpenActions(hit.title)))
         }
         .accessibilityIdentifier("torrent-poster")
     }
@@ -830,7 +845,7 @@ struct TorrentViewModeMenu: View {
 
     var body: some View {
         Menu {
-            Picker("显示方式", selection: $model.view) {
+            Picker(String(localized: .searchResultsViewMode), selection: $model.view) {
                 ForEach(TorrentResultView.allCases, id: \.self) { view in
                     Label(view.label, systemImage: view.systemImage).tag(view)
                 }
@@ -839,7 +854,7 @@ struct TorrentViewModeMenu: View {
         } label: {
             Image(systemName: model.view.systemImage)
         }
-        .accessibilityLabel("显示方式：\(model.view.label)")
+        .accessibilityLabel(String(localized: .searchResultsViewModeValue(model.view.label)))
         .accessibilityIdentifier("torrent-view-menu")
     }
 }

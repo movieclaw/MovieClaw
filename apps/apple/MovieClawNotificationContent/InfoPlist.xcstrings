@@ -1,0 +1,31 @@
+{
+  "sourceLanguage": "zh-Hans",
+  "strings": {
+    "NSLocalNetworkUsageDescription": {
+      "extractionState": "manual",
+      "generatesSymbol": false,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MovieClaw 需要访问局域网，用于从你自己部署的 MovieClaw 服务器下载通知配图。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MovieClaw 需要访问局域网，用于从你自己部署的 MovieClaw 服务器下载通知配图。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MovieClaw uses your local network to download notification images from your self-hosted server."
+          }
+        }
+      },
+      "comment": "System permission explanation; MovieClaw is an untranslated product name."
+    }
+  },
+  "version": "1.0"
+}

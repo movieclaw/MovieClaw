@@ -13,17 +13,18 @@ import contextlib
 import logging
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import delete, func, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import source_render, stored_fields
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import (
     ACTIVE_JOB_STATUSES,
@@ -35,7 +36,17 @@ from movieclaw_db.models import (
     JobStatus,
     utcnow,
 )
-from movieclaw_kernel import RegistryKey, Stability
+from movieclaw_sdk.jobs import (
+    JOB_HANDLERS,
+    JobBlocked,
+    JobCancelled,
+    JobControlError,
+    JobFailed,
+    JobHandler,
+    JobRetry,
+    RegisteredJobHandler,
+    ResourceRef,
+)
 
 if TYPE_CHECKING:
     from movieclaw_kernel import Context, Registry
@@ -69,94 +80,9 @@ _SECRET_INPUT_KEYS = {
 
 
 @dataclass(frozen=True)
-class ResourceRef:
-    """领域资源中性引用；前端可据此把任务聚合到库、条目或文件。"""
-
-    resource_type: str
-    resource_id: str | int
-    relation: str = "target"
-
-
-@dataclass(frozen=True)
 class CreateJobResult:
     job: Job
     created: bool
-
-
-class JobControlError(Exception):
-    """处理器主动给执行器的结构化结论，绝不把内部异常文本直接暴露。"""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: str,
-        actions: list[dict[str, Any]] | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.message = message
-        self.code = code
-        self.actions = actions or []
-        self.details = details or {}
-
-    def as_error(self) -> dict[str, Any]:
-        return {
-            "code": self.code,
-            "message": self.message,
-            "details": self.details,
-            "actions": self.actions,
-        }
-
-
-class JobFailed(JobControlError):
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: str = "JOB_FAILED",
-        actions: list[dict[str, Any]] | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, code=code, actions=actions, details=details)
-
-
-class JobBlocked(JobControlError):
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: str = "JOB_BLOCKED",
-        actions: list[dict[str, Any]] | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, code=code, actions=actions, details=details)
-
-
-class JobRetry(JobControlError):
-    def __init__(
-        self,
-        message: str,
-        *,
-        delay_seconds: int = 15,
-        code: str = "JOB_RETRY",
-        actions: list[dict[str, Any]] | None = None,
-    ) -> None:
-        super().__init__(message, code=code, actions=actions)
-        self.delay_seconds = max(1, delay_seconds)
-
-
-class JobCancelled(Exception):
-    """处理器已在安全边界响应取消。"""
-
-
-JobHandler = Callable[["JobContext", dict[str, Any]], Awaitable[dict[str, Any] | None]]
-
-
-@dataclass(frozen=True)
-class RegisteredJobHandler:
-    handler: JobHandler
-    definition_versions: frozenset[int]
 
 
 # 声明目录：job_type -> 处理器。模块导入时由 @register_job_handler 填充。
@@ -166,13 +92,6 @@ class RegisteredJobHandler:
 # 启用时任务留在队列里等，而不是被领走后报「请更新版本」；没有内核时（单独驱动执行器的测试、
 # 命令行工具）回落到这份声明目录，行为与以前一致。
 _handlers: dict[str, RegisteredJobHandler] = {}
-
-JOB_HANDLERS: RegistryKey[RegisteredJobHandler] = RegistryKey(
-    "job-handlers",
-    schema=RegisteredJobHandler,
-    stability=Stability.EXPERIMENTAL,
-    doc="持久化后台任务的处理器（领域插件贡献；第三方插件的任务类型自动带插件 id 前缀）",
-)
 
 _bound_handlers: Registry[RegisteredJobHandler] | None = None
 
@@ -201,8 +120,21 @@ def resolve_job_handler(job_type: str) -> RegisteredJobHandler | None:
 _known_types: set[str] = set()
 
 
-def note_job_type(job_type: str) -> None:
+#: 任务类型 → 任务中心显示的名字（处理器贡献时登记；插件停用后仍记得，已取消的任务照样有名字）
+_type_titles: dict[str, str] = {}
+
+
+def note_job_type(job_type: str, *, title: str | None = None) -> None:
     _known_types.add(job_type)
+    if title:
+        _type_titles[job_type] = title
+
+
+def job_type_label(job_type: str) -> str | None:
+    """任务类型在任务中心显示的名字；处理器没给名字的为 ``None``（显示端各自兜底）。"""
+    registration = resolve_job_handler(job_type) or _handlers.get(job_type)
+    title = getattr(registration, "title", None)
+    return title or _type_titles.get(job_type)
 
 
 def claimable_job_types() -> list[str] | None:
@@ -237,10 +169,11 @@ def contribute_job_handlers(ctx: Context, *modules: ModuleType) -> None:
     for module in modules:
         declared = declared_job_handlers(module)
         if not declared:
+            # i18n-ignore: developer error
             raise ValueError(f"模块 {module.__name__} 没有声明任何后台任务处理器")
         for job_type, registration in declared:
             ctx.contribute(JOB_HANDLERS, job_type, registration)
-            note_job_type(job_type)
+            note_job_type(job_type, title=registration.title)
 
 
 def register_job_handler(
@@ -249,11 +182,13 @@ def register_job_handler(
     """注册稳定任务类型的处理器；重复注册立即失败，避免升级后路由不确定。"""
     supported = frozenset(definition_versions)
     if not supported or any(version < 1 for version in supported):
+        # i18n-ignore: developer error
         raise ValueError(f"后台任务定义版本不合法：{job_type}")
 
     def decorator(handler: JobHandler) -> JobHandler:
         existing = _handlers.get(job_type)
         if existing is not None and existing.handler is not handler:
+            # i18n-ignore: developer error
             raise RuntimeError(f"后台任务处理器重复注册：{job_type}")
         _handlers[job_type] = RegisteredJobHandler(handler, supported)
         # 标记在函数上：插件据此把「本模块声明的处理器」贡献进内核注册表
@@ -267,12 +202,23 @@ def _new_job_id() -> str:
     return f"job_{uuid.uuid4().hex}"
 
 
-def default_progress(message: str = "等待执行") -> dict[str, Any]:
+def default_progress(
+    message: str | None = None,
+    *,
+    message_key: str | None = None,
+    message_params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """所有任务共享的进度外壳；领域明细只放 details，不污染公共契约。"""
+    if message_key:
+        text = stored_fields(message_key, **(message_params or {}))
+    elif message is not None:
+        text = {"message": message}
+    else:
+        text = stored_fields("activity.jobs.queued")
     return {
         "mode": "waiting",
         "phase": "queued",
-        "message": message,
+        **text,
         "current": None,
         "total": None,
         "percent": None,
@@ -307,6 +253,7 @@ async def create_job(
     job_type: str,
     input_data: dict[str, Any],
     subject: str | None = None,
+    subject_ref: dict | None = None,
     resources: Sequence[ResourceRef] = (),
     dedupe_key: str | None = None,
     conflict_policy: str = "return_existing",
@@ -328,11 +275,19 @@ async def create_job(
     progress: dict[str, Any] | None = None,
     commit: bool = True,
 ) -> CreateJobResult:
-    """创建任务并写入首个事件；可复用调用方事务实现“业务写入 + 入队”原子化。"""
+    """创建任务并写入首个事件；可复用调用方事务实现“业务写入 + 入队”原子化。
+
+    ``subject_ref``：任务名里有固定措辞时给引用（任务中心按读者语言渲染），
+    ``subject`` 缺省时落它的中文原文。
+    """
+    if subject is None and subject_ref is not None:
+        subject = source_render(subject_ref)
     if conflict_policy not in {"return_existing", "reject", "queue"}:
+        # i18n-ignore: developer error
         raise ValueError(f"不支持的任务冲突策略：{conflict_policy}")
     secret_path = _secret_input_path(input_data)
     if secret_path is not None:
+        # i18n-ignore: developer error
         raise ValueError(f"后台任务输入不能包含凭据字段：{secret_path}；请保存配置引用而不是密钥")
     if dedupe_key and conflict_policy != "queue":
         existing = (
@@ -348,13 +303,14 @@ async def create_job(
         )
         if existing is not None:
             if conflict_policy == "reject":
-                raise JobFailed("相同任务已在进行中", code="JOB_CONFLICT")
+                raise JobFailed(**stored_fields("activity.jobs.conflict"), code="JOB_CONFLICT")
             return CreateJobResult(existing, False)
 
     job = Job(
         id=_new_job_id(),
         job_type=job_type,
         subject=subject,
+        subject_ref=subject_ref,
         definition_version=definition_version,
         handler_revision=handler_revision,
         prompt_revision=prompt_revision,
@@ -414,7 +370,9 @@ async def create_job(
         if existing is None:
             raise
         if conflict_policy == "reject":
-            raise JobFailed("相同任务已在进行中", code="JOB_CONFLICT") from None
+            raise JobFailed(
+                **stored_fields("activity.jobs.conflict"), code="JOB_CONFLICT"
+            ) from None
         return CreateJobResult(existing, False)
     await notify_job_change()
     return CreateJobResult(job, True)
@@ -612,15 +570,31 @@ async def _record_transition(
     )
 
 
+async def _lock_job(session: AsyncSession, job_id: str) -> Job | None:
+    # SQLite 忽略 SELECT FOR UPDATE。先取得写锁，再刷新 ORM 状态，使取消与
+    # 执行器收尾的读改写处于同一事务，避免旧 running 覆盖已归还租约的状态。
+    await session.execute(
+        update(Job).where(Job.id == job_id).values(id=Job.id)
+        .execution_options(synchronize_session=False)
+    )
+    return await session.get(Job, job_id, populate_existing=True)
+
+
 async def request_cancel(
-    session: AsyncSession, job_id: str, *, requested_by: str, reason: str | None = None
+    session: AsyncSession,
+    job_id: str,
+    *,
+    requested_by: str,
+    reason: str | None = None,
+    reason_key: str | None = None,
+    reason_params: dict[str, Any] | None = None,
 ) -> tuple[Job | None, bool]:
     """请求取消任务。``reason`` 是面向用户的取消原因，会直接显示在任务中心；
 
     只在排队/挂起态的立即取消分支生效——运行中任务要等安全停止点，
     期间处理器仍会整体覆盖 progress，理由留不住。
     """
-    job = await session.get(Job, job_id)
+    job = await _lock_job(session, job_id)
     if job is None:
         return None, False
     if job.status in TERMINAL_JOB_STATUSES:
@@ -641,7 +615,13 @@ async def request_cancel(
             **job.progress,
             "mode": "paused",
             "phase": "cancelled",
-            "message": reason or "任务已取消",
+            **(
+                stored_fields(reason_key, **(reason_params or {}))
+                if reason_key
+                else {"message": reason, "message_key": None, "message_params": {}}
+                if reason
+                else stored_fields("activity.jobs.cancelled")
+            ),
         }
         await _record_transition(session, job, "cancelled", job.progress)
     else:
@@ -649,7 +629,7 @@ async def request_cancel(
         job.progress = {
             **job.progress,
             "mode": "waiting",
-            "message": "已请求取消，正在等待安全停止点",
+            **stored_fields("activity.jobs.cancelling"),
         }
         await _record_transition(session, job, "cancel_requested", job.progress)
     await session.commit()
@@ -678,7 +658,7 @@ async def dismiss_job(
         return None, False
     if job.status is not JobStatus.FAILED:
         raise JobFailed(
-            "只有失败的任务可以忽略；进行中的任务请使用取消",
+            **stored_fields("activity.jobs.dismissFailedOnly"),
             code="JOB_NOT_DISMISSABLE",
         )
     if job.dismissed_at is not None:
@@ -760,19 +740,22 @@ async def retry_job(
             **source.progress,
             "mode": "waiting",
             "phase": "queued",
-            "message": "已重新入队，正在等待执行",
+            **stored_fields("activity.jobs.requeued"),
         }
         await _record_transition(session, source, "unblocked", source.progress)
         await session.commit()
         await notify_job_change()
         return CreateJobResult(source, False)
     if source.status not in {JobStatus.FAILED, JobStatus.CANCELLED}:
-        raise JobFailed("只有失败、已取消或需要处理的任务可以重试", code="JOB_NOT_RETRYABLE")
+        raise JobFailed(
+            **stored_fields("activity.jobs.retryFinishedOnly"), code="JOB_NOT_RETRYABLE"
+        )
     resources = await resources_for_jobs(session, [source.id])
     return await create_job(
         session,
         job_type=source.job_type,
         subject=source.subject,
+        subject_ref=source.subject_ref,
         input_data=source.input_data,
         resources=[
             ResourceRef(item.resource_type, item.resource_id, item.relation)
@@ -834,7 +817,9 @@ class JobContext:
         *,
         mode: str,
         phase: str,
-        message: str,
+        message: str = "",
+        message_key: str | None = None,
+        message_params: dict[str, Any] | None = None,
         current: int | None = None,
         total: int | None = None,
         percent: float | None = None,
@@ -846,7 +831,11 @@ class JobContext:
         progress = {
             "mode": mode,
             "phase": phase,
-            "message": message,
+            **(
+                stored_fields(message_key, **(message_params or {}))
+                if message_key
+                else {"message": message}
+            ),
             "current": current,
             "total": total,
             "percent": percent,
@@ -913,7 +902,7 @@ class JobContext:
             ).one_or_none()
             if row is None or row.lease_owner != self._lease_token:
                 self._lease_lost.set()
-                return default_progress("任务执行租约已失效")
+                return default_progress(message_key="activity.jobs.leaseLost")
             return dict(row.progress or {})
 
     async def cancel_requested(self) -> bool:
@@ -1014,6 +1003,7 @@ class JobContext:
     ) -> None:
         """给当前任务补充只用于聚合/导航的非锁定资源关系。"""
         if relation == "target":
+            # i18n-ignore: developer error
             raise ValueError("目标资源必须通过 acquire_target_resource 获取")
         db = get_database()
         created = False
@@ -1066,11 +1056,18 @@ class JobDispatcher:
         self._last_recovery = 0.0
 
     async def start(self) -> None:
-        await self._recover_expired_jobs()
-        await purge_expired_jobs()
-        now = time.monotonic()
-        self._last_cleanup = now
-        self._last_recovery = now
+        # 调度循环会定期重做这两步。启动期并发写多，慢盘上 SQLite 偶发 database is
+        # locked：为一次可重试的清理让整个应用起不来（还会被入口脚本计成启动失败、
+        # 把好版本标坏）不值，记一笔交给循环立刻重试
+        try:
+            await self._recover_expired_jobs()
+            await purge_expired_jobs()
+            done = time.monotonic()
+        except OperationalError:
+            logger.warning("启动时回收过期任务失败（数据库忙），交给调度循环重试", exc_info=True)
+            done = float("-inf")
+        self._last_cleanup = done
+        self._last_recovery = done
         self._loop_task = asyncio.create_task(self._run_loop(), name="job-dispatcher")
         logger.info("持久化任务执行器已启动：owner=%s parallel=%d", self.owner, self.max_parallel)
 
@@ -1145,7 +1142,7 @@ class JobDispatcher:
                     **candidate.progress,
                     "mode": "waiting",
                     "phase": "resuming",
-                    "message": "服务已恢复，正在从保存进度继续",
+                    **stored_fields("activity.jobs.resumed"),
                 }
                 # 多个存活实例可能同时发现同一过期租约。状态与过期时间条件让
                 # 只有一个实例能完成接管，也不会覆盖刚被其他实例重新领取的任务。
@@ -1296,18 +1293,32 @@ class JobDispatcher:
                 input_data = dict(job.input_data)
             if registration is None:
                 raise JobBlocked(
-                    "当前版本无法执行这类任务，请更新 MovieClaw 后重试",
+                    message_key="activity.jobs.handlerUnavailable",
                     code="JOB_HANDLER_UNAVAILABLE",
                     actions=[
-                        {"type": "update_runtime", "label": "检查更新"},
-                        {"type": "retry_job", "label": "更新后重试"},
+                        {
+                            "type": "update_runtime",
+                            "label": "检查更新",
+                            "label_key": "activity.jobs.update",
+                        },
+                        {
+                            "type": "retry_job",
+                            "label": "更新后重试",
+                            "label_key": "activity.jobs.retryAfterUpdate",
+                        },
                     ],
                 )
             if job.definition_version not in registration.definition_versions:
                 raise JobFailed(
-                    "任务定义与当前版本不兼容，请从原功能入口重新发起",
+                    message_key="activity.jobs.definitionUnsupported",
                     code="JOB_DEFINITION_UNSUPPORTED",
-                    actions=[{"type": "handoff_agent", "label": "交给 Agent"}],
+                    actions=[
+                        {
+                            "type": "handoff_agent",
+                            "label": "交给 Agent",
+                            "label_key": "activity.jobs.agent",
+                        }
+                    ],
                     details={
                         "definition_version": job.definition_version,
                         "supported_versions": sorted(registration.definition_versions),
@@ -1371,7 +1382,7 @@ class JobDispatcher:
                 await asyncio.sleep(3)
 
     async def _load_owned(self, session: AsyncSession, job_id: str, lease_token: str) -> Job | None:
-        job = await session.get(Job, job_id)
+        job = await _lock_job(session, job_id)
         if job is None or job.lease_owner != lease_token:
             return None
         return job
@@ -1398,7 +1409,15 @@ class JobDispatcher:
                     **job.progress,
                     "mode": "determinate",
                     "phase": "completed",
-                    "message": result.get("message", "任务已完成"),
+                    **(
+                        {
+                            "message": result["message"],
+                            "message_key": result.get("message_key"),
+                            "message_params": result.get("message_params", {}),
+                        }
+                        if "message" in result
+                        else stored_fields("activity.jobs.completed")
+                    ),
                     "percent": 100.0,
                 }
                 await _record_transition(session, job, "succeeded", result)
@@ -1417,7 +1436,7 @@ class JobDispatcher:
             **job.progress,
             "mode": "paused",
             "phase": "cancelled",
-            "message": "任务已取消，已保存可复用的中间进度",
+            **stored_fields("activity.jobs.cancelledSaved"),
         }
         await _record_transition(session, job, "cancelled", job.progress)
 
@@ -1446,16 +1465,31 @@ class JobDispatcher:
             job = await self._load_owned(session, job_id, lease_token)
             if job is None:
                 return
+            if job.cancel_requested_at is not None:
+                # 取消优先：取消请求可能落在「已领取、处理器还没走到安全点」的窗口里
+                # （handler 解析、定义版本检查、刚起步）。这里若照常写 BLOCKED / FAILED，
+                # 用户点过的取消就丢了，任务还会一直占着去重键与资源锁。
+                await self._set_cancelled(session, job)
+                job.lease_owner = None
+                job.lease_expires_at = None
+                await self._release_locks(session, job_id)
+                await session.commit()
+                await notify_job_change()
+                return
             now = utcnow()
             job.status = status
             job.error = exc.as_error()
+            if exc.message_key:
+                job.error.update(stored_fields(exc.message_key, **exc.message_params))
             job.finished_at = now if status == JobStatus.FAILED else None
             job.retention_until = now + timedelta(days=90)
             job.progress = {
                 **job.progress,
                 "mode": "paused",
                 "phase": status.value,
-                "message": exc.message,
+                "message": job.error["message"],
+                "message_key": exc.message_key,
+                "message_params": exc.message_params,
             }
             await _record_transition(session, job, status.value, job.error)
             job.lease_owner = None
@@ -1470,21 +1504,43 @@ class JobDispatcher:
             job = await self._load_owned(session, job_id, lease_token)
             if job is None:
                 return
+            if job.cancel_requested_at is not None:
+                # 取消优先（同 _finish_controlled）：已请求取消的任务不该再排一次重试
+                await self._set_cancelled(session, job)
+                job.lease_owner = None
+                job.lease_expires_at = None
+                await self._release_locks(session, job_id)
+                await session.commit()
+                await notify_job_change()
+                return
             if job.attempt >= job.max_attempts:
                 terminal = JobFailed(
                     f"{exc.message}；已达到自动重试上限",
                     code="JOB_RETRY_EXHAUSTED",
                     actions=exc.actions,
+                    message_key="activity.jobs.retryExhausted",
+                    message_params={
+                        "reason": {
+                            "message_key": exc.message_key,
+                            "params": exc.message_params,
+                            "message": exc.message,
+                        }
+                        if exc.message_key
+                        else exc.message
+                    },
                 )
                 now = utcnow()
                 job.status = JobStatus.FAILED
                 job.error = terminal.as_error()
+                job.error.update(stored_fields(terminal.message_key, **terminal.message_params))
                 job.finished_at = now
                 job.retention_until = now + timedelta(days=90)
                 event_type = "failed"
             else:
                 job.status = JobStatus.RETRY_WAIT
                 job.error = exc.as_error()
+                if exc.message_key:
+                    job.error.update(stored_fields(exc.message_key, **exc.message_params))
                 job.available_at = utcnow() + timedelta(seconds=exc.delay_seconds)
                 event_type = "retry_scheduled"
             job.progress = {
@@ -1492,6 +1548,8 @@ class JobDispatcher:
                 "mode": "waiting",
                 "phase": job.status.value,
                 "message": job.error["message"],
+                "message_key": job.error.get("message_key"),
+                "message_params": job.error.get("message_params", {}),
             }
             await _record_transition(session, job, event_type, job.error)
             job.lease_owner = None
@@ -1506,33 +1564,50 @@ class JobDispatcher:
             job = await self._load_owned(session, job_id, lease_token)
             if job is None:
                 return
+            if job.cancel_requested_at is not None:
+                # 取消优先（同 _finish_controlled）
+                await self._set_cancelled(session, job)
+                job.lease_owner = None
+                job.lease_expires_at = None
+                await self._release_locks(session, job_id)
+                await session.commit()
+                await notify_job_change()
+                return
             if job.attempt < job.max_attempts:
                 job.status = JobStatus.RETRY_WAIT
                 job.available_at = utcnow() + timedelta(seconds=min(60, 5 * 2**job.attempt))
-                message = "任务遇到临时异常，稍后会自动重试"
+                message_fields = stored_fields("activity.jobs.unexpectedRetry")
                 event_type = "retry_scheduled"
             else:
                 now = utcnow()
                 job.status = JobStatus.FAILED
                 job.finished_at = now
                 job.retention_until = now + timedelta(days=90)
-                message = "任务未完成：发生未知错误，请查看任务详情或交给 Agent 处理"
+                message_fields = stored_fields("activity.jobs.unexpectedFailed")
                 event_type = "failed"
             job.error = {
                 "code": "JOB_UNEXPECTED_ERROR",
-                "message": message,
+                **message_fields,
                 "details": {},
                 "actions": [
-                    {"type": "retry_job", "label": "重试"},
-                    {"type": "inspect_logs", "label": "查看日志"},
-                    {"type": "handoff_agent", "label": "交给 Agent"},
+                    {"type": "retry_job", "label": "重试", "label_key": "activity.jobs.retry"},
+                    {
+                        "type": "inspect_logs",
+                        "label": "查看日志",
+                        "label_key": "activity.jobs.logs",
+                    },
+                    {
+                        "type": "handoff_agent",
+                        "label": "交给 Agent",
+                        "label_key": "activity.jobs.agent",
+                    },
                 ],
             }
             job.progress = {
                 **job.progress,
                 "mode": "waiting" if job.status == JobStatus.RETRY_WAIT else "paused",
                 "phase": job.status.value,
-                "message": message,
+                **message_fields,
             }
             await _record_transition(session, job, event_type, job.error)
             job.lease_owner = None
@@ -1556,7 +1631,7 @@ class JobDispatcher:
                 **job.progress,
                 "mode": "waiting",
                 "phase": "resuming",
-                "message": "服务正在重启，启动后会自动继续",
+                **stored_fields("activity.jobs.restarting"),
             }
             await _record_transition(session, job, "paused", job.progress)
             job.lease_owner = None

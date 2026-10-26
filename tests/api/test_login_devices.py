@@ -38,7 +38,7 @@ def client(tmp_path, monkeypatch):
 
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as c:
         assert c.post(f"{_AUTH}/bootstrap", json=_ADMIN).status_code == 200
         yield c
 
@@ -52,7 +52,7 @@ def _app_login(
     client: TestClient, account: dict, *, installation: str = "install-ios-0001", name="iPhone Air"
 ) -> dict:
     """模拟 iOS App 登录，返回响应 data（token / device / session）。"""
-    resp = TestClient(client.app).post(
+    resp = TestClient(client.app, headers={"Accept-Language": "zh-Hans"}).post(
         f"{_AUTH}/device/login",
         json={
             **account,
@@ -71,7 +71,7 @@ def _app_login(
 
 def _as(client: TestClient, token: str) -> TestClient:
     """一个只带 Bearer 头、不带 Cookie 的客户端（模拟 App / 命令行）。"""
-    other = TestClient(client.app)
+    other = TestClient(client.app, headers={"Accept-Language": "zh-Hans"})
     other.headers["Authorization"] = f"Bearer {token}"
     return other
 
@@ -101,6 +101,79 @@ def _pair_cli(approver: TestClient, *, name: str = "mclaw@mac") -> str:
 # ---------------------------------------------------------------------------
 
 
+def test_windows_device_password_replacement_and_revocation(client: TestClient) -> None:
+    assert "windows" in client.get(f"{_AUTH}/bootstrap").json()["data"]["native_device_kinds"]
+    payload = {
+        **_ADMIN,
+        "client": {
+            "kind": "windows",
+            "installation_id": "windows-install-0001",
+            "name": "客厅 Windows",
+            "platform": "Windows 11 · x86_64",
+            "client_version": "0.1.2",
+        },
+    }
+    anonymous = TestClient(client.app)
+    first = anonymous.post(f"{_AUTH}/device/login", json=payload)
+    assert first.status_code == 200, first.text
+    old = first.json()["data"]
+    device = old["device"]
+    assert (device["kind"], device["kind_label"], device["family"]) == (
+        "windows",
+        "Windows App",
+        "login",
+    )
+    logged = _as(client, old["token"])
+    assert logged.get(f"{_AUTH}/me").json()["data"]["device"]["kind"] == "windows"
+    assert logged.get(f"{_AUTH}/devices").status_code == 200
+    fresh = anonymous.post(f"{_AUTH}/device/login", json=payload).json()["data"]
+    assert logged.get(f"{_AUTH}/me").status_code == 401
+    active = _as(client, fresh["token"])
+    # The first-party Windows device can approve, but its own revocation is final.
+    grant = anonymous.post(
+        f"{_AUTH}/device/authorize",
+        json={
+            "client_type": "cli",
+            "client_name": "CLI approved by Windows",
+        },
+    ).json()["data"]
+    assert active.post(f"{_AUTH}/devices/requests/{grant['user_code']}/approve").status_code == 200
+    assert active.delete(f"{_AUTH}/devices/current").status_code == 200
+    assert active.get(f"{_AUTH}/me").status_code == 401
+
+
+def test_windows_pairing_is_a_password_family_device_and_password_change_revokes_it(
+    client: TestClient,
+) -> None:
+    anonymous = TestClient(client.app)
+    grant = anonymous.post(
+        f"{_AUTH}/device/authorize",
+        json={
+            "client_type": "windows",
+            "client_name": "Windows paired",
+            "installation_id": "windows-pair-0001",
+            "platform": "Windows 11",
+        },
+    )
+    assert grant.status_code == 200, grant.text
+    receipt = grant.json()["data"]
+    approved = client.post(f"{_AUTH}/devices/requests/{receipt['user_code']}/approve")
+    assert approved.status_code == 200
+    token = anonymous.post(f"{_AUTH}/device/token", json={"device_code": receipt["device_code"]})
+    assert token.status_code == 200, token.text
+    active = _as(client, token.json()["data"]["token"])
+    assert active.get(f"{_AUTH}/me").json()["data"]["device"]["kind"] == "windows"
+    changed = client.put(
+        f"{_AUTH}/password",
+        json={
+            "old_password": _ADMIN["password"],
+            "new_password": "changed-windows-pass",
+        },
+    )
+    assert changed.status_code == 200, changed.text
+    assert active.get(f"{_AUTH}/me").status_code == 401
+
+
 def test_app_login_issues_a_long_lived_device_token(client: TestClient) -> None:
     data = _app_login(client, _ADMIN)
     assert data["token"].startswith("mclaw_")
@@ -121,7 +194,7 @@ def test_app_login_issues_a_long_lived_device_token(client: TestClient) -> None:
 def test_mac_app_logs_in_as_a_login_device_without_push(client: TestClient) -> None:
     """Mac App 与 iPhone / Apple TV 同一种登录设备（人直接操作、随改密下线）；
     本期不接推送，「我的设备」里不给它挂推送状态（PUSH_KINDS 刻意不含 macos）。"""
-    resp = TestClient(client.app).post(
+    resp = TestClient(client.app, headers={"Accept-Language": "zh-Hans"}).post(
         f"{_AUTH}/device/login",
         json={
             **_ADMIN,
@@ -146,7 +219,7 @@ def test_mac_app_logs_in_as_a_login_device_without_push(client: TestClient) -> N
 def test_android_tv_app_logs_in_as_its_own_kind(client: TestClient) -> None:
     """Android TV 是独立客户端（docs/design/androidtv-app.md §6）：登录设备单独一类，
     「我的设备」里不和安卓手机混在一起。"""
-    resp = TestClient(client.app).post(
+    resp = TestClient(client.app, headers={"Accept-Language": "zh-Hans"}).post(
         f"{_AUTH}/device/login",
         json={
             **_ADMIN,
@@ -168,7 +241,7 @@ def test_android_tv_app_logs_in_as_its_own_kind(client: TestClient) -> None:
 
 
 def test_app_login_wrong_password_is_rejected_and_throttled(client: TestClient) -> None:
-    anon = TestClient(client.app)
+    anon = TestClient(client.app, headers={"Accept-Language": "zh-Hans"})
     body = {
         "username": "admin",
         "password": "wrong",
@@ -213,7 +286,7 @@ def test_web_login_is_a_device_and_logout_revokes_it(client: TestClient) -> None
 
     assert client.post(f"{_AUTH}/logout").status_code == 200
     # Cookie 被人拷走过也没用：退出即在服务端作废
-    stolen = TestClient(client.app)
+    stolen = TestClient(client.app, headers={"Accept-Language": "zh-Hans"})
     stolen.cookies.set("movieclaw_session", cookie)
     assert stolen.get(f"{_AUTH}/me").status_code == 401
 
@@ -223,7 +296,7 @@ def test_legacy_signed_session_still_works_and_counts_as_a_person(client: TestCl
     from movieclaw_api.services import auth as auth_service
 
     token, _ = client.portal.call(auth_service.issue_session_token, "admin")
-    legacy = TestClient(client.app)
+    legacy = TestClient(client.app, headers={"Accept-Language": "zh-Hans"})
     legacy.cookies.set("movieclaw_session", token)
     me = legacy.get(f"{_AUTH}/me").json()["data"]
     assert me["username"] == "admin" and me["device"] is None
@@ -234,7 +307,7 @@ def test_cli_token_smuggled_into_the_cookie_is_rejected(client: TestClient) -> N
     """Cookie 通道只认网页会话：命令行令牌塞进 Cookie 不会变成「人在浏览器里」。"""
     client.post(f"{_AUTH}/login", json=_ADMIN)
     cli_token = _pair_cli(client)
-    smuggled = TestClient(client.app)
+    smuggled = TestClient(client.app, headers={"Accept-Language": "zh-Hans"})
     smuggled.cookies.set("movieclaw_session", cli_token)
     assert smuggled.get(f"{_AUTH}/me").status_code == 401
 
@@ -263,7 +336,7 @@ def test_member_password_change_keeps_current_device_and_paired_ones(client: Tes
     _create_member(client)
     phone = _app_login(client, _MEMBER, installation="install-phone-01")["token"]
     tablet = _app_login(client, _MEMBER, installation="install-ipad-001", name="iPad")["token"]
-    web = TestClient(client.app)
+    web = TestClient(client.app, headers={"Accept-Language": "zh-Hans"})
     web.post(f"{_AUTH}/login", json=_MEMBER)
     cli = _pair_cli(_as(client, phone))
 
@@ -371,9 +444,7 @@ def test_devices_are_scoped_to_their_owner(client: TestClient) -> None:
     # 别人的设备：看不见、改不了、注销不了（一律 404，不泄露存在与否）
     admin_device_id = admin_phone["device"]["id"]
     assert member.delete(f"{_AUTH}/devices/{admin_device_id}").status_code == 404
-    assert (
-        member.patch(f"{_AUTH}/devices/{admin_device_id}", json={"name": "x"}).status_code == 404
-    )
+    assert member.patch(f"{_AUTH}/devices/{admin_device_id}", json={"name": "x"}).status_code == 404
 
     # 超管能看全体（带上主人），也能注销成员的设备
     everyone = client.get(f"{_AUTH}/devices?all=true").json()["data"]
@@ -478,9 +549,11 @@ def test_cleaning_up_devices_unused_for_days(client: TestClient) -> None:
         "旧播放器",
     }
     assert names(client.post(url, json={"inactive_days": 60, "dry_run": True})) == set()
-    assert names(
-        client.post(url, json={"inactive_days": 30, "all": True, "dry_run": True})
-    ) == {"旧 iPhone", "旧播放器", "家人 iPhone"}
+    assert names(client.post(url, json={"inactive_days": 30, "all": True, "dry_run": True})) == {
+        "旧 iPhone",
+        "旧播放器",
+        "家人 iPhone",
+    }
     # dry_run 什么都没动（不能拿旧手机的令牌去验：一用就刷新了它的最近活跃）
     listed = {d["name"] for d in client.get(f"{_AUTH}/devices").json()["data"]}
     assert {"旧 iPhone", "旧播放器"} <= listed
@@ -528,7 +601,7 @@ def test_logging_in_again_in_the_same_browser_retires_the_old_session(client: Te
     client.post(f"{_AUTH}/login", json=_ADMIN)
     second = client.cookies.get("movieclaw_session")
     assert first != second
-    stale = TestClient(client.app)
+    stale = TestClient(client.app, headers={"Accept-Language": "zh-Hans"})
     stale.cookies.set("movieclaw_session", first)
     assert stale.get(f"{_AUTH}/me").status_code == 401
     webs = [d for d in client.get(f"{_AUTH}/devices").json()["data"] if d["kind"] == "web"]

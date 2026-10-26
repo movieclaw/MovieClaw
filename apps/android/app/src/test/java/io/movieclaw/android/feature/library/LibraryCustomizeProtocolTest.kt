@@ -97,7 +97,7 @@ class LibraryCustomizeProtocolTest {
         val cookies = ShareCookieJar()
         val factory = ApiFactory(json, http, http, vault, cookies)
         val repository = SessionRepository(context, json, vault, factory, http,
-            SessionCacheCleaner(context, ImageLoaders(context, vault, http, cookies), LibraryHomeSnapshotStore(context, json)))
+            SessionCacheCleaner(context, ImageLoaders(context, vault, http, cookies), LibraryHomeSnapshotStore(context, json)), dagger.Lazy { throw UnsupportedOperationException() })
         val origin = server.url("/").toString().trimEnd('/')
         vault.activate(origin, "alice", "token")
         @Suppress("UNCHECKED_CAST")

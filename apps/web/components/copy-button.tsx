@@ -1,5 +1,8 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+
 import { useEffect, useState } from "react";
 
 import { CheckIcon, CopyIcon } from "@/components/icons";
@@ -34,7 +37,7 @@ export async function copyText(text: string): Promise<void> {
   } finally {
     textarea.remove();
   }
-  if (!copied) throw new Error("浏览器拒绝访问剪贴板");
+  if (!copied) throw new Error(appTranslator()("common.clipboardDenied"));
 }
 
 /**
@@ -60,6 +63,7 @@ export function CopyButton({
   ariaLabel?: string;
   className?: string;
 }) {
+  const t = useTranslations();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -70,7 +74,7 @@ export function CopyButton({
   return (
     <button
       type="button"
-      aria-label={ariaLabel ? (copied ? "已复制" : ariaLabel) : label ? undefined : copied ? "已复制" : "复制"}
+      aria-label={ariaLabel ? (copied ? t("common.copied") : ariaLabel) : label ? undefined : copied ? t("common.copied") : t("common.copy")}
       onClick={(event) => {
         event.stopPropagation();
         void copyText(text)
@@ -80,7 +84,7 @@ export function CopyButton({
       className={`inline-flex items-center gap-1 rounded-md transition-colors ${className}`}
     >
       {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-      {label && <span>{copied ? "已复制" : label}</span>}
+      {label && <span>{copied ? t("common.copied") : label}</span>}
     </button>
   );
 }

@@ -26,11 +26,11 @@ enum ActivityPage: String, Hashable {
 
     var title: String {
         switch self {
-        case .active: "进行中"
-        case .finished: "已结束"
-        case .boost: "刷流做种"
-        case .plays: "最近播放"
-        case .stats: "观看统计"
+        case .active: String(localized: .activityJobStatusRunning)
+        case .finished: String(localized: .activityNavHistory)
+        case .boost: String(localized: .activityNavBoost)
+        case .plays: String(localized: .activityNavPlays)
+        case .stats: String(localized: .activityNavStats)
         }
     }
 }
@@ -52,6 +52,7 @@ struct ActivityPageView: View {
 
 /// 进行中 / 已结束：沿用任务中心的时间线与历史分组（完整过程与全部操作都在这里）
 private struct ActivityTasksPage: View {
+    @Environment(\.cardMetrics) private var cards
     let mode: TaskCenterPanel.Mode
 
     @Environment(ShellBadges.self) private var badges
@@ -61,7 +62,7 @@ private struct ActivityTasksPage: View {
         let store = badges.tasks
         ScrollView {
             TaskCenterPanel(store: store, mode: mode, actions: actions)
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
                 .padding(.top, 8)
                 .padding(.bottom, 48)
         }
@@ -69,7 +70,7 @@ private struct ActivityTasksPage: View {
             store.refreshJobs()
             store.refreshDownloads()
         }
-        .navigationTitle(mode == .history ? "已结束" : "进行中")
+        .navigationTitle(mode == .history ? String(localized: .activityNavHistory) : String(localized: .activityJobStatusRunning))
         .navigationBarTitleDisplayMode(.inline)
         .appBackground()
         .taskDeleteSheet(actions, store: store)
@@ -112,8 +113,8 @@ private struct ActivityBoostPage: View {
                         SpeedStat(direction: .down, bytesPerSecond: totals.downSpeed, placeholder: "↓ 0 B/s")
                     }
                     GridRow {
-                        Text.activityJoin([Text("已上传 "), Text(ActivityFormat.bytes(Double(totals.uploaded))).fontWeight(.semibold).foregroundStyle(Theme.success)])
-                        Text.activityJoin([Text("已下载 "), Text(ActivityFormat.bytes(Double(totals.downloaded))).fontWeight(.semibold).foregroundStyle(Theme.info)])
+                        Text.activityJoin([Text(String(localized: .activityBoostUploaded) + " "), Text(ActivityFormat.bytes(Double(totals.uploaded))).fontWeight(.semibold).foregroundStyle(Theme.success)])
+                        Text.activityJoin([Text(String(localized: .activityBoostDownloaded) + " "), Text(ActivityFormat.bytes(Double(totals.downloaded))).fontWeight(.semibold).foregroundStyle(Theme.info)])
                     }
                 }
                 .font(.subheadline)
@@ -121,16 +122,16 @@ private struct ActivityBoostPage: View {
                 .foregroundStyle(Theme.textMuted)
                 .padding(.vertical, 4)
             } header: {
-                Text("\(totals.count) 个种子").textCase(nil)
+                Text(String(localized: .activityBoostTorrentCount(totals.count))).textCase(nil)
             }
             if !sites.sites.isEmpty {
                 Section {
                     ForEach(sites.sites) { site in siteRow(site) }
                 } header: {
-                    Text("按站点").textCase(nil)
+                    Text(String(localized: .activityBoostBySite)).textCase(nil)
                 } footer: {
                     if sites.count(.off) > 0 {
-                        Text("关闭刷流不会删除已有种子：它们会继续满速做种，引擎也不再自动汰换。可点右上角「清理」删除。")
+                        Text(String(localized: .activityBoostOffPageHint))
                     }
                 }
             }
@@ -144,13 +145,13 @@ private struct ActivityBoostPage: View {
                         Button {
                             withAnimation { visibleCount += Self.pageSize }
                         } label: {
-                            Text("再显示 \(min(Self.pageSize, sorted.count - visibleCount)) 个（共 \(sorted.count) 个）")
+                            Text(String(localized: .activityBoostShowMore(min(Self.pageSize, sorted.count - visibleCount), sorted.count)))
                                 .frame(maxWidth: .infinity)
                         }
                         .accessibilityIdentifier("boost-show-more")
                     }
                 } header: {
-                    Text("按上行速度排序").textCase(nil)
+                    Text(String(localized: .activityBoostBySpeed)).textCase(nil)
                 }
             }
         }
@@ -160,7 +161,7 @@ private struct ActivityBoostPage: View {
             badges.tasks.refreshDownloads()
             await loadPool()
         }
-        .navigationTitle("刷流做种")
+        .navigationTitle(String(localized: .activityNavBoost))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if supportsCleanup, !tasks.isEmpty {
@@ -181,24 +182,24 @@ private struct ActivityBoostPage: View {
             if cleaning {
                 ProgressView()
             } else {
-                Text("清理")
+                Text(String(localized: .activityBoostClean))
             }
         }
         .tint(Theme.danger)
         .disabled(cleaning)
-        .accessibilityLabel("清理刷流种子")
+        .accessibilityLabel(String(localized: .activityBoostCleanupButton))
         .accessibilityIdentifier("boost-cleanup")
         .confirmationDialog(confirmTitle, isPresented: $confirming, titleVisibility: .visible) {
             let plan = CleanupPlan(pool)
-            Button(plan.enabledNames.isEmpty ? "清理" : "关闭刷流并清理", role: .destructive) {
+            Button(plan.enabledNames.isEmpty ? String(localized: .activityBoostClean) : String(localized: .activityBoostDisableAndClean), role: .destructive) {
                 Task { await cleanup(force: false) }
             }
             if plan.protectedCount > 0 {
-                Button("立即全部删除（可能被记 H&R）", role: .destructive) {
+                Button(String(localized: .activityBoostDeleteAllNow), role: .destructive) {
                     Task { await cleanup(force: true) }
                 }
             }
-            Button("取消", role: .cancel) {}
+            Button(String(localized: .commonCancel), role: .cancel) {}
         } message: {
             Text(CleanupPlan(pool).message)
         }
@@ -225,17 +226,21 @@ private struct ActivityBoostPage: View {
         }
 
         var message: String {
-            var lines = ["将从下载器删除 \(count) 个刷流种子及其数据文件（共 \(ActivityFormat.bytes(Double(bytes)))），无法恢复。"]
+            var lines = [String(localized: .activityBoostConfirmDelete(count, ActivityFormat.bytes(Double(bytes))))]
             if !enabledNames.isEmpty {
-                lines.append("\(enabledNames.joined(separator: "、")) 还开着刷流，清理时会一并关闭，否则引擎几分钟内又会拉新种。")
+                let names = enabledNames.joined(separator: AppLanguage.identifier == "zh-Hans" ? "、" : ", ")
+                lines.append(String(localized: .activityBoostConfirmDisable(names)))
             }
             if protectedCount > 0 {
-                let until = ActivityBoostCleanupText.deadline(protectedUntil).map { "，最晚 \($0)" } ?? ""
-                let rest = protectedCount == count ? "它们" : "这 \(protectedCount) 个"
-                lines.append(
-                    "其中 \(protectedCount) 个（\(ActivityFormat.bytes(Double(protectedBytes)))）还没做满站点要求的做种时长，现在删可能被记 H&R。"
-                        + "选「清理」会先删其余的，\(rest)到期后自动删除\(until)。"
-                )
+                let until = ActivityBoostCleanupText.deadline(protectedUntil)
+                let all = protectedCount == count
+                let rest: String = switch (all, until) {
+                case (true, let until?): String(localized: .activityBoostConfirmRestAllUntil(until))
+                case (true, nil): String(localized: .activityBoostConfirmRestAll)
+                case (false, let until?): String(localized: .activityBoostConfirmRestSomeUntil(protectedCount, until))
+                case (false, nil): String(localized: .activityBoostConfirmRestSome(protectedCount))
+                }
+                lines.append(String(localized: .activityBoostConfirmProtected(protectedCount, ActivityFormat.bytes(Double(protectedBytes)))) + rest)
             }
             return lines.joined(separator: "\n\n")
         }
@@ -243,15 +248,15 @@ private struct ActivityBoostPage: View {
 
     private var confirmTitle: String {
         let count = CleanupPlan(pool).count
-        return count > 0 ? "清理 \(count) 个刷流种子？" : "清理刷流种子？"
+        return count > 0 ? String(localized: .activityBoostCleanupTitle(count)) : String(localized: .activityBoostCleanupTitleGeneric)
     }
 
     private func cleanupNote(_ state: API.BoostPoolTaskView?) -> String? {
         guard let state, state.cleanupScheduled else { return nil }
         if let until = ActivityBoostCleanupText.deadline(state.protectedUntil) {
-            return "已请求清理 · \(until) 保留期满后自动删除"
+            return String(localized: .activityBoostPendingDeadline(until))
         }
-        return "已请求清理 · 下一轮巡检删除"
+        return String(localized: .activityBoostPendingPatrol)
     }
 
     private func loadPool() async {
@@ -287,19 +292,19 @@ private struct ActivityBoostPage: View {
         let totals = ActivityBoostTotals(site.tasks)
         let size = site.tasks.reduce(0) { $0 + ($1.sizeBytes ?? 0) }
         let (label, color): (String, Color) = switch site.mode {
-        case .running: ("刷流中", Theme.success)
-        case .paused: ("已暂停", Theme.warning)
-        case .off: ("已关闭", Theme.textFaint)
+        case .running: (String(localized: .activityBoostRunning), Theme.success)
+        case .paused: (String(localized: .activityDownloadStatePaused), Theme.warning)
+        case .off: (String(localized: .activityBoostSiteOff), Theme.textFaint)
         }
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(site.name).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
                 Text(WatchFormat.metaLine([
-                    "\(site.tasks.count) 个种子", ActivityFormat.bytes(Double(size)), "↑ \(ActivityFormat.rate(Double(totals.upSpeed)))",
+                    String(localized: .activityBoostTorrentCount(site.tasks.count)), ActivityFormat.bytes(Double(size)), "↑ \(ActivityFormat.rate(Double(totals.upSpeed)))",
                 ]))
                 .font(.footnote).monospacedDigit().foregroundStyle(Theme.textMuted)
                 if let scheduled = site.pool?.scheduledCount, scheduled > 0 {
-                    Text("\(scheduled) 个已请求清理，保留期满后自动删除")
+                    Text(String(localized: .activityBoostSiteScheduled(scheduled)))
                         .font(.footnote).foregroundStyle(Theme.warning)
                 }
             }
@@ -313,6 +318,7 @@ private struct ActivityBoostPage: View {
 
 /// 最近播放 / 观看统计：筛选（周期、成员、范围）收进右上角的筛选菜单，当前条件写在标题下方
 private struct ActivityWatchPage: View {
+    @Environment(\.cardMetrics) private var cards
     let page: ActivityPage
 
     @Environment(ShellBadges.self) private var badges
@@ -342,7 +348,7 @@ private struct ActivityWatchPage: View {
                     )
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.top, 8)
             .padding(.bottom, 48)
         }
@@ -358,16 +364,16 @@ private struct ActivityWatchPage: View {
 
     private var memberLabel: String? {
         guard let memberId else { return nil }
-        if memberId == Self.adminMember { return "超级管理员" }
+        if memberId == Self.adminMember { return String(localized: .activityOverviewAdmin) }
         return members.first { $0.id == memberId }.map { $0.nickname.isEmpty ? $0.username : $0.nickname }
     }
 
     /// 标题下的当前条件：「最近 30 天 · 全部成员 · 我的浏览范围」
     private var filterSummary: String {
         var parts: [String] = []
-        if page == .stats { parts.append("最近 \(days) 天") }
-        parts.append(memberLabel ?? "全部成员")
-        parts.append(badges.media.scope == "all" ? "含隐藏的库" : "我的浏览范围")
+        if page == .stats { parts.append(String(localized: .activityOverviewDays(days))) }
+        parts.append(memberLabel ?? String(localized: .activityOverviewAllMembers))
+        parts.append(badges.media.scope == "all" ? String(localized: .activityOverviewIncludeHidden) : String(localized: .activityOverviewScopeMine))
         return parts.joined(separator: " · ")
     }
 
@@ -376,28 +382,28 @@ private struct ActivityWatchPage: View {
         let filtered = memberId != nil || media.scope == "all" || (page == .stats && days != 30)
         return Menu {
             if page == .stats {
-                Picker("周期", selection: $days) {
-                    ForEach(Self.periods, id: \.self) { Text("最近 \($0) 天").tag($0) }
+                Picker(String(localized: .activityOverviewPeriod), selection: $days) {
+                    ForEach(Self.periods, id: \.self) { Text(String(localized: .activityOverviewDays($0))).tag($0) }
                 }
                 .pickerStyle(.inline)
             }
-            Picker("成员", selection: Binding(mcGet: { memberId ?? -1 }, set: { memberId = $0 < 0 ? nil : $0 })) {
-                Text("全部成员").tag(-1)
-                Text("超级管理员").tag(Self.adminMember)
+            Picker(String(localized: .activityOverviewMember), selection: Binding(mcGet: { memberId ?? -1 }, set: { memberId = $0 < 0 ? nil : $0 })) {
+                Text(String(localized: .activityOverviewAllMembers)).tag(-1)
+                Text(String(localized: .authRoleSuperAdmin)).tag(Self.adminMember)
                 ForEach(members, id: \.id) { member in
                     Text(member.nickname.isEmpty ? member.username : member.nickname).tag(member.id)
                 }
             }
             .pickerStyle(.menu)
-            Picker("范围", selection: Binding(mcGet: { media.scope }, set: { media.setScope($0) })) {
-                Text("我的浏览范围").tag("visible")
-                Text("全部（含对你隐藏的库）").tag("all")
+            Picker(String(localized: .activityOverviewScope), selection: Binding(mcGet: { media.scope }, set: { media.setScope($0) })) {
+                Text(String(localized: .activityOverviewScopeMine)).tag("visible")
+                Text(String(localized: .activityOverviewScopeAll)).tag("all")
             }
             .pickerStyle(.inline)
         } label: {
             Image(systemName: filtered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
         }
-        .accessibilityLabel("筛选")
+        .accessibilityLabel(String(localized: .activityOverviewFilters))
         .accessibilityIdentifier("activity-filter")
     }
 }

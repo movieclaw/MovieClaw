@@ -1,7 +1,11 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
+import type { Route } from "next";
 import Image from "next/image";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode, type SVGProps } from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -26,6 +30,9 @@ import { UserMenu } from "@/components/user-menu";
 import { useAgentConversations } from "@/lib/agent-conversations";
 import { useBackdrop } from "@/lib/backdrop";
 import { sidebarGlass } from "@/lib/glass";
+import { pluginAppIconComponent } from "@/components/plugin-app-icon";
+import { activeAppNavId, appNavItems, withoutHidden } from "@/lib/plugin-apps";
+import { usePluginApps } from "@/lib/plugin-apps-context";
 import { applyNavOrder } from "@/lib/sidebar-nav";
 import { formatRelativeTime } from "@/lib/time";
 import { useUiPrefs } from "@/lib/ui-prefs";
@@ -68,35 +75,66 @@ export interface SidebarProps {
  *  的项按个人顺序在前，没排过的（包括版本升级新增的入口）按这里的次序追加在后
  *  （合并规则见 lib/sidebar-nav.ts）。设置页复用同一份清单渲染排序列表，
  *  两边的图标与文案不会各写一份。 */
+export interface SidebarNavItem {
+  id: string;
+  label: string;
+  icon: ComponentType<SVGProps<SVGSVGElement>>;
+  /** 插件网页的项（docs/design/plugin-web-pages.md）：点了直接跳这个地址；内置项为空 */
+  href?: string;
+}
+
 export const SIDEBAR_NAV_ITEMS = [
-  { id: "new", label: "新会话", icon: PlusIcon },
-  { id: "library", label: "媒体库", icon: LibraryStackIcon },
-  { id: "subscriptions", label: "我的订阅", icon: BookmarkFillIcon },
+  { id: "new", label: "nav.main.new", icon: PlusIcon },
+  { id: "library", label: "nav.main.library", icon: LibraryStackIcon },
+  { id: "subscriptions", label: "nav.main.subscriptions", icon: BookmarkFillIcon },
   ...exploreItems,
   // 「活动」（管理员专属）在这里占一位，只为**参与排序**：它带角标、落点还随
   // 角标变，因此渲染仍交给 JobCenter（见下方 navItems.map 的分支），这里登记的
   // label/icon 只给设置页的排序列表用。id 与 app-shell 的 navIdFromPath 对齐
   // （/activity → tasks），不另立一套 id。
-  { id: "tasks", label: "活动", icon: ActivityIcon },
-];
+  { id: "tasks", label: "nav.main.activity", icon: ActivityIcon },
+] as const;
 
 const memberNavItems = SIDEBAR_NAV_ITEMS.filter((item) => item.id !== "new");
 
 /**
  * 当前用户实际可见的主导航项（未排序）。侧栏与设置页的排序列表必须用同一套
  * 可见性判定，否则会出现"设置页能排、侧栏没有"这种对不上的项。
+ *
+ * 插件网页的项（同意加到侧边栏的）追加在内置项后面，与内置项一起参与排序；
+ * 用户「移出侧边栏」的项仍在这里（设置页要能把它放回来），侧栏渲染时再滤掉。
  */
-export function useVisibleNavItems() {
+export function useVisibleNavItems(): SidebarNavItem[] {
+  const t = useTranslations();
   const { session } = useSession();
   const { isAdmin, canSubscribe } = usePermissions();
+  const { apps } = usePluginApps();
   const items = session.role === "member" ? memberNavItems : SIDEBAR_NAV_ITEMS;
-  return items.filter((item) => {
+  const builtin = items.filter((item) => {
     if (item.id === "subscriptions") return canSubscribe;
     // 活动页与任务数据都是管理员专属（JobCenter 自身也有这道判断，成员侧渲染为空），
     // 这里必须同样挡掉，否则设置页会列出一条侧栏根本没有的可排序项
     if (item.id === "tasks") return isAdmin;
     return true;
   });
+  const fromApps = appNavItems(apps ?? []).map((item) => ({
+    id: item.id,
+    label: item.label,
+    href: item.href,
+    icon: pluginAppIconComponent(item.icon, item.monochrome),
+  }));
+  return [...builtin.map((item) => ({ ...item, label: t(item.label) })), ...fromApps];
+}
+
+/**
+ * 插件网页的导航项，按个人排序、去掉移出的：给没有侧边栏的地方用（手机的「我的」页）。
+ */
+export function usePluginNavItems(): SidebarNavItem[] {
+  const { prefs } = useUiPrefs();
+  const items = useVisibleNavItems();
+  return withoutHidden(applyNavOrder(items, prefs.nav.order), prefs.nav.hidden).filter(
+    (item) => item.href,
+  );
 }
 
 export function Sidebar({
@@ -125,7 +163,12 @@ export function Sidebar({
   const isMember = session.role === "member";
   // 个人排序：prefs 已含设置页的未保存草稿，因此在设置页拖动时这里即时跟随
   const visibleNavItems = useVisibleNavItems();
-  const navItems = applyNavOrder(visibleNavItems, prefs.nav.order);
+  const navItems = withoutHidden(applyNavOrder(visibleNavItems, prefs.nav.order), prefs.nav.hidden);
+  // 插件网页的地址外壳不认识（navIdFromPath 只认内置路由），高亮在这里按最长前缀补上
+  const router = useRouter();
+  const pathname = usePathname();
+  const { apps } = usePluginApps();
+  const currentNav = activeAppNavId(pathname, apps ?? []) ?? activeNav;
   const body = (
     <>
       {/* 品牌头部。展开：完整字标 + 开合/搜索图标横排；折叠：独立徽标、开合、搜索竖排居中。
@@ -186,7 +229,7 @@ export function Sidebar({
             // 所以位置由这里的 map 决定，而不再被钉在主导航末尾
             if (item.id === "tasks") {
               return (
-                <JobCenter key={item.id} collapsed={collapsed} active={activeNav === "tasks"} />
+                <JobCenter key={item.id} collapsed={collapsed} active={currentNav === "tasks"} />
               );
             }
             const Icon = item.icon;
@@ -194,8 +237,8 @@ export function Sidebar({
               <button
                 key={item.id}
                 type="button"
-                data-active={activeNav === item.id}
-                onClick={() => onSelect(item.id)}
+                data-active={currentNav === item.id}
+                onClick={() => (item.href ? router.push(item.href as Route) : onSelect(item.id))}
                 title={collapsed ? item.label : undefined}
                 className={`glass-row nav-item py-2 max-md:py-2.5 ${collapsed ? "justify-center px-0" : "px-3"}`}
               >
@@ -263,12 +306,13 @@ function BrandHome({
   homeId: string;
   children: ReactNode;
 }) {
+  const t = useTranslations();
   return (
     <button
       type="button"
       onClick={() => onSelect(homeId)}
-      aria-label="回到首页"
-      title="回到首页"
+      aria-label={t("nav.actions.home")}
+      title={t("nav.actions.home")}
       className="shrink-0 cursor-pointer transition-opacity hover:opacity-75"
     >
       {children}
@@ -277,7 +321,8 @@ function BrandHome({
 }
 
 function CollapseToggle({ collapsed, onClick }: { collapsed: boolean; onClick: () => void }) {
-  const label = collapsed ? "展开侧栏" : "收起侧栏";
+  const t = useTranslations();
+  const label = collapsed ? t("nav.actions.expandSidebar") : t("nav.actions.collapseSidebar");
   return (
     <button
       type="button"
@@ -313,6 +358,7 @@ function RecentSessions({
   activeNav: string;
   onSelect: (id: string) => void;
 }) {
+  const t = useTranslations();
   const { conversations, hasMore, loadingMore, loadMore, fork, rename, remove } =
     useAgentConversations();
   const toast = useToast();
@@ -346,7 +392,7 @@ function RecentSessions({
   /** 重命名会话：空输入或未改动直接放弃。 */
   const handleRename = async (id: string, currentTitle: string) => {
     const input = await prompt({
-      title: "重命名会话",
+      title: t("nav.sessions.renameTitle"),
       initialValue: currentTitle,
       maxLength: 80,
     });
@@ -354,7 +400,7 @@ function RecentSessions({
     const title = input.trim().slice(0, 80);
     if (!title || title === currentTitle) return;
     void rename(id, title).catch((error) => {
-      toast.error(`重命名失败：${(error as Error).message}`);
+      toast.error(t("nav.sessions.renameFailed", { reason: (error as Error).message }));
     });
   };
 
@@ -364,25 +410,25 @@ function RecentSessions({
       const targetId = await fork(id);
       onSelect(targetId);
     } catch (error) {
-      toast.error(`创建续接会话失败：${(error as Error).message}`);
+      toast.error(t("nav.sessions.forkFailed", { reason: (error as Error).message }));
     }
   };
 
   const handleCopyId = async (id: string) => {
     try {
       await copyText(id);
-      toast.success("会话 ID 已复制");
+      toast.success(t("nav.sessions.idCopied"));
     } catch (error) {
-      toast.error(`复制失败：${(error as Error).message}`);
+      toast.error(t("nav.sessions.copyFailed", { reason: (error as Error).message }));
     }
   };
 
   /** 彻底删除会话（二次确认）；删的是当前打开的会话时回到新会话页。 */
   const handleDelete = async (id: string, title: string) => {
     const ok = await confirm({
-      title: `彻底删除会话「${title}」？`,
-      description: "服务器上的完整对话记录将一并删除，此操作不可恢复。",
-      confirmLabel: "彻底删除",
+      title: t("nav.sessions.deleteTitle", { title }),
+      description: t("nav.sessions.deleteDescription"),
+      confirmLabel: t("nav.sessions.deleteConfirm"),
       tone: "danger",
     });
     if (!ok) return;
@@ -391,13 +437,13 @@ function RecentSessions({
         if (activeNav === id) onSelect("new");
       })
       .catch((error) => {
-        toast.error(`删除失败：${(error as Error).message}`);
+        toast.error(t("nav.sessions.deleteFailed", { reason: (error as Error).message }));
       });
   };
 
   return (
     <div className="mt-6 flex min-h-0 flex-1 flex-col">
-      <Section label="最近会话" icon={<ClockIcon className="size-3.5" />}>
+      <Section label={t("nav.sessions.recent")} icon={<ClockIcon className="size-3.5" />}>
         <div
           ref={listRef}
           onScroll={handleScroll}
@@ -405,7 +451,7 @@ function RecentSessions({
         >
           {conversations.length === 0 ? (
             <p className="px-2.5 py-1 text-caption leading-5 text-[var(--text-faint)]">
-              还没有会话，从「新会话」开始。
+              {t("nav.sessions.empty")}
             </p>
           ) : (
             conversations.map((c) => (
@@ -413,6 +459,7 @@ function RecentSessions({
                 key={c.id}
                 title={c.title}
                 running={c.running}
+                owner={c.owner}
                 time={formatRelativeTime(new Date(c.updatedAt).toISOString())}
                 active={activeNav === c.id}
                 onClick={() => onSelect(c.id)}
@@ -424,7 +471,7 @@ function RecentSessions({
             ))
           )}
           {loadingMore && (
-            <p className="px-2.5 py-1.5 text-caption text-[var(--text-faint)]">加载中…</p>
+            <p className="px-2.5 py-1.5 text-caption text-[var(--text-faint)]">{t("nav.sessions.loading")}</p>
           )}
         </div>
       </Section>
@@ -461,6 +508,7 @@ function Section({
 function RunRow({
   title,
   running,
+  owner,
   time,
   active,
   onClick,
@@ -471,6 +519,8 @@ function RunRow({
 }: {
   title: string;
   running: boolean;
+  /** 插件发起的会话（"plugin:<条目 id>"）在时间前标一个「插件」 */
+  owner?: string | null;
   time: string;
   active: boolean;
   onClick: () => void;
@@ -479,6 +529,7 @@ function RunRow({
   onRename: () => void;
   onDelete: () => void;
 }) {
+  const t = useTranslations();
   // 菜单打开状态即定位坐标（打开瞬间按触发按钮位置计算一次）
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -519,7 +570,7 @@ function RunRow({
         type="button"
         data-active={active}
         onClick={onClick}
-        title={`更新于 ${time}`}
+        title={t("nav.sessions.updated", { time })}
         className="glass-row nav-item items-center gap-2.5 px-2.5 py-1 max-md:py-2"
       >
         {/* 状态点：仿 ChatGPT 的极简指示。容器始终占位（size-[7px]）以保证所有标题左对齐，
@@ -538,6 +589,16 @@ function RunRow({
         <span className="flex-1 overflow-hidden whitespace-nowrap text-ui font-medium text-[var(--text)] [mask-image:linear-gradient(to_right,#000_calc(100%_-_16px),transparent)]">
           {title}
         </span>
+        {owner?.startsWith("plugin:") && (
+          <span
+            title={t("nav.sessions.pluginOwner", { plugin: owner.slice("plugin:".length) })}
+            className={`shrink-0 text-caption text-[var(--text-faint)] transition-opacity duration-200 ${
+              open ? "opacity-0" : "group-hover/run:opacity-0"
+            }`}
+          >
+            {t("nav.sessions.plugin")}
+          </span>
+        )}
         {/* 行尾相对时间。桌面端悬停/菜单打开时让位给 ⋯ 按钮（两者占同一块地方）；
             移动端 ⋯ 恒定可见（.touch-reveal），改用右外边距给它留出位置。 */}
         <span
@@ -552,7 +613,7 @@ function RunRow({
       <button
         ref={moreRef}
         type="button"
-        aria-label="会话操作"
+        aria-label={t("nav.sessions.actions")}
         data-active={open}
         onClick={(e) => {
           if (open) {
@@ -585,7 +646,7 @@ function RunRow({
               className="glass-row px-2.5 py-2 text-ui font-medium max-md:py-2.5"
             >
               <ChatIcon className="size-4 shrink-0 opacity-80 max-md:size-5" />
-              <span className="flex-1">在新会话中继续</span>
+              <span className="flex-1">{t("nav.sessions.continue")}</span>
             </button>
             <button
               type="button"
@@ -593,7 +654,7 @@ function RunRow({
               className="glass-row px-2.5 py-2 text-ui font-medium max-md:py-2.5"
             >
               <CopyIcon className="size-4 shrink-0 opacity-80 max-md:size-5" />
-              <span className="flex-1">复制会话 ID</span>
+              <span className="flex-1">{t("nav.sessions.copyId")}</span>
             </button>
             <button
               type="button"
@@ -601,7 +662,7 @@ function RunRow({
               className="glass-row px-2.5 py-2 text-ui font-medium max-md:py-2.5"
             >
               <PencilIcon className="size-4 shrink-0 opacity-80 max-md:size-5" />
-              <span className="flex-1">重命名</span>
+              <span className="flex-1">{t("nav.sessions.rename")}</span>
             </button>
             <button
               type="button"
@@ -609,7 +670,7 @@ function RunRow({
               className="glass-row px-2.5 py-2 text-ui font-medium !text-[var(--danger)] hover:!bg-[rgba(255,107,107,0.12)] max-md:py-2.5"
             >
               <TrashIcon className="size-4 shrink-0 opacity-80 max-md:size-5" />
-              <span className="flex-1">删除会话</span>
+              <span className="flex-1">{t("nav.sessions.delete")}</span>
             </button>
           </div>,
           document.body,

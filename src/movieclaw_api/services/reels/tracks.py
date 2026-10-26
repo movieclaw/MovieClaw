@@ -34,8 +34,11 @@ _ZH_LANGS = {
     "zh-hk",
     "zh-sg",
 }
+# i18n-ignore: tokens matched against track titles
 _ZH_TITLE_MARKS = ("中", "简", "繁", "國", "国", "chs", "cht", "chinese", "mandarin", "cantonese")
+# i18n-ignore: tokens matched against track titles
 _SIMPLIFIED_MARKS = ("简", "chs", "hans", "zh-cn")
+# i18n-ignore: tokens matched against track titles
 _COMMENTARY_MARKS = ("评论", "評論", "commentary", "解说", "導演", "导演")
 
 

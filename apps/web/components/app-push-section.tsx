@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 /**
  * 「App 推送」设置分区（docs/design/cloud-push.md §3、§7.2、§8）。
  *
@@ -54,17 +56,19 @@ import {
 } from "@/lib/cloud-push-display";
 
 export function AppPushSection() {
+  const t = useTranslations();
+  const locale = useLocale();
   const [view, setView] = useState<PushChannelsView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      setView(await getPushChannels());
+      setView(await getPushChannels(locale));
     } catch (e) {
       setLoadError((e as Error).message);
     }
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     void load();
@@ -79,7 +83,7 @@ export function AppPushSection() {
           onClick={() => void load()}
           className="btn-glass px-4 py-1.5 text-sub font-medium"
         >
-          重试
+          {t("common.retry")}
         </button>
       </div>
     ) : (
@@ -99,6 +103,8 @@ function ChannelList({
   view: PushChannelsView;
   onView: (view: PushChannelsView) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const router = useRouter();
   const confirm = useConfirm();
   const toast = useToast();
@@ -109,7 +115,7 @@ function ChannelList({
   const [toggling, setToggling] = useState<Record<string, boolean>>({});
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<PushChannelView | null>(null);
-  const uncovered = uncoveredSummary(view.uncovered);
+  const uncovered = uncoveredSummary(view.uncovered, locale);
 
   const toggle = async (channel: PushChannelView, enabled: boolean) => {
     setToggling((prev) => ({ ...prev, [channel.id]: enabled }));
@@ -139,7 +145,7 @@ function ChannelList({
       onView(next);
       const updated = next.channels.find((c) => c.id === channel.id);
       if (updated) {
-        const message = `「${updated.name}」：${channelPill(updated, next.cloud_state).label}`;
+        const message = t("settings.pushChannels.statusReceipt", { name: updated.name, status: channelPill(updated, next.cloud_state, locale).label });
         if (updated.state === "error") toast.error(message);
         else toast.success(message);
       }
@@ -152,10 +158,10 @@ function ChannelList({
 
   const remove = async (channel: PushChannelView) => {
     const ok = await confirm({
-      title: `删除「${channel.name}」？`,
+      title: t("settings.pushChannels.removeTitle", { name: channel.name }),
       description:
-        "用它推送的设备会换到别的能推送它们的通道；没有的话，这些设备就收不到通知了。",
-      confirmLabel: "删除",
+        t("settings.pushChannels.removeHint"),
+      confirmLabel: t("common.delete"),
       tone: "danger",
     });
     if (!ok) return;
@@ -163,7 +169,7 @@ function ChannelList({
     setError(null);
     try {
       onView(await deleteRelay(channel.id));
-      toast.success(`已删除「${channel.name}」`);
+      toast.success(t("settings.pushChannels.removed", { name: channel.name }));
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -185,14 +191,14 @@ function ChannelList({
                   onClick={() => setAdding(true)}
                   className="btn-glass px-3 py-1.5 text-sub font-medium"
                 >
-                  添加自建中继
+                  {t("settings.pushChannels.addRelay")}
                 </button>
                 <button
                   type="button"
                   onClick={() => router.push("/settings/devices" as Route)}
                   className="btn-glass px-3 py-1.5 text-sub font-medium"
                 >
-                  查看设备
+                  {t("settings.pushChannels.viewDevices")}
                 </button>
               </div>
             }
@@ -202,14 +208,14 @@ function ChannelList({
         )}
 
         <p className="text-sub leading-6 text-[var(--text-muted)]">
-          通知在这台服务器上加密，通道只转发密文。每台设备按它装的 App 自动选通道：官方推送在前，自建中继按列表顺序，前一个连不上就换下一个。
+          {t("settings.pushChannels.routingHint")}
         </p>
 
         {error && <ErrorBanner>{error}</ErrorBanner>}
       </div>
 
       <SettingsSection
-        title="推送通道"
+        title={t("settings.pushChannels.channels")}
         action={
           <button
             type="button"
@@ -217,20 +223,18 @@ function ChannelList({
             className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`}
           >
             <PlusIcon className="size-4" />
-            添加自建中继
+            {t("settings.pushChannels.addRelay")}
           </button>
         }
         footnote={
           <>
-            自建中继给自己打包的 App 用；能推哪些 App 由中继上的推送证书决定。
-            <a
+            {t("settings.pushChannels.relayHint")}{locale === "en" && " "}<a
               href={RELAY_DEPLOY_URL}
               target="_blank"
               rel="noopener noreferrer"
               className={LINK_CLASS}
             >
-              怎么部署 ↗
-            </a>
+              {t("settings.pushChannels.deploy")}</a>
           </>
         }
       >
@@ -257,7 +261,7 @@ function ChannelList({
           onAdded={(next, name) => {
             onView(next);
             setAdding(false);
-            toast.success(`已添加「${name}」`);
+            toast.success(t("settings.pushChannels.added", { name }));
           }}
         />
       )}
@@ -268,7 +272,7 @@ function ChannelList({
           onSaved={(next) => {
             onView(next);
             setEditing(null);
-            toast.success("已保存");
+            toast.success(t("settings.pushChannels.saved"));
           }}
         />
       )}
@@ -299,11 +303,13 @@ function ChannelRow({
   onRefresh: () => void;
   onDelete: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const official = channel.kind === "official";
-  const pill = channelPill(channel, cloudState);
+  const pill = channelPill(channel, cloudState, locale);
   const awaitingCloud = officialAwaitingCloud(channel, cloudState);
-  const details = channelDetails(channel);
-  const deviceCount = channelDeviceCount(channel.device_count);
+  const details = channelDetails(channel, locale);
+  const deviceCount = channelDeviceCount(channel.device_count, locale);
 
   return (
     // 网格：开关只占标题那一行，说明、地址和额度从标题左缘一直铺到右缘——
@@ -313,7 +319,7 @@ function ChannelRow({
         {official ? <CloudIcon className="size-5" /> : <ServerIcon className="size-5" />}
       </span>
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 self-center">
-        <p className="min-w-0 truncate text-body font-medium text-[var(--text)]">{channel.name}</p>
+        <p className={`min-w-0 ${locale === "en" ? "break-words" : "truncate"} text-body font-medium text-[var(--text)]`}>{channel.name}</p>
         <StatusPill tone={pill.tone} label={pill.label} />
         {deviceCount && (
           <span className="text-caption text-[var(--text-faint)]">{deviceCount}</span>
@@ -323,18 +329,18 @@ function ChannelRow({
       <div className="flex items-center gap-2 self-center">
         {!official && (
           <SettingsMoreMenu
-            label={`${channel.name} 的更多操作`}
+            label={t("settings.pushChannels.more", { name: channel.name })}
             disabled={busy}
             items={[
-              { label: "编辑", onSelect: onEdit },
-              { label: "重新检测", onSelect: onRefresh },
-              { label: "删除", onSelect: onDelete, danger: true },
+              { label: t("settings.pushChannels.edit"), onSelect: onEdit },
+              { label: t("settings.pushChannels.refresh"), onSelect: onRefresh },
+              { label: t("common.delete"), onSelect: onDelete, danger: true },
             ]}
           />
         )}
         <Toggle
           checked={awaitingCloud ? false : enabled}
-          label={`启用${channel.name}`}
+          label={t("settings.pushChannels.enable", { name: channel.name })}
           disabled={busy || awaitingCloud}
           onChange={onToggle}
         />
@@ -342,7 +348,7 @@ function ChannelRow({
       <div className="col-span-2 col-start-2 min-w-0">
         {official && (
           <p className="mt-0.5 text-caption leading-5 text-[var(--text-muted)]">
-            给 App Store、TestFlight 版的 MovieClaw App 用，通过 MovieClaw Cloud
+            {t("settings.pushChannels.officialHint")}
           </p>
         )}
         {details && (
@@ -355,9 +361,8 @@ function ChannelRow({
         )}
         {awaitingCloud && (
           <p className="mt-1 text-caption leading-5 text-[var(--text-muted)]">
-            这台服务器还没有连接 MovieClaw 账号，连接后官方推送自动启用。
-            <Link href="/settings/cloud" className={LINK_CLASS}>
-              去连接
+            {t("settings.pushChannels.connectHint")}{locale === "en" && " "}<Link href="/settings/cloud" className={LINK_CLASS}>
+              {t("settings.pushChannels.connect")}
             </Link>
           </p>
         )}
@@ -377,7 +382,8 @@ function ChannelRow({
  * 只知道上限（官方通道还没推送过）或只知道用量时只写读数，不画条。
  */
 function QuotaMeter({ quota }: { quota: PushQuota }) {
-  const label = quotaLabel(quota);
+  const locale = useLocale();
+  const label = quotaLabel(quota, locale);
   if (!label) return null;
   const percent = quotaPercent(quota);
   const tone = quotaTone(quota);

@@ -17,7 +17,8 @@ from typing import Any
 import httpx
 
 from movieclaw_api import __version__
-from movieclaw_api.services.push.relay import describe_network_error
+from movieclaw_api.i18n.stored import reference, stored_fields
+from movieclaw_api.services.push.relay import network_error_ref
 from movieclaw_api.settings.cloud import CloudDiscovery
 from movieclaw_db.models import utcnow
 from movieclaw_net.egress import egress_transport
@@ -31,6 +32,15 @@ _TIMEOUT = httpx.Timeout(15.0, connect=8.0)
 
 class CloudUnreachable(Exception):
     """云端连不上，或者返回了 5xx / 看不懂的响应：可以稍后重试。"""
+
+    def __init__(
+        self, message: str = "", *, message_key: str | None = None, params: dict | None = None
+    ) -> None:
+        params = params or {}
+        self.message_ref = reference(message_key, **params) if message_key else None
+        if message_key:
+            message = stored_fields(message_key, **params)["message"]
+        super().__init__(message)
 
 
 @dataclass
@@ -66,9 +76,13 @@ async def _request(method: str, url: str, **kwargs: Any) -> CloudReply:
         async with _client() as client:
             response = await client.request(method, url, **kwargs)
     except httpx.HTTPError as exc:
-        raise CloudUnreachable(f"MovieClaw Cloud{describe_network_error(exc)}") from exc
+        raise CloudUnreachable(
+            message_key="cloud.network.failed", params={"reason": network_error_ref(exc)}
+        ) from exc
     if response.status_code >= 500:
-        raise CloudUnreachable(f"MovieClaw Cloud 暂时不可用（HTTP {response.status_code}）")
+        raise CloudUnreachable(
+            message_key="cloud.network.http", params={"status": response.status_code}
+        )
     try:
         body = response.json()
     except ValueError:
@@ -84,7 +98,9 @@ async def fetch_discovery(cloud_url: str) -> CloudDiscovery:
     """拉发现文档。格式不对也按连不上处理（调用方会退回缓存）。"""
     reply = await _request("GET", f"{_strip(cloud_url)}/.well-known/movieclaw-cloud")
     if reply.status != 200 or not reply.body.get("api"):
-        raise CloudUnreachable(f"MovieClaw Cloud 的发现文档不可用（HTTP {reply.status}）")
+        raise CloudUnreachable(
+            message_key="cloud.network.discovery", params={"status": reply.status}
+        )
     endpoints = [
         e for e in reply.body.get("push_endpoints") or [] if isinstance(e, dict) and e.get("url")
     ]

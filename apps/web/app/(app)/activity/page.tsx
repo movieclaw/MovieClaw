@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 
 import { ActivityView } from "@/components/activity-view";
 import {
@@ -8,7 +9,10 @@ import {
   watchViewFromQuery,
 } from "@/lib/task-center";
 
-export const metadata: Metadata = { title: "活动" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations();
+  return { title: t("activity.nav.title") };
+}
 
 /**
  * 活动（/activity）：观看（媒体库实时活动）与任务（下载/入库/后台作业）两个视角；

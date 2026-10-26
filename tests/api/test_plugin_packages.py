@@ -130,7 +130,7 @@ def start():
     admin = Principal(kind="admin", name="tester")
     app.dependency_overrides[require_admin] = lambda: admin
     app.dependency_overrides[require_login] = lambda: admin
-    return app, TestClient(app)
+    return app, TestClient(app, headers={"Accept-Language": "zh-Hans"})
 
 
 def upload(client, data: bytes):
@@ -237,7 +237,7 @@ def test_install_upgrade_rollback_restart_and_uninstall(data_dir) -> None:
         assert chosen(client) == 1
         assert not (data_dir / "plugins" / "packages" / "acme-pkg" / "2.0.0").exists()
         # 回滚留下一条待处理事项，「去处理」落到插件管理页（网页、App、推送同一套映射）
-        from movieclaw_api.services.push.events import notice_path
+        from movieclaw_api.services.push.alerts import notice_path
 
         notice = open_notice(client)
         assert notice is not None and "缺少配置" in notice.message
@@ -351,8 +351,9 @@ def test_crash_loop_during_grace_period_rolls_back(data_dir) -> None:
         wait_for(lambda: installed(client)["acme-pkg"]["version"] == "1.0.0", timeout=60)
         assert installed(client)["acme-pkg"]["bad_versions"] == ["2.0.0"]
         wait_for(lambda: chosen(client) == 1)
-        # 回滚之后直接卸载：通知跟着消退，不留一条再也处理不了的待处理事项
-        assert open_notice(client) is not None
+        # 回滚之后直接卸载：通知跟着消退，不留一条再也处理不了的待处理事项。
+        # 回滚先存版本记录、激活旧版，最后才写通知：等它写进来再往下走
+        wait_for(lambda: open_notice(client) is not None)
         assert client.delete("/api/v1/app/plugins/packages/acme-pkg").status_code == 200
         assert open_notice(client) is None
 
@@ -526,3 +527,14 @@ def test_package_callbacks_need_a_declaration_and_die_with_the_package(data_dir)
         assert client.delete("/api/v1/app/plugins/packages/acme-pkg").status_code == 200
         assert client.get(url).status_code == 404
         assert client.get("/api/v1/app/plugins/callbacks").json()["data"] == []
+
+
+def test_package_details_say_where_the_code_and_data_live(data_dir) -> None:
+    app, client = start()
+    with client:
+        assert upload(client, package(1)).status_code == 200
+        assert approve(client, "1.0.0").json()["data"]["status"] == "active"
+        detail = client.get("/api/v1/app/plugins/acme-pkg").json()["data"]
+    assert detail["source"]["path"] == "data/plugins/packages/acme-pkg/1.0.0"
+    assert detail["source"]["entry"]
+    assert detail["data_path"] == "data/plugins/data/acme-pkg"

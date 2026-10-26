@@ -1,0 +1,31 @@
+{
+  "channel": {
+    "thinking": "思考中💭"
+  },
+  "operations": {
+    "messageSubmitted": "用户消息已提交",
+    "imageUploaded": "图片已上传",
+    "continuationCreated": "已创建续接会话",
+    "renamed": "会话已重命名",
+    "compacted": "会话上下文已压缩",
+    "deleted": "会话已删除",
+    "stopRequested": "已请求停止会话"
+  },
+  "session": {
+    "continued": "续：{title}",
+    "skill": "[技能] {text}",
+    "skillOnly": "[技能]",
+    "image": "[图片]",
+    "images": "[图片 ×{count}]",
+    "defaultInstruction": "用户未附加说明，按上述技能指令执行。"
+  },
+  "attachments": {
+    "imageName": "图片",
+    "defaultName": "图片"
+  },
+  "im": {
+    "visionUnsupported": "当前模型「{model}」不支持看图，这张图我看不了（文字部分照常处理）。可在设置里把默认模型换成视觉模型（如 qwen3-vl-plus）；若它其实支持看图，在供应商设置的「补录模型」里为它勾上「视觉」后重发即可。",
+    "tooManyImages": "一次最多处理 {max} 张图片，本轮只看前 {max} 张。",
+    "imageFailed": "有一张图片没能处理（{error}）。"
+  }
+}

@@ -110,7 +110,7 @@ struct TVPersonView: View {
 
     /// 「库内 12 部 · 参演 10 · 执导 2」：只有一种身份时只写总数
     private static func summary(_ person: API.PersonView) -> String {
-        let all = "库内 \(Set(person.credits.map(\.mediaItemId)).count) 部"
+        let all = String(localized: .mediaPersonLibraryCount(Set(person.credits.map(\.mediaItemId)).count))
         let parts = sections(person)
         guard parts.count > 1 else { return all }
         return ([all] + parts.map { "\($0.title) \($0.credits.count)" }).joined(separator: " · ")
@@ -122,14 +122,14 @@ struct TVPersonView: View {
     private static func sections(_ person: API.PersonView) -> [(title: String, credits: [API.PersonCreditView])] {
         let cast = person.credits.filter { $0.department == "cast" }
         let directed = person.credits.filter { $0.department == "director" }
-        return [("参演", cast), ("执导", directed)].filter { !$0.1.isEmpty }
+        return [(String(localized: .mediaPersonCast), cast), (String(localized: .mediaPersonDirected), directed)].filter { !$0.1.isEmpty }
     }
 
     @ViewBuilder
     private func credits(_ person: API.PersonView) -> some View {
         let parts = Self.sections(person)
         if parts.isEmpty {
-            TVStateView(symbol: "film", title: "库内还没有这位影人的作品")
+            TVStateView(symbol: "film", title: String(localized: .libraryPersonNoTitles))
                 .frame(height: 500)
         }
         ForEach(parts, id: \.title) { part in
@@ -139,7 +139,7 @@ struct TVPersonView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 16) {
                         Text(part.title)
                             .font(.system(size: 32, weight: .semibold))
-                        Text("\(part.credits.count) 部")
+                        Text(String(localized: .libraryStatusTitleCount(part.credits.count)))
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
@@ -178,7 +178,7 @@ struct TVPersonView: View {
             subtitle: credit.year.map(String.init),
             imageURL: api.image(credit.posterUrl, width: ImageWidth.tvCard(TVWallLayout.posterWidth)),
             width: TVWallLayout.posterWidth,
-            badge: credit.mediaItemId == fromItem ? "本片" : nil,
+            badge: credit.mediaItemId == fromItem ? String(localized: .libraryItemCurrentTitle) : nil,
             caption: .hidden,
             focusDetail: Self.focusDetail(credit)
         ) {
@@ -198,10 +198,10 @@ struct TVPersonView: View {
     /// 海报底部暗带里那一行：「饰 柯布 · 2010」「导演 · 2010」（剧集的导演栏是主创）；文件已删的写明为什么点不进去
     private static func focusDetail(_ credit: API.PersonCreditView) -> String {
         let role: String? = credit.department == "director"
-            ? (credit.kind == "tv" ? "主创" : "导演")
-            : credit.character.flatMap { $0.isEmpty ? nil : "饰 \($0)" }
+            ? (credit.kind == "tv" ? String(localized: .mediaDetailCreator) : String(localized: .mediaDetailDirector))
+            : credit.character.flatMap { $0.isEmpty ? nil : String(localized: .mediaPersonCharacter($0)) }
         let line = [role, credit.year.map(String.init)].compactMap { $0 }.joined(separator: " · ")
-        if credit.libraryId == nil { return line.isEmpty ? "片源已移除" : line + " · 片源已移除" }
+        if credit.libraryId == nil { return line.isEmpty ? String(localized: .librarySourceRemoved) : line + " · " + String(localized: .librarySourceRemoved) }
         return line.isEmpty ? credit.title : line
     }
 
@@ -224,14 +224,13 @@ struct TVPersonView: View {
         case .missing:
             TVStateView(
                 symbol: "person.crop.rectangle",
-                title: "库内没有这位影人的作品",
-                message: "可能是这位影人参演的片都已从库里移除；也可能这个库是早前扫描的——影人档案随入库刮削一并建立，"
-                    + "在手机或网页上对这个库执行一次「刷新元数据」即可补齐。",
-                actionTitle: "返回"
+                title: String(localized: .mediaPersonEmptyLibrary),
+                message: String(localized: .libraryPersonEmptyHintPhone),
+                actionTitle: String(localized: .commonBack)
             ) { router.pop() }
         case .error:
-            TVStateView(symbol: "exclamationmark.triangle", title: "未能加载影人档案",
-                        message: "请稍后重试；若持续失败，请查看系统日志。", actionTitle: "重试") {
+            TVStateView(symbol: "exclamationmark.triangle", title: String(localized: .mediaPersonLoadFailed),
+                        message: String(localized: .mediaPersonRetryHint), actionTitle: String(localized: .commonRetry)) {
                 Task { await load() }
             }
         }

@@ -1,3 +1,6 @@
+import { appTranslator } from "./i18n/translate.ts";
+import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
+
 /**
  * 影片分享（docs/design/media-share.md）的纯逻辑：有效期档位、访问码生成、
  * 链接补全、可直接发给别人的复制文本。无 React / Next 依赖，`node --test`
@@ -5,11 +8,8 @@
  */
 
 /** 有效期档位（天）。没有「永久」——一条链接不该在聊天记录里躺一年（设计文档 §2.2）。 */
-export const SHARE_EXPIRY_OPTIONS: readonly { days: number; label: string }[] = [
-  { days: 1, label: "1 天" },
-  { days: 3, label: "3 天" },
-  { days: 7, label: "7 天" },
-  { days: 30, label: "30 天" },
+export const SHARE_EXPIRY_OPTIONS: readonly { days: number }[] = [
+  { days: 1 }, { days: 3 }, { days: 7 }, { days: 30 },
 ];
 
 export const DEFAULT_SHARE_EXPIRY_DAYS = 7;
@@ -44,11 +44,11 @@ function secureRandom(): number {
 }
 
 /** 密码校验：空 = 不设密码；非空须在长度边界内。返回错误文案，合法为 null。 */
-export function validateSharePassword(password: string): string | null {
+export function validateSharePassword(password: string, locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
   const cleaned = password.trim();
   if (!cleaned) return null;
   if (cleaned.length < SHARE_PASSWORD_MIN || cleaned.length > SHARE_PASSWORD_MAX) {
-    return `密码长度须在 ${SHARE_PASSWORD_MIN}–${SHARE_PASSWORD_MAX} 位之间`;
+    return appTranslator(locale)("library.share.passwordLength", { min: SHARE_PASSWORD_MIN, max: SHARE_PASSWORD_MAX });
   }
   return null;
 }
@@ -69,24 +69,23 @@ export function isRelativeShareUrl(url: string): boolean {
 }
 
 /** 「复制链接和密码」的文本：一段可以直接粘进聊天框的话。 */
-export function shareCopyText(title: string, url: string, password: string | null): string {
-  const parts = [`《${title}》`, `链接：${url}`];
-  if (password) parts.push(`密码：${password}`);
-  return parts.join(" ");
+export function shareCopyText(title: string, url: string, password: string | null, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  return appTranslator(locale)("library.share.copyText", { title, url, password: password ?? "", protected: password ? "yes" : "no" });
 }
 
 /**
  * 到期提示：「N 天后失效」/「N 小时后失效」/「即将失效」。绝对时间由调用方
  * 另配（lib/time.ts 的 formatDateTime）。
  */
-export function expiryHint(expiresAtIso: string, nowMs: number = Date.now()): string {
+export function expiryHint(expiresAtIso: string, nowMs: number = Date.now(), locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   const remainingMs = Date.parse(expiresAtIso) - nowMs;
-  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return "已失效";
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return t("library.share.expired");
   const hours = remainingMs / 3_600_000;
-  if (hours >= 47) return `${Math.round(hours / 24)} 天后失效`;
-  if (hours >= 1) return `${Math.floor(hours)} 小时后失效`;
+  if (hours >= 47) return t("library.share.expiresDays", { count: Math.round(hours / 24) });
+  if (hours >= 1) return t("library.share.expiresHours", { count: Math.floor(hours) });
   const minutes = Math.max(1, Math.floor(remainingMs / 60_000));
-  return `${minutes} 分钟后失效`;
+  return t("library.share.expiresMinutes", { count: minutes });
 }
 
 /** 分享页地址（站内相对路径）。 */

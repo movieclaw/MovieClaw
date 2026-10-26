@@ -1,6 +1,7 @@
 """安装前检查一个插件目录：用服务器同一套逻辑校验，再真的导入入口模块。
 
     python check_plugin.py plugins/hello-world
+    python check_plugin.py plugins/hello-world --lock   # 先按 requirements.in 生成依赖锁文件再检查
 
 输出 ✓ / ⚠ / ✗。有 ✗ 时退出码为 1，必须修好再安装；⚠ 要逐条判断是否需要处理。
 
@@ -8,7 +9,9 @@
 1. 清单与压缩包：按 ``mclaw plugin pack`` 的规则在内存里打包，交给服务器的 ``read_archive`` 校验；
 2. 兼容与权限：服务器的 ``check_compat``（SDK、契约、宿主操作是否存在、路径授权写法、id 是否被占用）；
 3. 入口模块：在独立子进程里导入，找到名字等于清单 id 的 ``@plugin``，核对 inject / permissions / 用到的契约；
-4. 其他：全部 .py 能编译、危险操作是否逐个列出、inline 运行、包大小。
+4. 其他：全部 .py 能编译、危险操作是否逐个列出、inline 运行、包大小；
+5. 第三方依赖（``[dependencies] lock``）：钉死、哈希、只接受轮子、不与主程序重名，缺哪个平台的轮子；
+6. 网页主题（``[theme]``）：theme.css 的规则不能漏出本主题的作用域去改内核变量、内核部件或全局元素。
 """
 
 from __future__ import annotations
@@ -144,6 +147,8 @@ def probe(directory: Path, module: str, entry_id: str) -> dict:
 
 # ---------------------------------------------------------------------- 主流程
 def main(argv: list[str]) -> int:
+    make_lock = "--lock" in argv
+    argv = [a for a in argv if a != "--lock"]
     if len(argv) != 1:
         print(__doc__)
         return 2
@@ -151,6 +156,12 @@ def main(argv: list[str]) -> int:
     if not (directory / MANIFEST).is_file():
         fail(f"{directory} 下没有 {MANIFEST}")
         return 1
+    if make_lock:
+        from movieclaw_sdk import deps
+
+        if deps.main(["lock", str(directory)]) != 0:
+            fail("生成依赖锁文件失败（原因见上）")
+            return 1
 
     from movieclaw_api.plugins.packages import (
         MAX_ARCHIVE_BYTES,
@@ -177,7 +188,12 @@ def main(argv: list[str]) -> int:
     if is_legacy_id(plugin.id):
         fail(f"id「{plugin.id}」是旧格式（带点）：新插件的 id 须{ID_RULE}；清单 id 与 @plugin 的名字一起改")
         return _finish()
-    ok(f"清单合规：{plugin.id} v{plugin.version}，入口 {plugin.entry}，运行方式 {plugin.runtime}")
+    web_only = not plugin.entry and plugin.runtime != "exec"
+    if web_only:
+        kind = "只带主题" if manifest.theme is not None else "只带网页"
+        ok(f"清单合规：{plugin.id} v{plugin.version}，{kind}（没有后端代码）")
+    else:
+        ok(f"清单合规：{plugin.id} v{plugin.version}，入口 {plugin.entry}，运行方式 {plugin.runtime}")
     size_kb = len(data) // 1024
     if len(data) > MAX_ARCHIVE_BYTES:
         fail(f"包大小 {size_kb} KB 超过上限")
@@ -229,6 +245,8 @@ def main(argv: list[str]) -> int:
         warn("runtime = inline：在主进程里运行，拥有主程序的全部权限；安装须用户单独批准（mclaw 加 --allow-inline）")
     if manifest.permissions.network:
         ok("声明了需要联网（network = true）")
+    if manifest.dependencies is not None:
+        _check_dependencies(directory, manifest)
 
     # 3. 全部 .py 能编译
     bad = False
@@ -263,7 +281,14 @@ def main(argv: list[str]) -> int:
     if declared_callbacks - used_callbacks and used_callbacks:
         warn(f"清单声明了但代码里没找到的回调端点：{'、'.join(sorted(declared_callbacks - used_callbacks))}")
 
+    # 网页（docs/design/plugin-web-pages.md）
+    _check_web(directory, plugin.id, plugin.title)
+    # 网页主题（docs/design/theme-plugins.md）
+    _check_theme(directory, plugin.id, manifest.theme)
+
     # 4. 导入入口模块
+    if web_only:
+        return _finish()
     result = probe(directory, plugin.entry, plugin.id)
     if result.get("error"):
         fail(f"导入入口模块 {plugin.entry} 失败：\n{result['error']}")
@@ -295,10 +320,18 @@ def main(argv: list[str]) -> int:
         )
     else:
         ok(f"宿主操作申请：{sorted(declared) or '无'}")
-    if "host-ops" in {k["name"] for k in match["inject"]} and not declared:
+    injected = {k["name"] for k in match["inject"]}
+    # agent:<档位> 是调用 AI 助手的授权（经 AGENT 服务），不算宿主操作
+    operations = {d for d in declared if not d.startswith("agent:")}
+    agent_grants = declared - operations
+    if "host-ops" in injected and not operations:
         warn("inject 了 HOST_OPS 但没有申请任何宿主操作，调用会被拒绝")
-    if declared and "host-ops" not in {k["name"] for k in match["inject"]}:
+    if operations and "host-ops" not in injected:
         warn("申请了宿主操作但没有 inject HOST_OPS，拿不到调用入口")
+    if agent_grants and "agent" not in injected:
+        warn("申请了 agent:<档位> 但没有 inject AGENT，拿不到 AI 助手入口")
+    if "agent" in injected and not agent_grants:
+        warn("inject 了 AGENT 但没有申请 agent:<档位>（agent:none / agent:mclaw），调用会被拒绝")
     used = set(result.get("contracts_used") or [])
     missing = sorted(used - set(manifest.requires))
     if missing:
@@ -309,6 +342,216 @@ def main(argv: list[str]) -> int:
             "否则进程外运行时解析不了"
         )
     return _finish()
+
+
+def _check_web(directory: Path, entry_id: str, title: str) -> None:
+    """插件网页：入口、manifest 的侧边栏项、图标文件、跳主程序的链接。"""
+    import json
+    import re
+
+    from movieclaw_api.services import plugin_web
+
+    web = directory / "web"
+    if not web.is_dir():
+        return
+    if not (web / "index.html").is_file():
+        fail("有 web/ 目录但没有 web/index.html：网页的入口必须是它")
+        return
+    warn(
+        f"带网页（装好后地址 /apps/{entry_id}）：网页会以使用它的人的身份运行，管理员打开时拥有管理员的全部权限。"
+        "安装前要告诉用户并得到同意，同意后 mclaw plugin dev 加 --allow-web"
+    )
+    for name in plugin_web.MANIFEST_NAMES:
+        raw = web / name
+        if raw.is_file():
+            try:
+                data = json.loads(raw.read_text("utf-8"))
+            except ValueError as exc:
+                fail(f"web/{name} 不是合法的 JSON：{exc}")
+                return
+            shortcuts = data.get("shortcuts") if isinstance(data, dict) else None
+            break
+    else:
+        data, shortcuts = None, None
+        ok("没有 manifest.webmanifest：侧边栏一项，文字用插件名，图标用默认的")
+    plugin = plugin_web.WebPlugin(id=entry_id, title=title, source="local", root=web, consent=None)
+    manifest = plugin_web.read_manifest(plugin)
+    base = plugin_web.base_path(entry_id)
+    if data is not None:
+        items = "、".join(
+            f"「{e.label}」→ /apps/{entry_id}{('/' + e.path) if e.path else ''}" for e in manifest.entries
+        )
+        ok(f"侧边栏：{items}")
+        if isinstance(shortcuts, list) and len(manifest.entries) - 1 < len(shortcuts):
+            warn("manifest 的 shortcuts 里有地址越出了 web/（或不是相对地址），这些项不会出现在侧边栏")
+    for entry in manifest.entries:
+        if entry.icon and plugin_web.resolve_file(web, entry.icon[len(base) :].partition("?")[0]) is None:
+            warn(f"「{entry.label}」的图标 {entry.icon[len(base) :]} 在 web/ 里找不到，会显示默认图标")
+        elif entry.icon and not entry.monochrome:
+            warn(
+                f"「{entry.label}」的图标没标 purpose: monochrome：会按原图显示，不跟主题变色"
+                "（单色线条图标标上它，侧边栏按当前文字颜色着色）"
+            )
+    link = re.compile(r"<a\b[^>]*\bhref=[\"'](/[^\"']*)[\"'][^>]*>", re.I)
+    for path in sorted(web.rglob("*.html")):
+        for match in link.finditer(path.read_text("utf-8", errors="replace")):
+            href = match.group(1)
+            if href.startswith("/api/") or "target=" in match.group(0):
+                continue
+            warn(
+                f"web/{path.relative_to(web)} 里的链接 {href} 没写 target=\"_top\"："
+                "跳主程序的页面要加上它；插件自己的页面用相对地址（不带开头的 /）"
+            )
+
+
+def _check_theme(directory: Path, theme_id: str, theme: object) -> None:
+    """网页主题：theme.css 按 CSS 契约（movieclaw_sdk/theme_css.json）检查作用域。
+
+    所有已装主题的 CSS 对每个用户都会加载（不管选的是哪个主题），所以改内核变量、内核部件、
+    全局元素的规则必须挂在 ``html[data-theme="<id>"]`` 底下，否则会改坏别的主题。
+    只用主题自己类名的规则（如 ``.oc-hero``、带前缀的 Tailwind 工具类）不用挂。
+    """
+    import re
+
+    from movieclaw_sdk.theme import PUBLIC_PARTS, PUBLIC_VARIABLES, READONLY_VARIABLES
+
+    if theme is None:
+        return
+    label, layout = theme.label, theme.layout  # type: ignore[attr-defined]
+    has_js = (directory / "theme" / "index.js").is_file()
+    ok(
+        f"主题「{label}」：版式 {layout}，{'液态玻璃' if theme.glass else '不用玻璃'}，"  # type: ignore[attr-defined]
+        + ("带外框组件（theme/index.js）" if has_js else "纯 CSS")
+    )
+    if has_js:
+        warn(
+            "带外框组件：主题代码在主程序页面里运行，拥有使用者的全部权限。"
+            "安装前要告诉用户并得到同意，同意后 mclaw plugin dev 加 --allow-theme"
+        )
+    css = (directory / "theme" / "theme.css").read_text("utf-8", errors="replace")
+    scope = re.compile(r"\[data-theme=([\"']?)" + re.escape(theme_id) + r"\1\]")
+    leaks: list[str] = []
+    readonly: set[str] = set()
+    for chain, body in _css_rules(css):
+        declared = set(re.findall(r"(?:^|;)\s*(--[\w-]+)\s*:", body))
+        readonly |= declared & set(READONLY_VARIABLES)
+        if any(scope.search(selector) for selector in chain[:-1]):
+            continue
+        for part in _split_selectors(chain[-1]):
+            if scope.search(part):
+                continue
+            classes = {c.replace("\\", "") for c in re.findall(r"\.((?:[\w-]|\\.)+)", part)}
+            # 只设自定义属性（Tailwind 的 --tw-* 初值、主题自己的变量）不算改全局元素
+            properties = re.findall(r"(?:^|;)\s*([a-zA-Z][a-zA-Z-]*)\s*:", body)
+            if classes & PUBLIC_PARTS:
+                leaks.append(f"{part}（改了内核部件 .{'、.'.join(sorted(classes & PUBLIC_PARTS))}）")
+            elif declared & (set(PUBLIC_VARIABLES) | set(READONLY_VARIABLES)):
+                leaks.append(f"{part}（改了内核变量 {'、'.join(sorted(declared & set(PUBLIC_VARIABLES)))}）")
+            elif not classes and properties:
+                leaks.append(f"{part}（改了全局元素）")
+    if leaks:
+        shown = "\n    ".join(leaks[:8]) + (f"\n    ……共 {len(leaks)} 处" if len(leaks) > 8 else "")
+        fail(
+            f'theme/theme.css 有规则没挂在 html[data-theme="{theme_id}"] 底下，会改坏别的主题'
+            f"（所有已装主题的 CSS 对每个用户都会加载）：\n    {shown}"
+        )
+    else:
+        ok(f'theme.css 的作用域：改内核的规则都挂在 html[data-theme="{theme_id}"] 底下')
+    root = re.search(r"html\[data-theme=([\"']?)" + re.escape(theme_id) + r"\1\]\s*\{([^{}]*)\}", css)
+    if root:
+        for name, picked in (("bg", theme.preview.bg), ("accent", theme.preview.accent)):  # type: ignore[attr-defined]
+            value = re.search(rf"--{name}\s*:\s*(#[0-9a-fA-F]{{6}})\b", root.group(2))
+            if value and value.group(1).lower() != picked.lower():
+                warn(
+                    f"清单 [theme] preview.{name} 是 {picked}，theme.css 的 --{name} 是 {value.group(1)}："
+                    "外观卡片的缩略图会和实际不一样"
+                )
+    if readonly:
+        warn(f"theme.css 写了只读变量 {'、'.join(sorted(readonly))}：它们由内核按设备实时算出，主题只读不写")
+
+
+def _css_rules(css: str) -> list[tuple[list[str], str]]:
+    """粗解析 CSS：每条普通规则给出（外层到本层的选择器链，声明文本）。
+
+    跳过 @keyframes / @font-face / @property 之类的内部块；@media / @supports / @layer 只是容器。
+    嵌套规则（CSS nesting）的选择器链带上外层选择器，用来判断作用域。
+    """
+    import re
+
+    css = re.sub(r"/\*[\s\S]*?\*/", "", css)
+    opaque = ("@keyframes", "@-webkit-keyframes", "@font-face", "@property", "@counter-style", "@page")
+    stack: list[str] = []
+    rules: list[tuple[list[str], str]] = []
+    buf: list[str] = []
+    i = 0
+    while i < len(css):
+        ch = css[i]
+        if ch == "\\":
+            buf.append(css[i : i + 2])
+            i += 2
+            continue
+        if ch in "\"'":
+            end = css.find(ch, i + 1)
+            end = len(css) - 1 if end < 0 else end
+            buf.append(css[i : end + 1])
+            i = end + 1
+            continue
+        if ch == "{":
+            stack.append("".join(buf).rpartition(";")[2].strip())
+            buf = []
+        elif ch == "}":
+            body = "".join(buf)
+            buf = []
+            prelude = stack.pop() if stack else ""
+            if prelude and not prelude.startswith("@") and not any(p.startswith(opaque) for p in stack):
+                rules.append(([p for p in stack if not p.startswith("@")] + [prelude], body))
+        else:
+            buf.append(ch)
+        i += 1
+    return rules
+
+
+def _split_selectors(selector: str) -> list[str]:
+    """按顶层逗号拆选择器列表（括号、方括号、转义里的逗号不算）。"""
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    i = 0
+    while i < len(selector):
+        ch = selector[i]
+        if ch == "\\":
+            current.append(selector[i : i + 2])
+            i += 2
+            continue
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+        i += 1
+    parts.append("".join(current).strip())
+    return [p for p in parts if p]
+
+
+def _check_dependencies(directory: Path, manifest: object) -> None:
+    """锁文件已由 read_archive 校验过（钉死、哈希、只轮子、与本机主程序重名）；这里补平台覆盖。"""
+    from movieclaw_sdk import deps
+
+    lock = deps.parse_lock((directory / manifest.dependencies.lock).read_text("utf-8"))  # type: ignore[attr-defined]
+    native = [p.name for p in lock.packages if p.native]
+    tags = deps.target_tags("linux/amd64", lock.python or "3.12")
+    total = sum(w.size or 0 for w in (p.pick(tags) for p in lock.packages) if w)
+    ok(
+        f"第三方依赖：{len(lock.packages)} 个包，linux/amd64 上约 {total / 1024 / 1024:.1f} MB"
+        + (f"，含本机代码：{'、'.join(native)}" if native else "，全部是纯 Python")
+        + "（批准安装时会逐个列给用户看）"
+    )
+    for target, lacking in deps.missing_platforms(lock, lock.python or "3.12").items():
+        warn(f"依赖没有 {target} 的轮子：{'、'.join(lacking)}（装到这个平台会失败）")
 
 
 def _any_ops(manifest: object) -> set[str]:

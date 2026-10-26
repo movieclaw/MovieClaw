@@ -16,7 +16,10 @@
  * 判定复制一份到前端，那是第二份真相源。先保存，再拿真实的 reconcile 结果追问。
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
+import { formatList, formatNumber } from "@/lib/i18n/format";
+import { useMessageState } from "@/lib/i18n/use-message-state";
 
 import { useToast } from "@/components/feedback";
 import { Modal } from "@/components/modal";
@@ -30,6 +33,7 @@ import {
   useSheetForm,
 } from "@/components/sheet-scaffold";
 import { SeasonChoiceRow, SeasonRow } from "@/components/subscribe-dialog";
+import { SeasonCapLine } from "@/components/subscription-episode-cap";
 import { listLibraries, type MediaLibrary } from "@/lib/api/libraries";
 import {
   cleanupSubscriptionSeasons,
@@ -44,6 +48,16 @@ import {
   type SubscriptionRemovalPreview,
 } from "@/lib/api/subscriptions";
 import { usePermissions } from "@/lib/permissions";
+import {
+  capsPayload,
+  currentWindows,
+  draftFromSeasons,
+  effectiveWindow,
+  isAiringSeason,
+  isLongSeason,
+  sameWindows,
+  type CapDraft,
+} from "@/lib/subscription-episode-cap";
 
 export function SubscriptionAdjustDialog({
   detail,
@@ -55,6 +69,8 @@ export function SubscriptionAdjustDialog({
   /** 保存成功后由调用方刷新详情 */
   onSaved: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const { canManageSubscriptions } = usePermissions();
   const toast = useToast();
   const sheetForm = useSheetForm();
@@ -65,9 +81,11 @@ export function SubscriptionAdjustDialog({
   const [selectedSeasons, setSelectedSeasons] = useState<Set<number>>(
     () => new Set(detail.selected_seasons),
   );
+  // 超长的一季先订阅一部分：起点是订阅现在的状态，存量订阅不会被默认值悄悄改成先订阅一批
+  const [capDraft, setCapDraft] = useState<CapDraft>(() => draftFromSeasons(detail.episode_seasons));
   const [libraryId, setLibraryId] = useState<number | null>(detail.library_id);
   const [preview, setPreview] = useState<DispatchPreview | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   const [busy, setBusy] = useState(false);
   // 保存成功后的清理追问；null = 不追问（没减季 / 无可清理内容 / 预览失败）
   const [cleanup, setCleanup] = useState<{
@@ -93,12 +111,12 @@ export function SubscriptionAdjustDialog({
         setLibraries(libs);
       })
       .catch(() => {
-        if (!cancelled) setError("加载季集与媒体库信息失败，请稍后重试");
+        if (!cancelled) setError({ key: "subscription.adjust.loadFailed" });
       });
     return () => {
       cancelled = true;
     };
-  }, [canManageSubscriptions, detail.media.kind, detail.media.tmdb_id, isMovie]);
+  }, [canManageSubscriptions, detail.media.kind, detail.media.tmdb_id, isMovie, locale, setError]);
 
   // 选库即预演投递落点（与订阅弹窗同一套提示；null=该类型默认库也预演）
   useEffect(() => {
@@ -116,7 +134,7 @@ export function SubscriptionAdjustDialog({
     return () => {
       cancelled = true;
     };
-  }, [canManageSubscriptions, detail.media.kind, detail.media.tmdb_id, libraryId]);
+  }, [canManageSubscriptions, detail.media.kind, detail.media.tmdb_id, libraryId, locale]);
 
   const toggleSeason = (n: number) =>
     setSelectedSeasons((prev) => {
@@ -137,6 +155,17 @@ export function SubscriptionAdjustDialog({
     return detail.selected_seasons.filter((s) => !kept.has(s) && progressed.has(s));
   }, [detail, isMovie, selectedSeasons]);
 
+  // 提交的是整份窗口（后端整体替换）；勾上的超长季才有一行「先订阅一部分」。
+  // 在播的超长季默认订最新的几集，完结的从第 1 集订起
+  const nextCaps = useMemo(
+    () => capsPayload(seasons ?? [], selectedSeasons, capDraft, detail.media.status),
+    [seasons, selectedSeasons, capDraft, detail.media.status],
+  );
+  const airingOf = (seasonNumber: number) =>
+    isAiringSeason(detail.media.status, seasons ?? [], seasonNumber);
+  const setCap = (seasonNumber: number, next: CapDraft[number]) =>
+    setCapDraft((prev) => ({ ...prev, [seasonNumber]: next }));
+
   const changed = useMemo(() => {
     const seasonsChanged =
       !isMovie &&
@@ -145,9 +174,13 @@ export function SubscriptionAdjustDialog({
     return {
       seasons: seasonsChanged,
       library: canManageSubscriptions && libraryId !== detail.library_id,
+      caps:
+        !isMovie &&
+        seasons !== null &&
+        !sameWindows(nextCaps, currentWindows(detail.episode_seasons)),
     };
-  }, [canManageSubscriptions, detail, isMovie, libraryId, selectedSeasons]);
-  const dirty = changed.seasons || changed.library;
+  }, [canManageSubscriptions, detail, isMovie, libraryId, nextCaps, seasons, selectedSeasons]);
+  const dirty = changed.seasons || changed.library || changed.caps;
 
   const save = async () => {
     setBusy(true);
@@ -163,15 +196,16 @@ export function SubscriptionAdjustDialog({
           : {}),
         // 显式带上 null 即「清除指定库、改回默认库路由」（后端区分未传与 null）
         ...(canManageSubscriptions && changed.library ? { library_id: libraryId } : {}),
+        ...(changed.caps ? { episode_caps: nextCaps } : {}),
       });
-      toast.success("订阅已调整");
+      toast.success(t("subscription.adjust.saved"));
       if (dropped.length > 0 && canManageSubscriptions) {
         // 数量取自后端保存后的真实出域结果，不在前端推算
         const plan = await getSubscriptionRemovalPreview(detail.id, dropped).catch(() => null);
         if (plan === null) {
           // 预览拿不到就不追问——没数字的勾选框等于让用户盲签。但要明确说出
           // "没做清理"，用户才知道要不要自己去处理
-          toast.info("订阅已调整；这一季的内容未作清理");
+          toast.info(t("subscription.adjust.savedWithoutCleanup"));
         } else if (plan.torrent_count > 0 || plan.library_file_count > 0) {
           setCleanup({ seasons: dropped, preview: plan });
           setBusy(false);
@@ -180,7 +214,7 @@ export function SubscriptionAdjustDialog({
       }
       onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "调整失败，请稍后重试");
+      setError(e instanceof Error ? e.message : { key: "subscription.adjust.saveFailed" });
       setBusy(false);
     }
   };
@@ -190,9 +224,9 @@ export function SubscriptionAdjustDialog({
     if (cleanup === null) return;
     try {
       await cleanupSubscriptionSeasons(detail.id, cleanup.seasons, options);
-      toast.success("正在后台清理，可在「任务中心」查看进度");
+      toast.success(t("subscription.adjust.cleanupStarted"));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "清理失败，请稍后重试");
+      toast.error(e instanceof Error ? e.message : t("subscription.adjust.cleanupFailed"));
     }
     setCleanup(null);
     onSaved();
@@ -222,9 +256,9 @@ export function SubscriptionAdjustDialog({
     (preview.ok ? (
       <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
         {preview.mode === "watch"
-          ? `将投递到自动入库的监听目录 ${preview.path ?? ""}，下载完成后自动整理入库`
+          ? t("subscription.adjust.watchPreview", { path: preview.path ?? "" })
           : // 条目目录由后端按命名模板渲染，前端不自己拼名字
-            `将直接下载到库内目录 ${preview.entry_dir ?? preview.path ?? ""}，完成后自动入账`}
+            t("subscription.adjust.libraryPreview", { path: preview.entry_dir ?? preview.path ?? "" })}
       </p>
     ) : (
       <p className="mt-1.5 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-caption leading-relaxed text-amber-200">
@@ -233,11 +267,7 @@ export function SubscriptionAdjustDialog({
     ));
   const saveDisabled = busy || !dirty || (!isMovie && selectedSeasons.size === 0);
   const droppedNote = droppedWithProgress.length > 0 && (
-    <>
-      第 {droppedWithProgress.join("、")} 季已有下载进度：保存只让它退出追踪
-      （停止进度关联、缺失搜索与自动换源），不会动任何文件
-      {canManageSubscriptions && "；保存后会问你要不要顺手清理这一季的内容"}
-    </>
+    <>{t("subscription.adjust.droppedNote", { seasons: formatList(droppedWithProgress.map(n => formatNumber(n, undefined, locale)), locale), count: droppedWithProgress.length, canClean: canManageSubscriptions ? "yes" : "no" })}</>
   );
 
   // 银玻璃手机端：表单弹层（对齐 iOS SubscriptionAdjustSheet）——保存放头部 ✓，
@@ -246,15 +276,14 @@ export function SubscriptionAdjustDialog({
     return (
       <SheetScaffold
         onClose={onClose}
-        title="调整订阅"
+        title={t("subscription.adjust.title")}
         subtitle={
           <>
-            《{detail.media.title}》——加季会恢复或补建追踪；减季会让整季退出追踪范围，
-            但不会删除下载器任务、已下载文件或入库内容。
+            {t("subscription.adjust.description", { title: detail.media.title })}
           </>
         }
         confirm={{
-          label: "保存调整",
+          label: t("subscription.adjust.save"),
           enabled: !saveDisabled,
           busy,
           onConfirm: () => void save(),
@@ -262,17 +291,28 @@ export function SubscriptionAdjustDialog({
       >
         {error && <SheetNotice tone="error">{error}</SheetNotice>}
         {!isMovie && (
-          <SheetSection title="选择要收录的季" footer="勾选即要整季（含未播集）">
+          <SheetSection title={t("subscription.adjust.chooseSeasons")} footer={t("subscription.adjust.chooseSeasonsHint")}>
             {seasons === null ? (
-              <SheetRow label={<span className="text-[var(--text-muted)]">正在加载季集信息…</span>} />
+              <SheetRow label={<span className="text-[var(--text-muted)]">{t("subscription.adjust.loading")}</span>} />
             ) : (
               seasons.map((s) => (
-                <SeasonChoiceRow
-                  key={s.season_number}
-                  season={s}
-                  checked={selectedSeasons.has(s.season_number)}
-                  onToggle={() => toggleSeason(s.season_number)}
-                />
+                <Fragment key={s.season_number}>
+                  <SeasonChoiceRow
+                    season={s}
+                    checked={selectedSeasons.has(s.season_number)}
+                    onToggle={() => toggleSeason(s.season_number)}
+                  />
+                  {selectedSeasons.has(s.season_number) && isLongSeason(s) && (
+                    <SeasonCapLine
+                      season={s}
+                      win={effectiveWindow(s, capDraft, airingOf(s.season_number))}
+                      airing={airingOf(s.season_number)}
+                      showName={false}
+                      onChange={(next) => setCap(s.season_number, next)}
+                      className="min-h-11 px-4 py-2.5"
+                    />
+                  )}
+                </Fragment>
               ))
             )}
           </SheetSection>
@@ -281,14 +321,14 @@ export function SubscriptionAdjustDialog({
         {canManageSubscriptions && libraries.length > 0 && (
           <SheetSection footer={previewNote}>
             <SheetMenuRow
-              label="入库到"
+              label={t("subscription.subscribe.library")}
               value={libraryId === null ? "route" : String(libraryId)}
               options={[
                 // 旧订阅 library_id 可能为 null（按默认库路由）：显式占位项，所见即所存
-                { value: "route", label: "（按默认库路由）" },
+                { value: "route", label: t("subscription.adjust.defaultRouting") },
                 ...libraries.map((l) => ({
                   value: String(l.id),
-                  label: `${l.name}${l.is_default ? "（默认）" : ""}`,
+                  label: t("subscription.subscribe.defaultName", { name: l.name, isDefault: l.is_default ? "yes" : "no" }),
                 })),
               ]}
               onChange={(v) => setLibraryId(v === "route" ? null : Number(v))}
@@ -300,13 +340,12 @@ export function SubscriptionAdjustDialog({
   }
 
   return (
-    <Modal open onClose={onClose} label="调整订阅" width="lg" panelClassName="max-h-[76dvh]">
+    <Modal open onClose={onClose} label={t("subscription.adjust.title")} width="lg" panelClassName="max-h-[76dvh]">
       {/* 头部常驻 */}
       <div className="border-b border-white/[0.07] px-6 pb-4 pt-6 max-md:px-5">
-        <h2 className="text-title font-bold text-white">调整订阅</h2>
+        <h2 className="text-title font-bold text-white">{t("subscription.adjust.title")}</h2>
         <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">
-          《{detail.media.title}》——加季会恢复或补建追踪；减季会让整季退出追踪范围，
-          但不会删除下载器任务、已下载文件或入库内容。
+          {t("subscription.adjust.description", { title: detail.media.title })}
         </p>
       </div>
 
@@ -321,24 +360,35 @@ export function SubscriptionAdjustDialog({
           {!isMovie && (
             <section>
               <h3 className="mb-2 text-ui font-semibold text-white/85">
-                选择要收录的季
+                {t("subscription.adjust.chooseSeasons")}
                 <span className="ml-2 font-normal text-[var(--text-faint)]">
-                  勾选即要整季（含未播集）
+                  {t("subscription.adjust.chooseSeasonsHint")}
                 </span>
               </h3>
               {seasons === null ? (
                 <p className="rounded-xl bg-white/[0.03] px-4 py-3 text-sub text-[var(--text-muted)]">
-                  正在加载季集信息…
+                  {t("subscription.adjust.loading")}
                 </p>
               ) : (
                 <div className="space-y-1.5">
                   {seasons.map((s) => (
-                    <SeasonRow
-                      key={s.season_number}
-                      season={s}
-                      checked={selectedSeasons.has(s.season_number)}
-                      onToggle={() => toggleSeason(s.season_number)}
-                    />
+                    <div key={s.season_number}>
+                      <SeasonRow
+                        season={s}
+                        checked={selectedSeasons.has(s.season_number)}
+                        onToggle={() => toggleSeason(s.season_number)}
+                      />
+                      {selectedSeasons.has(s.season_number) && isLongSeason(s) && (
+                        <SeasonCapLine
+                          season={s}
+                          win={effectiveWindow(s, capDraft, airingOf(s.season_number))}
+                          airing={airingOf(s.season_number)}
+                          showName={false}
+                          onChange={(next) => setCap(s.season_number, next)}
+                          className="px-4 pb-1 pt-2"
+                        />
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
@@ -352,21 +402,21 @@ export function SubscriptionAdjustDialog({
 
           {canManageSubscriptions && libraries.length > 0 && (
             <section>
-              <h3 className="mb-2 text-ui font-semibold text-white/85">入库到</h3>
+              <h3 className="mb-2 text-ui font-semibold text-white/85">{t("subscription.subscribe.library")}</h3>
               {/* 旧订阅 library_id 可能为 null（按默认库路由）：给它一个显式占位项，
                   否则浏览器会视觉上选中第一个库、而状态仍是 null（所见非所存） */}
               <select
+                aria-label={t("subscription.subscribe.library")}
                 value={libraryId === null ? "" : String(libraryId)}
                 onChange={(e) =>
                   setLibraryId(e.target.value === "" ? null : Number(e.target.value))
                 }
                 className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2.5 text-ui text-white/90 outline-none focus:border-white/25 [&>option]:bg-[#181c28]"
               >
-                <option value="">（按默认库路由）</option>
+                <option value="">{t("subscription.adjust.defaultRouting")}</option>
                 {libraries.map((l) => (
                   <option key={l.id} value={l.id}>
-                    {l.name}
-                    {l.is_default ? "（默认）" : ""}
+                    {t("subscription.subscribe.defaultName", { name: l.name, isDefault: l.is_default ? "yes" : "no" })}
                   </option>
                 ))}
               </select>
@@ -377,17 +427,17 @@ export function SubscriptionAdjustDialog({
       </div>
 
       {/* 底栏常驻：季数一多就要滚，保存按钮不能被滚出屏幕 */}
-      <div className="flex justify-end gap-3 border-t border-white/[0.07] px-6 py-4 max-md:px-5">
+      <div className={`flex justify-end gap-3 border-t border-white/[0.07] px-6 py-4 max-md:px-5 ${locale === "en" ? "flex-wrap" : ""}`}>
         <button type="button" onClick={onClose} className="btn-glass h-9 px-4 text-ui font-medium">
-          取消
+          {t("common.cancel")}
         </button>
         <button
           type="button"
           disabled={saveDisabled}
           onClick={() => void save()}
-          className="btn-accent h-9 rounded-full px-5 text-ui font-semibold disabled:opacity-40"
+          className={`btn-accent rounded-full px-5 text-ui font-semibold disabled:opacity-40 ${locale === "en" ? "min-h-9 py-2" : "h-9"}`}
         >
-          {busy ? "保存中…" : "保存调整"}
+          {busy ? t("subscription.adjust.saving") : t("subscription.adjust.save")}
         </button>
       </div>
     </Modal>

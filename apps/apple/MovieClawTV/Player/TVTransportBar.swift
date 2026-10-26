@@ -8,6 +8,8 @@ struct TVTransportBar: View {
     let trickplay: TrickplayImages
     /// 正在拖动的落点（文件时间）；nil = 没在拖
     let scrubMs: Int?
+    /// 按住左右键连续快进 / 快退的速度（带方向，负 = 快退）；nil = 不是长按拖动
+    var scrubRate: Int? = nil
 
     private static let barHeight: CGFloat = 10
 
@@ -29,6 +31,16 @@ struct TVTransportBar: View {
                         .frame(width: width * fraction(buffered, of: duration))
                     Capsule().fill(.white)
                         .frame(width: playedX)
+                    // 可跳过的段（同 iPhone 版）：一集两三段，拖动时一眼看出哪截是片头
+                    if duration > 0, controller.clip == nil {
+                        ForEach(controller.session?.segments ?? [], id: \.startMs) { segment in
+                            let from = width * fraction(controller.timelineMs(fromFileMs: segment.startMs), of: duration)
+                            let to = width * fraction(controller.timelineMs(fromFileMs: segment.endMs), of: duration)
+                            Capsule().fill(Theme.skippable.opacity(0.9))
+                                .frame(width: max(2, to - from))
+                                .offset(x: from)
+                        }
+                    }
                 }
                 .frame(height: Self.barHeight)
                 .overlay(alignment: .leading) {
@@ -72,6 +84,19 @@ struct TVTransportBar: View {
         return CGFloat(min(max(0, value), total)) / CGFloat(total)
     }
 
+    /// 快进 / 快退的方向与倍速：「◀◀ 40×」「40× ▶▶」
+    private func rateBadge(_ rate: Int) -> some View {
+        let icon = Image(systemName: rate > 0 ? "forward.fill" : "backward.fill")
+        return HStack(spacing: 6) {
+            if rate < 0 { icon }
+            Text("\(abs(rate))×")
+            if rate > 0 { icon }
+        }
+        .foregroundStyle(.white.opacity(0.85))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("tv-player-scrub-rate")
+    }
+
     /// 拖动落点的缩略图（服务端下发的雪碧图，没有就只显示时间）与时间
     private func scrubPreview(fileMs: Int) -> some View {
         VStack(spacing: 10) {
@@ -83,10 +108,16 @@ struct TVTransportBar: View {
                     .clipShape(.rect(cornerRadius: 12))
                     .shadow(radius: 12)
             }
-            Text(Formatters.clock(Double(controller.timelineMs(fromFileMs: fileMs)) / 1000))
-                .font(.title3.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.white)
-                .shadow(radius: 6)
+            HStack(spacing: 12) {
+                if let scrubRate, scrubRate < 0 { rateBadge(scrubRate) }
+                Text(Formatters.clock(Double(controller.timelineMs(fromFileMs: fileMs)) / 1000))
+                if let scrubRate, scrubRate > 0 { rateBadge(scrubRate) }
+            }
+            // 预览限宽 320，加上倍速后会把文字压成省略号：这一行按内容撑开
+            .fixedSize()
+            .font(.title3.monospacedDigit().weight(.semibold))
+            .foregroundStyle(.white)
+            .shadow(radius: 6)
         }
     }
 }

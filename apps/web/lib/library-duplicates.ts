@@ -18,6 +18,8 @@ import type {
   DuplicateVersion,
   TrashedBatchResult,
 } from "./api/libraries";
+import { appTranslator } from "./i18n/translate.ts";
+import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
 import { formatBytes } from "./format.ts";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -28,15 +30,17 @@ export function episodeLabel(episode: number): string {
 }
 
 /** 块标题的第二段：剧集 `S01 · 3 集有重复`（重复集少于全季时不知道全季，只写重复集）；电影空。 */
-export function seasonHeadline(season: DuplicateSeason, kind: string): string {
+export function seasonHeadline(season: DuplicateSeason, kind: string, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   if (kind !== "tv") return "";
-  return `S${pad(season.season_number)} · ${season.units.length} 集有重复`;
+  return t("library.duplicates.seasonHeadline", { season: pad(season.season_number), count: season.units.length });
 }
 
 /** 一档 / 一组卡片上的计数：`12 个单元 · 14 个文件 · 31 GB`；没有活时返回空串。 */
-export function groupSummary(group: DuplicateGroup): string {
+export function groupSummary(group: DuplicateGroup, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   if (group.units === 0) return "";
-  const parts = [`${group.units} 个单元`, `${group.files} 个文件`];
+  const parts = [t("library.duplicates.unitsCount", { count: group.units }), t("library.duplicates.filesCount", { count: group.files })];
   if (group.bytes > 0) parts.push(formatBytes(group.bytes));
   return parts.join(" · ");
 }
@@ -48,9 +52,10 @@ export function groupSummary(group: DuplicateGroup): string {
  * 最紧的；"能腾出多少"比"几个文件"更能决定先做哪一组，而文件数在「按建议清 · N」
  * 上原样写着。
  */
-export function compactSummary(group: DuplicateGroup): string {
+export function compactSummary(group: DuplicateGroup, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   if (group.units === 0) return "";
-  const parts = [`${group.units} 个单元`];
+  const parts = [t("library.duplicates.unitsCount", { count: group.units })];
   if (group.bytes > 0) parts.push(formatBytes(group.bytes));
   return parts.join(" · ");
 }
@@ -79,11 +84,9 @@ export function allowsBulkClean(
  * 画质判断，是机器在缺了一截的阶梯上按码率、来源、文件名挑的，用户按下去之前
  * 得知道这一点。其余作用域用通用的那句。
  */
-export function bulkCleanNote(reviewKind: DuplicateReviewKind | null): string {
-  if (reviewKind === "unknown") {
-    return "这一组机器没比出档位：留下的那个只是按实测码率、来源、文件名挑的，不是画质判断。";
-  }
-  return "这些文件与保留者有区别；想留的请先取消，回去点那个单元的「都留着」。";
+export function bulkCleanNote(reviewKind: DuplicateReviewKind | null, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
+  return t(reviewKind === "unknown" ? "library.duplicates.bulkUnknown" : "library.duplicates.bulkDifferent");
 }
 
 /** 一档的动作按钮该写什么：`safe` 是没风险的清理，另两档都在动"有区别"的文件。 */
@@ -94,23 +97,25 @@ export const TIER_ACTION_LABELS: Record<DuplicateTier, string> = {
 };
 
 /** 页脚那句"不在这里显示的"：两段都为 0 时返回空串。 */
-export function hiddenNote(scan: DuplicateScanState): string {
+export function hiddenNote(scan: DuplicateScanState, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   const parts: string[] = [];
-  if (scan.upgrading_units > 0) parts.push(`${scan.upgrading_units} 个单元正在洗版验证中`);
-  if (scan.keep_old_items > 0) parts.push(`${scan.keep_old_items} 个条目按规则组「保留共存」`);
-  return parts.length ? `${parts.join("、")}，不在这里显示` : "";
+  if (scan.upgrading_units > 0) parts.push(t("library.duplicates.hiddenUpgrading", { count: scan.upgrading_units }));
+  if (scan.keep_old_items > 0) parts.push(t("library.duplicates.hiddenKeepOld", { count: scan.keep_old_items }));
+  return parts.length ? t("library.duplicates.hiddenNote", { parts: parts.join(t("library.duplicates.hiddenJoin")) }) : "";
 }
 
 /** 扫描状态那一行：从未扫描 / 正在跑（带进度）/ 上次没跑成 / 上次扫描于何时。 */
-export function scanNote(scan: DuplicateScanState, now: Date = new Date()): string {
-  if (isScanning(scan)) return scan.message ? `正在扫描 · ${scan.message}` : "正在扫描…";
+export function scanNote(scan: DuplicateScanState, now: Date = new Date(), locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
+  if (isScanning(scan)) return scan.message ? t("library.duplicates.scanningMessage", { message: scan.message }) : t("library.duplicates.scanning");
   if (scan.status === "failed" || scan.status === "cancelled") {
-    const why = scan.message ? `：${scan.message}` : "";
-    const had = scan.scanned_at ? `，下面是 ${relativeTime(scan.scanned_at, now)}的结果` : "";
-    return `上次扫描${scan.status === "failed" ? "失败" : "被取消"}${why}${had}`;
+    const why = scan.message ? t("library.duplicates.scanWhy", { message: scan.message }) : "";
+    const previous = scan.scanned_at ? t("library.duplicates.scanPrevious", { time: relativeTime(scan.scanned_at, now, locale) }) : "";
+    return t("library.duplicates.scanInterrupted", { status: t(scan.status === "failed" ? "library.duplicates.scanFailed" : "library.duplicates.scanCancelled"), why, previous });
   }
-  if (!scan.scanned_at) return "还没有扫描过";
-  return `上次扫描：${relativeTime(scan.scanned_at, now)}`;
+  if (!scan.scanned_at) return t("library.duplicates.neverScanned");
+  return t("library.duplicates.lastScanned", { time: relativeTime(scan.scanned_at, now, locale) });
 }
 
 export function isScanning(scan: DuplicateScanState): boolean {
@@ -118,14 +123,15 @@ export function isScanning(scan: DuplicateScanState): boolean {
 }
 
 /** 「3 分钟前」「2 小时前」「3 天前」——精确到秒没有意义，用户只想知道"新不新鲜"。 */
-export function relativeTime(iso: string, now: Date = new Date()): string {
+export function relativeTime(iso: string, now: Date = new Date(), locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   const then = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);
   const seconds = Math.max(0, Math.round((now.getTime() - then.getTime()) / 1000));
-  if (seconds < 60) return "刚刚";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`;
-  if (seconds < 86400 * 30) return `${Math.floor(seconds / 86400)} 天前`;
-  return then.toLocaleDateString("zh-CN");
+  if (seconds < 60) return t("library.duplicates.justNow");
+  if (seconds < 3600) return t("library.duplicates.minutesAgo", { count: Math.floor(seconds / 60) });
+  if (seconds < 86400) return t("library.duplicates.hoursAgo", { count: Math.floor(seconds / 3600) });
+  if (seconds < 86400 * 30) return t("library.duplicates.daysAgo", { count: Math.floor(seconds / 86400) });
+  return then.toLocaleDateString(locale === "en" ? "en-US" : "zh-CN");
 }
 
 /**
@@ -144,11 +150,12 @@ export interface QualitySegment {
 export function specSegments(
   file: DuplicateFile,
   reference: DuplicateFile | null,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): QualitySegment[] {
-  const own = file.quality_label.split(" ");
-  const ref = reference && reference !== file ? reference.quality_label.split(" ") : null;
+  const own = (file.quality_key ?? file.quality_label).split(" ");
+  const ref = reference && reference !== file ? (reference.quality_key ?? reference.quality_label).split(" ") : null;
   const segments: QualitySegment[] = own.map((text, i) => ({
-    text,
+    text: text === "未知规格" ? appTranslator(locale)("library.recycle.unknownSpec") : text,
     diff: ref !== null && ref[i] !== text,
   }));
   if (file.audio_label) {
@@ -175,8 +182,8 @@ export function volumeSegments(file: DuplicateFile): QualitySegment[] {
   return segments;
 }
 
-export function qualitySegments(file: DuplicateFile, reference: DuplicateFile | null): QualitySegment[] {
-  return [...specSegments(file, reference), ...volumeSegments(file)];
+export function qualitySegments(file: DuplicateFile, reference: DuplicateFile | null, locale: AppLocale = requestLocale() ?? "zh-Hans"): QualitySegment[] {
+  return [...specSegments(file, reference, locale), ...volumeSegments(file)];
 }
 
 export function formatBitRate(bps: number): string {
@@ -188,8 +195,8 @@ export function formatBitRate(bps: number): string {
  * 一个文件的规格整句：`2160p · WEB-DL · AAC 2.0 · 1.01 GB · 3.1 Mbps`。
  * 与 `qualitySegments` 同一份内容，只是拼成一行用来做"几个文件是不是一样"的比对。
  */
-export function specText(file: DuplicateFile): string {
-  return qualitySegments(file, null)
+export function specText(file: DuplicateFile, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  return qualitySegments(file, null, locale)
     .map((s) => s.text)
     .join(" · ");
 }
@@ -209,19 +216,23 @@ export interface SharedFacts {
   origin: string | null;
 }
 
-export function sharedFacts(files: DuplicateFile[]): SharedFacts {
+export function sharedFacts(files: DuplicateFile[], locale: AppLocale = requestLocale() ?? "zh-Hans"): SharedFacts {
   if (files.length < 2) return { quality: null, origin: null };
-  const specs = new Set(files.map(specText));
-  const origins = new Set(files.map((f) => f.origin.label));
+  const specs = new Set(files.map((f) => [
+    ...(f.quality_key ?? f.quality_label).split(" "),
+    ...(f.audio_label ? [f.audio_label] : []),
+    ...volumeSegments(f).map((segment) => segment.text),
+  ].join(" · ")));
+  const origins = new Set(files.map((f) => f.origin_key ?? f.origin.label));
   return {
-    quality: specs.size === 1 ? specText(files[0]) : null,
+    quality: specs.size === 1 ? specText(files[0], locale) : null,
     origin: origins.size === 1 ? files[0].origin.label : null,
   };
 }
 
 /** 单元头上那句共有信息；没有共有的东西就是空串（这时文件行照常各说各的）。 */
-export function sharedLine(files: DuplicateFile[]): string {
-  const facts = sharedFacts(files);
+export function sharedLine(files: DuplicateFile[], locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const facts = sharedFacts(files, locale);
   return [facts.quality, facts.origin].filter(Boolean).join(" · ");
 }
 
@@ -252,7 +263,7 @@ export function commonNamePrefix(files: DuplicateFile[]): string {
 /** 同构季里几个版本行共有的来源；不同则为 null（这时每行各自显示）。 */
 export function sharedVersionOrigin(versions: DuplicateVersion[]): string | null {
   if (versions.length < 2) return null;
-  const origins = new Set(versions.map((v) => v.origin_label));
+  const origins = new Set(versions.map((v) => v.origin_key ?? v.origin_label));
   return origins.size === 1 ? versions[0].origin_label : null;
 }
 
@@ -262,15 +273,17 @@ export function suggestedOf(unit: DuplicateUnit): DuplicateFile {
 }
 
 /** 文件行第二行的说明：建议保留写依据；「都留着」过的写"你留下的"；否则空。 */
-export function fileNote(file: DuplicateFile): string {
-  if (file.kept_at) return "你留下的";
-  if (file.suggested && file.suggest_reason) return `建议保留 · ${file.suggest_reason}`;
+export function fileNote(file: DuplicateFile, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
+  if (file.kept_at) return t("library.duplicates.kept");
+  if (file.suggested && file.suggest_reason) return t("library.duplicates.recommendedReason", { reason: file.suggest_reason });
   return "";
 }
 
 /** 版本行：`3 集 · 30.9 GB`。 */
-export function versionCoverage(version: DuplicateVersion): string {
-  return `${version.episodes.length} 集 · ${formatBytes(version.bytes)}`;
+export function versionCoverage(version: DuplicateVersion, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
+  return t("library.duplicates.versionCoverage", { count: version.episodes.length, bytes: formatBytes(version.bytes) });
 }
 
 /** 「留这个」确认弹窗的事实：留下谁、清掉几个、多大。 */
@@ -320,26 +333,42 @@ export interface TierFacts {
   lines: string[];
 }
 
-export function tierFacts(data: DuplicateFilesData, group: DuplicateGroup | null): TierFacts {
+export function tierFacts(data: DuplicateFilesData, group: DuplicateGroup | null, locale: AppLocale = requestLocale() ?? "zh-Hans"): TierFacts {
+  const t = appTranslator(locale);
   const lines: string[] = [];
   for (const item of data.items) {
     for (const season of item.seasons) {
       const extras = season.units.flatMap((u) => u.files.filter((f) => !f.suggested && !f.kept_at));
       if (extras.length === 0) continue;
       const head = item.media_item.kind === "tv" ? `${item.media_item.title} S${pad(season.season_number)}` : item.media_item.title;
-      const kinds = [...new Set(extras.map((f) => f.quality_label))].join(" / ");
+      const kinds = [...new Map(extras.map((f) => [f.quality_key ?? f.quality_label, f.quality_label])).values()].join(" / ");
       // 带上这一块会清掉多少——逐条核对时"多大"和"什么规格"一样是决定依据
       const bytes = formatBytes(extras.reduce((n, f) => n + f.size_bytes, 0));
-      lines.push(`${head} · ${extras.length} 个文件 · ${bytes} · ${kinds}`);
+      lines.push(t("library.duplicates.tierLine", { head, count: extras.length, bytes, kinds }));
     }
   }
   return { files: group?.files ?? 0, bytes: group?.bytes ?? 0, lines };
 }
 
 /** 批量结果 toast：`已移入回收站 5 个文件` / `…，2 个失败` / `…，还有 N 个未处理`。 */
-export function resolveResultText(result: TrashedBatchResult): string {
-  let text = `已移入回收站 ${result.done} 个文件`;
-  if (result.failed.length > 0) text += `，${result.failed.length} 个失败：${result.failed[0].error}`;
-  if (result.remaining > 0) text += `，还有 ${result.remaining} 个未处理（再点一次即可）`;
+export function resolveResultText(result: TrashedBatchResult, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
+  let text = t("library.duplicates.resolved", { count: result.done });
+  if (result.failed.length > 0) text += t("library.duplicates.resolveFailures", { count: result.failed.length, error: result.failed[0].error });
+  if (result.remaining > 0) text += t("library.duplicates.resolveRemaining", { count: result.remaining });
   return text;
+}
+
+/** Display action labels; the exported legacy table remains source-only. */
+export function tierActionLabel(tier: DuplicateTier, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  return appTranslator(locale)(tier === "safe" ? "library.duplicates.cleanAll" : "library.duplicates.cleanAllSuggested");
+}
+
+export function versionSpecSegments(version: DuplicateVersion, reference: DuplicateVersion | null, locale: AppLocale = requestLocale() ?? "zh-Hans"): QualitySegment[] {
+  const own = (version.quality_key ?? version.quality_label).split(" ");
+  const ref = reference && reference !== version ? (reference.quality_key ?? reference.quality_label).split(" ") : null;
+  return own.map((text, i) => ({
+    text: text === "未知规格" ? appTranslator(locale)("library.recycle.unknownSpec") : text,
+    diff: ref !== null && ref[i] !== text,
+  }));
 }

@@ -1,5 +1,9 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+
 import type { Route } from "next";
 import Link from "next/link";
 
@@ -44,9 +48,10 @@ function cardPlayHref(item: UpNextItem): Route {
 }
 
 /** 播放键的读法。这一行里没有"重播"——看完的作品根本不出现。 */
-function playVerb(item: UpNextItem): string {
-  if (item.position_ms > 0) return "继续播放";
-  return item.advanced ? "播放下一集" : "播放";
+function playVerb(item: UpNextItem, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  if (item.position_ms > 0) return t("activity.upNext.resume");
+  return item.advanced ? t("activity.upNext.next") : t("activity.upNext.play");
 }
 
 /** 毫秒 → 播放器风格时钟，只有超过一小时才带小时位，短片保持 12:34 的紧凑写法。 */
@@ -74,14 +79,15 @@ function playbackClock(item: UpNextItem): string | null {
  * 接着上次那一集看，还是上一集已经看完了该看下一集。卡片上已经用时钟
  * 展示进度时不再重复百分比。
  */
-function stateLabel(item: UpNextItem, hasClock: boolean): string {
-  const ago = formatRelativeTime(item.last_played_at);
-  if (item.advanced) return `${ago}看完上一集`;
+function stateLabel(item: UpNextItem, hasClock: boolean, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  const ago = formatRelativeTime(item.last_played_at, locale);
+  if (item.advanced) return t("activity.upNext.previousDone", { ago });
   if (item.position_ms > 0 && item.progress_percent != null && !hasClock) {
-    return `${ago}看到 ${item.progress_percent}%`;
+    return t("activity.upNext.progress", { ago, percent: item.progress_percent });
   }
-  if (item.position_ms > 0) return `${ago}看过一段`;
-  return `${ago}打开过`;
+  if (item.position_ms > 0) return t("activity.upNext.partlyWatched", { ago });
+  return t("activity.upNext.opened", { ago });
 }
 
 /** 媒体库首页顶部的最近观看横排；空列表整段隐藏。 */
@@ -99,6 +105,8 @@ export function UpNextRow({
   /** 行的左右留白，与 MediaRow 的同名参数同一套用法（语义工具类，缺省 page-inset） */
   insetClassName?: string;
 }) {
+  const t = useTranslations();
+
   // 首页不存在观看记录时完全不占位；首次请求尚未返回也先保持原布局，
   // 避免从未使用播放器的用户看到一个没有实际内容的分区骨架。
   // 清空入口也随之隐藏——没有记录就没有可清的东西。
@@ -111,7 +119,7 @@ export function UpNextRow({
           id="up-next-title"
           className="text-on-image text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]"
         >
-          接下来继续
+          {t("activity.upNext.continueWatching")}
         </h3>
         {/* 清空观看记录收在标题行右端的 ⋯ 里：与「我的媒体库」等分区标题
             行同一布局，分区自己的操作长在分区上 */}
@@ -125,6 +133,8 @@ export function UpNextRow({
 }
 
 function UpNextCard({ item }: { item: UpNextItem }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const tapGuard = useTapGuard();
   // 播放键自己也要过一遍误触保护：横滑最近观看这一行时，手指常常正好停在
   // 卡片中央，没有它一划就起播了（比误进详情页糟得多——会真的起转码会话）。
@@ -145,7 +155,7 @@ function UpNextCard({ item }: { item: UpNextItem }) {
   // 角标回答"这一集之后还有多少可看"——相对**卡片这一集**算，不是相对上次看的
   // 那一集。看完的集不计，所以追平之后角标自然消失。
   const unwatchedLabel =
-    isEpisode && item.unwatched_ahead_count > 0 ? `还有 ${item.unwatched_ahead_count} 集` : null;
+    isEpisode && item.unwatched_ahead_count > 0 ? t("activity.upNext.remaining", { count: item.unwatched_ahead_count }) : null;
 
   return (
     // 卡片是两个入口叠在一起：整卡进详情、中央播放键直接起播。播放键必须是
@@ -155,7 +165,7 @@ function UpNextCard({ item }: { item: UpNextItem }) {
     <div className="group/recent relative w-[224px] shrink-0 max-md:w-[200px] xl:w-[240px]">
       <Link
         href={itemHref(item)}
-        aria-label={`${item.title}${context ? `，${context}` : ""}，${stateLabel(item, timeLabel != null)}${timeLabel ? `，已播 ${timeLabel}` : ""}${unwatchedLabel ? `，${unwatchedLabel}` : ""}`}
+        aria-label={t("activity.upNext.cardAria", { title: item.title, hasContext: context ? "yes" : "no", context, state: stateLabel(item, timeLabel != null, locale), hasTime: timeLabel ? "yes" : "no", time: timeLabel ?? "", hasRemaining: unwatchedLabel ? "yes" : "no", remaining: unwatchedLabel ?? "" })}
         {...tapGuard}
         className="group/card block outline-none"
       >
@@ -167,7 +177,7 @@ function UpNextCard({ item }: { item: UpNextItem }) {
               src={imageUrl(artworkUrl)}
               width={CARD_WIDTH}
               zoom={HOVER_ZOOM}
-              alt={isEpisode ? `${item.title} ${code}分集剧照` : `${item.title}背景剧照`}
+              alt={t("activity.upNext.stillAria", { isEpisode: isEpisode ? "yes" : "no", title: item.title, code: code ?? "" })}
               className="size-full transition duration-500 group-hover/recent:scale-[1.03]"
               fallback={
                 isEpisode ? (
@@ -233,7 +243,7 @@ function UpNextCard({ item }: { item: UpNextItem }) {
           <p className="tnum mt-0.5 truncate text-sub text-[var(--text-muted)]">{context}</p>
         )}
         <p className="tnum mt-0.5 truncate text-caption text-[var(--text-faint)]">
-          {stateLabel(item, timeLabel != null)}
+          {stateLabel(item, timeLabel != null, locale)}
         </p>
       </Link>
 
@@ -252,7 +262,7 @@ function UpNextCard({ item }: { item: UpNextItem }) {
       <div className="pointer-events-none absolute inset-x-0 top-0 flex aspect-video items-center justify-center transition duration-300 group-hover/recent:-translate-y-1">
         <Link
           href={cardPlayHref(item)}
-          aria-label={`${playVerb(item)}《${item.title}》${context ? ` ${context}` : ""}`}
+          aria-label={t("activity.upNext.playAria", { action: playVerb(item, locale), title: item.title, hasContext: context ? "yes" : "no", context })}
           {...playTapGuard}
           className="pointer-events-auto flex size-11 items-center justify-center rounded-full border-[1.5px] border-white/75 text-white shadow-[0_1px_10px_rgba(0,0,0,0.45)] transition duration-200 hover:scale-[1.06] hover:border-white hover:bg-white/15 hover:shadow-[0_6px_20px_rgba(0,0,0,0.45)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 group-hover/recent:border-white max-md:size-10"
         >
@@ -291,6 +301,7 @@ function MoviePosterFill({
   posterUrl: string | null;
   posterAspect: number;
 }) {
+  const t = useTranslations();
   if (!posterUrl) {
     return (
       <span className="flex size-full items-center justify-center px-5 text-center text-ui font-semibold text-white/25">
@@ -307,7 +318,7 @@ function MoviePosterFill({
         src={src}
         width={CARD_WIDTH}
         zoom={HOVER_ZOOM}
-        alt={`${title}封面`}
+        alt={t("activity.upNext.coverAria", { title })}
         className="size-full transition duration-500 group-hover/recent:scale-[1.03]"
       />
     );
@@ -328,7 +339,7 @@ function MoviePosterFill({
           style={{ aspectRatio: posterAspect }}
           className={`${posterAspect > CARD_ASPECT ? "w-full" : "h-full"} shadow-[0_0_28px_rgba(0,0,0,0.55)]`}
         >
-          <PosterImage src={src} width={CARD_WIDTH} zoom={HOVER_ZOOM} alt={`${title}海报`} className="size-full" />
+          <PosterImage src={src} width={CARD_WIDTH} zoom={HOVER_ZOOM} alt={t("activity.upNext.posterAria", { title })} className="size-full" />
         </div>
       </div>
     </div>

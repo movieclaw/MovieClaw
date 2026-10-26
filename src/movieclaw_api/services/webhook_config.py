@@ -15,8 +15,14 @@ from movieclaw_api.schemas.webhook import (
     WebhookConfigView,
     WebhookEndpointView,
 )
-from movieclaw_api.services.webhook import catalog_view, deliver_test, recent_deliveries
-from movieclaw_api.services.webhook.catalog import is_jellyfin_mappable, is_known_event
+from movieclaw_api.services.webhook import catalog_view, deliver_test, recent_deliveries, resync
+from movieclaw_api.services.webhook.catalog import (
+    LEGACY_NAMES,
+    is_jellyfin_mappable,
+    is_known_event,
+    normalize,
+)
+from movieclaw_api.services.webhook.deliveries import error_text
 from movieclaw_api.settings import (
     WebhookEndpoint,
     WebhookSetting,
@@ -37,7 +43,7 @@ def _endpoint_view(
         url=endpoint.url,
         format=endpoint.format,
         enabled=endpoint.enabled,
-        events=endpoint.events,
+        events=normalize(endpoint.events),
         template=endpoint.template,
         headers=endpoint.headers,
         egress_scope=endpoint.egress_scope,
@@ -53,10 +59,7 @@ def _build_view(
     reveal = reveal or {}
     return WebhookConfigView(
         enabled=setting.enabled,
-        endpoints=[
-            _endpoint_view(ep, reveal_secret=reveal.get(ep.id))
-            for ep in setting.endpoints
-        ],
+        endpoints=[_endpoint_view(ep, reveal_secret=reveal.get(ep.id)) for ep in setting.endpoints],
         catalog=catalog_view(),
     )
 
@@ -75,17 +78,28 @@ async def save_config(payload: WebhookConfigPayload) -> WebhookConfigView:
     endpoints: list[WebhookEndpoint] = []
     reveal: dict[str, str] = {}
     for item in payload.endpoints:
+        item.events = [LEGACY_NAMES.get(e, e) for e in item.events]
         unknown = [e for e in item.events if not is_known_event(e)]
         if unknown:
-            raise BadRequestException(f"未知的订阅事件：{'、'.join(unknown)}")
+            raise BadRequestException(
+                message_key="errors.webhook.eventsUnknown",
+                params={
+                    "events": {"message_list": unknown, "separator_key": "common.list.separator"}
+                },
+            )
         if item.format == "jellyfin":
             # 前端会禁用勾选，这里兜底：无 Jellyfin 对应物的事件投递必失败，
             # 与其每次事件都记一条失败记录，不如保存时就拒绝
             unmappable = [e for e in item.events if not is_jellyfin_mappable(e)]
             if unmappable:
                 raise BadRequestException(
-                    f"以下事件没有 Jellyfin 对应物，jellyfin 格式 endpoint 不能订阅："
-                    f"{'、'.join(unmappable)}"
+                    message_key="errors.webhook.jellyfinEventsUnsupported",
+                    params={
+                        "events": {
+                            "message_list": unmappable,
+                            "separator_key": "common.list.separator",
+                        }
+                    },
                 )
         if item.id and item.id in existing:
             secret = existing[item.id].secret  # 编辑：secret 不经前端往返
@@ -115,6 +129,7 @@ async def save_config(payload: WebhookConfigPayload) -> WebhookConfigView:
 
     setting = WebhookSetting(enabled=payload.enabled, endpoints=endpoints)
     await store.set(setting)
+    await resync()  # 勾选的事件、开关变了：调整各地址的订阅
     return _build_view(setting, reveal=reveal)
 
 
@@ -123,14 +138,16 @@ async def _get_endpoint(endpoint_id: str) -> tuple[WebhookSetting, WebhookEndpoi
     for endpoint in setting.endpoints:
         if endpoint.id == endpoint_id:
             return setting, endpoint
-    raise NotFoundException(f"Webhook endpoint 不存在：{endpoint_id}")
+    raise NotFoundException(
+        message_key="errors.webhook.endpointMissing", params={"id": endpoint_id}
+    )
 
 
 async def rotate_secret(endpoint_id: str) -> WebhookEndpointView:
     """轮换签名密钥，新明文仅本次响应返回；旧密钥即刻作废。"""
     setting, endpoint = await _get_endpoint(endpoint_id)
     if endpoint.format != "movieclaw":
-        raise BadRequestException("仅自有协议（movieclaw 格式）的 endpoint 有签名密钥")
+        raise BadRequestException(message_key="errors.webhook.signatureUnavailable")
     endpoint.secret = generate_webhook_secret()
     await get_setting_store().set(setting)
     return _endpoint_view(endpoint, reveal_secret=endpoint.secret)
@@ -147,7 +164,7 @@ async def send_test(endpoint_id: str) -> DeliveryView:
         status_code=record.status_code,
         duration_ms=record.duration_ms,
         attempts=record.attempts,
-        error=record.error,
+        error=error_text(record),
         at=record.at.isoformat(),
     )
 

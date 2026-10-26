@@ -18,6 +18,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n.stored import source_text
 from movieclaw_api.services.library.access import ContentLimit
 from movieclaw_api.services.library.items import (
     LibraryFilter,
@@ -390,7 +391,7 @@ async def ensure_builtin_collections(session: AsyncSession, library_id: int) -> 
         return
     session.add(
         Collection(
-            name="我的收藏",
+            name=source_text("library.collections.favoritesTitle"),
             library_id=library_id,
             rules=[],
             builtin=builtin,

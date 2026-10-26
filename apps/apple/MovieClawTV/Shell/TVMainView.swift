@@ -3,10 +3,10 @@ import SwiftUI
 /// 主界面：系统原生的可收起侧边栏（`sidebarAdaptable`，docs/design/tvos-app.md §3.3，同系统 Apple TV App）。
 ///
 /// 平时只在左上角收成一枚小胶囊（写着当前页），整屏留给内容；按「左」或返回键展开成左侧边栏，焦点移到哪一项就切到哪一页。
-/// 从上到下：账号 / 搜索 / 首页 / 我的订阅 / 发现电影 / 发现剧集。账号在最上面、搜索紧随其后，同系统 Apple TV App 的侧边栏。
-/// 「我的订阅」「发现电影」「发现剧集」暂时收起（`showsDiscoverAndSubscriptions`），见下。
+/// 从上到下：账号 / 搜索 / 首页。账号在最上面、搜索紧随其后，同系统 Apple TV App 的侧边栏。
+/// Apple TV 版只做看片（docs/design/tvos-app.md §3）：订阅、发现与片段不在这个 App 里。
 /// 2026-10-03 用户改定（此前是顶部标签栏 + 左上头像 + 右上标志）：顶部一排菜单在电视上压着大图，收进左上角主屏更干净。
-/// 各个媒体库从首页的「我的媒体库」进，片段从发现页进。播放器全屏盖在主界面之上（`fullScreenCover`）。
+/// 各个媒体库从首页的「我的媒体库」进。播放器全屏盖在主界面之上（`fullScreenCover`）。
 struct TVMainView: View {
     @Environment(AppModel.self) private var model
     @Environment(TVDeepLinkInbox.self) private var inbox
@@ -45,10 +45,6 @@ struct TVMainView: View {
     #if DEBUG
     nonisolated(unsafe) private static var debugLandingUsed = false
     #endif
-
-    /// 「我的订阅」「发现电影」「发现剧集」三个页签的总开关。2026-10-03 用户决定 Apple TV 先只打磨首页与播放，
-    /// 这三项连同从发现页进的「片段」暂时不在侧边栏出现；页面代码原样保留，打磨好后改回 true 即可
-    static let showsDiscoverAndSubscriptions = false
 
     var body: some View {
         tabs
@@ -170,7 +166,7 @@ struct TVMainView: View {
         TabView(selection: Binding(get: { router.selectedTab }, set: { router.select($0) })) {
             // 账号：选自己回首页，「关于」在本页签里压栈打开（选别人则整棵主界面按新账号重建）。
             // 头像放进侧边栏顶部（`tabViewSidebarHeader`）要 tvOS 27，先做成第一项
-            Tab(session?.nickname ?? "账号", systemImage: "person.crop.circle", value: MainTab.account) {
+            Tab(session?.nickname ?? String(localized: .navNativeAccount), systemImage: "person.crop.circle", value: MainTab.account) {
                 stack(.account) {
                     TVWhoIsWatchingView(onClose: { router.selectedTab = .home }, onAbout: { router.push(.about) },
                                         reclaimFocus: router.reclaimTabFocus)
@@ -179,21 +175,8 @@ struct TVMainView: View {
             Tab(value: MainTab.search, role: .search) {
                 stack(.search) { TVSearchRoot() }
             }
-            Tab("首页", systemImage: "house", value: MainTab.home) {
+            Tab(String(localized: .navNativeHome), systemImage: "house", value: MainTab.home) {
                 stack(.home) { TVHomeView(mainScope: mainScope) }
-            }
-            if Self.showsDiscoverAndSubscriptions {
-                if permissions.canSubscribe {
-                    Tab("我的订阅", systemImage: "bookmark", value: MainTab.subscriptions) {
-                        stack(.subscriptions) { TVSubscriptionsView() }
-                    }
-                }
-                Tab("发现电影", systemImage: "film", value: MainTab.discoverMovies) {
-                    stack(.discoverMovies) { TVDiscoverView(mediaType: "movie") }
-                }
-                Tab("发现剧集", systemImage: "tv", value: MainTab.discoverShows) {
-                    stack(.discoverShows) { TVDiscoverView(mediaType: "tv") }
-                }
             }
         }
         .tabViewStyle(.sidebarAdaptable)
@@ -265,8 +248,6 @@ struct TVDestination: View {
         case let .collection(id, name): TVCollectionView(collectionId: id, name: name)
         case let .person(tmdbId, name, avatar, fromItem):
             TVPersonView(tmdbId: tmdbId, name: name, avatar: avatar, fromItem: fromItem)
-        case let .discoverTitle(ref): TVDiscoverDetailView(titleRef: ref)
-        case .reels: TVReelsView()
         case let .rowWall(title, source): TVRowWallView(title: title, source: source)
         case .about: TVAboutView()
         }

@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+import { useLocale } from "next-intl";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import type { Route } from "next";
@@ -38,7 +40,7 @@ import { useBackNavigation } from "@/lib/back-navigation";
 import { useBackdrop } from "@/lib/backdrop";
 import { buildDiscoveryReturnPath } from "@/lib/discovery-return-path";
 import { scopeOfMediaKind } from "@/lib/categories";
-import { buildSearchPath } from "@/lib/search-url";
+import { buildSearchPath, titleSearchAlso } from "@/lib/search-url";
 import { useDoubanAppHref } from "@/lib/douban-app-link";
 import { IMAGE_ASPECT, tmdbImageForWidth, tmdbTierWidth, withImageWidth } from "@/lib/image-proxy";
 import { useResolvedTheme } from "@/themes/registry";
@@ -47,13 +49,13 @@ import { useHeroEdgeColor } from "@/lib/hero-edge-color";
 import { getMediaSeed } from "@/lib/media-detail";
 import { useTapGuard } from "@/lib/use-tap-guard";
 import { usePageTitle } from "@/lib/use-page-title";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { usePermissions } from "@/lib/permissions";
 import type { MediaSource, MediaType } from "@/lib/media-types";
 import {
   subscriptionProgressNote,
-  subscriptionStatusMeta,
+  subscriptionStatusMetaFor,
 } from "@/lib/subscription-ui";
 
 /**
@@ -93,6 +95,9 @@ export function MediaDetailView({
   id: string;
   source?: MediaSource;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+  const subscriptionStatusMeta = subscriptionStatusMetaFor(locale);
   const { canSearchTorrents } = usePermissions();
   const [detail, setDetail] = useState<MediaDetailData | null>(null);
   // 详情拉取失败状态：仅在无 seed（硬刷新/分享直达）时才需要整页兜底
@@ -112,7 +117,7 @@ export function MediaDetailView({
   const listItem = getMediaSeed(source, id);
   const fallbackType = listItem?.type ?? type ?? "movie";
   const navFallback = {
-    label: "发现",
+    label: t("nav.main.discover"),
     href: `/discover/${fallbackType}` as Route,
   };
   const back = useBackNavigation(navFallback.href);
@@ -136,7 +141,7 @@ export function MediaDetailView({
         if (!controller.signal.aborted) setLoadFailed(true);
       });
     return () => controller.abort();
-  }, [reference]);
+  }, [reference, locale]);
 
   // 详情接口回填过 extent（片长/季数）等字段，未返回前先用列表字段渲染
   const item = detail?.item ?? listItem;
@@ -250,8 +255,8 @@ export function MediaDetailView({
   // chevron（见 NetflixBackButton）。移动端仍保留 PageNav：它要向外壳登记
   // 「本页自带顶栏」并充当返回入口（见 app-shell）。
   // 这些 hook 必须无条件调用（短路写法会触发 rules-of-hooks）。
-  const isNf = useTheme().structural;
-  const isNfDesktop = isNf && !isMobile;
+  const cinema = useLayout() === "cinema";
+  const cinemaDesktop = cinema && !isMobile;
   const { slots } = useResolvedTheme();
   const DetailNav = slots.detailNav;
   const showMobileHero = isMobile && mobileHeroSrc !== "";
@@ -259,16 +264,16 @@ export function MediaDetailView({
   //   - 整页底色取大图露出部分的底边色，Hero 底部渐变到同一个颜色（lib/hero-edge-color.ts）；
   //   - 顶栏的小标题与雾层等剧照上的大标题滚出视野才出现（PageNav 的 revealAfter）。
   // Netflix 维持纯黑底与原顶栏。
-  const silverHero = showMobileHero && !isNf;
+  const panelHero = showMobileHero && !cinema;
   const [heroEl, setHeroEl] = useState<HTMLDivElement | null>(null);
   const [titleEl, setTitleEl] = useState<HTMLHeadingElement | null>(null);
-  const edgeColor = useHeroEdgeColor(silverHero ? mobileHeroSrc : undefined, heroEl);
+  const edgeColor = useHeroEdgeColor(panelHero ? mobileHeroSrc : undefined, heroEl);
   // 银玻璃手机操作键：34px 高、最小宽 120px（同原生 App 的 HeroActionButton）
-  const actionSize = isNf ? "" : "max-md:h-[34px] max-md:min-w-[120px] max-md:justify-center max-md:px-4";
+  const actionSize = cinema ? "" : "max-md:h-[34px] max-md:min-w-[120px] max-md:justify-center max-md:px-4";
 
   // 滚动退场：详情页下滚时剧照不是被机械地推出屏幕，而是随滚动进度渐暗 +
-  // 模糊（Netflix 海报墙的观感）。进度写到根节点 CSS 变量 --nf-hero-recede
-  // （0→1），沉浸覆盖层（globals.css 的 html.nf-hero-live .backdrop-override）
+  // 模糊（Netflix 海报墙的观感）。进度写到根节点 CSS 变量 --hero-recede
+  // （0→1），沉浸覆盖层（globals.css 的 html.hero-live .backdrop-override）
   // 用它驱动 filter——滚动过程零 React 重渲染。rAF 合帧：一次滚动会派发多次
   // scroll 事件，只保留最后一帧的写入。**只在桌面启用**：手机上画面由页内
   // Hero 承担、滚动容器已铺黑把全站背景整个挡住，标记类无处生效（与媒体库
@@ -281,25 +286,25 @@ export function MediaDetailView({
   // 重跑不得重置（同帧内的类摘除重挂不会重启 CSS 动画，锚点也必须不动）。
   const kbAnchorRef = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (!isNfDesktop) return;
+    if (!cinemaDesktop) return;
     const root = document.documentElement;
     if (kbAnchorRef.current === undefined) {
       // 首跑：先摘再挂并跨一次 reflow。detail→detail 直跳时新旧视图在同一
       // 个 commit 里交接，同帧内的类切换不会触发样式重算、动画不会重启；
       // 强制 reflow 让新一片详情的推镜确定性地从头起跑，锚点才对得上。
-      root.classList.remove("nf-hero-live");
+      root.classList.remove("hero-live");
       void root.offsetWidth;
-      root.classList.add("nf-hero-live");
+      root.classList.add("hero-live");
       kbAnchorRef.current = performance.now();
-    } else if (!root.classList.contains("nf-hero-live")) {
-      root.classList.add("nf-hero-live");
+    } else if (!root.classList.contains("hero-live")) {
+      root.classList.add("hero-live");
     }
     const el = scrollRef.current;
     if (!el) {
       // 兜底态（数据未到）没有滚动容器：只挂标记类，清理时照常摘除
       return () => {
-        root.classList.remove("nf-hero-live");
-        root.style.removeProperty("--nf-hero-recede");
+        root.classList.remove("hero-live");
+        root.style.removeProperty("--hero-recede");
       };
     }
     let frame = 0;
@@ -309,7 +314,7 @@ export function MediaDetailView({
       // 变量注册了 <number> 类型并挂了过渡，滚轮大幅甩动时也是缓动跟随
       const range = Math.max(320, el.clientHeight * 0.75);
       const progress = Math.min(1, Math.max(0, el.scrollTop / range));
-      root.style.setProperty("--nf-hero-recede", progress.toFixed(3));
+      root.style.setProperty("--hero-recede", progress.toFixed(3));
     };
     const onScroll = () => {
       if (!frame) frame = window.requestAnimationFrame(sync);
@@ -319,10 +324,10 @@ export function MediaDetailView({
     return () => {
       el.removeEventListener("scroll", onScroll);
       if (frame) window.cancelAnimationFrame(frame);
-      root.classList.remove("nf-hero-live");
-      root.style.removeProperty("--nf-hero-recede");
+      root.classList.remove("hero-live");
+      root.style.removeProperty("--hero-recede");
     };
-  }, [isNfDesktop, hasItem]);
+  }, [cinemaDesktop, hasItem]);
 
   // 兜底态也必须渲染 PageNav——它向外壳登记「本页自带顶栏」，否则移动端的
   // 全局顶栏（☰ + logo）会在数据到达前先显示、随后又消失，顶部闪一下；
@@ -359,11 +364,11 @@ export function MediaDetailView({
     info?.directorCredits.length
       ? info.directorCredits.map((director) => ({
           ...director,
-          credit: isMovie ? "导演" : "主创",
+          credit: isMovie ? t("media.detail.director") : t("media.detail.creator"),
         }))
       : [...new Set(info?.directors ?? [])].map((name) => ({
           name,
-          credit: isMovie ? "导演" : "主创",
+          credit: isMovie ? t("media.detail.director") : t("media.detail.creator"),
         }));
   const people = info ? [...directorCast, ...info.cast] : [];
 
@@ -387,14 +392,14 @@ export function MediaDetailView({
       className={`detail-ambient scroll-thin scroll-safe relative isolate h-full overflow-y-auto rounded-2xl max-md:rounded-none ${
         showMobileHero ? "detail-ambient--hero" : ""
       }`}
-      style={silverHero && edgeColor ? ({ "--detail-page-color": edgeColor } as CSSProperties) : undefined}
+      style={panelHero && edgeColor ? ({ "--detail-page-color": edgeColor } as CSSProperties) : undefined}
     >
       {/* 桌面没有任何 Hero 图层：全站背景此刻就是本片剧照（沉浸覆盖 + 本页
           豁免全局蒙版，见 app-shell 的 isHome），大图直出、零边界；
           .detail-ambient 在滚动容器上铺「透明 → 纯黑」的渐变板托住下方内容
           （见 globals.css，Netflix 主题另有左侧渐变遮罩护住标题区）。
           手机上竖屏放不下横版剧照，改由下面的页内 Hero 呈现。 */}
-      {isNf ? (
+      {cinema ? (
         <DetailNav title={item.title} fallback={navFallback} onBack={back} />
       ) : (
         <PageNav title={item.title} fallback={navFallback} revealAfter={titleEl} />
@@ -402,7 +407,7 @@ export function MediaDetailView({
       {/* 背景轮换：Netflix 桌面且剧照多于一张时，按序叠变（见组件说明）。
           首帧传主 backdrop 原图——与覆盖层当前显示的是同一张照片，轮换层
           淡入接管时没有构图/内容跳变。 */}
-      {isNfDesktop && detail && detail.backdrops.length > 1 && backdropWidth > 0 && (
+      {cinemaDesktop && detail && detail.backdrops.length > 1 && backdropWidth > 0 && (
         <DetailBackdropSlideshow
           // 轮换层同样铺满整窗，与覆盖层取同一档宽度（首帧因此与覆盖层是同一个地址）
           images={detail.backdrops.map((img) => ({ ...img, fullUrl: withImageWidth(img.fullUrl, backdropWidth) }))}
@@ -424,7 +429,7 @@ export function MediaDetailView({
         >
           <img src={mobileHeroSrc} alt="" decoding="async" className="size-full object-cover object-center" />
           <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/45 to-transparent" />
-          {silverHero ? (
+          {panelHero ? (
             <div className="detail-hero-fade absolute inset-x-0 bottom-0 h-[260px]" />
           ) : (
             <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-b from-transparent via-black/55 to-black" />
@@ -515,7 +520,7 @@ export function MediaDetailView({
           )}
           {info?.released && (
             <p className="tnum text-on-image mt-1.5 text-sub leading-6 text-white/55">
-              {isMovie ? "上映日期" : "首播日期"} · {info.released}
+              {isMovie ? t("media.detail.releaseDate") : t("media.detail.firstAirDate")} · {info.released}
             </p>
           )}
 
@@ -525,7 +530,7 @@ export function MediaDetailView({
               <div className="inline-flex max-w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-emerald-300/20 bg-emerald-400/[0.08] px-3.5 py-2.5 text-sub text-emerald-100/90 max-md:px-3">
                 <span className="flex shrink-0 items-center gap-1.5 font-medium text-emerald-200">
                   <FolderIcon className="size-4" />
-                  在库
+                  {t("library.status.inLibrary")}
                 </span>
                 {libraryLinks.map((libraryLink) => (
                   <Link
@@ -554,7 +559,7 @@ export function MediaDetailView({
                     className="size-4"
                     style={{ color: subscriptionStatusMeta[sub.status].color }}
                   />
-                  已订阅 · {subscriptionStatusMeta[sub.status].label}
+                  {t("media.detail.subscribedPrefix")} {subscriptionStatusMeta[sub.status].label}
                 </button>
               ) : (
                 <button
@@ -563,17 +568,22 @@ export function MediaDetailView({
                   className={`btn-accent media-cta flex h-10 items-center gap-2 rounded-full px-5 text-ui font-semibold ${actionSize}`}
                 >
                   <BellIcon className="size-4" />
-                  订阅追踪
+                  {t("media.detail.subscribe")}
                 </button>
               ))}
               {/* 搜索资源：不订阅、只想手动找种子下一次的直达口（此前只能回 ⌘K 重打片名）；
-                  按影片类型收窄到剧集/电影分类，免得同名的另一类资源混进来 */}
+                  按影片类型收窄到剧集/电影分类，免得同名的另一类资源混进来；
+                  英文名/原名一起搜（同订阅），只认英文名的站点也能搜到 */}
               {showSearchButton && <Link
-                href={buildSearchPath({ keyword: item.title, scope: scopeOfMediaKind(item.type) }) as Route}
+                href={buildSearchPath({
+                  keyword: item.title,
+                  also: titleSearchAlso(detail?.info.englishTitle, item.originalTitle),
+                  scope: scopeOfMediaKind(item.type),
+                }) as Route}
                 className={`btn-glass flex h-10 items-center gap-2 bg-white/10 px-5 text-ui font-medium backdrop-blur-md transition hover:bg-white/15 ${actionSize}`}
               >
                 <SearchIcon className="size-4" />
-                搜索资源
+                {t("media.detail.search")}
               </Link>}
               {sub && (
                 <span className="text-on-image flex items-center gap-1.5 text-sub text-[var(--text-muted)]">
@@ -581,7 +591,7 @@ export function MediaDetailView({
                     className="size-1.5 rounded-full"
                     style={{ backgroundColor: subscriptionStatusMeta[sub.status].color }}
                   />
-                  {subscriptionProgressNote(sub)}
+                  {subscriptionProgressNote(sub, locale)}
                 </span>
               )}
             </div>
@@ -648,7 +658,7 @@ export function MediaDetailView({
       {related.length > 0 && (
         <div className="mt-9">
           <MediaRow
-            row={{ id: `related-${item.id}`, title: "相似推荐", items: related }}
+            row={{ id: `related-${item.id}`, title: t("media.detail.similar"), items: related }}
             insetClassName="content-inset"
           />
         </div>
@@ -657,10 +667,10 @@ export function MediaDetailView({
       {/* —— 10. 相关链接：与媒体库详情一致，固定在正文所有内容之后。 —— */}
       {(source === "tmdb" || info?.sourceUrl) && (
         <nav
-          aria-label="外部词条"
+          aria-label={t("media.detail.externalEntry")}
           className="mx-12 mt-9 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-white/[0.04] pt-4 text-caption max-md:mx-4"
         >
-          <span className="text-[var(--text-faint)]">相关链接</span>
+          <span className="text-[var(--text-faint)]">{t("media.detail.relatedLinks")}</span>
           {source === "tmdb" && (
             <SourceLink
               href={`https://www.themoviedb.org/${item.type}/${item.id}`}
@@ -668,7 +678,7 @@ export function MediaDetailView({
             />
           )}
           {info?.sourceUrl && (
-            <SourceLink href={doubanAppHref ?? info.sourceUrl} label="豆瓣" />
+            <SourceLink href={doubanAppHref ?? info.sourceUrl} label={t("media.source.douban")} />
           )}
         </nav>
       )}
@@ -682,8 +692,8 @@ export function MediaDetailView({
  * 异步回填或页内切换作品时恢复折叠并重新测量，避免沿用上一部影片的状态。
  */
 function ExpandablePlot({ text }: { text: string }) {
-  // 银玻璃的「展开全文」用 accent 色（同原生 App），Netflix 维持灰字
-  const isNf = useTheme().structural;
+  const t = useTranslations();
+  // 「展开全文」默认 accent 色（同原生 App）；主题可经公开部件 .detail-more-toggle 换色
   const paragraphRef = useRef<HTMLParagraphElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [hasOverflow, setHasOverflow] = useState(false);
@@ -726,11 +736,9 @@ function ExpandablePlot({ text }: { text: string }) {
           type="button"
           aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
-          className={`mt-1.5 inline-flex items-center gap-1 text-sub font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-2)] ${
-            isNf ? "text-white/55 hover:text-white/85" : "text-[var(--accent)] hover:text-white"
-          }`}
+          className="detail-more-toggle mt-1.5 inline-flex items-center gap-1 text-sub font-medium text-[var(--accent)] transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-2)]"
         >
-          {expanded ? "收起" : "展开全文"}
+          {expanded ? t("media.detail.collapse") : t("media.detail.expandPlot")}
           <ChevronRightIcon
             className={`size-3.5 transition-transform ${expanded ? "-rotate-90" : "rotate-90"}`}
           />
@@ -766,12 +774,13 @@ function SourceLink({ href, label }: { href: string; label: string }) {
  *     而不是留给用户一个永远转圈的黑框。
  */
 function TrailerRow({ title, videos }: { title: string; videos: MediaVideo[] }) {
+  const t = useTranslations();
   const [playing, setPlaying] = useState<MediaVideo | null>(null);
 
   return (
     <section>
       <h2 className="text-on-image mb-3 text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
-        预告片
+        {t("media.detail.trailers")}
       </h2>
 
       <HScroller className="-mx-1 gap-3 px-1 pt-1.5 pb-1">
@@ -799,13 +808,13 @@ function TrailerCard({
   onPlay: () => void;
 }) {
   const tapGuard = useTapGuard(onPlay);
-  const isNf = useTheme().structural;
+  const cinema = useLayout() === "cinema";
   return (
     <button
       type="button"
       {...tapGuard}
       // 手机卡宽：银玻璃 240（同原生 App），Netflix 维持 208
-      className={`group/trailer w-[264px] shrink-0 text-left ${isNf ? "max-md:w-[208px]" : "max-md:w-[240px]"}`}
+      className={`group/trailer w-[264px] shrink-0 text-left ${cinema ? "max-md:w-[208px]" : "max-md:w-[240px]"}`}
     >
       <div className="relative aspect-video overflow-hidden rounded-xl bg-[var(--poster-placeholder)] ring-1 ring-white/[0.08] transition-all duration-300 ease-out group-hover/trailer:-translate-y-1 group-hover/trailer:shadow-[0_16px_40px_rgba(0,0,0,0.55)] group-hover/trailer:ring-white/30">
         {/* YouTube 封面是 4:3（上下带黑边），object-cover 裁进 16:9 恰好只剩画面 */}
@@ -870,6 +879,7 @@ function TrailerPlayer({
   title: string;
   onClose: () => void;
 }) {
+  const t = useTranslations();
   const reach = useYoutubeReachable(video.key);
 
   return (
@@ -885,7 +895,7 @@ function TrailerPlayer({
         </div>
         <button
           type="button"
-          aria-label="关闭"
+          aria-label={t("common.close")}
           onClick={onClose}
           className="btn-glass -mr-1 flex size-8 shrink-0 items-center justify-center !rounded-full"
         >
@@ -896,12 +906,12 @@ function TrailerPlayer({
       <div className="aspect-video w-full bg-black">
         {reach === "blocked" ? (
           <div className="flex size-full flex-col items-center justify-center gap-3 px-6 text-center">
-            <p className="text-ui font-medium text-[var(--text)]">当前浏览器无法直连 YouTube</p>
+            <p className="text-ui font-medium text-[var(--text)]">{t("media.detail.youtubeUnavailable")}</p>
             {/* 整段写成单个字符串字面量：JSX 会把源码换行折成空格，中文句子里
                 会平白多出一个空格。 */}
             <p className="max-w-md text-sub leading-6 text-[var(--text-muted)]">
               {
-                "预告片由 YouTube 提供，播放需要浏览器本机能访问它。服务端在「设置 → 网络」配的代理只作用于服务端自己抓数据，不经过播放器；给浏览器挂上代理后即可正常播放。"
+                t("media.detail.youtubeHint")
               }
             </p>
             <a
@@ -910,7 +920,7 @@ function TrailerPlayer({
               rel="noreferrer"
               className="btn-glass flex h-9 items-center gap-2 px-4 text-sub font-medium text-[var(--text)]"
             >
-              在 YouTube 打开 ↗
+              {t("media.detail.openYoutube")}
             </a>
           </div>
         ) : (
@@ -947,9 +957,10 @@ function PhotoWall({
   backdrops: MediaImage[];
   posters: MediaImage[];
 }) {
+  const t = useTranslations();
   const tabs = [
-    { id: "backdrops" as const, label: "剧照", images: backdrops },
-    { id: "posters" as const, label: "海报", images: posters },
+    { id: "backdrops" as const, label: t("media.detail.backdrops"), images: backdrops },
+    { id: "posters" as const, label: t("media.detail.posters"), images: posters },
   ].filter((t) => t.images.length > 0);
   const [activeId, setActiveId] = useState(tabs[0].id);
   // 灯箱：记录打开时的图片下标；null = 关闭
@@ -964,9 +975,9 @@ function PhotoWall({
   const setAsBackdrop: LightboxAction | undefined =
     active.id === "backdrops"
       ? {
-          label: "设为背景",
-          busyLabel: "正在下载并设置…",
-          doneLabel: "已设为背景",
+          label: t("media.detail.setBackground"),
+          busyLabel: t("media.detail.settingBackground"),
+          doneLabel: t("media.detail.backgroundSet"),
           icon: <PhotoIcon className="size-3.5" />,
           run: async (i: number) => {
             const image = active.images[i];
@@ -979,7 +990,7 @@ function PhotoWall({
               if (!resp.ok) throw new Error();
               blob = await resp.blob();
             } catch {
-              throw new Error("下载剧照原图失败，请检查网络后重试");
+              throw new Error(t("media.detail.backgroundFailed"));
             }
             await uploadBackdrop(
               new File([blob], "backdrop.jpg", { type: blob.type || "image/jpeg" }),
@@ -1030,7 +1041,7 @@ function PhotoWall({
     <section className="group/photos">
       <div className="mb-3 flex items-center gap-3">
         <h2 className="text-on-image text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
-          剧照与海报
+          {t("media.detail.photos")}
         </h2>
         {tabs.length > 1 && (
           <div className="flex gap-1.5">
@@ -1103,11 +1114,12 @@ function PhotoArrow({
   visible: boolean;
   onClick: () => void;
 }) {
+  const t = useTranslations();
   const Icon = dir === -1 ? ChevronLeftIcon : ChevronRightIcon;
   return (
     <button
       type="button"
-      aria-label={dir === -1 ? "向左滚动" : "向右滚动"}
+      aria-label={dir === -1 ? t("media.detail.scrollLeft") : t("media.detail.scrollRight")}
       onClick={onClick}
       // 触屏隐藏箭头（同 HScroller）：本就只靠 hover 显形，触屏没有 hover
       // 会变成「看不见但能点」的隐形命中区，吃掉图片边缘的点击
@@ -1140,12 +1152,13 @@ function PhotoCard({
   title: string;
   onOpen: () => void;
 }) {
+  const t = useTranslations();
   const tapGuard = useTapGuard(onOpen);
   return (
     <button
       type="button"
       {...tapGuard}
-      aria-label={`查看${label}第 ${index + 1} 张`}
+      aria-label={t("media.detail.viewPhoto", { label, index: index + 1 })}
       className={`shrink-0 overflow-hidden rounded-xl bg-[var(--poster-placeholder)] ring-1 ring-white/[0.08] transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_16px_40px_rgba(0,0,0,0.55)] hover:ring-white/30 ${
         landscape ? "aspect-video h-[148px] max-md:h-[104px]" : "aspect-[2/3] h-[148px] max-md:h-[126px]"
       }`}
@@ -1167,6 +1180,7 @@ function PhotoCard({
  * 站内跳转有 seed 可秒开，直达则先转圈等接口；接口失败给出错误 + 返回入口。
  */
 function DetailFallback({ failed, onBack }: { failed: boolean; onBack: () => void }) {
+  const t = useTranslations();
   return (
     // ambient-fallback：本页豁免了全局蒙版（isHome），而此刻还没有沉浸背景可铺，
     // 文案会直接压在用户配的壁纸上——亮壁纸下就读不出来了，兜底态自己带一层底。
@@ -1174,9 +1188,9 @@ function DetailFallback({ failed, onBack }: { failed: boolean; onBack: () => voi
     <div className="ambient-fallback flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
       {failed ? (
         <>
-          <p className="text-body-lg font-semibold text-[var(--text)]">未能加载该影片详情</p>
+          <p className="text-body-lg font-semibold text-[var(--text)]">{t("media.detail.loadFailed")}</p>
           <p className="max-w-sm text-ui leading-6 text-[var(--text-muted)]">
-            资源可能已下线，或网络暂时不可达。请返回后重试。
+            {t("media.detail.loadHint")}
           </p>
           <button
             type="button"
@@ -1184,13 +1198,13 @@ function DetailFallback({ failed, onBack }: { failed: boolean; onBack: () => voi
             className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]"
           >
             <ChevronLeftIcon className="size-4" />
-            返回
+            {t("common.back")}
           </button>
         </>
       ) : (
         <div className="flex items-center gap-2.5 text-ui text-[var(--text-muted)]">
           <BrandLoader className="size-5" />
-          正在加载详情…
+          {t("media.detail.loading")}
         </div>
       )}
     </div>

@@ -25,17 +25,21 @@ import asyncio
 import logging
 import re
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import select
 
 from movieclaw_api.api.routes.playback import get_session_segment
 from movieclaw_api.exceptions import NotFoundException
+from movieclaw_api.i18n.stored import render_value
+from movieclaw_api.services import network_side
 from movieclaw_api.services.library import skip_segments
 from movieclaw_api.services.library.access import member_content_limit, member_visible_ids
+from movieclaw_api.services.playback import trickplay
 from movieclaw_api.services.playback import watch as playback_watch
 from movieclaw_api.services.playback.adaptive import adapt_to_downlink
 from movieclaw_api.services.playback.disc_source import disc_source_for_file
@@ -62,7 +66,7 @@ from movieclaw_api.services.playback.limits import (
 from movieclaw_api.services.playback.plan import load_policy, select_execution_backend
 from movieclaw_api.services.playback.remote_worker import (
     effective_remote_transcode_config,
-    remote_worker_available,
+    remote_backends_available,
 )
 from movieclaw_api.services.playback.session import (
     DiskQuotaError,
@@ -71,18 +75,20 @@ from movieclaw_api.services.playback.session import (
     get_session_manager,
 )
 from movieclaw_api.services.playback.signing import issue_stream_token, verify_stream_token
+from movieclaw_api.services.playback.strm_direct import mounted_redirect
+from movieclaw_api.services.playback.strm_probe import ensure_strm_spec
 from movieclaw_api.services.playback.track_context import files_with_contexts, track_context
 from movieclaw_api.settings import PlaybackPolicySetting
 from movieclaw_api.settings.store import get_setting_store
 from movieclaw_db.engine import get_database
-from movieclaw_db.models import LibraryFile, MediaMetadata
+from movieclaw_db.models import LibraryFile, MediaMetadata, Member
 from movieclaw_jellyfin.catalog import (
     audio_track_for_index,
     index_for_subtitle_track,
     media_source_dto,
     subtitle_track_for_index,
 )
-from movieclaw_jellyfin.errors import bad_request_text, not_found
+from movieclaw_jellyfin.errors import bad_request_text, forbidden, not_found, unavailable_text
 from movieclaw_jellyfin.ids import (
     EntityKind,
     EntityRef,
@@ -124,11 +130,15 @@ from movieclaw_playback.hls_vod import (
 from movieclaw_playback.profile import media_profile_from_file
 from movieclaw_playback.streaming import (
     DisconnectAwareFileResponse,
+    RemoteRelayResponse,
+    StrmLink,
     container_mime_type,
     direct_play_byte_patches,
     is_strm,
+    local_strm_container,
     register_device_stream,
-    resolve_strm_url,
+    resolve_strm,
+    strm_redirect_target,
     unregister_device_stream,
 )
 from movieclaw_playback.subtitles import (
@@ -139,6 +149,7 @@ from movieclaw_playback.subtitles import (
     resolve_external_subtitle,
     serve_subtitle_async,
 )
+from movieclaw_playback.text import reference
 from movieclaw_playback.track_policy import (
     NO_CONTEXT,
     TrackContext,
@@ -311,6 +322,9 @@ async def playback_info(
     selected = _select_source(files, media_source_id, item_id)
     if not selected:
         return JSONResponse({"MediaSources": [], "ErrorCode": "NoCompatibleStream"})
+    # 网盘（strm）版本第一次播放时现探规格并落库（strm_probe）：码率协商、音轨字幕都要它
+    for f in selected:
+        await ensure_strm_spec(f)
     # 播放协商是唯一现读 strm 的场景：直链多带时效签名，须现读现用；
     # 解析失败的版本剔除，全部失败按"无可播源"应答
     pairs = [(f, s) for f in selected if (s := media_source_dto(f, resolve_strm=True))]
@@ -328,11 +342,11 @@ async def playback_info(
             session, unit, member_id=identity.device.member_id
         )
     play_session_id = secrets.token_hex(16)
-    # 策略（硬件自检 + 软转开关）只在有普通本地文件时读一次：strm 与原盘
-    # 不走码率协商，纯 strm 条目不为此碰硬件探测
+    # 策略（硬件自检 + 软转开关）只在有非原盘文件时读一次：原盘不走码率协商；
+    # 网盘（strm）版本与本地文件一样协商（服务端的 ffmpeg 直接读直链）
     policy = (
         await _load_policy_for(negotiation.segment_container)
-        if any(not f.is_disc() and not is_strm(f.file_path) for f, _ in pairs)
+        if any(not f.is_disc() for f, _ in pairs)
         else None
     )
     for f, source in pairs:
@@ -343,7 +357,7 @@ async def playback_info(
             _apply_disc_transcoding(
                 source, f, ref, identity.device.token, play_session_id, audio_stream_index
             )
-        elif policy is not None and not is_strm(f.file_path):
+        elif policy is not None:
             _apply_transcode_negotiation(
                 source, f, ref, identity.device.token, play_session_id, negotiation, policy
             )
@@ -358,8 +372,8 @@ async def playback_info(
 async def _load_policy_for(segment_container: str) -> PlaybackPolicy:
     """转码策略，按播放器要的分片容器校正「有没有硬件」。
 
-    ``load_policy`` 把在线的远程 Worker 算作 VideoToolbox 硬件，但 TS 分片只能交给
-    声明了 ``mpegts`` 的 Worker：旧版 Mac Worker 的上传代理只放行 fMP4 产物，TS
+    ``load_policy`` 把在线的远程 Worker 算作硬件，但 TS 分片只能交给声明了 ``mpegts``
+    的 Worker：旧版 Mac Worker 与 Windows Worker 的上传代理只放行 fMP4 产物，TS
     分片在它本机就被拒收，ffmpeg 却不看上传响应码、照样退出码 0 转完整部片，播放器
     等满 30 秒只拿到 404（issue #444）。硬件只剩这种 Worker 时本次按「无硬件」协商：
     软转开着就退软转，没开就按直连应答（硬边界 4），并在日志里点名要更新 Worker。
@@ -370,12 +384,13 @@ async def _load_policy_for(segment_container: str) -> PlaybackPolicy:
         return policy
     if await asyncio.to_thread(available_local_backends):
         return policy
-    if remote_worker_available("videotoolbox", segment_type="mpegts"):
+    if remote_backends_available("mpegts"):
         return policy
-    if remote_worker_available("videotoolbox"):
+    if remote_backends_available():
         logger.warning(
-            "在线的远程转码 Worker 版本过旧，传不回 Infuse 等播放器要的 TS 分片，本次按无硬件"
-            "处理。请把 Mac 上的 MovieClaw 转码器更新到与服务端相同的版本"
+            "在线的远程转码 Worker 传不回 Infuse 等播放器要的 TS 分片（Windows Worker，或版本"
+            "过旧的 Mac 转码器），本次按无硬件处理。Mac 上的 MovieClaw 转码器请更新到与服务端"
+            "相同的版本"
         )
     return replace(policy, hardware_available=False)
 
@@ -462,14 +477,14 @@ def _apply_transcode_negotiation(
                 "播放器要求转码（码率上限 %s bps）但无法转码，按直连应答：%s（%s）",
                 negotiation.max_bitrate_bps,
                 f.file_path,
-                decision.reason,
+                render_value(decision.reason),
             )
         return
     source["SupportsTranscoding"] = True
     if direct_ok:
         return
     decision = adapt_to_downlink(
-        decision, negotiation.max_bitrate_bps, label="播放器要求的码率上限"
+        decision, negotiation.max_bitrate_bps, label=reference("player.decision.declaredLimit")
     )
     bitrate_exceeded = (
         negotiation.max_bitrate_bps is not None
@@ -506,7 +521,7 @@ def _apply_transcode_negotiation(
         negotiation.max_bitrate_bps,
         f.bit_rate,
         decision.video.height,
-        decision.reason,
+        render_value(decision.reason),
     )
 
 
@@ -668,24 +683,76 @@ async def video_stream(
         # 管理员刚在活动页结束了这台设备的播放：拒绝窗口内不再供流，否则
         # 播放器换条 Range 连接就续上了。设备重新上报开始播放即解除。
         raise bad_request_text("播放已被管理员结束")
+    # 外网取流：后台的网盘上传先让路（cloud-storage.md §5.3）
+    from movieclaw_api.services.drives import uplink
+
+    uplink.note(network_side.request_side(request))
 
     files = await _files_for_ref(ref, identity.device.member_id)
     selected = _select_source(files, request.query_params.get("mediaSourceId"), item_id)
     if not selected:
         raise not_found()
     f = selected[0]
-
-    if is_strm(f.file_path):
-        url = resolve_strm_url(f.file_path)
-        if url is None:
-            raise not_found()
-        # 302 直链：HEAD 同样 302、不塞 body；重定向目标自己支持 Range
-        return RedirectResponse(url, status_code=302)
+    if request.method == "GET":
+        # 进度条预览图：与自家播放器开会话同一套后台生成（延迟 90 秒让开起播窗口），
+        # 下次打开就有预览；HEAD 只是探测，不算开播
+        trickplay.schedule(f, delay_s=90)
 
     path = Path(f.file_path)
+    file_container = f.container
+    if f.local_bytes and f.id is not None:
+        from movieclaw_api.services.drives import release
+
+        release.note_read(f.id)
+    if not f.local_bytes:
+        # 只在网盘上（cloud-storage.md §7.2）：家里转发或 302 到网盘直链。自家 App 带
+        # X-MovieClaw-Relay-Fallback: 1 声明直连失败会带 relay=1 改走转发，「自动」下才可能直连
+        cloud = await _cloud_target(request, identity, f)
+        if cloud.direct_url is not None:
+            return RedirectResponse(cloud.direct_url, status_code=302)
+        assert cloud.relay is not None
+        session_stopped, byte_sink, on_close = await _register_stream(
+            request, identity, ref, f, name=path.name
+        )
+        return RemoteRelayResponse(
+            cloud.relay.url,
+            range_header=request.headers.get("range"),
+            upstream_headers=cloud.relay.headers,
+            session_stopped=session_stopped,
+            byte_sink=byte_sink,
+            on_close=on_close,
+        )
+    if is_strm(f.file_path):
+        source = resolve_strm(f.file_path)
+        if source is None:
+            raise not_found()
+        if isinstance(source, StrmLink):
+            target = await strm_redirect_target(source, request.headers.get("user-agent"))
+            if target is None:
+                # 内网 / 回环 / 容器服务名、跟跳转也落不到外面的直链，或要带请求头的直链：
+                # 播放器自己取不了，服务端按 Range 原样转发
+                session_stopped, byte_sink, on_close = await _register_stream(
+                    request, identity, ref, f, name=path.name
+                )
+                return RemoteRelayResponse(
+                    source.url,
+                    range_header=request.headers.get("range"),
+                    upstream_headers=source.headers,
+                    session_stopped=session_stopped,
+                    byte_sink=byte_sink,
+                    on_close=on_close,
+                )
+            # 302 直链：HEAD 同样 302、不塞 body；重定向目标自己支持 Range
+            return RedirectResponse(target, status_code=302)
+        # 指向挂载目录里的文件：插件给了网盘直链就 302 过去，否则往下与本地文件同样直出
+        if target := await mounted_redirect(f.id, source, request.headers.get("user-agent")):
+            return RedirectResponse(target, status_code=302)
+        path = source
+        file_container = local_strm_container(f.container, path)
+
     # MIME 优先级对齐 StreamingHelpers：URL 后缀 → ?container= query → 真实容器
     media_type = container_mime_type(
-        container or request.query_params.get("container") or f.container or path.suffix
+        container or request.query_params.get("container") or file_container or path.suffix
     )
     if f.is_disc() and (f.container or "") != "iso":
         # 原盘（disc-playback.md §3.3）：单剪辑主片直接按 m2ts 供流；多剪辑
@@ -706,7 +773,50 @@ async def video_stream(
         raise not_found()
     # hev1 标签的 HEVC MP4 在 AVPlayer 系播放器上直出必败，流里改成 hvc1（#430）；
     # 用自带解码器的 Infuse 之流两种标签都认，不受影响
-    byte_patches = await direct_play_byte_patches(path, f.container, f.video_codec)
+    byte_patches = await direct_play_byte_patches(path, file_container, f.video_codec)
+    # strm 指向的本地文件：台账的大小是 strm 文本的，按真实文件
+    size_bytes = path.stat().st_size if is_strm(f.file_path) else None
+    session_stopped, byte_sink, on_close = await _register_stream(
+        request, identity, ref, f, name=path.name, size_bytes=size_bytes
+    )
+    return DisconnectAwareFileResponse(
+        path,
+        media_type=media_type,
+        session_stopped=session_stopped,
+        byte_sink=byte_sink,
+        on_close=on_close,
+        byte_patches=byte_patches,
+    )
+
+
+async def _cloud_target(request: Request, identity: RequestIdentity, f: LibraryFile):
+    """只在网盘上的文件这次取流怎么走；失败给播放器一句 503 原因。"""
+    from movieclaw_api.services.drives import sources
+
+    try:
+        return await sources.stream_target(
+            f.file_path,
+            holder=f"play:{identity.device.device_id}:{f.id}",
+            side=network_side.request_side(request),
+            place=f"device:{identity.device.device_id}",
+            user_agent=request.headers.get("user-agent"),
+            relay_fallback=sources.declares_fallback(request.headers, request.query_params),
+            force_relay=request.query_params.get("relay") == "1",
+        )
+    except Exception as exc:  # noqa: BLE001 -- 网盘的各种失败都换成给用户看的一句话
+        raise unavailable_text(sources.stream_error(exc)) from exc
+
+
+async def _register_stream(
+    request: Request,
+    identity: RequestIdentity,
+    ref: EntityRef,
+    f: LibraryFile,
+    *,
+    name: str,
+    size_bytes: int | None = None,
+) -> tuple[asyncio.Event, Callable[[int], None], Callable[[], None]]:
+    """登记一条取流：返回（停止信号, 字节计量, 收尾回调）。磁盘直出与网盘直链转发共用。"""
     # 停止播放并不保证客户端立刻关闭 Range 连接。按已认证设备登记这条流，
     # 让 /Sessions/Playing/Stopped 能主动停止读盘；TCP 断连仍是第二道兜底。
     device_id = identity.device.device_id
@@ -727,8 +837,8 @@ async def video_stream(
         member_id=identity.device.member_id,
         unit=unit,
         file_id=f.id,
-        file_name=path.name,
-        size_bytes=f.size_bytes,
+        file_name=name,
+        size_bytes=size_bytes if size_bytes is not None else f.size_bytes,
         client=_identity_client(identity),
     )
 
@@ -736,14 +846,46 @@ async def video_stream(
         unregister_device_stream(device_id, session_stopped)
         activity.unregister_stream(meter)
 
-    return DisconnectAwareFileResponse(
-        path,
-        media_type=media_type,
-        session_stopped=session_stopped,
-        byte_sink=meter.add,
-        on_close=_close,
-        byte_patches=byte_patches,
-    )
+    return session_stopped, meter.add, _close
+
+
+async def _member_may_download(member_id: int) -> bool:
+    """下载影片到设备的开关（member-permissions-v2.md §3.2）：超管（0）恒可。"""
+    if not member_id:
+        return True
+    async with get_database().session() as session:
+        member = await session.get(Member, member_id)
+    return member is not None and bool(member.allow_video_download)
+
+
+@router.get("/Videos/{item_id}/Trickplay/{width}/{index}.jpg")
+async def trickplay_tile(
+    request: Request,
+    item_id: str,
+    width: int,
+    index: int,
+    identity: RequestIdentity = Depends(require_device),
+) -> Response:
+    """进度条预览图的第 ``index`` 张雪碧图（#955，形态对齐 Jellyfin 10.9+）。
+
+    条目 ``Trickplay`` 字段只列已生成的版本与宽度，这里同样只认它们：版本按
+    ``mediaSourceId`` 选（缺省第一个），宽度对不上、张数越界都是 404。
+    """
+    ref = decode_guid(item_id)
+    if ref is None or ref.kind not in (EntityKind.ITEM, EntityKind.EPISODE):
+        raise not_found()
+    files = await _files_for_ref(ref, identity.device.member_id)
+    selected = _select_source(files, request.query_params.get("mediaSourceId"), item_id)
+    if not selected or selected[0].id is None:
+        raise not_found()
+    file_id = selected[0].id
+    tiles = trickplay.load_index(file_id)
+    if tiles is None or tiles.tile_width != width or not 0 <= index < len(tiles.sheets):
+        raise not_found()
+    target = trickplay.trickplay_dir(file_id) / tiles.sheets[index]
+    if not target.is_file():
+        raise not_found()
+    return FileResponse(target, media_type="image/jpeg")
 
 
 @router.get("/Items/{item_id}/Download")
@@ -771,6 +913,8 @@ async def download_item(
     ref = decode_guid(item_id)
     if ref is None or ref.kind not in (EntityKind.ITEM, EntityKind.EPISODE):
         raise not_found()
+    if not await _member_may_download(identity.device.member_id):
+        raise forbidden()
 
     files = await _files_for_ref(ref, identity.device.member_id)
     selected = _select_source(files, request.query_params.get("mediaSourceId"), item_id)
@@ -778,13 +922,36 @@ async def download_item(
         raise not_found()
     f = selected[0]
 
-    if is_strm(f.file_path):
-        url = resolve_strm_url(f.file_path)
-        if url is None:
-            raise not_found()
-        return RedirectResponse(url, status_code=302)
-
     path = Path(f.file_path)
+    if not f.local_bytes:
+        # 只在网盘上：下载与取流同一套取流方式（家里转发或直连网盘）
+        cloud = await _cloud_target(request, identity, f)
+        if cloud.direct_url is not None:
+            return RedirectResponse(cloud.direct_url, status_code=302)
+        assert cloud.relay is not None
+        return RemoteRelayResponse(
+            cloud.relay.url,
+            range_header=request.headers.get("range"),
+            upstream_headers=cloud.relay.headers,
+        )
+    if is_strm(f.file_path):
+        source = resolve_strm(f.file_path)
+        if source is None:
+            raise not_found()
+        if isinstance(source, StrmLink):
+            target = await strm_redirect_target(source, request.headers.get("user-agent"))
+            if target is None:
+                # 播放器取不了的直链：与取流同样由服务端转发
+                return RemoteRelayResponse(
+                    source.url,
+                    range_header=request.headers.get("range"),
+                    upstream_headers=source.headers,
+                )
+            return RedirectResponse(target, status_code=302)
+        # 指向挂载目录里的文件：插件给了网盘直链就 302 过去，否则按本地文件下载
+        if target := await mounted_redirect(f.id, source, request.headers.get("user-agent")):
+            return RedirectResponse(target, status_code=302)
+        path = source
     if f.is_disc() or not path.is_file():
         # 原盘是目录，没有"一个文件"可下（CanDownload 已恒 false，这里是兜底）
         raise not_found()
@@ -800,13 +967,17 @@ async def download_item(
         unit=_stream_unit(ref),
         file_id=f.id,
         file_name=path.name,
-        size_bytes=f.size_bytes,
+        size_bytes=path.stat().st_size if is_strm(f.file_path) else f.size_bytes,
         client=_identity_client(identity),
         start_offset=_range_start(request),
     )
     return DisconnectAwareFileResponse(
         path,
-        media_type=container_mime_type(f.container or path.suffix),
+        media_type=container_mime_type(
+            local_strm_container(f.container, path)
+            if is_strm(f.file_path)
+            else f.container or path.suffix
+        ),
         filename=path.name if is_download else None,
         byte_sink=meter.add,
         on_close=lambda: activity.unregister_stream(meter),
@@ -963,8 +1134,7 @@ async def video_hls_master(
     if not selected:
         raise not_found()
     f = selected[0]
-    if f.id is None or is_strm(f.file_path):
-        # strm 只直连（硬边界：转码要先把云端内容拉到服务器）
+    if f.id is None:
         raise not_found()
     if activity.device_ended(identity.device.device_id):
         raise bad_request_text("播放已被管理员结束")
@@ -999,6 +1169,7 @@ async def video_hls_master(
     except (SessionLimitError, DiskQuotaError, SessionStartError) as exc:
         logger.warning("Jellyfin HLS 会话启动失败：%s（%s）", f.file_path, exc)
         raise not_found() from None
+    trickplay.schedule(f, delay_s=90)
     if params.play_session_id:
         # 播放器停播/换清晰度时按 PlaySessionId 精确停这一个会话
         register_play_session(
@@ -1015,7 +1186,7 @@ async def video_hls_master(
         int(spec.plan.tier),
         spec.display_name,
         session.id,
-        spec.plan.reason,
+        render_value(spec.plan.reason),
     )
     return Response(
         content=build_master_playlist(
@@ -1141,13 +1312,19 @@ async def _capped_transcode_spec(f: LibraryFile, params: TranscodeParams) -> _Se
         max_audio_channels=params.max_audio_channels,
     )
     if isinstance(decision, PlaybackRejected):
-        logger.warning("Jellyfin 转码请求被拒绝：%s（%s）", f.file_path, decision.reason)
+        logger.warning(
+            "Jellyfin 转码请求被拒绝：%s（%s）", f.file_path, render_value(decision.reason)
+        )
         raise not_found()
     if params.video_bitrate_bps:
         decision = replace(
             decision,
             video=replace(decision.video, bitrate_cap_bps=params.video_bitrate_bps),
-            reason=f"{decision.reason}；码率限到 {params.video_bitrate_bps / 1_000_000:.2f} Mbps",
+            reason=reference(
+                "player.decision.jellyfinCap",
+                reason=decision.reason,
+                cap=f"{params.video_bitrate_bps / 1_000_000:.2f}",
+            ),
         )
     hw_backend: str | None = None
     use_remote = False
@@ -1159,9 +1336,7 @@ async def _capped_transcode_spec(f: LibraryFile, params: TranscodeParams) -> _Se
             decision,
             available=backends,
             local_backends=local_backends,
-            remote_video_available=remote_worker_available(
-                "videotoolbox", segment_type=segment_type(decision)
-            ),
+            remote_video_available=bool(remote_backends_available(segment_type(decision))),
         )
         if hw_backend is None:
             if not policy.software_transcode_enabled:
@@ -1181,7 +1356,7 @@ async def _capped_transcode_spec(f: LibraryFile, params: TranscodeParams) -> _Se
             decision = replace(
                 decision,
                 tier=PlaybackTier.SOFTWARE_TRANSCODE,
-                reason=f"{decision.reason}；硬件加速当前不可用，改为软件转码",
+                reason=reference("player.decision.hardwareFallback", reason=decision.reason),
             )
     segment_plan = (
         compute_uniform_plan(float(f.duration_seconds), target_s=SEGMENT_SECONDS)

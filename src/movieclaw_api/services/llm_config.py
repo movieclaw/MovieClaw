@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from types import EllipsisType
 from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,15 +37,27 @@ from movieclaw_api.exceptions import (
     ConflictException,
     NotFoundException,
 )
-from movieclaw_api.schemas.llm import LlmDefaultsView, LlmModelOptionView
+from movieclaw_api.i18n.llm import error_reference, preset_name
+from movieclaw_api.i18n.stored import reference, render_value, source_text
+from movieclaw_api.schemas.llm import (
+    LlmDefaultsView,
+    LlmModelDiscoveryPayload,
+    LlmModelOptionView,
+)
+from movieclaw_api.services.chatgpt_auth import (
+    build_server_protocol,
+    revoke_credentials,
+    token_store,
+)
 from movieclaw_api.settings import LlmDefaultsSetting, get_setting_store
 from movieclaw_db.engine import get_database
 from movieclaw_db.models.llm_provider import LlmProvider
 from movieclaw_db.models.site_credential import ConfigStatus
 from movieclaw_db.repositories.llm_provider_repo import LlmProviderRepository
 from movieclaw_llm import ChatMessage, ChatRequest, LlmError, LlmRouter, ModelInfo, ModelSettings
+from movieclaw_llm.chatgpt import RESOURCE, ChatGPTCredentials, restore_account_model_controls
 from movieclaw_llm.models import LlmProviderConfig, ProviderPreset
-from movieclaw_llm.protocols import PROTOCOLS
+from movieclaw_llm.protocols import build_protocol
 from movieclaw_llm.providers import get_preset, list_presets
 
 logger = logging.getLogger("movieclaw_api.llm_config")
@@ -60,24 +73,33 @@ def to_domain_config(row: LlmProvider, api_key: str) -> LlmProviderConfig:
     """ORM 记录 → movieclaw_llm 领域配置（LlmRouter 按它构建协议客户端）。"""
     return LlmProviderConfig(
         name=row.name,
+        provider_id=row.id,
         provider_type=row.provider_type,
         api_key=api_key,
         base_url=row.base_url,
         default_model=row.default_model,
-        extra_models=[ModelInfo.model_validate(m) for m in row.extra_models or []],
+        extra_models=_extra_models(row),
         user_agent=row.user_agent,
+        api_protocol=row.api_protocol,
     )
 
 
-def provider_catalog(row: LlmProvider) -> list[ModelInfo]:
-    """一个实例的可选模型目录：预设目录 + 用户补录，补录按 id 覆盖预设。
+def _extra_models(row: LlmProvider) -> list[ModelInfo]:
+    models = [ModelInfo.model_validate(m) for m in row.extra_models or []]
+    return restore_account_model_controls(models) if row.provider_type == "chatgpt" else models
 
-    与 LlmRouter._catalog 同口径——清单里出现的模型，路由一定能解析。
-    """
+
+def provider_catalog(row: LlmProvider) -> list[ModelInfo]:
+    """预设目录 + 用户补录（按 id 覆盖），裁掉当前协议无法调用工具的模型。"""
     merged = {m.id: m for m in get_preset(row.provider_type).models}
-    extras = [ModelInfo.model_validate(m) for m in row.extra_models or []]
+    extras = _extra_models(row)
     merged.update({m.id: m for m in extras})
-    return list(merged.values())
+    protocol = row.api_protocol or get_preset(row.provider_type).protocol
+    return [
+        m
+        for m in merged.values()
+        if not (protocol == "openai_chat" and m.requires_responses_for_tools)
+    ]
 
 
 def build_model_options(
@@ -97,6 +119,9 @@ def build_model_options(
             owners[model.id] = owners.get(model.id, 0) + 1
     options: list[LlmModelOptionView] = []
     for row, catalog in catalogs:
+        chat_protocol = (
+            row.api_protocol or get_preset(row.provider_type).protocol
+        ) == "openai_chat"
         for model in catalog:
             ambiguous = owners[model.id] > 1
             # 冲突或 id 含斜杠都要限定（见模块说明）；展示只在冲突时加括号
@@ -110,7 +135,11 @@ def build_model_options(
                     provider_id=row.id or 0,
                     provider_name=row.name,
                     is_default=ref == agent_default,
-                    thinking_levels=model.thinking_levels,
+                    thinking_levels=(
+                        ["off"]
+                        if chat_protocol and model.chat_tools_require_no_reasoning
+                        else model.thinking_levels
+                    ),
                 )
             )
     return options
@@ -229,14 +258,19 @@ async def resolve_provider_endpoint(session: AsyncSession) -> tuple[str, str, st
     repo = LlmProviderRepository(session)
     rows = await repo.list_all()
     if not rows:
-        raise BadRequestException("尚未配置 AI 模型供应商，无法测试")
+        raise BadRequestException(message_key="errors.llm.providerRequired")
     setting = await get_setting_store().get(LlmDefaultsSetting)
     options = build_model_options(rows)
     owner = _owner_of(rows, resolve_defaults(rows, setting, options).agent, options)
     row = owner[0] if owner else rows[0]
+    if row.provider_type == "chatgpt":
+        # OAuth bundles include refresh tokens and must never become probe headers.
+        raise BadRequestException(message_key="errors.llm.chatgptNetworkProbe")
     base = row.base_url or (get_preset(row.provider_type).base_url or "")
     if not base:
-        raise BadRequestException(f"供应商「{row.name}」未配置 API 端点地址")
+        raise BadRequestException(
+            message_key="errors.llm.endpointMissing", params={"name": row.name}
+        )
     return base, repo.decrypted_api_key(row) or "", row.user_agent
 
 
@@ -251,7 +285,7 @@ class LlmConfigService:
     def _assert_not_verifying(row: LlmProvider) -> None:
         """若正在测试连接，拒绝当前操作（409）。"""
         if row.status == ConfigStatus.VERIFYING:
-            raise ConflictException(f"「{row.name}」正在测试模型连接，请等待完成后再操作")
+            raise ConflictException(message_key="errors.llm.testing", params={"name": row.name})
 
     # -- 查询 --------------------------------------------------------------
 
@@ -263,7 +297,7 @@ class LlmConfigService:
         """按 id 取实例；不存在抛 404。"""
         row = await self._repo.get(provider_id)
         if row is None:
-            raise NotFoundException("模型供应商实例不存在")
+            raise NotFoundException(message_key="errors.llm.providerMissing")
         return row
 
     async def list_model_options(self) -> list[LlmModelOptionView]:
@@ -273,6 +307,58 @@ class LlmConfigService:
         agent = resolve_defaults(rows, setting).agent
         # 设置页 / 对话框入口，不在热路径；再构建一次只为标记 is_default
         return build_model_options(rows, agent)
+
+    async def discover_models(self, payload: LlmModelDiscoveryPayload) -> list[str]:
+        """只读查询；编辑时仅在类型与地址均未改变时允许沿用已存密钥。"""
+        try:
+            preset = get_preset(payload.provider_type)
+        except LlmError as exc:
+            raise BadRequestException(render_value(error_reference(exc))) from exc
+        if preset.requires_base_url and not payload.base_url:
+            raise BadRequestException(
+                message_key="errors.llm.endpointRequired", params={"name": preset_name(preset)}
+            )
+        key = payload.api_key
+        if payload.provider_type == "chatgpt":
+            if not payload.provider_id or key or payload.base_url not in (None, RESOURCE):
+                raise BadRequestException(message_key="errors.llm.chatgptConnectFirst")
+            row = await self.get(payload.provider_id)
+            if row.provider_type != "chatgpt":
+                raise BadRequestException(message_key="errors.llm.notChatgpt")
+            config = to_domain_config(row, self._repo.decrypted_api_key(row))
+            config.timeout_seconds = _TEST_TIMEOUT
+            protocol = build_server_protocol(config, preset)
+            try:
+                return sorted(set((await protocol.test_connection()).models))
+            except LlmError as exc:
+                raise BadRequestException(render_value(error_reference(exc))) from exc
+            finally:
+                await protocol.close()
+        if not key and payload.provider_id:
+            row = await self.get(payload.provider_id)
+            if payload.provider_type != row.provider_type or payload.base_url != row.base_url:
+                raise BadRequestException(message_key="errors.llm.apiKeyRefreshRequired")
+            key = self._repo.decrypted_api_key(row)
+        if not key:
+            raise BadRequestException(message_key="errors.llm.apiKeyRequired")
+        config = LlmProviderConfig(
+            name=payload.name,
+            provider_type=payload.provider_type,
+            api_key=key,
+            base_url=payload.base_url,
+            user_agent=payload.user_agent,
+            timeout_seconds=_TEST_TIMEOUT,
+        )
+        protocol = build_protocol(config, preset)
+        try:
+            info = await protocol.test_connection()
+            return sorted(set(info.models))
+        except LlmError as exc:
+            raise BadRequestException(
+                message_key="errors.llm.modelListFailed", params={"error": error_reference(exc)}
+            ) from exc
+        finally:
+            await protocol.close()
 
     # -- AI 设定 -----------------------------------------------------------
 
@@ -297,10 +383,14 @@ class LlmConfigService:
         """
         rows = await self._repo.list_all()
         refs = {o.ref for o in build_model_options(rows)}
-        for label, ref in (("智能体", agent_model), ("字幕处理", subtitle_model)):
+        for label, ref in (
+            (reference("settings.llm.agentScope"), agent_model),
+            (reference("settings.llm.subtitleScope"), subtitle_model),
+        ):
             if ref is not None and ref not in refs:
                 raise BadRequestException(
-                    f"{label}默认模型「{ref}」不在已接入供应商的模型清单中，请重新选择"
+                    message_key="errors.llm.defaultModelMissing",
+                    params={"scope": label, "ref": ref},
                 )
         recommended = recommended_default(rows, build_model_options(rows))
         await get_setting_store().set(
@@ -321,37 +411,42 @@ class LlmConfigService:
     ) -> None:
         """连接测试模型的严格校验，按供应商类型分两条规则：
 
-        - 有内置目录的供应商（官方渠道）：模型必须在目录内，自定义模型不
-          参与——官方渠道的模型集合以预设目录为准；
-        - 无目录的自定义端点：模型必须在 extra_models 里带完整参数。
+        - 固定官方渠道：模型必须在预设目录内；
+        - OpenAI 与兼容端点：预设外模型必须在 extra_models 里带完整参数。
           其中「借用」自其它预设目录的模型（按 id 识别）参数随目录，
           豁免手填规则——共享窗口类模型（如 Kimi）本就没有独立输出上限。
 
         agent 做上下文预算、思考预算、并发决策都依赖这些参数，
         缺参数会让下游全部退化成瞎猜，所以在入口就拦住。
         """
-        if preset.models:
+        if preset.models and preset.id != "openai":
             if any(m.id == model_id for m in preset.models):
                 return
             raise BadRequestException(
-                f"模型「{model_id}」不在「{preset.display_name}」的模型目录中，请从下拉列表中选择"
+                message_key="errors.llm.modelNotInCatalog",
+                params={"id": model_id, "name": preset_name(preset)},
             )
+        if any(m.id == model_id for m in preset.models):
+            return
         custom = next((m for m in extra_models if m.id == model_id), None)
         if custom is None:
             raise BadRequestException(
-                f"模型「{model_id}」不在预设目录中，请先补全它的参数配置"
-                "（上下文长度、最大输出等）后再保存"
+                message_key="errors.llm.modelParametersRequired", params={"id": model_id}
             )
         # 借用目录模型：任一预设目录里有同 id 条目即豁免手填参数规则
         if any(m.id == custom.id for p in list_presets() for m in p.models):
             return
         if not custom.context_window or not custom.max_output_tokens:
             raise BadRequestException(
-                f"自定义模型「{model_id}」缺少必要参数：上下文长度与最大输出为必填"
+                message_key="errors.llm.customModelParameters", params={"id": model_id}
             )
-        if custom.supports_thinking and not custom.max_thinking_tokens:
+        if (
+            custom.thinking_control
+            and custom.thinking_control.kind == "budget"
+            and not custom.max_thinking_tokens
+        ):
             raise BadRequestException(
-                f"自定义模型「{model_id}」开启了思考模式，必须填写思考预算上限"
+                message_key="errors.llm.thinkingBudgetRequired", params={"id": model_id}
             )
 
     async def _validate(
@@ -362,6 +457,7 @@ class LlmConfigService:
         base_url: str | None,
         default_model: str | None,
         extra_models: list[ModelInfo],
+        api_protocol: str | None = None,
         exclude_id: int | None = None,
     ) -> str:
         """新增与编辑共用的入参校验，返回实际使用的连接测试模型 id。
@@ -374,23 +470,54 @@ class LlmConfigService:
             preset = get_preset(provider_type)
         except LlmError as exc:
             # 未知供应商类型：领域错误翻译成 400（错误信息本身已含可选项提示）
-            raise BadRequestException(str(exc)) from exc
+            raise BadRequestException(render_value(error_reference(exc))) from exc
         if preset.requires_base_url and not base_url:
-            raise BadRequestException(f"接入「{preset.display_name}」必须填写 API 端点地址")
-        if not preset.models:
-            if not extra_models:
+            raise BadRequestException(
+                message_key="errors.llm.endpointRequired", params={"name": preset_name(preset)}
+            )
+        if provider_type == "chatgpt" and base_url not in (None, RESOURCE):
+            raise BadRequestException(message_key="errors.llm.chatgptEndpointOnly")
+        if api_protocol is not None and api_protocol not in (
+            preset.selectable_protocols or [preset.protocol]
+        ):
+            raise BadRequestException(
+                message_key="errors.llm.protocolUnsupported",
+                params={
+                    "name": preset_name(preset),
+                    "protocol": api_protocol,
+                    "available": {
+                        "message_list": preset.selectable_protocols or [preset.protocol],
+                        "separator_key": "common.list.separator",
+                    },
+                },
+            )
+        if not preset.models or preset.id == "openai":
+            if not preset.models and not extra_models:
                 raise BadRequestException(
-                    f"接入「{preset.display_name}」至少要补录一个模型（含上下文长度、最大输出等参数）"
+                    message_key="errors.llm.modelEntryRequired",
+                    params={"name": preset_name(preset)},
                 )
             for model in extra_models:
                 self._assert_model_configured(preset, extra_models, model.id)
-        test_model = default_model or (
-            preset.models[0].id if preset.models else extra_models[0].id
-        )
+        catalog = [*preset.models, *extra_models]
+        effective_protocol = api_protocol or preset.protocol
+        compatible = [
+            m
+            for m in catalog
+            if not (effective_protocol == "openai_chat" and m.requires_responses_for_tools)
+        ]
+        if not compatible:
+            raise BadRequestException(message_key="errors.llm.responsesRequired")
+        test_model = default_model or compatible[0].id
         self._assert_model_configured(preset, extra_models, test_model)
+        model = next(m for m in catalog if m.id == test_model)
+        if effective_protocol == "openai_chat" and model.requires_responses_for_tools:
+            raise BadRequestException(
+                message_key="errors.llm.modelResponsesRequired", params={"id": test_model}
+            )
         existing = await self._repo.get_by_name(name)
         if existing is not None and existing.id != exclude_id:
-            raise ConflictException(f"实例名「{name}」已被使用，请换一个名字")
+            raise ConflictException(message_key="errors.llm.nameInUse", params={"name": name})
         return test_model
 
     async def create(
@@ -399,12 +526,20 @@ class LlmConfigService:
         name: str,
         provider_type: str,
         base_url: str | None,
-        api_key: str,
+        api_key: str | None,
         default_model: str | None = None,
         extra_models: list[ModelInfo] | None = None,
         user_agent: str | None = None,
+        api_protocol: str | None = None,
     ) -> LlmProvider:
         """新增实例。状态置 PENDING，等待后台验证。"""
+        if not api_key:
+            raise BadRequestException(message_key="errors.llm.apiKeyRequired")
+        if provider_type == "chatgpt":
+            try:
+                ChatGPTCredentials.parse(api_key)
+            except LlmError as exc:
+                raise BadRequestException(render_value(error_reference(exc))) from None
         extras = extra_models or []
         test_model = await self._validate(
             name=name,
@@ -412,6 +547,7 @@ class LlmConfigService:
             base_url=base_url,
             default_model=default_model,
             extra_models=extras,
+            api_protocol=api_protocol,
         )
         before = build_model_options(await self._repo.list_all())
         row = await self._repo.create(
@@ -422,6 +558,7 @@ class LlmConfigService:
             default_model=test_model,
             extra_models=[m.model_dump() for m in extras] or None,
             user_agent=user_agent,
+            api_protocol=api_protocol,
         )
         await reconcile_defaults(await self._repo.list_all(), before)
         return row
@@ -433,14 +570,33 @@ class LlmConfigService:
         name: str,
         provider_type: str,
         base_url: str | None,
-        api_key: str,
+        api_key: str | None,
         default_model: str | None = None,
         extra_models: list[ModelInfo] | None = None,
         user_agent: str | None = None,
+        api_protocol: str | None | EllipsisType = ...,
     ) -> LlmProvider:
-        """整体覆盖一个实例的接入配置。不存在抛 404，正在验证中抛 409。"""
+        """整体覆盖一个实例的接入配置。不存在抛 404，正在验证中抛 409。
+
+        ``api_key`` 为 None 时沿用原 Key；但类型或端点变了必须重填——
+        否则只改个端点就能把已存的 Key 发到任意地址。
+
+        ``api_protocol`` 为 ``...`` 表示请求没带这个字段（不认识它的老客户端），
+        沿用原值；换了供应商类型时原值未必还合法，回到跟随预设默认。
+        """
         row = await self.get(provider_id)
         self._assert_not_verifying(row)
+        if row.provider_type == "chatgpt" and provider_type != "chatgpt":
+            raise BadRequestException(message_key="errors.llm.chatgptDeleteRequired")
+        if provider_type == "chatgpt" and api_key:
+            try:
+                ChatGPTCredentials.parse(api_key)
+            except LlmError as exc:
+                raise BadRequestException(render_value(error_reference(exc))) from None
+        if not api_key and (provider_type != row.provider_type or base_url != row.base_url):
+            raise BadRequestException(message_key="errors.llm.apiKeyRefreshRequired")
+        if api_protocol is ...:
+            api_protocol = row.api_protocol if provider_type == row.provider_type else None
         extras = extra_models or []
         test_model = await self._validate(
             name=name,
@@ -448,6 +604,7 @@ class LlmConfigService:
             base_url=base_url,
             default_model=default_model,
             extra_models=extras,
+            api_protocol=api_protocol,
             exclude_id=provider_id,
         )
         before = build_model_options(await self._repo.list_all())
@@ -460,6 +617,7 @@ class LlmConfigService:
             default_model=test_model,
             extra_models=[m.model_dump() for m in extras] or None,
             user_agent=user_agent,
+            api_protocol=api_protocol,
         )
         assert updated is not None  # 上面 get 已确认存在
         # 实例改名或目录改动会改变引用的拼写，按稳定身份改写设定
@@ -476,20 +634,33 @@ class LlmConfigService:
         await self._repo.update_status(provider_id, ConfigStatus.VERIFYING)
         return await self.get(provider_id)
 
-    async def delete(self, provider_id: int) -> None:
+    async def delete(self, provider_id: int) -> bool:
         """删除实例；不存在抛 404，正在验证中抛 409。"""
         row = await self.get(provider_id)
         self._assert_not_verifying(row)
         before = build_model_options(await self._repo.list_all())
-        await self._repo.delete(provider_id)
+        revoked = True
+        if row.provider_type == "chatgpt":
+            async with token_store.lock(row.id):
+                await self._session.refresh(row)
+                try:
+                    revoked = await revoke_credentials(
+                        ChatGPTCredentials.parse(self._repo.decrypted_api_key(row))
+                    )
+                except (LlmError, ValueError):
+                    revoked = False
+                await self._repo.delete(provider_id)
+        else:
+            await self._repo.delete(provider_id)
         await reconcile_defaults(await self._repo.list_all(), before)
+        return revoked
 
 
 # ---------------------------------------------------------------------------
 # 进程级 LlmRouter 单例：所有 LLM 调用（agent 等）的运行时入口
 # ---------------------------------------------------------------------------
 
-_runtime_router = LlmRouter()
+_runtime_router = LlmRouter(protocol_factory=build_server_protocol)
 
 
 async def acquire_llm_router(session: AsyncSession) -> LlmRouter:
@@ -506,7 +677,7 @@ async def acquire_llm_router(session: AsyncSession) -> LlmRouter:
     repo = LlmProviderRepository(session)
     rows = await repo.list_all()
     if not rows:
-        raise NotFoundException("尚未配置模型供应商，请先在「设置 → 模型接入」中接入")
+        raise NotFoundException(message_key="errors.llm.connectionRequired")
     setting = await get_setting_store().get(LlmDefaultsSetting)
     # 每条消息都经过这里：清单只构建一次，解析默认与找归属都复用它
     options = build_model_options(rows)
@@ -548,7 +719,7 @@ async def verify_llm_provider(provider_id: int) -> None:
         config = to_domain_config(row, repo.decrypted_api_key(row))
         config.timeout_seconds = _TEST_TIMEOUT
         preset = get_preset(row.provider_type)
-        protocol = PROTOCOLS[preset.protocol](config, preset)
+        protocol = build_server_protocol(config, preset)
         try:
             await protocol.chat(
                 ChatRequest(
@@ -558,16 +729,30 @@ async def verify_llm_provider(provider_id: int) -> None:
                 row.default_model,
             )
         except LlmError as exc:
-            # LlmError 的 message 本身已是清晰中文，直接展示
+            # 原始中文保留；引用在读取时按当前语言渲染
             logger.info("LLM 连接测试失败「%s」：%s", row.name, exc)
-            await repo.update_status(provider_id, ConfigStatus.FAILED, last_error=str(exc))
+            await repo.update_status(
+                provider_id,
+                ConfigStatus.FAILED,
+                last_error=str(exc),
+                last_error_ref=error_reference(exc) if exc.message_key else None,
+            )
             return
         except Exception as exc:  # noqa: BLE001 -- 背景任务兜底，绝不外抛
             logger.exception("LLM 连接测试发生未知错误「%s」", row.name)
             await repo.update_status(
                 provider_id,
                 ConfigStatus.FAILED,
-                last_error=f"测试时发生未知错误（{type(exc).__name__}）：{exc}",
+                last_error=source_text(
+                    "errors.llm.connection.verificationUnknown",
+                    type=type(exc).__name__,
+                    error=str(exc),
+                ),
+                last_error_ref=reference(
+                    "errors.llm.connection.verificationUnknown",
+                    type=type(exc).__name__,
+                    error=str(exc),
+                ),
             )
             return
         else:
@@ -576,6 +761,8 @@ async def verify_llm_provider(provider_id: int) -> None:
             try:
                 info = await protocol.test_connection()
                 available = sorted(info.models)
+                if row.provider_type == "chatgpt" and info.model_catalog:
+                    row.extra_models = [m.model_dump() for m in info.model_catalog]
             except Exception:  # noqa: BLE001
                 logger.info("端点未提供模型列表接口，跳过（不影响验证结论）")
             logger.info("LLM 连接测试通过：%s / %s", row.name, row.default_model)

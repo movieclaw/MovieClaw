@@ -28,7 +28,7 @@ struct TVWhoIsWatchingView: View {
             CosmosBackdrop(lit: true, dimmed: true)
                 .ignoresSafeArea()
             VStack(spacing: 70) {
-                Text("谁在看？")
+                Text(String(localized: .authAccountsWhoWatching))
                     .font(.welcomeSerif(size: 72))
                 // 放得下就居中摆一排；账号太多才横向滚动
                 ViewThatFits(in: .horizontal) {
@@ -49,14 +49,14 @@ struct TVWhoIsWatchingView: View {
         .fullScreenCover(isPresented: $addingAccount) {
             TVAddAccountView()
         }
-        .alert("退出登录？", isPresented: $confirmingLogout) {
-            Button("退出", role: .destructive) {
+        .alert(String(localized: .authLogoutTitle), isPresented: $confirmingLogout) {
+            Button(String(localized: .authLogoutConfirm), role: .destructive) {
                 TVTopShelfPublisher.clear()
                 Task { await model.logout() }
             }
-            Button("取消", role: .cancel) {}
+            Button(String(localized: .commonCancel), role: .cancel) {}
         } message: {
-            Text("「\(model.session?.nickname ?? "")」在这台 Apple TV 上的登录会在服务器上一并注销。同一台服务器上还有别的账号时会自动切过去。")
+            Text(String(localized: .authLogoutTvDescription(model.session?.nickname ?? "")))
         }
         .task(id: reclaimFocus) {
             guard reclaimFocus > 0 else { return }
@@ -91,7 +91,7 @@ struct TVWhoIsWatchingView: View {
                         }
                         .frame(width: 220, height: 220)
                     }
-                    Text("添加账号").font(.headline)
+                    Text(String(localized: .authLoginAddAccount)).font(.headline)
                     Text(" ").font(.caption)
                 }
             }
@@ -106,12 +106,12 @@ struct TVWhoIsWatchingView: View {
     private var actions: some View {
         HStack(spacing: 30) {
             Button { onAbout?() } label: {
-                Label("关于", systemImage: "info.circle")
+                Label(String(localized: .settingsAboutTitle), systemImage: "info.circle")
             }
             .focused($aboutFocused)
             .accessibilityIdentifier("tv-profiles-about")
             Button(role: .destructive) { confirmingLogout = true } label: {
-                Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
+                Label(String(localized: .authMenuSignOut), systemImage: "rectangle.portrait.and.arrow.right")
             }
             .accessibilityIdentifier("tv-profiles-logout")
         }
@@ -135,7 +135,7 @@ struct TVWhoIsWatchingView: View {
             try await model.switchAccount(to: saved.account.username, on: saved.server)
         } catch AppModel.AccountError.needsPassword {
             // 这个账号的登录失效了：打开登录（服务器与用户名预填）
-            error = "「\(saved.account.nickname)」的登录已失效，请在「添加账号」里重新登录"
+            error = String(localized: .authAccountsExpiredUseAdd(saved.account.nickname))
         } catch {
             self.error = error.localizedDescription
         }

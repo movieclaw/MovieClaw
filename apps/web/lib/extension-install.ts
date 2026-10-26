@@ -20,6 +20,13 @@ export const EXTENSION_ID = "hhjihoefiocbpmnoohlkmeiaiplpadhj";
 export const EXTENSION_ZIP_URL = "/extension/movieclaw-extension.zip";
 
 /**
+ * Firefox 安装包（wxt zip -b firefox --mv3）。Chrome 包缺 gecko.id、用 service_worker 后台，
+ * Firefox 会直接判为「已损坏」，必须用这份单独构建的包。包未经 Mozilla 签名，
+ * 正式版 Firefox 只能「临时载入」，见安装弹窗说明。
+ */
+export const EXTENSION_FIREFOX_ZIP_URL = "/extension/movieclaw-extension-firefox.zip";
+
+/**
  * 探测扩展是否已安装。
  * 返回 null = 检测中，true/false = 结果；窗口重新获得焦点时自动复测
  * （典型场景：用户切去 chrome://extensions 装完扩展再切回来，状态即时变绿）。

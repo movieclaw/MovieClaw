@@ -265,6 +265,7 @@ class CredentialAuthProvider(AuthProvider):
         if self._base_url is None:
             raise TrackerAuthError(
                 "CredentialAuthProvider 尚未绑定站点，请通过 create_site 创建或手动调用 bind()",
+                message_key="errors.siteDiagnostic.providerUnbound",
             )
         return f"{self._base_url}/{path.lstrip('/')}"
 
@@ -283,7 +284,10 @@ class CredentialAuthProvider(AuthProvider):
             return parts.scheme, parts.hostname, parts.port or default_port
 
         if normalized_origin(form_origin) != normalized_origin(post_origin):
-            raise TrackerAuthError("登录表单 action 指向跨站地址，已拒绝提交凭据")
+            raise TrackerAuthError(
+                "登录表单 action 指向跨站地址，已拒绝提交凭据",
+                message_key="errors.siteDiagnostic.crossOriginLogin",
+            )
         return post_url
 
     @staticmethod
@@ -332,6 +336,7 @@ class CredentialAuthProvider(AuthProvider):
                         success=False,
                         state=AuthState.NEEDS_CAPTCHA,
                         message="登录页存在验证码，但未配置验证码识别器",
+                        message_ref={"message_key": "errors.siteDiagnostic.captchaSolverMissing"},
                         captcha_image_url=captcha_url,
                     )
 
@@ -421,15 +426,23 @@ class CredentialAuthProvider(AuthProvider):
                 # 已达最大重试次数
                 raise TrackerAuthError(
                     f"验证码识别连续失败 {self.MAX_CAPTCHA_RETRIES} 次，登录中止",
+                    message_key="errors.siteDiagnostic.captchaFailed",
+                    params={"count": self.MAX_CAPTCHA_RETRIES},
                 )
 
             # 其他错误（用户名/密码错误等），不可重试
             raise TrackerAuthError(
                 f"登录失败：{error_text or '用户名或密码错误'}",
+                message_key="errors.siteDiagnostic.loginFailed",
+                params={
+                    "error": error_text or {"message_key": "errors.siteDiagnostic.badCredentials"}
+                },
             )
 
         # 理论上不会到这里，但做防御
-        raise TrackerAuthError("登录失败：超出最大重试次数")
+        raise TrackerAuthError(
+            "登录失败：超出最大重试次数", message_key="errors.siteDiagnostic.loginRetries"
+        )
 
     async def check(self, client: HttpClient) -> AuthState:
         """通过访问站点首页检查当前会话是否仍然有效。"""

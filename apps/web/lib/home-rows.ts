@@ -1,3 +1,6 @@
+import { appTranslator } from "./i18n/translate.ts";
+import type { AppLocale } from "./i18n/negotiate.ts";
+
 /**
  * 媒体库首页的「行清单」：合并规则、排序预设与命名推荐。
  *
@@ -19,8 +22,8 @@
  * 网格渐变色块，点进去是按该类型筛好的跨库墙。默认显示、可隐藏，排在「我的媒体库」
  * 之后；库范围与「全部电影」同一口径，这一类型一个库都没有时整行不出现。
  *
- * 本模块刻意不 import 任何组件或 `@/` 别名：合并规则是这个功能里唯一会出事的
- * 地方，保持无依赖才能用 node --test 直接单测（见 test/home-rows.test.mjs）。
+ * 合并与排序规则不依赖组件；展示函数在调用时取语言，node --test 仍可直接验证
+ * 规则和默认中文（见 test/home-rows.test.mjs）。
  */
 
 /**
@@ -75,11 +78,15 @@ export type GenreRowKind = "movie" | "tv";
 export const GENRE_ROW_KINDS: GenreRowKind[] = ["movie", "tv"];
 
 /** 类型行的叫法：「全部电影」「全部剧集」「全部其他视频」。 */
-export const MEDIA_KIND_LABELS: Record<HomeMediaKind, string> = {
-  movie: "电影",
-  tv: "剧集",
-  video: "其他视频",
-};
+export function homeMediaKindLabels(locale?: AppLocale): Record<HomeMediaKind, string> {
+  const t = appTranslator(locale);
+  return {
+    movie: t("library.kind.movies"),
+    tv: t("library.kind.series"),
+    video: t("library.kind.videos"),
+  };
+}
+export const MEDIA_KIND_LABELS = homeMediaKindLabels("zh-Hans");
 
 /** 合并只用到库的这几个字段（真实的 MediaLibrary 还带统计、扫描状态等）。 */
 export interface HomeLibraryLike {
@@ -188,7 +195,7 @@ export interface SortDirection {
  * 「最近添加」「最早添加」），点一条同时定了档位和方向；推荐名按（指标, 方向）算，
  * 所以「添加时间 + 反转」推荐的是「最早添加的电影」。
  */
-export const SORT_PRESETS: Record<
+export function homeSortPresets(locale?: AppLocale): Record<
   HomeRowSort,
   {
     /** 推荐的行名：按方向给 */
@@ -198,45 +205,49 @@ export const SORT_PRESETS: Record<
     direction: SortDirection | null;
     hint: string;
   }
-> = {
-  added_at: {
-    name: (l, r) => (r ? `最早添加的${l}` : `最近添加的${l}`),
-    short: (r) => (r ? "最早添加" : "最近添加"),
-    direction: { naturalAsc: false, asc: "旧→新", desc: "新→旧" },
-    hint: "入库时间",
-  },
-  release_date: {
-    name: (l, r) => (r ? `最早上映的${l}` : `最近上映的${l}`),
-    short: (r) => (r ? "最早上映" : "最近上映"),
-    direction: { naturalAsc: false, asc: "旧→新", desc: "新→旧" },
-    hint: "上映时间",
-  },
-  last_played: {
-    // 反转 = 上次播放离现在最远的在前：「很久没看的」比「最早观看的」更像人话
-    name: (l, r) => (r ? `很久没看的${l}` : `最近观看的${l}`),
-    short: (r) => (r ? "很久没看" : "最近观看"),
-    direction: { naturalAsc: false, asc: "远→近", desc: "近→远" },
-    hint: "我播放过的，按上次播放时间",
-  },
-  rating: {
-    name: (l, r) => (r ? `评分最低的${l}` : `评分最高的${l}`),
-    short: (r) => (r ? "评分最低" : "评分最高"),
-    direction: { naturalAsc: false, asc: "低→高", desc: "高→低" },
-    hint: "评分",
-  },
-  random: {
-    name: (l) => `随便看看 · ${l}`,
-    short: () => "随便看看",
-    direction: null,
-    hint: "每天换一批",
-  },
-  title: {
-    name: (l, r) => (r ? `${l} Z–A` : `${l} A–Z`),
-    short: (r) => (r ? "Z–A" : "A–Z"),
-    direction: { naturalAsc: true, asc: "A→Z", desc: "Z→A" },
-    hint: "片名",
-  },
-};
+> {
+  const t = appTranslator(locale);
+  return {
+    added_at: {
+      name: (l, r) => (r ? t("library.rows.firstAddedName", { library: l }) : t("library.rows.recentAddedName", { library: l })),
+      short: (r) => (r ? t("library.rows.firstAdded") : t("library.rows.recentAdded")),
+      direction: { naturalAsc: false, asc: t("library.rows.oldToNew"), desc: t("library.rows.newToOld") },
+      hint: t("library.rows.addedHint"),
+    },
+    release_date: {
+      name: (l, r) => (r ? t("library.rows.firstReleasedName", { library: l }) : t("library.rows.recentReleasedName", { library: l })),
+      short: (r) => (r ? t("library.rows.firstReleased") : t("library.rows.recentReleased")),
+      direction: { naturalAsc: false, asc: t("library.rows.oldToNew"), desc: t("library.rows.newToOld") },
+      hint: t("library.rows.releasedHint"),
+    },
+    last_played: {
+      // 反转 = 上次播放离现在最远的在前：「很久没看的」比「最早观看的」更像人话
+      name: (l, r) => (r ? t("library.rows.longUnwatchedName", { library: l }) : t("library.rows.recentWatchedName", { library: l })),
+      short: (r) => (r ? t("library.rows.longUnwatched") : t("library.rows.recentWatched")),
+      direction: { naturalAsc: false, asc: t("library.rows.farToNear"), desc: t("library.rows.nearToFar") },
+      hint: t("library.rows.watchedHint"),
+    },
+    rating: {
+      name: (l, r) => (r ? t("library.rows.lowestRatedName", { library: l }) : t("library.rows.highestRatedName", { library: l })),
+      short: (r) => (r ? t("library.rows.lowestRated") : t("library.rows.highestRated")),
+      direction: { naturalAsc: false, asc: t("library.rows.lowToHigh"), desc: t("library.rows.highToLow") },
+      hint: t("library.rows.ratingHint"),
+    },
+    random: {
+      name: (l) => t("library.rows.randomName", { library: l }),
+      short: () => t("library.rows.random"),
+      direction: null,
+      hint: t("library.rows.randomHint"),
+    },
+    title: {
+      name: (l, r) => (r ? `${l} Z–A` : `${l} A–Z`),
+      short: (r) => (r ? "Z–A" : "A–Z"),
+      direction: { naturalAsc: true, asc: "A→Z", desc: "Z→A" },
+      hint: t("library.rows.titleHint"),
+    },
+  };
+}
+export const SORT_PRESETS = homeSortPresets("zh-Hans");
 
 /** 排序预设按库的 kind 裁剪：评分、上映对家庭录像与照片没有意义，列出来只会选到一行空的。 */
 export function sortPresetsFor(kind: HomeLibraryKind): HomeRowSort[] {
@@ -267,8 +278,9 @@ export function mediaKindRowName(
   kind: HomeMediaKind,
   sort: HomeRowSort,
   reversed: boolean,
+  locale?: AppLocale,
 ): string {
-  return `全部${MEDIA_KIND_LABELS[kind]} · ${SORT_PRESETS[sort].short(reversed)}`;
+  return appTranslator(locale)("library.rows.kindName", { kind: homeMediaKindLabels(locale)[kind], sort: homeSortPresets(locale)[sort].short(reversed) });
 }
 
 /** 合集行的预设：与库行同一组六个，标签不带库名。 */
@@ -281,7 +293,7 @@ export const COLLECTION_SORTS: HomeRowSort[] = [
   "title",
 ];
 
-export const FAVORITES_SORT_PRESETS: Record<
+export function favoritesSortPresets(locale?: AppLocale): Record<
   FavoritesSort,
   {
     /** 展示名：按方向给（无方向的档只有一种叫法） */
@@ -289,28 +301,32 @@ export const FAVORITES_SORT_PRESETS: Record<
     direction: SortDirection | null;
     hint: string;
   }
-> = {
-  unwatched_first: {
-    name: () => "未看优先",
-    direction: null,
-    hint: "没看完的在前，再按收藏时间",
-  },
-  favorited_at: {
-    name: (r) => (r ? "最早收藏" : "最近收藏"),
-    direction: { naturalAsc: false, asc: "旧→新", desc: "新→旧" },
-    hint: "收藏时间",
-  },
-  rating: {
-    name: (r) => (r ? "评分最低" : "评分最高"),
-    direction: { naturalAsc: false, asc: "低→高", desc: "高→低" },
-    hint: "评分",
-  },
-  title: {
-    name: (r) => (r ? "片名 Z–A" : "片名 A–Z"),
-    direction: { naturalAsc: true, asc: "A→Z", desc: "Z→A" },
-    hint: "片名",
-  },
-};
+> {
+  const t = appTranslator(locale);
+  return {
+    unwatched_first: {
+      name: () => t("library.rows.unwatchedFirst"),
+      direction: null,
+      hint: t("library.rows.unwatchedHint"),
+    },
+    favorited_at: {
+      name: (r) => (r ? t("library.rows.firstFavorited") : t("library.rows.recentFavorited")),
+      direction: { naturalAsc: false, asc: t("library.rows.oldToNew"), desc: t("library.rows.newToOld") },
+      hint: t("library.rows.favoritedHint"),
+    },
+    rating: {
+      name: (r) => (r ? t("library.rows.lowestRated") : t("library.rows.highestRated")),
+      direction: { naturalAsc: false, asc: t("library.rows.lowToHigh"), desc: t("library.rows.highToLow") },
+      hint: t("library.rows.ratingHint"),
+    },
+    title: {
+      name: (r) => (r ? t("library.rows.titleZA") : t("library.rows.titleAZ")),
+      direction: { naturalAsc: true, asc: "A→Z", desc: "Z→A" },
+      hint: t("library.rows.titleHint"),
+    },
+  };
+}
+export const FAVORITES_SORT_PRESETS = favoritesSortPresets("zh-Hans");
 
 const FAVORITES_SORTS = new Set<string>(Object.keys(FAVORITES_SORT_PRESETS));
 
@@ -365,22 +381,23 @@ export function orderParamFor(
  * 首页上这一行叫什么是**呈现**的事，与合集自身的身份是两回事。同一个合集出现在
  * 首页可以叫「今晚看点轻松的」，合集页里它仍叫原名，两边互不影响。
  */
-export function rowTitle(row: HomeRow): string {
+export function rowTitle(row: HomeRow, locale?: AppLocale): string {
+  const t = appTranslator(locale);
   switch (row.kind) {
     case "up-next":
-      return "接下来继续";
+      return t("library.rows.upNext");
     case "favorites":
-      return "我的收藏";
+      return t("library.rows.favorites");
     case "libraries":
-      return "我的媒体库";
+      return t("library.rows.libraries");
     case "genres":
-      return `按类型找${MEDIA_KIND_LABELS[row.mediaKind]}`;
+      return t("library.rows.genreTitle", { kind: homeMediaKindLabels(locale)[row.mediaKind] });
     case "library":
       return (
-        row.name || SORT_PRESETS[row.sort].name(row.library.name, row.reversed)
+        row.name || homeSortPresets(locale)[row.sort].name(row.library.name, row.reversed)
       );
     case "media-kind":
-      return row.name || mediaKindRowName(row.mediaKind, row.sort, row.reversed);
+      return row.name || mediaKindRowName(row.mediaKind, row.sort, row.reversed, locale);
     case "collection":
       return row.name || row.collection.name;
   }
@@ -401,33 +418,34 @@ export function homeCollectionIds(rows: HomeRow[]): number[] {
 
 /** 自定义页里每行的小字：来源 · 排序 · 只看没看过的。行名是用户起的，来源和排序是它的真身。 */
 export function rowMeta(row: HomeRow): string {
+  const t = appTranslator();
   switch (row.kind) {
     case "up-next":
-      return "内置 · 我正在看的";
+      return t("library.rows.watchingMeta");
     case "favorites":
-      return `内置 · ${FAVORITES_SORT_PRESETS[row.sort].name(row.reversed)}`;
+      return t("library.rows.favoritesMeta", { sort: favoritesSortPresets()[row.sort].name(row.reversed) });
     case "libraries":
-      return "内置 · 管理页的库顺序";
+      return t("library.rows.librariesMeta");
     case "genres":
-      return `内置 · 每个类型一格（${row.libraries.length} 个库）`;
+      return t("library.rows.genresMeta", { count: row.libraries.length });
     case "library":
       return [
-        `${row.library.name}库`,
-        SORT_PRESETS[row.sort].short(row.reversed),
-        row.unwatched ? "只看没看过的" : null,
+        t("library.rows.libraryMeta", { name: row.library.name }),
+        homeSortPresets()[row.sort].short(row.reversed),
+        row.unwatched ? t("library.rows.onlyUnwatched") : null,
       ]
         .filter(Boolean)
         .join(" · ");
     case "media-kind":
       return [
-        `全部${MEDIA_KIND_LABELS[row.mediaKind]}（${row.libraries.length} 个库）`,
-        SORT_PRESETS[row.sort].short(row.reversed),
-        row.unwatched ? "只看没看过的" : null,
+        t("library.rows.kindMeta", { kind: homeMediaKindLabels()[row.mediaKind], count: row.libraries.length }),
+        homeSortPresets()[row.sort].short(row.reversed),
+        row.unwatched ? t("library.rows.onlyUnwatched") : null,
       ]
         .filter(Boolean)
         .join(" · ");
     case "collection":
-      return `合集 · ${SORT_PRESETS[row.sort].short(row.reversed)}`;
+      return t("library.rows.collectionMeta", { sort: homeSortPresets()[row.sort].short(row.reversed) });
   }
 }
 

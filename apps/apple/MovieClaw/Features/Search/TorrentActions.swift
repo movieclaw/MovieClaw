@@ -48,11 +48,11 @@ final class TorrentActionsState {
         }
         var reason: String?
         if remembered.kind == "smart", request.identity == nil {
-            reason = "这条种子没解析出条目身份，用不了记住的「智能入库」，请确认是哪部作品。"
+            reason = String(localized: .searchDownloadSmartIdentity)
         } else if remembered.downloaderId != nil, remembered.downloaderName == nil {
-            reason = "上次使用的下载器已不可用，请重新选择保存位置。"
+            reason = String(localized: .searchDownloadDownloaderUnavailable)
         } else if prefs.isStaleDir(remembered) {
-            reason = "上次的保存位置 \(remembered.savePath ?? "") 已不存在，请重新选择。"
+            reason = String(localized: .searchDownloadMissingPath(remembered.savePath ?? ""))
         }
         if let reason {
             request.reason = reason
@@ -78,14 +78,15 @@ final class TorrentActionsState {
             do {
                 guard let result = try await api.submitRememberedDownload(confirming.request, target: confirming.target) else {
                     downloadStates[key] = .idle
-                    reopenDialog(confirming.request, reason: "这条种子没匹配到唯一条目，请确认是哪部作品。")
+                    reopenDialog(confirming.request, reason: String(localized: .searchDownloadConfirmIdentity))
                     return
                 }
                 downloadStates[key] = result.alreadyExists ? .exists : .done
-                feedback.success(result.alreadyExists ? "该种子已在下载器中，未重复添加" : "已提交到「\(result.downloaderName)」\(result.savePath.map { " · \($0)" } ?? "")")
+                feedback.success(result.alreadyExists ? String(localized: .searchDownloadExistsHint) : (result.savePath.map { String(localized: .searchDownloadSubmittedToPath(result.downloaderName, $0)) }
+                ?? String(localized: .searchDownloadSubmittedTo(result.downloaderName))))
             } catch {
                 downloadStates[key] = .error
-                feedback.error(error.localizedDescription.isEmpty ? "提交失败，请重试" : error.localizedDescription)
+                feedback.error(error.localizedDescription.isEmpty ? String(localized: .searchDownloadRetryHint) : error.localizedDescription)
             }
         }
     }
@@ -113,10 +114,10 @@ final class TorrentActionsState {
             do {
                 let result = try await api.subscriptionsDownloadSelectedTorrent(subscriptionId: target.id, body: payload)
                 grabStates[hit.rowKey] = .done
-                feedback.success("已投给《\(target.title)》，覆盖 \(result.units.count) 个追踪单元")
+                feedback.success(String(localized: .searchGrabSuccess(target.title, result.units.count)))
             } catch {
                 grabStates[hit.rowKey] = .error
-                feedback.error(error.localizedDescription.isEmpty ? "投递失败，请稍后重试" : error.localizedDescription)
+                feedback.error(error.localizedDescription.isEmpty ? String(localized: .searchGrabFailed) : error.localizedDescription)
             }
         }
     }
@@ -135,7 +136,7 @@ final class TorrentActionsState {
         let content = DiscoverLightboxContent(
             urls: urls.map { api.image($0, width: ImageWidth.screen) },
             title: hit.title,
-            brokenHint: "图床可能已失效或拒绝外链访问",
+            brokenHint: String(localized: .searchTorrentImagesUnavailable),
             // 缩略条 56 点高，竖图横图都按 56 点宽取够用
             thumbnails: urls.map { api.image($0, width: ImageWidth.points(56)) },
             originals: urls.map { api.image($0) },
@@ -159,7 +160,7 @@ struct TorrentLightboxActions: View {
     var body: some View {
         HStack(spacing: 6) {
             if let link = WebLink(hit.detailUrl) {
-                Button("详情") { openURL(link.url) }
+                Button(String(localized: .searchTorrentDetails)) { openURL(link.url) }
                     .buttonStyle(.glass)
                     .accessibilityIdentifier("lightbox-torrent-detail")
             }
@@ -208,7 +209,7 @@ struct TorrentActionsSheet: View {
                 if let secondary {
                     Text(secondary).font(.caption).foregroundStyle(Theme.textMuted).lineLimit(3)
                 }
-                Text([hit.siteName, TorrentSearchLogic.sizeText(hit), "\(hit.seeders) 做种", hit.uploadTime.map { SubsFormat.relative($0) }]
+                Text([hit.siteName, TorrentSearchLogic.sizeText(hit), String(localized: .searchTorrentSeederCount(hit.seeders)), hit.uploadTime.map { SubsFormat.relative($0) }]
                     .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption)
                     .monospacedDigit()
@@ -216,12 +217,12 @@ struct TorrentActionsSheet: View {
             }
             VStack(spacing: 10) {
                 if showsImages, !actions.slides(for: hit, api: api).isEmpty {
-                    actionButton("浏览图片", systemImage: "photo.on.rectangle", id: "torrent-action-images") {
+                    actionButton(String(localized: .searchTorrentBrowseImages), systemImage: "photo.on.rectangle", id: "torrent-action-images") {
                         actions.openImages(hit, api: api)
                     }
                 }
                 if let link = WebLink(hit.detailUrl) {
-                    actionButton("查看详情", systemImage: "safari", id: "torrent-action-detail") {
+                    actionButton(String(localized: .searchTorrentViewDetails), systemImage: "safari", id: "torrent-action-detail") {
                         dismiss()
                         openURL(link.url)
                     }
@@ -249,7 +250,7 @@ struct TorrentActionsSheet: View {
             }
         }
         .padding(20)
-        .presentationDetents([.medium])
+        .adaptiveDetents([.medium])
         .presentationDragIndicator(.visible)
         .discoverContainer("torrent-actions")
     }
@@ -279,14 +280,14 @@ struct SiteStatusSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        SubsSheetScaffold(title: "站点搜索详情", closeTitle: "完成") {
+        SubsSheetScaffold(title: String(localized: .searchStatusSiteDetails), closeTitle: String(localized: .commonDone)) {
             Section {
                 ForEach(model.sites) { site in
                     row(site)
                 }
             } footer: {
                 if let total = model.totalElapsedMs {
-                    Text("总耗时 \(TorrentSearchLogic.elapsedText(total))（以最慢的站点为准）")
+                    Text(String(localized: .searchStatusTotalTimeSlowest(TorrentSearchLogic.elapsedText(total))))
                 }
             }
         }
@@ -304,12 +305,12 @@ struct SiteStatusSheet: View {
                 Spacer()
                 switch site.state {
                 case .searching:
-                    ProgressView().controlSize(.small).accessibilityLabel("搜索中")
+                    ProgressView().controlSize(.small).accessibilityLabel(String(localized: .searchStatusSearchingLabel))
                 case .ok:
-                    Text("\(site.count) 条" + (site.elapsedMs.map { " · \(TorrentSearchLogic.elapsedText($0))" } ?? ""))
+                    Text(String(localized: .searchFiltersOptionCount(site.count)) + (site.elapsedMs.map { " · \(TorrentSearchLogic.elapsedText($0))" } ?? ""))
                         .foregroundStyle(Theme.textMuted)
                 case .error:
-                    Text("失败" + (site.elapsedMs.map { " · \(TorrentSearchLogic.elapsedText($0))" } ?? ""))
+                    Text(String(localized: .searchStatusFailed) + (site.elapsedMs.map { " · \(TorrentSearchLogic.elapsedText($0))" } ?? ""))
                         .foregroundStyle(Theme.danger)
                 }
             }
@@ -323,11 +324,11 @@ struct SiteStatusSheet: View {
                 }
                 HStack(spacing: 8) {
                     if canRetry {
-                        Button("重试该站", systemImage: "arrow.clockwise") { model.retrySite(site.siteId, api: api) }
+                        Button(String(localized: .searchStatusRetry), systemImage: "arrow.clockwise") { model.retrySite(site.siteId, api: api) }
                     }
                     // 站点设置是超管页面，成员看不到这个补救入口
                     if permissions.isAdmin {
-                        Button("去站点设置", systemImage: "gearshape") {
+                        Button(String(localized: .searchStatusGoSiteSettings), systemImage: "gearshape") {
                             dismiss()
                             router.push(.settingsSection(.sites))
                         }

@@ -9,6 +9,10 @@
       config: { enabled: true }      # 交给插件的配置
       grants: [subscriptions.delete, dl.torrent.delete]   # 批准它调用的宿主操作
       act_as: family                 # 可选：以哪个成员的身份调用（缺省超管）
+      events:                        # 可选：插件自己的事件（domain-events.md §7）
+        - { name: acme.delete-cascade.done, title: 删片联动完成 }
+      notifications:                 # 可选：事件对应的通知（推到手机和 IM）
+        - { event: acme.delete-cascade.done, title: "《{title}》的种子删了", audience: admins }
 
 本地插件在进程内运行，拥有与主程序相同的系统权限——「受信」的意思是用户为它负责。它按第三方
 对待：只能用非内部契约、贡献 id 自动加前缀、宿主操作只拿「声明 ∩ grants」；永远不是关键插件，
@@ -20,6 +24,7 @@ from __future__ import annotations
 import dataclasses
 import importlib.util
 import logging
+import os
 import sys
 import types
 from dataclasses import dataclass, field
@@ -46,7 +51,10 @@ class LocalSpec:
     act_as: str | None = None
     disabled: bool = False
     runtime: str = "inline"
-    """``inline``：主进程里运行；``process``：独立进程（docs/design/plugin-phase3.md §4）。"""
+    """``inline``：主进程里运行；``process``：独立进程（docs/design/plugin-phase3.md §4）；
+    ``exec``：非 Python 插件，独立进程跑 ``command``（plugin-ipc-http.md §9）。"""
+    command: str | None = None
+    """``exec`` 插件的可执行文件，相对插件目录、放在一个子目录里（如 ``go_bridge/bridge``）。"""
     paths: tuple[Any, ...] = ()
     """批准的路径授权（``PLUGIN_FILES``），见 services/plugin_files.py。"""
 
@@ -73,6 +81,18 @@ def local_specs(settings: object) -> list[LocalSpec]:
         grants = item.get("grants") or []
         act_as = item.get("act_as")
         runtime = item.get("runtime") or "inline"
+        command = item.get("command")
+        if runtime == "exec":
+            # 可执行文件放在插件目录下的子目录里：隔离运行时按目录复制，用不着 module
+            parts = command.split("/") if isinstance(command, str) else []
+            if len(parts) < 2 or any(not p or p in (".", "..") for p in parts):
+                logger.warning(
+                    "本地插件 %s 的 command 须是插件目录下子目录里的可执行文件"
+                    "（如 go_bridge/bridge），已跳过",
+                    entry_id,
+                )
+                continue
+            module = parts[0]
         try:
             from movieclaw_api.services.plugin_files import parse_grants
 
@@ -80,8 +100,31 @@ def local_specs(settings: object) -> list[LocalSpec]:
         except ValueError as exc:
             logger.warning("本地插件 %s 的 paths 不合规（%s），已跳过", entry_id, exc)
             continue
+        from movieclaw_api.services import plugin_events
+
+        try:
+            # 插件自己的事件与通知（domain-events.md §7）：本地插件是受信的，写在这里即批准
+            events, notifications, _ = plugin_events.parse(
+                entry_id,
+                str(item.get("title") or entry_id),
+                events=item.get("events"),
+                notifications=item.get("notifications"),
+            )
+        except plugin_events.DeclarationError as exc:
+            logger.warning("本地插件 %s 的事件 / 通知声明不合规（%s），已跳过", entry_id, exc)
+            continue
+        plugin_events.declare(
+            plugin_events.Declared(
+                entry_id=entry_id,
+                title=str(item.get("title") or entry_id),
+                events=events,
+                notifications=notifications,
+                members_allowed=True,
+                trusted=True,
+            )
+        )
         if (
-            runtime not in ("inline", "process")
+            runtime not in ("inline", "process", "exec")
             or not isinstance(module, str)
             or not module.isidentifier()
             or not isinstance(config, dict)
@@ -91,7 +134,7 @@ def local_specs(settings: object) -> list[LocalSpec]:
         ):
             logger.warning(
                 "本地插件 %s 的配置不合规（module 须是合法模块名、config 是映射、"
-                "grants 是字符串列表、runtime 是 inline 或 process），已跳过",
+                "grants 是字符串列表、runtime 是 inline / process / exec），已跳过",
                 entry_id,
             )
             continue
@@ -105,6 +148,7 @@ def local_specs(settings: object) -> list[LocalSpec]:
                 disabled=bool(item.get("disabled", False)),
                 runtime=runtime,
                 paths=paths,
+                command=command if runtime == "exec" else None,
             )
         )
     return specs
@@ -116,6 +160,7 @@ def _failing(entry_id: str, reason: str) -> Plugin:
 
     return Plugin(
         name=entry_id,
+        # i18n-ignore: local plugin developer diagnostic
         title=f"本地插件 {entry_id}",
         apply=apply,
         disableable=True,
@@ -147,6 +192,7 @@ def _import(root: Path, spec: LocalSpec) -> types.ModuleType:
         module_spec = importlib.util.spec_from_file_location(name, file)
     else:
         raise FileNotFoundError(
+            # i18n-ignore: local plugin developer diagnostic
             f"找不到 {LOCAL_DIR}/{spec.module}.py 或 {LOCAL_DIR}/{spec.module}/__init__.py"
         )
     assert module_spec is not None and module_spec.loader is not None
@@ -166,6 +212,7 @@ def _resolve(root: Path, spec: LocalSpec) -> Plugin:
         module = _import(root, spec)
     except Exception as exc:  # noqa: BLE001 -- 本地代码出什么错都只影响它自己
         logger.warning("本地插件 %s 导入失败：%s", spec.id, exc, exc_info=exc)
+        # i18n-ignore: local plugin developer diagnostic
         return _failing(spec.id, f"导入失败：{type(exc).__name__}: {exc}")
     found = [
         value
@@ -175,6 +222,7 @@ def _resolve(root: Path, spec: LocalSpec) -> Plugin:
     if not found:
         return _failing(
             spec.id,
+            # i18n-ignore: local plugin developer diagnostic
             f"模块 {spec.module} 里没有名为 {spec.id} 的插件"
             "（@plugin 的第一个参数须与条目 id 一致）",
         )
@@ -197,14 +245,19 @@ def load_local_entries(settings: object) -> list[Entry]:
     entries: list[Entry] = []
     for spec in specs:
         if spec.disabled:
+            # i18n-ignore: local plugin developer diagnostic
             plugin = _failing(spec.id, "已在 plugins.yaml 中关闭")
-        elif spec.runtime == "process":
+        elif _web_only(root, spec):
+            from movieclaw_api.plugins.packages import web_only
+
+            plugin = web_only(spec.id, spec.id)
+        elif spec.runtime in ("process", "exec"):
             plugin = _remote(root, spec)
         else:
             plugin = _resolve(root, spec)
         entries.append(Entry(spec.id, plugin, config=spec.config, source=SOURCE))
     inline = [s.id for s in specs if s.runtime == "inline"]
-    process = [s.id for s in specs if s.runtime == "process"]
+    process = [s.id for s in specs if s.runtime in ("process", "exec")]
     if inline:
         logger.warning(
             "已加载 %d 个本地插件（进程内运行，拥有与主程序相同的系统权限）：%s",
@@ -216,25 +269,47 @@ def load_local_entries(settings: object) -> list[Entry]:
     return entries
 
 
+def _web_only(root: Path, spec: LocalSpec) -> bool:
+    """只带网页的本地插件：目录里只有 web/，没有 Python 代码（docs/design/plugin-web-pages.md）。"""
+    if spec.runtime == "exec":
+        return False
+    has_code = (root / f"{spec.module}.py").is_file() or (
+        root / spec.module / "__init__.py"
+    ).is_file()
+    return not has_code and (root / spec.module / "web" / "index.html").is_file()
+
+
 def _remote(root: Path, spec: LocalSpec) -> Plugin:
     """独立进程运行：主进程不导入插件代码，只登记代理（services/plugin_runtime.py）。"""
     from movieclaw_api.services.plugin_runtime import describe, remote_plugin
 
-    found = (root / f"{spec.module}.py").is_file() or (root / spec.module / "__init__.py").is_file()
-    if not found:
-        return _failing(
-            spec.id, f"找不到 {LOCAL_DIR}/{spec.module}.py 或 {LOCAL_DIR}/{spec.module}/__init__.py"
-        )
+    if spec.command is not None:
+        program = root / spec.command
+        if not (program.is_file() and os.access(program, os.X_OK)):
+            # i18n-ignore: local plugin developer diagnostic
+            return _failing(spec.id, f"找不到可执行文件 {LOCAL_DIR}/{spec.command}")
+    else:
+        found = (root / f"{spec.module}.py").is_file() or (
+            root / spec.module / "__init__.py"
+        ).is_file()
+        if not found:
+            return _failing(
+                spec.id,
+                # i18n-ignore: local plugin developer diagnostic
+                f"找不到 {LOCAL_DIR}/{spec.module}.py 或 {LOCAL_DIR}/{spec.module}/__init__.py",
+            )
     try:
-        declared = describe(root, spec.module, spec.id)
+        declared = describe(root, spec.module, spec.id, spec.command)
         return remote_plugin(
             spec.id,
+            # i18n-ignore: local plugin developer diagnostic
             title=f"{declared['title']}（独立进程）",
             path=root,
             module=spec.module,
-            config=spec.config,
             inject=tuple(declared["inject"]),
             permissions=tuple(declared["permissions"]),
+            config_description=declared.get("config"),
+            command=spec.command,
         )
     except Exception as exc:  # noqa: BLE001 -- 本地代码出什么错都只影响它自己
         logger.warning("本地插件 %s 无法以独立进程运行：%s", spec.id, exc)

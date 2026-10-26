@@ -70,18 +70,4 @@ object TrackLabels {
         ref.startsWith("embedded:") -> "$embeddedPrefix ${ref.removePrefix("embedded:")}"
         else -> fallback
     }
-
-    /**
-     * 这条字幕轨本机的 libass 管线渲染不了吗？能渲染返回 null，否则返回给用户看的原因。
-     *
-     * 位图字幕（PGS/VobSub）是从画面上描出来的图形，libass 只吃 ASS 文本 —— 服务端对
-     * 这类轨发的是**原始二进制**，喂给 libass 必然解析失败。以前的做法是照样列出来，
-     * 用户点了什么也没发生（"无法切换"的观感就来自这里，iOS 也有同样的教训）。
-     */
-    fun subtitleUnsupportedReason(kind: String?): String? = when (val k = kind?.lowercase()) {
-        null, "vtt", "ass", "ssa", "srt", "subrip", "text" -> null
-        "pgs", "sup" -> "图形字幕（PGS）：从画面像素描出来的位图，本机暂不支持，网页端能看"
-        "vobsub", "dvdsub", "sub" -> "图形字幕（VobSub）：位图字幕，本机暂不支持"
-        else -> "暂不支持的字幕格式：$k"
-    }
 }

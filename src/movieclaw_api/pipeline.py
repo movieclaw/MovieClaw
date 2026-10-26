@@ -45,6 +45,7 @@ INGEST_STEPS: RegistryKey[IngestStep] = RegistryKey(
     "ingest-steps",
     schema=IngestStep,
     stability=Stability.EXPERIMENTAL,
+    # i18n-ignore: developer-facing (contract docs, assertions, generated CSS comment)
     doc="入库流水线槽位的步骤：暂存完成后为每个步骤建一个挂在入库任务下的持久化任务",
 )
 

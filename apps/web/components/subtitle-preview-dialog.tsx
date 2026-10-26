@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 
 import { Modal } from "@/components/modal";
@@ -47,6 +48,8 @@ export function SubtitlePreviewDialog({
   onClose: () => void;
   onChanged?: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [data, setData] = useState<SubtitlePreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** 非空 = 内封轨正在后台抽取，还没有内容可显示（不是出错）。 */
@@ -88,7 +91,7 @@ export function SubtitlePreviewDialog({
         .catch((reason: unknown) => {
           if (cancelled || controller.signal.aborted) return;
           setPending(null);
-          setError(reason instanceof Error ? reason.message : "字幕预览加载失败，请稍后重试");
+          setError(reason instanceof Error ? reason.message : t("library.subtitlePreview.loadFailed"));
         });
     };
     load();
@@ -98,7 +101,7 @@ export function SubtitlePreviewDialog({
       if (timer !== null) window.clearTimeout(timer);
       controller.abort();
     };
-  }, [file.id, open, retryKey, track]);
+  }, [file.id, open, retryKey, track, t]);
 
   const calibrate = useCallback(async () => {
     if (!stream.external || !stream.file_name) return;
@@ -113,27 +116,27 @@ export function SubtitlePreviewDialog({
       }
     } catch (reason) {
       setCalibrationNotice(
-        reason instanceof Error ? reason.message : "校准失败，请稍后再试",
+        reason instanceof Error ? reason.message : t("library.subtitlePreview.calibrateFailed"),
       );
     } finally {
       setCalibrating(false);
     }
-  }, [file.id, onChanged, retry, stream.external, stream.file_name]);
+  }, [file.id, onChanged, retry, stream.external, stream.file_name, t]);
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      label={`字幕预览：${label}`}
+      label={t("library.subtitlePreview.dialogTitle", { label })}
       width="2xl"
       panelClassName="flex max-h-[82dvh] flex-col"
     >
       <div className="flex items-start justify-between gap-4 border-b border-white/[0.08] px-6 py-4 max-md:px-5 max-md:py-3.5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-title-sm font-semibold text-[var(--text)]">字幕预览</h3>
+            <h3 className="text-title-sm font-semibold text-[var(--text)]">{t("library.subtitlePreview.title")}</h3>
             <span className="rounded bg-white/[0.08] px-1.5 py-0.5 text-micro text-white/65">
-              {stream.external ? "外挂" : "内封"}
+              {stream.external ? t("player.subtitles.external") : t("player.subtitles.embedded")}
             </span>
             {data?.format && (
               <span className="rounded bg-white/[0.08] px-1.5 py-0.5 text-micro uppercase text-white/65">
@@ -148,7 +151,7 @@ export function SubtitlePreviewDialog({
         <button
           type="button"
           onClick={onClose}
-          aria-label="关闭字幕预览"
+          aria-label={t("library.subtitlePreview.close")}
           className="-mr-2 -mt-1 flex size-9 shrink-0 items-center justify-center rounded-full text-xl text-white/55 transition hover:bg-white/[0.08] hover:text-white"
         >
           ×
@@ -163,11 +166,11 @@ export function SubtitlePreviewDialog({
           >
             <span className="size-5 animate-spin rounded-full border-2 border-white/20 border-t-white/75" />
             <p className="text-ui text-[var(--text-muted)]">
-              {pending ?? (stream.external ? "正在读取字幕…" : "正在抽取内封字幕…")}
+              {pending ?? (stream.external ? t("library.subtitlePreview.reading") : t("library.subtitlePreview.extracting"))}
             </p>
             {pending && (
               <p className="max-w-md text-caption leading-5 text-[var(--text-faint)]">
-                首次读取内封字幕需要通读整个视频文件，读好后会自动显示。
+                {t("library.subtitlePreview.firstReadHint")}
               </p>
             )}
           </div>
@@ -176,20 +179,20 @@ export function SubtitlePreviewDialog({
         {error && (
           <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-6 text-center">
             <div>
-              <p className="text-ui font-semibold text-[#ffb4b4]">无法预览这条字幕</p>
+              <p className="text-ui font-semibold text-[#ffb4b4]">{t("library.subtitlePreview.unavailable")}</p>
               <p className="mt-1.5 max-w-lg text-sub leading-5 text-[var(--text-muted)]">
                 {error}
               </p>
             </div>
             <button type="button" onClick={retry} className="btn-glass px-4 py-2 text-ui font-medium">
-              重新加载
+              {t("library.subtitlePreview.reload")}
             </button>
           </div>
         )}
 
         {data && data.cues.length === 0 && (
           <p className="px-6 py-20 text-center text-ui text-[var(--text-muted)]">
-            字幕已成功解析，但没有可显示的对白
+            {t("library.subtitlePreview.empty")}
           </p>
         )}
 
@@ -220,22 +223,22 @@ export function SubtitlePreviewDialog({
               {calibrationNotice}
             </p>
           )}
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-sub text-[var(--text-muted)]">共 {data.event_count} 条对白</span>
+          <div className={`flex items-center justify-between gap-4 ${locale === "en" ? "max-sm:flex-wrap" : ""}`}>
+            <span className="text-sub text-[var(--text-muted)]">{t("library.subtitlePreview.cues", { count: data.event_count })}</span>
             <div className="flex items-center gap-2.5">
               {isAdmin && stream.external && stream.file_name && (
                 <button
                   type="button"
                   onClick={() => void calibrate()}
                   disabled={calibrating}
-                  title="以影片音轨校准时间轴，成功后覆盖当前这一个字幕文件，不会产生副本"
+                  title={t("library.subtitlePreview.calibrateHint")}
                   className="btn-glass px-4 py-2 text-ui font-medium disabled:opacity-50"
                 >
-                  {calibrating ? "正在校准…" : "校准时间轴"}
+                  {calibrating ? t("library.subtitlePreview.calibrating") : t("library.subtitlePreview.calibrate")}
                 </button>
               )}
               <button type="button" onClick={onClose} className="btn-glass px-4 py-2 text-ui font-medium">
-                完成
+                {t("common.done")}
               </button>
             </div>
           </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -65,6 +66,7 @@ export function ImageLightbox({
   sizeable = false,
   onClose,
 }: ImageLightboxProps) {
+  const t = useTranslations();
   // 大图等比装下整屏：需要的宽度上限就是屏宽像素（竖图受高度限制只会更小）。
   // 打开那一刻定格，翻图时不随窗口变化换地址
   const [screenWidth] = useState(() =>
@@ -96,9 +98,9 @@ export function ImageLightbox({
       setActionStatus("done");
     } catch (err) {
       setActionStatus("idle");
-      setActionError(err instanceof Error && err.message ? err.message : "操作失败，请重试");
+      setActionError(err instanceof Error && err.message ? err.message : t("media.images.actionFailed"));
     }
-  }, [action, actionStatus, index]);
+  }, [action, actionStatus, index, t]);
 
   const step = useCallback(
     (delta: number) =>
@@ -159,7 +161,7 @@ export function ImageLightbox({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={heading ? `图片浏览：${heading}` : "图片浏览"}
+      aria-label={heading ? t("media.images.browserTitle", { title: heading }) : t("media.images.browser")}
       onClick={onClose}
       className="viewport-overlay-height fixed inset-x-0 top-0 z-[70] flex flex-col bg-black/85 backdrop-blur-md"
     >
@@ -219,7 +221,7 @@ export function ImageLightbox({
 
         <button
           type="button"
-          aria-label="关闭图片浏览"
+          aria-label={t("media.images.closeBrowser")}
           onClick={(e) => {
             e.stopPropagation();
             onClose();
@@ -237,16 +239,16 @@ export function ImageLightbox({
             onClick={(e) => e.stopPropagation()}
             className="rounded-2xl border border-white/[0.12] bg-white/[0.04] px-8 py-10 text-center text-ui text-white/60"
           >
-            这张图片加载失败
+            {t("media.images.loadFailed")}
             <span className="mt-1 block text-caption text-white/40">
-              图床可能已失效或拒绝外链访问
+              {t("media.images.hostUnavailable")}
             </span>
           </div>
         ) : (
           <img
             key={shown[index]}
             src={shown[index]}
-            alt={`第 ${index + 1} 张图片`}
+            alt={t("media.images.index", { index: index + 1 })}
             referrerPolicy="no-referrer"
             onError={() => markBroken(index)}
             onClick={(e) => e.stopPropagation()}
@@ -258,7 +260,7 @@ export function ImageLightbox({
           <>
             <button
               type="button"
-              aria-label="上一张"
+              aria-label={t("media.images.previous")}
               onClick={(e) => {
                 e.stopPropagation();
                 step(-1);
@@ -269,7 +271,7 @@ export function ImageLightbox({
             </button>
             <button
               type="button"
-              aria-label="下一张"
+              aria-label={t("media.images.next")}
               onClick={(e) => {
                 e.stopPropagation();
                 step(1);
@@ -296,7 +298,7 @@ export function ImageLightbox({
               <button
                 key={`${i}:${url}`}
                 type="button"
-                aria-label={`查看第 ${i + 1} 张图片`}
+                aria-label={t("media.images.viewIndex", { index: i + 1 })}
                 aria-current={i === index}
                 onClick={() => setIndex(i)}
                 className={`h-14 shrink-0 overflow-hidden rounded-md transition ${

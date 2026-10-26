@@ -42,6 +42,7 @@ GOP。方向恒为「稍早」而非「跳过内容」——对用户是安全�
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -101,22 +102,41 @@ BITRATE_LADDER: dict[int, str] = {
 }
 
 
-def maxrate_for_height(height: int | None) -> str:
+#: HEVC 输出的码率阶梯（只给离线下载的转码导出用）：H.264 阶梯的约 2/3。真片实测
+#: （2026-10-13，h264/hevc_videotoolbox，同一无损中间片，VMAF）：1080p 4M 的 HEVC 平均
+#: 2.7～3.0 Mbps，与 H.264 6M（平均 4.0～4.4 Mbps）分数差在 ±0.5 内；体积小三分之一。
+HEVC_BITRATE_LADDER: dict[int, str] = {
+    2160: "10M",
+    1440: "7M",
+    1080: "4M",
+    720: "2M",
+    480: "1M",
+}
+
+
+def is_hevc_output(video: VideoPlan) -> bool:
+    return video.action == "transcode" and (video.codec or "").lower() in {"hevc", "h265"}
+
+
+def maxrate_for_height(height: int | None, *, hevc: bool = False) -> str:
     """取不小于目标高度的最近阶梯档；无高度信息按 1080p 算。"""
+    ladder = HEVC_BITRATE_LADDER if hevc else BITRATE_LADDER
     if height is None:
-        return BITRATE_LADDER[1080]
-    for step in sorted(BITRATE_LADDER):
+        return ladder[1080]
+    for step in sorted(ladder):
         if height <= step:
-            return BITRATE_LADDER[step]
-    return BITRATE_LADDER[2160]
+            return ladder[step]
+    return ladder[2160]
 
 
-def maxrate_for_video(video: VideoPlan) -> str:
+def maxrate_for_video(video: VideoPlan, *, hevc: bool | None = None) -> str:
     """阶梯值与计划里的码率上限（按实测带宽反推，adaptive.py）取小。
 
     返回 ``<数字>M`` 形态，bufsize 按它的两倍算——两处都吃这个字符串，
     格式不能变。"""
-    ladder = maxrate_for_height(video.height)
+    if hevc is None:
+        hevc = is_hevc_output(video)
+    ladder = maxrate_for_height(video.height, hevc=hevc)
     cap = video.bitrate_cap_bps
     if cap is None or cap <= 0:
         return ladder
@@ -212,6 +232,10 @@ _BT709_OUTPUT_TAGS = [
     "-color_trc", "bt709",
     "-color_range", "tv",
 ]
+
+#: 硬件帧链路末端给帧打的 BT.709 标签。ffmpeg 7.1 起 ``-colorspace`` 参与滤镜格式协商：帧上
+#: 标签与它不符时自动插软件 scale 去转换，而软件 scale 接不了硬件帧，整条命令失败（实测）。
+_BT709_FRAME_TAGS = "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709"
 
 #: 多声道降混系数：提升中置声道权重。不带它，对白会明显偏小——
 #: 「音效很响但听不清台词」是用户投诉第一名（§7-⑤）。
@@ -309,18 +333,33 @@ class HwBackend:
     #: 8-bit，实测直接报错退出（滤镜自动协商不会在硬件帧之间插格式转换）。
     #: 软件档的 ``-pix_fmt yuv420p`` 就是同一个坑的对应兜底。
     scale_format: str | None = None
+    #: 硬件 scale 的 ``out_range``，让输出数据的范围与我们声明的一致（见 ``_filter_chain``）。
+    #: 全范围源（``color_range=pc``：杜比视界 P5 全是，另有少数 HDR10 / SDR 压制）经 VPP 色调映射
+    #: 后**仍是全范围数据**，输出侧却声明 limited（``-color_range tv``）：帧标签与声明不符，
+    #: ffmpeg 7.1 在硬件帧后面插一个接不上的软件 scale，起步即崩（NAS 真机实测，合成黑白场：
+    #: 全范围源黑 0 / 白 255，加 ``out_range=tv`` 后 16 / 235）。只有 VAAPI 实测过，其它后端不写
+    scale_range: str | None = None
     device: str | None = None
     #: 编码器能否直接吃系统内存帧。烧录（overlay 是软件滤镜）会把整条滤镜链
     #: 拉回软件侧：NVENC / VideoToolbox 的编码器接软件帧没问题；VAAPI / QSV
     #: 需要 hwupload + init_hw_device 那套显存搬运，碎且驱动相关——烧录时
     #: 这两家直接退软件编码（用户选烧录已经接受了转码代价）。
     sw_frames_ok: bool = False
+    #: 同一后端的 HEVC 编码器；None = 这个后端不出 HEVC。目前只有离线下载的转码导出要
+    #: HEVC（见 ``HEVC_BITRATE_LADDER``），播放一律 H.264。VideoToolbox 以外的要自检真编
+    #: 通过才用（``hevc_encoder``）：有 H.264 硬编不等于有 HEVC 硬编（老核显、老驱动）。
+    hevc_encoder: str | None = None
+    #: 让 ``-force_key_frames`` 插的关键帧是 IDR 的编码器参数（H.264 / HEVC 同名）。QSV 与 NVENC
+    #: 默认只插普通 I 帧（``forced_idr`` 默认关），输出包不带关键帧标记，HLS 切不到分片栅格上；
+    #: VAAPI 与 VideoToolbox 强制关键帧本来就是 IDR。Jellyfin 对这两家同样显式打开
+    forced_idr: tuple[str, ...] = ()
 
 
 HW_BACKENDS: dict[str, HwBackend] = {
     "vaapi": HwBackend(
         name="vaapi",
         encoder="h264_vaapi",
+        hevc_encoder="hevc_vaapi",
         hwaccel="vaapi",
         hwaccel_output_format="vaapi",
         scale_filter="scale_vaapi",
@@ -329,12 +368,15 @@ HW_BACKENDS: dict[str, HwBackend] = {
         # 最高 90，观感是整体偏红发品（issue #331）。
         tonemap_filter="tonemap_vaapi=format=nv12:t=bt709:m=bt709:p=bt709",
         scale_format="nv12",
+        scale_range="tv",
         device="/dev/dri/renderD128",
         sw_frames_ok=False,
     ),
     "qsv": HwBackend(
         name="qsv",
         encoder="h264_qsv",
+        hevc_encoder="hevc_qsv",
+        forced_idr=("-forced_idr", "1"),
         hwaccel="qsv",
         hwaccel_output_format="qsv",
         scale_filter="scale_qsv",
@@ -348,6 +390,8 @@ HW_BACKENDS: dict[str, HwBackend] = {
     "nvenc": HwBackend(
         name="nvenc",
         encoder="h264_nvenc",
+        hevc_encoder="hevc_nvenc",
+        forced_idr=("-forced-idr", "1"),
         hwaccel="cuda",
         hwaccel_output_format="cuda",
         scale_filter="scale_cuda",
@@ -358,6 +402,7 @@ HW_BACKENDS: dict[str, HwBackend] = {
     "videotoolbox": HwBackend(
         name="videotoolbox",
         encoder="h264_videotoolbox",
+        hevc_encoder="hevc_videotoolbox",
         hwaccel="videotoolbox",
         hwaccel_output_format="videotoolbox_vld",
         # VideoToolbox 硬解输出是 videotoolbox_vld；软件 scale 前必须显式
@@ -370,6 +415,29 @@ HW_BACKENDS: dict[str, HwBackend] = {
 
 #: 后端名 → 经硬件自检确认可用的原生 tone-map 滤镜。见 ``NVENC_TONEMAP``。
 _PROBED_TONEMAP: dict[str, str] = {}
+
+#: 认杜比视界 RPU、带 ``apply_dovi`` 开关的色调映射滤镜（jellyfin-ffmpeg）。VAAPI 的
+#: ``tonemap_vaapi`` 与 QSV 的 ``vpp_qsv`` 不认 RPU：P5 的 IPT 基础层喂给它们，出来整片发紫
+_DOVI_AWARE_TONEMAPS = frozenset(
+    {"tonemapx", "tonemap_videotoolbox", "tonemap_cuda", "tonemap_opencl"}
+)
+
+
+def _tonemap_step(expr: str, plan: PlaybackPlan) -> str:
+    """色调映射这一步按计划里的杜比视界处理补参数（``VideoPlan.dolby_vision``）。
+
+    - ``ignore``：记录不可信、只认基础层，关掉 ``apply_dovi``——P5 的还原套在 YCbCr 基础层上
+      整片发绿（《驯龙高手》HDR10 段注入 P5 RPU，软件与 Metal 两条链实测都是）；
+    - Metal 版只认 BT.2020 NCL / BT.709 矩阵（帧上没有 RPU 时），别的直接断言崩溃、ffmpeg 退出码 6：
+      《航拍中国》TS 把 HDR10 的矩阵写成了 gbr（RGB）。HDR10 / HLG 的矩阵按规范就是 BT.2020 NCL，
+      先改正标签；写对了的片是空操作。要吃 RPU 的不动：那条走 RPU，不看矩阵。
+    """
+    name = expr.split("=", 1)[0]
+    if plan.video.dolby_vision == "ignore" and name in _DOVI_AWARE_TONEMAPS:
+        expr += ":apply_dovi=0"
+    if name == "tonemap_videotoolbox" and plan.video.dolby_vision != "apply":
+        expr = "setparams=colorspace=bt2020nc," + expr
+    return expr
 
 
 def register_native_tonemap(backend: str, filter_expr: str | None) -> None:
@@ -384,13 +452,104 @@ def register_native_tonemap(backend: str, filter_expr: str | None) -> None:
         _PROBED_TONEMAP.pop(backend, None)
 
 
-def native_tonemap_filter(backend: HwBackend) -> str | None:
-    """该后端这次能用的原生 tone-map 滤镜；None=只能走软件 tone-map。"""
-    return _PROBED_TONEMAP.get(backend.name, backend.tonemap_filter)
+def tonemap_reads_dolby_vision(backend_name: str, caps: WorkerVideoCaps | None = None) -> bool:
+    """该后端的原生色调映射认不认杜比视界 RPU。VAAPI / QSV 不认：P5 的 IPT 基础层出来整片发紫。"""
+    backend = HW_BACKENDS.get(backend_name)
+    expr = native_tonemap_filter(backend, caps) if backend is not None else None
+    return (expr or "").split("=", 1)[0] in _DOVI_AWARE_TONEMAPS
+
+
+def tonemap_ignores_dolby_vision(backend_name: str) -> bool:
+    """该后端这次装出来的色调映射，是不是一个**不认** RPU 的原生滤镜（VAAPI 的 tonemap_vaapi、QSV 的
+    vpp_qsv）。与 ``tonemap_reads_dolby_vision`` 不同：没有原生滤镜的后端（NVENC 没自检到
+    tonemap_cuda）退回软件 tonemapx，那条认 RPU，不算。"""
+    backend = HW_BACKENDS.get(backend_name)
+    expr = native_tonemap_filter(backend) if backend is not None else None
+    return expr is not None and expr.split("=", 1)[0] not in _DOVI_AWARE_TONEMAPS
+
+
+#: 要靠执行者的 ffmpeg 带着才有的原生 tone-map（不写死进 ``HW_BACKENDS`` 的那些）。
+#: 本机由自检确认后登记进 ``_PROBED_TONEMAP``；远程 Worker 看它申报的 ``filters``。
+_OPTIONAL_TONEMAP: dict[str, str] = {"nvenc": NVENC_TONEMAP}
+
+
+def native_tonemap_filter(backend: HwBackend, caps: WorkerVideoCaps | None = None) -> str | None:
+    """该后端这次能用的原生 tone-map 滤镜；None=只能走软件 tone-map。
+
+    ``caps`` 非 None 即远程执行：只信接单 Worker 申报的滤镜，不看 NAS 本机的自检结论
+    ——同名后端（NAS 的 NVIDIA 卡与远程的 Windows 显卡）的 ffmpeg 构建各不相同，一边的
+    结论套到另一边，装出来的链不是缺滤镜就是白白绕回 CPU。
+    """
+    if caps is None:
+        return _PROBED_TONEMAP.get(backend.name, backend.tonemap_filter)
+    expr = _OPTIONAL_TONEMAP.get(backend.name, backend.tonemap_filter)
+    return expr if expr and expr.split("=", 1)[0] in caps.filters else None
+
+
+#: VAAPI 的低功耗编码（Intel VDEnc 定长电路）。Intel 自 11/12 代起主推这条路；issue #763 的
+#: SR-IOV 虚拟核显（12 代，黑群晖跑在虚拟机里）上，默认的普通编码一跑真实片子就让 GPU 挂死
+#: 重置，换低功耗整条链（硬解 → tonemap_vaapi → scale_vaapi → 编码）正常。老核显不支持它，
+#: 所以不写死，由自检确认后回写（``register_encoder_options``）。
+VAAPI_LOW_POWER: tuple[str, ...] = ("-low_power", "1")
+
+#: 后端名 → 经硬件自检确认、要跟在编码器后面的参数。见 ``VAAPI_LOW_POWER``。
+_PROBED_ENCODER_OPTIONS: dict[str, tuple[str, ...]] = {}
+
+
+def register_encoder_options(backend: str, options: tuple[str, ...]) -> None:
+    """自检确认某后端的编码器要加哪些参数（空=不加）。与 ``register_native_tonemap``
+    同理：只由 ``hwprobe`` 写，装配层保持纯函数。"""
+    if options:
+        _PROBED_ENCODER_OPTIONS[backend] = options
+    else:
+        _PROBED_ENCODER_OPTIONS.pop(backend, None)
+
+
+def encoder_options(backend: HwBackend, caps: WorkerVideoCaps | None = None) -> tuple[str, ...]:
+    """该后端这次编码要追加的参数。远程执行（``caps`` 非 None）不加：本机自检的结论
+    （如 VAAPI 低功耗）说的是 NAS 这块核显，不是接单的那台机器。"""
+    if caps is not None:
+        return ()
+    return _PROBED_ENCODER_OPTIONS.get(backend.name, ())
+
+
+#: 后端名 → 经自检真编通过的 HEVC 编码器要追加的参数（键在 = HEVC 可用）。VideoToolbox 不登记：
+#: Apple 芯片全系有 HEVC 硬编，远程转码器在连接时自己声明编码器（``remote_workers_have_encoder``）。
+_PROBED_HEVC_OPTIONS: dict[str, tuple[str, ...]] = {}
+
+
+def register_hevc_encoder(backend: str, options: tuple[str, ...] | None) -> None:
+    """自检确认某后端的 HEVC 编码器能用（``options`` 是要追加的参数）或不能用（None）。
+    与 ``register_encoder_options`` 同理：只由 ``hwprobe`` 写。"""
+    if options is None:
+        _PROBED_HEVC_OPTIONS.pop(backend, None)
+    else:
+        _PROBED_HEVC_OPTIONS[backend] = options
+
+
+def hevc_encoder(backend: HwBackend) -> str | None:
+    """该后端这次能用的 HEVC 编码器；None = 只能出 H.264。"""
+    if backend.name == "videotoolbox" or backend.name in _PROBED_HEVC_OPTIONS:
+        return backend.hevc_encoder
+    return None
+
+
+def hevc_encoder_options(
+    backend: HwBackend, caps: WorkerVideoCaps | None = None
+) -> tuple[str, ...]:
+    """HEVC 编码器要追加的参数。与 ``encoder_options`` 同一条隔离规则：远程执行
+    （``caps`` 非 None）不带 NAS 本机自检出来的结论。"""
+    if caps is not None:
+        return ()
+    return _PROBED_HEVC_OPTIONS.get(backend.name, ())
 
 
 def _needs_software_filters(
-    plan: PlaybackPlan, backend: HwBackend | None, *, burn: bool
+    plan: PlaybackPlan,
+    backend: HwBackend | None,
+    *,
+    burn: bool,
+    caps: WorkerVideoCaps | None = None,
 ) -> bool:
     """这条计划的滤镜链是不是必须落到软件侧（帧在系统内存里）。
 
@@ -407,12 +566,12 @@ def _needs_software_filters(
     （见 ``_filter_chain``），同样按软件滤镜处理。
 
     ``burn`` 由调用方给：装配层用的是解析后的轨道序号（解析不出来就不烧），
-    决策层只有计划字段，两者不能互相假定。
+    决策层只有计划字段，两者不能互相假定。``caps`` 见 ``native_tonemap_filter``。
     """
     if burn:
         return True
     if plan.video.tone_map and (
-        backend is None or native_tonemap_filter(backend) is None
+        backend is None or native_tonemap_filter(backend, caps) is None
     ):
         return True
     if _color_convert_filter(plan) is not None:
@@ -425,14 +584,17 @@ def _needs_software_filters(
     )
 
 
-def effective_hw_backend(plan: PlaybackPlan, hw_backend: str | None) -> str | None:
+def effective_hw_backend(
+    plan: PlaybackPlan, hw_backend: str | None, caps: WorkerVideoCaps | None = None
+) -> str | None:
     """这次会话**实际**用哪个硬件后端。
 
     滤镜链被拉回软件侧时（烧录、软件 tone-map、色彩空间转换），编码器吃不了
     软件帧的后端（VAAPI/QSV）退回软件编码。诊断面板的 ``hw_backend`` 必须走
     这里——报一个实际没用上的后端名，用户查「为什么转码这么卡」时会被带偏；
     路由层也据此判断硬件档还能不能执行（不能就走统一降档，而不是让 ffmpeg
-    带着一条装不起来的滤镜链去失败）。
+    带着一条装不起来的滤镜链去失败）。``caps``：远程执行时接单 Worker 的申报，
+    见 ``native_tonemap_filter``。
     """
     if plan.video.action != "transcode" or hw_backend is None:
         return None if plan.video.action != "transcode" else hw_backend
@@ -440,7 +602,7 @@ def effective_hw_backend(plan: PlaybackPlan, hw_backend: str | None) -> str | No
     if backend is None:
         return None
     if not backend.sw_frames_ok and _needs_software_filters(
-        plan, backend, burn=plan.video.burn_subtitle is not None
+        plan, backend, burn=plan.video.burn_subtitle is not None, caps=caps
     ):
         return None
     return hw_backend
@@ -470,8 +632,14 @@ def build_hls_command(
     progressive: bool = False,
     seek_pad_s: float = 0.5,
     protocol_whitelist: str | None = None,
+    input_options: Sequence[str] = (),
+    export_path: Path | None = None,
 ) -> TranscodeCommand:
     """把播放计划翻成 ffmpeg 命令。档 0（Direct Play）不该走到这里。
+
+    ``export_path``：离线下载的整片导出（docs/design/offline-download.md §5.3）。输出一整个
+    分片化 MP4 文件写到这里，不限读速；分片化保证文件只往后追加、不回头改写，下载接口
+    可以边写边发。
 
     ``input_format="concat"`` 是原盘多剪辑的输入形态（docs/design/disc-playback.md
     §3.4）：``source_path`` 指向 concat 清单而不是媒体文件，``-f concat -safe 0``
@@ -484,10 +652,14 @@ def build_hls_command(
     只是索引近似，播放器按分片真实时间戳自我校正，Jellyfin 同款取舍）。
 
     ``worker_caps`` 是接单的远程 Worker 申报的视频能力（远程任务恒传，本机执行为
-    None），VideoToolbox 命令按它分流，见 ``_videotoolbox_mode``。
+    None）：VideoToolbox 命令按它分流（见 ``_videotoolbox_mode``），原生 tone-map 与
+    编码器参数也只看它、不看 NAS 本机的自检（见 ``native_tonemap_filter``）。
 
     ``seek_pad_s``：直通档 ``-ss`` 往起点后多给的秒数（见下面的注释）。VOD 重启由会话层按
     分片规划给（``SegmentPlan.seek_pad``），不能越过下一个关键帧。
+
+    ``input_options``：放在 ``-i`` 前的额外输入选项。网盘（strm）条目的源是网盘直链，
+    带协议白名单与断线续读（``streaming.strm_input_args``）。
 
     ``progressive``（只对远程 VOD 的 fMP4 任务有效）：不用 HLS muxer，输出一整条分片化
     MP4（每 0.5 秒一个片段，时间戳保持文件绝对时间），由 Worker 按分片栅格切段、边产出
@@ -495,21 +667,30 @@ def build_hls_command(
     播放器最早也要等一整段——这是转码起播与跳转首帧里最大的一块。
     """
     if plan.tier is PlaybackTier.DIRECT_PLAY:
+        # i18n-ignore: programming invariant
         raise ValueError("档 0 是原文件直出，不需要 ffmpeg")
 
     argv = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "warning"]
 
     transcoding_video = plan.video.action == "transcode"
     backend = (
-        HW_BACKENDS.get(effective_hw_backend(plan, hw_backend) or "") if transcoding_video else None
+        HW_BACKENDS.get(effective_hw_backend(plan, hw_backend, worker_caps) or "")
+        if transcoding_video
+        else None
     )
     burn_index = _burn_subtitle_index(plan) if transcoding_video else None
     vt_mode = _videotoolbox_mode(plan, backend, worker_caps, burn=burn_index is not None)
+    nvidia_software_decode = transcoding_video and _nvidia_software_decode(
+        plan, backend, worker_caps
+    )
     software_filters = transcoding_video and (
         vt_mode == VT_SOFTWARE_DECODE
+        or nvidia_software_decode
         or (
             vt_mode != VT_GPU
-            and _needs_software_filters(plan, backend, burn=burn_index is not None)
+            and _needs_software_filters(
+                plan, backend, burn=burn_index is not None, caps=worker_caps
+            )
         )
     )
 
@@ -531,12 +712,17 @@ def build_hls_command(
         argv += ["-fflags", "+genpts"]
     # 读入限速也是输入选项，必须在 -i 之前。只给会话相对制：VOD 模式由会话层
     # 按领先量闭环节流（理由见常量注释）
-    if start_number is None:
+    if start_number is None and export_path is None:
         argv += [
             "-readrate", str(READRATE_COPY if not transcoding_video else READRATE),
             "-readrate_initial_burst", str(READRATE_BURST_SECONDS),
         ]
-    if backend and backend.hwaccel and vt_mode != VT_SOFTWARE_DECODE:
+    if (
+        backend
+        and backend.hwaccel
+        and vt_mode != VT_SOFTWARE_DECODE
+        and not nvidia_software_decode
+    ):
         # 解码**恒定留在硬件上**，哪怕滤镜链是软件的：不发
         # ``-hwaccel_output_format`` 时 ffmpeg 自己把解码帧下载回系统内存，
         # 软件滤镜照样接得上，而最贵的那步（4K HEVC 10-bit 解码）不再压回
@@ -565,7 +751,7 @@ def build_hls_command(
         if protocol_whitelist:
             # 光盘镜像的段写成 subfile 区间（iso_source.py）：concat 默认只放行 file 协议
             argv += ["-protocol_whitelist", protocol_whitelist]
-    argv += ["-i", source_path]
+    argv += [*input_options, "-i", source_path]
 
     # 只取一路视频一路音频；字幕流不进输出容器（-sn）——默认旁挂由前端渲染
     # （硬边界 1）。唯一例外：用户显式选中 PGS 触发的烧录，字幕经 filter_complex
@@ -584,7 +770,12 @@ def build_hls_command(
     argv += ["-sn", "-dn", "-map_metadata", "-1"]
 
     argv += _video_args(
-        plan, backend, software_filters, skip_filters=burn_index is not None, vt_mode=vt_mode
+        plan,
+        backend,
+        software_filters,
+        skip_filters=burn_index is not None,
+        vt_mode=vt_mode,
+        caps=worker_caps,
     )
     argv += _audio_args(
         plan, has_audio=audio_index is not None, absolute_ts=start_number is not None
@@ -600,6 +791,10 @@ def build_hls_command(
         and start_number is not None
         and not is_mpegts(plan)
     )
+    if export_path is not None:
+        argv += _export_args()
+        argv.append(str(export_path))
+        return TranscodeCommand(argv=argv, playlist_path=export_path, init_path=export_path)
     if progressive:
         argv += _progressive_args()
     else:
@@ -653,6 +848,14 @@ def _burn_subtitle_index(plan: PlaybackPlan) -> int | None:
     return parse_embedded_track(plan.video.burn_subtitle)
 
 
+#: 烧录用的 overlay。字幕流读完后必须让主画面原样通过，不能再重复叠最后一帧：ffmpeg 在字幕流
+#: 末尾补一帧“一直显示”的帧，时间戳是溢出的（约 2^32 毫秒），overlay 默认就把主画面的最后一帧
+#: 按这个时间戳再吐一次。旧版 ffmpeg 的 CFR 逻辑会把它当作“重复过多”丢掉；jellyfin-ffmpeg 8.1
+#: 不丢，mp4 的 muxer 以 “pts/dts pair unsupported” 拒收，整条命令失败（任何编码器都一样）。
+#: Jellyfin 自己的字幕烧录用同一对选项。
+_OVERLAY = "overlay=eof_action=pass:repeatlast=0"
+
+
 def _burn_filter_graph(plan: PlaybackPlan, subtitle_index: int) -> str:
     """烧录的 filter_complex 图：色彩归一 →（源分辨率）overlay 烧字幕 → scale。
 
@@ -666,9 +869,13 @@ def _burn_filter_graph(plan: PlaybackPlan, subtitle_index: int) -> str:
     ``effective_hw_backend``。
     """
     # HDR 走 tone-map，非 709 的 SDR 走色彩空间转换；两者互斥，都落到 BT.709。
-    color_pre = _SOFTWARE_TONEMAP if plan.video.tone_map else _color_convert_filter(plan)
+    color_pre = (
+        _tonemap_step(_SOFTWARE_TONEMAP, plan)
+        if plan.video.tone_map
+        else _color_convert_filter(plan)
+    )
     base = f"[0:v:0]{color_pre}[tm];[tm]" if color_pre else "[0:v:0]"
-    graph = f"{base}[0:s:{subtitle_index}]overlay"
+    graph = f"{base}[0:s:{subtitle_index}]{_OVERLAY}"
     if plan.video.height:
         graph += f"[burned];[burned]scale=-2:{plan.video.height}"
     # 末端钉死 8-bit：10-bit 源（无 tonemap 的 SDR 10-bit 最常见）经 overlay
@@ -715,6 +922,7 @@ def _video_args(
     *,
     skip_filters: bool = False,
     vt_mode: str | None = None,
+    caps: WorkerVideoCaps | None = None,
 ) -> list[str]:
     if plan.video.action == "copy":
         args = ["-c:v", "copy"]
@@ -722,12 +930,25 @@ def _video_args(
         # 黑屏**——没有 error 事件、没有日志，只有一个不动的黑框（§7-①）。
         # 实测：不加这行 ffmpeg 输出的 codec tag 就是 hev1。
         if (plan.video.codec or "").lower() in {"hevc", "h265"}:
-            args += ["-tag:v", "hvc1"]
+            if plan.video.dolby_vision == "keep":
+                # 给能原生解杜比视界的播放器：打 dvh1 才会写出 dvcC 记录（hvc1 下 ffmpeg 不写，
+                # 换封装后记录就丢了，P5 的 IPT 基础层被当 HDR10 解、整片发绿发紫）。MP4 封装写杜比
+                # 视界记录要 ``-strict unofficial``（jellyfin-ffmpeg 7.1 实测）
+                args += ["-tag:v", "dvh1", "-strict", "unofficial"]
+            else:
+                args += ["-tag:v", "hvc1"]
+            if plan.video.dolby_vision == "strip":
+                # P7 只留 HDR10 基础层：剥掉 RPU（NAL 62）与增强层（NAL 63）。不用
+                # dovi_rpu=strip=1：它只删 RPU、增强层原样留着（FFmpeg 7.1 源码）；filter_units
+                # 自 FFmpeg 4.0 就有，不用探测。杜比视界记录不写（hvc1、没有 -strict unofficial）
+                args += ["-bsf:v", "filter_units=remove_types=62|63"]
         return args
 
     # 烧录时滤镜已在 filter_complex 图里（-vf 与 filter_complex 互斥）
     filters = (
-        "" if skip_filters else _filter_chain(plan, backend, software_filters, vt_mode=vt_mode)
+        ""
+        if skip_filters
+        else _filter_chain(plan, backend, software_filters, vt_mode=vt_mode, caps=caps)
     )
     args = []
     if filters:
@@ -737,26 +958,49 @@ def _video_args(
         # 变化时，ffmpeg 重建滤镜图会按上次输出尺寸插入软件 scaler_out；它接不了
         # videotoolbox_vld，导致 -78 退出。关闭这层自动缩放，保持整条链使用硬件帧。
         args += ["-noautoscale"]
-    maxrate = maxrate_for_video(plan.video)
+    hevc_codec = hevc_encoder(backend) if backend is not None else None
+    hevc = bool(is_hevc_output(plan.video) and hevc_codec)
+    # 码率阶梯按**实际**出的编码选：要 HEVC 但后端没有 HEVC 编码器时照旧出 H.264，码率也按 H.264
+    maxrate = maxrate_for_video(plan.video, hevc=hevc)
     bufsize = f"{float(maxrate[:-1]) * 2:g}M"
-    if backend is not None:
-        args += ["-c:v", backend.encoder]
+    if backend is not None and hevc_codec and hevc:
+        # 离线导出的 HEVC：8-bit Main（输出恒为 SDR BT.709，iPhone 全系硬解；硬件 scale 已钉
+        # nv12 / yuv420p），hvc1 标签理由同直通档。没有 H.264 那几条：hevc_videotoolbox 不认
+        # -a53cc，High@4.1 是 H.264 的
+        args += ["-c:v", hevc_codec, *hevc_encoder_options(backend, caps), *backend.forced_idr]
+        args += ["-profile:v", "main"]
+        if backend.name == "videotoolbox" and vt_mode != VT_GPU:
+            # 同 H.264：只有 VideoToolbox 吃软件帧时要钉；VAAPI / QSV / NVENC 的帧是硬件帧，
+            # 再要 yuv420p 会逼 ffmpeg 插一个接不上硬件帧的软件格式转换
+            args += ["-pix_fmt", "yuv420p"]
+        args += ["-tag:v", "hvc1", "-b:v", "0", "-maxrate", maxrate, "-bufsize", bufsize]
+    elif backend is not None:
+        args += ["-c:v", backend.encoder, *encoder_options(backend, caps), *backend.forced_idr]
         # iOS 原生 HLS 对 10-bit/High 10 的硬件编码结果兼容性很差，统一锁
-        # 到 High profile + 8-bit yuv420p。VideoToolbox 不能在 4K 输出时强制
-        # 使用 High@4.1（会以 kVTParameterErr=-12902 拒绝创建编码器），因此
-        # 交给它按实际分辨率选择合法 level（2160p 通常为 5.1）。
+        # 到 High profile + 8-bit yuv420p。level 不钉，交给编码器按实际输出的
+        # 宽×高×帧率选合法值：输出只钉高度、宽度随源宽高比走，宽银幕 1080p
+        # （2000×1080、2588×1080）或 1080p60 都超出 4.1 的上限，NVENC 以
+        # 「Invalid Level」拒绝初始化、一段都不产出（issue #964）；VideoToolbox
+        # 在 4K 输出时同理以 kVTParameterErr=-12902 拒绝。
         args += ["-profile:v", "high"]
-        if backend.name != "videotoolbox":
-            args += ["-level:v", "4.1"]
         if backend.name == "videotoolbox" and vt_mode != VT_GPU:
             # GPU 链路的帧是硬件帧、已是 8-bit NV12；再要 yuv420p 会逼 ffmpeg 插一个
             # 接不上硬件帧的软件格式转换
+            args += ["-pix_fmt", "yuv420p"]
+        elif _nvidia_software_decode(plan, backend, caps):
+            # 软解出来的帧保持源的位深（Hi10P、10-bit AV1 都是 10-bit），不钉的话 ffmpeg 协商成
+            # p010 去喂只吃 8-bit 的 H.264 NVENC。硬件链上这件事由 scale_cuda 的 format 做
             args += ["-pix_fmt", "yuv420p"]
         if backend.name == "videotoolbox":
             # 不把源里的 A53 隐藏字幕写进 SEI：MPEG-2 源（DVD、广电录制）常带，而
             # h264_videotoolbox 写它时报「Unexpected end of SEI NAL Unit」整条失败
             # （实测）。字幕另行投递，用不上这份
             args += ["-a53cc", "0"]
+        if backend.name == "nvenc":
+            # NVENC 对 -force_key_frames 强制出来的帧默认只当普通 I 帧、不是 IDR，封装器认不出
+            # 关键帧：下面的 4 秒栅格对不上，分片被拖成一整个 -g 那么长（实测 10 秒一段，播放列表
+            # 却按 4 秒算，seek 与续播全错位）。-forced-idr 让强制出来的帧是真 IDR
+            args += ["-forced-idr", "1"]
         # 明确 H.264 的 ISO BMFF sample entry。默认通常也是 avc1，但不同编码器
         # 或封装器版本可能落成 avc3；Safari 原生 HLS 需要稳定、可预告的标签。
         args += ["-tag:v", "avc1"]
@@ -793,6 +1037,28 @@ def _video_args(
     if _outputs_bt709(plan):
         args += _BT709_OUTPUT_TAGS
     return args
+
+
+def _nvidia_software_decode(
+    plan: PlaybackPlan, backend: HwBackend | None, caps: WorkerVideoCaps | None
+) -> bool:
+    """接单的远程 NVIDIA Worker 的显卡硬解不了这条片源：整段 CPU 软解 + 软件滤镜，只有编码留在
+    NVENC。
+
+    与 ``_videotoolbox_mode`` 的 ``VT_SOFTWARE_DECODE`` 同理——硬解起不来时软件帧会撞上 GPU
+    滤镜整条命令失败，所以这类片源不能要硬件帧，``-hwaccel`` 也不发（AV1 的硬解失败不会自己
+    退回软解：每帧都解码出错，错误率超限后 ffmpeg 以 69 退出）。两种来源：
+
+    - 片源编码不在 Worker 申报的 ``hw_decoders`` 里（AV1 要 RTX 30 起、老编码如 VC-1 各代都没有）；
+    - 10-bit 的 H.264（Hi10P，动漫压制常见）：NVDEC 不解，各代显卡一样。ffmpeg 的 H.264 解码器在这个
+      位深上不提供硬件像素格式，硬解请求被悄悄忽略，Worker 申报的 ``h264`` 说的是 8-bit 的那条路。
+    """
+    if caps is None or backend is None or backend.name != "nvenc":
+        return False
+    codec = (plan.video.source_codec or "").lower()
+    if codec not in caps.hw_decoders:
+        return True
+    return codec == "h264" and (plan.video.source_bit_depth or 8) > 8
 
 
 def _videotoolbox_mode(
@@ -847,10 +1113,10 @@ def _videotoolbox_gpu_chain(plan: PlaybackPlan) -> str:
     height = plan.video.height
     size = f"w=trunc(iw*{height}/ih/2)*2:h={height}:" if height else ""
     if plan.video.tone_map:
-        return f"scale_vt={size}format=p010le,{VIDEOTOOLBOX_TONEMAP}"
+        return f"scale_vt={size}format=p010le,{_tonemap_step(VIDEOTOOLBOX_TONEMAP, plan)}"
     chain = f"scale_vt={size}format=nv12"
     if _outputs_bt709(plan):
-        chain += ",setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709"
+        chain += f",{_BT709_FRAME_TAGS}"
     return chain
 
 
@@ -860,18 +1126,21 @@ def _filter_chain(
     software_filters: bool,
     *,
     vt_mode: str | None = None,
+    caps: WorkerVideoCaps | None = None,
 ) -> str:
     if vt_mode == VT_GPU:
         return _videotoolbox_gpu_chain(plan)
     parts: list[str] = []
     height = plan.video.height
+    # 硬件 scale 已把数据转成的范围（见 ``HwBackend.scale_range``）；帧标签据此如实声明
+    frame_range: str | None = None
     if plan.video.tone_map:
         native = (
-            native_tonemap_filter(backend)
+            native_tonemap_filter(backend, caps)
             if backend is not None and not software_filters
             else None
         )
-        parts.append(native or _SOFTWARE_TONEMAP)
+        parts.append(_tonemap_step(native or _SOFTWARE_TONEMAP, plan))
     else:
         # 非 HDR 的非 709 源同样要显式转换，scale 不会替我们做
         convert = _color_convert_filter(plan)
@@ -884,6 +1153,10 @@ def _filter_chain(
             opts = f"w=-2:h={height}"
             if backend.scale_format:
                 opts = f"format={backend.scale_format}:{opts}"
+            if backend.scale_range and _outputs_bt709(plan):
+                # 输出侧要声明 limited 时，数据也得是 limited：全范围源在这里由 GPU 转换
+                opts += f":out_range={backend.scale_range}"
+                frame_range = backend.scale_range
             parts.append(f"{backend.scale_filter}={opts}")
         else:
             # -2 保持宽高比并对齐到偶数（编码器要求）
@@ -896,6 +1169,18 @@ def _filter_chain(
             parts.append(f"scale=-2:{height}")
             if backend is not None and backend.name == "videotoolbox" and not software_filters:
                 parts.append("format=yuv420p")
+    if (
+        backend is not None
+        and backend.scale_filter
+        and not software_filters
+        and _outputs_bt709(plan)
+    ):
+        # 整条链留在显卡上（VAAPI / QSV / NVENC）时，帧标签同样要先打好（issue #958）：
+        # tonemap_vaapi、vpp_qsv、scale_* 在格式协商里把源的色彩空间原样往下传，HDR10 的
+        # bt2020nc（或无标签片的 unknown）撞上 -colorspace bt709，ffmpeg 就在硬件帧后面插一个
+        # 接不上的软件 scale，起步即退出。setparams 在协商里声明输出是 BT.709，链子才接得上。
+        # scale 的 ``out_range`` 只转数据、不改帧标签：全范围源的帧还标着 pc，也要在这里改成 tv
+        parts.append(_BT709_FRAME_TAGS + (f":range={frame_range}" if frame_range else ""))
     return ",".join(parts)
 
 
@@ -974,6 +1259,27 @@ def _progressive_args() -> list[str]:
         "-movflags", "+frag_keyframe+delay_moov+default_base_moof+frag_discont+skip_sidx",
         "-frag_duration", str(PROGRESSIVE_FRAGMENT_US),
         "-method", "PUT",
+        "-y",
+    ]
+
+
+#: 离线导出的片段时长上限（微秒）：文件要从头读到尾，不像边播边送那样要小片段起播快；
+#: 片段大一点，片段头的开销与文件尾部的随机访问索引（mfra）都小
+EXPORT_FRAGMENT_US = 2_000_000
+
+
+def _export_args() -> list[str]:
+    """离线导出：与 ``_progressive_args`` 同一组分片 MP4 参数，写本地文件。
+
+    分片模式下 mp4 muxer 只往后追加（写管道与写文件逐字节相同，2026-10-13 实测），尾部
+    带 mfra 索引，播放器打开本地文件时长与拖动都准确。章节同样去掉（理由同上），章节由
+    离线清单另行下发。
+    """
+    return [
+        "-map_chapters", "-1",
+        "-f", "mp4",
+        "-movflags", "+frag_keyframe+delay_moov+default_base_moof+frag_discont+skip_sidx",
+        "-frag_duration", str(EXPORT_FRAGMENT_US),
         "-y",
     ]
 

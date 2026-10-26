@@ -18,6 +18,7 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.discover import (
     DiscoveredPersonDetailsView,
     DiscoveredTitleCollectionView,
@@ -45,6 +46,75 @@ from movieclaw_media import (
     MediaSource,
     TmdbError,
 )
+
+_COLLECTION_TITLE_KEYS = {
+    ("tmdb", "movie", "trending-day"): "media.collections.tmdbMovieTrendingDay",
+    ("tmdb", "movie", "now-playing"): "media.collections.tmdbMovieNowPlaying",
+    ("tmdb", "movie", "upcoming"): "media.collections.tmdbMovieUpcoming",
+    ("tmdb", "movie", "popular"): "media.collections.tmdbMoviePopular",
+    ("tmdb", "movie", "recent-acclaimed"): "media.collections.tmdbMovieRecentAcclaimed",
+    ("tmdb", "movie", "this-year"): "media.collections.tmdbMovieThisYear",
+    ("tmdb", "movie", "short-runtime"): "media.collections.tmdbMovieShortRuntime",
+    ("tmdb", "movie", "top-rated"): "media.collections.tmdbMovieTopRated",
+    ("tmdb", "movie", "chinese"): "media.collections.tmdbMovieChinese",
+    ("tmdb", "movie", "japanese"): "media.collections.tmdbMovieJapanese",
+    ("tmdb", "movie", "korean"): "media.collections.tmdbMovieKorean",
+    ("tmdb", "movie", "scifi"): "media.collections.tmdbMovieScifi",
+    ("tmdb", "movie", "action"): "media.collections.tmdbMovieAction",
+    ("tmdb", "movie", "thriller"): "media.collections.tmdbMovieThriller",
+    ("tmdb", "movie", "comedy"): "media.collections.tmdbMovieComedy",
+    ("tmdb", "movie", "romance"): "media.collections.tmdbMovieRomance",
+    ("tmdb", "movie", "horror"): "media.collections.tmdbMovieHorror",
+    ("tmdb", "movie", "animation"): "media.collections.tmdbMovieAnimation",
+    ("tmdb", "movie", "documentary"): "media.collections.tmdbMovieDocumentary",
+    ("tmdb", "tv", "trending-day"): "media.collections.tmdbTvTrendingDay",
+    ("tmdb", "tv", "airing-today"): "media.collections.tmdbTvAiringToday",
+    ("tmdb", "tv", "on-the-air"): "media.collections.tmdbTvOnTheAir",
+    ("tmdb", "tv", "popular"): "media.collections.tmdbTvPopular",
+    ("tmdb", "tv", "recent-acclaimed"): "media.collections.tmdbTvRecentAcclaimed",
+    ("tmdb", "tv", "completed-miniseries"): "media.collections.tmdbTvCompletedMiniseries",
+    ("tmdb", "tv", "top-rated"): "media.collections.tmdbTvTopRated",
+    ("tmdb", "tv", "chinese"): "media.collections.tmdbTvChinese",
+    ("tmdb", "tv", "us"): "media.collections.tmdbTvUs",
+    ("tmdb", "tv", "japanese"): "media.collections.tmdbTvJapanese",
+    ("tmdb", "tv", "korean"): "media.collections.tmdbTvKorean",
+    ("tmdb", "tv", "netflix"): "media.collections.tmdbTvNetflix",
+    ("tmdb", "tv", "hbo"): "media.collections.tmdbTvHbo",
+    ("tmdb", "tv", "scifi-fantasy"): "media.collections.tmdbTvScifiFantasy",
+    ("tmdb", "tv", "crime-mystery"): "media.collections.tmdbTvCrimeMystery",
+    ("tmdb", "tv", "comedy"): "media.collections.tmdbTvComedy",
+    ("tmdb", "tv", "animation"): "media.collections.tmdbTvAnimation",
+    ("tmdb", "tv", "reality"): "media.collections.tmdbTvReality",
+    ("tmdb", "tv", "documentary"): "media.collections.tmdbTvDocumentary",
+    (
+        "douban",
+        "movie",
+        "movie_real_time_hotest",
+    ): "media.collections.doubanMovieMovieRealTimeHotest",
+    ("douban", "movie", "movie_showing"): "media.collections.doubanMovieMovieShowing",
+    ("douban", "movie", "movie_soon"): "media.collections.doubanMovieMovieSoon",
+    ("douban", "movie", "movie_hot_gaia"): "media.collections.doubanMovieMovieHotGaia",
+    ("douban", "movie", "movie_weekly_best"): "media.collections.doubanMovieMovieWeeklyBest",
+    ("douban", "movie", "movie_high_score"): "media.collections.doubanMovieMovieHighScore",
+    ("douban", "movie", "movie_top250"): "media.collections.doubanMovieMovieTop250",
+    ("douban", "movie", "movie_classic"): "media.collections.doubanMovieMovieClassic",
+    ("douban", "movie", "movie_scifi"): "media.collections.doubanMovieMovieScifi",
+    ("douban", "movie", "movie_comedy"): "media.collections.doubanMovieMovieComedy",
+    ("douban", "movie", "movie_action"): "media.collections.doubanMovieMovieAction",
+    ("douban", "movie", "movie_love"): "media.collections.doubanMovieMovieLove",
+    ("douban", "tv", "tv_real_time_hotest"): "media.collections.doubanTvTvRealTimeHotest",
+    ("douban", "tv", "tv_hot"): "media.collections.doubanTvTvHot",
+    ("douban", "tv", "tv_chinese_best_weekly"): "media.collections.doubanTvTvChineseBestWeekly",
+    ("douban", "tv", "tv_global_best_weekly"): "media.collections.doubanTvTvGlobalBestWeekly",
+    ("douban", "tv", "tv_domestic"): "media.collections.doubanTvTvDomestic",
+    ("douban", "tv", "tv_american"): "media.collections.doubanTvTvAmerican",
+    ("douban", "tv", "tv_japanese"): "media.collections.doubanTvTvJapanese",
+    ("douban", "tv", "tv_korean"): "media.collections.doubanTvTvKorean",
+    ("douban", "tv", "tv_animation"): "media.collections.doubanTvTvAnimation",
+    ("douban", "tv", "show_domestic"): "media.collections.doubanTvShowDomestic",
+    ("douban", "tv", "show_foreign"): "media.collections.doubanTvShowForeign",
+}
+
 
 _TMDB_FEATURED_ID = "featured-weekly"
 _TMDB_FEATURED_LIMIT = 6
@@ -92,25 +162,26 @@ class TitleDiscoveryService:
                     collection_ref=make_collection_ref(provider, media_type, _TMDB_FEATURED_ID),
                     provider=provider,
                     media_type=media_type,
-                    name="本周精选",
-                    description="本周趋势中有宽幅剧照和中文简介的精选条目",
+                    name=t("media.collections.featured"),
+                    description=t("media.collections.featuredDescription"),
                     default_limit=_TMDB_FEATURED_LIMIT,
                 )
             )
         for row in layout.rows:
             collection_id = _provider_collection_id(provider, row.id)
             full_limit = _DOUBAN_FULL_LIMITS.get(collection_id)
+            title_key = _COLLECTION_TITLE_KEYS.get(
+                (provider.value, media_type.value, collection_id)
+            )
             collections.append(
                 DiscoveryCollectionView(
                     collection_ref=make_collection_ref(provider, media_type, collection_id),
                     provider=provider,
                     media_type=media_type,
-                    name=row.title,
+                    name=t(title_key) if title_key else row.title,
                     is_ranked=row.ranked,
                     default_limit=30 if provider is MediaSource.DOUBAN else 20,
-                    supports_full_listing=(
-                        provider is MediaSource.TMDB or full_limit is not None
-                    ),
+                    supports_full_listing=(provider is MediaSource.TMDB or full_limit is not None),
                 )
             )
         return collections
@@ -134,7 +205,7 @@ class TitleDiscoveryService:
             None,
         )
         if descriptor is None:
-            raise LookupError("该片单不存在或当前来源未开放浏览")
+            raise LookupError(t("errors.discover.collectionMissing"))
 
         service = self._provider(provider)
         total_pages = 1
@@ -151,7 +222,7 @@ class TitleDiscoveryService:
                 if discover_page is not None:
                     result_page = await discover_page(media_type, collection_id, page)
                     if result_page is None:
-                        raise LookupError("该片单不存在或当前来源未开放浏览")
+                        raise LookupError(t("errors.discover.collectionMissing"))
                     cards = result_page.items
                     current_page = result_page.page
                     total_pages = result_page.total_pages
@@ -159,7 +230,7 @@ class TitleDiscoveryService:
                 else:
                     row = await service.discover_row(media_type, collection_id)
                     if row is None:
-                        raise LookupError("该片单不存在或当前来源未开放浏览")
+                        raise LookupError(t("errors.discover.collectionMissing"))
                     cards = row.items
                     total_results = len(cards)
         else:
@@ -169,7 +240,7 @@ class TitleDiscoveryService:
             else:
                 row = await service.discover_row(media_type, f"douban-{collection_id}")
                 if row is None:
-                    raise LookupError("该片单不存在或当前来源未开放浏览")
+                    raise LookupError(t("errors.discover.collectionMissing"))
             cards = row.items
             total_results = len(cards)
 
@@ -194,8 +265,7 @@ class TitleDiscoveryService:
         return DiscoveryFilterOptionsView(
             media_type=media_type,
             genres=[
-                DiscoveryGenreView(id=genre_id, name=name)
-                for genre_id, name in genres.items()
+                DiscoveryGenreView(id=genre_id, name=name) for genre_id, name in genres.items()
             ],
         )
 
@@ -314,9 +384,7 @@ class TitleDiscoveryService:
             titles=[title_from_card(card) for card in detail.credits],
         )
 
-    def _provider(
-        self, provider: MediaSource
-    ) -> MediaDiscoverService | DoubanDiscoverService:
+    def _provider(self, provider: MediaSource) -> MediaDiscoverService | DoubanDiscoverService:
         return self._tmdb_factory() if provider is MediaSource.TMDB else self._douban_factory()
 
 
@@ -329,21 +397,18 @@ def parse_collection_ref(value: str) -> tuple[MediaSource, MediaKind, str]:
     """解析 ``provider:media_type:collection_id``，错误信息直接面向 API 用户。"""
     parts = value.split(":", 2)
     if len(parts) != 3 or not parts[2]:
-        raise ValueError(
-            "collection_ref 格式无效；请使用 list-collections 返回的引用原样调用"
-        )
+        raise ValueError(t("errors.discover.collectionRefInvalid"))
     try:
         return MediaSource(parts[0]), MediaKind(parts[1]), parts[2]
     except ValueError:
-        raise ValueError(
-            "collection_ref 格式无效；请使用 list-collections 返回的引用原样调用"
-        ) from None
+        raise ValueError(t("errors.discover.collectionRefInvalid")) from None
 
 
 def make_title_ref(provider: MediaSource, external_id: str, media_type: MediaKind | None) -> str:
     """构造影视条目稳定引用；TMDB 的电影/剧集号段独立，必须携带类型。"""
     if provider is MediaSource.TMDB:
         if media_type is None:
+            # i18n-ignore: developer error
             raise ValueError("TMDB 条目缺少 movie/tv 类型，无法构造 title_ref")
         return f"tmdb:{media_type.value}:{external_id}"
     return f"douban:{external_id}"
@@ -359,7 +424,7 @@ def parse_title_ref(value: str) -> tuple[MediaSource, MediaKind | None, str]:
             return MediaSource.DOUBAN, None, parts[1]
     except ValueError:
         pass
-    raise ValueError("title_ref 格式无效；请使用搜索或片单接口返回的引用原样调用")
+    raise ValueError(t("errors.discover.titleRefInvalid"))
 
 
 def title_from_card(card: MediaCard, *, provider: MediaSource | None = None) -> DiscoveredTitleView:
@@ -375,7 +440,7 @@ def title_from_card(card: MediaCard, *, provider: MediaSource | None = None) -> 
         release_year=card.year or None,
         provider_rating=card.rating,
         genres=card.genres,
-        extent_label=card.extent,
+        extent_label=t(card.extent_key, **card.extent_params) if card.extent_key else card.extent,
         overview=card.overview,
         poster_url=card.poster_url,
         backdrop_url=card.backdrop_url,
@@ -414,6 +479,7 @@ def title_details_from_legacy(
             network=facts.network,
             aliases=facts.aliases,
             source_url=facts.source_url,
+            english_title=facts.english_title,
         ),
         backdrop_original_url=detail.backdrop_url,
         videos=detail.videos,

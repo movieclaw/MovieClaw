@@ -1,0 +1,99 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.python-version
+dist/
+build/
+.coverage
+htmlcov/
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# Node / pnpm / Next.js
+node_modules/
+.next/
+.next-*/
+out/
+.pnpm-store/
+*.tsbuildinfo
+
+# JASSUB（字幕渲染）的 worker/wasm/字体：4MB 二进制，由 prebuild 钩子从
+# node_modules 复制过来，不进 git（见 apps/web/scripts/copy-jassub.mjs）
+apps/web/public/jassub/
+
+# WXT 浏览器插件构建产物
+apps/extension/.wxt/
+apps/extension/.output/
+apps/web/.env.local
+apps/web/.env.production.local
+apps/web/.env.development.local
+apps/web/tmp/
+
+# 编辑器与本地工具
+.idea/
+.vscode/
+.DS_Store
+.claude/settings.local.json
+/.claude/launch.json
+# 本地 NAS 部署技能含内网地址与部署细节，只留本地不入仓库
+/.claude/skills/nas-deploy/
+.codex/
+
+# 本地 UI 验收的临时产物（截图、隔离数据库、开发日志），只留本地不入仓库
+.tmp-uidev/
+
+# 运行期数据：SQLite 数据库文件及其 WAL/SHM 附属文件（部署时挂载为 volume）
+/data/
+# 运行期数据目录只认仓库根下那一份。从子目录（apps/web）起过服务端的人会在
+# 那里再生出一份 data/：日志、缓存、雪碧图——它们全是运行期产物，不进仓库。
+apps/*/data/
+
+# uv 生成的锁文件（项目用 pip/venv，见 scripts/dev.sh）
+uv.lock
+
+# Swift Package Manager 构建产物
+macos/**/.build/
+
+# goreleaser 打包前从仓库根复制进来的 LICENSE（构建产物，见 cli/.goreleaser.yaml）
+cli/LICENSE
+
+# OpenAPI 基线 spec 是构建产物（scripts/export-spec.sh 从代码导出），不入库：
+# 单行 600KB 的生成物入库会让所有改路由的 PR 互相冲突。镜像、发版脚本、
+# CI 都现场导出；本地缺失时服务端从代码现算，编译 Go CLI 前跑一次该脚本。
+src/movieclaw_api/data/spec.json
+cli/internal/spec/data/spec.json
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+bower_components/
+jspm_packages/
+site-packages/
+venv/
+coverage/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）

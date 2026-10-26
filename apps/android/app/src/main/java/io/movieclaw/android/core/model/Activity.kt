@@ -61,6 +61,8 @@ data class JobResourceView(
 data class JobView(
     val id: String,
     val jobType: String = "",
+    /** 任务类型显示名（插件任务由服务端给出）；旧服务端没有，内置类型用本地文案 */
+    val jobTypeLabel: String? = null,
     val subject: String? = null,
     val status: String = "",
     val progress: JobProgress = JobProgress(),
@@ -207,6 +209,26 @@ data class ActivePlaybackSession(
     /** local = 本机直连（速率可测）；remote = 网盘直链等不经过服务器的播放 */
     val playMethod: String = "",
     val rateBytesPerSecond: Float? = null,
+    /** 这台设备此刻怎么在播（服务端 `PlaybackDeliveryView`）：直连 / 重封装 / 音频转码 / 各类转码。
+     *  网盘直链（play_method=remote）为 null；seek 重建的一瞬也可能短暂为 null，下一轮轮询恢复 */
+    val delivery: PlaybackDelivery? = null,
+    /** 能否「注销此设备」：只有持 Jellyfin 设备凭据的会话可以；网页播放器走登录会话，没有可撤销的凭据 */
+    val revocable: Boolean = true,
+)
+
+/** 活动页「播放方式」徽章的数据（服务端 `PlaybackDeliveryView`，五档按对服务器的负担着色）。 */
+@Serializable
+data class PlaybackDelivery(
+    /** direct=直连原文件；remux=重封装；audio=只转音频（视频直通）；transcode=视频转码 */
+    val mode: String = "direct",
+    /** 直连 / 重封装 / 音频转码 / 硬件转码 / 软件转码 / 远程转码 */
+    val label: String = "",
+    /** 转码输出规格，如「1080p · H.264 · 8 Mbps」；直连 / 重封装为 null */
+    val target: String? = null,
+    /** 在哪转、用什么转，如「NAS · Intel 核显（QSV）」 */
+    val executor: String? = null,
+    /** 为什么是这个播放方式（长按菜单里的解释） */
+    val reason: String? = null,
 )
 
 /**

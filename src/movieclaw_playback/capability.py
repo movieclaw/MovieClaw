@@ -92,6 +92,10 @@ class ClientCapability:
     disc_image: bool = False
     #: 全解码播放器能经目录取流接口读原盘目录：多剪辑原盘给档 0 目录直推，NAS 不起 ffmpeg
     disc_folder: bool = False
+    #: 能按服务端给的剪辑清单播放蓝光主片（Android 的统一引擎）：服务端选主片、给出各剪辑的
+    #: 取流地址与入口点表，播放器只做 m2ts 解复用与拼接——不在本机解析光盘结构
+    #: （disc-clip-play.md）。原盘目录与蓝光镜像都适用，DVD 不适用
+    bluray_clips: bool = False
     #: 播放器能在本机切换内封音轨（ExoPlayer）：直出原文件时它自己选中计划里的那条，
     #: 不必为了「放的不是默认轨」重封装。浏览器的 <video> 只放默认轨，不能申报
     local_tracks: bool = False
@@ -100,6 +104,20 @@ class ClientCapability:
     #: 解不了杜比视界时能退回基础层播放的 profile（ExoPlayer 对 P8 改用 HEVC 解码器解基础层）：
     #: 基础层兼容、屏幕能直出 HDR 时直通。浏览器解码行为不一，不申报
     dolby_vision_base_layer_profiles: frozenset[int] = field(default_factory=frozenset)
+    #: 播放器直出原文件时自己核对杜比视界记录与码流（App 的自研引擎，引擎补丁 P62）：记录写 P5、
+    #: 码流却标着 BT.2020 YCbCr HDR 的片照常给原文件，它自己只放基础层。不申报的不给原文件直出
+    #: （``MediaProfile.dolby_vision_ignored``）
+    dolby_vision_record_audit: bool = False
+    #: 直出 MP4 / MOV 原文件时播放器在内存里建得下的样本表（各轨样本数合计）。ExoPlayer 解析 moov
+    #: 时把每条轨（没选中的也算）每个样本的偏移、大小、时间戳都建进 Java 堆；TrueHD 每秒 1200 个
+    #: 样本，两个多小时的电影光这一条轨就三百多 MB，再加播放缓冲就把堆撑爆（#962）。超出的给换封装。
+    #: None = 不受限（老客户端、Apple 的自研引擎）
+    mp4_sample_limit: int | None = None
+    #: 硬件转码时能接 HEVC 输出（fMP4、hvc1、8-bit Main），且播放器实现了「HEVC 放不了就不带
+    #: 它重来、不把硬件档记成失败」的回退（#1008）。同画质码率约为 H.264 的三分之二；还要
+    #: ``video`` 里有 HEVC、高度够。老客户端不带 = 一律 H.264：它们把 HEVC 解不了当作硬件档
+    #: 失败，会直接降到软件转码
+    hevc_transcode: bool = False
 
     @property
     def uses_native_hls_player(self) -> bool:

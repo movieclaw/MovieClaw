@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -25,12 +26,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.LocalGraph
-import io.movieclaw.androidtv.core.network.ServerAddress
+import io.movieclaw.core.network.ServerAddress
 import io.movieclaw.androidtv.core.session.ServerDiscovery
 import io.movieclaw.androidtv.ui.components.McIcons
 import io.movieclaw.androidtv.ui.theme.McColors
 import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt
+import kotlinx.coroutines.launch
 
 /**
  * 找服务器（TVServerPicker）：局域网自动发现 + 本机登录过的 + 手动输入。选了不测连接，直接进登录这一步。
@@ -47,6 +49,9 @@ fun ServerPicker(onPick: (ServerAddress) -> Unit) {
     var round by remember { mutableIntStateOf(0) }
     var manual by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    // 手填的地址只写了主机，正在试端口
+    var settling by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val firstSaved = remember { FocusRequester() }
     val field = remember { FocusRequester() }
 
@@ -58,12 +63,19 @@ fun ServerPicker(onPick: (ServerAddress) -> Unit) {
     }
 
     fun submitManual() {
-        val address = ServerAddress.parse(manual.trim())
-        if (address == null) {
+        val input = manual.trim()
+        if (ServerAddress.parse(input) == null) {
             error = "地址格式不对：请填写完整地址，例如 http://192.168.0.100:3000"
-        } else {
-            error = null
-            onPick(address)
+            return
+        }
+        error = null
+        if (settling) return
+        settling = true
+        scope.launch {
+            // 只写了主机（如 192.168.1.10）时试一下 3000 / 80 / https，免得默认落到 80 端口连不上
+            val address = ServerDiscovery.settle(graph.http, input)
+            settling = false
+            if (address != null) onPick(address)
         }
     }
 
@@ -87,7 +99,7 @@ fun ServerPicker(onPick: (ServerAddress) -> Unit) {
             }
         } else if (!discovering) {
             Row(horizontalArrangement = Arrangement.spacedBy(20.pt), verticalAlignment = Alignment.CenterVertically) {
-                Text("没在局域网里找到服务器", style = McType.Body, color = McColors.Secondary)
+                Text("没在局域网里找到服务器（Docker 部署要映射 UDP 7359）", style = McType.Body, color = McColors.Secondary)
                 WelcomeButton("重新查找", onClick = { round++ })
             }
         }

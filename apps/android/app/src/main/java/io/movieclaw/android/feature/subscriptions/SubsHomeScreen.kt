@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -123,6 +124,7 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
+import io.movieclaw.android.core.designsystem.mcCards
 
 /* ══════════ 数据模型（对齐 iOS SubsHomeModel） ══════════ */
 
@@ -176,6 +178,23 @@ internal data class ArrivalGroup(
         } else {
             units.groupBy { it.seasonNumber }.toSortedMap()
                 .map { (season, eps) -> "S%02d%s".format(season, episodeRanges(eps.map { it.episodeNumber })) }
+                .joinToString(" · ")
+        }
+
+    /**
+     * 英雄位用的集号：一季里断成三段以上就只说集数（「S01 · 共 52 集」）。
+     * 补旧番一口气投递几十集时，完整区间能铺满半屏（实机截图：14 段区间、还印了两遍）
+     */
+    val heroLabel: String
+        get() = if (mediaKind == "movie") {
+            "电影"
+        } else {
+            units.groupBy { it.seasonNumber }.toSortedMap()
+                .map { (season, eps) ->
+                    val ranges = episodeRanges(eps.map { it.episodeNumber })
+                    if (ranges.count { it == '、' } >= 2) "S%02d · 共 %d 集".format(season, eps.map { it.episodeNumber }.toSet().size)
+                    else "S%02d%s".format(season, ranges)
+                }
                 .joinToString(" · ")
         }
 
@@ -379,18 +398,36 @@ class SubsHomeViewModel @Inject constructor(
             val arr = group.representative
             val pres = group.presentation
             val media = byId[arr.subscriptionId]?.media ?: MediaBrief(title = arr.mediaTitle, kind = arr.mediaKind)
-            val label = if (arr.mediaKind == "tv") group.episodeLabel else null
+            val label = if (arr.mediaKind == "tv") group.heroLabel else null
             when {
                 pres.statusLabel.startsWith("下载中") -> {
-                    // 时刻与进度都来自下载器任务（iOS：`task.etaSeconds` + 「下载完成 → 入库」中位耗时）
+                    // 时刻与进度都来自下载器任务（iOS：`task.etaSeconds` + 「下载完成 → 入库」中位耗时）。
+                    // 集号只出现一次：有入库时刻 → 大字时刻；没有时刻但有进度 → 大字百分比；都没有 → 一行「正在下载」
+                    // （以前没时刻时「正在下载」与「预计可看」两行各印一遍完整集号）
+                    val eta = pres.timeText?.takeIf { it != "稍后" }
+                    val percent = group.progress?.let { "${(it * 100).toInt().coerceIn(0, 100)}%" }
+                    val prefix = label?.let { "$it · " }.orEmpty()
+                    // 下载器已到 100%、还没入库：不再写「下载中 / 已下载 100%」，按整理中讲
+                    if ((group.progress ?: 0.0) >= 0.999) {
+                        slides += SubsHeroSlide(
+                            arr.subscriptionId, media, SubsStage.Organizing,
+                            eyebrow = "整理中", eyebrowDot = Ok,
+                            detail = "${prefix}下载完成",
+                            footnote = "正在整理入库，稍后就能看",
+                        )
+                        return@forEach
+                    }
                     slides += SubsHeroSlide(
                         arr.subscriptionId, media, SubsStage.Downloading,
                         eyebrow = "下载中", eyebrowDot = Color(0xFF7FB0FF),
-                        clockLabel = if (arr.mediaKind == "movie") "预计可看" else "$label · 预计可看",
-                        clock = pres.timeText?.takeIf { it != "稍后" }?.let { "约 $it" },
-                        detail = if (pres.timeText == "稍后" || pres.timeText == null)
-                            (if (arr.mediaKind == "movie") "正在下载" else "$label · 正在下载") else null,
-                        footnote = if (pres.timeText == "稍后" || pres.timeText == null) "下载完成后自动整理入库" else null,
+                        clockLabel = when {
+                            eta != null -> "${prefix}预计可看"
+                            percent != null -> "${prefix}已下载"
+                            else -> null
+                        },
+                        clock = eta?.let { "约 $it" } ?: percent,
+                        detail = if (eta == null && percent == null) "${prefix}正在下载" else null,
+                        footnote = if (eta == null) "下载完成后自动整理入库" else null,
                         progress = group.progress,
                     )
                 }
@@ -630,7 +667,19 @@ fun SubsHomeScreen(
 
     Box(Modifier.fillMaxSize().background(Bg)) {
         // 氛围底 = 当前英雄剧照主色，随滚动退淡（下限 0.35，900dp 淡尽）
-        val slide = state.slides.getOrNull(0)
+        // 订阅首页有自己的 hero 大图：把它发布给外壳，侧栏玻璃才有画面可模糊。
+    // 之前订阅页没发布 → 切过去时侧栏是纯黑，和右侧 hero 不协调（真机反馈）。
+    val subsHeroUrl = state.slides.getOrNull(0)?.media?.let { tmdbOriginal(it.backdropUrl) ?: it.posterUrl }
+    val subsShellBackdrop = io.movieclaw.android.routing.LocalShellBackdropSetter.current
+    androidx.compose.runtime.LaunchedEffect(subsHeroUrl) {
+        if (subsHeroUrl != null) {
+            subsShellBackdrop(io.movieclaw.android.routing.ShellBackdrop(subsHeroUrl, vm.origin, io.movieclaw.android.core.designsystem.Bg))
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { subsShellBackdrop(null) }
+    }
+    val slide = state.slides.getOrNull(0)
         val ambient = rememberAmbientColor(slide?.media?.backdropUrl, vm.origin)
         val ambAlpha = (1f - scroll.value / 900f).coerceIn(0.35f, 1f)
         Box(
@@ -651,7 +700,12 @@ fun SubsHomeScreen(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(start = McMetrics.pagePadding, top = 2.dp)
+                .padding(start = mcCards.pagePadding, top = 2.dp)
+                // 跟着页面滚走、边滚边淡（以前一直钉在顶上，压在每张剧照的 Logo 上）
+                .graphicsLayer {
+                    translationY = -scroll.value.toFloat()
+                    alpha = (1f - scroll.value / 160f).coerceIn(0f, 1f)
+                }
                 .zIndex(3f),
         )
         Column(
@@ -692,6 +746,11 @@ fun SubsHomeScreen(
                     onPlay = onPlay,
                     onOpenSubscription = onOpenSubscription,
                 )
+            } else {
+                // 有订阅但没有英雄位（没有在播 / 刚入库的条目，比如只追新集的完结剧）：
+                // 顶部的「我的订阅」大标题是悬浮叠在内容上的，这里得让出它的位置，
+                // 否则剧集/电影那一排直接从屏幕顶端画起，压在状态栏和大标题下面
+                Spacer(Modifier.statusBarsPadding().height(McMetrics.topBarHeight))
             }
 
             Column(Modifier.padding(top = 22.dp)) {
@@ -699,7 +758,7 @@ fun SubsHomeScreen(
                     SectionHeader("刚刚入库", if (state.recent.size > 1) "${state.recent.size} 部" else null)
                     Spacer(Modifier.height(12.dp))
                     LazyRow(
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = McMetrics.pagePadding),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = mcCards.pagePadding),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
                         items(state.recent, key = { it.subscriptionId.toString() + "-" + it.episodeNumber }) { card ->
@@ -730,7 +789,7 @@ fun SubsHomeScreen(
                     ShelfHeader("剧集订阅", countSummary(state.tv, active.size), onOpenWall = { onOpenWall("tv") })
                     Spacer(Modifier.height(12.dp))
                     LazyRow(
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = McMetrics.pagePadding),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = mcCards.pagePadding),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(active, key = { it.id }) { sub -> SubCard(sub, dim = false, origin = vm.origin) { onOpenSubscription(sub.id) } }
@@ -753,7 +812,7 @@ fun SubsHomeScreen(
                     ShelfHeader("电影订阅", countSummary(state.movie, active.size), onOpenWall = { onOpenWall("movie") })
                     Spacer(Modifier.height(12.dp))
                     LazyRow(
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = McMetrics.pagePadding),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = mcCards.pagePadding),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(active, key = { it.id }) { sub -> SubCard(sub, dim = false, origin = vm.origin) { onOpenSubscription(sub.id) } }
@@ -787,9 +846,10 @@ private fun SubsHero(
     // 把进行中的翻页动画取消掉，轮播就卡在「左右各半张」（实机反馈）。
     // settledPage 只在滚动停稳后才更新——手动滑动也会因此自然重新计时（同 iOS）。
     val fill = remember { Animatable(0f) }
-    LaunchedEffect(pager.settledPage, slides.size) {
+    val tabActive = io.movieclaw.android.core.designsystem.LocalTabActive.current
+    LaunchedEffect(pager.settledPage, slides.size, tabActive) {
         fill.snapTo(0f)
-        if (slides.size <= 1) return@LaunchedEffect
+        if (slides.size <= 1 || !tabActive) return@LaunchedEffect
         fill.animateTo(1f, tween(8000, easing = LinearEasing))
         // 用户正在拖的时候让位；停稳后本次效果会重排，再重新计时
         if (pager.isScrollInProgress) return@LaunchedEffect
@@ -863,7 +923,8 @@ private fun SubsHero(
                     )
                     // 压暗层留在渐隐遮罩里（iOS 注释：压暗层若在遮罩外，Hero 底边比氛围色暗一截，切出一道横线）
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.5f), 0.26f to Color.Transparent)))
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.36f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.5f))))
+                    // 底部压暗从 30% 处起、到底 70%：文字区落在剧照中下部，亮图上原来的 50% 压不住灰字
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.3f to Color.Transparent, 0.62f to Color.Black.copy(alpha = 0.38f), 1f to Color.Black.copy(alpha = 0.7f))))
                 }
                 Column(
                     Modifier
@@ -894,28 +955,30 @@ private fun SubsHero(
                     if (!s.eyebrow.isNullOrBlank()) {
                         Spacer(Modifier.height(16.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            s.eyebrowDot?.let { Box(Modifier.size(7.dp).clip(CircleShape).background(it)) ; Spacer(Modifier.width(7.dp)) }
-                            Text(s.eyebrow, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.9f))
+                            s.eyebrowDot?.let { Box(Modifier.size(6.dp).clip(CircleShape).background(it)) ; Spacer(Modifier.width(6.dp)) }
+                            Text(s.eyebrow, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = Color.White.copy(alpha = 0.85f))
                         }
                     }
                     if (!s.detail.isNullOrBlank()) {
                         Spacer(Modifier.height(8.dp))
-                        Text(s.detail, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.9f))
-                    }
-                    if (!s.footnote.isNullOrBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(s.footnote, fontSize = 13.sp, color = Color.White.copy(alpha = 0.6f))
+                        Text(
+                            s.detail, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.9f),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        )
                     }
                     if (!s.clockLabel.isNullOrBlank()) {
                         Spacer(Modifier.height(10.dp))
-                        Text(s.clockLabel, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.9f))
+                        Text(
+                            s.clockLabel, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.75f),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        )
                     }
                     if (!s.clock.isNullOrBlank()) {
                         val hasDigit = s.clock.any { it.isDigit() }
                         Spacer(Modifier.height(2.dp))
                         Text(
                             s.clock,
-                            fontSize = if (hasDigit) 48.sp else 36.sp,
+                            fontSize = if (hasDigit) 44.sp else 34.sp,
                             fontWeight = if (hasDigit) FontWeight.Thin else FontWeight.Light,
                             color = Color.White,
                         )
@@ -935,6 +998,10 @@ private fun SubsHero(
                             }
                         }
                     }
+                    if (!s.footnote.isNullOrBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(s.footnote, fontSize = 12.5.sp, color = Color.White.copy(alpha = 0.6f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
                     Spacer(Modifier.height(20.dp))
                     val play = s.play
                     if (play != null) {
@@ -952,7 +1019,7 @@ private fun SubsHero(
                                 Spacer(Modifier.width(6.dp))
                                 Text(
                                     if (s.resumePercent == null || s.resumePercent == 0) "播放" else "继续播放",
-                                    fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF141821),
+                                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF141821),
                                 )
                             }
                         }
@@ -966,7 +1033,7 @@ private fun SubsHero(
                                 .clickable { onOpenSubscription(s.subscriptionId) }
                                 .padding(horizontal = 22.dp),
                             contentAlignment = Alignment.Center,
-                        ) { Text("查看订阅", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White) }
+                        ) { Text("查看订阅", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White) }
                     }
                 }
             }
@@ -1037,7 +1104,7 @@ private fun restingLabel(resting: List<SubscriptionView>): String {
 @Composable
 private fun SectionHeader(title: String, count: String?) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding),
+        Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
@@ -1049,7 +1116,7 @@ private fun SectionHeader(title: String, count: String?) {
 @Composable
 private fun ShelfHeader(title: String, count: String, onOpenWall: () -> Unit = {}) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding),
+        Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
@@ -1080,11 +1147,11 @@ private fun ArrivalCard(
     onOpenTitle: (String) -> Unit = {},
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    Column(Modifier.width(264.dp)) {
+    Column(Modifier.width(mcCards.newInWidth)) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(148.dp)
+                .aspectRatio(264f / 148f)
                 .clip(RoundedCornerShape(14.dp))
                 .background(Color(0xFF101219))
                 .combinedClickable(
@@ -1125,7 +1192,7 @@ private fun ArrivalCard(
                     origin = origin,
                     contentDescription = null,
                     // iOS：maxWidth 118 × maxHeight 34，内距 12，左下
-                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).width(118.dp).height(34.dp),
+                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).width(mcCards.recentLogoWidth).height(34.dp),
                     contentScale = ContentScale.Fit,
                 )
             }
@@ -1197,7 +1264,7 @@ private fun ScheduleSection(
     val subsById = remember(subs) { subs.associateBy { it.id } }
     val current = days.getOrNull(selected) ?: days.firstOrNull()
     Column {
-        Row(Modifier.padding(horizontal = McMetrics.pagePadding), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = mcCards.pagePadding), verticalAlignment = Alignment.CenterVertically) {
             Text("日程", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             Spacer(Modifier.weight(1f))
             // 计数跟着**选中的那天**走（iOS SubsHomeSectionHeader 的 trailing）
@@ -1210,7 +1277,7 @@ private fun ScheduleSection(
             }
         }
         Spacer(Modifier.height(12.dp))
-        Row(Modifier.padding(horizontal = McMetrics.pagePadding), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.padding(horizontal = mcCards.pagePadding), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             days.forEach { day ->
                 val on = day == current
                 // 日期条小圆点：当天有正在发生的（下载 / 整理）就亮状态色，否则中性白（iOS dotColor）
@@ -1250,7 +1317,7 @@ private fun ScheduleSection(
         Spacer(Modifier.height(12.dp))
         Column(
             Modifier
-                .padding(horizontal = McMetrics.pagePadding)
+                .padding(horizontal = mcCards.pagePadding)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(22.dp))
                 .background(Color.White.copy(alpha = 0.045f))
@@ -1417,8 +1484,7 @@ private fun SubCard(sub: SubscriptionView, dim: Boolean, origin: String?, onClic
         }
         Text(sub.media.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (dim) TextMuted else TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
         val meta = if (sub.media.kind == "tv") {
-            val season = sub.selectedSeasons.firstOrNull()
-            "第 ${season ?: 1} 季 · ${sub.progress.imported} / ${sub.progress.total}"
+            tvShelfMeta(sub)
         } else {
             listOfNotNull(sub.media.year?.toString(), if (sub.progress.imported > 0) "已入库" else "未入库").joinToString(" · ")
         }
@@ -1438,7 +1504,7 @@ private fun SubCard(sub: SubscriptionView, dim: Boolean, origin: String?, onClic
 private fun SubscriptionEmptyState(onOpenDiscover: () -> Unit) {
     Column(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
             .background(Color.White.copy(alpha = 0.03f))
@@ -1528,4 +1594,15 @@ private fun SubscriptionEmptyState(onOpenDiscover: () -> Unit) {
             Text("去发现剧集", style = McType.subSemibold, color = Color(0xFF0A0E12))
         }
     }
+}
+
+/**
+ * 剧集海报下第二行：「第 N 季 · 已入库 / 总集数」。没勾季的订阅（只追新集）没有季可写——
+ * 以前兜底成「第 1 季 · 0 / 0」，看着像订阅坏了；按网页口径改写为「仅追新集」，
+ * 已收齐的就只写年份。
+ */
+internal fun tvShelfMeta(sub: io.movieclaw.android.core.model.SubscriptionView): String {
+    val season = sub.selectedSeasons.firstOrNull()
+        ?: return if (sub.followFuture && sub.status != "completed") "仅追新集" else (sub.media.year?.toString() ?: "剧集")
+    return "第 $season 季 · ${sub.progress.imported} / ${sub.progress.total}"
 }

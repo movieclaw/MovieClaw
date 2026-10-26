@@ -19,6 +19,8 @@ class ErrorResponse(BaseModel):
     code: str
     message: str
     details: list[dict[str, Any]] | None = Field(default=None)
+    message_key: str | None = None
+    params: dict[str, Any] | None = None
 
 
 def ok(data: T, message: str = "success", code: str = "OK") -> ApiResponse[T]:

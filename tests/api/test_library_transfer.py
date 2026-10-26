@@ -26,6 +26,7 @@ from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException
 from movieclaw_api.schemas.library import TransferPayload
 from movieclaw_api.services import jobs
+from movieclaw_api.services.library import acquisition
 from movieclaw_api.services.library import transfer as transfer_svc
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
@@ -67,7 +68,8 @@ async def _drain_transfer(source_id: int, target_id: int) -> transfer_svc.Transf
             )
         if latest is not None and latest.status is JobStatus.SUCCEEDED:
             result = dict(latest.result or {})
-            result.pop("message", None)
+            for field in ("message", "message_key", "message_params"):
+                result.pop(field, None)
             return transfer_svc.TransferSummary(**result)
         await asyncio.sleep(0.01)
     raise AssertionError("转移作业没有在时限内留下结论")
@@ -202,6 +204,28 @@ async def test_transfer_reassigns_subscription(db, tmp_path) -> None:
 
         sub = (await session.execute(select(Subscription))).scalar_one()
     assert sub.library_id == target_id
+
+
+async def test_unbound_acquisition_moves_files_and_leaves_subscription(
+    db, tmp_path, monkeypatch
+) -> None:
+    """获取领域没绑定（纯本地库）时转移照常完成，只是没人改挂订阅。"""
+    monkeypatch.setattr(acquisition, "_bound", None)
+    source_id, target_id, item_id, _entry, _root = await _setup(
+        db, tmp_path, with_subscription=True
+    )
+    async with get_database().session() as session:
+        await transfer_library_item(
+            source_id, item_id, TransferPayload(target_library_id=target_id), session=session
+        )
+    summary = await _drain_transfer(source_id, target_id)
+
+    assert summary.files_relocated and summary.subscription_moved is False
+    async with get_database().session() as session:
+        from sqlmodel import select
+
+        sub = (await session.execute(select(Subscription))).scalar_one()
+    assert sub.library_id == source_id
 
 
 async def test_blocked_when_target_has_same_directory(db, tmp_path) -> None:

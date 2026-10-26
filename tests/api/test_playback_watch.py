@@ -56,7 +56,7 @@ def client(tmp_path, monkeypatch):
 
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as c:
         c.post("/api/v1/auth/bootstrap", json=_ADMIN)
         yield c
 
@@ -223,20 +223,37 @@ def test_only_choices_that_differ_from_the_default_are_remembered(client, tmp_pa
     换过的照记；选回默认就清空。"""
     _, item_id = seed(client, tmp_path)
     client.portal.call(  # type: ignore[attr-defined]
-        partial(_set_tracks, item_id, audio_streams=_EN_ZH_AUDIO,
-                subtitle_streams=_EN_ZH_SUBS, external_subtitles=[])
+        partial(
+            _set_tracks,
+            item_id,
+            audio_streams=_EN_ZH_AUDIO,
+            subtitle_streams=_EN_ZH_SUBS,
+            external_subtitles=[],
+        )
     )
     report(client, item_id, event="start", audio_track="embedded:0", subtitle_track="embedded:1")
     state = resume(client, item_id)
     assert (state["audio_track"], state["subtitle_track"]) == (None, None)
 
-    report(client, item_id, event="progress", position_ms=60_000,
-           audio_track="embedded:1", subtitle_track="off")
+    report(
+        client,
+        item_id,
+        event="progress",
+        position_ms=60_000,
+        audio_track="embedded:1",
+        subtitle_track="off",
+    )
     state = resume(client, item_id)
     assert (state["audio_track"], state["subtitle_track"]) == ("embedded:1", "off")
 
-    report(client, item_id, event="stop", position_ms=90_000,
-           audio_track="embedded:0", subtitle_track="embedded:1")
+    report(
+        client,
+        item_id,
+        event="stop",
+        position_ms=90_000,
+        audio_track="embedded:0",
+        subtitle_track="embedded:1",
+    )
     state = resume(client, item_id)
     assert (state["audio_track"], state["subtitle_track"]) == (None, None)
 
@@ -279,8 +296,14 @@ def test_the_version_being_played_decides_what_the_default_is(client, tmp_path):
 
     report(client, item_id, event="start", audio_track="embedded:1", file_id=second_id)
     assert resume(client, item_id)["audio_track"] is None
-    report(client, item_id, event="progress", position_ms=60_000,
-           audio_track="embedded:1", file_id=first_id)
+    report(
+        client,
+        item_id,
+        event="progress",
+        position_ms=60_000,
+        audio_track="embedded:1",
+        file_id=first_id,
+    )
     assert resume(client, item_id)["audio_track"] == "embedded:1"
 
 
@@ -290,13 +313,20 @@ def test_judging_reported_tracks_adds_no_queries(client, tmp_path):
     from sqlalchemy import event
 
     from movieclaw_api.services.library.search_index import close_search_index
+    from movieclaw_api.services.server_addresses import address_book
 
-    # 只统计播放心跳；名称索引的独立后台读写不能混进这三次请求的 SQL 条数。
+    # 只统计播放心跳；名称索引、访问地址簿首次读取这类独立后台读写不能混进这三次请求的 SQL 条数。
     client.portal.call(close_search_index)
+    client.portal.call(address_book.preload)
     _, item_id = seed(client, tmp_path)
     client.portal.call(  # type: ignore[attr-defined]
-        partial(_set_tracks, item_id, audio_streams=_EN_ZH_AUDIO,
-                subtitle_streams=_EN_ZH_SUBS, external_subtitles=[])
+        partial(
+            _set_tracks,
+            item_id,
+            audio_streams=_EN_ZH_AUDIO,
+            subtitle_streams=_EN_ZH_SUBS,
+            external_subtitles=[],
+        )
     )
     report(client, item_id, event="start")
     # 开始后的第一次心跳会多发一次事件（按单元节流），先走掉它，后面几次口径一致
@@ -348,10 +378,7 @@ def test_unit_outside_visible_libraries_is_not_found(client, tmp_path):
     client.post("/api/v1/auth/logout")
     assert client.post("/api/v1/auth/login", json=_MEMBER).status_code == 200
 
-    assert (
-        client.get(f"{_PB}/resume", params={"media_item_id": hidden_item_id}).status_code
-        == 404
-    )
+    assert client.get(f"{_PB}/resume", params={"media_item_id": hidden_item_id}).status_code == 404
     assert (
         client.post(
             f"{_PB}/progress", json={"media_item_id": hidden_item_id, "event": "start"}
@@ -398,9 +425,7 @@ def test_policy_saves_software_transcode_toggle(client):
         f"{_PB}/policy", json={"software_transcode_enabled": True}
     ).json()["data"]
     assert data["software_transcode_enabled"] is True
-    assert (
-        client.get(f"{_PB}/policy").json()["data"]["software_transcode_enabled"] is True
-    )
+    assert client.get(f"{_PB}/policy").json()["data"]["software_transcode_enabled"] is True
 
 
 def test_policy_ignores_retired_limit_fields(client):
@@ -581,8 +606,15 @@ async def _seed_show(tmp_path: Path) -> int:
             for tag, language in (("chs", "chi"), ("en", "eng")):
                 name = f"Show.S01E0{episode}.{tag}.srt"
                 (root / name).write_text("1\n00:00:01,000 --> 00:00:02,000\nHi\n")
-                externals.append({"filename": name, "format": "srt", "language": language,
-                                  "title": None, "forced": False})
+                externals.append(
+                    {
+                        "filename": name,
+                        "format": "srt",
+                        "language": language,
+                        "title": None,
+                        "forced": False,
+                    }
+                )
             session.add(
                 LibraryFile(
                     library_id=library.id,
@@ -610,8 +642,14 @@ def test_new_episode_inherits_the_series_track_choice(client, tmp_path):
     并随观看状态带回，App 据此提示「已沿用上次的选择」。"""
     show_id = client.portal.call(partial(_seed_show, tmp_path))  # type: ignore[attr-defined]
     episode = {"season_number": 1, "episode_number": 1}
-    report(client, show_id, event="start", audio_track="embedded:1",
-           subtitle_track="external:Show.S01E01.en.srt", **episode)
+    report(
+        client,
+        show_id,
+        event="start",
+        audio_track="embedded:1",
+        subtitle_track="external:Show.S01E01.en.srt",
+        **episode,
+    )
 
     data = start_session(client, show_id, season_number=1, episode_number=2)
     assert data["decision"]["audio"]["track_ref"] == "embedded:0"
@@ -620,8 +658,13 @@ def test_new_episode_inherits_the_series_track_choice(client, tmp_path):
     # 这次明确点了别的轨：照点的来
     resp = client.post(
         f"{_PB}/decide",
-        json={"media_item_id": show_id, "season_number": 1, "episode_number": 2,
-              "capability": _CAPABILITY, "audio_track": "embedded:1"},
+        json={
+            "media_item_id": show_id,
+            "season_number": 1,
+            "episode_number": 2,
+            "capability": _CAPABILITY,
+            "audio_track": "embedded:1",
+        },
     )
     assert resp.json()["data"]["audio"]["track_ref"] == "embedded:1"
 

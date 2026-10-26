@@ -17,8 +17,8 @@ cd apps/android-tv
 `core/model`、`core/network` 下的 `generated/` 由后端生成，勿手改。后端改了 TV 用到的接口后：
 
 ```bash
-.venv/bin/python apps/android-tv/scripts/gen_api.py          # 重新生成
-.venv/bin/python apps/android-tv/scripts/gen_api.py --check  # CI 用：校验一致
+.venv/bin/python apps/android-core/scripts/gen_api.py          # 重新生成
+.venv/bin/python apps/android-core/scripts/gen_api.py --check  # CI 用：校验一致
 ```
 
 要用新接口，把它加进脚本里的 `ENDPOINTS` 白名单。

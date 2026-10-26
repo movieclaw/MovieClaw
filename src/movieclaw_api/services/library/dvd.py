@@ -59,9 +59,11 @@ def title_set_numbers(data: bytes) -> set[int]:
     表头 2 字节是标题个数，其后每条 12 字节，第 6 字节是标题集号（VTSN）。
     """
     if len(data) < 0xC8 or data[:12] != b"DVDVIDEO-VMG":
+        # i18n-ignore: parser diagnostic, logged only
         raise ValueError("不是 VIDEO_TS.IFO")
     table = int.from_bytes(data[0xC4:0xC8], "big") * SECTOR
     if table + 8 > len(data):
+        # i18n-ignore: parser diagnostic, logged only
         raise ValueError("标题表越界")
     count = int.from_bytes(data[table : table + 2], "big")
     return {
@@ -82,9 +84,11 @@ def longest_program_chain(data: bytes) -> ProgramChain:
     20～23 是末个 VOBU 的结束扇区；位置表每个单元 4 字节，0～1 是 VOB 号。
     """
     if len(data) < 0xD0 or data[:12] != b"DVDVIDEO-VTS":
+        # i18n-ignore: parser diagnostic, logged only
         raise ValueError("不是标题集 IFO")
     table = int.from_bytes(data[0xCC:0xD0], "big") * SECTOR
     if table + 8 > len(data):
+        # i18n-ignore: parser diagnostic, logged only
         raise ValueError("节目链信息表越界")
     count = int.from_bytes(data[table : table + 2], "big")
     best = ProgramChain(0.0, ())

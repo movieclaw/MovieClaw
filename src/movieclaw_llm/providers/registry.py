@@ -31,7 +31,9 @@ def get_preset(provider_type: str) -> ProviderPreset:
     presets = _load_all()
     if provider_type not in presets:
         raise LlmRoutingError(
-            f"未知的供应商类型「{provider_type}」，可选：{', '.join(sorted(presets))}"
+            f"未知的供应商类型「{provider_type}」，可选：{', '.join(sorted(presets))}",
+            message_key="errors.llm.connection.typeUnknown",
+            params={"type": provider_type, "available": ", ".join(sorted(presets))},
         )
     return presets[provider_type]
 

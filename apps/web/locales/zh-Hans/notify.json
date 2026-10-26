@@ -1,0 +1,15 @@
+{
+  "center": {
+    "title": "待处理事项",
+    "ignore": "忽略",
+    "resolve": "去处理",
+    "description": "这里只列需要你处理的运行时问题，修复后会自动消失。",
+    "countTitle": "待处理事项（{count}）",
+    "countShort": "待处理（{count}）",
+    "pending": "待处理"
+  },
+  "update": {
+    "appVersion": "新版本 v{version}",
+    "modelVersion": "新识别模型 {version}"
+  }
+}

@@ -12,7 +12,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -52,12 +54,14 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.compose.ContentFrame
 import io.movieclaw.androidtv.LocalGraph
 import io.movieclaw.androidtv.LocalSession
-import io.movieclaw.androidtv.core.playback.PlaybackController
-import io.movieclaw.androidtv.core.playback.PlaybackTarget
-import io.movieclaw.androidtv.core.playback.Phase
-import io.movieclaw.androidtv.core.playback.PlayerState
-import io.movieclaw.androidtv.core.playback.PrefsStore
-import io.movieclaw.androidtv.core.playback.ScrubMath
+import io.movieclaw.core.playback.MemberBackend
+import io.movieclaw.core.playback.PlaybackController
+import io.movieclaw.core.playback.PlaybackTarget
+import io.movieclaw.core.playback.Phase
+import io.movieclaw.core.playback.PlayerState
+import io.movieclaw.core.playback.PrefsStore
+import io.movieclaw.core.playback.ScrubMath
+import io.movieclaw.core.playback.SkipNotice
 import io.movieclaw.androidtv.ui.shell.PlayRequest
 import io.movieclaw.androidtv.ui.theme.pt
 import kotlinx.coroutines.delay
@@ -73,8 +77,8 @@ import kotlinx.coroutines.launch
  * | 点按左 / 右 | 后退 / 前进 10 秒（控制层收起时也行） |
  * | 按住左 / 右 | 拖动进度（Apple TV 是触控板横滑；安卓遥控器没有触控板）：带缩略图，松手跳过去 |
  * | 下 | 信息面板：字幕、音轨、画质 |
- * | 上 | 只显示控制层 |
- * | 返回 | 依次：取消拖动 → 收起面板 → 收起「下一集」卡片 → 收起换画质建议 → 退出播放 |
+ * | 上 | 显示控制层，焦点到进度条上方的工具行：剧集的「下一集」「选集」，以及「播放诊断」（下键回到画面） |
+ * | 返回 | 依次：取消拖动 → 收起选集 / 面板 → 焦点从工具行回画面 → 收起「下一集」卡片 → 收起换画质建议 → 收起播放诊断 → 退出播放 |
  * | 快进 / 快退 / 下一首 / 上一首键 | ±10 秒 / 下一集 / 上一集 |
  *
  * 片头片尾时段右下角出现「跳过」按钮、片尾出现「下一集」卡片，焦点自动落在上面，按一下就生效。
@@ -87,7 +91,7 @@ fun PlayerScreen(request: PlayRequest, onClose: () -> Unit) {
     val controller = remember(request) {
         PlaybackController(
             context = context.applicationContext,
-            api = account.api,
+            backend = MemberBackend(account.api),
             server = account.server,
             http = graph.http,
             identity = graph.identity,
@@ -127,7 +131,7 @@ fun PlayerScreen(request: PlayRequest, onClose: () -> Unit) {
 }
 
 /** 播放器里能拿焦点的东西：平时在「画面」上（一块看不见的全屏可聚焦区，收遥控器的按键） */
-private enum class Focus { None, Surface, Skip, UpNext, QualityOffer, Panel, Dialog }
+private enum class Focus { None, Surface, Skip, SkipUndo, UpNext, QualityOffer, Panel, Dialog, Actions }
 
 /** 按住左右键的拖动状态（只在按键回调里读写，不需要触发重组） */
 private class HoldState {
@@ -143,13 +147,22 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
     val scope = rememberCoroutineScope()
     val surfaceFocus = remember { FocusRequester() }
     val skipFocus = remember { FocusRequester() }
+    val skipUndoFocus = remember { FocusRequester() }
     val upNextFocus = remember { FocusRequester() }
     val offerFocus = remember { FocusRequester() }
     val dialogFocus = remember { FocusRequester() }
+    val actionsFocus = remember { FocusRequester() }
     var focus by remember { mutableStateOf(Focus.None) }
     var chromeVisible by remember { mutableStateOf(true) }
     var chromeActivity by remember { mutableIntStateOf(0) }
     var panelOpen by remember { mutableStateOf(false) }
+    // 选集面板（同详情页的「全部分集」：左栏分段、右边宫格）
+    var episodesOpen by remember { mutableStateOf(false) }
+    // 播放诊断（Apple 端同款）：工具行里的「播放诊断」开关，左上角常驻，不抢焦点
+    var diagnosticsOpen by remember(controller) { mutableStateOf(false) }
+    LaunchedEffect(controller, diagnosticsOpen) { controller.setDiagnosticsOpen(diagnosticsOpen) }
+    val diagnostics by controller.diagnostics.collectAsState()
+    val episodic = state.unit.isEpisode && state.episodes.isNotEmpty()
     var scrubMs by remember { mutableStateOf<Long?>(null) }
     var scrubBase by remember { mutableLongStateOf(0L) }
     val hold = remember { HoldState() }
@@ -182,6 +195,16 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
         }
     }
 
+    fun focusActionsSoon() {
+        scope.launch {
+            // 控制层刚淡入：等它排好再交焦点
+            repeat(5) {
+                delay(32)
+                if (runCatching { actionsFocus.requestFocus() }.getOrDefault(false)) return@launch
+            }
+        }
+    }
+
     fun togglePlay() {
         controller.noteUserActivity()
         if (state.isModal) return
@@ -211,6 +234,10 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
             focusSurfaceSoon()
             return
         }
+        if (focus == Focus.Actions) {
+            focusSurfaceSoon()
+            return
+        }
         if (focus == Focus.UpNext) {
             controller.dismissUpNext()
             focusSurfaceSoon()
@@ -219,6 +246,17 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
         if (focus == Focus.QualityOffer) {
             controller.dismissQualityOffer()
             focusSurfaceSoon()
+            return
+        }
+        val notice = state.skipNotice
+        if (notice != null && notice.kind == SkipNotice.Kind.Skipped) {
+            // 「已跳过 · 撤回」在时返回键 = 不撤回、收起提示，免得刚跳过就一按退出播放
+            controller.expireSkipNotice(notice.id)
+            focusSurfaceSoon()
+            return
+        }
+        if (diagnosticsOpen) {
+            diagnosticsOpen = false
             return
         }
         exit()
@@ -286,6 +324,7 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
             AndroidKeyEvent.KEYCODE_DPAD_UP -> if (down) {
                 controller.noteUserActivity()
                 showChrome()
+                if (native.repeatCount == 0 && state.hasSession && !state.isModal) focusActionsSoon()
             }
             AndroidKeyEvent.KEYCODE_DPAD_DOWN -> if (down && native.repeatCount == 0) {
                 controller.noteUserActivity()
@@ -327,10 +366,12 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
 
     // ---- 状态派生 ----
 
-    val mustStay = state.userPaused || scrubMs != null || panelOpen
+    val mustStay = state.userPaused || scrubMs != null || panelOpen || focus == Focus.Actions
     val contextual: Focus? = when {
-        state.isModal || panelOpen -> null
+        state.isModal || panelOpen || episodesOpen -> null
         state.qualityOffer != null -> Focus.QualityOffer
+        // 只有「已跳过 · 撤回」能按；「本剧以后自动跳过」只是告知，不抢焦点
+        state.skipNotice != null -> if (state.skipNotice?.kind == SkipNotice.Kind.Skipped) Focus.SkipUndo else null
         state.skipSegment != null -> Focus.Skip
         state.showsUpNext && state.nextEpisode != null -> Focus.UpNext
         else -> null
@@ -345,6 +386,7 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
     fun requestContextual(target: Focus) {
         val requester = when (target) {
             Focus.Skip -> skipFocus
+            Focus.SkipUndo -> skipUndoFocus
             Focus.UpNext -> upNextFocus
             Focus.QualityOffer -> offerFocus
             else -> surfaceFocus
@@ -364,7 +406,7 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
     // 跳过按钮、下一集卡片、换画质建议出现时焦点自动落上去（按一下就生效），消失时回到画面
     LaunchedEffect(contextual) {
         delay(150)
-        val corner = focus == Focus.Skip || focus == Focus.UpNext || focus == Focus.QualityOffer
+        val corner = focus == Focus.Skip || focus == Focus.SkipUndo || focus == Focus.UpNext || focus == Focus.QualityOffer
         if (contextual != null && (focus == Focus.None || focus == Focus.Surface || corner)) {
             requestContextual(contextual)
         } else if (contextual == null && (focus == Focus.None || corner)) {
@@ -410,15 +452,43 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
             Modifier
                 .fillMaxSize()
                 .focusRequester(surfaceFocus)
-                .focusProperties { canFocus = !panelOpen && !state.isModal }
+                .focusProperties { canFocus = !panelOpen && !episodesOpen && !state.isModal }
                 .onFocusChanged { if (it.isFocused) focus = Focus.Surface else if (focus == Focus.Surface) focus = Focus.None }
                 .onKeyEvent(::onSurfaceKey)
                 .focusable(),
         )
 
         // 4. 控制层（面板打开时让位）
-        AnimatedVisibility(chromeVisible && !panelOpen, enter = fadeIn(tween(250)), exit = fadeOut(tween(250))) {
-            Chrome(state, scrubMs, trickplay)
+        AnimatedVisibility(chromeVisible && !panelOpen && !episodesOpen, enter = fadeIn(tween(250)), exit = fadeOut(tween(250))) {
+            Chrome(state, scrubMs, trickplay) {
+                if (state.hasSession) {
+                    EpisodeActions(
+                        episodic = episodic,
+                        diagnosticsOpen = diagnosticsOpen,
+                        onDiagnostics = {
+                            controller.noteUserActivity()
+                            diagnosticsOpen = !diagnosticsOpen
+                        },
+                        next = state.nextEpisode,
+                        onNext = {
+                            controller.noteUserActivity()
+                            controller.playNext()
+                            focusSurfaceSoon()
+                        },
+                        onEpisodes = { episodesOpen = true },
+                        focus = actionsFocus,
+                        onLeave = { runCatching { surfaceFocus.requestFocus() } },
+                        modifier = Modifier.onFocusChanged {
+                            if (it.hasFocus) focus = Focus.Actions else if (focus == Focus.Actions) focus = Focus.None
+                        },
+                    )
+                }
+            }
+        }
+
+        // 4½. 播放诊断：左上角，控制层收起也留着（截图给开发看）；纯展示，不接焦点
+        diagnostics?.let { sections ->
+            TvDiagnosticsPanel(sections, Modifier.align(Alignment.TopStart).padding(start = 80.pt, top = 60.pt))
         }
 
         // 5. 转圈
@@ -426,17 +496,17 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { BusyView(state.phase, state.speedLabel) }
         }
 
-        // 6. 右下角：换画质建议 > 跳过 > 下一集（同时只出一个）
+        // 6. 右下角：换画质建议 > 自动跳过的提示 > 跳过 > 下一集（同时只出一个）
         val cornerBottom by animateDpAsState(if (chromeVisible) 200.pt else 80.pt, tween(250), label = "corner")
         Box(
             Modifier
                 .fillMaxSize()
                 .padding(end = 80.pt, bottom = cornerBottom)
-                .alpha(if (state.isModal || panelOpen) 0f else 1f)
-                .focusProperties { canFocus = !panelOpen }
+                .alpha(if (state.isModal || panelOpen || episodesOpen) 0f else 1f)
+                .focusProperties { canFocus = !panelOpen && !episodesOpen }
                 .onPreviewKeyEvent { event ->
                     // 右下角按钮上按左 / 上回到画面（那边就是画面），按右 / 下没有去处
-                    if (focus != Focus.Skip && focus != Focus.UpNext) return@onPreviewKeyEvent false
+                    if (focus != Focus.Skip && focus != Focus.SkipUndo && focus != Focus.UpNext) return@onPreviewKeyEvent false
                     when (event.nativeKeyEvent.keyCode) {
                         AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_UP -> {
                             if (event.type == KeyEventType.KeyDown) runCatching { surfaceFocus.requestFocus() }
@@ -449,6 +519,7 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
             contentAlignment = Alignment.BottomEnd,
         ) {
             val offer = state.qualityOffer
+            val notice = state.skipNotice
             val segment = state.skipSegment
             val next = state.nextEpisode
             when {
@@ -467,6 +538,20 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
                         if (it.hasFocus) focus = Focus.QualityOffer else if (focus == Focus.QualityOffer) focus = Focus.None
                     },
                 )
+                notice != null -> {
+                    // 提示优先于跳过按钮（撤回后回到片头里，提示收起才轮到按钮）
+                    SkipNoticeView(
+                        notice,
+                        onUndo = controller::undoAutoSkip,
+                        modifier = Modifier
+                            .focusRequester(skipUndoFocus)
+                            .onFocusChanged { if (it.isFocused) focus = Focus.SkipUndo else if (focus == Focus.SkipUndo) focus = Focus.None },
+                    )
+                    LaunchedEffect(notice.id) {
+                        delay(notice.durationMs)
+                        controller.expireSkipNotice(notice.id)
+                    }
+                }
                 segment != null -> SkipButton(
                     segment,
                     onClick = controller::skipCurrentSegment,
@@ -515,7 +600,23 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
             }
         }
 
-        // 9. 对话框
+        // 9. 选集：盖满整屏（播放照常继续），焦点关在里面；返回键收起，挑一集就切过去
+        if (episodesOpen && episodic) {
+            EpisodePicker(
+                state,
+                onPick = { number ->
+                    episodesOpen = false
+                    controller.playEpisode(number)
+                    focusSurfaceSoon()
+                },
+                onClose = {
+                    episodesOpen = false
+                    focusSurfaceSoon()
+                },
+            )
+        }
+
+        // 10. 对话框
         Box(Modifier.onFocusChanged { if (it.hasFocus) focus = Focus.Dialog else if (focus == Focus.Dialog) focus = Focus.None }) {
             val decision = state.pendingDecision
             when (dialogKind) {
@@ -527,9 +628,9 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
     }
 }
 
-/** 控制层：顶部渐暗（暂停时左上角片名）+ 底部进度条 */
+/** 控制层：顶部渐暗（暂停时左上角片名）+ 底部进度条，剧集在进度条上方加 [actions] */
 @Composable
-private fun Chrome(state: PlayerState, scrubMs: Long?, trickplay: TrickplayImages) {
+internal fun Chrome(state: PlayerState, scrubMs: Long?, trickplay: TrickplayImages, actions: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize()) {
         Box(
             Modifier
@@ -547,10 +648,13 @@ private fun Chrome(state: PlayerState, scrubMs: Long?, trickplay: TrickplayImage
                 .height(360.pt)
                 .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f)))),
         )
-        TransportBar(
-            state, scrubMs, trickplay,
+        Column(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 80.pt, end = 80.pt, bottom = 60.pt),
-        )
+            verticalArrangement = Arrangement.spacedBy(28.pt),
+        ) {
+            actions()
+            TransportBar(state, scrubMs, trickplay, Modifier.fillMaxWidth())
+        }
     }
 }
 

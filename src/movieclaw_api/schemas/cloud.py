@@ -166,6 +166,7 @@ class PushEventView(BaseModel):
     title: str
     description: str
     group: str
+    group_id: str | None = Field(default=None, description="Stable source group identifier.")
     enabled: bool
     default: bool
 
@@ -213,6 +214,10 @@ class MyPushView(BaseModel):
         default=None,
         description="静音了的片（长按通知「这部剧不再提醒」），最近静音的在前",
     )
+    # 可空：同上
+    im_accounts: int | None = Field(
+        default=None, description="我在运行的 IM 账号数（IM 也按这里的开关推送）"
+    )
 
 
 class PushPreferencesRequest(BaseModel):
@@ -246,6 +251,22 @@ class PushRegistrationRequest(BaseModel):
     client_version: str | None = Field(
         default=None, max_length=64, description="App 当前版本（登录时记下的会过时，借登记刷新）"
     )
+    unsupported_build: bool = Field(
+        default=False,
+        description="这个安装包签名里没有推送权限、拿不到 APNs 令牌（侧载包），重装商店版才能收到",
+    )
+    stream: bool | None = Field(
+        default=None,
+        description="实时通知（保持连接，仅 Android）：true 开、false 关、不传不改",
+    )
+
+
+class PushAckRequest(BaseModel):
+    up_to: int = Field(ge=0, description="已显示的最后一条实时通知 id（含）")
+
+
+class PushAckView(BaseModel):
+    acked: int = Field(description="这次标记为已送达的条数")
 
 
 class PushRegistrationView(BaseModel):

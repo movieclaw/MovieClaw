@@ -661,11 +661,11 @@ CI 里，每多一个运行时前置就多一批装不上的人。
          → 从 Release 下载对应平台的二进制、校验 sha256
          → 装进 /usr/local/bin（Windows 是用户级 PATH），
            GUI 应用与后台任务也能调到
-次通道   直接从 Release 页下载 mclaw_<os>_<arch>.tar.gz 解压
+次通道   直接从 Release 页下载 mclaw_cli_<os>_<arch>.tar.gz 解压
 第三     Docker 镜像内置（现状不变，docker exec 零安装）
 ```
 
-命名规则 `mclaw_{os}_{arch}.{tar.gz|zip}` 是两个安装脚本与 `.goreleaser.yaml`
+命名规则 `mclaw_cli_{os}_{arch}.{tar.gz|zip}` 是两个安装脚本与 `.goreleaser.yaml`
 之间的契约，改动要三处同步。
 
 ### 6.5 第一次配对：地址从哪来
@@ -922,7 +922,7 @@ Mac Worker 的改动（`DevicePairing.swift`、设置窗重写、握手改 Beare
   只需两处加法，不需要推翻。
 - **不为发现新开协议或新开端口**。`mclaw login` 的局域网自动发现改为复用服务端
   **已经在应答**的那条通道：UDP 7359 上的 Jellyfin 发现协议
-  （`src/movieclaw_jellyfin/udp.py`）。客户端广播一句 `who is JellyfinServer?`，
+  （当时的 `src/movieclaw_jellyfin/udp.py`；2026-10 起改为自家协议，见 lan-discovery.md）。客户端广播一句 `who is JellyfinServer?`，
   服务端回的 `Address` 就是 web 端口的完整地址。代价是客户端约 130 行 Go，
   服务端零改动（详见 §6.5）——比另起 mDNS 或自定义应答器低一个数量级。
 

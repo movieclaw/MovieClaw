@@ -18,7 +18,6 @@ from movieclaw_kernel.contracts import RegistryKey, ServiceKey, Stability
 from movieclaw_kernel.events import (
     DURABLE_EVENTS,
     CauseChainTooLong,
-    Delivery,
     DurableEventStore,
     Event,
     Mode,
@@ -35,6 +34,7 @@ from movieclaw_kernel.kernel import (
     State,
 )
 from movieclaw_kernel.observe import (
+    AGENT_MARK,
     DeliveryInfo,
     EntryLogFilter,
     Origin,
@@ -46,13 +46,13 @@ from movieclaw_kernel.plugin import Entry, Patch, Plugin, plugin
 from movieclaw_kernel.registry import ContributionConflict, Registry, RegistryChange
 
 __all__ = [
+    "AGENT_MARK",
     "DURABLE_EVENTS",
     "KERNEL_READY",
     "PLUGIN_STATE",
     "CauseChainTooLong",
     "Context",
     "ContributionConflict",
-    "Delivery",
     "DeliveryInfo",
     "DurableEventStore",
     "Entry",

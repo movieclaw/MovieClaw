@@ -17,7 +17,7 @@ import pytest
 from movieclaw_api import export_openapi
 from movieclaw_api.export_openapi import build_spec, spec_hash
 from movieclaw_api.services import spec_catalog
-from movieclaw_api.services.mclaw_tool import render_service_map, spec_domains
+from movieclaw_api.services.mclaw_tool import render_service_block, spec_domains
 
 _SRC = Path(__file__).resolve().parents[2] / "src"
 
@@ -105,6 +105,6 @@ def test_corrupt_spec_gives_an_actionable_error(monkeypatch, tmp_path) -> None:
 
 def test_service_map_covers_every_open_domain() -> None:
     """渲染出的目录与 spec 的开放域集合严格同步（新增域忘了润色会被这里拦下）。"""
-    rendered = render_service_map()
+    rendered = render_service_block()
     for domain in spec_domains():
-        assert f"- {domain}" in rendered, f"域 {domain} 没有出现在服务目录里"
+        assert f"- {domain}：" in rendered, f"域 {domain} 没有出现在服务目录里"

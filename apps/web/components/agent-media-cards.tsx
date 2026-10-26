@@ -4,6 +4,7 @@ import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { Route } from "next";
 import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
 import { usePathname } from "next/navigation";
 
 import { HScroller } from "@/components/h-scroller";
@@ -30,6 +31,8 @@ import {
 } from "@/lib/api/playback";
 import { getSubscription, type Subscription } from "@/lib/api/subscriptions";
 import { formatBytes } from "@/lib/format";
+import { appTranslator, type AppMessageKey } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 import { imageUrl, responsiveImage } from "@/lib/image-proxy";
 import type { LibraryKind, MediaItem } from "@/lib/media-types";
 import { playHref, rememberPlayerReturnPath } from "@/lib/player/play-links";
@@ -48,20 +51,21 @@ import { useTapGuard } from "@/lib/use-tap-guard";
  */
 
 /** 媒体类型的图标与文案（与媒体库页同款，此处内联避免把整个 library-view 拉进会话页）。 */
-const KIND_META: Record<LibraryKind, { label: string; Icon: typeof FilmIcon }> = {
-  movie: { label: "电影", Icon: FilmIcon },
-  tv: { label: "剧集", Icon: TvIcon },
-  video: { label: "其他", Icon: VideoIcon },
-  photo: { label: "图片", Icon: PhotoIcon },
+const KIND_META: Record<LibraryKind, { labelKey: AppMessageKey; Icon: typeof FilmIcon }> = {
+  movie: { labelKey: "media.kind.movie", Icon: FilmIcon },
+  tv: { labelKey: "media.kind.tv", Icon: TvIcon },
+  video: { labelKey: "library.kind.other", Icon: VideoIcon },
+  photo: { labelKey: "media.kind.photo", Icon: PhotoIcon },
 };
 
 type Loaded<T> = { status: "loading" } | { status: "ready"; data: T } | { status: "error" };
 
 /**
- * 卡片数据加载：一次性、按 key 触发。失败不区分原因——404（编号不存在）与
+ * 卡片数据加载：按 key 与读者语言触发。失败不区分原因——404（编号不存在）与
  * 网络错误在卡片上都是同一个「未找到/加载失败」占位，用户下一步都是重问。
  */
 function useCardData<T>(key: string, load: () => Promise<T>): Loaded<T> {
+  const locale = useLocale();
   const [state, setState] = useState<Loaded<T>>({ status: "loading" });
   useEffect(() => {
     let cancelled = false;
@@ -77,9 +81,9 @@ function useCardData<T>(key: string, load: () => Promise<T>): Loaded<T> {
     return () => {
       cancelled = true;
     };
-    // key 即数据身份：spec 对象在每次流式刷新时可能是新引用，但编号不变就不重拉
+    // key 即数据身份：spec 对象在每次流式刷新时可能是新引用，但编号和读者语言不变就不重拉
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, locale]);
   return state;
 }
 
@@ -93,6 +97,7 @@ function CardPlaceholder({
   children?: ReactNode;
   failed?: boolean;
 }) {
+  const t = useTranslations();
   return (
     <div
       className={`flex items-center justify-center rounded-2xl bg-white/[0.04] ring-1 ring-white/[0.06] ${
@@ -101,7 +106,7 @@ function CardPlaceholder({
     >
       {children ?? (
         <span className="px-3 text-center text-caption text-[var(--text-faint)]">
-          {failed ? "未找到" : ""}
+          {failed ? t("agent.cards.notFound") : ""}
         </span>
       )}
     </div>
@@ -111,6 +116,7 @@ function CardPlaceholder({
 /* —— 媒体库卡片：封面拼贴 + 库名 + 类型与库存统计 —— */
 
 const LibraryMiniCard = memo(function LibraryMiniCard({ libraryId }: { libraryId: number }) {
+  const t = useTranslations();
   const state = useCardData(`library:${libraryId}`, () => getLibrary(libraryId));
   const box = "w-[248px] shrink-0 max-md:w-[212px]";
   if (state.status !== "ready") {
@@ -118,7 +124,7 @@ const LibraryMiniCard = memo(function LibraryMiniCard({ libraryId }: { libraryId
       <div className={box}>
         <CardPlaceholder className="aspect-[21/10] w-full" failed={state.status === "error"}>
           {state.status === "error" ? (
-            <span className="text-caption text-[var(--text-faint)]">未找到媒体库 #{libraryId}</span>
+            <span className="text-caption text-[var(--text-faint)]">{t("agent.cards.libraryMissing", { id: libraryId })}</span>
           ) : null}
         </CardPlaceholder>
       </div>
@@ -128,13 +134,14 @@ const LibraryMiniCard = memo(function LibraryMiniCard({ libraryId }: { libraryId
 });
 
 function LibraryMiniCardBody({ library }: { library: MediaLibrary }) {
+  const t = useTranslations();
   const meta = KIND_META[library.kind];
   // 服务端渲染的封面拼贴（与媒体库首页同一张图）；空库/生成失败退回类型图标底纹
   const [coverFailed, setCoverFailed] = useState(false);
   const { stats } = library;
   const summary = [
-    meta.label,
-    `${stats.item_count} 部`,
+    t(meta.labelKey),
+    t("library.status.titleCount", { count: stats.item_count }),
     stats.total_size_bytes > 0 ? formatBytes(stats.total_size_bytes) : null,
   ]
     .filter(Boolean)
@@ -143,7 +150,7 @@ function LibraryMiniCardBody({ library }: { library: MediaLibrary }) {
     <Link
       href={`/library/${library.id}` as Route}
       scroll={false}
-      aria-label={`打开媒体库「${library.name}」，${summary}`}
+      aria-label={t("agent.cards.openLibrary", { name: library.name, summary })}
       className="group/lib block w-[248px] shrink-0 outline-none max-md:w-[212px]"
     >
       <div className="relative aspect-[21/10] overflow-hidden rounded-2xl bg-[var(--poster-placeholder)] shadow-[0_10px_28px_rgba(0,0,0,0.38)] ring-1 ring-white/10 transition duration-300 group-hover/lib:-translate-y-1 group-hover/lib:ring-white/35 group-focus-visible/lib:ring-2 group-focus-visible/lib:ring-[var(--accent-ring)]">
@@ -164,11 +171,11 @@ function LibraryMiniCardBody({ library }: { library: MediaLibrary }) {
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/70 to-transparent" />
         <span className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-micro font-semibold text-white/85">
           <meta.Icon className="size-3" />
-          {meta.label}
+          {t(meta.labelKey)}
         </span>
         {library.is_default && (
           <span className="absolute right-2 top-2 rounded-full border border-white/[0.14] bg-white/[0.12] px-2 py-0.5 text-micro font-semibold text-white/85">
-            默认
+            {t("library.manage.default")}
           </span>
         )}
         <div className="absolute inset-x-3 bottom-2.5">
@@ -206,15 +213,16 @@ const TitlePosterCard = memo(function TitlePosterCard({
 });
 
 function TitlePosterCardBody({ item }: { item: MediaItem }) {
+  const t = useTranslations();
   const { subscriptionOf } = useSubscribeEntry();
   // 海报斜标：已入库（绿）优先于已订阅（蓝）——在库是更确定的事实；
   // 悬停信息层里的订阅键由 PosterCardVisual 自己按订阅状态切换文案
   const visual: PosterVisualItem = useMemo(() => {
     const subscribed = Boolean(subscriptionOf(item));
     return subscribed && !item.libraryStatus
-      ? { ...item, ribbon: "已订阅", ribbonVariant: "compact-left", ribbonTone: "subscribed" }
+      ? { ...item, ribbon: t("media.discovery.subscribed"), ribbonVariant: "compact-left", ribbonTone: "subscribed" }
       : item;
-  }, [item, subscriptionOf]);
+  }, [item, subscriptionOf, t]);
   const href = (
     item.source === "douban" ? `/media/douban/${item.id}` : `/media/${item.type}/${item.id}`
   ) as Route;
@@ -234,6 +242,7 @@ const LibraryItemPlayCard = memo(function LibraryItemPlayCard({
 }: {
   spec: Extract<MediaCardSpec, { kind: "library_item" }>;
 }) {
+  const t = useTranslations();
   const state = useCardData(spec.key, async (): Promise<LibraryItemCardData> => {
     // 条目页信息只认 media_item_id（库归属服务端按可见性解析）；拿到库 id 后
     // 再并行取详情（剧照/规格）与观看状态。后两者失败不拖垮卡片——没有
@@ -256,7 +265,7 @@ const LibraryItemPlayCard = memo(function LibraryItemPlayCard({
         <CardPlaceholder className="aspect-video w-full" failed={state.status === "error"}>
           {state.status === "error" ? (
             <span className="text-caption text-[var(--text-faint)]">
-              未找到条目 #{spec.mediaItemId}
+              {t("agent.cards.itemMissing", { id: spec.mediaItemId })}
             </span>
           ) : null}
         </CardPlaceholder>
@@ -272,7 +281,8 @@ function episodeCode(season: number, episode: number): string {
 }
 
 /** 片源规格一行：去重的分辨率/HDR 标签 + 文件数与体积；探测不到时只剩文件数。 */
-function specLine(detail: LibraryItemDetail | null): string {
+function specLine(detail: LibraryItemDetail | null, locale: AppLocale = "zh-Hans"): string {
+  const t = appTranslator(locale);
   if (!detail) return "";
   const tags = new Set<string>();
   for (const file of detail.files) {
@@ -280,7 +290,7 @@ function specLine(detail: LibraryItemDetail | null): string {
     if (file.hdr) tags.add(file.hdr);
   }
   const parts = [...tags];
-  if (detail.file_count > 0) parts.push(`${detail.file_count} 个文件`);
+  if (detail.file_count > 0) parts.push(t("library.status.fileCount", { count: detail.file_count }));
   if (detail.total_size_bytes > 0) parts.push(formatBytes(detail.total_size_bytes));
   return parts.join(" · ");
 }
@@ -292,6 +302,8 @@ function LibraryItemPlayCardBody({
   data: LibraryItemCardData;
   spec: Extract<MediaCardSpec, { kind: "library_item" }>;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const { info, detail, watch } = data;
   const pathname = usePathname();
   const meta = KIND_META[info.kind];
@@ -310,16 +322,16 @@ function LibraryItemPlayCardBody({
   const playTapGuard = useTapGuard(() => rememberPlayerReturnPath(pathname));
   const backdrop = detail?.backdrop_url ?? null;
   const poster = detail?.poster_url ?? info.poster_url;
-  const context = [info.year ? String(info.year) : null, meta.label, unit ? episodeCode(unit.season, unit.episode) : null]
+  const context = [info.year ? String(info.year) : null, t(meta.labelKey), unit ? episodeCode(unit.season, unit.episode) : null]
     .filter(Boolean)
     .join(" · ");
-  const specs = specLine(detail);
+  const specs = specLine(detail, locale);
   const progress =
     watch && watch.position_ms > 0 && watch.duration_ms
       ? Math.min(100, Math.round((watch.position_ms / watch.duration_ms) * 100))
       : null;
   // 有续播点优先「继续播放」：看完后重看到一半的也接着播（与服务端起播同一口径）
-  const playVerb = watch && watch.position_ms > 0 ? "继续播放" : watch?.played ? "重新播放" : "播放";
+  const playVerb = watch && watch.position_ms > 0 ? t("agent.cards.resume") : watch?.played ? t("agent.cards.replay") : t("player.controls.play");
 
   return (
     // 两个入口叠在一起：整卡进条目页、中央播放键直接起播。播放键是卡片链接的
@@ -328,7 +340,7 @@ function LibraryItemPlayCardBody({
       <Link
         href={itemHref}
         scroll={false}
-        aria-label={`${info.title}${context ? `，${context}` : ""}`}
+        aria-label={context ? t("agent.cards.itemContext", { title: info.title, context }) : info.title}
         {...tapGuard}
         className="group/card block outline-none"
       >
@@ -339,7 +351,7 @@ function LibraryItemPlayCardBody({
               // 卡宽 248（手机 212）、16:9，悬停放大 1.03
               width={248}
               zoom={1.03}
-              alt={`${info.title} 剧照`}
+              alt={t("agent.cards.stillLabel", { title: info.title })}
               className="size-full transition duration-500 group-hover/play:scale-[1.03]"
               fallback={<PosterFill title={info.title} posterUrl={poster} />}
             />
@@ -349,7 +361,7 @@ function LibraryItemPlayCardBody({
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/75 to-transparent" />
           {watch?.played && (
             <span className="absolute right-2 top-2 rounded-full bg-[var(--ok)] px-2 py-0.5 text-micro font-semibold text-[#07120c]">
-              已看完
+              {t("agent.cards.played")}
             </span>
           )}
           {progress !== null && (
@@ -369,7 +381,7 @@ function LibraryItemPlayCardBody({
       <div className="pointer-events-none absolute inset-x-0 top-0 flex aspect-video items-center justify-center transition duration-300 group-hover/play:-translate-y-1">
         <Link
           href={play}
-          aria-label={`${playVerb}《${info.title}》${unit ? ` ${episodeCode(unit.season, unit.episode)}` : ""}`}
+          aria-label={t("agent.cards.playTitle", { verb: playVerb, title: info.title, unit: unit ? ` ${episodeCode(unit.season, unit.episode)}` : "" })}
           {...playTapGuard}
           className="pointer-events-auto flex size-11 items-center justify-center rounded-full border-[1.5px] border-white/75 text-white shadow-[0_1px_10px_rgba(0,0,0,0.45)] transition duration-200 hover:scale-[1.06] hover:border-white hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 group-hover/play:border-white max-md:size-10"
         >
@@ -382,6 +394,7 @@ function LibraryItemPlayCardBody({
 
 /** 没有横向剧照时：海报模糊铺底，中央完整保留一张清晰海报。 */
 function PosterFill({ title, posterUrl }: { title: string; posterUrl: string | null }) {
+  const t = useTranslations();
   if (!posterUrl) {
     return (
       <span className="flex size-full items-center justify-center px-5 text-center text-ui font-semibold text-white/25">
@@ -397,7 +410,7 @@ function PosterFill({ title, posterUrl }: { title: string; posterUrl: string | n
       <PosterImage
         src={src}
         width={96}
-        alt={`${title} 海报`}
+        alt={t("media.artwork.posterLabel", { title })}
         className="absolute inset-y-0 left-1/2 aspect-[2/3] h-full -translate-x-1/2 object-cover"
       />
     </div>
@@ -411,6 +424,7 @@ const SubscriptionPosterCard = memo(function SubscriptionPosterCard({
 }: {
   subscriptionId: number;
 }) {
+  const t = useTranslations();
   const state = useCardData(`subscription:${subscriptionId}`, () => getSubscription(subscriptionId));
   const box = "w-[152px] shrink-0 max-md:w-[126px]";
   if (state.status !== "ready") {
@@ -418,7 +432,7 @@ const SubscriptionPosterCard = memo(function SubscriptionPosterCard({
       <div className={box}>
         <CardPlaceholder className="aspect-[2/3] w-full" failed={state.status === "error"}>
           {state.status === "error" ? (
-            <span className="text-caption text-[var(--text-faint)]">未找到订阅 #{subscriptionId}</span>
+            <span className="text-caption text-[var(--text-faint)]">{t("agent.cards.subscriptionMissing", { id: subscriptionId })}</span>
           ) : null}
         </CardPlaceholder>
       </div>
@@ -433,7 +447,8 @@ const SubscriptionPosterCard = memo(function SubscriptionPosterCard({
 
 /** 订阅 → 海报卡视觉（与订阅墙 toVisualItem 同一口径：斜标讲状态、海报底部讲收录进度）。 */
 function SubscriptionPosterCardBody({ sub }: { sub: Subscription }) {
-  const ribbon = subscriptionRibbon(sub);
+  const locale = useLocale();
+  const ribbon = subscriptionRibbon(sub, locale);
   const visual: PosterVisualItem = {
     id: String(sub.media.tmdb_id),
     source: "tmdb",
@@ -447,7 +462,7 @@ function SubscriptionPosterCardBody({ sub }: { sub: Subscription }) {
     ribbon: ribbon?.label,
     ribbonTone: ribbon?.tone,
     ribbonVariant: "compact-left",
-    posterFooter: subscriptionCollectionMeta(sub),
+    posterFooter: subscriptionCollectionMeta(sub, locale),
   };
   // 点击进订阅详情（追踪明细 + 活动时间线）而非影片详情；已是订阅，不再给订阅键
   return (

@@ -53,7 +53,7 @@ struct WebhookSettingsView: View {
     private func content(_ config: API.WebhookConfigView) -> some View {
         Form {
             SettingsFormSection {
-                SettingsBIntro(text: "播放、收藏等事件发生后，MovieClaw 会向下面配置的地址推送 JSON（自有协议带 HMAC-SHA256 签名，头 X-MovieClaw-Signature），供 Home Assistant、观影记录等外部服务实时订阅。")
+                SettingsBIntro(text: String(localized: .settingsWebhookUiIntro))
                 if let error {
                     SettingsBNotice(text: error, tone: .danger)
                 }
@@ -61,18 +61,18 @@ struct WebhookSettingsView: View {
 
             if let revealed {
                 SettingsFormSection {
-                    Text("「\(revealed.name)」的签名密钥（仅显示这一次，请立即保存）")
+                    Text(String(localized: .settingsWebhookUiRevealedTitle(revealed.name)))
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(Theme.success)
                     Text(revealed.secret)
                         .font(.footnote.monospaced())
                         .textSelection(.enabled)
                         .accessibilityIdentifier("webhook-secret")
-                    Button("复制", systemImage: "doc.on.doc") {
+                    Button(String(localized: .commonCopy), systemImage: "doc.on.doc") {
                         UIPasteboard.general.string = revealed.secret
-                        feedback.success("已复制")
+                        feedback.success(String(localized: .commonCopied))
                     }
-                    Button("我已保存，关闭") { self.revealed = nil }
+                    Button(String(localized: .settingsDevicesManualSavedClose)) { self.revealed = nil }
                         .accessibilityIdentifier("webhook-secret-dismiss")
                 }
             }
@@ -80,8 +80,8 @@ struct WebhookSettingsView: View {
             SettingsFormSection {
                 Toggle(isOn: Binding(mcGet: { config.enabled }, set: { value in Task { await toggleGlobal(value) } })) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("启用事件推送")
-                        Text("关闭后所有 endpoint 都不再收到事件").font(.caption).foregroundStyle(Theme.textFaint)
+                        Text(String(localized: .settingsWebhookUiEnable))
+                        Text(String(localized: .settingsWebhookUiOffHint)).font(.caption).foregroundStyle(Theme.textFaint)
                     }
                 }
                 .disabled(busy)
@@ -92,8 +92,8 @@ struct WebhookSettingsView: View {
                 if config.endpoints.isEmpty {
                     VStack(spacing: 10) {
                         Image(systemName: "paperplane").font(.title2).foregroundStyle(Theme.accent)
-                        Text("还没有推送目标").font(.body.weight(.medium))
-                        Text("点击右上角「新增 Endpoint」，把播放事件推给你的自动化服务。")
+                        Text(String(localized: .settingsWebhookUiEmpty)).font(.body.weight(.medium))
+                        Text(String(localized: .settingsWebhookUiEmptyHint))
                             .font(.footnote).foregroundStyle(Theme.textMuted).multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
@@ -108,9 +108,9 @@ struct WebhookSettingsView: View {
                 }
             } header: {
                 HStack {
-                    Text(config.endpoints.isEmpty ? "还没有配置推送目标。" : "已配置 \(config.endpoints.count) 个推送目标。")
+                    Text(config.endpoints.isEmpty ? String(localized: .settingsWebhookUiNoTargets) : String(localized: .settingsWebhookUiTargets(config.endpoints.count)))
                     Spacer()
-                    Button("新增 Endpoint", systemImage: "plus") {
+                    Button(String(localized: .settingsWebhookUiAdd), systemImage: "plus") {
                         draft = SettingsBWebhookDraft.empty(config.catalog)
                     }
                     .font(.footnote.weight(.semibold))
@@ -135,7 +135,7 @@ struct WebhookSettingsView: View {
                     HStack(spacing: 8) {
                         Text(endpoint.name.isEmpty ? endpoint.url : endpoint.name)
                             .font(.body.weight(.semibold)).lineLimit(1)
-                        SettingsBBadge(text: endpoint.format == "movieclaw" ? "自有协议" : "Jellyfin 兼容")
+                        SettingsBBadge(text: endpoint.format == "movieclaw" ? String(localized: .settingsWebhookUiNativeFormat) : String(localized: .settingsWebhookUiJellyfinFormat))
                     }
                     HStack(spacing: 6) {
                         SettingsBDot(tone: status.tone, size: 6)
@@ -144,7 +144,7 @@ struct WebhookSettingsView: View {
                     }
                 }
                 Spacer(minLength: 4)
-                Toggle("启用 \(endpoint.name.isEmpty ? endpoint.url : endpoint.name)", isOn: Binding(
+                Toggle(String(localized: .settingsWebhookUiEnableEndpoint(endpoint.name.isEmpty ? endpoint.url : endpoint.name)), isOn: Binding(
                     get: { endpoint.enabled },
                     set: { value in Task { await toggleEndpoint(endpoint.id, value) } }
                 ))
@@ -153,12 +153,12 @@ struct WebhookSettingsView: View {
                 .accessibilityIdentifier("webhook-enabled-\(endpoint.name)")
             }
             HStack(spacing: 8) {
-                SettingsBAsyncButton("发送测试") { await test(endpoint) }
+                SettingsBAsyncButton(String(localized: .settingsWebhookUiSendTest)) { await test(endpoint) }
                     .disabled(busy)
                     .accessibilityIdentifier("webhook-test-\(endpoint.name)")
-                Button(expanded == endpoint.id ? "收起记录" : "记录") { Task { await toggleRecords(endpoint.id) } }
+                Button(expanded == endpoint.id ? String(localized: .settingsWebhookUiHideLog) : String(localized: .settingsWebhookUiLog)) { Task { await toggleRecords(endpoint.id) } }
                     .accessibilityIdentifier("webhook-records-\(endpoint.name)")
-                Button("编辑") { draft = SettingsBWebhookDraft(endpoint) }
+                Button(String(localized: .commonEdit)) { draft = SettingsBWebhookDraft(endpoint) }
                     .accessibilityIdentifier("webhook-edit-\(endpoint.name)")
             }
             .font(.footnote.weight(.medium))
@@ -168,17 +168,17 @@ struct WebhookSettingsView: View {
     }
 
     private func status(of endpoint: API.WebhookEndpointView) -> (label: String, tone: SettingsBTone) {
-        guard endpoint.enabled else { return ("已停用", .neutral) }
-        guard let last = endpoint.lastDelivery else { return ("未投递过", .neutral) }
+        guard endpoint.enabled else { return (String(localized: .settingsMembersUiDisabled), .neutral) }
+        guard let last = endpoint.lastDelivery else { return (String(localized: .settingsWebhookUiNeverDelivered), .neutral) }
         let when = Formatters.relative(last.at)
-        return last.ok ? ("投递成功 · \(when)", .ok) : ("投递失败 · \(when)", .danger)
+        return last.ok ? (String(localized: .settingsWebhookUiDeliveredAt(when)), .ok) : (String(localized: .settingsWebhookUiFailedAt(when)), .danger)
     }
 
     /// 最近投递记录（内存环形缓冲，重启清空）
     @ViewBuilder
     private var deliveries: some View {
         if records.isEmpty {
-            Text("还没有投递记录（重启后记录会清空）。").font(.caption).foregroundStyle(Theme.textFaint)
+            Text(String(localized: .settingsWebhookUiNoRecords)).font(.caption).foregroundStyle(Theme.textFaint)
         } else {
             ForEach(records, id: \.self) { r in
                 VStack(alignment: .leading, spacing: 3) {
@@ -188,7 +188,7 @@ struct WebhookSettingsView: View {
                         Spacer()
                         Text(Formatters.relative(r.at)).font(.caption).foregroundStyle(Theme.textFaint)
                     }
-                    Text("\(r.statusCode.map { "HTTP \($0)" } ?? "未送达") · \(r.durationMs)ms · 尝试 \(r.attempts) 次")
+                    Text(String(localized: .settingsWebhookUiDeliveryRow(r.statusCode.map { "HTTP \($0)" } ?? String(localized: .settingsWebhookUiNotDelivered), r.durationMs, r.attempts)))
                         .font(.caption).foregroundStyle(Theme.textMuted)
                     if !r.error.isEmpty {
                         Text(r.error).font(.caption).foregroundStyle(Theme.danger).lineLimit(2)
@@ -256,15 +256,15 @@ struct WebhookSettingsView: View {
 
     /// 编辑弹层提交；成功返回 nil，失败返回错误文案（弹层内展示）
     private func submit(_ draft: SettingsBWebhookDraft) async -> String? {
-        guard let config else { return "配置尚未加载" }
+        guard let config else { return String(localized: .settingsWebhookUiNotLoaded) }
         let url = draft.url.trimmingCharacters(in: .whitespaces)
-        if url.isEmpty { return "请填写目标地址" }
+        if url.isEmpty { return String(localized: .settingsWebhookUiUrlRequired) }
         var next = draft.payload
         next.url = url
         next.name = draft.name.trimmingCharacters(in: .whitespaces)
         let rest = currentPayloads.filter { $0.id != draft.id }
         guard let view = await save(enabled: config.enabled, endpoints: rest + [next]) else {
-            return error ?? "保存失败"
+            return error ?? String(localized: .settingsScheduledTasksUiSaveFailed)
         }
         error = nil
         // 响应里带明文 secret 的两种来路都要展示：新建 movieclaw endpoint，
@@ -297,9 +297,9 @@ struct WebhookSettingsView: View {
         do {
             let result = try await api.webhookTest(endpointId: endpoint.id)
             if result.ok {
-                feedback.success("测试事件已送达（HTTP \(result.statusCode.map(String.init) ?? "-")，\(result.durationMs)ms）")
+                feedback.success(String(localized: .settingsWebhookUiTestDelivered(result.statusCode.map(String.init) ?? "-", result.durationMs)))
             } else {
-                feedback.error(result.error.isEmpty ? "测试投递失败" : result.error)
+                feedback.error(result.error.isEmpty ? String(localized: .settingsWebhookUiTestFailed) : result.error)
             }
             await load()
         } catch {
@@ -435,37 +435,37 @@ private struct SettingsBWebhookEditor: View {
                     SettingsFormSection { SettingsBNotice(text: error, tone: .danger) }
                 }
                 SettingsFormSection {
-                    SettingsBTextField(label: "显示名", text: $draft.name, placeholder: "如 Home Assistant", identifier: "webhook-name")
-                    SettingsBTextField(label: "目标地址", text: $draft.url, placeholder: "http://192.168.1.10:8123/api/webhook/xxx",
+                    SettingsBTextField(label: String(localized: .settingsWebhookUiName), text: $draft.name, placeholder: String(localized: .settingsWebhookUiNamePlaceholder), identifier: "webhook-name")
+                    SettingsBTextField(label: String(localized: .settingsWebhookUiUrl), text: $draft.url, placeholder: "http://192.168.1.10:8123/api/webhook/xxx",
                                        mono: true, keyboard: .URL, identifier: "webhook-url")
-                    Toggle("启用", isOn: $draft.enabled)
+                    Toggle(String(localized: .settingsPluginDetailEnable), isOn: $draft.enabled)
                         .accessibilityIdentifier("webhook-draft-enabled")
                 }
 
                 SettingsFormSection {
-                    Picker("外发格式", selection: Binding(mcGet: { draft.format }, set: setFormat)) {
-                        Text("自有协议（HMAC 签名）").tag("movieclaw")
-                        Text("Jellyfin 兼容（模板渲染）").tag("jellyfin")
+                    Picker(String(localized: .settingsWebhookUiFormat), selection: Binding(mcGet: { draft.format }, set: setFormat)) {
+                        Text(String(localized: .settingsWebhookUiNativeTab)).tag("movieclaw")
+                        Text(String(localized: .settingsWebhookUiJellyfinTab)).tag("jellyfin")
                     }
                     .pickerStyle(.inline)
                     .labelsHidden()
                 } header: {
-                    Text("外发格式")
+                    Text(String(localized: .settingsWebhookUiFormat))
                 } footer: {
                     if draft.format == "jellyfin" {
-                        Text("与 Jellyfin Webhook 插件同一套模板变量：下游文档里「贴进 Jellyfin 插件」的模板可直接贴到下方，实现免适配接入。此格式不签名，鉴权用附加请求头。")
+                        Text(String(localized: .settingsWebhookUiJellyfinHint))
                     }
                 }
 
                 if draft.format == "jellyfin" {
-                    SettingsFormSection("Handlebars 模板（支持 {{Var}} 与 if_equals / if_exist / link_to / url_encode / json_encode）") {
+                    SettingsFormSection(String(localized: .settingsWebhookUiTemplateSection)) {
                         TextField("{\n  \"event\": \"{{NotificationType}}\",\n  \"title\": {{json_encode Name}}\n}", text: $draft.template, axis: .vertical)
                             .font(.footnote.monospaced())
                             .lineLimit(6...14)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                     }
-                    SettingsFormSection("附加请求头（每行一条，如 Authorization: Bearer xxx；可留空）") {
+                    SettingsFormSection(String(localized: .settingsWebhookUiHeadersLabel)) {
                         TextField("", text: $draft.headersText, axis: .vertical)
                             .font(.footnote.monospaced())
                             .lineLimit(2...6)
@@ -486,7 +486,7 @@ private struct SettingsBWebhookEditor: View {
                             )) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(entry.label)
-                                    Text(enabled ? entry.event : "\(entry.event) · 没有 Jellyfin 对应物，仅自有协议可订阅")
+                                    Text(enabled ? entry.event : String(localized: .settingsWebhookUiNativeOnly(entry.event)))
                                         .font(.caption.monospaced()).foregroundStyle(Theme.textFaint)
                                 }
                             }
@@ -496,7 +496,7 @@ private struct SettingsBWebhookEditor: View {
                         HStack {
                             Text(group.name)
                             Spacer()
-                            Button(allOn ? "全不选" : "全选") { toggleGroup(group.entries, !allOn) }
+                            Button(allOn ? String(localized: .settingsWebhookUiSelectNone) : String(localized: .commonSelectAll)) { toggleGroup(group.entries, !allOn) }
                                 .font(.footnote)
                                 .textCase(nil)
                                 .disabled(usable.isEmpty)
@@ -504,10 +504,10 @@ private struct SettingsBWebhookEditor: View {
                     }
                 }
 
-                SettingsFormSection("网络出口") {
-                    Picker("网络出口", selection: $draft.egressScope) {
-                        Text("内网直连（默认）").tag("lan")
-                        Text("跟随代理配置").tag("wan")
+                SettingsFormSection(String(localized: .settingsWebhookUiEgress)) {
+                    Picker(String(localized: .settingsWebhookUiEgress), selection: $draft.egressScope) {
+                        Text(String(localized: .settingsWebhookUiLan)).tag("lan")
+                        Text(String(localized: .settingsWebhookUiWan)).tag("wan")
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
@@ -515,47 +515,47 @@ private struct SettingsBWebhookEditor: View {
 
                 if !draft.isNew && draft.format == "movieclaw" {
                     SettingsFormSection {
-                        SettingsBValueRow(label: "签名密钥", value: secretMasked.isEmpty ? "（无）" : secretMasked, mono: true)
+                        SettingsBValueRow(label: String(localized: .settingsWebhookUiSecret), value: secretMasked.isEmpty ? String(localized: .settingsWebhookUiNone) : secretMasked, mono: true)
                         if let rotatedSecret {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("新的签名密钥（仅显示这一次，请立即保存）")
+                                Text(String(localized: .settingsWebhookUiNewSecret))
                                     .font(.footnote.weight(.medium)).foregroundStyle(Theme.success)
                                 Text(rotatedSecret).font(.footnote.monospaced()).textSelection(.enabled)
-                                Button("复制", systemImage: "doc.on.doc") {
+                                Button(String(localized: .commonCopy), systemImage: "doc.on.doc") {
                                     UIPasteboard.general.string = rotatedSecret
-                                    feedback.success("已复制")
+                                    feedback.success(String(localized: .commonCopied))
                                 }
                                 .buttonStyle(.borderless)
                             }
                         }
-                        SettingsBAsyncButton("轮换密钥") { await rotate() }
+                        SettingsBAsyncButton(String(localized: .settingsWebhookUiRotate)) { await rotate() }
                             .disabled(busy)
                     } footer: {
-                        Text("明文仅在创建时展示过一次，丢失只能轮换")
+                        Text(String(localized: .settingsWebhookUiSecretHint))
                     }
                 }
 
                 if !draft.isNew {
                     SettingsFormSection {
-                        Button("删除", role: .destructive) { Task { await delete() } }
+                        Button(String(localized: .commonDelete), role: .destructive) { Task { await delete() } }
                             .disabled(busy)
                             .accessibilityIdentifier("webhook-delete")
                     }
                 }
             }
             .scrollContentBackground(.hidden)
-            .navigationTitle(draft.isNew ? "新增 Endpoint" : "编辑 Endpoint")
+            .navigationTitle(draft.isNew ? String(localized: .settingsWebhookUiAdd) : String(localized: .settingsWebhookUiEdit))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消", systemImage: "xmark") { dismiss() }
+                    Button(String(localized: .commonCancel), systemImage: "xmark") { dismiss() }
                         .accessibilityIdentifier("sheet-close")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         Task { await save() }
                     } label: {
-                        if busy { ProgressView() } else { Text("保存") }
+                        if busy { ProgressView() } else { Text(String(localized: .commonSave)) }
                     }
                     .disabled(busy)
                     .accessibilityIdentifier("webhook-save")
@@ -602,7 +602,7 @@ private struct SettingsBWebhookEditor: View {
     }
 
     private func rotate() async {
-        guard await feedback.confirm("轮换签名密钥？", message: "旧密钥立刻作废，下游需要更新为新密钥后才能继续验签。", confirmTitle: "轮换", destructive: true) else { return }
+        guard await feedback.confirm(String(localized: .settingsWebhookUiRotateTitle), message: String(localized: .settingsWebhookUiRotateHint), confirmTitle: String(localized: .settingsWebhookUiRotateConfirm), destructive: true) else { return }
         do {
             rotatedSecret = try await onRotate(draft.id)
             error = nil
@@ -613,9 +613,9 @@ private struct SettingsBWebhookEditor: View {
 
     private func delete() async {
         let name = draft.name.isEmpty ? draft.url : draft.name
-        guard await feedback.confirm("删除「\(name)」？", message: "删除后该地址不再收到任何事件，签名密钥同时作废。", confirmTitle: "删除", destructive: true) else { return }
+        guard await feedback.confirm(String(localized: .settingsWebhookUiDeleteTitle(name)), message: String(localized: .settingsWebhookUiDeleteHint), confirmTitle: String(localized: .commonDelete), destructive: true) else { return }
         busy = true
         defer { busy = false }
-        if await onDelete(draft.id) { dismiss() } else { error = "删除失败，请稍后重试" }
+        if await onDelete(draft.id) { dismiss() } else { error = String(localized: .libraryItemDeleteFailedRetry) }
     }
 }

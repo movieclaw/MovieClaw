@@ -38,6 +38,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -94,6 +96,8 @@ data class SubDetailState(
     val activities: List<SubActivityView> = emptyList(),
     /** 在途种子的实时下载快照（按 info_hash 索引；5 秒轮询，无在途时为零请求） */
     val downloads: Map<String, io.movieclaw.android.core.model.SubscriptionDownloadView> = emptyMap(),
+    /** 「这次先下原版」之后追问看不看得懂这种语言（只问管理员） */
+    val askUnderstood: io.movieclaw.android.core.model.SmartSubtitleView? = null,
 )
 
 @HiltViewModel
@@ -264,23 +268,44 @@ class SubscriptionDetailViewModel @Inject constructor(
     }
 
     fun consumeNotice() { _notice.value = null }
-}
 
-private fun statusLabel(s: io.movieclaw.android.core.model.SubscriptionView): String {
-    val base = when (s.status) {
-        "paused" -> "已暂停"
-        "completed" -> if (s.media.kind == "tv") "已收齐" else "已入库"
-        else -> "追踪中"
+    /** 智能等待：立即下载某个候选（含「这次先下原版」）或延长等待；成功或冲突都重新读取 */
+    fun changeSmartWait(wanted: WantedView, candidateKey: String? = null, extendSeconds: Int? = null) {
+        val awaiting = wanted.selectionState?.text("reason")?.endsWith("awaiting_subtitles") == true
+        viewModelScope.launch {
+            val origin = origin ?: return@launch
+            _ui.update { it.copy(busy = true) }
+            runCatching {
+                apiFactory.forOrigin(origin).changeSmartWait(
+                    id, wanted.id,
+                    io.movieclaw.android.core.model.SmartWaitPayload(wanted.selectionVersion, extendSeconds, candidateKey),
+                ).dataOrThrow()
+            }
+                .onSuccess {
+                    val subtitle = _ui.value.sub?.smartSubtitle
+                    val admin = io.movieclaw.android.core.session.Permissions.of(repository.ui.value.session).isAdmin
+                    if (candidateKey != null && awaiting && admin && subtitle != null && !subtitle.understood) {
+                        _ui.update { it.copy(askUnderstood = subtitle) }
+                    }
+                }
+                .onFailure { e -> _notice.value = McNotice(friendlyMessage(e), FeedbackTone.Error) }
+            _ui.update { it.copy(busy = false) }
+            load()
+        }
     }
-    return if (s.progress.upgrading > 0) "$base · 洗版中（${s.progress.upgrading}）" else base
-}
 
-private fun statusDot(s: io.movieclaw.android.core.model.SubscriptionView): Color = when {
-    s.status == "paused" -> TextMuted
-    s.status == "completed" -> Ok
-    s.progress.upgrading > 0 -> Color(0xFF2DD4BF)
-    s.progress.grabbed > 0 -> Color(0xFF7FB0FF)
-    else -> Warn
+    fun dismissUnderstood() = _ui.update { it.copy(askUnderstood = null) }
+
+    /** 「看得懂」：把这种语言加进看得懂的语言，以后同语言作品直接下原版 */
+    fun markUnderstood() {
+        val subtitle = _ui.value.askUnderstood ?: return
+        _ui.update { it.copy(askUnderstood = null) }
+        act { api ->
+            val memory = api.smartMemory().dataOrThrow()
+            api.updateSmartMemory(io.movieclaw.android.core.model.SmartMemoryPatch(memory.revision, subtitle.language, true)).dataOrThrow()
+            "以后的${subtitle.languageLabel}作品都直接下原版"
+        }
+    }
 }
 
 @Composable
@@ -288,6 +313,11 @@ fun SubscriptionDetailScreen(
     onBack: () -> Unit,
     /** 「手动选种」：带订阅标题与类型进搜索页的收窄分类手动选种模式（搜索页把结果投给这条订阅） */
     onOpenSearch: (String, String?) -> Unit = { _, _ -> },
+    /**
+     * 进页面就跑一轮洗版（详情页 ⋯ 菜单的「洗版…」：iOS `.subscription(id:upgradeRun: true)`）。
+     * 订阅加载好之后跑一次，之后用户自己再点菜单里的洗版不受影响。
+     */
+    autoUpgradeRun: Boolean = false,
     vm: SubscriptionDetailViewModel = hiltViewModel(),
 ) {
     val state by vm.ui.collectAsStateWithLifecycle()
@@ -296,6 +326,10 @@ fun SubscriptionDetailScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var cancelOpen by remember { mutableStateOf(false) }
     val sub = state.sub
+
+    LaunchedEffect(autoUpgradeRun, sub?.id) {
+        if (autoUpgradeRun && sub != null) vm.upgradeRun()
+    }
 
     LaunchedEffect(vm) {
         vm.notice.collect { n ->
@@ -306,202 +340,56 @@ fun SubscriptionDetailScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Bg)) {
-        Column(Modifier.fillMaxSize()) {
-            Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                McNavButton(
-                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                    contentDescription = "返回",
-                    onClick = onBack,
+    @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+    val exposeTags = Modifier.semantics { testTagsAsResourceId = true }
+    Box(Modifier.fillMaxSize().background(Bg).then(exposeTags)) {
+        if (sub != null) {
+            // 调整类动作（立即搜索 / 手动选种）只给发起人与超管——后端按同一口径下发
+            // `can_manage`，只关注的成员只剩取消关注（member-permissions-v2 §3.7；授权仍以服务端校验为准）。
+            // 手动选种另需「订阅 + 资源搜索 + 一键下载」三项能力。
+            val permissions = io.movieclaw.android.core.session.LocalPermissions.current
+            val canTune = permissions.canSubscribe && sub.canManage
+            SubscriptionDetailContent(
+                sub = sub,
+                wanted = state.wanted,
+                activities = state.activities,
+                downloads = state.downloads,
+                origin = vm.origin,
+                busy = state.busy,
+                showSearchNow = canTune && sub.progress.wanted > 0 && sub.status != "paused",
+                showManual = permissions.canGrabForSubscription && canTune &&
+                    (sub.progress.wanted > 0 || state.wanted.any { it.upgrade != null }),
+                showMore = permissions.canSubscribe || permissions.canManageSubscriptions,
+                onBack = onBack,
+                onSearchNow = { vm.searchNow() },
+                onManual = { onOpenSearch(sub.media.title, sub.media.kind) },
+                onMore = { menuOpen = true },
+                smartActionable = canTune && sub.status == "active" && sub.smartStatus == "active",
+                onSmartDownload = { w, key -> vm.changeSmartWait(w, candidateKey = key) },
+                onSmartExtend = { w, seconds -> vm.changeSmartWait(w, extendSeconds = seconds) },
+            )
+            state.askUnderstood?.let { subtitle ->
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { vm.dismissUnderstood() },
+                    title = { Text("已开始下载原版。你看得懂${subtitle.languageLabel}吗？") },
+                    text = { Text("选「看得懂」，以后的${subtitle.languageLabel}作品都直接下原版。") },
+                    confirmButton = { TextButton(onClick = { vm.markUnderstood() }) { Text("看得懂", color = TextPrimary) } },
+                    dismissButton = { TextButton(onClick = { vm.dismissUnderstood() }) { Text("只这次", color = TextMuted) } },
                 )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    sub?.media?.title ?: "订阅详情",
-                    style = McType.headline, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                // 这里原来有个右上角「管理」图标——网页端没有这个位置的控制：
-                // 管理动作全在摘要卡底部那一行（立即搜索 / 手动选种 / 更多），"更多"点开是底部抽屉
-                if (state.busy) CircularProgressIndicator(color = TextMuted, modifier = Modifier.size(18.dp))
             }
-
-            when {
-                state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = TextMuted)
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    McNavButton(icon = Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", onClick = onBack)
                 }
-                state.error != null -> Column(Modifier.padding(24.dp)) {
-                    Text(state.error!!, color = TextMuted)
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = { vm.load() }) { Text("重试", color = TextPrimary) }
-                }
-                sub == null -> {}
-                else -> Column(
-                    Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(bottom = 32.dp),
-                ) {
-                    // ── 摘要卡 ──
-                    Column(Modifier.padding(horizontal = McMetrics.pagePadding)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                if (sub.media.kind == "tv") "剧集订阅" else "电影订阅",
-                                fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 3.sp,
-                                color = Color(0xFF9FB0C9),
-                            )
-                            Spacer(Modifier.weight(1f))
-                            Box(Modifier.size(6.dp).clip(CircleShape).background(statusDot(sub)))
-                            Spacer(Modifier.width(6.dp))
-                            Text(statusLabel(sub), fontSize = 15.sp, color = Color.White.copy(alpha = 0.65f))
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Row(verticalAlignment = Alignment.Top) {
-                            RemoteImage(
-                                url = sub.media.posterUrl, origin = vm.origin,
-                                contentDescription = sub.media.title,
-                                modifier = Modifier.width(80.dp).height(120.dp).clip(RoundedCornerShape(10.dp)),
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text(sub.media.title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                sub.media.year?.let { Text(it.toString(), fontSize = 13.sp, color = TextMuted, modifier = Modifier.padding(top = 2.dp)) }
-                                sub.createdAt?.let {
-                                    Text("订阅于 " + it.take(16).replace('T', ' '), fontSize = 13.sp, color = TextFaint, modifier = Modifier.padding(top = 6.dp))
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        FactRow("收录范围", if (sub.selectedSeasons.isEmpty()) "正片" else sub.selectedSeasons.sorted().joinToString("、") { "第 $it 季" })
-                        FactRow("自动续订", if (sub.followFuture) "已开启" else "已关闭")
-                        FactRow("规则组", "规则组 #${sub.ruleSetId}")
-                        Spacer(Modifier.height(14.dp))
-
-                        // ── 收录进度（四段 + 图例） ──
-                        val p = sub.progress
-                        val dl = (p.grabbed - p.downloaded).coerceAtLeast(0)
-                        val missing = (p.total - p.imported - p.upgrading - dl).coerceAtLeast(0)
-                        Text("收录进度", fontSize = 13.sp, color = TextMuted)
-                        Text("${p.imported} / ${p.total} 集", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary, modifier = Modifier.padding(top = 2.dp))
-                        Spacer(Modifier.height(6.dp))
-                        val segs = listOf(
-                            Success to p.imported,
-                            Color(0xFF2DD4BF) to p.upgrading,
-                            Color(0xFF60A5FA) to dl,
-                            Color.White.copy(alpha = 0.16f) to missing,
-                        )
-                        Row(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))) {
-                            segs.forEach { (c, n) -> if (n > 0) Box(Modifier.weight(n.toFloat()).fillMaxWidth().height(6.dp).background(c)) }
-                        }
+                when {
+                    state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = TextMuted)
+                    }
+                    state.error != null -> Column(Modifier.padding(24.dp)) {
+                        Text(state.error!!, color = TextMuted)
                         Spacer(Modifier.height(8.dp))
-                        Text("已入库 ${p.imported}    洗版中 ${p.upgrading}    下载中 $dl    缺失 $missing", fontSize = 12.sp, color = TextMuted)
-
-                        Spacer(Modifier.height(10.dp))
-                        // 最近一轮搜索：从排查记录里取最新一条搜索类活动（iOS SearchRoundBar 同语义）
-                        state.activities.firstOrNull { it.type.contains("search", true) }?.let { act ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF9FB0C9)))
-                                Spacer(Modifier.width(8.dp))
-                                Text(act.message, fontSize = 13.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                        Spacer(Modifier.height(14.dp))
-                        // 操作行：调整类动作（立即搜索 / 手动选种）只给发起人与超管——
-                        // 后端按同一口径下发 `can_manage`，只关注的成员只剩取消关注
-                        // （member-permissions-v2 §3.7；授权仍以服务端校验为准）。
-                        // 手动选种另需「订阅 + 资源搜索 + 一键下载」三项能力。
-                        val permissions = io.movieclaw.android.core.session.LocalPermissions.current
-                        val canTune = permissions.canSubscribe && sub.canManage
-                        val showSearchNow = canTune && p.wanted > 0 && sub.status != "paused"
-                        val showManual = permissions.canGrabForSubscription && canTune &&
-                            (p.wanted > 0 || state.wanted.any { it.upgrade != null })
-                        val showMore = permissions.canSubscribe || permissions.canManageSubscriptions
-                        if (showSearchNow || showManual || showMore) {
-                            Spacer(Modifier.height(14.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                if (showSearchNow) {
-                                    ActionButton("立即搜索", filled = true, modifier = Modifier.weight(1f)) { vm.searchNow() }
-                                }
-                                if (showManual) {
-                                    ActionButton("手动选种", modifier = Modifier.weight(1f)) {
-                                        onOpenSearch(sub.media.title, sub.media.kind)
-                                    }
-                                }
-                                if (showMore) {
-                                    ActionButton("更多", modifier = Modifier.weight(1f)) { menuOpen = true }
-                                }
-                            }
-                        }
-                    }
-
-                    // ── 追踪明细（按季） ──
-                    if (state.wanted.isNotEmpty()) {
-                        Text("追踪明细", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary, modifier = Modifier.padding(start = McMetrics.pagePadding, top = 26.dp, bottom = 4.dp))
-                        val bySeason = state.wanted.groupBy { it.seasonNumber }
-                        bySeason.forEach { (season, items) ->
-                            val imported = items.count { it.importedAt != null }
-                            val dlCount = items.count { it.grabbedAt != null && it.downloadedAt == null }
-                            val missingCount = items.count { it.status == "wanted" && it.grabbedAt == null }
-                            Row(Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                // 季 chip（iOS 追踪明细的 S1/S2 徽标）
-                                Text(
-                                    if (season == 0) "SP" else "S$season",
-                                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Color.White.copy(alpha = 0.08f))
-                                        .padding(horizontal = 7.dp, vertical = 3.dp),
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text("第 $season 季 · $imported / ${items.size} 集已入库", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                                    Spacer(Modifier.height(4.dp))
-                                    // 里程碑链：缺 N 集 — M 集下载中 — 洗版 K（iOS 同序）
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        val chain = listOfNotNull(
-                                            if (missingCount > 0) "缺 $missingCount 集" else null,
-                                            if (dlCount > 0) "$dlCount 集下载中" else null,
-                                            if (sub.progress.upgrading > 0) "洗版 ${sub.progress.upgrading}" else null,
-                                        )
-                                        if (chain.isEmpty()) {
-                                            Text("等待新集播出", fontSize = 12.sp, color = TextMuted)
-                                        } else chain.forEachIndexed { i, s ->
-                                            if (i > 0) {
-                                                Box(Modifier.padding(horizontal = 6.dp).width(14.dp).height(1.dp).background(Color.White.copy(alpha = 0.12f)))
-                                            }
-                                            Text(s, fontSize = 12.sp, color = TextMuted)
-                                        }
-                                    }
-                                    // 在途投递的实时进度（5 秒轮询）：按单元锚定的种子 hash 对上；
-                                    // 成员拿到的快照里种子名是空的，所以行首用单元号而不是任务名
-                                    items.mapNotNull { unit -> unit.infoHash?.let { hash -> state.downloads[hash]?.let { unit to it } } }
-                                        .forEach { (unit, d) ->
-                                            Spacer(Modifier.height(4.dp))
-                                            Text(
-                                                unitLabel(unit) + " · " + downloadNote(d),
-                                                fontSize = 12.sp,
-                                                color = Color(0xFF9FB0C9),
-                                                lineHeight = 17.sp,
-                                            )
-                                        }
-                                }
-                            }
-                        }
-                    }
-
-                    // ── 排查记录 ──
-                    if (state.activities.isNotEmpty()) {
-                        Text("排查记录", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary, modifier = Modifier.padding(start = McMetrics.pagePadding, top = 26.dp, bottom = 4.dp))
-                        Column(Modifier.padding(horizontal = McMetrics.pagePadding)) {
-                            state.activities.take(20).forEach { act ->
-                                Row(Modifier.padding(vertical = 6.dp)) {
-                                    Text("•", color = TextFaint, modifier = Modifier.padding(end = 8.dp))
-                                    Text(act.message, fontSize = 13.sp, color = TextMuted, lineHeight = 18.sp)
-                                }
-                            }
-                        }
+                        TextButton(onClick = { vm.load() }) { Text("重试", color = TextPrimary) }
                     }
                 }
             }
@@ -544,7 +432,8 @@ fun SubscriptionDetailScreen(
                         vm.loadRuleSets()
                         pickRule = true
                     },
-                    onTogglePause = { vm.setTracking(sub.status == "paused"); menuOpen = false },
+                    // 参数是**目标**状态：已暂停 → 恢复（以前传的是当前状态，暂停的订阅点「恢复追踪」又被暂停一次）
+                    onTogglePause = { vm.setTracking(paused = sub.status != "paused"); menuOpen = false },
                     onRemove = { menuOpen = false; cancelOpen = true },
                     onDismiss = { menuOpen = false },
                 )
@@ -574,16 +463,8 @@ fun SubscriptionDetailScreen(
     }
 }
 
-@Composable
-private fun FactRow(k: String, v: String) {
-    Row(Modifier.padding(vertical = 2.dp)) {
-        Text(k, fontSize = 13.sp, color = TextFaint, modifier = Modifier.width(76.dp))
-        Text(v, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
-    }
-}
-
 /** 「S1E2」/「S1」/「全片」（电影为 0/0）；SP 用两位补零口径同 iOS */
-private fun unitLabel(unit: WantedView): String {
+internal fun unitLabel(unit: WantedView): String {
     if (unit.seasonNumber == 0 && unit.episodeNumber == 0) return "全片"
     if (unit.episodeNumber == 0) return if (unit.seasonNumber == 0) "SP" else "S${unit.seasonNumber}"
     return "S${unit.seasonNumber}E${unit.episodeNumber}"
@@ -594,7 +475,7 @@ private fun unitLabel(unit: WantedView): String {
  * 成员拿到的快照里种子名、下载器名与报错原文由服务端置空：出错时没有原文就不叫成员
  * 「去下载器处理」（成员进不了下载器），改为提示由管理员处理（member-permissions-v2 §3.2）。
  */
-private fun downloadNote(d: io.movieclaw.android.core.model.SubscriptionDownloadView): String {
+internal fun downloadNote(d: io.movieclaw.android.core.model.SubscriptionDownloadView): String {
     if (d.state == "missing") return "种子已不在下载器中（可能被手动删除），稍后自动重新寻找资源"
     val pct = d.progress?.let { "${((it * 100).toInt()).coerceAtLeast(0)}%" } ?: ""
     return when (d.state) {
@@ -612,7 +493,8 @@ private fun downloadNote(d: io.movieclaw.android.core.model.SubscriptionDownload
         else -> {
             val parts = mutableListOf(pct)
             d.dlspeedBytes?.takeIf { it > 0 }?.let { parts += "${io.movieclaw.android.core.designsystem.McFormat.bytes(it)}/s" }
-            d.etaSeconds?.let { parts += "剩余约 ${etaText(it)}" }
+            // 剩余超过 3 天基本就是死种速度：写「速度很慢」，不报「剩余约 1769.4 小时」这种数
+            d.etaSeconds?.let { parts += if (it > 72 * 3600) "速度很慢" else "剩余约 ${etaText(it)}" }
             if (parts.size == 1) d.sizeBytes?.let { parts += io.movieclaw.android.core.designsystem.McFormat.bytes(it) }
             parts.filter { it.isNotEmpty() }.joinToString(" · ")
         }
@@ -627,24 +509,6 @@ private fun etaText(seconds: Long): String = when {
     else -> {
         val hours = seconds / 3600.0
         if (hours == hours.toLong().toDouble()) "${hours.toLong()} 小时" else "%.1f 小时".format(hours)
-    }
-}
-
-@Composable
-private fun ActionButton(label: String, modifier: Modifier = Modifier, filled: Boolean = false, onClick: () -> Unit) {
-    Box(
-        modifier
-            .height(38.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(
-                if (filled) Brush.linearGradient(listOf(Color(0xFFF6F8FC), Color(0xFFCCD6E6)))
-                else androidx.compose.ui.graphics.SolidColor(Color.White.copy(alpha = 0.14f))
-            )
-            .border(1.dp, if (filled) Color.Transparent else LineSoft, RoundedCornerShape(999.dp))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = if (filled) Color(0xFF141821) else Color.White)
     }
 }
 

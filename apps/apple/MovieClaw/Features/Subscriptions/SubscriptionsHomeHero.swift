@@ -28,6 +28,7 @@ struct SubsHomeHero: View {
     @Binding var index: Int
 
     @Environment(\.api) private var api
+    @Environment(\.cardMetrics) private var cards
     /// 指示器当前胶囊的填充进度 0...1
     @State private var fill: CGFloat = 0
     /// 左右安全区：轮播铺满整屏宽（横屏不让出灵动岛那侧），文字要自己躲开
@@ -40,17 +41,10 @@ struct SubsHomeHero: View {
     private var fade: Double { Double(max(0, min(1, 1 - scrollOffset / 260))) }
 
     var body: some View {
-        TabView(selection: $index) {
-            ForEach(Array(slides.enumerated()), id: \.element.id) { offset, slide in
-                SubsHomeHeroSlideView(slide: slide, active: offset == index, isFirst: offset == 0, isLast: offset == slides.count - 1,
-                                      scrollOffset: scrollOffset, fade: fade, sideInsets: sideInsets)
-                    .tag(offset)
-            }
-        }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        // 横屏时剧照也铺满整屏宽：不铺的话两侧安全区（灵动岛、圆角那一截）露出页面底色
-        .ignoresSafeArea(.container, edges: .horizontal)
-        .onGeometryChange(for: EdgeInsets.self, of: \.safeAreaInsets) { sideInsets = $0 }
+        pages
+        // 手机横屏剧照铺满整屏宽，iPad 宽窗口只占内容区（见 ImmersiveHeroBleed）
+        .modifier(ImmersiveHeroBleed(fullWidth: !cards.isWide))
+        .onGeometryChange(for: EdgeInsets.self, of: \.safeAreaInsets) { sideInsets = cards.isWide ? EdgeInsets() : $0 }
         // 向屏幕顶边之外多占一截给下拉拉伸用（分页 TabView 会裁掉页外内容，见 ImmersiveHeroBackdrop），布局高度仍是 height
         .frame(height: Self.height + ImmersiveHeroBackdrop.pullReserve)
         .padding(.top, -ImmersiveHeroBackdrop.pullReserve)
@@ -75,8 +69,30 @@ struct SubsHomeHero: View {
         .accessibilityIdentifier("subscriptions-hero")
     }
 
+    /// 手机：分页滑动；iPad 宽窗口：交叉淡入（见 ImmersiveHeroFadeCarousel）
+    @ViewBuilder
+    private var pages: some View {
+        if cards.isWide {
+            ImmersiveHeroFadeCarousel(count: slides.count, index: $index) { offset in
+                slideView(offset).id(slides[offset].id)
+            }
+        } else {
+            TabView(selection: $index) {
+                ForEach(Array(slides.enumerated()), id: \.element.id) { offset, _ in
+                    slideView(offset).tag(offset)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+        }
+    }
+
+    private func slideView(_ offset: Int) -> some View {
+        SubsHomeHeroSlideView(slide: slides[offset], active: offset == index, isFirst: offset == 0, isLast: offset == slides.count - 1,
+                              scrollOffset: scrollOffset, fade: fade, sideInsets: sideInsets)
+    }
+
     private var indicator: some View {
-        ImmersiveHeroIndicator(count: slides.count, index: $index, fill: fill) { "切换到《\(slides[$0].media.title)》" }
+        ImmersiveHeroIndicator(count: slides.count, index: $index, fill: fill) { String(localized: .subscriptionFeedSwitchTitle(slides[$0].media.title)) }
     }
 }
 
@@ -86,7 +102,7 @@ struct SubsHomeHeroSkeleton: View {
         DiscoverSkeletonBlock(cornerRadius: 0)
             .frame(height: SubsHomeHero.height)
             .stretchesOnPull()
-            .accessibilityLabel("订阅首页加载中")
+            .accessibilityLabel(String(localized: .subscriptionOverviewLoadingHome))
     }
 }
 
@@ -245,7 +261,7 @@ private struct SubsHomeHeroSlideView: View {
             Button {
                 router.play(play)
             } label: {
-                Label(slide.resumePercent == nil ? "播放" : "继续播放", systemImage: "play.fill")
+                Label(slide.resumePercent == nil ? String(localized: .libraryHeroPlay) : String(localized: .subscriptionFeedResume), systemImage: "play.fill")
                     .heroActionLabel()
             }
             // 尺寸统一见 HeroActionButton.swift；白底黑字同影片页的播放键
@@ -253,18 +269,18 @@ private struct SubsHomeHeroSlideView: View {
             .controlSize(.regular)
             .tint(.white)
             .foregroundStyle(.black)
-            .accessibilityLabel("播放《\(slide.media.title)》\(slide.detail.map { " \($0)" } ?? "")")
+            .accessibilityLabel(slide.detail.map { String(localized: .subscriptionFeedPlayTitleDetail(slide.media.title, $0)) } ?? String(localized: .subscriptionFeedPlayTitleOnly(slide.media.title)))
             .accessibilityIdentifier("hero-play")
         } else {
             Button {
                 router.push(.subscription(id: slide.subscriptionId))
             } label: {
-                Text("查看订阅")
+                Text(String(localized: .subscriptionFeedViewSubscription))
                     .heroActionLabel()
             }
             .buttonStyle(.glass)
             .controlSize(.regular)
-            .accessibilityLabel("查看《\(slide.media.title)》的订阅")
+            .accessibilityLabel(String(localized: .subscriptionFeedViewTitleSubscription(slide.media.title)))
             .accessibilityIdentifier("hero-detail")
         }
     }

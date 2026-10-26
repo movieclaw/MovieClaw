@@ -1,14 +1,14 @@
 package io.movieclaw.androidtv.core.session
 
-import io.movieclaw.androidtv.core.model.generated.DeviceClientInfo
-import io.movieclaw.androidtv.core.model.generated.DeviceLoginRequest
-import io.movieclaw.androidtv.core.model.generated.SessionView
-import io.movieclaw.androidtv.core.network.ApiException
-import io.movieclaw.androidtv.core.network.ClientIdentity
-import io.movieclaw.androidtv.core.network.OkHttpTransport
-import io.movieclaw.androidtv.core.network.ServerAddress
-import io.movieclaw.androidtv.core.network.UnreachableException
-import io.movieclaw.androidtv.core.network.generated.McApi
+import io.movieclaw.core.model.generated.DeviceClientInfo
+import io.movieclaw.core.model.generated.DeviceLoginRequest
+import io.movieclaw.core.model.generated.SessionView
+import io.movieclaw.core.network.ApiException
+import io.movieclaw.core.network.ClientIdentity
+import io.movieclaw.core.network.OkHttpTransport
+import io.movieclaw.core.network.ServerAddress
+import io.movieclaw.core.network.UnreachableException
+import io.movieclaw.core.network.generated.McApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

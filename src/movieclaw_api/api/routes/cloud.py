@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.cloud import (
     CloudDisconnectRequest,
     CloudPairingRequest,
@@ -79,7 +80,7 @@ async def renew_now() -> ApiResponse[CloudStatusView]:
 )
 async def disconnect(payload: CloudDisconnectRequest) -> ApiResponse[CloudStatusView]:
     await get_cloud_service().disconnect(force=payload.force)
-    return ok(await build_status(), message="已断开 MovieClaw Cloud")
+    return ok(await build_status(), message=t("settings.cloud.disconnected"))
 
 
 @router.put(

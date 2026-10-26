@@ -79,8 +79,8 @@ struct ActivityView: View {
                 } header: {
                     let canDismissAll = activity.standaloneAttentionJobs.contains { $0.status == "failed" }
                     ActivitySectionHeader(
-                        title: "需要处理", count: activity.attentionTotal, tint: Theme.danger,
-                        trailing: canDismissAll ? (taskActions.bulkDismissing ? "正在忽略…" : "全部忽略") : nil,
+                        title: String(localized: .activityJobStatusBlocked), count: activity.attentionTotal, tint: Theme.danger,
+                        trailing: canDismissAll ? (taskActions.bulkDismissing ? String(localized: .activityJobsDismissing) : String(localized: .activityTaskCenterDismissAll)) : nil,
                         trailingIdentifier: "dismiss-all-failed", chevron: false,
                         action: { taskActions.dismissAllFailed(api: api, feedback: feedback, store: tasks) }
                     )
@@ -93,9 +93,9 @@ struct ActivityView: View {
                         ActivityPlaybackSessionRow(session: session, store: media, actions: deviceActions)
                     }
                 } header: {
-                    ActivitySectionHeader(title: "正在播放", count: snapshot.sessions.count + snapshot.hiddenSessionCount, tint: Theme.success)
+                    ActivitySectionHeader(title: String(localized: .activityOverviewPlaying), count: snapshot.sessions.count + snapshot.hiddenSessionCount, tint: Theme.success)
                 } footer: {
-                    scopeFooter(hidden: snapshot.hiddenSessionCount, noun: "台设备在播放的内容")
+                    scopeFooter(hidden: snapshot.hiddenSessionCount) { String(localized: .activityOverviewHiddenSessions($0)) }
                 }
             }
 
@@ -105,9 +105,9 @@ struct ActivityView: View {
                         ActivityFileDownloadRow(download: download, store: media, actions: deviceActions)
                     }
                 } header: {
-                    ActivitySectionHeader(title: "正在下载", count: snapshot.downloads.count + snapshot.hiddenDownloadCount)
+                    ActivitySectionHeader(title: String(localized: .activityOverviewDownloading), count: snapshot.downloads.count + snapshot.hiddenDownloadCount)
                 } footer: {
-                    scopeFooter(hidden: snapshot.hiddenDownloadCount, noun: "条下载")
+                    scopeFooter(hidden: snapshot.hiddenDownloadCount) { String(localized: .activityOverviewHiddenDownloads($0)) }
                 }
             }
 
@@ -123,8 +123,8 @@ struct ActivityView: View {
                     }
                 } header: {
                     ActivitySectionHeader(
-                        title: "进行中", count: activity.activeTotal > 0 ? activity.activeTotal : nil,
-                        trailing: activity.activeTotal > 0 ? "查看全部" : nil, trailingIdentifier: "activity-active-all",
+                        title: String(localized: .activityJobStatusRunning), count: activity.activeTotal > 0 ? activity.activeTotal : nil,
+                        trailing: activity.activeTotal > 0 ? String(localized: .activityOverviewSeeAll) : nil, trailingIdentifier: "activity-active-all",
                         action: { router.push(.activityPage(.active)) }
                     )
                 }
@@ -141,7 +141,7 @@ struct ActivityView: View {
                     }
                 } header: {
                     ActivitySectionHeader(
-                        title: "最近播放", trailing: "查看全部", trailingIdentifier: "activity-plays-all",
+                        title: String(localized: .activityNavPlays), trailing: String(localized: .activityOverviewSeeAll), trailingIdentifier: "activity-plays-all",
                         action: { router.push(.activityPage(.plays)) }
                     )
                 }
@@ -152,7 +152,7 @@ struct ActivityView: View {
                     NavigationLink(value: AppRoute.activityPage(.stats)) { ActivityWeeklyWatchCard(stats: weekly) }
                 } header: {
                     ActivitySectionHeader(
-                        title: "观看统计", trailing: "查看全部", trailingIdentifier: "activity-stats-all",
+                        title: String(localized: .activityNavStats), trailing: String(localized: .activityOverviewSeeAll), trailingIdentifier: "activity-stats-all",
                         action: { router.push(.activityPage(.stats)) }
                     )
                 }
@@ -165,13 +165,14 @@ struct ActivityView: View {
                     }
                 } header: {
                     ActivitySectionHeader(
-                        title: "最近完成", trailing: "查看全部 \(activity.historyTotal) 个", trailingIdentifier: "activity-finished-all",
+                        title: String(localized: .activityOverviewRecentFinished), trailing: String(localized: .activityOverviewSeeAllCount(activity.historyTotal)), trailingIdentifier: "activity-finished-all",
                         action: { router.push(.activityPage(.finished)) }
                     )
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .padReadableWidth(880)
         .headerProminence(.increased)
         .scrollContentBackground(.hidden)
         .refreshable {
@@ -181,7 +182,7 @@ struct ActivityView: View {
             await media.refreshExtras()
             await loadBoostPool()
         }
-        .navigationTitle("活动")
+        .navigationTitle(String(localized: .activityNavTitle))
         .toolbarTitleDisplayMode(.inlineLarge)
         .appBackground()
         .taskDeleteSheet(taskActions, store: tasks)
@@ -201,29 +202,29 @@ struct ActivityView: View {
 
     /// 「2 项需要处理 · 1 台设备在播放 · 5 个任务进行中」；什么都没有时「一切正常 · 现在没有人在看」
     private func summary(activity: TaskCenter.Activity, snapshot: API.MediaActivityView) -> Text {
-        if !badges.tasks.jobsLoaded, badges.media.loading { return Text("正在读取…") }
+        if !badges.tasks.jobsLoaded, badges.media.loading { return Text(String(localized: .activityOverviewLoading)) }
         let watching = snapshot.sessions.count + snapshot.hiddenSessionCount
         let downloading = snapshot.downloads.count + snapshot.hiddenDownloadCount
         var parts: [Text] = []
         if activity.attentionTotal > 0 {
-            parts.append(Text("\(activity.attentionTotal) 项需要处理").foregroundColor(Theme.danger).fontWeight(.semibold))
+            parts.append(Text(String(localized: .activityNavTaskAttentionCount(activity.attentionTotal))).foregroundColor(Theme.danger).fontWeight(.semibold))
         }
-        if watching > 0 { parts.append(Text("\(watching) 台设备在播放")) }
-        if downloading > 0 { parts.append(Text("\(downloading) 台设备在下载")) }
-        if activity.activeTotal > 0 { parts.append(Text("\(activity.activeTotal) 个任务进行中")) }
-        if parts.isEmpty { return Text("一切正常 · 现在没有人在看") }
-        if watching == 0 { parts.append(Text("现在没有人在看")) }
+        if watching > 0 { parts.append(Text(String(localized: .activityOverviewWatchingCount(watching)))) }
+        if downloading > 0 { parts.append(Text(String(localized: .activityOverviewDownloadingCount(downloading)))) }
+        if activity.activeTotal > 0 { parts.append(Text(String(localized: .activityOverviewActiveCount(activity.activeTotal)))) }
+        if parts.isEmpty { return Text("\(String(localized: .activityOverviewHealthy)) · \(String(localized: .activityOverviewNoOneWatching))") }
+        if watching == 0 { parts.append(Text(String(localized: .activityOverviewNoOneWatching))) }
         return parts.dropFirst().reduce(parts[0]) { $0 + Text(" · ") + $1 }
     }
 
     /// 浏览范围脚注：有被隐藏的内容才出现，就地切到「全部」；已是「全部」时给回退出口
     @ViewBuilder
-    private func scopeFooter(hidden: Int, noun: String) -> some View {
+    private func scopeFooter(hidden: Int, text: (Int) -> String) -> some View {
         let media = badges.media
         if hidden > 0 || media.scope == "all" {
             HStack(spacing: 4) {
-                Text(hidden > 0 ? "另有 \(hidden) \(noun)不在你的浏览范围内" : "已包含对你隐藏的库")
-                Button(hidden > 0 ? "显示全部" : "只看我的范围") {
+                Text(hidden > 0 ? text(hidden) : String(localized: .activityOverviewScopeIncludesHidden))
+                Button(hidden > 0 ? String(localized: .activityOverviewShowAll) : String(localized: .activityOverviewScopeMineAction)) {
                     media.setScope(hidden > 0 ? "all" : "visible")
                 }
                 .fontWeight(.semibold)
@@ -253,7 +254,7 @@ struct ActivityView: View {
             }
             .swipeActions(allowsFullSwipe: false) {
                 if group.tasks.count == 1, let task = group.tasks.first, task.downloaderId != nil {
-                    Button("删除", systemImage: "trash") { taskActions.pendingDelete = task }.tint(.red)
+                    Button(String(localized: .commonDelete), systemImage: "trash") { taskActions.pendingDelete = task }.tint(.red)
                 }
             }
         case let .job(job):
@@ -262,7 +263,7 @@ struct ActivityView: View {
             }
             .swipeActions(allowsFullSwipe: false) {
                 if job.status != "cancelling" {
-                    Button("取消任务", systemImage: "xmark") { taskActions.cancel(job, api: api, feedback: feedback, store: tasks) }
+                    Button(String(localized: .activityJobsCancelAction), systemImage: "xmark") { taskActions.cancel(job, api: api, feedback: feedback, store: tasks) }
                         .tint(.orange)
                         .disabled(taskActions.cancellingJobId != nil)
                 }
@@ -277,12 +278,12 @@ struct ActivityView: View {
         }
         .swipeActions(allowsFullSwipe: false) {
             if job.status == "failed", TaskCenter.isDismissed(job) {
-                Button("撤销忽略", systemImage: "arrow.uturn.backward") {
+                Button(String(localized: .activityJobsRestoreAction), systemImage: "arrow.uturn.backward") {
                     taskActions.undismiss(job, api: api, feedback: feedback, store: store)
                 }
                 .tint(.blue)
             } else if job.status == "cancelled", !TaskCenter.isSystemCancelled(job) {
-                Button("重新执行", systemImage: "arrow.clockwise") {
+                Button(String(localized: .activityJobsRetryAction), systemImage: "arrow.clockwise") {
                     taskActions.retry(job, api: api, feedback: feedback, store: store)
                 }
                 .tint(.blue)

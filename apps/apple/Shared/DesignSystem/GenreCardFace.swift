@@ -4,33 +4,33 @@ import SwiftUI
 /// TMDB 类型墙标题，与网页 genre-labels.ts 同表。
 enum GenreLabels {
     static let names: [Int: String] = [
-        28: "动作",
-        12: "冒险",
-        16: "动画",
-        35: "喜剧",
-        80: "犯罪",
-        99: "纪录",
-        18: "剧情",
-        10751: "家庭",
-        14: "奇幻",
-        36: "历史",
-        27: "恐怖",
-        10402: "音乐",
-        9648: "悬疑",
-        10749: "爱情",
-        878: "科幻",
-        10770: "电视电影",
-        53: "惊悚",
-        10752: "战争",
-        37: "西部",
-        10759: "动作冒险",
-        10762: "儿童",
-        10763: "新闻",
-        10764: "真人秀",
-        10765: "科幻奇幻",
-        10766: "肥皂剧",
-        10767: "脱口秀",
-        10768: "战争政治",
+        28: String(localized: .mediaGenresAction),
+        12: String(localized: .mediaGenresAdventure),
+        16: String(localized: .mediaGenresAnimation),
+        35: String(localized: .mediaGenresComedy),
+        80: String(localized: .mediaGenresCrime),
+        99: String(localized: .mediaGenresDocumentary),
+        18: String(localized: .mediaGenresDrama),
+        10751: String(localized: .mediaGenresFamily),
+        14: String(localized: .mediaGenresFantasy),
+        36: String(localized: .mediaGenresHistory),
+        27: String(localized: .mediaGenresHorror),
+        10402: String(localized: .mediaGenresMusic),
+        9648: String(localized: .mediaGenresMystery),
+        10749: String(localized: .mediaGenresRomance),
+        878: String(localized: .mediaGenresScienceFiction),
+        10770: String(localized: .mediaGenresTvMovie),
+        53: String(localized: .mediaGenresThriller),
+        10752: String(localized: .mediaGenresWar),
+        37: String(localized: .mediaGenresWestern),
+        10759: String(localized: .mediaGenresActionAdventure),
+        10762: String(localized: .mediaGenresKids),
+        10763: String(localized: .mediaGenresNews),
+        10764: String(localized: .mediaGenresReality),
+        10765: String(localized: .mediaGenresScienceFictionFantasy),
+        10766: String(localized: .mediaGenresSoap),
+        10767: String(localized: .mediaGenresTalk),
+        10768: String(localized: .mediaGenresWarPolitics),
     ]
 }
 
@@ -68,7 +68,7 @@ struct GenreCardFace: View {
     private var countBottom: CGFloat { 17 * scale }
     #endif
 
-    private var countLabel: String { "\(count) 部\(mediaKind == "tv" ? "剧集" : "电影")" }
+    private var countLabel: String { mediaKind == "tv" ? String(localized: .libraryHomeSeriesCount(count)) : String(localized: .libraryHomeMovieCount(count)) }
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -133,7 +133,7 @@ struct GenreCardFace: View {
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("浏览\(label)，\(countLabel)")
+        .accessibilityLabel(String(localized: .libraryGenreTileBrowse(label, countLabel)))
     }
 
     /// smoothstep 缓动的黑色渐变：从 0 处的 maxOpacity 平滑落到 span 处的全透明

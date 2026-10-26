@@ -185,8 +185,8 @@ extension SubscriptionsHomeFeed {
         }
         for card in recent.prefix(2) {
             urls.append(api.image(card.stillUrl ?? card.media.backdropUrl ?? card.media.posterUrl,
-                                  width: ImageWidth.points(PhoneCardWidth.recent)))
-            urls.append(api.image(card.media.logoUrl, width: ImageWidth.points(PhoneCardWidth.recentLogo)))
+                                  width: ImageWidth.points(CardMetrics.current.recent)))
+            urls.append(api.image(card.media.logoUrl, width: ImageWidth.points(CardMetrics.current.recentLogo)))
         }
         return urls.compactMap { $0 }
     }

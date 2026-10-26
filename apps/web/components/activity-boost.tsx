@@ -1,5 +1,10 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import { requestLocale, type AppLocale } from "@/lib/i18n/negotiate";
+import { formatList } from "@/lib/i18n/format";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { Route } from "next";
@@ -108,6 +113,9 @@ export function useBoostCleanup({
   onPool: (pool: BoostPool) => void;
   onChanged: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const confirm = useConfirm();
   const toast = useToast();
   const [cleaning, setCleaning] = useState(false);
@@ -129,22 +137,23 @@ export function useBoostCleanup({
     const enabledNames = latest.sites.filter((site) => site.boost_enabled).map((site) => site.site_name);
     const until = formatCleanupDeadline(
       latest.sites.map((site) => site.protected_until).filter(Boolean).sort().at(-1),
+      locale,
     );
     const bullets = [
-      `从下载器删除 ${count} 个刷流种子及其数据文件（${formatBytes(sum((site) => site.size_bytes))}），无法恢复`,
+      t("activity.boost.cleanupDeleteHint", { count, size: formatBytes(sum((site) => site.size_bytes)) }),
       ...(enabledNames.length > 0
-        ? [`${enabledNames.join("、")} 还开着刷流，会一并关闭（否则引擎几分钟内又会拉新种）`]
+        ? [t("activity.boost.cleanupDisableHint", { names: formatList(enabledNames, locale) })]
         : []),
       ...(protectedCount > 0
         ? [
-            `其中 ${protectedCount} 个（${formatBytes(sum((site) => site.protected_bytes))}）还没做满站点要求的做种时长，现在删可能被记 H&R，默认到期后自动删除${until ? `（最晚 ${until}）` : ""}`,
+            t("activity.boost.cleanupProtectedHint", { count: protectedCount, size: formatBytes(sum((site) => site.protected_bytes)), hasDate: until ? "yes" : "no", until: until ?? "" }),
           ]
         : []),
     ];
     const options = {
-      title: `清理 ${count} 个刷流种子？`,
+      title: t("activity.boost.cleanupTitle", { count }),
       bullets,
-      confirmLabel: enabledNames.length > 0 ? "关闭刷流并清理" : "清理",
+      confirmLabel: enabledNames.length > 0 ? t("activity.boost.disableAndClean") : t("activity.boost.clean"),
       tone: "danger" as const,
     };
     let force = false;
@@ -152,8 +161,8 @@ export function useBoostCleanup({
       const result = await confirm({
         ...options,
         checkbox: {
-          label: `保留期内的 ${protectedCount} 个也立即删除`,
-          description: "可能被站点记 H&R（影响账号），只在确定不在乎时勾选。",
+          label: t("activity.boost.forceLabel", { count: protectedCount }),
+          description: t("activity.boost.forceHint"),
           defaultChecked: false,
         },
       });
@@ -165,7 +174,7 @@ export function useBoostCleanup({
     setCleaning(true);
     try {
       const result = await cleanupBoostPool({ force });
-      toast.success(boostCleanupSummary(result));
+      toast.success(boostCleanupSummary(result, locale));
       onChanged();
       onPool(await getBoostPool());
     } catch (e) {
@@ -173,16 +182,17 @@ export function useBoostCleanup({
     } finally {
       setCleaning(false);
     }
-  }, [cleaning, confirm, onChanged, onPool, toast]);
+  }, [cleaning, confirm, onChanged, onPool, toast, t, locale]);
 
   return { cleaning, cleanup };
 }
 
 /** 刷流单行的清理备注：已请求清理的种子标出何时自动删除 */
-export function boostCleanupNote(state: BoostPoolTask | undefined): string | null {
+export function boostCleanupNote(state: BoostPoolTask | undefined, locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
+  const t = appTranslator(locale);
   if (!state?.cleanup_scheduled) return null;
-  const until = formatCleanupDeadline(state.protected_until);
-  return until ? `已请求清理 · ${until} 保留期满后自动删除` : "已请求清理 · 下一轮巡检删除";
+  const until = formatCleanupDeadline(state.protected_until, locale);
+  return until ? t("activity.boost.pendingDeadline", { until }) : t("activity.boost.pendingPatrol");
 }
 
 const MODE_TONE: Record<BoostMode, string> = {
@@ -196,7 +206,9 @@ const MODE_TONE: Record<BoostMode, string> = {
  * boostSummary），点进「刷流做种」二级页看逐站点、逐种子明细。
  */
 export function BoostSummaryRow({ tasks, pool }: { tasks: DownloadTask[]; pool: BoostPool | null }) {
-  const summary = boostSummary(tasks, pool);
+  const locale = useLocale();
+
+  const summary = boostSummary(tasks, pool, locale);
   return (
     <GroupLinkRow href={"/activity?view=boost" as Route}>
       <span className={`grid w-6 shrink-0 place-items-center ${MODE_TONE[summary.mode]}`}>
@@ -224,13 +236,16 @@ const BOOST_PAGE_SIZE = 20;
  * → 逐种子一行；「清理」挂在右上角（种子动辄上百个，放列表底部要滑到头才找得到）。
  */
 export function ActivityBoostPage() {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const { boostTasks: tasks } = useTaskActivity();
   const { refresh } = useDownloadTasks();
   const { pool, setPool } = useBoostPool(tasks);
   const { cleaning, cleanup } = useBoostCleanup({ onPool: setPool, onChanged: refresh });
   const [visibleCount, setVisibleCount] = useState(BOOST_PAGE_SIZE);
   const totals = boostTotals(tasks);
-  const sites = useMemo(() => boostSites(tasks, pool), [tasks, pool]);
+  const sites = useMemo(() => boostSites(tasks, pool, locale), [tasks, pool, locale]);
   const sorted = useMemo(() => sortBoostTasks(tasks), [tasks]);
 
   // 清理入口挂到顶栏右上角（同 Safari 历史记录的「清除」），没有种子时不出现
@@ -243,13 +258,13 @@ export function ActivityBoostPage() {
           type="button"
           onClick={() => void cleanup()}
           disabled={cleaning}
-          aria-label="清理刷流种子"
+          aria-label={t("activity.boost.cleanupButton")}
           className="shrink-0 rounded-full px-3 py-1.5 text-ui font-semibold text-[var(--danger)] transition active:opacity-60 disabled:opacity-50"
         >
-          {cleaning ? "正在清理…" : "清理"}
+          {cleaning ? t("activity.boost.cleaning") : t("activity.boost.clean")}
         </button>
       ) : null,
-    [cleaning, cleanup, hasTasks],
+    [cleaning, cleanup, hasTasks, t],
   );
   useEffect(() => {
     if (!setTopBarActions || !cleanupButton) return;
@@ -258,31 +273,31 @@ export function ActivityBoostPage() {
 
   if (!hasTasks) {
     return (
-      <p className="py-16 text-center text-ui text-[var(--text-muted)]">现在没有刷流种子在做种</p>
+      <p className="py-16 text-center text-ui text-[var(--text-muted)]">{t("activity.boost.empty")}</p>
     );
   }
 
   return (
     <div>
-      <ActivityGroup title={`${totals.count} 个种子`}>
+      <ActivityGroup title={t("activity.boost.torrentCount", { count: totals.count })}>
         <div className="tnum grid grid-cols-2 gap-x-4 gap-y-1.5 px-3.5 py-3 text-sub text-[var(--text-muted)]">
           <SpeedStat direction="up" bytesPerSecond={totals.upSpeed} placeholder="↑ 0 B/s" />
           <SpeedStat direction="down" bytesPerSecond={totals.downSpeed} placeholder="↓ 0 B/s" />
           <span>
-            已上传 <span className="font-semibold text-[var(--ok)]">{formatBytes(totals.uploaded)}</span>
+            {t.rich("activity.boost.uploadedMetric", { size: formatBytes(totals.uploaded), amount: (value) => <span className="font-semibold text-[var(--ok)]">{value}</span> })}
           </span>
           <span>
-            已下载 <span className="font-semibold text-[var(--info)]">{formatBytes(totals.downloaded)}</span>
+            {t.rich("activity.boost.downloadedMetric", { size: formatBytes(totals.downloaded), amount: (value) => <span className="font-semibold text-[var(--info)]">{value}</span> })}
           </span>
         </div>
       </ActivityGroup>
 
       {sites.sites.length > 0 && (
         <ActivityGroup
-          title="按站点"
+          title={t("activity.boost.bySite")}
           footer={
             sites.count("off") > 0
-              ? "关闭刷流不会删除已有种子：它们会继续满速做种，引擎也不再自动汰换。可点右上角「清理」删除。"
+              ? t("activity.boost.offPageHint")
               : null
           }
         >
@@ -295,16 +310,16 @@ export function ActivityBoostPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-ui font-semibold text-[var(--text)]">{site.name}</p>
                   <p className="tnum mt-0.5 text-sub text-[var(--text-muted)]">
-                    {site.tasks.length} 个种子 · {formatBytes(size)} · ↑ {formatBytes(upSpeed)}/s
+                    {t("activity.boost.siteTotals", { count: site.tasks.length, size: formatBytes(size), speed: formatBytes(upSpeed) })}
                   </p>
                   {scheduled > 0 && (
                     <p className="mt-0.5 text-sub text-[var(--warn)]">
-                      {scheduled} 个已请求清理，保留期满后自动删除
+                      {t("activity.boost.siteScheduled", { count: scheduled })}
                     </p>
                   )}
                 </div>
                 <span className={`shrink-0 text-sub font-medium ${MODE_TONE[site.mode]}`}>
-                  {site.mode === "running" ? "刷流中" : site.mode === "paused" ? "已暂停" : "已关闭"}
+                  {site.mode === "running" ? t("activity.boost.running") : site.mode === "paused" ? t("activity.boost.sitePaused") : t("activity.boost.siteOff")}
                 </span>
               </div>
             );
@@ -312,12 +327,12 @@ export function ActivityBoostPage() {
         </ActivityGroup>
       )}
 
-      <ActivityGroup title="按上行速度排序">
+      <ActivityGroup title={t("activity.boost.bySpeed")}>
         {sorted.slice(0, visibleCount).map((task) => (
           <BoostTaskRow
             key={task.id}
             task={task}
-            cleanupNote={boostCleanupNote(sites.taskStates.get(task.info_hash.toLowerCase()))}
+            cleanupNote={boostCleanupNote(sites.taskStates.get(task.info_hash.toLowerCase()), locale)}
           />
         ))}
         {sorted.length > visibleCount && (
@@ -326,7 +341,7 @@ export function ActivityBoostPage() {
             onClick={() => setVisibleCount((count) => count + BOOST_PAGE_SIZE)}
             className="w-full px-3.5 py-3 text-center text-ui font-medium text-[var(--info)] transition active:opacity-60"
           >
-            再显示 {Math.min(BOOST_PAGE_SIZE, sorted.length - visibleCount)} 个（共 {sorted.length} 个）
+            {t("activity.boost.showMore", { count: Math.min(BOOST_PAGE_SIZE, sorted.length - visibleCount), total: sorted.length })}
           </button>
         )}
       </ActivityGroup>
@@ -341,13 +356,15 @@ export function ActivityBoostPage() {
  * 下载中的少数种子再补一条进度条。整行可点，打开站点种子详情页。
  */
 function BoostTaskRow({ task, cleanupNote }: { task: DownloadTask; cleanupNote: string | null }) {
+  const t = useTranslations();
+
   const downloading = task.state === "downloading";
   const percent = task.progress == null ? null : Math.floor(task.progress * 100);
   const upSpeed = task.upspeed_bytes ?? 0;
   const meta = [
     task.site_name,
     task.size_bytes != null ? formatBytes(task.size_bytes) : null,
-    (task.uploaded_bytes ?? 0) > 0 ? `已上传 ${formatBytes(task.uploaded_bytes ?? 0)}` : null,
+    (task.uploaded_bytes ?? 0) > 0 ? t("activity.boost.uploadedSize", { size: formatBytes(task.uploaded_bytes ?? 0) }) : null,
   ].filter(Boolean);
   const content = (
     <>
@@ -382,7 +399,7 @@ function BoostTaskRow({ task, cleanupNote }: { task: DownloadTask; cleanupNote: 
       href={task.page_url}
       target="_blank"
       rel="noreferrer"
-      title="打开站点种子详情页"
+      title={t("activity.boost.openTorrent")}
       className="block px-3.5 py-2.5 transition active:opacity-70"
     >
       {content}

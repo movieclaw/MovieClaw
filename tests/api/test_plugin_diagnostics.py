@@ -12,6 +12,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.settings.store import reset_setting_store
+from movieclaw_db.crypto import reset_secret_box
 
 
 @pytest.fixture
@@ -21,8 +23,14 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("SITE_CONFIGS_DIR", str(tmp_path / "site-configs"))
     monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    # 配置存储是进程级单例：不换新会沿用同进程前面测试的配置（如 Webhook 地址），
+    # 诊断里平白多出消费者
+    reset_setting_store()
+    reset_secret_box()
     yield tmp_path
     get_settings.cache_clear()
+    reset_setting_store()
+    reset_secret_box()
 
 
 def make_admin_client() -> tuple[object, TestClient]:
@@ -35,7 +43,7 @@ def make_admin_client() -> tuple[object, TestClient]:
     admin = Principal(kind="admin", name="tester")
     app.dependency_overrides[require_admin] = lambda: admin
     app.dependency_overrides[require_login] = lambda: admin
-    return app, TestClient(app)
+    return app, TestClient(app, headers={"Accept-Language": "zh-Hans"})
 
 
 def test_plugins_endpoint_lists_every_entry_and_contract(env) -> None:
@@ -47,9 +55,12 @@ def test_plugins_endpoint_lists_every_entry_and_contract(env) -> None:
         assert by_id["core.database"]["state"] == "active"
         assert by_id["core.database"]["critical"] is True
         assert by_id["core.database"]["apply_ms"] > 0
-        # 每个内置插件都归进了「设置 → 插件 → 内置」的某个分组（新增内置插件别忘了归组）
+        # 系统模块都有分组；官方主题等插件在官方区展示，不要求进入系统模块清单。
         assert body["groups"][0] == "基础"
-        ungrouped = [p["id"] for p in body["plugins"] if p["group"] not in body["groups"]]
+        ungrouped = [
+            p["id"] for p in body["plugins"]
+            if p["tier"] == "system" and p["group"] not in body["groups"]
+        ]
         assert ungrouped == []
         assert by_id["core.database"]["group"] == "基础"
         assert by_id["boost.sentinel"]["group"] == "资源站点与下载"
@@ -121,14 +132,14 @@ def test_failed_plugin_raises_a_notice_and_recovery_resolves_it(env, monkeypatch
 
 
 def test_patch_file_disables_only_disableable_plugins(env, monkeypatch, caplog) -> None:
-    from movieclaw_jellyfin import udp
+    from movieclaw_api.services import lan_discovery
 
     started: list[int] = []
 
     async def fake_start(port: int) -> None:
         started.append(port)
 
-    monkeypatch.setattr(udp, "start_discovery", fake_start)
+    monkeypatch.setattr(lan_discovery, "start_discovery", fake_start)
     (env / "plugins.yaml").write_text(
         "- id: jellyfin.discovery\n"
         "  disabled: true\n"

@@ -12,32 +12,39 @@
  */
 
 import { useEffect, useState } from "react";
+import { useLocale } from "next-intl";
+import type { AppLocale } from "./i18n/negotiate";
 
 import { listLlmModels, type LlmModelOption } from "@/lib/api/llm";
 
 // 档位顺序与文案的事实源在 thinking-level-control.ts（纯逻辑、可单测）；
 // 这里转出口，设置页等既有引用不用改路径
-export { THINKING_LEVEL_LABELS, THINKING_LEVEL_ORDER } from "@/lib/thinking-level-control";
+export { THINKING_LEVEL_ORDER } from "@/lib/thinking-level-control";
 
 /** 会话页与首页共享同一份模型清单，模块级缓存避免每次挂载都请求。 */
-let cachedOptions: Promise<LlmModelOption[]> | null = null;
+const cachedOptions = new Map<AppLocale, Promise<LlmModelOption[]>>();
 
 /** 对话框可选的模型清单；加载中/未配置/出错一律 []（隐藏选择器）。 */
 export function useLlmModelOptions(): LlmModelOption[] {
+  const locale = useLocale();
   const [options, setOptions] = useState<LlmModelOption[]>([]);
   useEffect(() => {
     let cancelled = false;
-    cachedOptions ??= listLlmModels().catch(() => {
-      cachedOptions = null; // 失败不缓存，下次挂载重试
-      return [];
-    });
-    void cachedOptions.then((list) => {
+    let pending = cachedOptions.get(locale);
+    if (!pending) {
+      pending = listLlmModels().catch(() => {
+        cachedOptions.delete(locale);
+        return [];
+      });
+      cachedOptions.set(locale, pending);
+    }
+    void pending.then((list) => {
       if (!cancelled) setOptions(list);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [locale]);
   return options;
 }
 
@@ -55,5 +62,5 @@ export function resolveModelOption(
 
 /** 设置页增删改实例后调用：清单与默认模型可能已变，作废缓存。 */
 export function invalidateModelOptionsCache(): void {
-  cachedOptions = null;
+  cachedOptions.clear();
 }

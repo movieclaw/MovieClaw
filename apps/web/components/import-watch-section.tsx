@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppMessageKey } from "@/lib/i18n/translate";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -70,6 +73,8 @@ function collectDownloaderDirs(downloaders: ConfiguredDownloader[]): DownloaderD
  * 在这里独立配置，不需要的用户永远不会看到这个概念。
  */
 export function ImportWatchSection() {
+  const t = useTranslations();
+  const locale = useLocale();
   const confirm = useConfirm();
   const [rules, setRules] = useState<ImportWatchRule[] | null>(null);
   const [libraries, setLibraries] = useState<MediaLibrary[]>([]);
@@ -95,7 +100,7 @@ export function ImportWatchSection() {
 
   useEffect(() => {
     reload();
-  }, [reload]);
+  }, [reload, locale]);
 
   // 体检修复卡跳转（?suggest=auto&kinds=movie,tv）：自动打开新建规则弹窗并
   // 预选「自动路由」目标；多个类型排成队列，保存一条后接着预填下一条
@@ -117,9 +122,9 @@ export function ImportWatchSection() {
   const remove = async (rule: ImportWatchRule) => {
     if (
       !(await confirm({
-        title: `删除对 ${rule.source_path} 的监听？`,
-        description: "源目录与已导入的文件都不受影响，只是停止监听。",
-        confirmLabel: "删除",
+        title: t("settings.importWatch.removeTitle", { path: rule.source_path }),
+        description: t("settings.importWatch.removeHint"),
+        confirmLabel: t("settings.importWatch.delete"),
         tone: "danger",
       }))
     ) {
@@ -134,18 +139,15 @@ export function ImportWatchSection() {
   return (
     <div className="space-y-10">
       <FeatureOffNotice feature="ingest-watch">
-        停用期间不会监听下载目录，下载完成的文件不会自动整理入库。
+        {t("settings.importWatch.disabledHint")}
       </FeatureOffNotice>
       <p className="px-1 text-ui leading-6 text-[var(--text-muted)]">
-        监听下载目录，其中<strong className="font-medium text-white/80">下载完成</strong>
-        的内容（下载器确认完成，或文件持续静默且探测通过）自动识别、按「标题 (年份)」规范命名
-        搬进目标媒体库或你指定的自定义目录。源文件原地保留：硬链接零占用、可继续做种；复制适合跨盘。
-        把下载器的保存目录设为这里的源目录，即可实现「下载完成自动整理入库」。
+        {t.rich("settings.importWatch.intro", { strong: (chunks) => <strong className="font-medium text-white/80">{chunks}</strong> })}
       </p>
 
       <SettingsSection
-        title="自动入库规则"
-        description={rules && rules.length > 0 ? `${rules.length} 条规则` : undefined}
+        title={t("settings.importWatch.rules")}
+        description={rules && rules.length > 0 ? t("settings.importWatch.ruleCount", { count: rules.length }) : undefined}
         action={
           rules !== null &&
           !failed && (
@@ -155,7 +157,7 @@ export function ImportWatchSection() {
               className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`}
             >
               <PlusIcon className="size-4" />
-              添加规则
+              {t("settings.importWatch.addRule")}
             </button>
           )
         }
@@ -165,9 +167,9 @@ export function ImportWatchSection() {
 
           {failed && (
             <div className="flex items-center gap-3">
-              <p className="text-ui text-[var(--text-muted)]">自动入库配置加载失败</p>
+              <p className="text-ui text-[var(--text-muted)]">{t("settings.importWatch.loadFailed")}</p>
               <button type="button" onClick={reload} className={SETTINGS_BUTTON_CLASS}>
-                重试
+                {t("settings.importWatch.retry")}
               </button>
             </div>
           )}
@@ -177,8 +179,8 @@ export function ImportWatchSection() {
             (rules.length === 0 ? (
               <SettingsEmpty
                 icon={<FolderIcon className="size-5" />}
-                title="还没有自动入库规则"
-                description="不需要「下载区 → 库」自动搬运的话，这里保持为空即可。"
+                title={t("settings.importWatch.empty")}
+                description={t("settings.importWatch.emptyHint")}
               />
             ) : (
               <div className="css-glass divide-y divide-[var(--line)] !rounded-xl">
@@ -226,11 +228,11 @@ export function ImportWatchSection() {
    摘要行是分档结论的承载面：待处理不是错误、不进全局告警，用户在这里
    看到数字、点开清单认领或忽略。 —— */
 
-const ENTRY_TABS: { status: IngestEntryStatus; label: string; tone: string }[] = [
-  { status: "pending", label: "待处理", tone: "text-[var(--warn)]" },
-  { status: "failed", label: "失败", tone: "text-red-300" },
-  { status: "imported", label: "已入库", tone: "text-[var(--text-muted)]" },
-  { status: "ignored", label: "已忽略", tone: "text-[var(--text-muted)]" },
+const ENTRY_TABS: { status: IngestEntryStatus; label: AppMessageKey; tone: string }[] = [
+  { status: "pending", label: "settings.importWatch.pending", tone: "text-[var(--warn)]" },
+  { status: "failed", label: "settings.importWatch.failed", tone: "text-red-300" },
+  { status: "imported", label: "settings.importWatch.imported", tone: "text-[var(--text-muted)]" },
+  { status: "ignored", label: "settings.importWatch.ignoredStatus", tone: "text-[var(--text-muted)]" },
 ];
 
 function RuleCard({
@@ -247,6 +249,7 @@ function RuleCard({
   /** 条目动作会改变计数（认领入库/忽略等），让父级刷新规则列表的 stats */
   onStatsChanged: () => void;
 }) {
+  const t = useTranslations();
   const [openTab, setOpenTab] = useState<IngestEntryStatus | null>(null);
   // 条目是电影还是剧集：指定库看库类型，auto/自定义目录看规则声明
   const kind =
@@ -254,7 +257,7 @@ function RuleCard({
       ? (libraries.find((l) => l.id === rule.library_id)?.kind ?? "movie")
       : (rule.kind ?? "movie");
   const stats = rule.stats ?? {};
-  const total = ENTRY_TABS.reduce((sum, t) => sum + (stats[t.status] ?? 0), 0);
+  const total = ENTRY_TABS.reduce((sum, entryTab) => sum + (stats[entryTab.status] ?? 0), 0);
 
   return (
     <div className="px-4 py-3">
@@ -265,15 +268,15 @@ function RuleCard({
             {rule.source_path}
           </p>
           <p className="mt-0.5 text-caption text-[var(--text-muted)]">
-            {rule.strategy === "hardlink" ? "硬链接" : "复制"} → {rule.target_label}
-            {!rule.process_existing && "（跳过存量）"}
+            {rule.strategy === "hardlink" ? t("settings.importWatch.hardlink") : t("settings.importWatch.copy")} → {rule.target_label}
+            {!rule.process_existing && t("settings.importWatch.skipExistingBadge")}
           </p>
         </div>
         <SettingsMoreMenu
-          label={`${rule.source_path} 的操作`}
+          label={t("settings.importWatch.moreActions", { path: rule.source_path })}
           items={[
-            { label: "编辑", onSelect: onEdit },
-            { label: "删除", onSelect: onRemove, danger: true },
+            { label: t("settings.importWatch.edit"), onSelect: onEdit },
+            { label: t("settings.importWatch.delete"), onSelect: onRemove, danger: true },
           ]}
         />
       </div>
@@ -281,25 +284,25 @@ function RuleCard({
       {/* 台账摘要：非零状态成为可点开的过滤标签 */}
       {total > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-[var(--line)] pt-2">
-          {ENTRY_TABS.filter((t) => (stats[t.status] ?? 0) > 0).map((t) => (
+          {ENTRY_TABS.filter((entryTab) => (stats[entryTab.status] ?? 0) > 0).map((entryTab) => (
             <button
-              key={t.status}
+              key={entryTab.status}
               type="button"
-              onClick={() => setOpenTab((v) => (v === t.status ? null : t.status))}
-              data-active={openTab === t.status}
+              onClick={() => setOpenTab((v) => (v === entryTab.status ? null : entryTab.status))}
+              data-active={openTab === entryTab.status}
               className="glass-row nav-item !w-auto px-2.5 py-1 text-caption font-medium"
             >
-              <span className={t.tone}>
-                {t.status === "imported" && rule.imported_works > 0
+              <span className={entryTab.tone}>
+                {entryTab.status === "imported" && rule.imported_works > 0
                   ? // 「已入库」报作品数：同剧多季/多版本是一个作品，用户认知里
                     // "入库了几部剧"就是这个数；条目数与作品数不同说明有重复
                     // 版本/多季，补注条目与文件数说清实际规模
-                    `${t.label} ${rule.imported_works} 部`
-                    : `${t.label} ${stats[t.status]}`}
-                {t.status === "imported" &&
+                    t("settings.importWatch.importedWorks", { count: rule.imported_works })
+                    : t("settings.importWatch.statusCount", { status: t(entryTab.label), count: stats[entryTab.status] })}
+                {entryTab.status === "imported" &&
                   rule.imported_files > 0 &&
                   stats.imported > rule.imported_works &&
-                  `（${stats.imported} 个条目 · ${rule.imported_files} 个文件）`}
+                  t("settings.importWatch.importedDetail", { entries: stats.imported, files: rule.imported_files })}
               </span>
             </button>
           ))}
@@ -329,6 +332,8 @@ function RuleEntriesPanel({
   movie: boolean;
   onStatsChanged: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [data, setData] = useState<IngestEntriesData | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -340,24 +345,23 @@ function RuleEntriesPanel({
   }, [rule.id, status]);
   useEffect(() => {
     reload();
-  }, [reload]);
+  }, [reload, locale]);
 
   if (failed) {
-    return <p className="mt-2 text-caption text-[var(--text-muted)]">清单加载失败，请重试。</p>;
+    return <p className="mt-2 text-caption text-[var(--text-muted)]">{t("settings.importWatch.entriesFailed")}</p>;
   }
   if (data === null) {
-    return <p className="mt-2 text-caption text-[var(--text-faint)]">加载中…</p>;
+    return <p className="mt-2 text-caption text-[var(--text-faint)]">{t("settings.importWatch.loading")}</p>;
   }
   if (data.entries.length === 0) {
-    return <p className="mt-2 text-caption text-[var(--text-faint)]">该状态下暂无条目。</p>;
+    return <p className="mt-2 text-caption text-[var(--text-faint)]">{t("settings.importWatch.noEntries")}</p>;
   }
   return (
     <div className="mt-2 space-y-1.5">
       {status === "pending" && (
         <p className="text-caption leading-relaxed text-[var(--text-faint)]">
-          这些条目无法自动识别，不会重复尝试也不会报错：搜索认领后立即整理入库；
-          确认不需要整理的（花絮、自录、其他工具管理的内容）可忽略。
-        </p>
+          {t("settings.importWatch.pendingHint")}
+      </p>
       )}
       {data.entries.map((entry) => (
         <EntryRow
@@ -383,6 +387,7 @@ function EntryRow({
   movie: boolean;
   onChanged: () => void;
 }) {
+  const t = useTranslations();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // file：电影合集里正在认领的那个视频；普通条目整条认领时为 undefined
@@ -427,7 +432,7 @@ function EntryRow({
               searchOpen ? "bg-white/[0.14] text-white" : "btn-glass"
             }`}
           >
-            认领
+            {t("settings.importWatch.claim")}
           </button>
         )}
         {/* 待处理清单是逐条过的队列：认领与忽略都是高频动作，两个都常驻 */}
@@ -438,7 +443,7 @@ function EntryRow({
             onClick={() => act(() => ignoreIngestEntry(entry.id))}
             className="btn-glass shrink-0 px-2.5 py-1 text-sub font-medium disabled:opacity-40"
           >
-            忽略
+            {t("settings.importWatch.ignore")}
           </button>
         )}
         {entry.status === "ignored" && (
@@ -448,7 +453,7 @@ function EntryRow({
             onClick={() => act(() => restoreIngestEntry(entry.id))}
             className="btn-glass shrink-0 px-2.5 py-1 text-sub font-medium disabled:opacity-40"
           >
-            恢复处理
+            {t("settings.importWatch.restore")}
           </button>
         )}
       </div>
@@ -477,7 +482,7 @@ function EntryRow({
                     open ? "bg-white/[0.14] text-white" : "btn-glass"
                   }`}
                 >
-                  认领
+                  {t("settings.importWatch.claim")}
                 </button>
               </li>
             );
@@ -530,6 +535,7 @@ function RuleFormDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations();
   const rule = state === "new" ? null : state;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -601,11 +607,11 @@ function RuleFormDialog({
 
   return (
     <>
-      <Modal open onClose={onClose} label={rule ? "编辑自动入库规则" : "添加自动入库规则"}>
+      <Modal open onClose={onClose} label={rule ? t("settings.importWatch.editTitle") : t("settings.importWatch.addTitle")}>
         {/* 头部常驻 */}
         <div className="border-b border-white/[0.07] px-6 pb-4 pt-6">
           <h2 className="text-title font-bold text-white">
-            {rule ? "编辑自动入库规则" : "添加自动入库规则"}
+            {rule ? t("settings.importWatch.editTitle") : t("settings.importWatch.addTitle")}
           </h2>
         </div>
 
@@ -615,7 +621,7 @@ function RuleFormDialog({
           )}
 
           <div>
-            <label className={labelClass}>源目录（监听这里的下载）</label>
+            <label className={labelClass}>{t("settings.importWatch.sourceFolder")}</label>
             <button
               type="button"
               onClick={() => setPickerFor("source")}
@@ -627,7 +633,7 @@ function RuleFormDialog({
                   {"‎" + sourcePath + "‎"}
                 </span>
               ) : (
-                <span className="text-ui text-[var(--text-faint)]">浏览服务器目录并选择…</span>
+                <span className="text-ui text-[var(--text-faint)]">{t("settings.importWatch.browseSource")}</span>
               )}
             </button>
             {/* 下载器目录快捷候选：源目录大概率就是下载器目录，点选直填；
@@ -635,7 +641,7 @@ function RuleFormDialog({
             {downloaderDirs.length > 0 && (
               <div className="mt-2">
                 <p className="mb-1.5 text-caption text-[var(--text-faint)]">
-                  从下载器目录快速选择（选后可再浏览细化到子目录）：
+                  {t("settings.importWatch.downloaderFolders")}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {downloaderDirs.map((option) => (
@@ -644,7 +650,7 @@ function RuleFormDialog({
                       type="button"
                       onClick={() => setSourcePath(option.path)}
                       data-active={sourcePath === option.path}
-                      title={`${option.path}（来自下载器「${option.downloaderName}」）`}
+                      title={t("settings.importWatch.downloaderFolderTitle", { path: option.path, name: option.downloaderName })}
                       className="glass-row nav-item !w-auto max-w-full gap-1.5 px-2.5 py-1.5 text-sub font-medium"
                     >
                       <FolderIcon className="size-3.5 shrink-0 text-[var(--accent)]/80" />
@@ -657,20 +663,17 @@ function RuleFormDialog({
               </div>
             )}
             <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
-              不能与任何媒体库的根路径重叠（库根下的内容由库自己扫描管理）。
-              订阅和手动下载会把种子投到这个目录（movieclaw 视角）；若下载器在另一个
-              容器/主机上、看到的路径不同，请先到「设置 → 下载器」配置路径映射，
-              否则会下载到错误位置。
-            </p>
+              {t("settings.importWatch.sourceHint")}
+      </p>
           </div>
 
           <div>
-            <label className={labelClass}>搬运策略</label>
+            <label className={labelClass}>{t("settings.importWatch.strategy")}</label>
             <div className="flex gap-2">
               {(
                 [
-                  ["hardlink", "硬链接", "零占用、源文件继续做种；需与目标库主根同一文件系统"],
-                  ["copy", "复制", "跨盘可用；耗时且占双份空间"],
+                  ["hardlink", t("settings.importWatch.hardlink"), t("settings.importWatch.hardlinkHint")],
+                  ["copy", t("settings.importWatch.copy"), t("settings.importWatch.copyHint")],
                 ] as const
               ).map(([value, label, hint]) => (
                 <button
@@ -687,13 +690,13 @@ function RuleFormDialog({
             </div>
             <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
               {strategy === "hardlink"
-                ? "保存时会检测源目录与整理落点（库主根或自定义目录）是否同一文件系统，跨盘会提示改用复制。"
-                : "复制适合源目录与落点不在同一块盘的部署。"}
+                ? t("settings.importWatch.hardlinkCheckHint")
+                : t("settings.importWatch.copyCheckHint")}
             </p>
           </div>
 
           <div>
-            <label className={labelClass}>导入目标</label>
+            <label className={labelClass}>{t("settings.importWatch.destination")}</label>
             <div className="flex flex-wrap gap-2">
               {libraries.map((lib) => (
                 <button
@@ -709,9 +712,9 @@ function RuleFormDialog({
               ))}
               {(
                 [
-                  ["movie", "自动路由（电影）", "识别出作品后，按各库的收藏范围自动选库；未命中进该类型的默认库"],
-                  ["tv", "自动路由（剧集）", "识别出作品后，按各库的收藏范围自动选库；未命中进该类型的默认库"],
-                  ["video", "落入其他库", "不识别不改名，原样搬进默认的「其他」库；放什么由你定"],
+                  ["movie", t("settings.importWatch.autoMovie"), t("settings.importWatch.autoHint")],
+                  ["tv", t("settings.importWatch.autoTv"), t("settings.importWatch.autoHint")],
+                  ["video", t("settings.importWatch.otherLibrary"), t("settings.importWatch.otherLibraryHint")],
                 ] as const
               ).map(([k, label, hint]) => (
                 <button
@@ -734,13 +737,13 @@ function RuleFormDialog({
                 }
                 data-active={target?.type === "path"}
                 className="glass-row nav-item !w-auto px-3 py-1.5 text-sub font-medium"
-                title="整理后放入指定目录、不进入任何媒体库（电影/剧集识别改名，其他原样搬运）——适合整理结果还需外部流转（如上传、转存）再进库的场景"
+                title={t("settings.importWatch.customFolderHint")}
               >
-                自定义目录…
+                {t("settings.importWatch.customFolder")}
               </button>
               {libraries.length === 0 && (
                 <p className="text-sub text-[var(--text-faint)]">
-                  还没有媒体库，请先在「媒体库」页创建。
+                  {t("settings.importWatch.noLibraries")}
                 </p>
               )}
             </div>
@@ -757,15 +760,15 @@ function RuleFormDialog({
                       {"‎" + target.path + "‎"}
                     </span>
                   ) : (
-                    <span className="text-ui text-[var(--text-faint)]">选择整理结果的存放目录…</span>
+                    <span className="text-ui text-[var(--text-faint)]">{t("settings.importWatch.browseDestination")}</span>
                   )}
                 </button>
                 <div className="flex gap-2">
                   {(
                     [
-                      ["movie", "电影", "识别链需要先知道内容是电影还是剧集（命名与季集解析不同）"],
-                      ["tv", "剧集", "识别链需要先知道内容是电影还是剧集（命名与季集解析不同）"],
-                      ["video", "其他", "不识别不改名，原样搬进该目录；放什么由你定"],
+                      ["movie", t("settings.importWatch.movie"), t("settings.importWatch.kindHint")],
+                      ["tv", t("settings.importWatch.tv"), t("settings.importWatch.kindHint")],
+                      ["video", t("settings.importWatch.other"), t("settings.importWatch.otherKindHint")],
                     ] as const
                   ).map(([k, label, hint]) => (
                     <button
@@ -784,22 +787,22 @@ function RuleFormDialog({
             )}
             <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
               {target?.type === "auto"
-                ? "自动路由：识别出作品后按各媒体库的「收藏范围」分流（如动画进动漫库），未命中进该类型的默认库；订阅投递的内容始终进订阅指定的库。每个类型至多一条自动路由规则。"
+                ? t("settings.importWatch.autoDestinationHint")
                 : target?.type === "path"
                   ? target.kind === "video"
-                    ? "自定义目录（其他）：不识别不改名，条目原样搬进该目录，不进入任何媒体库。文件后续出现在某个「其他」库的根目录时会被自动扫描入账。目录不得与库根或监听源重叠，每个类型至多一条。"
-                    : "自定义目录：下载整理（识别改名）后的文件放入该目录，不进入任何媒体库。适合整理结果还需外部流转（如上传网盘、转存、人工确认）再进入媒体库的场景——文件后续出现在某个库的根目录时会被自动扫描入账。目录不得与库根或监听源重叠，每个类型至多一条。"
-                  : "指定库：这个目录里的内容固定导入所选库（落其主根）。"}
+                    ? t("settings.importWatch.customOtherHint")
+                    : t("settings.importWatch.customDestinationHint")
+                  : t("settings.importWatch.fixedDestinationHint")}
             </p>
           </div>
 
           <div>
-            <label className={labelClass}>存量内容</label>
+            <label className={labelClass}>{t("settings.importWatch.existingFiles")}</label>
             <div className="flex gap-2">
               {(
                 [
-                  [true, "整理存量", "目录里已有的内容也识别整理入库"],
-                  [false, "跳过存量", "只处理规则生效后新出现的下载"],
+                  [true, t("settings.importWatch.processExisting"), t("settings.importWatch.processExistingHint")],
+                  [false, t("settings.importWatch.skipExisting"), t("settings.importWatch.skipExistingHint")],
                 ] as const
               ).map(([value, label, hint]) => (
                 <button
@@ -816,8 +819,8 @@ function RuleFormDialog({
             </div>
             <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
               {processExisting
-                ? "目录里已有的内容也会被识别并整理入库；认不出的进入「待处理」清单，可逐个认领或忽略。"
-                : "规则生效时目录里已有的条目会被标记为「已忽略」（不整理、不报错），之后只处理新增的下载；忽略的条目随时可在清单中恢复处理。适合目录里有其他工具管理的存量内容的场景。"}
+                ? t("settings.importWatch.existingProcessingHint")
+                : t("settings.importWatch.existingSkippingHint")}
             </p>
           </div>
         </div>
@@ -825,7 +828,7 @@ function RuleFormDialog({
         {/* 底栏常驻：表单比屏幕长，保存按钮不能跟着内容滚出视野 */}
         <div className="flex items-center justify-end gap-3 border-t border-white/[0.07] px-6 py-4">
           <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
-            取消
+            {t("settings.importWatch.cancel")}
           </button>
           <button
             type="button"
@@ -833,7 +836,7 @@ function RuleFormDialog({
             disabled={!canSubmit}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            {busy ? "保存中…" : "保存"}
+            {busy ? t("settings.importWatch.saving") : t("settings.importWatch.save")}
           </button>
         </div>
       </Modal>

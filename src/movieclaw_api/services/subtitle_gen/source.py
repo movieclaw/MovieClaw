@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from movieclaw_api.i18n.stored import reference, stored_fields
 from movieclaw_api.services.library.subtitles import LANGUAGE_TOKENS
 from movieclaw_api.services.subtitle_gen import pgs
 from movieclaw_db.models import LibraryFile
@@ -45,6 +46,17 @@ class RankedCandidate:
     exclusion_code: str | None = None  # 稳定原因码，供预检生成可执行的用户提示
     reasons: list[str] = field(default_factory=list)  # 打分明细（任务日志）
     rank_key: tuple = ()  # 越大越优
+    excluded_message: dict | None = None
+    reason_messages: list[dict] = field(default_factory=list)
+
+    def exclude(self, key: str, **params) -> None:
+        self.excluded_message = stored_fields(key, **params)
+        self.excluded = self.excluded_message["message"]
+
+    def explain(self, key: str, **params) -> None:
+        message = stored_fields(key, **params)
+        self.reason_messages.append(message)
+        self.reasons.append(message["message"])
 
 
 def _language_rank(lang: str | None, original: str | None) -> int:
@@ -129,23 +141,23 @@ def _rank_one(
     r = RankedCandidate(candidate=cand)
     if cand.forced:
         r.exclusion_code = "forced"
-        r.excluded = "forced 轨是外语片段部分字幕，对白严重缺失，不能当翻译源"
+        r.exclude("library.subtitleSource.forced")
         return r
     if target is not None and cand.language == target:
         r.exclusion_code = "target_language"
-        r.excluded = "已是目标语言，无需翻译"
+        r.exclude("library.subtitleSource.target")
         return r
 
     lang_rank = _language_rank(cand.language, original)
-    lang_label = cand.language or "未知语言"
+    lang_label = cand.language or reference("library.subtitleSource.unknownLanguage")
     if lang_rank == 2:
-        r.reasons.append(f"语言 {lang_label} = 影片原语言（第一手台词，最优）")
+        r.explain("library.subtitleSource.originalLanguage", language=lang_label)
     elif lang_rank == 1:
-        r.reasons.append(f"语言 {lang_label} = 英语（通用中间语言，次优）")
+        r.explain("library.subtitleSource.english", language=lang_label)
     else:
-        r.reasons.append(f"语言 {lang_label}（非原语言/英语，二次转译误差叠加）")
+        r.explain("library.subtitleSource.otherLanguage", language=lang_label)
     if cand.sdh:
-        r.reasons.append("听障字幕（翻译前清理音效标记，同分让路）")
+        r.explain("library.subtitleSource.sdh")
     embedded = cand.kind == "embedded"
     provenance_rank = {
         "original": 3,
@@ -154,16 +166,16 @@ def _rank_one(
         "ai_bilingual": 0,
     }.get(cand.provenance, 1)
     if embedded:
-        r.reasons.append("内封轨（多为发行方官方字幕，平分决胜优先）")
+        r.explain("library.subtitleSource.embedded")
         provenance_rank = 4
     elif cand.provenance == "pgs_ocr":
-        r.reasons.append("由原始图片字幕识别得到（优先于二次 AI 成品）")
+        r.explain("library.subtitleSource.ocr")
     elif cand.provenance == "ai":
-        r.reasons.append("AI 生成字幕（二次转译可能叠加误差）")
+        r.explain("library.subtitleSource.ai")
     elif cand.provenance == "ai_bilingual":
-        r.reasons.append("AI 双语成品（默认最后使用，避免重复翻译）")
+        r.explain("library.subtitleSource.bilingual")
     else:
-        r.reasons.append("普通外挂字幕（未检测到二次生成标记）")
+        r.explain("library.subtitleSource.external")
     r.rank_key = (
         lang_rank,
         0 if cand.sdh else 1,
@@ -173,9 +185,9 @@ def _rank_one(
     if not is_text:
         r.exclusion_code = "pgs" if pgs.is_pgs_codec(cand.format) else "graphic"
         if r.exclusion_code == "pgs":
-            r.excluded = "PGS 图形字幕需先经 OCR 转为 SRT，不能直接做翻译源"
+            r.exclude("library.subtitleSource.pgs")
         else:
-            r.excluded = f"图形字幕轨（{cand.format}）暂不支持自动 OCR"
+            r.exclude("library.subtitleSource.graphic", format=cand.format)
     return r
 
 
@@ -187,6 +199,7 @@ class Assessment:
     coverage: float  # 首末事件跨度 / 影片时长；无时长数据 = 1.0（不惩罚）
     ok: bool
     reason: str
+    reason_message: dict | None = None
 
 
 # 完整度阈值：条数低于此值多半是残缺轨/纯标题轨；覆盖率低于此值疑似片段
@@ -198,14 +211,23 @@ def assess_events(events: list[tuple[int, int, str]], runtime_seconds: int | Non
     """events 为 (start_ms, end_ms, text) 序列（加载层产物）。"""
     count = len(events)
     if count == 0:
-        return Assessment(0, 0.0, False, "解析后没有任何对白事件")
+        return _assessment(0, 0.0, False, "library.subtitleSource.empty")
     if runtime_seconds and runtime_seconds > 0:
         span_ms = max(e[1] for e in events) - min(e[0] for e in events)
         coverage = min(1.0, span_ms / (runtime_seconds * 1000))
     else:
         coverage = 1.0
     if count < _MIN_EVENTS:
-        return Assessment(count, coverage, False, f"对白仅 {count} 条，疑似残缺轨")
+        return _assessment(count, coverage, False, "library.subtitleSource.tooFew", count=count)
     if coverage < _MIN_COVERAGE:
-        return Assessment(count, coverage, False, f"时间覆盖率仅 {coverage:.0%}，疑似片段字幕")
-    return Assessment(count, coverage, True, f"{count} 条对白，覆盖率 {coverage:.0%}")
+        return _assessment(
+            count, coverage, False, "library.subtitleSource.lowCoverage", coverage=coverage
+        )
+    return _assessment(
+        count, coverage, True, "library.subtitleSource.complete", count=count, coverage=coverage
+    )
+
+
+def _assessment(event_count: int, fraction: float, ok: bool, key: str, **params) -> Assessment:
+    message = stored_fields(key, **params)
+    return Assessment(event_count, fraction, ok, message["message"], message)

@@ -56,15 +56,16 @@ enum SubsFormat {
     private static let dateTimeFormatter: DateFormatter = {
         let f = DateFormatter()
         f.calendar = Calendar(identifier: .gregorian)
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy/MM/dd HH:mm"
+        f.locale = AppLanguage.locale
+        if AppLanguage.identifier == "zh-Hans" { f.dateFormat = "yyyy/MM/dd HH:mm" }
+        else { f.setLocalizedDateFormatFromTemplate("yyyyMMMdHHmm") }
         return f
     }()
 
     private static let clockFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "HH:mm"
+        f.locale = AppLanguage.locale
+        f.setLocalizedDateFormatFromTemplate("HHmm")
         return f
     }()
 
@@ -79,17 +80,24 @@ enum SubsFormat {
     /// 相对时间，与 dayjs zh-cn `fromNow()` 同一套阈值与措辞（「几秒前 / 3 分钟前 / 2 天前 / 3 天内」）；
     /// 空值「从未」（Web formatRelativeTime）。算法统一在 `Formatters.fromNow`（R-3：全 App 一套口径）。
     static func relative(_ raw: String?, now: Date = .now) -> String {
-        guard let date = date(raw) else { return "从未" }
+        guard let date = date(raw) else { return String(localized: .commonNever) }
         return Formatters.fromNow(date, now: now)
     }
 
     /// 秒数 → 「15 分钟」「1.5 小时」（Web formatDuration）
     static func duration(_ seconds: Int) -> String {
         guard seconds > 0 else { return "—" }
-        if seconds < 60 { return "\(seconds) 秒" }
-        if seconds < 3600 { return "\(Int((Double(seconds) / 60).rounded())) 分钟" }
+        if AppLanguage.identifier == "en" { return AppFormatting.duration(seconds: seconds) }
+        if seconds < 60 { return String(localized: .librarySubtitleGenerationElapsedSeconds(seconds)) }
+        if seconds < 3600 { return String(localized: .libraryCloudReportMinutes(Int((Double(seconds) / 60).rounded()))) }
         let hours = Double(seconds) / 3600
-        return hours == hours.rounded() ? "\(Int(hours)) 小时" : String(format: "%.1f 小时", hours)
+        return hours == hours.rounded() ? String(localized: .libraryRecycleShortHours(Int(hours))) : String(format: "%.1f 小时", hours) // i18n-ignore: Chinese-only branch; English returns earlier
+    }
+
+    /// 选中的季：「第 1、2 季」/「Seasons 1, 2」
+    static func seasonList(_ seasons: [Int]) -> String {
+        let list = AppFormatting.list(seasons.sorted().map(String.init))
+        return seasons.count == 1 ? String(localized: .subscriptionSeasonListOne(list)) : String(localized: .subscriptionSeasonListMany(list))
     }
 
     /// 字节 → 「1.46 GB」（Web formatBytes：1024 进制、两位小数、≥100 取整）
@@ -111,7 +119,7 @@ enum SubsFormat {
     static func pad(_ value: Int) -> String { String(format: "%02d", value) }
 
     /// 「第 1、3 季」/「特别篇」
-    static func seasonName(_ season: Int) -> String { season == 0 ? "特别篇" : "第 \(season) 季" }
+    static func seasonName(_ season: Int) -> String { season == 0 ? String(localized: .subscriptionInspectorSpecials) : String(localized: .subscriptionCollectionSeason(season)) }
 }
 
 // MARK: - 海报墙摘要（同 Web lib/subscription-ui.ts）
@@ -155,10 +163,10 @@ enum SubscriptionSummary {
     /// 海报斜标：状态优先于能力（已入库/已收齐 > 自动续订）
     static func ribbon(_ sub: API.SubscriptionView) -> DiscoverRibbon? {
         if fullyCollected(sub) {
-            return DiscoverRibbon(label: sub.media.kind == "movie" ? "已入库" : "已收齐", tone: .owned)
+            return DiscoverRibbon(label: sub.media.kind == "movie" ? String(localized: .subscriptionProgressImported) : String(localized: .subscriptionSectionsCollected), tone: .owned)
         }
         if sub.media.kind == "tv", sub.followFuture {
-            return DiscoverRibbon(label: "自动续订", tone: .subscribed)
+            return DiscoverRibbon(label: String(localized: .subscriptionRibbonFollowFuture), tone: .subscribed)
         }
         return nil
     }
@@ -190,8 +198,8 @@ enum SubscriptionSummary {
             guard let latest = scoped.last else { return nil }
             let total = totalOf(latest)
             return SubscriptionCollectionMeta(
-                label: "第 \(latest.seasonNumber) 季",
-                value: latest.airedCount == 0 && latest.ownedCount == 0 ? "待播出" : "\(latest.ownedCount) / \(total)",
+                label: String(localized: .subscriptionCollectionSeason(latest.seasonNumber)),
+                value: latest.airedCount == 0 && latest.ownedCount == 0 ? String(localized: .subscriptionCollectionUnaired) : "\(latest.ownedCount) / \(total)",
                 tracking: sub.status == "active",
                 upgrading: upgrading,
                 upgradingCount: upgrading ? upgradingCount : nil
@@ -203,8 +211,8 @@ enum SubscriptionSummary {
         let owned = scoped.reduce(0) { $0 + $1.ownedCount }
         let coversAll = scoped.count == allSeasons.count
         return SubscriptionCollectionMeta(
-            label: scoped.count == 1 ? "第 \(scoped[0].seasonNumber) 季" : "\(coversAll ? "全" : "共") \(scoped.count) 季",
-            value: owned >= total ? "全 \(total) 集" : "\(owned) / \(total)",
+            label: scoped.count == 1 ? String(localized: .subscriptionCollectionSeason(scoped[0].seasonNumber)) : (coversAll ? String(localized: .subscriptionCollectionAllSeasons(scoped.count)) : String(localized: .subscriptionCollectionSeasons(scoped.count))),
+            value: owned >= total ? String(localized: .subscriptionCollectionAllEpisodes(total)) : "\(owned) / \(total)",
             tracking: false,
             upgrading: upgrading,
             upgradingCount: upgrading ? upgradingCount : nil
@@ -238,15 +246,25 @@ struct ReleaseForecast {
 // MARK: - 今日到货时间轴（同 Web lib/subscription-ui.ts + lib/use-today-arrivals.ts）
 
 struct TodayArrivalPresentation: Equatable {
-    /// 预计入库 / 等待资源 / 下载中 / 整理中
-    var statusLabel: String
+    enum Stage { case expected, waiting, downloading, organizing }
+
+    var stage: Stage
     var timeLabel: String
     var estimatedAt: Date?
 
+    var statusLabel: String {
+        switch stage {
+        case .expected: String(localized: .subscriptionArrivalsStatusExpected)
+        case .waiting: String(localized: .subscriptionArrivalsStatusWaiting)
+        case .downloading: String(localized: .subscriptionArrivalsStatusDownloading)
+        case .organizing: String(localized: .subscriptionArrivalsStatusOrganizing)
+        }
+    }
+
     var stageOrder: Int {
-        switch statusLabel {
-        case "下载中": 1
-        case "整理中": 2
+        switch stage {
+        case .downloading: 1
+        case .organizing: 2
         default: 0
         }
     }
@@ -260,19 +278,20 @@ enum TodayArrivals {
     /// 首页只展示一个结果时间：同日写时刻，跨到次日写「明日」
     static func formatEstimated(_ date: Date, now: Date) -> String {
         let clock = SubsFormat.clock(date)
-        if localDayKey(date) == localDayKey(now) { return "约 \(clock)" }
+        if localDayKey(date) == localDayKey(now) { return String(localized: .subscriptionArrivalsApproximateTime(clock)) }
         if let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: now), localDayKey(date) == localDayKey(tomorrow) {
-            return "明日 \(clock)"
+            return String(localized: .subscriptionArrivalsTomorrowTime(clock))
         }
         let parts = Calendar.current.dateComponents([.month, .day], from: date)
-        return "\(parts.month ?? 0)月\(parts.day ?? 0)日 \(clock)"
+        let day = String(localized: .subscriptionFeedCalendarDay(parts.month ?? 0, parts.day ?? 0))
+        return String(localized: .subscriptionArrivalsDateTime(day, clock))
     }
 
     /// 站点日历日 YYYY-MM-DD → 「M月D日」（按字段切分，不做时区换算）
     static func formatCalendarDay(_ day: String) -> String? {
         let parts = day.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }
-        return "\(parts[1])月\(parts[2])日"
+        return String(localized: .subscriptionFeedCalendarDay(parts[1], parts[2]))
     }
 
     private static func estimatedWantedArrival(_ arrival: API.TodayArrivalView, predictedAt: Date, now: Date) -> Date? {
@@ -285,23 +304,23 @@ enum TodayArrivals {
 
     private static func pendingTimeLabel(_ arrival: API.TodayArrivalView) -> String {
         if arrival.daysAhead > 0, let day = formatCalendarDay(arrival.expectedDay) {
-            return "\(day) 播出"
+            return String(localized: .subscriptionArrivalsAirDate(day))
         }
-        if let probe = SubsFormat.date(arrival.nextProbeAt) { return "\(SubsFormat.clock(probe)) 探测" }
-        return "时间待更新"
+        if let probe = SubsFormat.date(arrival.nextProbeAt) { return String(localized: .subscriptionArrivalsProbeTime(SubsFormat.clock(probe))) }
+        return String(localized: .subscriptionArrivalsTimePending)
     }
 
     /// 后台阶段 + 出种预测 + 下载器 ETA → 「状态 + 一个入库时间」
     static func presentation(_ arrival: API.TodayArrivalView, task: API.DownloadTaskView?, now: Date) -> TodayArrivalPresentation {
         if arrival.status == "downloaded" || task?.state == "completed" {
-            return TodayArrivalPresentation(statusLabel: "整理中", timeLabel: "即将完成", estimatedAt: now)
+            return TodayArrivalPresentation(stage: .organizing, timeLabel: String(localized: .subscriptionArrivalsFinishing), estimatedAt: now)
         }
         if arrival.status == "grabbed" {
             let eta = task?.state == "downloading" ? task?.etaSeconds : nil
             let estimated = eta.flatMap { $0 >= 0 ? now.addingTimeInterval(TimeInterval($0 + arrival.estimatedDownloadToImportMinutes * 60)) : nil }
             return TodayArrivalPresentation(
-                statusLabel: "下载中",
-                timeLabel: estimated.map { formatEstimated($0, now: now) } ?? "时间待更新",
+                stage: .downloading,
+                timeLabel: estimated.map { formatEstimated($0, now: now) } ?? String(localized: .subscriptionArrivalsTimePending),
                 estimatedAt: estimated
             )
         }
@@ -310,7 +329,7 @@ enum TodayArrivals {
         let usable = forecast?.confidence != "volatile"
         let estimated = predicted.flatMap { usable ? estimatedWantedArrival(arrival, predictedAt: $0, now: now) : nil }
         return TodayArrivalPresentation(
-            statusLabel: predicted.map { $0 <= now } == true ? "等待资源" : "预计入库",
+            stage: predicted.map { $0 <= now } == true ? .waiting : .expected,
             timeLabel: estimated.map { formatEstimated($0, now: now) } ?? pendingTimeLabel(arrival),
             estimatedAt: estimated
         )
@@ -353,17 +372,10 @@ struct WantedPresentation {
     var label: String
     var color: Color
     var note: String
+    /// 胶囊里放不下长词时的短名
+    var short: String?
 
-    /// 长词 → 胶囊三字短名
-    var shortLabel: String {
-        switch label {
-        case "入库失败": "失败"
-        case "已提交下载": "已提交"
-        case "排队搜索": "排队中"
-        case "预测窗口": "预测中"
-        default: label
-        }
-    }
+    var shortLabel: String { short ?? label }
 }
 
 enum WantedLogic {
@@ -371,71 +383,73 @@ enum WantedLogic {
     static func presentation(_ w: API.WantedView, now: Date = .now) -> WantedPresentation {
         if w.status == "imported" {
             if let up = w.upgrade, up.active {
-                return .init(label: "洗版中", color: SubsColor.upgrade, note: "当前 \(up.currentLabel) → 目标 \(up.targetLabel)")
+                return .init(label: String(localized: .subscriptionUpgradeStateInFlight), color: SubsColor.upgrade, note: String(localized: .subscriptionMilestoneUpgradeTarget(up.currentLabel, up.targetLabel)))
             }
             if let up = w.upgrade, up.indeterminate {
-                return .init(label: "已入库", color: SubsColor.ok, note: "\(up.currentLabel) · 无法确认是否低于洗版目标，不自动洗；可在季标题「标注片源」，或手动选种替换")
+                return .init(label: String(localized: .subscriptionProgressImported), color: SubsColor.ok, note: String(localized: .subscriptionWantedIndeterminate(up.currentLabel)))
             }
             if let up = w.upgrade {
-                return .init(label: "已入库", color: SubsColor.ok, note: "\(up.currentLabel) · 入库于 \(SubsFormat.dateTime(w.importedAt))")
+                return .init(label: String(localized: .subscriptionProgressImported), color: SubsColor.ok, note: String(localized: .subscriptionWantedImportedQuality(up.currentLabel, SubsFormat.dateTime(w.importedAt))))
             }
-            return .init(label: "已入库", color: SubsColor.ok, note: "入库于 \(SubsFormat.dateTime(w.importedAt))")
+            return .init(label: String(localized: .subscriptionProgressImported), color: SubsColor.ok, note: String(localized: .subscriptionWantedImportedAt(SubsFormat.dateTime(w.importedAt))))
         }
         if w.status == "downloaded" {
-            return .init(label: "已下载", color: SubsColor.ok, note: "完成于 \(SubsFormat.dateTime(w.downloadedAt ?? w.grabbedAt))，待整理入库")
+            return .init(label: String(localized: .subscriptionWantedDownloaded), color: SubsColor.ok, note: String(localized: .subscriptionWantedDownloadedAt(SubsFormat.dateTime(w.downloadedAt ?? w.grabbedAt))))
         }
         if w.status == "grabbed" {
-            return .init(label: "已提交下载", color: SubsColor.ok, note: "\(SubsFormat.relative(w.grabbedAt))提交给下载器")
+            return .init(label: String(localized: .subscriptionWantedSubmitted), color: SubsColor.ok, note: String(localized: .subscriptionWantedSubmittedAgo(SubsFormat.relative(w.grabbedAt))), short: String(localized: .subscriptionWantedSubmittedShort))
         }
         if let smart = SmartSelection(w) {
             return .init(label: smart.presentation.label, color: SubsColor.info, note: smart.presentation.note)
         }
         guard let nextSearch = w.nextSearchAt, let due = SubsFormat.date(nextSearch) else {
-            return .init(label: "未定档", color: SubsColor.neutral, note: "上映/播出日期未公布，定档后自动排队")
+            return .init(label: String(localized: .subscriptionWantedUndated), color: SubsColor.neutral, note: String(localized: .subscriptionWantedUndatedNote))
         }
         if let airDate = w.airDate, let forecast = ReleaseForecast(w.releaseForecast),
            forecast.version == 1, forecast.targetAirDate == airDate, forecast.confidence != "volatile",
            !forecast.siteIds.isEmpty, let windowEnd = SubsFormat.date(forecast.windowEnd), windowEnd >= now {
             let sites = forecast.siteIds.prefix(2).joined(separator: "、")
             return .init(
-                label: "预测窗口", color: SubsColor.warn,
-                note: "预计 \(SubsFormat.dateTime(forecast.windowStart)) ～ \(SubsFormat.dateTime(forecast.windowEnd))，重点探测 \(sites)"
+                label: String(localized: .subscriptionWantedForecast), color: SubsColor.warn,
+                note: String(localized: .subscriptionWantedForecastNote(SubsFormat.dateTime(forecast.windowStart), SubsFormat.dateTime(forecast.windowEnd), sites)),
+                short: String(localized: .subscriptionWantedForecastShort)
             )
         }
         if let airDate = w.airDate, let air = SubsFormat.date(airDate), air > now {
-            return .init(label: "待播出", color: SubsColor.warn, note: "\(airDate) 播出，\(SubsFormat.dateTime(nextSearch)) 起兜底搜索")
+            return .init(label: String(localized: .subscriptionCollectionUnaired), color: SubsColor.warn, note: String(localized: .subscriptionWantedAirThenSearch(airDate, SubsFormat.dateTime(nextSearch))))
         }
         if due <= now {
             return .init(
-                label: "排队搜索", color: SubsColor.info,
-                note: w.lastSearchAt != nil ? "上次搜索 \(SubsFormat.relative(w.lastSearchAt))" : "等待搜索任务执行"
+                label: String(localized: .subscriptionWantedQueued), color: SubsColor.info,
+                note: w.lastSearchAt != nil ? String(localized: .subscriptionWantedLastSearch(SubsFormat.relative(w.lastSearchAt))) : String(localized: .subscriptionWantedWaitingSearch),
+                short: String(localized: .subscriptionWantedQueuedShort)
             )
         }
         if w.lastSearchAt == nil, due.timeIntervalSince(now) > 3600 {
-            return .init(label: "待搜索", color: SubsColor.warn, note: "档期未到，\(SubsFormat.dateTime(nextSearch)) 起兜底搜索")
+            return .init(label: String(localized: .subscriptionWantedScheduled), color: SubsColor.warn, note: String(localized: .subscriptionWantedBeforeSchedule(SubsFormat.dateTime(nextSearch))))
         }
-        return .init(label: "冷却中", color: SubsColor.info, note: "暂无合适资源，\(SubsFormat.dateTime(nextSearch)) 再试")
+        return .init(label: String(localized: .subscriptionWantedCooldown), color: SubsColor.info, note: String(localized: .subscriptionWantedRetryAt(SubsFormat.dateTime(nextSearch))))
     }
 
     /// 实时下载快照 → 一行进度说明。
     /// 成员拿到的是精简口径（种子名、下载器名、错误原文为空，member-permissions-v2 §3.2），只用进度类字段；
     /// 出错时没有原文就不叫成员「去下载器处理」（成员进不了下载器），改为提示由管理员处理
     static func downloadNote(_ d: API.SubscriptionDownloadView) -> String {
-        if d.state == "missing" { return "种子已不在下载器中（可能被手动删除），稍后自动重新寻找资源" }
+        if d.state == "missing" { return String(localized: .subscriptionDownloadMissing) }
         let pct = d.progress.map { "\(Int(($0 * 100).rounded(.down)))%" } ?? ""
         switch d.state {
-        case "completed": return "已下载完成，等待整理入库"
-        case "paused": return "\(pct) · 已在下载器中暂停"
+        case "completed": return String(localized: .subscriptionDownloadCompleted)
+        case "paused": return String(localized: .subscriptionDownloadPaused(pct))
         case "error":
             guard let message = d.errorMessage, !message.isEmpty else {
-                return "\(pct) · 下载任务出错；换源判定已暂停，需管理员在下载器中处理"
+                return String(localized: .subscriptionDownloadMemberErrorNote(pct))
             }
-            return "\(pct) · \(message)；换源判定已暂停，请在下载器中处理"
-        case "stalled": return "\(pct) · 等待连接做种"
+            return String(localized: .subscriptionDownloadAdminError(pct, message))
+        case "stalled": return String(localized: .subscriptionDownloadStalled(pct))
         default:
             var parts = [pct]
             if let speed = d.dlspeedBytes, speed > 0 { parts.append("\(SubsFormat.bytes(speed))/s") }
-            if let eta = d.etaSeconds { parts.append("剩余约 \(SubsFormat.duration(eta))") }
+            if let eta = d.etaSeconds { parts.append(String(localized: .subscriptionDownloadRemaining(String(SubsFormat.duration(eta))))) }
             if let size = d.sizeBytes, parts.count == 1 { parts.append(SubsFormat.bytes(size)) }
             return parts.filter { !$0.isEmpty }.joined(separator: " · ")
         }
@@ -445,13 +459,15 @@ enum WantedLogic {
     static func resourceTimingNote(_ timing: API.ResourceTimingView?, previous: Bool) -> String? {
         guard let timing else { return nil }
         if let total = timing.publishToSubmitSeconds, total > 7 * 24 * 3600 { return nil }
-        func delay(_ seconds: Int) -> String { seconds < 60 ? "不到 1 分钟" : SubsFormat.duration(seconds) }
-        let prefix = "\(previous ? "上次 · " : "")\(timing.dryRun ? "模拟 · " : "")\(timing.siteId)："
+        func delay(_ seconds: Int) -> String { seconds < 60 ? String(localized: .subscriptionTimingUnderMinute) : SubsFormat.duration(seconds) }
+        let prefix = (previous ? String(localized: .subscriptionTimingPreviousPrefix) : "")
+            + (timing.dryRun ? String(localized: .subscriptionTimingDryRunPrefix) : "")
+        let site = timing.siteId
         if let seen = timing.publishToSeenSeconds, let submit = timing.seenToSubmitSeconds, let total = timing.publishToSubmitSeconds {
-            return "\(prefix)资源发布后 \(delay(seen))进入索引，\(delay(submit))后提交下载器（总耗时 \(delay(total))）"
+            return String(localized: .subscriptionTimingFullNote(prefix, site, delay(seen), delay(submit), delay(total)))
         }
-        if let total = timing.publishToSubmitSeconds { return "\(prefix)资源发布后 \(delay(total))提交下载器" }
-        if let submit = timing.seenToSubmitSeconds { return "\(prefix)进入索引后 \(delay(submit))提交下载器" }
+        if let total = timing.publishToSubmitSeconds { return String(localized: .subscriptionTimingReleaseToSubmitNote(prefix, site, delay(total))) }
+        if let submit = timing.seenToSubmitSeconds { return String(localized: .subscriptionTimingSeenToSubmitNote(prefix, site, delay(submit))) }
         return nil
     }
 
@@ -469,46 +485,47 @@ enum WantedLogic {
         if isMovie {
             let undated = w.status == "wanted" && w.nextSearchAt == nil
             chain.append(undated
-                ? Milestone(label: "上映", state: .now, detail: "上映日期未公布，定档后自动排队")
-                : Milestone(label: "上映", state: .done, detail: "已定档或已上映"))
+                ? Milestone(label: String(localized: .subscriptionMilestoneRelease), state: .now, detail: String(localized: .subscriptionMilestoneReleaseUndated))
+                : Milestone(label: String(localized: .subscriptionMilestoneRelease), state: .done, detail: String(localized: .subscriptionMilestoneReleased)))
         } else if let airDate = w.airDate {
             let future = SubsFormat.date(airDate).map { $0 > now } ?? false
-            chain.append(Milestone(label: "播出", state: .done, time: airDate, detail: future ? "\(airDate) 播出" : "已播出"))
+            chain.append(Milestone(label: String(localized: .subscriptionMilestoneAir), state: .done, time: airDate, detail: future ? String(localized: .subscriptionArrivalsAirDate(airDate)) : String(localized: .subscriptionMilestoneAired)))
         } else {
-            chain.append(Milestone(label: "播出", state: .now, detail: "播出日期未公布，定档后自动排队"))
+            chain.append(Milestone(label: String(localized: .subscriptionMilestoneAir), state: .now, detail: String(localized: .subscriptionMilestoneAirUndated)))
         }
         let preAir = chain[0].state == .now
 
         // 2. 搜索
         if w.status != "wanted" {
             chain.append(Milestone(
-                label: "搜索", state: .done,
+                label: String(localized: .commonSearch), state: .done,
                 time: w.lastSearchAt != nil ? SubsFormat.relative(w.lastSearchAt) : "",
-                detail: w.searchAttempts > 0 ? "搜索 \(w.searchAttempts) 次后命中" : "被动匹配命中"
+                detail: w.searchAttempts > 0 ? String(localized: .subscriptionMilestoneFoundAfter(w.searchAttempts)) : String(localized: .subscriptionMilestonePassiveMatch)
             ))
         } else if preAir {
-            chain.append(Milestone(label: "搜索", state: .todo, detail: "定档后进入搜索队列"))
+            chain.append(Milestone(label: String(localized: .commonSearch), state: .todo, detail: String(localized: .subscriptionMilestoneSearchAfterDate)))
         } else {
             chain.append(Milestone(
-                label: "搜索", state: .now,
-                time: w.searchAttempts > 0 ? "已搜 \(w.searchAttempts) 次" : "",
+                label: String(localized: .commonSearch), state: .now,
+                time: w.searchAttempts > 0 ? String(localized: .subscriptionMilestoneSearchAttempts(w.searchAttempts)) : "",
                 detail: presentation(w, now: now).note,
-                why: w.selectionState?["reason"]?.stringValue == "identity_unconfirmed" ? nil : w.lastRejectReason.map { "最近一次被拒：\($0)" }
+                why: w.selectionState?["reason"]?.stringValue == "identity_unconfirmed" ? nil : w.lastRejectReason.map { String(localized: .subscriptionMilestoneRejected($0)) }
             ))
         }
 
         // 3. 投递
         if let grabbedAt = w.grabbedAt {
             let sources = [w.grabTitle, resourceTimingNote(w.resourceTiming, previous: false)].compactMap { $0 }.filter { !$0.isEmpty }
-            chain.append(Milestone(label: "投递", state: .done, time: SubsFormat.relative(grabbedAt), detail: "已提交下载器", sources: sources))
+            chain.append(Milestone(label: String(localized: .subscriptionMilestoneDispatch), state: .done, time: SubsFormat.relative(grabbedAt), detail: String(localized: .subscriptionMilestoneSubmitted), sources: sources))
         } else {
             let lastTiming = resourceTimingNote(w.resourceTiming, previous: true)
             let dispatchFailure = failure?.type == "dispatch_failed" ? failure : nil
             chain.append(Milestone(
-                label: "投递", state: .todo,
-                detail: dispatchFailure != nil ? "上次投递未成功，已退回队列" : isSmart
-                    ? (SmartSelection(w) != nil && w.selectionState?["reason"]?.stringValue != "identity_unconfirmed" ? "等待智能选择完成" : "等待合格资源")
-                    : "尚未找到符合规则组的资源",
+                label: String(localized: .subscriptionMilestoneDispatch), state: .todo,
+                detail: dispatchFailure != nil ? String(localized: .subscriptionMilestoneDispatchRetry) : isSmart
+                    ? (SmartSelection(w) != nil && w.selectionState?["reason"]?.stringValue != "identity_unconfirmed"
+                        ? String(localized: .subscriptionMilestoneWaitingSmart) : String(localized: .subscriptionMilestoneWaitingQualified))
+                    : String(localized: .subscriptionMilestoneNoRuleMatch),
                 why: dispatchFailure?.message,
                 sources: lastTiming.map { [$0] } ?? []
             ))
@@ -516,39 +533,39 @@ enum WantedLogic {
 
         // 4. 下载（入库发生过即说明下载必然完成）
         if let downloadedAt = w.downloadedAt ?? w.importedAt {
-            chain.append(Milestone(label: "下载", state: .done, time: SubsFormat.relative(downloadedAt), detail: "全部落盘"))
+            chain.append(Milestone(label: String(localized: .subscriptionMilestoneDownload), state: .done, time: SubsFormat.relative(downloadedAt), detail: String(localized: .subscriptionMilestoneOnDisk)))
         } else if w.grabbedAt != nil {
-            chain.append(Milestone(label: "下载", state: .now, time: "进行中", detail: live.map(downloadNote) ?? "已提交下载器，等待进度汇报"))
+            chain.append(Milestone(label: String(localized: .subscriptionMilestoneDownload), state: .now, time: String(localized: .subscriptionMilestoneInProgress), detail: live.map(downloadNote) ?? String(localized: .subscriptionMilestoneWaitingProgress)))
         } else {
-            chain.append(Milestone(label: "下载", state: .todo, detail: "等待投递完成"))
+            chain.append(Milestone(label: String(localized: .subscriptionMilestoneDownload), state: .todo, detail: String(localized: .subscriptionMilestoneWaitingDispatch)))
         }
 
         // 5. 入库
         if let importedAt = w.importedAt {
             chain.append(Milestone(
-                label: "入库", state: .done, time: SubsFormat.relative(importedAt),
-                detail: w.upgrade.map { "已整理入库 · \($0.currentLabel)" } ?? "已整理入库"
+                label: String(localized: .subscriptionMilestoneImport), state: .done, time: SubsFormat.relative(importedAt),
+                detail: w.upgrade.map { String(localized: .subscriptionMilestoneImportedQuality($0.currentLabel)) } ?? String(localized: .subscriptionMilestoneImported)
             ))
         } else if failure?.type == "import_failed" {
-            chain.append(Milestone(label: "入库", state: .fail, detail: "下载完成了，但 movieclaw 无法把文件整理入库", why: failure?.message))
+            chain.append(Milestone(label: String(localized: .subscriptionMilestoneImport), state: .fail, detail: String(localized: .subscriptionMilestoneImportFailed), why: failure?.message))
         } else if w.downloadedAt != nil {
-            chain.append(Milestone(label: "入库", state: .now, detail: "下载完成，等待整理入库"))
+            chain.append(Milestone(label: String(localized: .subscriptionMilestoneImport), state: .now, detail: String(localized: .subscriptionMilestoneWaitingImport)))
         } else {
-            chain.append(Milestone(label: "入库", state: .todo, detail: "下载完成后自动整理"))
+            chain.append(Milestone(label: String(localized: .subscriptionMilestoneImport), state: .todo, detail: String(localized: .subscriptionMilestoneImportAfterDownload)))
         }
 
         // 6. 洗版（规则组配了洗版目标才有）
         if let up = w.upgrade {
             if up.active {
                 chain.append(Milestone(
-                    label: "洗版", state: .now,
-                    time: up.searchAttempts > 0 ? "已搜 \(up.searchAttempts) 次" : "",
-                    detail: "当前 \(up.currentLabel) → 目标 \(up.targetLabel)"
+                    label: String(localized: .subscriptionRulesUpgrade), state: .now,
+                    time: up.searchAttempts > 0 ? String(localized: .subscriptionMilestoneSearchAttempts(up.searchAttempts)) : "",
+                    detail: String(localized: .subscriptionMilestoneUpgradeTarget(up.currentLabel, up.targetLabel))
                 ))
             } else if up.indeterminate {
-                chain.append(Milestone(label: "洗版", state: .now, detail: "\(up.currentLabel) · 无法确认是否低于洗版目标，不自动洗；可在季标题「标注片源」或手动选种替换"))
+                chain.append(Milestone(label: String(localized: .subscriptionRulesUpgrade), state: .now, detail: String(localized: .subscriptionMilestoneIndeterminate(up.currentLabel))))
             } else {
-                chain.append(Milestone(label: "洗版", state: .done, detail: "当前 \(up.currentLabel)"))
+                chain.append(Milestone(label: String(localized: .subscriptionRulesUpgrade), state: .done, detail: String(localized: .subscriptionMilestoneCurrentQuality(up.currentLabel))))
             }
         }
         return chain

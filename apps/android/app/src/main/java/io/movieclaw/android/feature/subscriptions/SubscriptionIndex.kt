@@ -6,6 +6,12 @@ import io.movieclaw.android.core.model.SubscriptionView
 import io.movieclaw.android.core.session.SessionRepository
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +41,19 @@ class SubscriptionIndex @Inject constructor(
 
     /** key → 订阅；页面 collect 它来驱动重组（内容变了才会重建卡片） */
     val byKey: StateFlow<Map<String, SubscriptionView>> = _byKey.asStateFlow()
+    /**
+     * **按 id 去重后的订阅列表**：`byKey` 是「多键索引」（同一订阅会同时挂在
+     * source/externalId 等多个 key 下），所以 `byKey.values` 里同一条会重复出现——
+     * 列表类 UI（订阅详情左栏、订阅墙）直接遍历 values 就会看到同名两行、且同时高亮。
+     * 列数据一律用这个出口。
+     */
+    val all: StateFlow<List<SubscriptionView>> = _byKey
+        .map { it.values.distinctBy { sub -> sub.id } }
+        .stateIn(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            started = SharingStarted.Eagerly,
+            initialValue = emptyList(),
+        )
 
     private var loadedAtMs = 0L
     private var loading = false

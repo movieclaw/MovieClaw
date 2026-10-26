@@ -1,3 +1,7 @@
+import { appTranslator, type AppMessageKey } from "./i18n/translate.ts";
+import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
+import { formatList } from "./i18n/format.ts";
+
 /**
  * 「MovieClaw Cloud」「App 推送」「通知」三个设置分区的展示口径
  * （docs/design/cloud-push.md §1、§7、§8）。
@@ -60,8 +64,9 @@ export function cloudInstancesUrl(cloudUrl: string | null | undefined): string {
 }
 
 /** 官网隐私政策里「你的服务器会发给我们什么」那一节：连接后上报什么、为什么、能不能关。 */
-export function cloudReportsInfoUrl(cloudUrl: string | null | undefined): string {
-  return `${cloudSiteOrigin(cloudUrl)}/zh/privacy#server-reports`;
+export function cloudReportsInfoUrl(cloudUrl: string | null | undefined,
+  locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  return `${cloudSiteOrigin(cloudUrl)}/${locale === "zh-Hans" ? "zh" : "en"}/privacy#server-reports`;
 }
 
 /** 链接给人读的样子：去掉协议头和末尾斜杠，如 movieclaw.io/activate。 */
@@ -75,9 +80,11 @@ export function displayHost(uri: string): string {
 }
 
 /** 「已连接到 y•••@gmail.com 的 MovieClaw 账号」；云端给的是空串时不硬造一个账号名。 */
-export function connectedAccountLine(accountDisplay: string | null | undefined): string {
+export function connectedAccountLine(accountDisplay: string | null | undefined,
+  locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
   const display = accountDisplay?.trim();
-  return display ? `已连接到 ${display} 的 MovieClaw 账号` : "已连接到你的 MovieClaw 账号";
+  const t = appTranslator(locale);
+  return display ? t("settings.cloudConnect.accountLine", { account: display }) : t("settings.cloudConnect.ownAccountLine");
 }
 
 /** 距 expiresAt 还剩多少秒（向上取整，过期为 0）；解析不出来按已过期算。 */
@@ -97,11 +104,13 @@ export function formatCountdown(totalSeconds: number): string {
  * 配对没走完时的说明：优先用服务端的话，没有就按状态给一句。
  * 倒计时走完而服务端还没来得及改状态时，调用方按 expired、不带 message 传进来。
  */
-export function pairingFailureText(status: string, message: string | null | undefined): string {
+export function pairingFailureText(status: string, message: string | null | undefined,
+  locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
   if (message?.trim()) return message.trim();
-  if (status === "denied") return "这次连接在 MovieClaw 官网上被拒绝了。";
-  if (status === "expired") return "配对码已过期。";
-  return "配对没有完成，请重新获取配对码。";
+  const t = appTranslator(locale);
+  if (status === "denied") return t("settings.cloudConnect.failureDenied");
+  if (status === "expired") return t("settings.cloudConnect.failureExpired");
+  return t("settings.cloudConnect.failureIncomplete");
 }
 
 /**
@@ -113,19 +122,20 @@ export function healthTone(health: CloudHealth | null | undefined): Tone | null 
   return health === "unreachable" ? "warn" : "danger";
 }
 
-const HEALTH_FALLBACK: Record<Exclude<CloudHealth, "ok">, string> = {
-  unreachable: "暂时连不上 MovieClaw Cloud，正在自动重试，令牌过期前官方推送不受影响。",
-  expired: "和 MovieClaw Cloud 的连接已过期，官方推送已停用。检查网络或代理设置后立即同步一次。",
-  unsupported: "这个版本的 MovieClaw 已不再受官方推送支持，升级后会自动恢复。",
+const HEALTH_FALLBACK: Record<Exclude<CloudHealth, "ok">, AppMessageKey> = {
+  unreachable: "settings.cloudConnect.healthUnreachable",
+  expired: "settings.cloudConnect.healthExpired",
+  unsupported: "settings.cloudConnect.healthUnsupported",
 };
 
 export function healthMessage(
   health: CloudHealth | null | undefined,
   message: string | null | undefined,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): string {
   if (message?.trim()) return message.trim();
   if (!health || health === "ok") return "";
-  return HEALTH_FALLBACK[health] ?? "";
+  return Object.hasOwn(HEALTH_FALLBACK, health) ? appTranslator(locale)(HEALTH_FALLBACK[health]) : "";
 }
 
 /** 云端服务通知只有 info / warning 两档。 */
@@ -133,14 +143,14 @@ export function noticeTone(level: string): Tone {
   return level === "warning" ? "warn" : "info";
 }
 
-const CAPABILITY_LABEL: Record<string, string> = {
-  push: "官方推送",
-  remote: "远程访问",
-  control: "远程控制",
+const CAPABILITY_LABEL: Record<string, AppMessageKey> = {
+  push: "settings.cloudConnect.capabilityPush",
+  remote: "settings.cloudConnect.capabilityRemote",
+  control: "settings.cloudConnect.capabilityControl",
 };
 
-export function capabilityLabel(id: string): string {
-  return CAPABILITY_LABEL[id] ?? id;
+export function capabilityLabel(id: string, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  return Object.hasOwn(CAPABILITY_LABEL, id) ? appTranslator(locale)(CAPABILITY_LABEL[id]) : id;
 }
 
 export interface CapabilityRow {
@@ -154,7 +164,8 @@ export interface CapabilityRow {
  * 写明），其余已授予的随后；云端提供了、这台服务器还没授予的排最后，标「即将推出」。
  * 云端没提供的能力一个字也不写——不替云端预告它还没有的东西。
  */
-export function capabilityRows(scopes: string[], capabilities: string[]): CapabilityRow[] {
+export function capabilityRows(scopes: string[], capabilities: string[],
+  locale: AppLocale = requestLocale() ?? "zh-Hans"): CapabilityRow[] {
   const ordered = [
     "push",
     ...scopes.filter((id) => id !== "push"),
@@ -162,7 +173,7 @@ export function capabilityRows(scopes: string[], capabilities: string[]): Capabi
   ];
   return [...new Set(ordered)].map((id) => ({
     id,
-    label: capabilityLabel(id),
+    label: capabilityLabel(id, locale),
     granted: scopes.includes(id),
   }));
 }
@@ -176,11 +187,11 @@ export function channelTone(state: string): Tone {
   return "neutral";
 }
 
-const CHANNEL_STATE_FALLBACK: Record<string, string> = {
-  ok: "正常",
-  warning: "需要注意",
-  error: "出错了",
-  inactive: "未启用",
+const CHANNEL_STATE_FALLBACK: Record<string, AppMessageKey> = {
+  ok: "settings.pushChannels.stateOk",
+  warning: "settings.pushChannels.stateWarning",
+  error: "settings.pushChannels.stateError",
+  inactive: "settings.pushChannels.stateInactive",
 };
 
 /** 官方通道因为没连接 MovieClaw Cloud 而未激活：行内写「未激活」并引导去连接。 */
@@ -194,24 +205,27 @@ export function officialAwaitingCloud(
 export function channelPill(
   channel: Pick<PushChannelView, "kind" | "state" | "status_text">,
   cloudState: string,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): { tone: Tone; label: string } {
-  if (officialAwaitingCloud(channel, cloudState)) return { tone: "neutral", label: "未激活" };
+  const t = appTranslator(locale);
+  if (officialAwaitingCloud(channel, cloudState)) return { tone: "neutral", label: t("settings.pushChannels.stateUnactivated") };
   return {
     tone: channelTone(channel.state),
-    label: channel.status_text?.trim() || CHANNEL_STATE_FALLBACK[channel.state] || channel.state,
+    label: channel.status_text?.trim() || (Object.hasOwn(CHANNEL_STATE_FALLBACK, channel.state) ? t(CHANNEL_STATE_FALLBACK[channel.state]) : channel.state),
   };
 }
 
-const AUTH_MODE_LABEL: Record<string, string> = {
-  issuer: "签发方令牌",
-  static: "令牌",
-  none: "无鉴权",
+const AUTH_MODE_LABEL: Record<string, AppMessageKey> = {
+  issuer: "settings.pushChannels.authIssuer",
+  static: "settings.pushChannels.token",
+  none: "settings.pushChannels.authNone",
 };
 
 /** 鉴权方式给人看的说法；null（还没拉到过 /v1/info）返回 null，调用方不写这一段。 */
-export function authModeLabel(mode: string | null | undefined): string | null {
+export function authModeLabel(mode: string | null | undefined,
+  locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
   if (!mode) return null;
-  return AUTH_MODE_LABEL[mode] ?? mode;
+  return Object.hasOwn(AUTH_MODE_LABEL, mode) ? appTranslator(locale)(AUTH_MODE_LABEL[mode]) : mode;
 }
 
 /**
@@ -221,9 +235,10 @@ export function authModeLabel(mode: string | null | undefined): string | null {
  */
 export function channelDetails(
   channel: Pick<PushChannelView, "kind" | "url" | "auth_mode" | "topics">,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): string {
   if (channel.kind === "official") return "";
-  return [channel.url, authModeLabel(channel.auth_mode), channel.topics.join(", ")]
+  return [channel.url, authModeLabel(channel.auth_mode, locale), channel.topics.join(", ")]
     .filter((part) => part)
     .join("\u00a0· ");
 }
@@ -244,14 +259,16 @@ export function quotaPercent(quota: Pick<PushQuota, "limit" | "used">): number |
  * 额度读数：「今天已用 132 / 5000 条」，用完时直说用完了。官方通道还没推送过时
  * 只有云端给的上限（「每天最多 5000 条」）；两样都没有返回 null，整块不显示。
  */
-export function quotaLabel(quota: Pick<PushQuota, "limit" | "used">): string | null {
+export function quotaLabel(quota: Pick<PushQuota, "limit" | "used">,
+  locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
   const { limit, used } = quota;
+  const t = appTranslator(locale);
   if (limit != null && limit > 0) {
-    if (used == null) return `每天最多 ${limit} 条`;
-    if (used >= limit) return `今天的 ${limit} 条已用完`;
-    return `今天已用 ${used} / ${limit} 条`;
+    if (used == null) return t("settings.pushChannels.quotaLimit", { limit });
+    if (used >= limit) return t("settings.pushChannels.quotaExhausted", { limit });
+    return t("settings.pushChannels.quotaUsedLimit", { used, limit });
   }
-  return used != null ? `今天已用 ${used} 条` : null;
+  return used != null ? t("settings.pushChannels.quotaUsed", { used }) : null;
 }
 
 /** 剩不到 5% 时实例只发提醒类通知（§3），额度条转黄提示；之前不占状态色。 */
@@ -262,8 +279,8 @@ export function quotaTone(quota: Pick<PushQuota, "limit" | "used">): Tone | null
 }
 
 /** 通道行上的设备数：「3 台设备」；0 台不写（没有就不提）。 */
-export function channelDeviceCount(count: number): string | null {
-  return count > 0 ? `${count} 台设备` : null;
+export function channelDeviceCount(count: number, locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
+  return count > 0 ? appTranslator(locale)("settings.pushChannels.deviceCount", { count }) : null;
 }
 
 /**
@@ -271,11 +288,12 @@ export function channelDeviceCount(count: number): string | null {
  * 「有 1 台设备用的是自己打包的 App（com.friend.mc），没有能推送它的通道」。
  * 没有缺口返回 null，页面什么都不提示。
  */
-export function uncoveredSummary(uncovered: PushUncoveredApp[]): string | null {
+export function uncoveredSummary(uncovered: PushUncoveredApp[],
+  locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
   if (uncovered.length === 0) return null;
   const devices = uncovered.reduce((sum, entry) => sum + entry.device_count, 0);
-  const topics = uncovered.map((entry) => entry.topic).join("、");
-  return `有 ${devices} 台设备用的是自己打包的 App（${topics}），没有能推送它的通道`;
+  const topics = uncovered.map((entry) => entry.topic).join(locale === "zh-Hans" ? "、" : ", ");
+  return appTranslator(locale)("settings.pushChannels.uncovered", { count: devices, topics });
 }
 
 /* —— 添加自建中继 —— */
@@ -301,14 +319,15 @@ export function relayAddBlocker(input: {
   url: string;
   token: string;
   name: string;
-}): string | null {
+}, locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
   const { probe } = input;
-  if (!probe || input.probedUrl !== input.url.trim()) return "先检测中继地址";
-  if (!probe.reachable) return "中继连不上，检查地址后重新检测";
+  const t = appTranslator(locale);
+  if (!probe || input.probedUrl !== input.url.trim()) return t("settings.pushChannels.checkFirst");
+  if (!probe.reachable) return t("settings.pushChannels.checkUnreachable");
   if (probe.error?.trim()) return probe.error.trim();
-  if (probe.auth_mode === "issuer") return "这个中继需要签发方的令牌，暂不支持在这里添加";
-  if (relayNeedsToken(probe.auth_mode) && !input.token.trim()) return "填写中继的令牌";
-  if (!input.name.trim()) return "给中继起个名字";
+  if (probe.auth_mode === "issuer") return t("settings.pushChannels.issuerBlocker");
+  if (relayNeedsToken(probe.auth_mode) && !input.token.trim()) return t("settings.pushChannels.tokenRequired");
+  if (!input.name.trim()) return t("settings.pushChannels.nameRequired");
   return null;
 }
 
@@ -324,14 +343,15 @@ export function relayNameFromUrl(url: string): string {
 /* —— 我的通知 —— */
 
 /** 事件按 group 分组，组和组内顺序都照后端给的顺序。 */
-export function groupEvents<T extends { group: string }>(
+export function groupEvents<T extends { group: string; group_id?: string | null }>(
   events: T[],
-): { group: string; items: T[] }[] {
-  const groups: { group: string; items: T[] }[] = [];
+): { group: string; id?: string; items: T[] }[] {
+  const groups: { group: string; id?: string; items: T[] }[] = [];
   for (const event of events) {
-    const existing = groups.find((g) => g.group === event.group);
+    const id = event.group_id ?? event.group;
+    const existing = groups.find((g) => (g.id ?? g.group) === id);
     if (existing) existing.items.push(event);
-    else groups.push({ group: event.group, items: [event] });
+    else groups.push({ group: event.group, items: [event], ...(event.group_id != null ? { id } : {}) });
   }
   return groups;
 }
@@ -366,16 +386,18 @@ export function toggleLibrary(
 
 export function myDeviceTone(status: MyDeviceStatus | string): Tone {
   if (status === "ok") return "ok";
-  if (status === "no_channel" || status === "permission_denied") return "warn";
+  if (status === "no_channel" || status === "permission_denied" || status === "unsupported_build")
+    return "warn";
   if (status === "bad_token") return "danger";
   return "neutral";
 }
 
-const DEVICE_PUSH_FALLBACK: Record<string, string> = {
-  no_channel: "这个版本的 App 没有能用的推送通道",
-  permission_denied: "系统通知已关闭，在这台设备的设置里打开",
-  bad_token: "推送令牌失效了，打开一次 MovieClaw App 会重新登记",
-  not_registered: "还没有登记推送，用 MovieClaw App 登录后会自动登记",
+const DEVICE_PUSH_FALLBACK: Record<string, AppMessageKey> = {
+  unsupported_build: "settings.devices.push.unsupportedBuild",
+  no_channel: "settings.devices.push.noChannel",
+  permission_denied: "settings.devices.push.permissionDenied",
+  bad_token: "settings.devices.push.badToken",
+  not_registered: "settings.devices.push.notRegistered",
 };
 
 /**
@@ -384,23 +406,32 @@ const DEVICE_PUSH_FALLBACK: Record<string, string> = {
  */
 export function devicePushNote(
   push: DevicePushState | null | undefined,
+  locale: AppLocale = requestLocale() ?? "zh-Hans",
 ): { tone: Tone; text: string } | null {
   if (!push || push.status === "ok") return null;
-  const text = push.status_text?.trim() || DEVICE_PUSH_FALLBACK[push.status] || push.status;
+  const text = push.status_text?.trim() || (Object.hasOwn(DEVICE_PUSH_FALLBACK, push.status) ? appTranslator(locale)(DEVICE_PUSH_FALLBACK[push.status]) : null) || push.status;
   return { tone: myDeviceTone(push.status), text };
 }
 
 /** 「通知」页顶部提示里的一行：「iPad：系统通知已关闭，在这台设备的设置里打开」。 */
-export function attentionLine(item: Pick<MyPushAttention, "device_name" | "status" | "status_text">): string {
-  const reason = item.status_text?.trim() || DEVICE_PUSH_FALLBACK[item.status] || item.status;
-  return `${item.device_name}：${reason}`;
+export function attentionLine(item: Pick<MyPushAttention, "device_name" | "status" | "status_text">,
+  locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
+  const reason = item.status_text?.trim() || (Object.hasOwn(DEVICE_PUSH_FALLBACK, item.status) ? t(DEVICE_PUSH_FALLBACK[item.status]) : null) || item.status;
+  return t("settings.notificationPreferences.reasonLine", { name: item.device_name, reason });
 }
 
 /** 测试按钮旁的说明：发给几台；一台都没有时告诉人设备从哪来。 */
-export function testTargetHint(readyDevices: number): string {
-  return readyDevices > 0
-    ? `发给你的 ${readyDevices} 台设备`
-    : "还没有能收到通知的设备：用 MovieClaw App 登录后会出现";
+export function testTargetHint(readyDevices: number, imAccounts = 0,
+  locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
+  const targets = [
+    readyDevices > 0 ? t("settings.notificationPreferences.devices", { count: readyDevices }) : "",
+    imAccounts > 0 ? t("settings.notificationPreferences.imAccounts", { count: imAccounts }) : "",
+  ].filter(Boolean);
+  return targets.length > 0
+    ? t("settings.notificationPreferences.testTargets", { targets: locale === "zh-Hans" ? targets.join("和 ") : formatList(targets, locale) })
+    : t("settings.notificationPreferences.noTargetsHint");
 }
 
 /**
@@ -408,24 +439,30 @@ export function testTargetHint(readyDevices: number): string {
  * 别的结果（包括「通道暂时不可用，稍后自动重试」这类已排队的）都把服务端
  * 的说明带上——sent 怎么算以服务端为准。
  */
-export function summarizePushTest(result: PushTestResult): {
+export function summarizePushTest(result: PushTestResult, locale: AppLocale = requestLocale() ?? "zh-Hans"): {
   tone: "success" | "error";
   message: string;
 } {
+  const t = appTranslator(locale);
   const notes = result.results
     .filter((r) => r.result !== "ok")
-    .map((r) => `${r.device_name}：${r.message?.trim() || "没有发出去"}`)
-    .join("；");
+    .map((r) => t("settings.notificationPreferences.reasonLine", { name: r.device_name, reason: r.message?.trim() || t("settings.notificationPreferences.notSent") }))
+    .join(locale === "zh-Hans" ? "；" : "; ");
   if (result.sent > 0) {
+    // IM 也是通知渠道，回执里单说（device_id 为 im），不算进「台设备」
+    const im = result.results.some((r) => r.device_id === "im" && r.result === "ok");
+    const devices = result.sent - (im ? 1 : 0);
+    const targets = [devices > 0 ? t("settings.notificationPreferences.devices", { count: devices }) : "", im ? "IM" : ""].filter(Boolean);
+    const target = locale === "zh-Hans" ? targets.join("和 ") : formatList(targets, locale);
     return {
       tone: "success",
       message: notes
-        ? `测试通知已发给 ${result.sent} 台设备。${notes}`
-        : `测试通知已发给 ${result.sent} 台设备，看看手机吧`,
+        ? t("settings.notificationPreferences.partialReceipt", { target, notes })
+        : t("settings.notificationPreferences.sentReceipt", { target, hint: devices > 0 ? t("settings.notificationPreferences.checkPhone") : t("settings.notificationPreferences.checkIm") }),
     };
   }
   return {
     tone: "error",
-    message: notes ? `测试通知没有发出去。${notes}` : "没有能收通知的设备",
+    message: notes ? t("settings.notificationPreferences.failedReceipt", { notes }) : t("settings.notificationPreferences.noDevices"),
   };
 }

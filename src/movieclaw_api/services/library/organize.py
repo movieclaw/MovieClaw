@@ -63,6 +63,7 @@ from pathlib import Path
 from sqlmodel import select
 
 from movieclaw_api.exceptions import BadRequestException
+from movieclaw_api.i18n.stored import localize_fields, stored_fields
 from movieclaw_api.services import jobs
 from movieclaw_api.services.library.config import sanitize_folder_name
 from movieclaw_api.services.library.fsops import rename_no_replace
@@ -170,6 +171,13 @@ class SkipEntry:
 
     file_path: str
     reason: str
+    reason_key: str | None = None
+    reason_params: dict = field(default_factory=dict)
+
+    @classmethod
+    def from_key(cls, file_path: str, key: str) -> SkipEntry:
+        fields = stored_fields(key)
+        return cls(file_path, fields["message"], key)
 
 
 @dataclass
@@ -193,7 +201,7 @@ async def build_organize_plan(session, library: Library) -> OrganizePlan:
     assert library.id is not None
     if not profile_of(library).naming:
         raise BadRequestException(
-            f"「{library.name}」是本地内容库，文件按原名保存，没有可套用的规范命名"
+            message_key="errors.library.localOrganizeUnsupported", params={"name": library.name}
         )
     result = await session.execute(
         select(LibraryFile, MediaItem)
@@ -230,23 +238,23 @@ def _build_plan_sync(
             continue  # 缺失文件不计入总数也不展示——它不在磁盘上，无从整理
         plan.total += 1
         src = Path(row.file_path)
+        if not row.local_bytes:
+            # 只在网盘上（cloud-storage.md §10）：本地没有可改名的文件，网盘上的保持原名与目录
+            plan.skips.append(SkipEntry.from_key(row.file_path, "library.organize.cloudOnly"))
+            continue
         if item is None or item.source != MediaSource.TMDB:
             # 临时本地身份的文件（识别失败、按文件名展示）没有可靠的作品名可套模板
-            plan.skips.append(SkipEntry(row.file_path, "尚未识别身份，请先在「待识别」里认领"))
+            plan.skips.append(SkipEntry.from_key(row.file_path, "library.organize.unidentified"))
             continue
         root = _root_of(roots, row.file_path)
         if root is None:
-            plan.skips.append(
-                SkipEntry(row.file_path, "不在库的任何根路径下（根路径可能已变更），请重新扫描")
-            )
+            plan.skips.append(SkipEntry.from_key(row.file_path, "library.organize.outsideRoots"))
             continue
         if src.is_dir():
-            plan.skips.append(SkipEntry(row.file_path, "原盘目录（BDMV/VIDEO_TS）整体保持原结构"))
+            plan.skips.append(SkipEntry.from_key(row.file_path, "library.organize.discDirectory"))
             continue
         if kind is MediaKind.TV and row.episode_number == 0:
-            plan.skips.append(
-                SkipEntry(row.file_path, "解析不出集号，无法生成规范文件名（可在待识别里修正季集）")
-            )
+            plan.skips.append(SkipEntry.from_key(row.file_path, "library.organize.unknownEpisode"))
             continue
         # 目录名与文件名各走各的模板（默认两者相同，即模板化之前的行为）
         entry_dir = entry_dir_name_of(item, library=library)
@@ -334,7 +342,7 @@ def _build_plan_sync(
                 continue
             if action.target_path in taken or Path(action.target_path).exists():
                 plan.skips.append(
-                    SkipEntry(action.source_path, "目标路径已存在同名文件，跳过以免覆盖")
+                    SkipEntry.from_key(action.source_path, "library.organize.targetExists")
                 )
                 continue
             taken.add(action.target_path)
@@ -479,10 +487,36 @@ class OrganizeSummary:
     skipped: int = 0  # 计划阶段跳过（原因见预览）
     removed_dirs: int = 0  # 搬空后清理掉的目录数
     errors: list[str] = field(default_factory=list)
+    error_messages: list[dict] = field(default_factory=list)
+
+    def add_error(self, message: dict) -> None:
+        self.errors.append(message["message"])
+        self.error_messages.append(message)
+
+
+def render_organize_errors(errors: list[str], error_messages: list[dict]) -> list[str]:
+    """Render current and persisted conclusions without mutating their Chinese rollback values."""
+    if error_messages:
+        return [item["message"] for item in localize_fields(error_messages)]
+    return [item["message"] for item in localize_fields([{"message": e} for e in errors])]
 
 
 class _MoveError(Exception):
-    """单个文件改名失败。message 是完整中文句子，直接进 errors。"""
+    """A move failure with a Chinese rollback value and an optional message reference."""
+
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        message_key: str | None = None,
+        message_params: dict | None = None,
+    ):
+        self.fields = (
+            stored_fields(message_key, **(message_params or {}))
+            if message_key
+            else {"message": message}
+        )
+        super().__init__(self.fields["message"])
 
 
 async def organize_library(
@@ -501,13 +535,13 @@ async def organize_library(
 
     summary = OrganizeSummary(library_id=library_id)
     if is_organizing(library_id):
-        summary.errors.append("该库已有整理在进行中")
+        summary.add_error(stored_fields("library.organize.alreadyRunning"))
         return summary
     if is_scanning(library_id):
-        summary.errors.append("该库正在扫描中，请等待扫描完成后再整理")
+        summary.add_error(stored_fields("library.organize.scanning"))
         return summary
     if is_transferring(library_id):
-        summary.errors.append("该库正在转移条目，请等待转移完成后再整理")
+        summary.add_error(stored_fields("library.organize.transferring"))
         return summary
     _organize_tasks.try_start(library_id, (0, 0))
     try:
@@ -518,7 +552,7 @@ async def organize_library(
         logger.exception("媒体库 #%s 整理时发生未知错误", library_id)
         if raise_unexpected:
             raise
-        summary.errors.append("整理中断：发生未知错误（详见后端日志）")
+        summary.add_error(stored_fields("library.organize.unexpected"))
         return summary
     finally:
         _organize_tasks.finish(library_id, result=(utcnow(), summary))
@@ -535,7 +569,7 @@ async def _organize(
     async with db.session() as session:
         library = await session.get(Library, library_id)
         if library is None:
-            summary.errors.append("媒体库不存在（可能已被删除）")
+            summary.add_error(stored_fields("library.organize.libraryMissing"))
             return summary
         plan = plan or await build_organize_plan(session, library)
         summary.already_ok = plan.already_ok
@@ -548,7 +582,8 @@ async def _organize(
             await context.update_progress(
                 mode="determinate",
                 phase="organizing",
-                message=f"准备整理 {len(plan.renames)} 个文件",
+                message_key="library.organize.preparing",
+                message_params={"count": len(plan.renames)},
                 current=0,
                 total=len(plan.renames),
                 percent=0.0 if plan.renames else 100.0,
@@ -564,7 +599,9 @@ async def _organize(
                 await context.raise_if_cancelled()
             row = await session.get(LibraryFile, action.file_id)
             if row is None:
-                summary.errors.append(f"台账文件已不存在，跳过：{action.source_path}")
+                summary.add_error(
+                    stored_fields("library.organize.ledgerMissing", path=action.source_path)
+                )
                 _organize_tasks.update(library_id, (done, total))
                 continue
             src = Path(action.source_path)
@@ -574,18 +611,24 @@ async def _organize(
             try:
                 if ledger_done:
                     if not await asyncio.to_thread(dst.exists):
-                        raise _MoveError(f"台账路径已被其他操作修改，跳过：{row.file_path}")
+                        raise _MoveError(
+                            message_key="library.organize.ledgerChanged",
+                            message_params={"path": row.file_path},
+                        )
                 elif row.file_path != action.source_path:
-                    raise _MoveError(f"台账路径已被其他操作修改，跳过：{row.file_path}")
+                    raise _MoveError(
+                        message_key="library.organize.ledgerChanged",
+                        message_params={"path": row.file_path},
+                    )
                 else:
                     await asyncio.to_thread(
                         _resolve_and_move,
                         src,
                         dst,
-                        missing_message=f"源与目标都不存在，无法继续整理：{src}",
+                        missing_message=stored_fields("library.organize.bothMissing", path=src),
                     )
             except _MoveError as exc:
-                summary.errors.append(str(exc))
+                summary.add_error(exc.fields)
                 _organize_tasks.update(library_id, (done, total))
                 continue
             # 改名成功立即随迁台账：中途失败不会留下账实不符的批量烂摊子
@@ -608,11 +651,15 @@ async def _organize(
                         _resolve_and_move,
                         sidecar_src,
                         sidecar_dst,
-                        missing_message=f"附属文件已不存在：{sidecar_src}",
+                        missing_message=stored_fields(
+                            "library.organize.sidecarMissing", path=sidecar_src
+                        ),
                     )
                     summary.sidecars_renamed += 1
                 except _MoveError as exc:
-                    summary.errors.append(f"附属文件改名失败：{exc}")
+                    summary.add_error(
+                        stored_fields("library.organize.sidecarFailed", detail=exc.fields)
+                    )
             _organize_tasks.update(library_id, (done, total))
             # 进度持久化按秒节流（最后一个文件必写）：逐文件写会触发
             # “事件 → SSE → 所有任务中心客户端各拉两次列表”的放大链，
@@ -622,7 +669,8 @@ async def _organize(
                 await context.update_progress(
                     mode="determinate",
                     phase="organizing",
-                    message=f"已整理 {done} / {total} 个文件",
+                    message_key="library.organize.filesProgress",
+                    message_params={"current": done, "total": total},
                     current=done,
                     total=total,
                     percent=(done / total * 100) if total else 100.0,
@@ -632,7 +680,9 @@ async def _organize(
         # 条目目录级镜像资产跟着搬：必须在清理空目录之前——它们不搬走，
         # 旧条目目录就永远非空，下面的 rmdir 一个也清不掉
         if plan.entry_assets:
-            moved, asset_errors = await asyncio.to_thread(_move_entry_assets, plan.entry_assets)
+            moved, asset_errors = await asyncio.to_thread(
+                _move_entry_assets, plan.entry_assets, summary.error_messages
+            )
             summary.entry_assets_moved = moved
             summary.errors.extend(asset_errors)
 
@@ -682,7 +732,8 @@ async def enqueue_organize_job(
         actor_id=actor_id,
         origin=origin,
         progress={
-            **jobs.default_progress("等待整理媒体库文件"),
+            **jobs.default_progress(),
+            **stored_fields("library.organize.queued"),
             "total": len(plan.renames),
             "details": {"errors": 0},
         },
@@ -692,7 +743,7 @@ async def enqueue_organize_job(
 def _plan_from_job(value: object) -> OrganizePlan:
     """从版本化 Job 输入恢复计划；字段只接受创建端写入的稳定最小集合。"""
     if not isinstance(value, dict):
-        raise jobs.JobFailed("整理任务定义损坏，请重新预览后发起", code="JOB_INPUT_INVALID")
+        raise jobs.JobFailed(message_key="library.organize.invalidJob", code="JOB_INPUT_INVALID")
     renames = []
     for raw in value.get("renames", []):
         sidecars = [SidecarMove(**item) for item in raw.get("sidecars", [])]
@@ -717,11 +768,11 @@ async def _run_organize_job(
     from movieclaw_api.services.library.transfer import is_transferring
 
     if is_organizing(library_id):
-        raise jobs.JobRetry("媒体库已有整理任务在收尾", delay_seconds=5)
+        raise jobs.JobRetry(message_key="library.organize.finishing", delay_seconds=5)
     if is_scanning(library_id):
-        raise jobs.JobRetry("媒体库正在扫描，整理作业稍后自动继续", delay_seconds=10)
+        raise jobs.JobRetry(message_key="library.organize.scanRetry", delay_seconds=10)
     if is_transferring(library_id):
-        raise jobs.JobRetry("媒体库正在转移条目，整理作业稍后自动继续", delay_seconds=10)
+        raise jobs.JobRetry(message_key="library.organize.transferRetry", delay_seconds=10)
     summary = await organize_library(
         library_id,
         plan=_plan_from_job(input_data.get("plan")),
@@ -732,14 +783,19 @@ async def _run_organize_job(
     # 扫描让它跟上（docs/design/library-duplicate-files.md §9）
     from movieclaw_api.services.library.duplicate_scan import enqueue_after_library_change
 
+    # i18n-ignore: log subject
     await enqueue_after_library_change(f"媒体库 #{library_id}")
-    message = f"整理完成：改名 {summary.renamed} 个文件"
-    if summary.errors:
-        message += f"，{len(summary.errors)} 个问题已跳过"
-    return {"message": message, **asdict(summary)}
+    return {
+        **stored_fields(
+            "library.organize.completed", count=summary.renamed, errors=len(summary.errors)
+        ),
+        **asdict(summary),
+    }
 
 
-def _move_entry_assets(moves: list[EntryAssetMove]) -> tuple[int, list[str]]:
+def _move_entry_assets(
+    moves: list[EntryAssetMove], error_messages: list[dict] | None = None
+) -> tuple[int, list[str]]:
     """搬运条目目录级镜像资产（线程池内运行），返回 (成功数, 中文问题列表)。
 
     **执行前按源目录复核一次**：目录里还留着视频，说明这一组的改名没有真的
@@ -755,6 +811,12 @@ def _move_entry_assets(moves: list[EntryAssetMove]) -> tuple[int, list[str]]:
     """
     moved = 0
     errors: list[str] = []
+
+    def add_error(message: dict) -> None:
+        errors.append(message["message"])
+        if error_messages is not None:
+            error_messages.append(message)
+
     checked: dict[Path, bool] = {}  # 源目录 → 是否可搬（每组只复核一次）
     for move in moves:
         src, dst = Path(move.source_path), Path(move.target_path)
@@ -767,7 +829,7 @@ def _move_entry_assets(moves: list[EntryAssetMove]) -> tuple[int, list[str]]:
             else:
                 movable = not _has_unplanned_video(src.parent, set())
                 if not movable:
-                    errors.append(f"条目目录里仍有视频文件，资产保持原位：{src.parent}")
+                    add_error(stored_fields("library.organize.assetsRemain", path=src.parent))
             checked[src.parent] = movable
         if not movable:
             continue
@@ -779,17 +841,26 @@ def _move_entry_assets(moves: list[EntryAssetMove]) -> tuple[int, list[str]]:
                     src.unlink()
                     moved += 1
                 else:
-                    errors.append(f"条目资产目标已存在且内容不同，保留原文件：{src} → {dst}")
+                    add_error(
+                        stored_fields("library.organize.assetConflict", source=src, target=dst)
+                    )
                 continue
             dst.parent.mkdir(parents=True, exist_ok=True)
             _move_no_clobber(src, dst)
             moved += 1
         except (OSError, _MoveError) as exc:
-            errors.append(f"条目资产搬运失败：{src} → {dst}（{exc}）")
+            add_error(
+                stored_fields(
+                    "library.organize.assetFailed",
+                    source=src,
+                    target=dst,
+                    detail=exc.fields if isinstance(exc, _MoveError) else str(exc),
+                )
+            )
     return moved, errors
 
 
-def _resolve_and_move(src: Path, dst: Path, *, missing_message: str) -> None:
+def _resolve_and_move(src: Path, dst: Path, *, missing_message: dict) -> None:
     """（线程池内运行）看一眼现场，把该做的改名做掉。
 
     exists 判定与改名收进同一次线程跳转：省去逐文件三四次跨线程 stat 的
@@ -808,8 +879,13 @@ def _resolve_and_move(src: Path, dst: Path, *, missing_message: str) -> None:
     if not src_exists and dst_exists:
         return
     if src_exists and dst_exists:
-        raise _MoveError(f"源与目标同时存在，跳过以免覆盖：{src} → {dst}")
-    raise _MoveError(missing_message)
+        raise _MoveError(
+            message_key="library.organize.bothExist", message_params={"source": src, "target": dst}
+        )
+    raise _MoveError(
+        message_key=missing_message["message_key"],
+        message_params={None: missing_message["message_params"]},
+    )
 
 
 def _move_no_clobber(src: Path, dst: Path) -> None:
@@ -820,19 +896,30 @@ def _move_no_clobber(src: Path, dst: Path) -> None:
     覆盖窗口；rename 同时保证极空间等 FUSE 存储的索引能跟上改名。
     """
     if not src.exists():
-        raise _MoveError(f"源文件已不在原位，跳过：{src}")
+        raise _MoveError(message_key="library.organize.sourceMissing", message_params={"path": src})
     try:
         dst.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise _MoveError(f"创建目标目录失败（{exc.strerror}）：{dst.parent}") from exc
+        raise _MoveError(
+            message_key="library.organize.mkdirFailed",
+            message_params={"detail": exc.strerror, "path": dst.parent},
+        ) from exc
     try:
         rename_no_replace(src, dst)
     except FileExistsError as exc:
-        raise _MoveError(f"目标路径已被占用，跳过以免覆盖：{dst}") from exc
+        raise _MoveError(
+            message_key="library.organize.targetOccupied", message_params={"path": dst}
+        ) from exc
     except OSError as exc:
         if exc.errno == errno.EXDEV:
-            raise _MoveError(f"目标与源不在同一文件系统，无法改名归位：{src} → {dst}") from exc
-        raise _MoveError(f"改名失败（{exc.strerror}）：{src} → {dst}") from exc
+            raise _MoveError(
+                message_key="library.organize.crossDevice",
+                message_params={"source": src, "target": dst},
+            ) from exc
+        raise _MoveError(
+            message_key="library.organize.renameFailed",
+            message_params={"detail": exc.strerror, "source": src, "target": dst},
+        ) from exc
 
 
 def _prune_emptied_dirs(dirty_parents: set[Path], roots: list[str]) -> int:

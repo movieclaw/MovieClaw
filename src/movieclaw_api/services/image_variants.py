@@ -235,7 +235,7 @@ class ImageVariantService:
                 data = await asyncio.to_thread(_render_webp, source_path, sizing.box)
             except (OSError, ValueError, UnidentifiedImageError) as exc:
                 logger.warning("图片派生失败：%s（%s）", source_path, exc)
-                raise UpstreamServiceException("图片缩略图生成失败") from exc
+                raise UpstreamServiceException(message_key="errors.images.thumbnailFailed") from exc
             return data, "image/webp"
 
 

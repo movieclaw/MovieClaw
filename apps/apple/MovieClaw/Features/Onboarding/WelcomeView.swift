@@ -221,9 +221,9 @@ struct WelcomeView: View {
         Button {
             openForm(from: .home)
         } label: {
-            Text(model.server == nil ? "连接服务器" : "登录")
+            Text(model.server == nil ? String(localized: .authServerConnect) : String(localized: .authLoginSubmit))
                 .font(.welcomeSerif(size: 17))
-                .tracking(4)
+                .tracking(AppLanguage.identifier == "zh-Hans" ? 4 : 0.5)
                 .frame(minWidth: 132)
                 .padding(.horizontal, 28)
                 .padding(.vertical, 4)
@@ -275,9 +275,9 @@ private struct WelcomeMasthead: View {
                 .frame(width: revealed ? 28 : 0, height: 0.5)
                 .animation(.easeInOut(duration: 1.2).delay(revealed ? 1.4 : 0), value: revealed)
 
-            Text("智能影音服务器")
+            Text(String(localized: .authBrandTagline))
                 .font(.welcomeSerif(size: 13))
-                .tracking(8)
+                .tracking(AppLanguage.identifier == "zh-Hans" ? 8 : 0.5)
                 .foregroundStyle(Theme.textMuted)
                 .opacity(revealed ? 1 : 0)
                 .animation(.easeOut(duration: 1.4).delay(revealed ? 1.6 : 0), value: revealed)
@@ -298,18 +298,18 @@ private struct FilmSubtitle: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Text(scene.line)
+            Text(scene.headline)
                 .font(.welcomeSerif(size: 18))
                 .lineSpacing(7)
                 .foregroundStyle(Theme.text)
-            if let original = scene.original {
+            if let original = scene.subline {
                 Text(original)
                     .font(.system(size: 13, weight: .regular, design: .serif))
                     .italic()
                     .lineSpacing(3)
                     .foregroundStyle(Theme.textMuted)
             }
-            Text(verbatim: "——《\(scene.film)》\(scene.year)")
+            Text(verbatim: "—— " + scene.source)
                 .font(.welcomeSerif(size: 11))
                 .tracking(2)
                 .foregroundStyle(Theme.textFaint)
@@ -323,7 +323,7 @@ private struct FilmSubtitle: View {
         .onTapGesture(perform: onNext)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityHint("轻点换一句台词")
+        .accessibilityHint(String(localized: .authBrandNextQuote))
         .accessibilityIdentifier("welcome-quote")
     }
 }

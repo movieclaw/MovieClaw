@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import os
+import stat
+import subprocess
 import sys
 import textwrap
 import time
@@ -20,6 +22,7 @@ from movieclaw_api import hooks
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.plugins.local import PACKAGE
 from movieclaw_api.services import durable_events, plugin_runtime
+from movieclaw_api.services.plugin_isolation import isolation
 
 PLUGIN = """
 import os
@@ -224,6 +227,75 @@ def test_process_plugin_startup_failure_marks_the_entry_failed(tmp_path, monkeyp
         get_settings.cache_clear()
 
 
+QUIET_PLUGIN = """
+import asyncio
+
+from movieclaw_api.plugins.keys import PLUGIN_DATA
+from movieclaw_sdk import plugin
+
+
+@plugin("acme.quiet", title="只跑后台任务", inject=(PLUGIN_DATA,))
+async def apply(ctx) -> None:
+    store = ctx.use(PLUGIN_DATA).scoped(ctx)
+
+    async def tick() -> None:
+        while True:
+            await asyncio.sleep(60)
+
+    async def farewell() -> None:
+        # 释放时还能经网关调宿主服务
+        await store.set("disposed", True)
+
+    ctx.task(tick(), name="tick")
+    ctx.effect(farewell, label="farewell")
+"""
+
+
+def test_plugins_without_exports_do_not_serve_and_dispose_on_sigterm(tmp_path, monkeypatch):
+    """没有导出的插件不起服务；卸载是 SIGTERM，插件的清理照常执行（plugin-ipc-http.md §4.1）。"""
+    from sqlmodel import select
+
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import PluginData
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'quiet.db'}")
+    monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
+    monkeypatch.setenv("SITE_CONFIGS_DIR", str(tmp_path / "site-configs"))
+    monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    get_settings.cache_clear()
+    durable_events.reset_state()
+    (tmp_path / "plugins").mkdir()
+    (tmp_path / "plugins" / "acme_quiet.py").write_text(QUIET_PLUGIN, encoding="utf-8")
+    (tmp_path / "plugins.yaml").write_text(
+        "- id: acme.quiet\n  local: true\n  module: acme_quiet\n  runtime: process\n",
+        encoding="utf-8",
+    )
+    from movieclaw_api.app import create_app
+
+    app = create_app()
+
+    async def disposed() -> list:
+        async with get_database().session() as session:
+            rows = await session.execute(
+                select(PluginData).where(PluginData.entry_id == "acme.quiet")
+            )
+            return [(row.key, row.value) for row in rows.scalars()]
+
+    try:
+        with TestClient(app) as client:
+            assert app.state.kernel.fiber("acme.quiet").state.value == "active"
+            session = plugin_runtime.sessions["acme.quiet"]
+            assert session.online and not session.serving
+            proc = session._proc
+            client.portal.call(app.state.kernel.unmount, "acme.quiet")
+            assert proc.returncode == 0  # 体面退出，不是被强杀
+            assert client.portal.call(disposed) == [("disposed", True)]
+    finally:
+        durable_events.reset_state()
+        get_settings.cache_clear()
+
+
 def test_crash_loop_stops_restarting_and_reports(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'loop.db'}")
     monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
@@ -400,7 +472,7 @@ ROUTES_PLUGIN = """
 import os
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, Field
 
 from movieclaw_api.plugins.keys import PLUGIN_ROUTES
@@ -419,6 +491,14 @@ async def apply(ctx) -> None:
     @admin.post("/echo/{n}", operation_id="plugins.acme.web.echo")
     async def echo(n: int, body: dict) -> dict:
         return {"n": n, "body": body, "pid": os.getpid()}
+
+    @admin.get("/locale", operation_id="plugins.acme.web.locale")
+    async def locale(request: Request) -> dict:
+        return {"locale": ctx.locale, "header": request.headers.get("accept-language")}
+
+    @admin.get("/headers", operation_id="plugins.acme.web.headers")
+    async def headers(request: Request) -> list[str]:
+        return sorted(request.headers.keys())
 
     @admin.get("/weather", operation_id="plugins.acme.web.weather")
     async def weather(
@@ -473,6 +553,44 @@ def test_process_plugin_routes_are_proxied_with_host_auth(tmp_path, monkeypatch)
             reply = client.post("/api/v1/plugins/acme.web/echo/3", json={"a": 1})
             assert reply.status_code == 200, reply.text
             assert reply.json() == {"n": 3, "body": {"a": 1}, "pid": session.pid}
+            # 用户的登录凭据不转给插件进程（宿主已验过身份）；别的请求头照常
+            seen = client.get(
+                "/api/v1/plugins/acme.web/headers",
+                headers={
+                    "Authorization": "Bearer mcp_secret",
+                    "Cookie": "movieclaw_session=secret",
+                    "X-Trace": "1",
+                },
+            ).json()
+            assert "authorization" not in seen and "cookie" not in seen
+            assert "x-trace" in seen
+            for language in ("en", "zh-Hans", "en"):
+                response = client.get(
+                    "/api/v1/plugins/acme.web/locale",
+                    headers={
+                        "Accept-Language": language,
+                    },
+                )
+                assert response.json() == {"locale": language, "header": language}
+            # The normalized cookie selection takes precedence over the raw language header.
+            response = client.get(
+                "/api/v1/plugins/acme.web/locale",
+                headers={
+                    "Cookie": "mc_locale=en",
+                    "Accept-Language": "zh-CN",
+                },
+            )
+            assert response.json() == {"locale": "en", "header": "en"}
+            # 路由套接字由宿主绑定：文件 0600、目录 0700，别的插件进程连不上也删不掉
+            assert stat.S_IMODE(os.stat(session.socket).st_mode) == 0o600
+            assert stat.S_IMODE(os.stat(os.path.dirname(session.socket)).st_mode) == 0o700
+            if isolation().enabled:
+                assert other_uid_cannot_connect(session.socket, isolation().uid)
+            # 反代复用连接池：不再每个请求新建客户端
+            pooled = session.http()
+            for _ in range(3):
+                assert client.post("/api/v1/plugins/acme.web/echo/1", json={}).status_code == 200
+            assert session.http() is pooled
             assert client.get(
                 "/api/v1/plugins/acme.web/weather", params={"place": "杭州", "days": 5}
             ).json() == {"place": "杭州", "days": 5}
@@ -500,9 +618,27 @@ def test_process_plugin_routes_are_proxied_with_host_auth(tmp_path, monkeypatch)
             assert client.post("/api/v1/plugins/acme.web/echo/1", json={}).json()["pid"] == (
                 session.pid
             )
+            assert session.http() is not pooled  # 连到旧进程的连接随重启丢弃
     finally:
         durable_events.reset_state()
         get_settings.cache_clear()
+
+
+def other_uid_cannot_connect(path: str, uid: int) -> bool:
+    """以插件进程的用户身份连路由套接字：应当被内核拒绝（宿主以 root 运行、开启隔离时）。"""
+    probe = textwrap.dedent(
+        f"""
+        import os, socket, sys
+        os.setgroups([]); os.setgid({uid}); os.setuid({uid})
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            s.connect({path!r})
+        except PermissionError:
+            sys.exit(0)
+        sys.exit(1)
+        """
+    )
+    return subprocess.run([sys.executable, "-c", probe], check=False).returncode == 0
 
 
 def test_diagnostics_tell_process_plugins_apart(app_client) -> None:

@@ -19,11 +19,11 @@ nonisolated enum PushActions {
         let item = UNNotificationCategory(
             identifier: itemCategory,
             actions: [
-                UNNotificationAction(identifier: play, title: "播放", options: [.foreground],
+                UNNotificationAction(identifier: play, title: String(localized: .libraryHeroPlay), options: [.foreground],
                                      icon: UNNotificationActionIcon(systemImageName: "play.fill")),
-                UNNotificationAction(identifier: open, title: "查看全部剧集", options: [.foreground],
+                UNNotificationAction(identifier: open, title: String(localized: .pushActionsViewAllEpisodes), options: [.foreground],
                                      icon: UNNotificationActionIcon(systemImageName: "list.bullet")),
-                UNNotificationAction(identifier: mute, title: "这部剧不再提醒", options: [.destructive],
+                UNNotificationAction(identifier: mute, title: String(localized: .pushActionsMuteShow), options: [.destructive],
                                      icon: UNNotificationActionIcon(systemImageName: "bell.slash")),
             ],
             intentIdentifiers: [],
@@ -55,7 +55,7 @@ nonisolated enum PushActions {
         do {
             _ = try await APIClient(server: server, token: token).pushMeMutedAdd(itemId: request.item)
         } catch {
-            log.info("静音失败：\(error.localizedDescription, privacy: .public)")
+            log.info("静音失败：\(error.localizedDescription, privacy: .public)") // i18n-ignore: debug log
         }
     }
 }

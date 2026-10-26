@@ -46,7 +46,7 @@ import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.BuildConfig
 import io.movieclaw.androidtv.LocalGraph
 import io.movieclaw.androidtv.LocalSession
-import io.movieclaw.androidtv.core.network.ServerAddress
+import io.movieclaw.core.network.ServerAddress
 import io.movieclaw.androidtv.core.session.NeedsPasswordException
 import io.movieclaw.androidtv.core.session.SavedAccount
 import io.movieclaw.androidtv.ui.components.McIcons
@@ -75,8 +75,8 @@ import io.movieclaw.androidtv.ui.components.layerFocus
 /**
  * 谁在看（TVWhoIsWatchingView）：本机登录过的全部账号（跨服务器）大头像横排，星空背景，焦点放大，按确认键进入。
  * 放在侧边栏的「账号」页签里：当前账号默认获得焦点（打开时、从下面一行往上回来时都落在它上面）。
- * 选自己回首页；选别人就换一枚令牌（不用密码），主界面整棵重建。返回键交给外壳（展开侧边栏）。
- * 底部一行「关于」「退出登录」——电视上与账号有关的操作都在这一页。
+ * 选自己回首页；选别人就换一枚令牌（不用密码），主界面整棵重建。返回键交给外壳（回首页页签）。
+ * 底部一行「关于」「自动播放预告」开关「检查更新」「退出登录」——电视上与账号有关的操作、仅有的一项设置都在这一页。
  */
 @Composable
 fun AccountsScreen() {
@@ -171,6 +171,19 @@ fun AccountsScreen() {
                     icon = McIcons.Info,
                     style = McType.Callout,
                     modifier = Modifier.focusRequester(aboutFocus),
+                )
+                // 设置只有这一项，就放在这一行（电视上没有单独的设置页）
+                WelcomeButton(
+                    if (graph.autoPreview) "自动播放预告：开" else "自动播放预告：关",
+                    onClick = { graph.saveAutoPreview(!graph.autoPreview) },
+                    icon = McIcons.PlayPauseCircle,
+                    style = McType.Callout,
+                )
+                WelcomeButton(
+                    "检查更新",
+                    onClick = { graph.appUpdate.checkNow(session) },
+                    icon = McIcons.Info,
+                    style = McType.Callout,
                 )
                 WelcomeButton("退出登录", onClick = { confirmingLogout = true }, icon = McIcons.Logout, style = McType.Callout, destructive = true)
             }

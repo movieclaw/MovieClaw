@@ -1,0 +1,6432 @@
+[
+  {
+    "title": "圆桌派",
+    "season": 1,
+    "files": [
+      {
+        "id": 20298,
+        "episode": 1,
+        "duration": 5590.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 5170.0
+        }
+      },
+      {
+        "id": 20299,
+        "episode": 2,
+        "duration": 4433.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 4013.0
+        }
+      },
+      {
+        "id": 20276,
+        "episode": 3,
+        "duration": 1848.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1428.0
+        }
+      },
+      {
+        "id": 20277,
+        "episode": 4,
+        "duration": 2408.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1988.0
+        }
+      },
+      {
+        "id": 20278,
+        "episode": 5,
+        "duration": 1993.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1573.0
+        }
+      },
+      {
+        "id": 20279,
+        "episode": 6,
+        "duration": 2760.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2340.0
+        }
+      },
+      {
+        "id": 20280,
+        "episode": 7,
+        "duration": 2330.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1910.0
+        }
+      },
+      {
+        "id": 20281,
+        "episode": 8,
+        "duration": 2183.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1763.0
+        }
+      },
+      {
+        "id": 20282,
+        "episode": 9,
+        "duration": 1964.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1544.0
+        }
+      },
+      {
+        "id": 20283,
+        "episode": 10,
+        "duration": 2624.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2204.0
+        }
+      },
+      {
+        "id": 20284,
+        "episode": 11,
+        "duration": 2615.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2195.0
+        }
+      },
+      {
+        "id": 20285,
+        "episode": 12,
+        "duration": 2299.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1879.0
+        }
+      },
+      {
+        "id": 20286,
+        "episode": 13,
+        "duration": 2723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2303.0
+        }
+      },
+      {
+        "id": 20287,
+        "episode": 14,
+        "duration": 2374.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1954.0
+        }
+      },
+      {
+        "id": 20288,
+        "episode": 15,
+        "duration": 2427.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2007.0
+        }
+      },
+      {
+        "id": 20289,
+        "episode": 16,
+        "duration": 2664.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2244.0
+        }
+      },
+      {
+        "id": 20290,
+        "episode": 17,
+        "duration": 2369.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1949.0
+        }
+      },
+      {
+        "id": 20291,
+        "episode": 18,
+        "duration": 2596.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2176.0
+        }
+      },
+      {
+        "id": 20292,
+        "episode": 19,
+        "duration": 2622.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2202.0
+        }
+      },
+      {
+        "id": 20293,
+        "episode": 20,
+        "duration": 2319.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1899.0
+        }
+      },
+      {
+        "id": 20294,
+        "episode": 21,
+        "duration": 2262.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1842.0
+        }
+      },
+      {
+        "id": 20295,
+        "episode": 22,
+        "duration": 2196.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1776.0
+        }
+      },
+      {
+        "id": 20296,
+        "episode": 23,
+        "duration": 2918.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2498.0
+        }
+      },
+      {
+        "id": 20297,
+        "episode": 24,
+        "duration": 2633.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2213.0
+        }
+      }
+    ],
+    "expected": {
+      "full": {
+        "20298": [
+          {
+            "type": "intro",
+            "start_ms": 6687,
+            "end_ms": 36657,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 5531241,
+            "end_ms": 5580900,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "20299": [
+          {
+            "type": "intro",
+            "start_ms": 6687,
+            "end_ms": 36904,
+            "support": 12,
+            "to_end": false
+          }
+        ],
+        "20276": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 68360,
+            "support": 13,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1812708,
+            "end_ms": 1837228,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "20277": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 38266,
+            "support": 10,
+            "to_end": false
+          }
+        ],
+        "20278": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 66130,
+            "support": 13,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1961981,
+            "end_ms": 1986996,
+            "support": 10,
+            "to_end": false
+          }
+        ],
+        "20279": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 65635,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2724399,
+            "end_ms": 2746132,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "20280": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 66130,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2279414,
+            "end_ms": 2324492,
+            "support": 12,
+            "to_end": false
+          }
+        ],
+        "20281": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 64521,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2159845,
+            "end_ms": 2175386,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "20282": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 66254,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1927903,
+            "end_ms": 1951990,
+            "support": 8,
+            "to_end": false
+          }
+        ],
+        "20283": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 64892,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2586169,
+            "end_ms": 2617129,
+            "support": 8,
+            "to_end": false
+          }
+        ],
+        "20284": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 64892,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2588191,
+            "end_ms": 2609244,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "20285": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 66688,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2266866,
+            "end_ms": 2293492,
+            "support": 9,
+            "to_end": false
+          }
+        ],
+        "20286": [
+          {
+            "type": "intro",
+            "start_ms": 3963,
+            "end_ms": 61920,
+            "support": 8,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2657925,
+            "end_ms": 2715015,
+            "support": 12,
+            "to_end": false
+          }
+        ],
+        "20287": [
+          {
+            "type": "intro",
+            "start_ms": 4582,
+            "end_ms": 28855,
+            "support": 21,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2349544,
+            "end_ms": 2369482,
+            "support": 10,
+            "to_end": true
+          }
+        ],
+        "20288": [
+          {
+            "type": "intro",
+            "start_ms": 4582,
+            "end_ms": 28855,
+            "support": 20,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2390779,
+            "end_ms": 2420749,
+            "support": 16,
+            "to_end": false
+          }
+        ],
+        "20289": [
+          {
+            "type": "intro",
+            "start_ms": 681,
+            "end_ms": 23406,
+            "support": 19,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2640349,
+            "end_ms": 2659978,
+            "support": 6,
+            "to_end": true
+          }
+        ],
+        "20290": [
+          {
+            "type": "intro",
+            "start_ms": 619,
+            "end_ms": 22415,
+            "support": 19,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2333151,
+            "end_ms": 2352098,
+            "support": 10,
+            "to_end": false
+          }
+        ],
+        "20291": [
+          {
+            "type": "intro",
+            "start_ms": 867,
+            "end_ms": 22787,
+            "support": 18,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2565228,
+            "end_ms": 2589934,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "20292": [
+          {
+            "type": "intro",
+            "start_ms": 743,
+            "end_ms": 24149,
+            "support": 17,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2581012,
+            "end_ms": 2605594,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "20293": [
+          {
+            "type": "intro",
+            "start_ms": 557,
+            "end_ms": 26254,
+            "support": 16,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2295659,
+            "end_ms": 2314111,
+            "support": 3,
+            "to_end": true
+          }
+        ],
+        "20294": [
+          {
+            "type": "intro",
+            "start_ms": 372,
+            "end_ms": 26502,
+            "support": 15,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2226399,
+            "end_ms": 2248071,
+            "support": 8,
+            "to_end": false
+          }
+        ],
+        "20295": [
+          {
+            "type": "intro",
+            "start_ms": 867,
+            "end_ms": 26192,
+            "support": 14,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2169439,
+            "end_ms": 2192349,
+            "support": 12,
+            "to_end": true
+          }
+        ],
+        "20296": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 25759,
+            "support": 13,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2893606,
+            "end_ms": 2914225,
+            "support": 10,
+            "to_end": true
+          }
+        ],
+        "20297": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 25511,
+            "support": 12,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2587306,
+            "end_ms": 2624767,
+            "support": 5,
+            "to_end": false
+          }
+        ]
+      },
+      "first3": {
+        "20298": [
+          {
+            "type": "intro",
+            "start_ms": 3344,
+            "end_ms": 38514,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "20299": [
+          {
+            "type": "intro",
+            "start_ms": 3406,
+            "end_ms": 38452,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "20276": [
+          {
+            "type": "intro",
+            "start_ms": 40805,
+            "end_ms": 72508,
+            "support": 2,
+            "to_end": false
+          }
+        ]
+      },
+      "first6": {
+        "20298": [
+          {
+            "type": "intro",
+            "start_ms": 6687,
+            "end_ms": 38514,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "20299": [
+          {
+            "type": "intro",
+            "start_ms": 6687,
+            "end_ms": 38390,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "20276": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 72570,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1812646,
+            "end_ms": 1841377,
+            "support": 3,
+            "to_end": false
+          }
+        ],
+        "20277": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 38143,
+            "support": 3,
+            "to_end": false
+          }
+        ],
+        "20278": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 68360,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "20279": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 70960,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2724213,
+            "end_ms": 2743780,
+            "support": 3,
+            "to_end": false
+          }
+        ]
+      },
+      "alternating": {
+        "20298": [
+          {
+            "type": "intro",
+            "start_ms": 6687,
+            "end_ms": 33189,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 5525049,
+            "end_ms": 5575204,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "20276": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 67369,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1812770,
+            "end_ms": 1840758,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "20278": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 66130,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1961981,
+            "end_ms": 1986996,
+            "support": 8,
+            "to_end": false
+          }
+        ],
+        "20280": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 66130,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2279104,
+            "end_ms": 2310064,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "20282": [
+          {
+            "type": "intro",
+            "start_ms": 248,
+            "end_ms": 65697,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1929513,
+            "end_ms": 1951680,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "20284": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 64892,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2588191,
+            "end_ms": 2610730,
+            "support": 3,
+            "to_end": true
+          }
+        ],
+        "20286": [
+          {
+            "type": "intro",
+            "start_ms": 3963,
+            "end_ms": 61920,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2662135,
+            "end_ms": 2716006,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "20288": [
+          {
+            "type": "intro",
+            "start_ms": 4582,
+            "end_ms": 30217,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2392389,
+            "end_ms": 2412451,
+            "support": 9,
+            "to_end": false
+          }
+        ],
+        "20290": [
+          {
+            "type": "intro",
+            "start_ms": 743,
+            "end_ms": 22415,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2333275,
+            "end_ms": 2355876,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "20292": [
+          {
+            "type": "intro",
+            "start_ms": 867,
+            "end_ms": 24149,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2579278,
+            "end_ms": 2610671,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "20294": [
+          {
+            "type": "intro",
+            "start_ms": 867,
+            "end_ms": 26873,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2226399,
+            "end_ms": 2256492,
+            "support": 9,
+            "to_end": false
+          }
+        ],
+        "20296": [
+          {
+            "type": "intro",
+            "start_ms": 495,
+            "end_ms": 26626,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2893420,
+            "end_ms": 2914225,
+            "support": 7,
+            "to_end": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "title": "黑暗荣耀",
+    "season": 1,
+    "files": [
+      {
+        "id": 12861,
+        "episode": 9,
+        "duration": 3203.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2783.0
+        }
+      },
+      {
+        "id": 12862,
+        "episode": 10,
+        "duration": 3115.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2695.0
+        }
+      },
+      {
+        "id": 12863,
+        "episode": 11,
+        "duration": 3192.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2772.0
+        }
+      },
+      {
+        "id": 12864,
+        "episode": 12,
+        "duration": 3234.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2814.0
+        }
+      },
+      {
+        "id": 12865,
+        "episode": 13,
+        "duration": 3292.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2872.0
+        }
+      },
+      {
+        "id": 12866,
+        "episode": 14,
+        "duration": 3280.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2860.0
+        }
+      },
+      {
+        "id": 12867,
+        "episode": 15,
+        "duration": 3638.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3218.0
+        }
+      },
+      {
+        "id": 12868,
+        "episode": 16,
+        "duration": 4291.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3871.0
+        }
+      }
+    ],
+    "expected": {
+      "full": {
+        "12861": [
+          {
+            "type": "intro",
+            "start_ms": 248,
+            "end_ms": 65078,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3082692,
+            "end_ms": 3200340,
+            "support": 7,
+            "to_end": true
+          }
+        ],
+        "12862": [
+          {
+            "type": "intro",
+            "start_ms": 248,
+            "end_ms": 65387,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2984785,
+            "end_ms": 3112340,
+            "support": 7,
+            "to_end": true
+          }
+        ],
+        "12863": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 65016,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3051692,
+            "end_ms": 3189340,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "12864": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 65016,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3091215,
+            "end_ms": 3229111,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "12865": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 65140,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3147296,
+            "end_ms": 3273488,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "12866": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 65016,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3138268,
+            "end_ms": 3275854,
+            "support": 7,
+            "to_end": true
+          }
+        ],
+        "12867": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 65016,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3512986,
+            "end_ms": 3635340,
+            "support": 7,
+            "to_end": true
+          }
+        ],
+        "12868": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 64892,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4146791,
+            "end_ms": 4284501,
+            "support": 7,
+            "to_end": false
+          }
+        ]
+      },
+      "first3": {
+        "12861": [
+          {
+            "type": "intro",
+            "start_ms": 372,
+            "end_ms": 65697,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3082692,
+            "end_ms": 3200340,
+            "support": 2,
+            "to_end": true
+          }
+        ],
+        "12862": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 65325,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2984785,
+            "end_ms": 3107448,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "12863": [
+          {
+            "type": "intro",
+            "start_ms": 248,
+            "end_ms": 65202,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3051878,
+            "end_ms": 3174479,
+            "support": 2,
+            "to_end": false
+          }
+        ]
+      },
+      "first6": {
+        "12861": [
+          {
+            "type": "intro",
+            "start_ms": 248,
+            "end_ms": 65140,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3082692,
+            "end_ms": 3200340,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "12862": [
+          {
+            "type": "intro",
+            "start_ms": 248,
+            "end_ms": 65511,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2984785,
+            "end_ms": 3112340,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "12863": [
+          {
+            "type": "intro",
+            "start_ms": 248,
+            "end_ms": 65016,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3051754,
+            "end_ms": 3189340,
+            "support": 3,
+            "to_end": true
+          }
+        ],
+        "12864": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 65016,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3091277,
+            "end_ms": 3229111,
+            "support": 3,
+            "to_end": true
+          }
+        ],
+        "12865": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 65140,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3147296,
+            "end_ms": 3273488,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "12866": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 65140,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3138392,
+            "end_ms": 3275854,
+            "support": 5,
+            "to_end": true
+          }
+        ]
+      },
+      "alternating": {
+        "12861": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 65078,
+            "support": 3,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3082692,
+            "end_ms": 3200340,
+            "support": 3,
+            "to_end": true
+          }
+        ],
+        "12863": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 66192,
+            "support": 3,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3051878,
+            "end_ms": 3173984,
+            "support": 3,
+            "to_end": false
+          }
+        ],
+        "12865": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 65016,
+            "support": 3,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3135903,
+            "end_ms": 3258256,
+            "support": 3,
+            "to_end": false
+          }
+        ],
+        "12867": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 65016,
+            "support": 3,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3513234,
+            "end_ms": 3635340,
+            "support": 3,
+            "to_end": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "title": "人生第二次",
+    "season": 1,
+    "files": [
+      {
+        "id": 23660,
+        "episode": 1,
+        "duration": 4114.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3694.0
+        }
+      },
+      {
+        "id": 23661,
+        "episode": 2,
+        "duration": 4603.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 4183.0
+        }
+      },
+      {
+        "id": 23662,
+        "episode": 3,
+        "duration": 3726.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3306.0
+        }
+      },
+      {
+        "id": 23663,
+        "episode": 4,
+        "duration": 3339.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2919.0
+        }
+      },
+      {
+        "id": 23664,
+        "episode": 5,
+        "duration": 3504.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3084.0
+        }
+      },
+      {
+        "id": 23665,
+        "episode": 6,
+        "duration": 3515.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3095.0
+        }
+      },
+      {
+        "id": 23666,
+        "episode": 7,
+        "duration": 3651.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3231.0
+        }
+      },
+      {
+        "id": 23667,
+        "episode": 8,
+        "duration": 3833.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3413.0
+        }
+      }
+    ],
+    "expected": {
+      "full": {
+        "23660": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 75666,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4052392,
+            "end_ms": 4101928,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "23661": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 74923,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4540402,
+            "end_ms": 4592290,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "23662": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 75295,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3663773,
+            "end_ms": 3712999,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "23663": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 75295,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3276897,
+            "end_ms": 3326061,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "23664": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 74923,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3443383,
+            "end_ms": 3493290,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "23665": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 75047,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3454878,
+            "end_ms": 3503671,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "23666": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 75295,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3589888,
+            "end_ms": 3639424,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "23667": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 75171,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3771640,
+            "end_ms": 3821671,
+            "support": 7,
+            "to_end": false
+          }
+        ]
+      },
+      "first3": {
+        "23660": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 75356,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4051835,
+            "end_ms": 4102300,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "23661": [
+          {
+            "type": "intro",
+            "start_ms": 62,
+            "end_ms": 74861,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4541392,
+            "end_ms": 4592290,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "23662": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 75109,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3662535,
+            "end_ms": 3713557,
+            "support": 2,
+            "to_end": false
+          }
+        ]
+      },
+      "first6": {
+        "23660": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 75295,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4052392,
+            "end_ms": 4101557,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "23661": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 74923,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4541021,
+            "end_ms": 4592290,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "23662": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 75295,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3663773,
+            "end_ms": 3713309,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "23663": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 75171,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3277145,
+            "end_ms": 3327176,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "23664": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 74923,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3443754,
+            "end_ms": 3493414,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "23665": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 75418,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3454631,
+            "end_ms": 3503795,
+            "support": 5,
+            "to_end": false
+          }
+        ]
+      },
+      "alternating": {
+        "23660": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 75666,
+            "support": 3,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4052454,
+            "end_ms": 4106386,
+            "support": 3,
+            "to_end": false
+          }
+        ],
+        "23662": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 75295,
+            "support": 3,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3663154,
+            "end_ms": 3712999,
+            "support": 3,
+            "to_end": false
+          }
+        ],
+        "23664": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 74675,
+            "support": 3,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3443259,
+            "end_ms": 3493290,
+            "support": 3,
+            "to_end": false
+          }
+        ],
+        "23666": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 75295,
+            "support": 3,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3589516,
+            "end_ms": 3639424,
+            "support": 3,
+            "to_end": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "title": "王冠",
+    "season": 3,
+    "files": [
+      {
+        "id": 16282,
+        "episode": 1,
+        "duration": 2937.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2517.0
+        }
+      },
+      {
+        "id": 16283,
+        "episode": 2,
+        "duration": 2935.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2515.0
+        }
+      },
+      {
+        "id": 16284,
+        "episode": 3,
+        "duration": 3397.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2977.0
+        }
+      },
+      {
+        "id": 16286,
+        "episode": 4,
+        "duration": 3686.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3266.0
+        }
+      },
+      {
+        "id": 16287,
+        "episode": 5,
+        "duration": 3533.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3113.0
+        }
+      },
+      {
+        "id": 16290,
+        "episode": 6,
+        "duration": 3440.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3020.0
+        }
+      },
+      {
+        "id": 16291,
+        "episode": 7,
+        "duration": 3482.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3062.0
+        }
+      },
+      {
+        "id": 16292,
+        "episode": 8,
+        "duration": 2902.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2482.0
+        }
+      },
+      {
+        "id": 16293,
+        "episode": 9,
+        "duration": 2909.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2489.0
+        }
+      },
+      {
+        "id": 16294,
+        "episode": 10,
+        "duration": 3636.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3216.0
+        }
+      }
+    ],
+    "expected": {
+      "full": {
+        "16282": [
+          {
+            "type": "intro",
+            "start_ms": 177710,
+            "end_ms": 250156,
+            "support": 9,
+            "to_end": false
+          }
+        ],
+        "16283": [
+          {
+            "type": "intro",
+            "start_ms": 329042,
+            "end_ms": 399631,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "16284": [
+          {
+            "type": "intro",
+            "start_ms": 277401,
+            "end_ms": 346751,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "16286": [
+          {
+            "type": "other",
+            "start_ms": 304770,
+            "end_ms": 327928,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "intro",
+            "start_ms": 332138,
+            "end_ms": 365823,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "16287": [
+          {
+            "type": "intro",
+            "start_ms": 190218,
+            "end_ms": 261673,
+            "support": 9,
+            "to_end": false
+          }
+        ],
+        "16290": [
+          {
+            "type": "intro",
+            "start_ms": 365946,
+            "end_ms": 437774,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "16291": [
+          {
+            "type": "intro",
+            "start_ms": 205574,
+            "end_ms": 269971,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "16292": [
+          {
+            "type": "intro",
+            "start_ms": 394553,
+            "end_ms": 466319,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "16293": [
+          {
+            "type": "intro",
+            "start_ms": 371767,
+            "end_ms": 445452,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "16294": [
+          {
+            "type": "intro",
+            "start_ms": 279630,
+            "end_ms": 349104,
+            "support": 5,
+            "to_end": false
+          }
+        ]
+      },
+      "first3": {
+        "16282": [
+          {
+            "type": "intro",
+            "start_ms": 179506,
+            "end_ms": 252076,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "16283": [
+          {
+            "type": "intro",
+            "start_ms": 330033,
+            "end_ms": 399136,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "16284": [
+          {
+            "type": "other",
+            "start_ms": 277958,
+            "end_ms": 300621,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "intro",
+            "start_ms": 304646,
+            "end_ms": 346627,
+            "support": 2,
+            "to_end": false
+          }
+        ]
+      },
+      "first6": {
+        "16282": [
+          {
+            "type": "intro",
+            "start_ms": 177462,
+            "end_ms": 250156,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "16283": [
+          {
+            "type": "intro",
+            "start_ms": 329166,
+            "end_ms": 397154,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "16284": [
+          {
+            "type": "intro",
+            "start_ms": 278392,
+            "end_ms": 347247,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "16286": [
+          {
+            "type": "intro",
+            "start_ms": 296720,
+            "end_ms": 370157,
+            "support": 3,
+            "to_end": false
+          }
+        ],
+        "16287": [
+          {
+            "type": "intro",
+            "start_ms": 190218,
+            "end_ms": 261673,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "16290": [
+          {
+            "type": "intro",
+            "start_ms": 366937,
+            "end_ms": 437774,
+            "support": 5,
+            "to_end": false
+          }
+        ]
+      },
+      "alternating": {
+        "16282": [
+          {
+            "type": "intro",
+            "start_ms": 184893,
+            "end_ms": 251085,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "16284": [
+          {
+            "type": "other",
+            "start_ms": 278144,
+            "end_ms": 300683,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "intro",
+            "start_ms": 304522,
+            "end_ms": 348237,
+            "support": 3,
+            "to_end": false
+          }
+        ],
+        "16287": [
+          {
+            "type": "intro",
+            "start_ms": 190527,
+            "end_ms": 262416,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "16291": [
+          {
+            "type": "intro",
+            "start_ms": 205574,
+            "end_ms": 269723,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "16293": [
+          {
+            "type": "intro",
+            "start_ms": 371767,
+            "end_ms": 437031,
+            "support": 3,
+            "to_end": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "title": "深夜食堂",
+    "season": 1,
+    "files": [
+      {
+        "id": 16764,
+        "episode": 1,
+        "duration": 1476.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1107.0
+        }
+      },
+      {
+        "id": 16765,
+        "episode": 2,
+        "duration": 1476.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1107.0
+        }
+      },
+      {
+        "id": 16766,
+        "episode": 3,
+        "duration": 1514.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1135.5
+        }
+      },
+      {
+        "id": 16767,
+        "episode": 4,
+        "duration": 1476.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1107.0
+        }
+      },
+      {
+        "id": 16768,
+        "episode": 5,
+        "duration": 1476.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1107.0
+        }
+      },
+      {
+        "id": 16769,
+        "episode": 6,
+        "duration": 1517.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1137.75
+        }
+      },
+      {
+        "id": 16770,
+        "episode": 7,
+        "duration": 1531.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1148.25
+        }
+      },
+      {
+        "id": 16771,
+        "episode": 8,
+        "duration": 1476.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1107.0
+        }
+      },
+      {
+        "id": 16772,
+        "episode": 9,
+        "duration": 1405.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1053.75
+        }
+      },
+      {
+        "id": 16773,
+        "episode": 10,
+        "duration": 1564.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1173.0
+        }
+      }
+    ],
+    "expected": {
+      "full": {
+        "16764": [
+          {
+            "type": "intro",
+            "start_ms": 248,
+            "end_ms": 153314,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1390345,
+            "end_ms": 1473070,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "16765": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 153933,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1390345,
+            "end_ms": 1473318,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "16766": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 64521,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "other",
+            "start_ms": 74552,
+            "end_ms": 100682,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1446462,
+            "end_ms": 1510858,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "16767": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 70093,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "other",
+            "start_ms": 74428,
+            "end_ms": 100867,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1389850,
+            "end_ms": 1473070,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "16768": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 100682,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1389602,
+            "end_ms": 1472451,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "16769": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 153685,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1430693,
+            "end_ms": 1514037,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "16770": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 64892,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "other",
+            "start_ms": 74552,
+            "end_ms": 100310,
+            "support": 8,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1445280,
+            "end_ms": 1528190,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "16771": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 100063,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1409293,
+            "end_ms": 1473070,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "16772": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 153685,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1318643,
+            "end_ms": 1401740,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "16773": [
+          {
+            "type": "intro",
+            "start_ms": 1920,
+            "end_ms": 96967,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1429472,
+            "end_ms": 1513312,
+            "support": 3,
+            "to_end": false
+          }
+        ]
+      },
+      "first3": {
+        "16764": [
+          {
+            "type": "intro",
+            "start_ms": 3715,
+            "end_ms": 68236,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "other",
+            "start_ms": 78267,
+            "end_ms": 104025,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1398457,
+            "end_ms": 1473070,
+            "support": 2,
+            "to_end": true
+          }
+        ],
+        "16765": [
+          {
+            "type": "intro",
+            "start_ms": 3715,
+            "end_ms": 68112,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "other",
+            "start_ms": 78143,
+            "end_ms": 104273,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "other",
+            "start_ms": 128422,
+            "end_ms": 152694,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1398581,
+            "end_ms": 1473318,
+            "support": 2,
+            "to_end": true
+          }
+        ],
+        "16766": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 64459,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "other",
+            "start_ms": 74552,
+            "end_ms": 100496,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1446462,
+            "end_ms": 1510611,
+            "support": 2,
+            "to_end": true
+          }
+        ]
+      },
+      "first6": {
+        "16764": [
+          {
+            "type": "intro",
+            "start_ms": 62,
+            "end_ms": 154180,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1390345,
+            "end_ms": 1473070,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "16765": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 153995,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1390345,
+            "end_ms": 1473318,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "16766": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 64521,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "other",
+            "start_ms": 74552,
+            "end_ms": 100682,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1446462,
+            "end_ms": 1511106,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "16767": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 70093,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "other",
+            "start_ms": 74428,
+            "end_ms": 100867,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1389850,
+            "end_ms": 1473318,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "16768": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 100806,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1389355,
+            "end_ms": 1472946,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "16769": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 154057,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1430631,
+            "end_ms": 1514223,
+            "support": 5,
+            "to_end": true
+          }
+        ]
+      },
+      "alternating": {
+        "16764": [
+          {
+            "type": "intro",
+            "start_ms": 3715,
+            "end_ms": 68236,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "other",
+            "start_ms": 78081,
+            "end_ms": 104025,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "other",
+            "start_ms": 125450,
+            "end_ms": 152447,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1390222,
+            "end_ms": 1473318,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "16766": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 100310,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1446462,
+            "end_ms": 1510982,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "16768": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 100310,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1389602,
+            "end_ms": 1472451,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "16770": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 100310,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1445218,
+            "end_ms": 1528314,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "16772": [
+          {
+            "type": "intro",
+            "start_ms": 3591,
+            "end_ms": 103902,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "other",
+            "start_ms": 128174,
+            "end_ms": 144026,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1318643,
+            "end_ms": 1401616,
+            "support": 4,
+            "to_end": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "title": "铁拳教育",
+    "season": 1,
+    "files": [
+      {
+        "id": 13592,
+        "episode": 1,
+        "duration": 3162.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2742.0
+        }
+      },
+      {
+        "id": 13594,
+        "episode": 2,
+        "duration": 3448.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3028.0
+        }
+      },
+      {
+        "id": 13596,
+        "episode": 3,
+        "duration": 4355.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3935.0
+        }
+      },
+      {
+        "id": 13598,
+        "episode": 4,
+        "duration": 4132.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3712.0
+        }
+      },
+      {
+        "id": 13599,
+        "episode": 5,
+        "duration": 3987.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3567.0
+        }
+      },
+      {
+        "id": 13600,
+        "episode": 6,
+        "duration": 4164.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3744.0
+        }
+      },
+      {
+        "id": 13602,
+        "episode": 7,
+        "duration": 3862.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3442.0
+        }
+      },
+      {
+        "id": 13603,
+        "episode": 8,
+        "duration": 3607.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3187.0
+        }
+      },
+      {
+        "id": 13604,
+        "episode": 9,
+        "duration": 4023.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3603.0
+        }
+      },
+      {
+        "id": 13606,
+        "episode": 10,
+        "duration": 3697.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3277.0
+        }
+      }
+    ],
+    "expected": {
+      "full": {
+        "13592": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10650,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3038349,
+            "end_ms": 3159340,
+            "support": 9,
+            "to_end": true
+          }
+        ],
+        "13594": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 9040,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3319395,
+            "end_ms": 3445340,
+            "support": 9,
+            "to_end": true
+          }
+        ],
+        "13596": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 9660,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4221937,
+            "end_ms": 4350359,
+            "support": 9,
+            "to_end": true
+          }
+        ],
+        "13598": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10836,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3994107,
+            "end_ms": 4123767,
+            "support": 9,
+            "to_end": false
+          }
+        ],
+        "13599": [
+          {
+            "type": "outro",
+            "start_ms": 3855918,
+            "end_ms": 3984340,
+            "support": 9,
+            "to_end": true
+          }
+        ],
+        "13600": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10526,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4023754,
+            "end_ms": 4152919,
+            "support": 9,
+            "to_end": false
+          }
+        ],
+        "13602": [
+          {
+            "type": "outro",
+            "start_ms": 3730051,
+            "end_ms": 3859340,
+            "support": 9,
+            "to_end": true
+          }
+        ],
+        "13603": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10774,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3481862,
+            "end_ms": 3604340,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "13604": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10650,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3893776,
+            "end_ms": 4020340,
+            "support": 9,
+            "to_end": true
+          }
+        ],
+        "13606": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10588,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3569448,
+            "end_ms": 3694340,
+            "support": 8,
+            "to_end": true
+          }
+        ]
+      },
+      "first3": {
+        "13592": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 9598,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3038349,
+            "end_ms": 3159340,
+            "support": 2,
+            "to_end": true
+          }
+        ],
+        "13594": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 7740,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3319395,
+            "end_ms": 3442987,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "13596": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 8173,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4222804,
+            "end_ms": 4346396,
+            "support": 2,
+            "to_end": false
+          }
+        ]
+      },
+      "first6": {
+        "13592": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10650,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3038349,
+            "end_ms": 3159340,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "13594": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 9040,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3319395,
+            "end_ms": 3445340,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "13596": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 9907,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4221937,
+            "end_ms": 4350359,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "13598": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10836,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3993612,
+            "end_ms": 4121910,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "13599": [
+          {
+            "type": "outro",
+            "start_ms": 3791274,
+            "end_ms": 3984340,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "13600": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10650,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4023506,
+            "end_ms": 4152919,
+            "support": 5,
+            "to_end": false
+          }
+        ]
+      },
+      "alternating": {
+        "13592": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10341,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3038349,
+            "end_ms": 3159340,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "13596": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 9845,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4189243,
+            "end_ms": 4349368,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "13599": [
+          {
+            "type": "outro",
+            "start_ms": 3790655,
+            "end_ms": 3983411,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "13602": [
+          {
+            "type": "outro",
+            "start_ms": 3731537,
+            "end_ms": 3859340,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "13604": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10155,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3861144,
+            "end_ms": 4020340,
+            "support": 4,
+            "to_end": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "title": "回魂计",
+    "season": 1,
+    "files": [
+      {
+        "id": 20300,
+        "episode": 1,
+        "duration": 3024.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2604.0
+        }
+      },
+      {
+        "id": 20301,
+        "episode": 2,
+        "duration": 3363.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2943.0
+        }
+      },
+      {
+        "id": 20302,
+        "episode": 3,
+        "duration": 4142.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3722.0
+        }
+      },
+      {
+        "id": 20303,
+        "episode": 4,
+        "duration": 3025.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2605.0
+        }
+      },
+      {
+        "id": 20304,
+        "episode": 5,
+        "duration": 2976.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2556.0
+        }
+      },
+      {
+        "id": 20305,
+        "episode": 6,
+        "duration": 3230.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2810.0
+        }
+      },
+      {
+        "id": 20306,
+        "episode": 7,
+        "duration": 2766.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2346.0
+        }
+      },
+      {
+        "id": 20307,
+        "episode": 8,
+        "duration": 3599.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3179.0
+        }
+      },
+      {
+        "id": 20308,
+        "episode": 9,
+        "duration": 3335.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2915.0
+        }
+      }
+    ],
+    "expected": {
+      "full": {
+        "20300": [
+          {
+            "type": "outro",
+            "start_ms": 2962454,
+            "end_ms": 3019606,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "20301": [
+          {
+            "type": "intro",
+            "start_ms": 286194,
+            "end_ms": 312448,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3301826,
+            "end_ms": 3359102,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "20302": [
+          {
+            "type": "other",
+            "start_ms": 62,
+            "end_ms": 6873,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "intro",
+            "start_ms": 300311,
+            "end_ms": 327061,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4083117,
+            "end_ms": 4139340,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "20303": [
+          {
+            "type": "intro",
+            "start_ms": 356906,
+            "end_ms": 384151,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2939553,
+            "end_ms": 3018377,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "20304": [
+          {
+            "type": "intro",
+            "start_ms": 223283,
+            "end_ms": 250404,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2894640,
+            "end_ms": 2973340,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "20305": [
+          {
+            "type": "intro",
+            "start_ms": 552325,
+            "end_ms": 579694,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3176442,
+            "end_ms": 3221396,
+            "support": 8,
+            "to_end": false
+          }
+        ],
+        "20306": [
+          {
+            "type": "other",
+            "start_ms": 62,
+            "end_ms": 6811,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "intro",
+            "start_ms": 534245,
+            "end_ms": 561613,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2718386,
+            "end_ms": 2761978,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "20307": [
+          {
+            "type": "other",
+            "start_ms": 0,
+            "end_ms": 6564,
+            "support": 3,
+            "to_end": false
+          },
+          {
+            "type": "intro",
+            "start_ms": 348733,
+            "end_ms": 375978,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3547052,
+            "end_ms": 3594111,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "20308": [
+          {
+            "type": "intro",
+            "start_ms": 567310,
+            "end_ms": 594059,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3288872,
+            "end_ms": 3332340,
+            "support": 8,
+            "to_end": true
+          }
+        ]
+      },
+      "first3": {
+        "20300": [
+          {
+            "type": "outro",
+            "start_ms": 2953104,
+            "end_ms": 3018677,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "20301": [
+          {
+            "type": "outro",
+            "start_ms": 3292600,
+            "end_ms": 3358049,
+            "support": 2,
+            "to_end": true
+          }
+        ],
+        "20302": [
+          {
+            "type": "outro",
+            "start_ms": 4071723,
+            "end_ms": 4139340,
+            "support": 2,
+            "to_end": true
+          }
+        ]
+      },
+      "first6": {
+        "20300": [
+          {
+            "type": "outro",
+            "start_ms": 2937748,
+            "end_ms": 3020597,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "20301": [
+          {
+            "type": "intro",
+            "start_ms": 286132,
+            "end_ms": 312386,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3292600,
+            "end_ms": 3359845,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "20302": [
+          {
+            "type": "intro",
+            "start_ms": 300188,
+            "end_ms": 326999,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4060949,
+            "end_ms": 4139340,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "20303": [
+          {
+            "type": "intro",
+            "start_ms": 356720,
+            "end_ms": 384027,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2939553,
+            "end_ms": 3018377,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "20304": [
+          {
+            "type": "intro",
+            "start_ms": 223221,
+            "end_ms": 250280,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2894640,
+            "end_ms": 2973340,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "20305": [
+          {
+            "type": "intro",
+            "start_ms": 552387,
+            "end_ms": 579508,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3176442,
+            "end_ms": 3225235,
+            "support": 5,
+            "to_end": true
+          }
+        ]
+      },
+      "alternating": {
+        "20300": [
+          {
+            "type": "outro",
+            "start_ms": 2955643,
+            "end_ms": 3016510,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "20302": [
+          {
+            "type": "intro",
+            "start_ms": 300311,
+            "end_ms": 326937,
+            "support": 3,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 4078720,
+            "end_ms": 4139340,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "20304": [
+          {
+            "type": "intro",
+            "start_ms": 223407,
+            "end_ms": 250032,
+            "support": 3,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2912659,
+            "end_ms": 2973340,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "20306": [
+          {
+            "type": "intro",
+            "start_ms": 534245,
+            "end_ms": 561861,
+            "support": 3,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2718386,
+            "end_ms": 2761606,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "20308": [
+          {
+            "type": "intro",
+            "start_ms": 567681,
+            "end_ms": 593812,
+            "support": 3,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3288872,
+            "end_ms": 3332030,
+            "support": 4,
+            "to_end": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "title": "开端",
+    "season": 1,
+    "files": [
+      {
+        "id": 18556,
+        "episode": 1,
+        "duration": 2691.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2271.0
+        }
+      },
+      {
+        "id": 18557,
+        "episode": 2,
+        "duration": 2422.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2002.0
+        }
+      },
+      {
+        "id": 18558,
+        "episode": 3,
+        "duration": 2671.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2251.0
+        }
+      },
+      {
+        "id": 18559,
+        "episode": 4,
+        "duration": 2634.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2214.0
+        }
+      },
+      {
+        "id": 18560,
+        "episode": 5,
+        "duration": 2624.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2204.0
+        }
+      },
+      {
+        "id": 18561,
+        "episode": 6,
+        "duration": 2347.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1927.0
+        }
+      },
+      {
+        "id": 18562,
+        "episode": 7,
+        "duration": 2846.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2426.0
+        }
+      },
+      {
+        "id": 18563,
+        "episode": 8,
+        "duration": 2277.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1857.0
+        }
+      },
+      {
+        "id": 18554,
+        "episode": 9,
+        "duration": 2544.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2124.0
+        }
+      },
+      {
+        "id": 18555,
+        "episode": 10,
+        "duration": 2611.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2191.0
+        }
+      },
+      {
+        "id": 18564,
+        "episode": 11,
+        "duration": 2866.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2446.0
+        }
+      },
+      {
+        "id": 18565,
+        "episode": 12,
+        "duration": 2804.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2384.0
+        }
+      },
+      {
+        "id": 18566,
+        "episode": 13,
+        "duration": 2550.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2130.0
+        }
+      },
+      {
+        "id": 18567,
+        "episode": 14,
+        "duration": 2522.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2102.0
+        }
+      },
+      {
+        "id": 18568,
+        "episode": 15,
+        "duration": 3185.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2765.0
+        }
+      }
+    ],
+    "expected": {
+      "full": {
+        "18556": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 91270,
+            "support": 12,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2539299,
+            "end_ms": 2688092,
+            "support": 11,
+            "to_end": true
+          }
+        ],
+        "18557": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 89288,
+            "support": 13,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2390485,
+            "end_ms": 2419092,
+            "support": 13,
+            "to_end": true
+          }
+        ],
+        "18558": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 90155,
+            "support": 14,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2519732,
+            "end_ms": 2668340,
+            "support": 13,
+            "to_end": true
+          }
+        ],
+        "18559": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 89288,
+            "support": 14,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2483104,
+            "end_ms": 2631340,
+            "support": 13,
+            "to_end": true
+          }
+        ],
+        "18560": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 89288,
+            "support": 14,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2472608,
+            "end_ms": 2621340,
+            "support": 13,
+            "to_end": true
+          }
+        ],
+        "18561": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 90032,
+            "support": 14,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2195608,
+            "end_ms": 2344092,
+            "support": 13,
+            "to_end": true
+          }
+        ],
+        "18562": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 89722,
+            "support": 14,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2694361,
+            "end_ms": 2842907,
+            "support": 13,
+            "to_end": true
+          }
+        ],
+        "18563": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 89722,
+            "support": 14,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2125980,
+            "end_ms": 2274340,
+            "support": 13,
+            "to_end": true
+          }
+        ],
+        "18554": [
+          {
+            "type": "intro",
+            "start_ms": 9907,
+            "end_ms": 97090,
+            "support": 14,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2392608,
+            "end_ms": 2541340,
+            "support": 13,
+            "to_end": true
+          }
+        ],
+        "18555": [
+          {
+            "type": "intro",
+            "start_ms": 9969,
+            "end_ms": 97338,
+            "support": 14,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2459980,
+            "end_ms": 2608340,
+            "support": 13,
+            "to_end": true
+          }
+        ],
+        "18564": [
+          {
+            "type": "intro",
+            "start_ms": 9845,
+            "end_ms": 110589,
+            "support": 14,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2714732,
+            "end_ms": 2863340,
+            "support": 13,
+            "to_end": true
+          }
+        ],
+        "18565": [
+          {
+            "type": "intro",
+            "start_ms": 9907,
+            "end_ms": 110589,
+            "support": 14,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2652361,
+            "end_ms": 2800721,
+            "support": 13,
+            "to_end": true
+          }
+        ],
+        "18566": [
+          {
+            "type": "intro",
+            "start_ms": 9845,
+            "end_ms": 110589,
+            "support": 14,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2398237,
+            "end_ms": 2546907,
+            "support": 13,
+            "to_end": true
+          }
+        ],
+        "18567": [
+          {
+            "type": "intro",
+            "start_ms": 9783,
+            "end_ms": 97957,
+            "support": 13,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2370980,
+            "end_ms": 2519340,
+            "support": 12,
+            "to_end": true
+          }
+        ],
+        "18568": [
+          {
+            "type": "intro",
+            "start_ms": 4892,
+            "end_ms": 97957,
+            "support": 12,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3033547,
+            "end_ms": 3182092,
+            "support": 12,
+            "to_end": true
+          }
+        ]
+      },
+      "first3": {
+        "18556": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 91889,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2659238,
+            "end_ms": 2688216,
+            "support": 2,
+            "to_end": true
+          }
+        ],
+        "18557": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 93004,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2390423,
+            "end_ms": 2419154,
+            "support": 2,
+            "to_end": true
+          }
+        ],
+        "18558": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 92384,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2639857,
+            "end_ms": 2668340,
+            "support": 2,
+            "to_end": true
+          }
+        ]
+      },
+      "first6": {
+        "18556": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 91270,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2539608,
+            "end_ms": 2688216,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "18557": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 93623,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2390485,
+            "end_ms": 2419092,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "18558": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 93623,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2519732,
+            "end_ms": 2668340,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "18559": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 94366,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2483104,
+            "end_ms": 2631340,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "18560": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 93994,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2472670,
+            "end_ms": 2621340,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "18561": [
+          {
+            "type": "intro",
+            "start_ms": 248,
+            "end_ms": 89784,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2195485,
+            "end_ms": 2344216,
+            "support": 4,
+            "to_end": true
+          }
+        ]
+      },
+      "alternating": {
+        "18556": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 91270,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2539299,
+            "end_ms": 2688092,
+            "support": 7,
+            "to_end": true
+          }
+        ],
+        "18558": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 90155,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2519732,
+            "end_ms": 2668340,
+            "support": 7,
+            "to_end": true
+          }
+        ],
+        "18560": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 89165,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2472732,
+            "end_ms": 2621340,
+            "support": 7,
+            "to_end": true
+          }
+        ],
+        "18562": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 90155,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2694237,
+            "end_ms": 2843030,
+            "support": 7,
+            "to_end": true
+          }
+        ],
+        "18554": [
+          {
+            "type": "intro",
+            "start_ms": 9907,
+            "end_ms": 97090,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2392485,
+            "end_ms": 2541340,
+            "support": 7,
+            "to_end": true
+          }
+        ],
+        "18564": [
+          {
+            "type": "intro",
+            "start_ms": 9907,
+            "end_ms": 110341,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2714608,
+            "end_ms": 2863340,
+            "support": 7,
+            "to_end": true
+          }
+        ],
+        "18566": [
+          {
+            "type": "intro",
+            "start_ms": 9783,
+            "end_ms": 110589,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 2398051,
+            "end_ms": 2546968,
+            "support": 7,
+            "to_end": true
+          }
+        ],
+        "18568": [
+          {
+            "type": "intro",
+            "start_ms": 9783,
+            "end_ms": 97957,
+            "support": 7,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 3033547,
+            "end_ms": 3182278,
+            "support": 7,
+            "to_end": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "title": "间谍过家家",
+    "season": 1,
+    "files": [
+      {
+        "id": 13463,
+        "episode": 1,
+        "duration": 1479.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1109.25
+        }
+      },
+      {
+        "id": 13464,
+        "episode": 2,
+        "duration": 1480.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1110.0
+        }
+      },
+      {
+        "id": 13465,
+        "episode": 3,
+        "duration": 1480.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1110.0
+        }
+      },
+      {
+        "id": 13466,
+        "episode": 4,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13467,
+        "episode": 5,
+        "duration": 1449.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1086.75
+        }
+      },
+      {
+        "id": 13468,
+        "episode": 6,
+        "duration": 1452.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1089.0
+        }
+      },
+      {
+        "id": 13469,
+        "episode": 7,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13470,
+        "episode": 8,
+        "duration": 1512.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1134.0
+        }
+      },
+      {
+        "id": 13471,
+        "episode": 9,
+        "duration": 1510.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1132.5
+        }
+      },
+      {
+        "id": 13472,
+        "episode": 10,
+        "duration": 1510.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1132.5
+        }
+      },
+      {
+        "id": 13473,
+        "episode": 11,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13474,
+        "episode": 12,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13475,
+        "episode": 13,
+        "duration": 1509.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1131.75
+        }
+      },
+      {
+        "id": 13476,
+        "episode": 14,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13477,
+        "episode": 15,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13483,
+        "episode": 16,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13484,
+        "episode": 17,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13485,
+        "episode": 18,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13486,
+        "episode": 19,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13488,
+        "episode": 20,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13490,
+        "episode": 21,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13492,
+        "episode": 22,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13493,
+        "episode": 23,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13494,
+        "episode": 24,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      },
+      {
+        "id": 13495,
+        "episode": 25,
+        "duration": 1450.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1087.5
+        }
+      }
+    ],
+    "expected": {
+      "full": {
+        "13463": [
+          {
+            "type": "outro",
+            "start_ms": 1311728,
+            "end_ms": 1369313,
+            "support": 10,
+            "to_end": false
+          }
+        ],
+        "13464": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 89041,
+            "support": 10,
+            "to_end": false
+          }
+        ],
+        "13465": [
+          {
+            "type": "intro",
+            "start_ms": 79691,
+            "end_ms": 169165,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349444,
+            "end_ms": 1447340,
+            "support": 10,
+            "to_end": false
+          }
+        ],
+        "13466": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88422,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349483,
+            "end_ms": 1447254,
+            "support": 10,
+            "to_end": true
+          }
+        ],
+        "13467": [
+          {
+            "type": "intro",
+            "start_ms": 77833,
+            "end_ms": 166936,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349228,
+            "end_ms": 1446257,
+            "support": 10,
+            "to_end": true
+          }
+        ],
+        "13468": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88793,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349559,
+            "end_ms": 1447268,
+            "support": 10,
+            "to_end": true
+          }
+        ],
+        "13469": [
+          {
+            "type": "intro",
+            "start_ms": 66688,
+            "end_ms": 155852,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1307501,
+            "end_ms": 1396852,
+            "support": 10,
+            "to_end": false
+          }
+        ],
+        "13470": [
+          {
+            "type": "intro",
+            "start_ms": 248,
+            "end_ms": 88669,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349543,
+            "end_ms": 1447191,
+            "support": 10,
+            "to_end": false
+          }
+        ],
+        "13471": [
+          {
+            "type": "intro",
+            "start_ms": 81115,
+            "end_ms": 170032,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349653,
+            "end_ms": 1447239,
+            "support": 10,
+            "to_end": false
+          }
+        ],
+        "13472": [
+          {
+            "type": "intro",
+            "start_ms": 259754,
+            "end_ms": 348857,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349715,
+            "end_ms": 1447177,
+            "support": 10,
+            "to_end": false
+          }
+        ],
+        "13473": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 88855,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349669,
+            "end_ms": 1447193,
+            "support": 10,
+            "to_end": true
+          }
+        ],
+        "13474": [
+          {
+            "type": "intro",
+            "start_ms": 74675,
+            "end_ms": 164088,
+            "support": 10,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1359638,
+            "end_ms": 1447254,
+            "support": 10,
+            "to_end": true
+          }
+        ],
+        "13475": [
+          {
+            "type": "intro",
+            "start_ms": 63777,
+            "end_ms": 152447,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349708,
+            "end_ms": 1438811,
+            "support": 12,
+            "to_end": false
+          }
+        ],
+        "13476": [
+          {
+            "type": "intro",
+            "start_ms": 29845,
+            "end_ms": 118267,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349793,
+            "end_ms": 1440629,
+            "support": 12,
+            "to_end": false
+          }
+        ],
+        "13477": [
+          {
+            "type": "intro",
+            "start_ms": 52880,
+            "end_ms": 141549,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349731,
+            "end_ms": 1438771,
+            "support": 12,
+            "to_end": false
+          }
+        ],
+        "13483": [
+          {
+            "type": "intro",
+            "start_ms": 107864,
+            "end_ms": 196781,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349855,
+            "end_ms": 1438771,
+            "support": 12,
+            "to_end": false
+          }
+        ],
+        "13484": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88855,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1257656,
+            "end_ms": 1346201,
+            "support": 12,
+            "to_end": false
+          }
+        ],
+        "13485": [
+          {
+            "type": "outro",
+            "start_ms": 1349669,
+            "end_ms": 1438771,
+            "support": 12,
+            "to_end": false
+          }
+        ],
+        "13486": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88917,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349793,
+            "end_ms": 1447131,
+            "support": 12,
+            "to_end": true
+          }
+        ],
+        "13488": [
+          {
+            "type": "intro",
+            "start_ms": 37152,
+            "end_ms": 125450,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349669,
+            "end_ms": 1442982,
+            "support": 12,
+            "to_end": false
+          }
+        ],
+        "13490": [
+          {
+            "type": "intro",
+            "start_ms": 120868,
+            "end_ms": 209661,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1087500,
+            "end_ms": 1149668,
+            "support": 12,
+            "to_end": false
+          }
+        ],
+        "13492": [
+          {
+            "type": "intro",
+            "start_ms": 58081,
+            "end_ms": 146750,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349793,
+            "end_ms": 1443044,
+            "support": 12,
+            "to_end": false
+          }
+        ],
+        "13493": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88855,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1334684,
+            "end_ms": 1423663,
+            "support": 12,
+            "to_end": false
+          }
+        ],
+        "13494": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88669,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349731,
+            "end_ms": 1442920,
+            "support": 12,
+            "to_end": false
+          }
+        ],
+        "13495": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88545,
+            "support": 11,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1359762,
+            "end_ms": 1447254,
+            "support": 12,
+            "to_end": true
+          }
+        ]
+      },
+      "first3": {
+        "13463": [],
+        "13464": [],
+        "13465": []
+      },
+      "first6": {
+        "13463": [
+          {
+            "type": "outro",
+            "start_ms": 1311728,
+            "end_ms": 1369313,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "13464": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88979,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "13465": [
+          {
+            "type": "intro",
+            "start_ms": 79939,
+            "end_ms": 169165,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349320,
+            "end_ms": 1446844,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "13466": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88422,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349235,
+            "end_ms": 1446821,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "13467": [
+          {
+            "type": "intro",
+            "start_ms": 77895,
+            "end_ms": 167184,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349105,
+            "end_ms": 1446257,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "13468": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88917,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349435,
+            "end_ms": 1446835,
+            "support": 4,
+            "to_end": false
+          }
+        ]
+      },
+      "alternating": {
+        "13463": [
+          {
+            "type": "outro",
+            "start_ms": 1311728,
+            "end_ms": 1369313,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "13465": [
+          {
+            "type": "intro",
+            "start_ms": 79505,
+            "end_ms": 169227,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349382,
+            "end_ms": 1446349,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "13467": [
+          {
+            "type": "intro",
+            "start_ms": 77462,
+            "end_ms": 166688,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349043,
+            "end_ms": 1446257,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "13469": [
+          {
+            "type": "intro",
+            "start_ms": 66502,
+            "end_ms": 156657,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1307811,
+            "end_ms": 1396852,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "13471": [
+          {
+            "type": "intro",
+            "start_ms": 80496,
+            "end_ms": 170094,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349467,
+            "end_ms": 1446310,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "13473": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88979,
+            "support": 4,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349669,
+            "end_ms": 1446140,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "13475": [
+          {
+            "type": "intro",
+            "start_ms": 63901,
+            "end_ms": 152633,
+            "support": 6,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349832,
+            "end_ms": 1438687,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "13477": [
+          {
+            "type": "intro",
+            "start_ms": 53003,
+            "end_ms": 141549,
+            "support": 6,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349855,
+            "end_ms": 1438771,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "13484": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88917,
+            "support": 6,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1257656,
+            "end_ms": 1346201,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "13486": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88979,
+            "support": 6,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1349793,
+            "end_ms": 1438586,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "13490": [
+          {
+            "type": "intro",
+            "start_ms": 120991,
+            "end_ms": 209661,
+            "support": 6,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1087500,
+            "end_ms": 1149668,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "13493": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88917,
+            "support": 6,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1334560,
+            "end_ms": 1423601,
+            "support": 6,
+            "to_end": false
+          }
+        ],
+        "13495": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 88669,
+            "support": 6,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 1359700,
+            "end_ms": 1447254,
+            "support": 6,
+            "to_end": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "title": "人生切割术",
+    "season": 1,
+    "files": [
+      {
+        "id": 23668,
+        "episode": 1,
+        "duration": 3434.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 3014.0
+        }
+      },
+      {
+        "id": 23669,
+        "episode": 2,
+        "duration": 3202.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2782.0
+        }
+      },
+      {
+        "id": 23670,
+        "episode": 3,
+        "duration": 3399.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2979.0
+        }
+      },
+      {
+        "id": 23671,
+        "episode": 4,
+        "duration": 2795.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2375.0
+        }
+      },
+      {
+        "id": 23672,
+        "episode": 5,
+        "duration": 2619.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2199.0
+        }
+      },
+      {
+        "id": 23673,
+        "episode": 6,
+        "duration": 2421.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2001.0
+        }
+      },
+      {
+        "id": 23674,
+        "episode": 7,
+        "duration": 2995.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2575.0
+        }
+      },
+      {
+        "id": 23675,
+        "episode": 8,
+        "duration": 2801.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 2381.0
+        }
+      },
+      {
+        "id": 23676,
+        "episode": 9,
+        "duration": 2416.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 1996.0
+        }
+      }
+    ],
+    "expected": {
+      "full": {
+        "23668": [
+          {
+            "type": "intro",
+            "start_ms": 4892,
+            "end_ms": 11393,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "23669": [
+          {
+            "type": "intro",
+            "start_ms": 328175,
+            "end_ms": 407433,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "23670": [
+          {
+            "type": "intro",
+            "start_ms": 132632,
+            "end_ms": 212014,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "23671": [
+          {
+            "type": "intro",
+            "start_ms": 234800,
+            "end_ms": 314553,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "23672": [
+          {
+            "type": "intro",
+            "start_ms": 166936,
+            "end_ms": 246317,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "23673": [
+          {
+            "type": "intro",
+            "start_ms": 121858,
+            "end_ms": 200868,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "23674": [
+          {
+            "type": "intro",
+            "start_ms": 348175,
+            "end_ms": 427804,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "23675": [
+          {
+            "type": "intro",
+            "start_ms": 199258,
+            "end_ms": 278516,
+            "support": 7,
+            "to_end": false
+          }
+        ],
+        "23676": [
+          {
+            "type": "intro",
+            "start_ms": 147369,
+            "end_ms": 226008,
+            "support": 7,
+            "to_end": false
+          }
+        ]
+      },
+      "first3": {
+        "23668": [],
+        "23669": [],
+        "23670": []
+      },
+      "first6": {
+        "23668": [
+          {
+            "type": "intro",
+            "start_ms": 4892,
+            "end_ms": 11393,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "23669": [
+          {
+            "type": "intro",
+            "start_ms": 328175,
+            "end_ms": 407557,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "23670": [
+          {
+            "type": "intro",
+            "start_ms": 132632,
+            "end_ms": 212014,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "23671": [
+          {
+            "type": "intro",
+            "start_ms": 234862,
+            "end_ms": 314553,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "23672": [
+          {
+            "type": "intro",
+            "start_ms": 166936,
+            "end_ms": 246317,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "23673": [
+          {
+            "type": "intro",
+            "start_ms": 121858,
+            "end_ms": 201240,
+            "support": 4,
+            "to_end": false
+          }
+        ]
+      },
+      "alternating": {
+        "23668": [],
+        "23670": [
+          {
+            "type": "intro",
+            "start_ms": 132632,
+            "end_ms": 211766,
+            "support": 3,
+            "to_end": false
+          }
+        ],
+        "23672": [
+          {
+            "type": "intro",
+            "start_ms": 166936,
+            "end_ms": 246193,
+            "support": 3,
+            "to_end": false
+          }
+        ],
+        "23674": [
+          {
+            "type": "intro",
+            "start_ms": 348361,
+            "end_ms": 427743,
+            "support": 3,
+            "to_end": false
+          }
+        ],
+        "23676": [
+          {
+            "type": "intro",
+            "start_ms": 147369,
+            "end_ms": 226379,
+            "support": 3,
+            "to_end": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "title": "无穷之路",
+    "season": 1,
+    "files": [
+      {
+        "id": 17754,
+        "episode": 1,
+        "duration": 1314.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 985.5
+        }
+      },
+      {
+        "id": 17755,
+        "episode": 2,
+        "duration": 1320.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 990.0
+        }
+      },
+      {
+        "id": 17756,
+        "episode": 3,
+        "duration": 1324.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 993.0
+        }
+      },
+      {
+        "id": 17757,
+        "episode": 4,
+        "duration": 1325.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 993.75
+        }
+      },
+      {
+        "id": 17758,
+        "episode": 5,
+        "duration": 1324.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 993.0
+        }
+      },
+      {
+        "id": 17759,
+        "episode": 6,
+        "duration": 1320.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 990.0
+        }
+      },
+      {
+        "id": 17760,
+        "episode": 7,
+        "duration": 1330.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 997.5
+        }
+      },
+      {
+        "id": 17761,
+        "episode": 8,
+        "duration": 1320.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 990.0
+        }
+      },
+      {
+        "id": 17762,
+        "episode": 9,
+        "duration": 1330.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 997.5
+        }
+      },
+      {
+        "id": 17763,
+        "episode": 10,
+        "duration": 1330.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 997.5
+        }
+      },
+      {
+        "id": 17764,
+        "episode": 11,
+        "duration": 1330.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 997.5
+        }
+      },
+      {
+        "id": 17765,
+        "episode": 12,
+        "duration": 1330.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 997.5
+        }
+      }
+    ],
+    "expected": {
+      "full": {
+        "17754": [],
+        "17755": [],
+        "17756": [
+          {
+            "type": "intro",
+            "start_ms": 31765,
+            "end_ms": 38266,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "17757": [],
+        "17758": [],
+        "17759": [],
+        "17760": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10217,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "17761": [],
+        "17762": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10650,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "17763": [
+          {
+            "type": "intro",
+            "start_ms": 38700,
+            "end_ms": 45511,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "17764": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10836,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "17765": [
+          {
+            "type": "intro",
+            "start_ms": 37090,
+            "end_ms": 43901,
+            "support": 2,
+            "to_end": false
+          }
+        ]
+      },
+      "first3": {
+        "17754": [],
+        "17755": [],
+        "17756": []
+      },
+      "first6": {
+        "17754": [],
+        "17755": [],
+        "17756": [],
+        "17757": [],
+        "17758": [],
+        "17759": []
+      },
+      "alternating": {
+        "17754": [],
+        "17756": [],
+        "17758": [],
+        "17760": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10217,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "17762": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10650,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "17764": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 10836,
+            "support": 2,
+            "to_end": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "title": "海底小纵队",
+    "season": 3,
+    "files": [
+      {
+        "id": 16838,
+        "episode": 1,
+        "duration": 726.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 544.5
+        }
+      },
+      {
+        "id": 16839,
+        "episode": 2,
+        "duration": 723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 542.25
+        }
+      },
+      {
+        "id": 16840,
+        "episode": 3,
+        "duration": 723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 542.25
+        }
+      },
+      {
+        "id": 16841,
+        "episode": 4,
+        "duration": 727.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 545.25
+        }
+      },
+      {
+        "id": 16842,
+        "episode": 5,
+        "duration": 723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 542.25
+        }
+      },
+      {
+        "id": 16843,
+        "episode": 6,
+        "duration": 723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 542.25
+        }
+      },
+      {
+        "id": 16844,
+        "episode": 7,
+        "duration": 723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 542.25
+        }
+      },
+      {
+        "id": 16845,
+        "episode": 8,
+        "duration": 723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 542.25
+        }
+      },
+      {
+        "id": 16846,
+        "episode": 9,
+        "duration": 722.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 541.5
+        }
+      },
+      {
+        "id": 16847,
+        "episode": 10,
+        "duration": 723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 542.25
+        }
+      },
+      {
+        "id": 16848,
+        "episode": 11,
+        "duration": 723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 542.25
+        }
+      },
+      {
+        "id": 16849,
+        "episode": 12,
+        "duration": 723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 542.25
+        }
+      },
+      {
+        "id": 16850,
+        "episode": 13,
+        "duration": 723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 542.25
+        }
+      },
+      {
+        "id": 16851,
+        "episode": 14,
+        "duration": 724.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 543.0
+        }
+      },
+      {
+        "id": 16852,
+        "episode": 15,
+        "duration": 722.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 541.5
+        }
+      },
+      {
+        "id": 16853,
+        "episode": 16,
+        "duration": 724.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 543.0
+        }
+      },
+      {
+        "id": 16854,
+        "episode": 17,
+        "duration": 723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 542.25
+        }
+      },
+      {
+        "id": 16855,
+        "episode": 18,
+        "duration": 723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 542.25
+        }
+      },
+      {
+        "id": 16856,
+        "episode": 19,
+        "duration": 723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 542.25
+        }
+      },
+      {
+        "id": 16857,
+        "episode": 20,
+        "duration": 723.0,
+        "starts": {
+          "intro": 0.0,
+          "outro": 542.25
+        }
+      }
+    ],
+    "expected": {
+      "full": {
+        "16838": [
+          {
+            "type": "intro",
+            "start_ms": 495,
+            "end_ms": 45449,
+            "support": 12,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 661157,
+            "end_ms": 720724,
+            "support": 10,
+            "to_end": false
+          }
+        ],
+        "16839": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45449,
+            "support": 13,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 652158,
+            "end_ms": 720208,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "16840": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45573,
+            "support": 14,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 660579,
+            "end_ms": 720084,
+            "support": 7,
+            "to_end": true
+          }
+        ],
+        "16841": [
+          {
+            "type": "intro",
+            "start_ms": 619,
+            "end_ms": 46316,
+            "support": 15,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 647170,
+            "end_ms": 720979,
+            "support": 9,
+            "to_end": false
+          }
+        ],
+        "16842": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 44954,
+            "support": 16,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646399,
+            "end_ms": 720332,
+            "support": 12,
+            "to_end": true
+          }
+        ],
+        "16843": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45821,
+            "support": 17,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646213,
+            "end_ms": 720332,
+            "support": 11,
+            "to_end": true
+          }
+        ],
+        "16844": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45573,
+            "support": 18,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646399,
+            "end_ms": 720208,
+            "support": 17,
+            "to_end": true
+          }
+        ],
+        "16845": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45573,
+            "support": 19,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646399,
+            "end_ms": 720332,
+            "support": 16,
+            "to_end": true
+          }
+        ],
+        "16846": [
+          {
+            "type": "intro",
+            "start_ms": 495,
+            "end_ms": 45573,
+            "support": 19,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 647011,
+            "end_ms": 719210,
+            "support": 15,
+            "to_end": true
+          }
+        ],
+        "16847": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45449,
+            "support": 19,
+            "to_end": false
+          }
+        ],
+        "16848": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45449,
+            "support": 19,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 685780,
+            "end_ms": 720084,
+            "support": 18,
+            "to_end": true
+          }
+        ],
+        "16849": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45573,
+            "support": 19,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646399,
+            "end_ms": 720332,
+            "support": 13,
+            "to_end": true
+          }
+        ],
+        "16850": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 45078,
+            "support": 19,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 670981,
+            "end_ms": 720208,
+            "support": 12,
+            "to_end": true
+          }
+        ],
+        "16851": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45573,
+            "support": 18,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646778,
+            "end_ms": 715818,
+            "support": 14,
+            "to_end": false
+          }
+        ],
+        "16852": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 45697,
+            "support": 17,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646330,
+            "end_ms": 719210,
+            "support": 12,
+            "to_end": true
+          }
+        ],
+        "16853": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45573,
+            "support": 16,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 652103,
+            "end_ms": 713156,
+            "support": 13,
+            "to_end": false
+          }
+        ],
+        "16854": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45449,
+            "support": 15,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 657545,
+            "end_ms": 719960,
+            "support": 12,
+            "to_end": true
+          }
+        ],
+        "16855": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45573,
+            "support": 14,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646337,
+            "end_ms": 720208,
+            "support": 12,
+            "to_end": true
+          }
+        ],
+        "16856": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45573,
+            "support": 13,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 657545,
+            "end_ms": 710548,
+            "support": 11,
+            "to_end": false
+          }
+        ],
+        "16857": [
+          {
+            "type": "intro",
+            "start_ms": 372,
+            "end_ms": 45573,
+            "support": 12,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646337,
+            "end_ms": 720208,
+            "support": 10,
+            "to_end": true
+          }
+        ]
+      },
+      "first3": {
+        "16838": [
+          {
+            "type": "intro",
+            "start_ms": 433,
+            "end_ms": 45697,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 666730,
+            "end_ms": 720724,
+            "support": 2,
+            "to_end": false
+          }
+        ],
+        "16839": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45202,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 670548,
+            "end_ms": 720208,
+            "support": 2,
+            "to_end": true
+          }
+        ],
+        "16840": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45511,
+            "support": 2,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 679093,
+            "end_ms": 720208,
+            "support": 2,
+            "to_end": true
+          }
+        ]
+      },
+      "first6": {
+        "16838": [
+          {
+            "type": "intro",
+            "start_ms": 495,
+            "end_ms": 45449,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 661157,
+            "end_ms": 720910,
+            "support": 5,
+            "to_end": false
+          }
+        ],
+        "16839": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45449,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 657545,
+            "end_ms": 709681,
+            "support": 3,
+            "to_end": false
+          }
+        ],
+        "16840": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45573,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 684418,
+            "end_ms": 720208,
+            "support": 5,
+            "to_end": true
+          }
+        ],
+        "16841": [
+          {
+            "type": "intro",
+            "start_ms": 619,
+            "end_ms": 46068,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 652681,
+            "end_ms": 720979,
+            "support": 4,
+            "to_end": false
+          }
+        ],
+        "16842": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 44954,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646523,
+            "end_ms": 720146,
+            "support": 4,
+            "to_end": true
+          }
+        ],
+        "16843": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45449,
+            "support": 5,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 652096,
+            "end_ms": 720332,
+            "support": 4,
+            "to_end": true
+          }
+        ]
+      },
+      "alternating": {
+        "16838": [
+          {
+            "type": "intro",
+            "start_ms": 495,
+            "end_ms": 45945,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 660847,
+            "end_ms": 720724,
+            "support": 8,
+            "to_end": false
+          }
+        ],
+        "16840": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45573,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646399,
+            "end_ms": 720084,
+            "support": 6,
+            "to_end": true
+          }
+        ],
+        "16842": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 44830,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646399,
+            "end_ms": 720208,
+            "support": 7,
+            "to_end": true
+          }
+        ],
+        "16844": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45573,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646399,
+            "end_ms": 720208,
+            "support": 9,
+            "to_end": true
+          }
+        ],
+        "16846": [
+          {
+            "type": "intro",
+            "start_ms": 495,
+            "end_ms": 45697,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646454,
+            "end_ms": 719210,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "16848": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45449,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646523,
+            "end_ms": 720208,
+            "support": 6,
+            "to_end": true
+          }
+        ],
+        "16850": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45449,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 671724,
+            "end_ms": 720332,
+            "support": 6,
+            "to_end": true
+          }
+        ],
+        "16852": [
+          {
+            "type": "intro",
+            "start_ms": 124,
+            "end_ms": 45821,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646330,
+            "end_ms": 719210,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "16854": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45449,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 660331,
+            "end_ms": 720208,
+            "support": 8,
+            "to_end": true
+          }
+        ],
+        "16856": [
+          {
+            "type": "intro",
+            "start_ms": 0,
+            "end_ms": 45573,
+            "support": 9,
+            "to_end": false
+          },
+          {
+            "type": "outro",
+            "start_ms": 646275,
+            "end_ms": 720208,
+            "support": 8,
+            "to_end": true
+          }
+        ]
+      }
+    }
+  }
+]

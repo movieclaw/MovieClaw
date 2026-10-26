@@ -34,14 +34,18 @@ struct SkipSegmentsTests {
         #expect(SkipSegments.label(SkipSegments.active([midOutro], at: 2_450_000)!) == "跳过片尾")
     }
 
-    @Test func autoNextOnlyCountsDownInDetectedCreditsAndStopsAfterStreak() {
+    @Test func autoNextCountsDownInDetectedCreditsOrAfterEndAndStopsAfterStreak() {
         #expect(SkipSegments.autoNextMs == 8000)
         #expect(!SkipSegments.autoNextArmed([credits], at: 2_549_999, streak: 0))
         #expect(SkipSegments.autoNextArmed([credits], at: 2_560_000, streak: 0))
         #expect(SkipSegments.autoNextArmed([credits], at: 2_560_000, streak: SkipSegments.autoNextMaxStreak - 1))
         #expect(!SkipSegments.autoNextArmed([credits], at: 2_560_000, streak: SkipSegments.autoNextMaxStreak))
         #expect(!SkipSegments.autoNextArmed([midOutro], at: 2_450_000, streak: 0))
+        // 没认出片尾：放的过程中不倒计时，放完才倒计时
         #expect(!SkipSegments.autoNextArmed(nil, at: 2_690_000, streak: 0))
+        #expect(SkipSegments.autoNextArmed(nil, at: 2_700_000, streak: 0, ended: true))
+        #expect(SkipSegments.autoNextArmed([midOutro], at: 2_700_000, streak: 0, ended: true))
+        #expect(!SkipSegments.autoNextArmed(nil, at: 2_700_000, streak: SkipSegments.autoNextMaxStreak, ended: true))
     }
 
     @Test func creditsToEndGoToUpNextCardNotSkipButton() {
@@ -65,15 +69,20 @@ struct SkipSegmentsTests {
         #expect(SkipSegments.active([ad, intro], at: 70_000)?.endMs == 150_000)
     }
 
-    @Test func manualSkipTakesPriorityOverLastFortySecondsCard() {
+    @Test func upNextOnlyInDetectedCreditsOrAfterEnd() {
+        // 没认出片尾不再按「最后 40 秒」提前出卡片，放完才出
+        #expect(!SkipSegments.shouldShowUpNext([], at: 2_690_000))
+        #expect(!SkipSegments.shouldShowUpNext(nil, at: 2_690_000))
+        #expect(SkipSegments.shouldShowUpNext(nil, at: 2_700_000, ended: true))
+        #expect(!SkipSegments.shouldShowUpNext([credits], at: 2_549_999))
+        #expect(SkipSegments.shouldShowUpNext([credits], at: 2_600_000))
+        // 手动跳过段优先；放完了照样出
         for type in ["preview", "ad", "outro", "other"] {
             let value = segment(type, 2_660_000, 2_690_000)
-            #expect(!SkipSegments.shouldShowUpNext([value], at: 2_670_000, durationMs: 2_700_000))
-            #expect(SkipSegments.shouldShowUpNext([value], at: 2_690_000, durationMs: 2_700_000))
-            #expect(SkipSegments.shouldShowUpNext([value], at: 2_700_000, durationMs: 2_700_000, ended: true))
+            #expect(!SkipSegments.shouldShowUpNext([value], at: 2_670_000))
+            #expect(!SkipSegments.shouldShowUpNext([value], at: 2_695_000))
+            #expect(SkipSegments.shouldShowUpNext([value], at: 2_700_000, ended: true))
         }
-        #expect(SkipSegments.shouldShowUpNext([], at: 2_670_000, durationMs: 2_700_000))
-        #expect(SkipSegments.shouldShowUpNext([credits], at: 2_600_000, durationMs: 2_700_000))
     }
 
     @Test func missingSegmentsGiveNothing() {
@@ -86,7 +95,7 @@ struct SkipSegmentsTests {
         // 最小的会话响应：旧服务端没有 segments 字段，新 App 也要能解开（否则整个起播都失败）
         let base = """
         {"decision":{"outcome":"rejected","audio_tracks":[],"subtitles":[],"reason":"x"},
-         "start_ms":0,"timeline":"session","subtitle_urls":[],"chapters":[]
+         "progressive_segments":false,"start_ms":0,"timeline":"session","subtitle_urls":[],"chapters":[]
         """
         let old = try JSONDecoder().decode(API.PlaybackSessionView.self, from: Data((base + "}").utf8))
         #expect(old.segments == nil)
@@ -100,5 +109,29 @@ struct SkipSegmentsTests {
             let decoded = try JSONDecoder().decode(API.PlaybackSessionView.self, from: Data(json.utf8))
             #expect(decoded.segments == [segment(type, 1000, 9000)])
         }
+        // 自动跳过设定：旧服务端没有（nil，按默认），新服务端带回
+        #expect(old.autoSkip == nil)
+        let prefs = try JSONDecoder().decode(
+            API.PlaybackSessionView.self, from: Data((base + ##","auto_skip":{"enabled":false,"intro":true}}"##).utf8)
+        )
+        #expect(prefs.autoSkip == API.PlaybackAutoSkipView(enabled: false, intro: true))
+    }
+
+    @Test func autoSkipJumpsAdsAndLearnedIntrosOnly() {
+        // 广告、预告开着总开关就跳
+        #expect(SkipSegments.autoSkips(ad, enabled: true, introLearned: false))
+        #expect(SkipSegments.autoSkips(segment("preview", 0, 20_000), enabled: true, introLearned: false))
+        // 片头要这部剧学过（手动跳过过一次）
+        #expect(!SkipSegments.autoSkips(intro, enabled: true, introLearned: false))
+        #expect(SkipSegments.autoSkips(intro, enabled: true, introLearned: true))
+        // 未分类、非结尾片尾、未来类型永远只给按钮
+        for type in ["other", "outro", "future-type"] {
+            #expect(!SkipSegments.autoSkips(segment(type, 0, 20_000), enabled: true, introLearned: true))
+        }
+        // 总开关关了一律只给按钮
+        #expect(!SkipSegments.autoSkips(ad, enabled: false, introLearned: true))
+        #expect(!SkipSegments.autoSkips(intro, enabled: false, introLearned: true))
+        #expect(SkipSegments.name(intro) == "片头")
+        #expect(SkipSegments.name(ad) == "广告")
     }
 }

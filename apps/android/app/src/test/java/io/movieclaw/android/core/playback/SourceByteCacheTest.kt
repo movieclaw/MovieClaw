@@ -5,6 +5,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.TransferListener
+import io.movieclaw.core.playback.SourceByteCache
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -15,6 +16,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
+/** 统一引擎的片源字节缓存（core SourceByteCache，刷片用）：预取的字节换了令牌照样命中 */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class SourceByteCacheTest {
@@ -35,7 +37,7 @@ class SourceByteCacheTest {
         var reader: DataSource? = null
         try {
             server.enqueue(MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 0-3/8").setBody("abcd"))
-            assertEquals(4L, SourceByteCache.prefetch(context, server.url("/file?token=a").toString(), key, listOf(0L to 4L)))
+            assertEquals(4L, SourceByteCache.prefetch(context, DefaultHttpDataSource.Factory(), server.url("/file?token=a").toString(), key, listOf(0L to 4L)))
             assertEquals("bytes=0-3", server.takeRequest().getHeader("Range"))
             reader = SourceByteCache.playbackFactory(context, factory).createDataSource()
             val spec = DataSpec.Builder().setUri(server.url("/file?token=b").toString()).setKey(key).setLength(4).build()

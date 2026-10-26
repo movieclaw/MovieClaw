@@ -1,17 +1,30 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Banner, ErrorBanner, LINK_CLASS, StatusPill } from "@/components/cloud-push-ui";
 import { ChevronRightIcon } from "@/components/icons";
+import { PluginMarket } from "@/components/plugin-market";
 import { PluginPackagesSection } from "@/components/plugin-packages-section";
-import { SettingsList, SettingsRow, SettingsSection } from "@/components/settings-ui";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SettingsList,
+  SettingsRow,
+  SettingsSection,
+  SettingsTabs,
+} from "@/components/settings-ui";
+import { useToast } from "@/components/feedback";
 import {
   exitSafeMode,
+  listMarket,
   listPlugins,
   type PluginInfo,
   type PluginsOverview,
+  type RemovedPlugin,
+  restoreBundled,
 } from "@/lib/api/plugins";
 import { TONE_COLOR } from "@/lib/cloud-push-display";
 import {
@@ -23,6 +36,7 @@ import {
   officialPlugins,
   officialSourceText,
   pluginDetail,
+  pluginHref,
   pluginLogsHref,
   pluginStateLabel,
   pluginStateTone,
@@ -31,6 +45,8 @@ import {
   systemModules,
   systemModulesLine,
 } from "@/lib/plugins-display";
+import { formatList } from "@/lib/i18n/format";
+import { useTabParam } from "@/lib/use-tab-param";
 
 /**
  * 设置 → 插件（系统组）：只放真正的插件（docs/design/plugin-page-tiers.md）。不为了插件而插件：
@@ -40,10 +56,19 @@ import {
  *   - 第三方插件 / 本地插件：插件包的上传、批准、回滚、卸载（PluginPackagesSection）；
  *   - 系统模块：应用运行所需，平时只在页面底部留一行入口；出问题时浮到页面顶部。
  *
+ * 两个页签：已安装（上面这些）与插件市场（?tab=market，官方插件仓库的签名索引，PluginMarket）。
+ *
  * 深链：?module=<条目 id> 定位到那一行（系统模块会先展开）；旧链接 ?tab=builtin 展开系统模块。
  * 安全模式影响整页（本地 / 第三方插件都被跳过），横幅放在最上面。
  */
+const PAGE_TABS = ["installed", "market"] as const;
+
 export function PluginsPage() {
+  const t = useTranslations();
+  const locale = useLocale();
+  const [tab, setTab] = useTabParam(PAGE_TABS, "installed");
+  // 页签上的「有更新」数：服务器缓存着索引，这一下不打 GitHub；取不到就不显示
+  const [updates, setUpdates] = useState(0);
   const [overview, setOverview] = useState<PluginsOverview | null>(null);
   const [exiting, setExiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,11 +82,19 @@ export function PluginsPage() {
         setOverview(value);
         setError(null);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "加载失败"));
-  }, []);
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : t("settings.plugins.loadFailed")));
+  }, [t]);
   useEffect(() => {
     reload();
   }, [reload]);
+  const reloadUpdates = useCallback(() => {
+    listMarket()
+      .then((market) => setUpdates(market.updates))
+      .catch(() => setUpdates(0));
+  }, []);
+  useEffect(() => {
+    reloadUpdates();
+  }, [reloadUpdates]);
 
   // 地址栏只在挂载时读一次（SSR 阶段没有 window，同 useTabParam）
   useEffect(() => {
@@ -94,21 +127,57 @@ export function PluginsPage() {
     setExiting(true);
     exitSafeMode()
       .then(() => reload())
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "退出失败"))
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : t("settings.plugins.exitFailed")))
       .finally(() => setExiting(false));
-  }, [reload]);
+  }, [reload, t]);
 
   const safeMode = overview?.safe_mode;
   const system = plugins ? systemModules(plugins) : [];
   const systemProblems = system.filter(needsAttention);
 
+  const tabs = (
+    <SettingsTabs
+      tabs={[
+        { id: "installed", label: t("settings.plugins.installed") },
+        {
+          id: "market",
+          label: (
+            <>
+              {t("settings.plugins.market")}{updates > 0 && (
+                <span className="rounded-full bg-[var(--accent)] px-1.5 text-caption font-semibold tabular-nums text-[#141821]">
+                  {updates}
+                </span>
+              )}
+            </>
+          ),
+        },
+      ]}
+      value={tab}
+      onChange={setTab}
+    />
+  );
+  if (tab === "market") {
+    return (
+      <div className="space-y-8">
+        {tabs}
+        <PluginMarket
+          onChanged={() => {
+            reload();
+            reloadUpdates();
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-10">
+      {tabs}
       {error && <ErrorBanner>{error}</ErrorBanner>}
       {safeMode?.active && (
         <Banner
           tone="warn"
-          title="插件安全模式：本次没有加载本地 / 第三方插件"
+          title={t("settings.plugins.safeMode")}
           action={
             safeMode.forced === "env" ? undefined : (
               <button
@@ -117,24 +186,28 @@ export function PluginsPage() {
                 onClick={leaveSafeMode}
                 className="btn-accent inline-flex rounded-full px-4 py-1.5 text-sub font-semibold disabled:opacity-60"
               >
-                {exiting ? "正在加载…" : "退出安全模式"}
+                {exiting ? t("settings.plugins.loading") : t("settings.plugins.exitSafeMode")}
               </button>
             )
           }
         >
-          {safeMode.reason}。跳过的插件：{safeMode.skipped.join("、") || "无"}。
+          {t("settings.plugins.safeReason", { reason: safeMode.reason, plugins: formatList(safeMode.skipped, locale) || t("settings.plugins.none") })}
           {safeMode.forced === "env"
-            ? "去掉环境变量 MOVIECLAW_SAFE_MODE 并重启即可退出。"
-            : "排查后退出，被跳过的插件会当场重新加载；它若再把应用拖垮，下次启动会自动回到安全模式。"}
+            ? t("settings.plugins.safeEnv")
+            : t("settings.plugins.safeExitHint")}
         </Banner>
       )}
       {systemProblems.length > 0 && <SystemProblems plugins={systemProblems} />}
 
       {plugins === null ? (
-        !error && <p className="px-1 text-sub text-[var(--text-muted)]">正在加载…</p>
+        !error && <p className="px-1 text-sub text-[var(--text-muted)]">{t("settings.plugins.loading")}</p>
       ) : (
         <>
-          <OfficialSection plugins={officialPlugins(plugins)} />
+          <OfficialSection
+            plugins={officialPlugins(plugins)}
+            removed={overview?.removed ?? []}
+            onChanged={reload}
+          />
         </>
       )}
       <PluginPackagesSection locals={plugins?.filter(isLocalPlugin) ?? []} onChanged={reload} />
@@ -142,6 +215,7 @@ export function PluginsPage() {
         <SystemModules
           plugins={system}
           groups={overview?.groups ?? []}
+          labels={overview?.group_labels ?? {}}
           open={showSystem}
           onToggle={() => setShowSystem((v) => !v)}
         />
@@ -152,22 +226,24 @@ export function PluginsPage() {
 
 /** 页面顶部：没有正常运行的系统模块（平时看不到它们，出问题才浮出来） */
 function SystemProblems({ plugins }: { plugins: PluginInfo[] }) {
+  const t = useTranslations();
+  const locale = useLocale();
   return (
-    <Banner tone="warn" title={`有 ${plugins.length} 个系统模块没有正常运行`}>
+    <Banner tone="warn" title={t("settings.plugins.systemProblems", { count: plugins.length })}>
       <ul className="mt-1 space-y-1.5">
         {plugins.map((p) => (
           <li key={p.id} className="text-sub leading-5">
-            <span className="font-medium text-[var(--text)]">{p.title}</span>
-            <span className="text-[var(--text-muted)]">：{pluginDetail(p)}</span>{" "}
-            <Link href={pluginLogsHref(p) as never} className={`${LINK_CLASS} whitespace-nowrap`}>
-              查看日志
+            <Link href={pluginHref(p.id) as never} className={LINK_CLASS}>
+              {p.title}
             </Link>
+            <span className="text-[var(--text-muted)]">{t("settings.plugins.detailSeparator", { detail: pluginDetail(p, locale) })}</span>{" "}
+            <Link href={pluginLogsHref(p) as never} className={`${LINK_CLASS} whitespace-nowrap`}>
+              {t("settings.plugins.viewLogs")}</Link>
           </li>
         ))}
       </ul>
       <p className="mt-2 text-caption text-[var(--text-faint)]">
-        其余功能不受影响；修复后重启应用即可恢复。
-      </p>
+        {t("settings.plugins.systemRecovery")}</p>
     </Banner>
   );
 }
@@ -176,21 +252,59 @@ function SystemProblems({ plugins }: { plugins: PluginInfo[] }) {
 const ROW_ANCHOR =
   "scroll-mt-24 transition-shadow duration-500 data-[highlight=true]:shadow-[inset_0_0_0_2px_var(--accent)]";
 
-function OfficialSection({ plugins }: { plugins: PluginInfo[] }) {
-  if (plugins.length === 0) return null;
+function OfficialSection({
+  plugins,
+  removed,
+  onChanged,
+}: {
+  plugins: PluginInfo[];
+  removed: RemovedPlugin[];
+  onChanged: () => void;
+}) {
+  const t = useTranslations();
+  const locale = useLocale();
+  const toast = useToast();
+  const [restoring, setRestoring] = useState<string | null>(null);
+  if (plugins.length === 0 && removed.length === 0) return null;
+  const restore = (item: RemovedPlugin) => {
+    setRestoring(item.id);
+    restoreBundled(item.id)
+      .then(() => {
+        toast.success(t("settings.plugins.restored", { name: item.title }));
+        onChanged();
+      })
+      .catch((err: unknown) => toast.error(err instanceof Error ? err.message : t("settings.plugins.restoreFailed")))
+      .finally(() => setRestoring(null));
+  };
   return (
     <SettingsSection
-      title="官方插件"
-      description="随 MovieClaw 提供的插件。装一个同名的插件包就能替换内置版本，卸载即恢复；也可以安装第三方插件接入更多平台。"
+      title={t("settings.plugins.official")}
+      description={t("settings.plugins.officialHint")}
     >
       <SettingsList>
         {plugins.map((p) => (
           <div key={p.id} data-plugin-ids={p.id} className={ROW_ANCHOR}>
             <SettingsRow
               label={p.title}
-              description={needsAttention(p) ? pluginDetail(p) : officialSourceText(p)}
+              description={needsAttention(p) ? pluginDetail(p, locale) : officialSourceText(p, locale)}
+              href={pluginHref(p.id)}
             >
-              <StatusPill tone={pluginStateTone(displayState(p))} label={pluginStateLabel(displayState(p))} />
+              <StatusPill tone={pluginStateTone(displayState(p))} label={pluginStateLabel(displayState(p), locale)} />
+            </SettingsRow>
+          </div>
+        ))}
+        {removed.map((item) => (
+          <div key={item.id} data-plugin-ids={item.id} className={ROW_ANCHOR}>
+            <SettingsRow label={item.title} description={item.description || t("settings.plugins.removedHint")}>
+              <StatusPill tone="neutral" label={t("settings.plugins.removed")} />
+              <button
+                type="button"
+                disabled={restoring !== null}
+                className={SETTINGS_BUTTON_CLASS}
+                onClick={() => restore(item)}
+              >
+                {restoring === item.id ? t("settings.plugins.restoring") : t("settings.plugins.restore")}
+              </button>
             </SettingsRow>
           </div>
         ))}
@@ -203,15 +317,19 @@ function OfficialSection({ plugins }: { plugins: PluginInfo[] }) {
 function SystemModules({
   plugins,
   groups,
+  labels = {},
   open,
   onToggle,
 }: {
   plugins: PluginInfo[];
   groups: string[];
+  labels?: Record<string, string>;
   open: boolean;
   onToggle: () => void;
 }) {
-  const line = systemModulesLine(plugins);
+  const t = useTranslations();
+  const locale = useLocale();
+  const line = systemModulesLine(plugins, locale);
   const slow = slowestStarts(plugins);
   return (
     <section className="space-y-6 border-t border-[var(--line)] pt-6">
@@ -226,7 +344,7 @@ function SystemModules({
           style={{ background: TONE_COLOR[line.tone] }}
         />
         <span className="flex-1">{line.text}</span>
-        <span className="text-[var(--text-faint)]">{open ? "收起" : "查看"}</span>
+        <span className="text-[var(--text-faint)]">{open ? t("settings.plugins.collapse") : t("settings.plugins.view")}</span>
         <ChevronRightIcon
           className={`size-3.5 text-[var(--text-faint)] transition-transform ${open ? "rotate-90" : ""}`}
         />
@@ -234,13 +352,12 @@ function SystemModules({
       {open && (
         <div className="space-y-10">
           <p className="px-1 text-caption leading-5 text-[var(--text-faint)]">
-            应用运行所需的内部模块，无需操作。一个出问题只影响它自己，其余功能照常。
-            {` ${pluginsSummary(plugins)}`}
+            {t("settings.plugins.systemHint")}{` ${pluginsSummary(plugins, locale)}`}
             {slow.length > 0 &&
-              ` · 启动最慢：${slow.map((p) => `${p.title} ${formatMs(p.apply_ms ?? 0)}`).join("、")}`}
+              t("settings.plugins.slowest", { plugins: formatList(slow.map((p) => `${p.title} ${formatMs(p.apply_ms ?? 0, locale)}`), locale) })}
           </p>
-          {groupBuiltins(plugins, groups).map((group) => (
-            <SettingsSection key={group.label} title={group.label}>
+          {groupBuiltins(plugins, groups, locale).map((group) => (
+            <SettingsSection key={group.label} title={labels[group.label] ?? group.label}>
               <SettingsList>
                 {group.plugins.map((p) => (
                   <div key={p.id} data-plugin-ids={p.id} className={ROW_ANCHOR}>
@@ -253,9 +370,10 @@ function SystemModules({
                           </span>
                         </span>
                       }
-                      description={pluginDetail(p)}
+                      description={pluginDetail(p, locale)}
+                      href={pluginHref(p.id)}
                     >
-                      <StatusPill tone={pluginStateTone(displayState(p))} label={pluginStateLabel(displayState(p))} />
+                      <StatusPill tone={pluginStateTone(displayState(p))} label={pluginStateLabel(displayState(p), locale)} />
                     </SettingsRow>
                   </div>
                 ))}

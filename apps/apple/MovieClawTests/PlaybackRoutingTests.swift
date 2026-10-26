@@ -294,5 +294,30 @@ struct PlaybackRoutingTests {
         let audio = ["英语 · EAC3 · 5.1", "国语 · AC3 · 5.1", "国语 · AAC · 立体声"]
         #expect(RememberedChoices.shortLabel(audio[0], among: audio) == "英语")
         #expect(RememberedChoices.shortLabel(audio[1], among: audio) == "国语 · AC3 · 5.1")
+        // 倍速也算一项
+        #expect(RememberedChoices.notice(quality: nil, network: .home, audio: nil, subtitle: nil, rate: 1.5)
+            == "已沿用上次的选择：倍速 1.5×")
+    }
+
+    @Test func speedLabels() {
+        #expect(PlaybackSpeed.all == [0.5, 0.75, 1, 1.25, 1.5, 2])
+        #expect(PlaybackSpeed.label(1) == "正常")
+        #expect(PlaybackSpeed.label(1.25) == "1.25×")
+        #expect(PlaybackSpeed.short(0.5) == "0.5×")
+        #expect(PlaybackSpeed.short(2) == "2×")
+        #expect(PlaybackSpeed.short(0.75) == "0.75×")
+    }
+
+    @Test func speedIsRememberedPerTitle() {
+        let title = Int.random(in: 900_000_000 ..< 999_999_999)
+        defer { SpeedMemory.remember(1, mediaItemId: title) }
+        #expect(SpeedMemory.rate(mediaItemId: title) == nil)
+        SpeedMemory.remember(1.5, mediaItemId: title)
+        #expect(SpeedMemory.rate(mediaItemId: title) == 1.5)
+        // 换一部片从正常速度起
+        #expect(SpeedMemory.rate(mediaItemId: title + 1) == nil)
+        // 选回正常 = 忘掉
+        SpeedMemory.remember(1, mediaItemId: title)
+        #expect(SpeedMemory.rate(mediaItemId: title) == nil)
     }
 }

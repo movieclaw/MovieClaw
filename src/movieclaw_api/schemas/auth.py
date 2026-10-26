@@ -27,11 +27,14 @@ class DemoSiteView(BaseModel):
 
 
 class BootstrapStatus(BaseModel):
-    """首次初始化状态：前端据此决定进引导页（/setup）还是登录页（/login）。"""
+    """首次初始化状态、原生设备登录能力及公开演示站信息。"""
 
     initialized: bool
     demo: DemoSiteView | None = Field(
         default=None, description="公开演示站模式下的说明与演示账号；正常部署恒为空"
+    )
+    native_device_kinds: list[str] | None = Field(
+        default=None, description="服务端接受的原生 App 设备类型；旧服务端可能不提供"
     )
 
 
@@ -94,6 +97,9 @@ class SessionCapabilities(BaseModel):
     allow_subscribe: bool = True
     allow_search: bool = True
     allow_direct_download: bool = True
+    #: 下载影片到设备（docs/design/offline-download.md §9）。可空给生成的客户端类型看：
+    #: 旧服务器没有这个字段，客户端把「缺失」当成「服务器不支持离线下载」
+    allow_video_download: bool | None = True
 
 
 class DeviceBrief(BaseModel):
@@ -172,7 +178,7 @@ class DeviceAuthorizeRequest(BaseModel):
     client_type: str = Field(
         description=(
             "客户端形态：worker（转码 Worker）、cli（命令行 / Agent）、tvos（Apple TV App）、"
-            "macos（Mac App）、androidtv（Android TV App）"
+            "macos（Mac App）、windows（Windows App）、androidtv（Android TV App）"
         )
     )
     client_name: str = Field(
@@ -247,7 +253,9 @@ class DeviceRequestView(BaseModel):
 class DeviceClientInfo(BaseModel):
     """原生 App 登录时自报的设备信息。"""
 
-    kind: Literal["ios", "tvos", "macos", "android", "androidtv"] = Field(description="App 平台")
+    kind: Literal["ios", "tvos", "macos", "android", "androidtv", "windows"] = Field(
+        description="App 平台"
+    )
     installation_id: str = Field(
         min_length=8,
         max_length=128,
@@ -274,7 +282,9 @@ class DevicePushView(BaseModel):
     """App 设备能不能收到推送（docs/design/cloud-push.md §4）。界面只在不是 ok 时提示。"""
 
     status: str = Field(
-        description="ok / permission_denied / no_channel / bad_token / not_registered"
+        description=(
+            "ok / unsupported_build / permission_denied / no_channel / bad_token / not_registered"
+        )
     )
     status_text: str
 

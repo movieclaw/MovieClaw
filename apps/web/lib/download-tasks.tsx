@@ -15,6 +15,7 @@ import {
   type DownloadTaskSnapshot,
   type DownloadTaskSource,
 } from "@/lib/api/downloaders";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useSession } from "@/lib/session";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 
@@ -61,7 +62,7 @@ export function DownloadTasksProvider({ children }: { children: React.ReactNode 
             setError(null);
             setRefreshedAt(Date.now());
           } catch (caught) {
-            setError((caught as Error).message || "下载任务加载失败");
+            setError((caught as Error).message || appTranslator()("activity.taskCenter.downloadsLoadFailed"));
           } finally {
             setLoading(false);
           }

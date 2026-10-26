@@ -1,8 +1,8 @@
 package io.movieclaw.androidtv.ui.detail
 
 import androidx.compose.animation.core.AnimationSpec
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import kotlin.math.abs
 
@@ -61,8 +61,13 @@ internal class DetailSnapSpec(
     private val lowerPx: () -> Float,
     private val marginPx: Float,
 ) : BringIntoViewSpec {
+    /**
+     * 必须是弹簧：系统按焦点滚动时每一帧都拿「还剩多少」重新起一段动画、只走第一帧。tween 每帧只走曲线开头的一小截
+     * （400ms 缓入缓出每帧约 0.3%），整页一秒才挪出不到两成，看着像卡住、慢慢往下蹭（用户真机反馈）。
+     * 无回弹、刚度 400：约 0.35 秒滑到位，和原先设想的 0.4 秒相当
+     */
     @Deprecated("跟随接口")
-    override val scrollAnimationSpec: AnimationSpec<Float> = tween(400, easing = FastOutSlowInEasing)
+    override val scrollAnimationSpec: AnimationSpec<Float> = spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMediumLow)
 
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
         val s = scrollValue()

@@ -22,46 +22,79 @@ struct AgentAIConsentSheet: View {
     let onAgree: () -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var contentHeight: CGFloat = 320
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                Image(systemName: "sparkles")
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 32, height: 32)
-                    .background(Theme.accentSoft, in: .rect(cornerRadius: 9))
-                Text("使用 AI 助手前").font(.headline).foregroundStyle(.white)
-            }
-            Text(destinationText)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("MovieClaw 的开发者不会收到这些内容。服务商如何处理数据以其隐私政策为准；服务器管理员可以在「设置 → 模型接入」更换或移除服务商。")
-                .foregroundStyle(Theme.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 10) {
-                Button("取消") { dismiss() }
-                    .buttonStyle(.glass)
-                    .frame(maxWidth: .infinity)
-                    .accessibilityIdentifier("agent-consent-cancel")
-                Button("同意并发送") {
-                    AgentAIConsent.grant()
-                    dismiss()
-                    onAgree()
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "sparkles")
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 32, height: 32)
+                            .background(Theme.accentSoft, in: .rect(cornerRadius: 9))
+                        Text(String(localized: .agentConsentTitle)).font(.headline).foregroundStyle(.white)
+                    }
+                    Text(destinationText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(String(localized: .agentConsentPrivacy))
+                        .foregroundStyle(Theme.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .discoverProminentButton()
-                .accessibilityIdentifier("agent-consent-agree")
+                .font(.subheadline)
+                .padding(20)
             }
+            .scrollBounceBehavior(.basedOnSize)
+            .accessibilityIdentifier("agent-consent-content")
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(spacing: 10) {
+                        agreeButton
+                        cancelButton
+                    }
+                } else {
+                    HStack(spacing: 12) {
+                        cancelButton
+                        agreeButton
+                    }
+                }
+            }
+            .controlSize(.large)
+            .font(.body.weight(.medium))
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 12)
         }
-        .font(.subheadline)
-        .padding(20)
-        .fixedSize(horizontal: false, vertical: true)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
-        .frame(maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.height(contentHeight)])
+        .adaptiveDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var agreeButton: some View {
+        Button {
+            AgentAIConsent.grant()
+            dismiss()
+            onAgree()
+        } label: {
+            Text(String(localized: .agentConsentAgree))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity)
+        }
+        .discoverProminentButton()
+        .accessibilityIdentifier("agent-consent-agree")
+    }
+
+    private var cancelButton: some View {
+        Button(role: .cancel) { dismiss() } label: {
+            Text(String(localized: .commonCancel))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.glass)
+        .accessibilityIdentifier("agent-consent-cancel")
     }
 
     private var destinationText: String {
-        let current: String = providers.isEmpty ? "" : "（当前：" + providers.joined(separator: "、") + "）"
-        return "你发出的消息和图片，以及助手为了回答而查询的媒体库信息，会由你的 MovieClaw 服务器发送给服务器管理员接入的 AI 模型服务商处理" + current + "。"
+        providers.isEmpty ? String(localized: .agentConsentDestination)
+            : String(localized: .agentConsentDestinationProviders(AppFormatting.list(providers)))
     }
 }

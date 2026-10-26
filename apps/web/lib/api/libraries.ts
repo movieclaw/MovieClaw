@@ -1,3 +1,6 @@
+import { requestLocale } from "../i18n/negotiate.ts";
+import { appTranslator } from "../i18n/translate.ts";
+import type { AppLocale } from "../i18n/negotiate.ts";
 import { publicEnv } from "@/lib/env";
 import { request, resolveRequestUrl } from "@/lib/http";
 import { snapWidth } from "@/lib/image-width";
@@ -135,8 +138,54 @@ export interface MediaLibrary {
   metadata_refresh: MetadataRefreshProgress | null;
   /** 整库生成章节的作业状态（排队 / 进行中）；没在生成为 null。随库列表下发，管理页据此显示进度 */
   chapter_job: ChapterJobProgress | null;
+  /** 网盘根目录（管理员端恒为数组，成员端 null；老服务器没有这个字段） */
+  cloud_folders?: LibraryCloudFolder[] | null;
+  /** 正在上传到网盘的进度；没在传为 null */
+  cloud_upload?: CloudUpload | null;
+  /** 主根在网盘时本地也保留一份（上传后不腾空本地）；老服务器没有这个字段 */
+  keep_local?: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/** 最近一次纳管 / 复查一个网盘目录的结果 */
+export interface CloudFolderReport {
+  finished_at: string;
+  seconds: number;
+  /** 调用网盘接口的次数 */
+  calls: number;
+  videos: number;
+  identified: number;
+  /** 待认领（没认出来的） */
+  pending: number;
+  /** disc=原盘目录、iso=光盘镜像、extra=样片与花絮（一期不纳管） */
+  skipped: { disc?: number; iso?: number; extra?: number };
+  cancelled: boolean;
+}
+
+/** 库的一个网盘根目录（docs/design/cloud-storage.md §3.2） */
+export interface LibraryCloudFolder {
+  id: number;
+  account_id: number;
+  account_name: string;
+  backend: string;
+  backend_title: string;
+  remote_dir_id: string;
+  display_path: string;
+  is_primary: boolean;
+  /** 台账里在位的纳管文件数 */
+  file_count: number;
+  /** 上次纳管或复查的时间；没列过为 null */
+  listed_at: string | null;
+  report: CloudFolderReport | null;
+}
+
+/** 编辑库时提交的网盘根目录 */
+export interface CloudFolderPayload {
+  account_id: number;
+  remote_dir_id: string;
+  display_path: string;
+  is_primary?: boolean;
 }
 
 /**
@@ -153,24 +202,32 @@ export type ScanPhase =
   | "organizing"; // 批量规范化改名
 
 /** 各阶段的界面文案（唯一出处，卡片与详情页共用）。 */
-export const SCAN_PHASE_LABELS: Record<ScanPhase, string> = {
-  walking: "正在盘点文件",
-  ingesting: "正在扫描",
-  probing: "正在补探画质与音轨",
-  assets: "正在补齐海报与剧照",
-  reidentifying: "正在重新识别条目",
-  organizing: "正在整理文件名",
-};
+export function scanPhaseLabels(locale?: AppLocale): Record<ScanPhase, string> {
+  const t = appTranslator(locale);
+  return {
+    walking: t("library.scan.walking"),
+    ingesting: t("library.status.scanning"),
+    probing: t("library.scan.probing"),
+    assets: t("library.scan.assets"),
+    reidentifying: t("library.scan.reidentifying"),
+    organizing: t("library.status.organizing"),
+  };
+}
+export const SCAN_PHASE_LABELS = scanPhaseLabels("zh-Hans");
 
 /** 阶段对应的一句补充说明（详情页胶囊用，讲清"现在等的是什么"）。 */
-export const SCAN_PHASE_HINTS: Record<ScanPhase, string> = {
-  walking: "正在统计待处理的文件数",
-  ingesting: "识别到的内容会自动入库",
-  probing: "文件已全部入库，正在读取文件本体的规格",
-  assets: "文件已全部入库，正在下载图片",
-  reidentifying: "完成后条目身份会更新",
-  organizing: "完成后自动刷新",
-};
+export function scanPhaseHints(locale?: AppLocale): Record<ScanPhase, string> {
+  const t = appTranslator(locale);
+  return {
+    walking: t("library.status.counting"),
+    ingesting: t("library.scan.ingestingHint"),
+    probing: t("library.scan.probingHint"),
+    assets: t("library.scan.assetsHint"),
+    reidentifying: t("library.scan.reidentifyingHint"),
+    organizing: t("library.scan.organizingHint"),
+  };
+}
+export const SCAN_PHASE_HINTS = scanPhaseHints("zh-Hans");
 
 /** 扫描/整理的实时进度。 */
 export interface ScanProgress {
@@ -417,6 +474,10 @@ export interface LibraryPayload {
   /** 库级刮削覆盖（「刮削与整理」的全部字段）；不传=不改动，空对象=清空覆盖。
    *  语言与选图这类产物挂全局条目的设置，按条目的刮削归属库生效 */
   scrape_overrides?: Record<string, unknown>;
+  /** 网盘根目录（整体覆盖）：挂上即纳管，拿掉只删台账不动网盘；不传=不改动 */
+  cloud_folders?: CloudFolderPayload[];
+  /** 主根在网盘时本地也保留一份；不传=不改动（新建时默认关） */
+  keep_local?: boolean;
 }
 
 /** 收藏范围的可选项（后端唯一真相源：类型 chips 与区域预设）。 */
@@ -428,19 +489,21 @@ export interface RoutingOptions {
   country_names: Record<string, string>;
 }
 
-let _routingOptionsCache: Promise<RoutingOptions> | null = null;
+const routingOptionsCache = new Map<AppLocale, Promise<RoutingOptions>>();
 
-/** 收藏范围可选项（进程内缓存：静态常量，一次拉取全程复用）。 */
-export function listLibraryRoutingOptions(): Promise<RoutingOptions> {
-  if (!_routingOptionsCache) {
-    _routingOptionsCache = unwrap(
-      request<ApiEnvelope<RoutingOptions>>("/libraries/routing-options"),
-    ).catch((e) => {
-      _routingOptionsCache = null;
-      throw e;
+/** 收藏范围标签按语言缓存；条件里的 ID 和国家码不变。 */
+export function listLibraryRoutingOptions(locale: AppLocale = requestLocale() ?? "en"): Promise<RoutingOptions> {
+  let pending = routingOptionsCache.get(locale);
+  if (!pending) {
+    pending = unwrap(
+      request<ApiEnvelope<RoutingOptions>>("/libraries/routing-options", { headers: { "Accept-Language": locale } }),
+    ).catch((error) => {
+      routingOptionsCache.delete(locale);
+      throw error;
     });
+    routingOptionsCache.set(locale, pending);
   }
-  return _routingOptionsCache;
+  return pending;
 }
 
 /**
@@ -1421,7 +1484,7 @@ export interface LibraryItemFile {
   missing: boolean;
   /** 生命周期：in_place 在位 / missing 缺失 / trashed 待回收 */
   state: "in_place" | "missing" | "trashed";
-  /** 待回收的预计自动清理时间；null 且 trashed = 做种保护，不自动删 */
+  /** 待回收的预计自动清理时间；null = 不自动删（2026-08-17 之前的旧数据） */
   purge_after: string | null;
   /** 待回收原因（中文整句，含触发方） */
   trash_note: string | null;
@@ -1437,7 +1500,39 @@ export interface LibraryItemFile {
   playback_defaults: TrackDefaults | null;
   /** 有效章节（内嵌或按时长合成）；null=所在库没开「生成章节」或尚未探测章节 */
   chapters: LibraryChapter[] | null;
+  /** 网盘上的副本；null = 只在本地（老服务器没有这个字段） */
+  cloud?: FileCloudCopy | null;
   added_at: string;
+}
+
+/** 文件在网盘上的副本：文件区据此标「本地」「本地 + 115」「115」 */
+export interface FileCloudCopy {
+  backend_title: string;
+  account_name: string;
+  /** 网盘上的路径（成员端为 null） */
+  remote_path: string | null;
+  /** 本地也有字节 */
+  local: boolean;
+  /** imported（纳管来的）/ uploaded（我们传的） */
+  origin: string;
+  /** uploading / verified / lost / deleting / failed */
+  state: string;
+  /** 上次上传没成的原因 */
+  error?: string | null;
+}
+
+/** 主根在网盘的库正在往网盘传的进度 */
+export interface CloudUpload {
+  job_id: string;
+  /** queued / running / retry_wait / blocked / cancelling */
+  status: string;
+  processed: number;
+  total: number;
+  rapid: number;
+  failed: number;
+  /** 当前文件的进度（%） */
+  percent: number | null;
+  message: string;
 }
 
 /**
@@ -1525,6 +1620,8 @@ export interface LibraryItemDetail {
   douban_id: string | null;
   title: string;
   original_title: string;
+  /** 国际英文名：「搜索资源」与中文名、原名一起搜；老服务端没有该字段 */
+  english_title?: string | null;
   year: number | null;
   poster_url: string | null;
   backdrop_url: string | null;
@@ -1587,6 +1684,9 @@ export interface LibraryEpisode {
 export interface SeasonEpisodes {
   season_number: number;
   episodes: LibraryEpisode[];
+  /** 本季接着看的那一集（同首页「接下来继续」规则），分集区按它锁定集段；本季没播放过、
+   *  分享页（访客没有观看记录）为 null */
+  resume_episode: number | null;
 }
 
 /** 剧集条目一季的分集清单（分集横滚区数据源）。 */
@@ -1627,6 +1727,68 @@ export interface ItemDeleteResult {
   rows_deleted: number;
   freed_bytes: number;
   errors: string[];
+  /** 勾选的删除选项各建了一个后续任务，删除提交后执行（旧服务端没有这个字段） */
+  follow_ups?: DeleteFollowUp[];
+}
+
+export interface DeleteFollowUp {
+  option: string;
+  label: string;
+  job_id: string;
+}
+
+export interface DeletePreviewLine {
+  text: string;
+  tone: "info" | "warn" | "danger";
+}
+
+/** 删除弹窗里的附加选项（别的模块登记的删除参与方，如下载模块的「同时删除下载任务和源文件」）；默认一律不勾 */
+export interface DeleteOption {
+  key: string;
+  label: string;
+  help: string;
+  available: boolean;
+  reason: string | null;
+  lines: DeletePreviewLine[];
+}
+
+/** 删除前预览：媒体库自己的计划 + 附加选项（docs/design/library-boundary.md §3） */
+export interface ItemDeletePreview {
+  whole_item: boolean;
+  plan: ItemDeleteResult;
+  /** 要删的文件里与别处是同一份数据（硬链接）的字节数：只删库文件不会释放这部分空间 */
+  linked_bytes: number;
+  options: DeleteOption[];
+  /** 也会删掉网盘上的文件；只在本地的为 null（老服务器没有这个字段） */
+  cloud?: DeleteCloud | null;
+}
+
+/** 这次删除会删掉的网盘文件 */
+export interface DeleteCloud {
+  backend_title: string;
+  files: number;
+  bytes: number;
+  /** 网盘有回收站：删的是进网盘回收站，还能在网盘里还原 */
+  recycle_bin: boolean;
+}
+
+export function getDeletePreview(
+  libraryId: number,
+  mediaItemId: number,
+  fileId?: number,
+): Promise<ItemDeletePreview> {
+  const query = fileId != null ? `?file_id=${fileId}` : "";
+  return unwrap(
+    request<ApiEnvelope<ItemDeletePreview>>(
+      `/libraries/${libraryId}/items/${mediaItemId}/delete-preview${query}`,
+    ),
+  );
+}
+
+function optionsQuery(options: string[] | undefined): string {
+  return options && options.length > 0
+    ? `?options=${encodeURIComponent(options.join(","))}`
+    : "";
 }
 
 /** 条目详情：基本信息 + NFO 本地刮削元数据 + 逐文件真实介质规格。 */
@@ -1636,6 +1798,23 @@ export function getLibraryItemDetail(
 ): Promise<LibraryItemDetail> {
   return unwrap(
     request<ApiEnvelope<LibraryItemDetail>>(`/libraries/${libraryId}/items/${mediaItemId}`),
+  );
+}
+
+/**
+ * 条目详情页的相似推荐：只在当前身份可见的同类型库里挑，卡片与首页库行同形。
+ * `excludeSeries`：排除同系列的片（详情页另有完整的系列一行时用）。
+ */
+export function listSimilarItems(
+  libraryId: number,
+  mediaItemId: number,
+  params?: { excludeSeries?: boolean },
+): Promise<LibraryItem[]> {
+  const suffix = params?.excludeSeries ? "?exclude_series=true" : "";
+  return unwrap(
+    request<ApiEnvelope<LibraryItem[]>>(
+      `/libraries/${libraryId}/items/${mediaItemId}/similar${suffix}`,
+    ),
   );
 }
 
@@ -1693,11 +1872,13 @@ export function deleteExternalSubtitle(
 export function deleteLibraryItem(
   libraryId: number,
   mediaItemId: number,
+  options?: string[],
 ): Promise<ItemDeleteResult> {
   return unwrap(
-    request<ApiEnvelope<ItemDeleteResult>>(`/libraries/${libraryId}/items/${mediaItemId}`, {
-      method: "DELETE",
-    }),
+    request<ApiEnvelope<ItemDeleteResult>>(
+      `/libraries/${libraryId}/items/${mediaItemId}${optionsQuery(options)}`,
+      { method: "DELETE" },
+    ),
   );
 }
 
@@ -1720,7 +1901,7 @@ export function restoreLibraryFile(
   );
 }
 
-/** 立即清理待回收的文件（真删磁盘；做种保护形态需先向用户确认断种风险）。 */
+/** 立即清理待回收的文件（真删磁盘；原地待回收的需先向用户确认断种风险）。 */
 export function purgeLibraryFile(
   libraryId: number,
   mediaItemId: number,
@@ -1738,10 +1919,11 @@ export function deleteLibraryFile(
   libraryId: number,
   mediaItemId: number,
   fileId: number,
+  options?: string[],
 ): Promise<ItemDeleteResult> {
   return unwrap(
     request<ApiEnvelope<ItemDeleteResult>>(
-      `/libraries/${libraryId}/items/${mediaItemId}/files/${fileId}`,
+      `/libraries/${libraryId}/items/${mediaItemId}/files/${fileId}${optionsQuery(options)}`,
       { method: "DELETE" },
     ),
   );
@@ -1959,6 +2141,8 @@ export interface TrashedFile {
 export interface TrashedQuality {
   /** 「分辨率 片源」→ 文件数 */
   tiers: Record<string, number>;
+  /** Display labels indexed by the original grouping keys. */
+  tier_labels?: Record<string, string>;
   hdr: string[];
   video_codecs: string[];
   audio_labels: string[];
@@ -2078,6 +2262,8 @@ export interface DuplicateFile {
   file_path: string;
   /** 版本签名的质量部分：「分辨率 片源[ HDR]」 */
   quality_label: string;
+  quality_key?: string | null;
+  origin_key?: string | null;
   size_bytes: number;
   bit_rate: number | null;
   resolution: string | null;
@@ -2107,6 +2293,8 @@ export interface DuplicateUnit {
 export interface DuplicateVersion {
   key: string;
   quality_label: string;
+  quality_key?: string | null;
+  origin_key?: string | null;
   origin_label: string;
   episodes: number[];
   bytes: number;

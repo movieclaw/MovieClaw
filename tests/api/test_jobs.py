@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from datetime import timedelta
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from movieclaw_api.api.deps import require_admin
 from movieclaw_api.app import create_app
@@ -327,6 +328,32 @@ async def test_expired_lease_is_recovered_and_next_claim_gets_new_token(job_db) 
     assert row.progress["phase"] != "stale"
 
 
+async def test_startup_recovery_tolerates_locked_database(job_db, monkeypatch) -> None:
+    """用户 NAS 日志：启动时回收过期租约撞上 database is locked，整个应用起不来，
+    还被入口脚本计成启动失败、把好版本标坏。启动期这一步要容忍，交给调度循环重试。"""
+    real_recover = jobs.JobDispatcher._recover_expired_jobs
+    calls = 0
+    recovered = asyncio.Event()
+
+    async def locked_once(self) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OperationalError(
+                "DELETE FROM job_lock", {}, sqlite3.OperationalError("database is locked")
+            )
+        await real_recover(self)
+        recovered.set()
+
+    monkeypatch.setattr(jobs.JobDispatcher, "_recover_expired_jobs", locked_once)
+    dispatcher = jobs.JobDispatcher(max_parallel=1)
+    await dispatcher.start()
+    try:
+        await asyncio.wait_for(recovered.wait(), timeout=2)
+    finally:
+        await dispatcher.close()
+
+
 async def test_retry_blocked_job_requeues_in_place(job_db) -> None:
     async with job_db.session() as session:
         created = await jobs.create_job(
@@ -520,3 +547,79 @@ async def test_job_list_slims_bulky_plan_but_detail_keeps_it(
 
     detail = await job_client.get(f"/jobs/{created.job.id}")
     assert detail.json()["data"]["input_data"]["plan"] == big_plan
+
+
+async def test_cancel_refreshes_a_job_finished_after_the_session_read(job_db) -> None:
+    """dispatcher 已归还租约后，旧会话不能把 blocked 覆写成无人处理的 cancelling。"""
+    async with job_db.session() as session:
+        await jobs.create_job(session, job_type="test.missing", input_data={})
+    dispatcher = jobs.JobDispatcher()
+    claimed = await dispatcher._claim_one()
+    assert claimed is not None
+    job_id, token = claimed
+    async with job_db.session() as stale_session:
+        stale = await stale_session.get(Job, job_id)
+        assert stale.status == JobStatus.RUNNING
+        await dispatcher._finish_controlled(
+            job_id, token, JobStatus.BLOCKED, jobs.JobBlocked(message="没有处理器")
+        )
+        row, changed = await jobs.request_cancel(stale_session, job_id, requested_by="test")
+        assert changed and row.status == JobStatus.CANCELLED
+        assert row.lease_owner is None
+    async with job_db.session() as session:
+        row = await session.get(Job, job_id)
+        assert row.status == JobStatus.CANCELLED
+        assert row.finished_at is not None
+
+
+@pytest.mark.parametrize("first", ["cancel", "finish"])
+async def test_cancel_and_handler_exit_serialize_their_state_changes(job_db, monkeypatch, first):
+    async with job_db.session() as session:
+        await jobs.create_job(session, job_type="test.missing", input_data={})
+    dispatcher = jobs.JobDispatcher()
+    claimed = await dispatcher._claim_one()
+    assert claimed is not None
+    job_id, token = claimed
+    transition_ready = asyncio.Event()
+    release_transition = asyncio.Event()
+    second_entered = asyncio.Event()
+    record = jobs._record_transition
+    lock = jobs._lock_job
+
+    async def gated_record(session, job, event_type, payload):
+        if not transition_ready.is_set():
+            transition_ready.set()
+            await release_transition.wait()
+        await record(session, job, event_type, payload)
+
+    async def observed_lock(session, target):
+        if transition_ready.is_set():
+            second_entered.set()
+        return await lock(session, target)
+
+    monkeypatch.setattr(jobs, "_record_transition", gated_record)
+    monkeypatch.setattr(jobs, "_lock_job", observed_lock)
+
+    async def cancel():
+        async with job_db.session() as session:
+            await jobs.request_cancel(session, job_id, requested_by="test")
+
+    async def finish():
+        await dispatcher._finish_controlled(
+            job_id, token, JobStatus.BLOCKED, jobs.JobBlocked(message="没有处理器")
+        )
+
+    actions = {"cancel": cancel, "finish": finish}
+    async with asyncio.timeout(5):
+        leading = asyncio.create_task(actions[first]())
+        await transition_ready.wait()
+        trailing = asyncio.create_task(actions["finish" if first == "cancel" else "cancel"]())
+        await second_entered.wait()
+        release_transition.set()
+        await asyncio.gather(leading, trailing)
+    async with job_db.session() as session:
+        row = await session.get(Job, job_id)
+        assert row.status == JobStatus.CANCELLED
+        assert row.lease_owner is None and row.lease_expires_at is None
+        events = await jobs.job_events(session, job_id)
+        assert events[-1].event_type == "cancelled"

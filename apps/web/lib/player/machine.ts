@@ -50,8 +50,15 @@ function acceptsMediaEvent(phase: PlayerPhase): boolean {
   return phase === "buffering" || phase === "playing" || phase === "seeking" || phase === "ended";
 }
 
-/** 最高兜底档：软件转码。连败两次后直接跳到它，不再逐级试。 */
+/** 最高兜底档：软件转码。它也失败就没有可退的档了。 */
 const FALLBACK_TIER = 4;
+
+/**
+ * 第一个转码视频的档（档 3 硬件转码）。连败两次后跳过的只是它以下的直通档
+ * （0–2，都是 `-c:v copy`）——转码档一次都还没试过，不能替服务端判它失败。
+ * 有没有显卡只有服务端知道：有就落档 3，没有它自己越过档 3 落档 4。
+ */
+const FIRST_TRANSCODE_TIER = 3;
 
 /** 连续失败到这个次数就放弃逐级降档（§6.3）。 */
 const MAX_STEPWISE_FAILURES = 2;
@@ -65,6 +72,9 @@ export interface PlayerState {
   failedTiers: number[];
   /** 同一文件连续失败次数 */
   failureCount: number;
+  /** 服务端转出的 HEVC 放不了过（#1008）：之后的请求不再申报 hevc_transcode，硬件转码改出
+   *  H.264。不算档位失败——HEVC 解不了不等于显卡转不了 */
+  hevcRefused: boolean;
   /** 起播位置（文件时间，毫秒）。降档重来要落回同一位置，不能从头放。
    *  **null = 交给服务端按观看状态定**（§6.10 续播并入开会话）；会话响应
    *  回来后被解析出的实际起点覆盖，null 只存在于首次请求在途期间。 */
@@ -79,7 +89,11 @@ export interface PlayerState {
    * 降档路径不受影响是因为它每次都改 failedTiers/failureCount，指纹天然不同。
    */
   attempt: number;
-  error: { message: string; suggestion: string | null } | null;
+  error: {
+    message: string;
+    suggestion: string | null;
+    suggestionKey?: "player.errors.nativePlayerHint";
+  } | null;
 }
 
 export const initialPlayerState: PlayerState = {
@@ -88,6 +102,7 @@ export const initialPlayerState: PlayerState = {
   decision: null,
   failedTiers: [],
   failureCount: 0,
+  hevcRefused: false,
   startMs: 0,
   attempt: 0,
   error: null,
@@ -121,14 +136,17 @@ export type PlayerEvent =
  * 给不出可靠的失败归因，多试一档只浪费几秒（一次性），跳过档 2 却可能让
  * 本可直通的视频每次播放都多转一路。
  *
- * 连败两次说明「逐级试」这个假设本身不成立，此时把兜底档以下全标失败，
- * 一步到位。
+ * 连败两次说明「逐级试」这个假设本身不成立，此时把剩下的直通档全标失败，
+ * 一步跳到转码。**只标直通档，不标档 3**：以前把兜底档以下（含档 3）全标失败，
+ * 浏览器解不了的 4K HEVC 直通两次失败后，服务端看到档 3 也「失败过」，
+ * 明明有 VAAPI 也直接要求软件转码（弹同意框）。硬件档真失败了会以它自己的
+ * 档位进来，再降到档 4。
  */
 function nextFailedTiers(state: PlayerState, failedTier: number): number[] {
   const accumulated = new Set(state.failedTiers);
   accumulated.add(failedTier);
   if (state.failureCount + 1 >= MAX_STEPWISE_FAILURES) {
-    for (let tier = 0; tier < FALLBACK_TIER; tier += 1) accumulated.add(tier);
+    for (let tier = 0; tier < FIRST_TRANSCODE_TIER; tier += 1) accumulated.add(tier);
   }
   return [...accumulated].sort((a, b) => a - b);
 }
@@ -243,6 +261,15 @@ export function playerReducer(state: PlayerState, event: PlayerEvent): PlayerSta
           error: { message: event.reason, suggestion: null },
         };
       }
+      if (
+        !state.hevcRefused &&
+        state.decision.video?.action === "transcode" &&
+        state.decision.video.codec === "hevc"
+      ) {
+        // 服务端转出的 HEVC 放不了（浏览器报能解、实际解不了，或解得太慢掉帧）：同一档改要
+        // H.264 再来一次。不记失败档，否则会白白降到软件转码（或弹同意框）
+        return { ...state, phase: "degrading", hevcRefused: true, session: null };
+      }
       const failedTiers = nextFailedTiers(state, tier);
       // 兜底档本身都失败了：没有更低的档可退，只能报错并建议换播放器。
       // session 必须一并置空（与 fatal/degrading 同一不变式，见
@@ -258,7 +285,8 @@ export function playerReducer(state: PlayerState, event: PlayerEvent): PlayerSta
           failureCount: state.failureCount + 1,
           error: {
             message: event.reason,
-            suggestion: "这个文件在浏览器里放不出来，建议用 Infuse、VidHub 等原生播放器打开。",
+            suggestion: null,
+            suggestionKey: "player.errors.nativePlayerHint",
           },
         };
       }

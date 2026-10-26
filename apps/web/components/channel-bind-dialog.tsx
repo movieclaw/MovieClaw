@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 /**
  * 「接入通道」绑定弹窗——所有通道共用一层壳（docs/design/plugin-channels.md §5.2）。
  *
@@ -45,10 +47,11 @@ export interface ChannelBindDialogProps {
 }
 
 export function ChannelBindDialog({ channel, onClose, onBound }: ChannelBindDialogProps) {
+  const t = useTranslations();
   return (
-    <Modal open onClose={onClose} label={`接入 ${channel.title}`}>
+    <Modal open onClose={onClose} label={t("settings.imChannels.bindTitle", { channel: channel.title })}>
       <div className="scroll-thin max-h-[76dvh] overflow-y-auto p-6 max-md:p-5">
-        <h2 className="text-title font-bold text-white">接入 {channel.title}</h2>
+        <h2 className="text-title font-bold text-white">{t("settings.imChannels.bindTitle", { channel: channel.title })}</h2>
         <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">
           {channel.binding.hint || channel.description}
         </p>
@@ -63,7 +66,7 @@ export function ChannelBindDialog({ channel, onClose, onBound }: ChannelBindDial
 
         <div className="mt-6 flex justify-end">
           <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
-            关闭
+            {t("settings.imChannels.close")}
           </button>
         </div>
       </div>
@@ -73,12 +76,13 @@ export function ChannelBindDialog({ channel, onClose, onBound }: ChannelBindDial
 
 /** 回调地址：靠平台回调收消息的通道（如企业微信自建应用）要填到平台后台。 */
 function CallbackAddress({ binding }: { binding: ChannelBinding }) {
+  const t = useTranslations();
   if (!binding.callback_url) return null;
   return (
     <div className="w-full space-y-2 rounded-xl border border-white/[0.08] bg-black/[0.28] px-4 py-3 text-left">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sub font-medium text-[var(--text)]">回调地址</span>
-        <CopyButton text={binding.callback_url} label="复制" className={SETTINGS_BUTTON_CLASS} />
+        <span className="text-sub font-medium text-[var(--text)]">{t("settings.imChannels.callback")}</span>
+        <CopyButton text={binding.callback_url} label={t("settings.imChannels.copy")} className={SETTINGS_BUTTON_CLASS} />
       </div>
       <p className="break-all font-mono text-caption text-[var(--text)] select-all">
         {binding.callback_url}
@@ -105,12 +109,26 @@ function useBindingPolling(
   setBinding: (next: ChannelBinding) => void,
   onBound: () => void,
 ) {
+  const locale = useLocale();
+  const bindingId = binding?.binding_id;
+  const requestEpoch = useRef(0);
+  useEffect(() => {
+    requestEpoch.current += 1;
+    if (bindingId == null) return;
+    let cancelled = false;
+    void getChannelBinding(bindingId, locale).then((snap) => {
+      if (!cancelled) setBinding(snap);
+    }).catch(() => {});
+    return () => { cancelled = true; requestEpoch.current += 1; };
+  }, [bindingId, locale, setBinding]);
   const active = binding != null && !DONE.has(binding.status) && !FAILED.has(binding.status);
   useVisiblePolling(
     () => {
       if (binding == null) return;
-      void getChannelBinding(binding.binding_id)
+      const epoch = requestEpoch.current;
+      void getChannelBinding(binding.binding_id, locale)
         .then((snap) => {
+          if (epoch !== requestEpoch.current) return;
           if (DONE.has(snap.status)) {
             onBound();
             return;
@@ -128,6 +146,7 @@ function useBindingPolling(
 /* —— 交互式：二维码 + 可选输入 —— */
 
 function FlowBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () => void }) {
+  const t = useTranslations();
   const [binding, setBinding] = useState<ChannelBinding | null>(null);
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -185,13 +204,13 @@ function FlowBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
         ) : (
           // 发起失败（网关不可达等）：留一个手动重试入口
           <div className="flex flex-col items-center gap-3 rounded-2xl bg-white/[0.03] px-6 py-10 text-center">
-            <p className="text-body font-medium text-[var(--text)]">没能发起绑定</p>
+            <p className="text-body font-medium text-[var(--text)]">{t("settings.imChannels.startFailed")}</p>
             <button
               type="button"
               onClick={() => void begin()}
               className={SETTINGS_PRIMARY_BUTTON_CLASS}
             >
-              重试
+              {t("settings.imChannels.retry")}
             </button>
           </div>
         )
@@ -200,18 +219,18 @@ function FlowBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
           {!failed && binding.qr_image && (
             <div className="rounded-2xl bg-white p-3">
               {/* 服务端渲染的 SVG data URL，用原生 img 展示内联数据 */}
-              <img src={binding.qr_image} alt={`${channel.title}绑定二维码`} className="size-44" />
+              <img src={binding.qr_image} alt={t("settings.imChannels.qrAlt", { channel: channel.title })} className="size-44" />
             </div>
           )}
           <div>
             <p className="text-body font-medium text-[var(--text)]">
               {failed
-                ? "绑定未完成"
+                ? t("settings.imChannels.incomplete")
                 : binding.status === "pending"
-                  ? "等待扫码"
+                  ? t("settings.imChannels.waitingScan")
                   : binding.status === "need_input"
-                    ? "还差一步"
-                    : "已扫码"}
+                    ? t("settings.imChannels.oneMoreStep")
+                    : t("settings.imChannels.scanned")}
             </p>
             <p className="mt-1 text-sub text-[var(--text-muted)]">{binding.message}</p>
           </div>
@@ -222,7 +241,7 @@ function FlowBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
               onClick={() => void begin()}
               className={SETTINGS_PRIMARY_BUTTON_CLASS}
             >
-              重新发起
+              {t("settings.imChannels.restart")}
             </button>
           )}
         </div>
@@ -236,7 +255,7 @@ function FlowBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
             onKeyDown={(e) => e.key === "Enter" && void handleSubmit()}
             inputMode="numeric"
             autoFocus
-            placeholder={binding.input_label ?? "请输入"}
+            placeholder={binding.input_label ?? t("settings.imChannels.enterValue")}
             className={INPUT_CLASS}
           />
           <button
@@ -245,7 +264,7 @@ function FlowBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
             onClick={() => void handleSubmit()}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            确认
+            {t("settings.imChannels.confirm")}
           </button>
         </div>
       )}
@@ -256,6 +275,7 @@ function FlowBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
 /* —— 表单：字段 +（可选）配对码 —— */
 
 function FormBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () => void }) {
+  const t = useTranslations();
   const fields = channel.binding.fields;
   const [values, setValues] = useState<Record<string, string>>({});
   const [binding, setBinding] = useState<ChannelBinding | null>(null);
@@ -294,7 +314,7 @@ function FormBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
             <span className="text-sub font-medium text-[var(--text)]">
               {field.label}
               {!field.required && (
-                <span className="ml-1 font-normal text-[var(--text-faint)]">（选填）</span>
+                <span className="ml-1 font-normal text-[var(--text-faint)]">{t("settings.imChannels.optional")}</span>
               )}
             </span>
             <input
@@ -321,10 +341,10 @@ function FormBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
           className={`${SETTINGS_PRIMARY_BUTTON_CLASS} w-full`}
         >
           {busy
-            ? "校验中…"
+            ? t("settings.imChannels.validating")
             : channel.binding.pairing === "code"
-              ? "获取配对码"
-              : "完成接入"}
+              ? t("settings.imChannels.getCode")
+              : t("settings.imChannels.finishLinking")}
         </button>
       </div>
     );
@@ -339,7 +359,7 @@ function FormBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
             <p className="text-body font-medium text-[var(--text)]">{binding.message}</p>
             <CallbackAddress binding={binding} />
             <button type="button" onClick={onBound} className={SETTINGS_PRIMARY_BUTTON_CLASS}>
-              完成
+              {t("settings.imChannels.done")}
             </button>
           </>
         ) : binding.status === "pending" ? (
@@ -350,19 +370,19 @@ function FormBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
               {binding.pair_code}
             </p>
             <p className="text-caption text-[var(--text-faint)]">
-              10 分钟内有效 · 发码人将成为唯一可对话的用户与推送目标
+              {t("settings.imChannels.codeHelp")}
             </p>
           </>
         ) : (
           <>
-            <p className="text-body font-medium text-[var(--text)]">绑定未完成</p>
+            <p className="text-body font-medium text-[var(--text)]">{t("settings.imChannels.incomplete")}</p>
             <p className="text-sub text-[var(--text-muted)]">{binding.message}</p>
             <button
               type="button"
               onClick={() => setBinding(null)}
               className={SETTINGS_PRIMARY_BUTTON_CLASS}
             >
-              重新发起
+              {t("settings.imChannels.restart")}
             </button>
           </>
         )}

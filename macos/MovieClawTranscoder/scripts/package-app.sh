@@ -15,11 +15,10 @@ cp "${PROJECT_DIR}/Resources/Info.plist" "${APP_DIR}/Contents/Info.plist"
 # App 图标：Finder、访达信息面板、⌘Tab 切换器都读它（CFBundleIconFile）
 cp "${PROJECT_DIR}/Resources/AppIcon.icns" "${APP_DIR}/Contents/Resources/AppIcon.icns"
 
-# 版本注入：发版流水线传入 tag 版本（如 0.19.0），写进 bundle 的 Info.plist。
-# BuildInfo 从 CFBundleShortVersionString 读版本并在握手时上报给服务端——
-# 不注入的话每个发行版都自报源文件里的占位版本，排障时无从确认用户跑的是
-# 哪版 Worker。本地构建不传该变量，保留占位版本即可。改的是 bundle 里的
-# 拷贝而非源文件，不弄脏工作区；必须在 codesign 之前做（签名封存 Info.plist）。
+# 版本号：转码器独立发版（transcoder-vX.Y.Z），唯一来源是 Resources/Info.plist 的
+# CFBundleShortVersionString，发新版前递增它。BuildInfo 读它并在握手时上报给服务端。
+# MOVIECLAW_WORKER_VERSION 只用于临时覆盖（如打测试包），改的是 bundle 里的拷贝而非
+# 源文件，不弄脏工作区；必须在 codesign 之前做（签名封存 Info.plist）。
 if [ -n "${MOVIECLAW_WORKER_VERSION:-}" ]; then
     plutil -replace CFBundleShortVersionString -string "${MOVIECLAW_WORKER_VERSION}" \
         "${APP_DIR}/Contents/Info.plist"

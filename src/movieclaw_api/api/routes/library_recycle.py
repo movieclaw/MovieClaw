@@ -14,19 +14,28 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import Counter
 from datetime import timedelta
 from pathlib import PurePath
 from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import ColumnElement, and_, case, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.api.deps import require_admin
 from movieclaw_api.exceptions import BadRequestException
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import (
+    reference,
+    render_value,
+    source_text,
+    stored_fields,
+    stored_message,
+)
 from movieclaw_api.schemas.library import (
     TrashedBatchFailureView,
     TrashedBatchResultView,
@@ -43,7 +52,6 @@ from movieclaw_api.schemas.library import (
 )
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.library.recycle import purge_file, restore_file
-from movieclaw_api.services.media_server_notify import notify_media_server_refresh
 from movieclaw_api.services.tmdb_images import item_poster_url, local_media_files
 from movieclaw_db.engine import get_session
 from movieclaw_db.models import FileState, LibraryFile, MediaEpisode, MediaItem, utcnow
@@ -78,7 +86,7 @@ _AUDIO_CODEC_TOKENS = {
 # 这些 profile 只是编码内部档次，单独展示反而让人困惑；只有 DTS-HD MA 这类
 # "比 codec 更有信息量"的 profile 才顶替 codec（与详情页同一判断）
 _GENERIC_PROFILES = {"lc", "main", "high", "baseline", "main 10"}
-_CHANNEL_LABELS = {1: "单声道", 2: "2.0", 6: "5.1", 7: "6.1", 8: "7.1"}
+_CHANNEL_LABELS = {2: "2.0", 6: "5.1", 7: "6.1", 8: "7.1"}
 
 
 # ---------------------------------------------------------------------------
@@ -146,15 +154,45 @@ def _audio_label(streams: list | None) -> str | None:
     if layout[:1].isdigit():
         chan: str | None = layout
     elif isinstance(channels, int):
-        chan = _CHANNEL_LABELS.get(channels, f"{channels} 声道")
+        chan = (
+            t("library.recycle.mono")
+            if channels == 1
+            else _CHANNEL_LABELS.get(channels) or t("library.recycle.channels", count=channels)
+        )
     else:
         chan = None
     return " ".join(part for part in (name, chan) if part) or None
 
 
 def _tier(row: LibraryFile) -> str:
-    """品质档位「分辨率 片源」，两者都没探到时写「未知规格」。"""
-    return " ".join(part for part in (row.resolution, row.media_source) if part) or "未知规格"
+    """品质档位「分辨率 片源」，两者都没探到时写「未知规格」。
+
+    这是分组键（不随读者语言变），展示名由 tier_labels 另行渲染。
+    """
+    return " ".join(part for part in (row.resolution, row.media_source) if part) or source_text(
+        "library.recycle.unknownSpec"
+    )
+
+
+def _snapshot_text(context: dict, field: str) -> str | None:
+    value = context.get(field)
+    if value is None:
+        return None
+    ref = context.get(f"{field}_ref")
+    if isinstance(ref, dict) and ("message_key" in ref or "message_text" in ref):
+        return render_value({**ref, "message": value})
+    return stored_message(value)
+
+
+def _common_note(rows: list[LibraryFile], notes: set[str]) -> str | None:
+    if len(notes) != 1:
+        return None
+    contexts = [row.trash_context for row in rows if (row.trash_context or {}).get("note")]
+    refs = {json.dumps(ctx.get("note_ref"), sort_keys=True) for ctx in contexts}
+    # Compare original notes first. Mixed provenance cannot claim one translated reason.
+    return (
+        _snapshot_text(contexts[0], "note") if len(refs) == 1 else stored_message(next(iter(notes)))
+    )
 
 
 def _file_view(row: LibraryFile, episode_title: str | None) -> TrashedFileView:
@@ -179,8 +217,8 @@ def _file_view(row: LibraryFile, episode_title: str | None) -> TrashedFileView:
         trashed_at=row.trashed_at,
         purge_after=row.purge_after,
         reason=ctx.get("reason"),
-        note=ctx.get("note"),
-        last_error=ctx.get("last_error"),
+        note=_snapshot_text(ctx, "note"),
+        last_error=_snapshot_text(ctx, "last_error"),
     )
 
 
@@ -223,7 +261,7 @@ def _item_view(
             groups.add(row.release_group)
         if row.trashed_at and (latest_trashed is None or row.trashed_at > latest_trashed):
             latest_trashed = row.trashed_at
-            trigger_label = str((ctx.get("trigger") or {}).get("label") or "") or None
+            trigger_label = _snapshot_text(ctx.get("trigger") or {}, "label") or None
 
     purge_times = [r.purge_after for r in rows if r.purge_after is not None]
     files = [
@@ -255,11 +293,17 @@ def _item_view(
         earliest_purge_after=min(purge_times) if purge_times else None,
         latest_purge_after=max(purge_times) if purge_times else None,
         reasons=dict(reasons),
-        note=next(iter(notes)) if len(notes) == 1 else None,
+        note=_common_note(rows, notes),
         trigger_label=trigger_label,
         latest_trashed_at=latest_trashed,
         quality=TrashedQualityView(
             tiers=dict(tiers),
+            tier_labels={
+                _tier(row): t("library.recycle.unknownSpec")
+                if not row.resolution and not row.media_source
+                else _tier(row)
+                for row in rows
+            },
             hdr=sorted(hdr),
             video_codecs=sorted(codecs),
             audio_labels=sorted(audios),
@@ -468,9 +512,16 @@ async def list_trashed_files(
 # ---------------------------------------------------------------------------
 
 
-async def _set_last_error(session: AsyncSession, row: LibraryFile, error: str) -> None:
+async def _set_last_error(
+    session: AsyncSession, row: LibraryFile, error: str, error_ref: dict | None = None
+) -> None:
     """把失败原因写回审计快照（JSON 列整体替换才会被 SQLAlchemy 视为已修改）。"""
-    row.trash_context = {**(row.trash_context or {}), "last_error": error}
+    context = {**(row.trash_context or {}), "last_error": error}
+    if error_ref:
+        context["last_error_ref"] = error_ref
+    else:
+        context.pop("last_error_ref", None)
+    row.trash_context = context
     row.updated_at = utcnow()
     await session.commit()
 
@@ -487,39 +538,46 @@ async def _run_batch(
         if row is None:
             failed.append(
                 TrashedBatchFailureView(
-                    id=file_id, file_name=f"#{file_id}", error="文件记录不存在（可能已被清理）"
+                    id=file_id, file_name=f"#{file_id}", error=t("library.recycle.fileMissing")
                 )
             )
             continue
         file_name = PurePath(row.file_path).name
         if row.state != FileState.TRASHED:
             failed.append(
-                TrashedBatchFailureView(id=file_id, file_name=file_name, error="不在待回收状态")
+                TrashedBatchFailureView(
+                    id=file_id, file_name=file_name, error=t("library.recycle.notTrashed")
+                )
             )
             continue
         library_ids.add(row.library_id)
         if action == "purge":
             succeeded = await purge_file(session, row)
-            error = "清理失败：目录内还有其他在案文件（需先处理），或文件权限不足——详见服务日志"
+            error_key = "library.recycle.purgeFailed"
         else:
             succeeded = await restore_file(session, row)
-            error = "恢复失败：原路径已有同名文件，或文件已不存在——可稍后清理该记录"
+            error_key = "library.recycle.restoreFailed"
         if succeeded:
             await session.commit()
             done += 1
         else:
-            await _set_last_error(session, row, error)
-            failed.append(TrashedBatchFailureView(id=file_id, file_name=file_name, error=error))
+            await _set_last_error(
+                session, row, stored_fields(error_key)["message"], reference(error_key)
+            )
+            failed.append(
+                TrashedBatchFailureView(id=file_id, file_name=file_name, error=t(error_key))
+            )
     return done, failed, library_ids
 
 
-def _summary(verb: str, done: int, failed: int, remaining: int) -> str:
-    text = f"已{verb} {done} 个文件"
-    if failed:
-        text += f"，{failed} 个失败"
-    if remaining:
-        text += f"，还有 {remaining} 个未处理（再执行一次即可）"
-    return text
+def _summary(operation: str, done: int, failed: int, remaining: int) -> str:
+    return t(
+        "library.recycle.summary",
+        operation=operation,
+        done=done,
+        failed=failed,
+        remaining=remaining,
+    )
 
 
 @router.post(
@@ -537,7 +595,7 @@ async def purge_trashed_files(
     """``ids`` 用于所选 / 条目行 / 单个文件，``filter`` 用于「立即清理全部」（服务端按筛选
     重新查一遍 id，不信任前端传来的数量）。做种中断的确认由前端负责。"""
     if (payload.ids is None) == (payload.filter is None):
-        raise BadRequestException("需要且只能提供 ids 或 filter 之一")
+        raise BadRequestException(message_key="errors.recycle.selectionConflict")
     remaining = 0
     if payload.ids is not None:
         ids = list(dict.fromkeys(payload.ids))
@@ -561,7 +619,7 @@ async def purge_trashed_files(
         ids, remaining = all_ids[:BATCH_LIMIT], max(0, len(all_ids) - BATCH_LIMIT)
     done, failed, _libs = await _run_batch(session, ids, action="purge")
     result = TrashedBatchResultView(done=done, failed=failed, remaining=remaining)
-    return ok(result, message=_summary("清理", done, len(failed), remaining))
+    return ok(result, message=_summary("purge", done, len(failed), remaining))
 
 
 @router.post(
@@ -573,17 +631,15 @@ async def purge_trashed_files(
 )
 async def restore_trashed_files(
     payload: TrashedRestorePayload,
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[TrashedBatchResultView]:
     """恢复是可逆动作，不设「按筛选恢复全部」（设计 §2.5）。恢复后文件重新计入在位
-    库存，顺带重算所涉库的统计快照并通知媒体服务器刷新。"""
+    库存，顺带重算所涉库的统计快照（下游媒体服务器刷新由订阅恢复事件的内置插件做）。"""
     if not payload.ids:
-        raise BadRequestException("ids 不能为空")
+        raise BadRequestException(message_key="errors.recycle.idsRequired")
     ids = list(dict.fromkeys(payload.ids))
     done, failed, library_ids = await _run_batch(session, ids, action="restore")
     if done:
         await LibraryRepository(session).refresh_stats(library_ids)
-        background_tasks.add_task(notify_media_server_refresh)
     result = TrashedBatchResultView(done=done, failed=failed)
-    return ok(result, message=_summary("恢复", done, len(failed), 0))
+    return ok(result, message=_summary("restore", done, len(failed), 0))

@@ -109,7 +109,7 @@ struct SearchHomeView: View {
     var body: some View {
         content
         .appBackground()
-        .navigationTitle("搜索")
+        .navigationTitle(String(localized: .commonSearch))
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $keyword, tokens: scopeTokens, isPresented: $searchPresented, placement: .navigationBarDrawer(displayMode: .always), prompt: prompt) { token in
             Text(token.label)
@@ -200,12 +200,12 @@ struct SearchHomeView: View {
     /// - 搜索页由 Router 的路径压栈（`.searchHome`），环境里的 dismiss 弹不掉它；只在栈顶确实是本页时出栈
     private func closeAfterCancel() async {
         try? await Task.sleep(for: .milliseconds(600))
-        let tab = router.selectedTab
+        let tab = router.selection
         guard visible, !searchPresented, let top = router.paths[tab]?.last,
               case .searchHome = top else { return }
         router.pop()
         try? await Task.sleep(for: .milliseconds(600))
-        if visible, router.selectedTab == tab, router.paths[tab]?.last != top {
+        if visible, router.selection == tab, router.paths[tab]?.last != top {
             router.paths[tab, default: []].append(top)
             router.pop()
         }
@@ -213,18 +213,19 @@ struct SearchHomeView: View {
 
     private var prompt: String {
         switch mode {
-        case .media: "搜索电影、剧集…"
+        case .media: String(localized: .searchPromptMedia)
         // 搜索栏收起时系统不画范围标记：把当前范围写进占位文字，激活后由标记接替
-        case .torrent: (!searchPresented ? currentTab.map { "在「\($0.label)」中搜索…" } : nil) ?? "搜索资源或 IMDb ID…"
-        case .library: "搜索已入库的影片…"
+        case .torrent: (!searchPresented ? currentTab.map { String(localized: .searchPromptInScope($0.label)) } : nil)
+            ?? String(localized: .searchPromptTorrent)
+        case .library: String(localized: .searchPromptLibrary)
         }
     }
 
     private var modeHint: String {
         switch mode {
-        case .media: "在豆瓣与 TMDB 中搜索影视条目。"
-        case .torrent: "跨全部已配置站点搜索种子。"
-        case .library: "在媒体库中搜索已入库的影片。"
+        case .media: String(localized: .searchModeHintMedia)
+        case .torrent: String(localized: .searchModeHintTorrent)
+        case .library: String(localized: .searchModeHintLibrary)
         }
     }
 
@@ -267,16 +268,16 @@ struct SearchHomeView: View {
     /// 输入了关键词：顶上一行直接搜索，下注在哪儿搜
     private var submitSection: some View {
         Section {
-            scopeRow(symbol: "magnifyingglass", title: "搜索“\(trimmedKeyword)”", subtitle: submitSubtitle, action: submit)
+            scopeRow(symbol: "magnifyingglass", title: String(localized: .searchPaletteSearchKeyword(trimmedKeyword)), subtitle: submitSubtitle, action: submit)
                 .accessibilityIdentifier("search-submit")
         }
     }
 
     private var submitSubtitle: String {
         switch mode {
-        case .media: "豆瓣与 TMDB 影视条目"
-        case .torrent: currentTab.map { "在「\($0.label)」中搜索" } ?? "在全部分类中搜索"
-        case .library: "已入库的影片"
+        case .media: String(localized: .searchPaletteMediaSources)
+        case .torrent: currentTab.map { String(localized: .searchPaletteInScope($0.label)) } ?? String(localized: .searchPaletteAllCategoriesHint)
+        case .library: String(localized: .searchPaletteLibraryTitles)
         }
     }
 
@@ -284,13 +285,13 @@ struct SearchHomeView: View {
     private var otherScopesSection: some View {
         Section {
             if tabKey != "all" {
-                scopeRow(symbol: TorrentCategories.allSymbol, title: "全部分类") { submit(in: "all") }
+                scopeRow(symbol: TorrentCategories.allSymbol, title: String(localized: .searchPaletteAllCategories)) { submit(in: "all") }
             }
             ForEach(tabs.filter { $0.key != tabKey }, id: \.key) { tab in
                 scopeRow(symbol: tab.symbol, title: tab.label, subtitle: tab.summary) { submit(in: tab.key) }
             }
         } header: {
-            sectionTitle("在其他范围搜索")
+            sectionTitle(String(localized: .searchPaletteOtherScopes))
         }
         .accessibilityIdentifier("search-other-scopes")
     }
@@ -299,12 +300,12 @@ struct SearchHomeView: View {
     /// 按服务端的标签顺序排（设置里两者混排可调）；预设多一行摘要，写清它搜哪些分类、哪些站点
     private var browseSections: some View {
         Section {
-            scopeRow(symbol: TorrentCategories.allSymbol, title: "全部分类", chevron: true) { browse(.all) }
+            scopeRow(symbol: TorrentCategories.allSymbol, title: String(localized: .searchPaletteAllCategories), chevron: true) { browse(.all) }
             ForEach(tabs, id: \.key) { tab in
                 scopeRow(symbol: tab.symbol, title: tab.label, subtitle: tab.summary, chevron: true) { browse(tab.scope) }
             }
         } header: {
-            sectionTitle("浏览最新资源")
+            sectionTitle(String(localized: .searchPaletteBrowseLatest))
         } footer: {
             browseFooter
         }
@@ -312,7 +313,7 @@ struct SearchHomeView: View {
     }
 
     private var browseFooter: some View {
-        Text("\(modeHint)搜索时输入框里的标记就是搜索范围，删掉即搜全部分类。")
+        Text(AppFormatting.sentences([modeHint, String(localized: .searchModeHintScopeTag)]))
     }
 
     /// 范围 / 动作行：图标 + 标题（+ 一行说明）(+ 进入箭头)，整行可点
@@ -362,7 +363,7 @@ struct SearchHomeView: View {
     private var history: some View {
         if access.ready, access.available.isEmpty {
             // 入口按 canOpenSearch 隐藏，这里兜深链 / 恢复现场直达：没有任何可用分区时说明原因（同结果页的空态文案）
-            Text("当前账号没有可用的搜索入口，请联系管理员调整成员权限。")
+            Text(String(localized: .searchPageNoAccess))
                 .font(.body)
                 .foregroundStyle(Theme.textMuted)
                 .multilineTextAlignment(.center)
@@ -376,7 +377,7 @@ struct SearchHomeView: View {
             // 资源模式下面还有浏览列表，不需要空态占位；输入过滤没命中时顶上的「搜索“…”」就是出口
             if items.isEmpty, !torrentActive {
                 ContentUnavailableView {
-                    Label("还没有搜索记录", systemImage: "magnifyingglass")
+                    Label(String(localized: .searchHistoryNoneYet), systemImage: "magnifyingglass")
                 } description: {
                     Text(modeHint)
                 }
@@ -388,9 +389,9 @@ struct SearchHomeView: View {
                     }
                 } header: {
                     HStack(alignment: .firstTextBaseline) {
-                        sectionTitle("最近搜索")
+                        sectionTitle(String(localized: .searchHistoryRecent))
                         Spacer()
-                        Button("清空") {
+                        Button(String(localized: .commonClear)) {
                             guard let vertical = historyVertical else { return }
                             self.items = []
                             Task {
@@ -402,7 +403,7 @@ struct SearchHomeView: View {
                         .font(.body)
                         .textCase(nil)
                         .accessibilityIdentifier("history-clear")
-                        .accessibilityLabel("清空\(mode.shortLabel)搜索历史")
+                        .accessibilityLabel(String(localized: .searchHistoryClearScope(mode.shortLabel)))
                     }
                 }
             }
@@ -423,14 +424,14 @@ struct SearchHomeView: View {
         historyButton(item: latest, title: group.keyword, subtitle: "\(scopeLabel(latest)) · \(detailLine(latest))", isChild: false)
             .listRowSeparator(group.items.count > 1 ? .hidden : .automatic, edges: .bottom)
             .swipeActions {
-                deleteAction(label: "删除搜索历史组：\(group.keyword)") { Task { await removeGroup(group) } }
+                deleteAction(label: String(localized: .searchHistoryDeleteGroupLabel(group.keyword))) { Task { await removeGroup(group) } }
             }
         ForEach(group.items.dropFirst(), id: \.id) { item in
             historyButton(item: item, title: scopeLabel(item), subtitle: detailLine(item), isChild: true)
                 .listRowSeparator(.hidden, edges: .top)
                 .listRowSeparator(item.id == lastID ? .automatic : .hidden, edges: .bottom)
                 .swipeActions {
-                    deleteAction(label: "删除搜索历史：\(item.keyword)（\(item.vertical == "titles" ? "影视" : item.label ?? "资源全部")）") {
+                    deleteAction(label: String(localized: .searchHistoryDeleteVariant(item.keyword, item.vertical == "titles" ? String(localized: .searchVerticalMedia) : item.label ?? String(localized: .searchHistoryAllResources)))) {
                         removeOne(item.id)
                     }
                 }
@@ -469,21 +470,23 @@ struct SearchHomeView: View {
 
     /// 记录的范围：「影视」「资源」「资源 · 电影」
     private func scopeLabel(_ item: API.SearchHistoryItem) -> String {
-        if item.vertical == "titles" { return "影视" }
-        return item.label.map { "资源 · \($0)" } ?? "资源"
+        if item.vertical == "titles" { return String(localized: .searchVerticalMedia) }
+        // 详情页带英文名/原名同搜的记录，与只搜片名的同词记录区分开（同 Web historyScopeLabel）
+        let also = item.alsoKeywords.map { $0.isEmpty ? "" : String(localized: .searchHistoryAlsoSuffix($0.joined(separator: " / "))) } ?? ""
+        return (item.label.map { String(localized: .searchHistoryWithScope($0)) } ?? String(localized: .searchVerticalTorrent)) + also
     }
 
     /// 记录的时间与快照：「4 小时前 · 快照」
     private func detailLine(_ item: API.SearchHistoryItem) -> String {
         let time = SubsFormat.relative(item.lastSearchedAt)
-        return item.hasSnapshot ? "\(time) · 快照" : time
+        return item.hasSnapshot ? String(localized: .searchHistorySnapshotTime(time)) : time
     }
 
     /// 左滑删除：只留垃圾桶图标（文字交给读屏），红底。iOS 26 的滑动按钮只标 destructive 角色时
     /// 画成白色玻璃圆钮，看不出是危险操作（真机反馈），显式染成系统红
     private func deleteAction(label: String, action: @escaping () -> Void) -> some View {
         Button(role: .destructive, action: action) {
-            Label("删除", systemImage: "trash")
+            Label(String(localized: .commonDelete), systemImage: "trash")
                 .labelStyle(.iconOnly)
         }
         .tint(.red)
@@ -521,7 +524,7 @@ struct SearchHomeView: View {
 
     private func removeGroup(_ group: HistoryGroup) async {
         if group.items.count > 1 {
-            let ok = await feedback.confirm("删除「\(group.keyword)」的 \(group.items.count) 条搜索记录？", confirmTitle: "删除", destructive: true)
+            let ok = await feedback.confirm(String(localized: .searchHistoryDeleteGroup(group.keyword, group.items.count)), confirmTitle: String(localized: .commonDelete), destructive: true)
             guard ok else { return }
         }
         let ids = Set(group.items.map(\.id))
@@ -572,7 +575,7 @@ struct SearchHomeView: View {
         }
         // 还原发起搜索时的图览模式；能出现在历史里的搜索本来就不是无痕的
         let scope = SearchScope(label: item.label, categories: item.categories, siteIds: item.siteIds, posterMode: item.posterMode)
-        router.push(.search(.init(q: item.keyword, tab: nil, scope: scope.encoded, snapshot: snapshot)))
+        router.push(.search(.init(q: item.keyword, also: item.alsoKeywords ?? [], tab: nil, scope: scope.encoded, snapshot: snapshot)))
     }
 
     /// 从结果页点搜索词胶囊回来：填回关键词、切回当时的垂直与范围，弹出键盘等用户改词

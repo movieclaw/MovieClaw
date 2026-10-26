@@ -25,7 +25,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -89,8 +91,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import io.movieclaw.android.core.designsystem.mcCards
 
 /** 「我的」页的数据：提醒组（待处理 + 待更新）与最近会话 */
 @HiltViewModel
@@ -99,15 +104,23 @@ class MoreViewModel @Inject constructor(
     private val apiFactory: ApiFactory,
     /** 底栏形态试用开关（液态玻璃新版 ⇄ 当前形态） */
     private val tabBarPrefs: io.movieclaw.android.core.session.TabBarPrefs,
+    /** 底部版本号那一行：点一下手动检查 App 更新 */
+    val appUpdate: io.movieclaw.android.feature.update.AppUpdateController,
 ) : ViewModel() {
     val ui = repository.ui
     val servers = repository.servers
 
-    val liquidTabBar = tabBarPrefs.liquid.stateIn(
-        viewModelScope,
-        kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
-        false,
-    )
+    // 初始值给 null（"还不知道"）：DataStore 是异步读的，先给 false 会让「玻璃底栏」那颗
+    // Switch 以"关"组合、拿到真实值（通常是开）后再自己播一遍开启动画——切到「我的」时
+    // 那一下明显的开关动画（实机反馈）。null 期间不挂 Switch，行高不变所以不会跳。
+    val liquidTabBar: kotlinx.coroutines.flow.StateFlow<Boolean?> =
+        tabBarPrefs.liquid
+            .map { it as Boolean? }
+            .stateIn(
+                viewModelScope,
+                kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
+                null,
+            )
 
     fun setLiquidTabBar(on: Boolean) {
         viewModelScope.launch { tabBarPrefs.setLiquid(on) }
@@ -177,6 +190,9 @@ class MoreViewModel @Inject constructor(
             )
         }
     }
+
+    /** Agent 会话变化信号（SessionRepository）：供页面订阅，替代轮询 */
+    val agentSessionsVersion get() = repository.agentSessionsVersion
 
     fun loadSessions() {
         if (!isAdmin) { _sessions.value = Sessions(loading = false); return }
@@ -270,6 +286,10 @@ class MoreViewModel @Inject constructor(
 /** 账号、连接、外观与最近会话；各入口保留原有权限和导航行为。 */
 @Composable
 fun MoreScreen(
+    /** 右上角扫码钮：扫码批准设备登录（iOS `open-scanner` 同款） */
+    onScanPairing: () -> Unit = {},
+    /** 「我的」页账户卡下的「下载」行：离线下载管理（iOS OfflineStorageView 同语义） */
+    onOpenDownloads: () -> Unit = {},
     /** 账户卡 → 个人信息（同 iOS：整张卡点进个人信息，不垫设置列表） */
     onOpenProfile: () -> Unit,
     onOpenNotices: () -> Unit,
@@ -287,6 +307,23 @@ fun MoreScreen(
     val sessions by vm.sessions.collectAsStateWithLifecycle()
     // 底栏形态试用开关（开 = 液态玻璃新版，关 = 当前形态）
     val liquidTabBar by vm.liquidTabBar.collectAsStateWithLifecycle()
+
+
+    // 会话列表会在别处变化（新建会话、在对话里跑完一轮）：切回本页刷一次，
+    // 另外订阅 SessionRepository 的变化信号立即重拉——不再轮询（iOS 是靠共享 store 天然做到，
+    // 这里用信号达成同样效果：新建完回到本页就是最新的，零等待）
+    val moreTabActive = io.movieclaw.android.core.designsystem.LocalTabActive.current
+    LaunchedEffect(moreTabActive) {
+        if (!moreTabActive) return@LaunchedEffect
+        vm.loadSessions()
+    }
+    LaunchedEffect(Unit) {
+        // 防抖：信号可能连着来（一次会话既有加载又有重试），合并成一次拉取
+        vm.agentSessionsVersion.collectLatest {
+            kotlinx.coroutines.delay(300)
+            vm.loadSessions()
+        }
+    }
     val permissions = LocalPermissions.current
     val feedback = LocalFeedback.current
 
@@ -315,8 +352,12 @@ fun MoreScreen(
     }
 
     Box(Modifier.fillMaxSize().background(Bg)) {
+        // 宽窗口里限宽居中（760dp，同 iOS `padReadableWidth`）；手机上原样铺满
+        io.movieclaw.android.core.designsystem.McReadableWidthBox(Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
+            // 底部留白 = 悬浮底栏高度 + 距底 + 呼吸（`McTabBarContentPadding`）；
+            // 限宽后内容列居中，底栏仍横跨整宽，所以这个留白必须留在滚动内容里
             contentPadding = PaddingValues(top = topBarTotal + 6.dp, bottom = McTabBarContentPadding),
             modifier = Modifier.fillMaxSize()
                 // 液态底栏的背景模糊源（Local 为 null 时原样返回，零代价）
@@ -324,7 +365,7 @@ fun MoreScreen(
         ) {
             // ── 账户卡（头像 + 昵称 + 身份小字 + 雪佛龙，整卡进「个人信息」）──
             item(key = "profile") {
-                Box(Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 8.dp)) {
+                Box(Modifier.padding(horizontal = mcCards.pagePadding, vertical = 8.dp)) {
                     MoreAccountCard(session = ui.session, origin = vm.origin, onClick = onOpenProfile)
                 }
             }
@@ -333,7 +374,7 @@ fun MoreScreen(
             if (permissions.isAdmin && reminders.visible) {
                 item(key = "reminders") {
                     Spacer(Modifier.height(18.dp))
-                    FlatCard(Modifier.padding(horizontal = McMetrics.pagePadding).fillMaxWidth()) {
+                    FlatCard(Modifier.padding(horizontal = mcCards.pagePadding).fillMaxWidth()) {
                         if (reminders.noticeCount > 0) {
                             FlatRow(
                                 title = "待处理",
@@ -359,13 +400,26 @@ fun MoreScreen(
             // 连接信息只出现一次；外观开关独立分组，客户端版本放到页尾。
             item(key = "server") {
                 GroupLabel("连接", modifier = Modifier.padding(top = 16.dp))
-                Box(Modifier.padding(horizontal = McMetrics.pagePadding)) {
+                Box(Modifier.padding(horizontal = mcCards.pagePadding)) {
                     MoreConnectionCard(origin = ui.origin, savedCount = servers.size, onClick = onOpenSettings)
+                }
+            }
+            // ── 下载（iOS「我的」页有、安卓此前缺）：离线下载管理 ──
+            item(key = "downloads") {
+                GroupLabel("下载", modifier = Modifier.padding(top = 20.dp))
+                Box(Modifier.padding(horizontal = mcCards.pagePadding)) {
+                    FlatCard(Modifier.fillMaxWidth()) {
+                        FlatRow(
+                            title = "下载",
+                            icon = Icons.Rounded.Download,
+                            onClick = onOpenDownloads,
+                        )
+                    }
                 }
             }
             item(key = "appearance") {
                 GroupLabel("显示与外观", modifier = Modifier.padding(top = 20.dp))
-                Box(Modifier.padding(horizontal = McMetrics.pagePadding)) {
+                Box(Modifier.padding(horizontal = mcCards.pagePadding)) {
                     MoreAppearanceCard(liquidTabBar, vm::setLiquidTabBar)
                 }
             }
@@ -375,10 +429,10 @@ fun MoreScreen(
                 item(key = "sessions") {
                     GroupLabel("最近会话", modifier = Modifier.padding(top = 22.dp))
                     if (sessions.items.isEmpty() && !sessions.loading && sessions.error == null) {
-                        Box(Modifier.padding(horizontal = McMetrics.pagePadding)) {
+                        Box(Modifier.padding(horizontal = mcCards.pagePadding)) {
                             MoreEmptySessions(onOpenNewSession)
                         }
-                    } else FlatCard(Modifier.padding(horizontal = McMetrics.pagePadding).fillMaxWidth()) {
+                    } else FlatCard(Modifier.padding(horizontal = mcCards.pagePadding).fillMaxWidth()) {
                         FlatRow(
                             title = "新会话",
                             icon = Icons.Rounded.Add,
@@ -400,7 +454,7 @@ fun MoreScreen(
                             "正在读取会话…",
                             style = McType.caption,
                             color = TextFaint,
-                            modifier = Modifier.padding(start = McMetrics.pagePadding + 4.dp, top = 12.dp),
+                            modifier = Modifier.padding(start = mcCards.pagePadding + 4.dp, top = 12.dp),
                         )
                     }
                     sessions.error?.let { error ->
@@ -408,7 +462,7 @@ fun MoreScreen(
                             error,
                             style = McType.caption,
                             color = Danger,
-                            modifier = Modifier.padding(start = McMetrics.pagePadding + 4.dp, top = 10.dp),
+                            modifier = Modifier.padding(start = mcCards.pagePadding + 4.dp, top = 10.dp),
                         )
                     }
                     if (sessions.loadingMore) {
@@ -425,27 +479,39 @@ fun MoreScreen(
                         "正在刷新账号信息…",
                         style = McType.micro,
                         color = TextFaint,
-                        modifier = Modifier.padding(start = McMetrics.pagePadding, top = 12.dp),
+                        modifier = Modifier.padding(start = mcCards.pagePadding, top = 12.dp),
                     )
                 }
             }
             item(key = "tail") {
                 Text(
-                    "MovieClaw Android · ${BuildInfo.APP_VERSION}",
+                    // 「版本（构建号）」：反馈问题时据此认出装的是哪一次构建（iOS 关于页同口径）；点一下检查更新
+                    "MovieClaw Android · ${BuildInfo.DISPLAY_VERSION} · 检查更新",
                     style = McType.micro, color = TextFaint,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 22.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = vm.appUpdate::checkNow)
+                        .padding(vertical = 22.dp),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
             }
         }
 
-        // 顶栏：大标题（同活动页 `largeTitle`），**右上角不再有搜索键**
+        // 顶栏：大标题（同活动页 `largeTitle`）；右上角扫码钮 = 扫码批准设备登录（iOS 同款）
         McTopBar(
             variant = McTopBarVariant.Root,
             title = "我的",
             largeTitle = true,
             modifier = Modifier.align(Alignment.TopCenter),
-        )
+        ) {
+            androidx.compose.material3.IconButton(onClick = onScanPairing) {
+                androidx.compose.material3.Icon(
+                    androidx.compose.material.icons.Icons.Rounded.QrCodeScanner,
+                    contentDescription = "扫码批准设备登录",
+                    tint = io.movieclaw.android.core.designsystem.TextPrimary,
+                )
+            }
+        }
 
         // 会话行的长按菜单：与 iOS 的长按菜单同三项、同顺序（删除前一条分隔线、红色）
         menuFor?.let { item ->
@@ -477,6 +543,7 @@ fun MoreScreen(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 120.dp),
             )
+        }
         }
     }
 

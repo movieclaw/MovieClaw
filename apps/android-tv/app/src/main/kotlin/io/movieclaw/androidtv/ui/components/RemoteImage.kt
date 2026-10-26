@@ -20,8 +20,8 @@ import androidx.compose.ui.text.style.TextAlign
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
-import io.movieclaw.androidtv.core.network.ImageUrls
-import io.movieclaw.androidtv.core.network.ServerAddress
+import io.movieclaw.core.network.ImageUrls
+import io.movieclaw.core.network.ServerAddress
 import io.movieclaw.androidtv.ui.theme.McColors
 import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt

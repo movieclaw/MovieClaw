@@ -16,7 +16,7 @@ import itertools
 import logging
 import time
 import traceback
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, TypeVar
@@ -151,8 +151,14 @@ class Kernel:
         clock: Callable[[], float] = time.monotonic,
         dispose_timeout: float = 10.0,
         slow_apply_warning: float = 2.0,
+        config_overlay: Callable[[str], Mapping[str, Any]] | None = None,
+        event_guard: Callable[[str, Event[Any, Any]], str | None] | None = None,
     ) -> None:
         self.settings = settings
+        #: 条目 id → 叠在清单配置上的值（宿主的界面设置，docs/design/plugin-phase4.md §3）
+        self.config_overlay = config_overlay
+        #: 第三方条目订阅事件前的把关（敏感事件须经批准，domain-events.md §6.3）：返回拒绝原因
+        self.event_guard = event_guard
         self.dispose_timeout = dispose_timeout
         self.slow_apply_warning = slow_apply_warning
         self.bus = EventBus(clock)
@@ -174,6 +180,10 @@ class Kernel:
     def service(self, key: ServiceKey[T]) -> T | None:
         hit = self._services.get(key.name)
         return hit[0] if hit else None
+
+    def registries(self) -> list[Registry[Any]]:
+        """当前所有注册表（诊断用：插件详情据此列出插件登记过的全部东西，不维护清单）。"""
+        return list(self._registries.values())
 
     def registry(self, key: RegistryKey[T]) -> Registry[T]:
         reg = self._registries.get(key.name)
@@ -452,10 +462,11 @@ class Kernel:
             logger.warning("插件 %s 启动较慢：%.0f 毫秒", fiber.id, fiber.stats.apply_ms)
         self._announce(fiber)
 
-    @staticmethod
-    def _build_config(fiber: Fiber) -> Any:
+    def _build_config(self, fiber: Fiber) -> Any:
         cfg_type = fiber.plugin.config
         raw = dict(fiber.entry.config or {})
+        if self.config_overlay is not None:
+            raw.update(self.config_overlay(fiber.id) or {})
         if cfg_type is None:
             return raw or None
         validate = getattr(cfg_type, "model_validate", None)
@@ -681,7 +692,7 @@ class Kernel:
             info = describe(contract)
             if isinstance(contract, Event):
                 info["mode"] = contract.mode.value
-                info["delivery"] = contract.delivery.value
+                info["durable"] = contract.durable
                 info["listeners"] = [item.label for item in self.bus.listeners(contract)]
                 events.append(info)
             elif isinstance(contract, RegistryKey):

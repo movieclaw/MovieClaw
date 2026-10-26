@@ -3,6 +3,8 @@
 > 状态：已实现并真机验证（2026-09-28，iPhone Air 连 NAS）。起因：所有播放都要直通直推、给 NAS 减压（用户拍板）；
 > 改前多剪辑原盘让 NAS 起 ffmpeg 换封装，ISO 直接 404。
 >
+> 安卓统一引擎不在本机解析光盘，走服务端给的剪辑清单：[disc-clip-play.md](disc-clip-play.md)。
+>
 > 关联文档：[disc-playback.md](disc-playback.md)（现有原盘播放：选主片、诱饵判定、Jellyfin 兼容层）、
 > [player-engine.md](player-engine.md)（自研引擎与兜底阶梯）。
 

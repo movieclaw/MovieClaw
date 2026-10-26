@@ -32,7 +32,7 @@ struct JobCard: View {
         let meta = TaskCenter.jobStatusMeta(job.status)
         let title = TaskCenter.nonEmpty(job.subject) ?? TaskCenter.jobTypeLabel(job)
         let completedLanguage = job.status == "succeeded" ? TaskCenter.subtitleLanguageLabel(job) : nil
-        let summary = completedLanguage.map { "已生成\($0)字幕" } ?? TaskCenter.errorMessage(job) ?? job.progress.message
+        let summary = completedLanguage.map { String(localized: .activityJobsGeneratedSubtitles($0)) } ?? TaskCenter.errorMessage(job) ?? job.progress.message
         let borderColor = attention ? Theme.danger.opacity(0.2) : hasDomainAlert ? Theme.warning.opacity(0.15) : Color.white.opacity(0.08)
 
         VStack(alignment: .leading, spacing: 0) {
@@ -53,7 +53,7 @@ struct JobCard: View {
 
             Group {
                 if attention {
-                    Text.activityJoin([Text("需要处理：").fontWeight(.semibold), Text(summary)])
+                    Text.activityJoin([Text(String(localized: .activityJobsAttentionPrefix)).fontWeight(.semibold), Text(summary)])
                 } else {
                     Text(summary)
                 }
@@ -106,7 +106,7 @@ struct JobCard: View {
                     .accessibilityHint(ActivityFormat.dateTime(job.createdAt))
                 Spacer()
                 if dismissed {
-                    Text("已忽略").font(.caption2).foregroundStyle(Theme.textFaint)
+                    Text(String(localized: .activityJobsDismissed)).font(.caption2).foregroundStyle(Theme.textFaint)
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Color.white.opacity(0.04), in: .rect(cornerRadius: 6))
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.line))
@@ -135,23 +135,23 @@ struct JobCard: View {
             TaskCenter.supportedErrorActions.contains($0.type) && ($0.type != "handoff_agent" || probe.allowsHandoff)
         }
         if job.status == "cancelled", !TaskCenter.isSystemCancelled(job), !actions.contains(where: { $0.type == "retry_job" }) {
-            actions.insert(TaskCenter.ErrorAction(type: "retry_job", label: "重新执行"), at: 0)
+            actions.insert(TaskCenter.ErrorAction(type: "retry_job", label: String(localized: .activityJobsRetryAction)), at: 0)
         }
         let hasItems = cancellable || !actions.isEmpty || dismissable || dismissed
         return Group {
             if hasItems {
                 Menu {
                     if cancellable {
-                        Button(busyAction == "cancel" ? "正在取消…" : "取消任务", systemImage: "stop.circle") { cancel() }
+                        Button(busyAction == "cancel" ? String(localized: .activityJobsCancellingAction) : String(localized: .activityJobsCancelAction), systemImage: "stop.circle") { cancel() }
                     }
                     ForEach(actions, id: \.self) { action in
-                        Button(busyAction == action.type ? "处理中…" : action.label) { run(action) }
+                        Button(busyAction == action.type ? String(localized: .activityJobsProcessingAction) : action.label) { run(action) }
                     }
                     if dismissable {
-                        Button("忽略这个任务", systemImage: "eye.slash") { dismissOpen = true }
+                        Button(String(localized: .activityJobsDismissAction), systemImage: "eye.slash") { dismissOpen = true }
                     }
                     if dismissed {
-                        Button(busyAction == "undismiss" ? "撤销中…" : "撤销忽略", systemImage: "arrow.uturn.backward") { undismiss() }
+                        Button(busyAction == "undismiss" ? String(localized: .activityJobsRestoringAction) : String(localized: .activityJobsRestoreAction), systemImage: "arrow.uturn.backward") { undismiss() }
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -161,7 +161,7 @@ struct JobCard: View {
                         .contentShape(.rect)
                 }
                 .disabled(busyAction != nil)
-                .accessibilityLabel("\(TaskCenter.nonEmpty(job.subject) ?? TaskCenter.jobTypeLabel(job))的更多操作")
+                .accessibilityLabel(String(localized: .activityJobsMoreActions(TaskCenter.nonEmpty(job.subject) ?? TaskCenter.jobTypeLabel(job))))
                 .accessibilityIdentifier("job-actions-\(job.id)")
             }
         }
@@ -183,11 +183,11 @@ struct JobCard: View {
         let amount = TaskCenter.cardProgressAmount(job)
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text.activityJoin([Text(phase).foregroundStyle(Theme.textMuted), Text(step.map { "  阶段 \($0)" } ?? "").foregroundStyle(Theme.textFaint)])
+                Text.activityJoin([Text(phase).foregroundStyle(Theme.textMuted), Text(step.map { "  " + String(localized: .activityJobsPhaseStep($0)) } ?? "").foregroundStyle(Theme.textFaint)])
                     .fontWeight(.medium).lineLimit(1)
                 Spacer()
                 Text(percent.map { "\(Int($0.rounded()))%" }
-                    ?? (job.status == "retry_wait" ? "等待继续" : waitingProgress ? "等待中" : "处理中"))
+                    ?? (job.status == "retry_wait" ? String(localized: .activityJobsContinueWait) : waitingProgress ? String(localized: .activityJobsWaiting) : String(localized: .activityJobsProcessing)))
                     .monospacedDigit().foregroundStyle(Theme.textFaint)
             }
             .font(.caption)
@@ -196,7 +196,7 @@ struct JobCard: View {
                 indeterminateOpacity: job.status == "retry_wait" || waitingProgress ? 0.35 : 0.7
             )
             if amount != nil || job.status == "retry_wait" {
-                Text([amount, job.status == "retry_wait" ? "第 \(max(1, job.attempt)) / \(job.maxAttempts) 次尝试" : nil]
+                Text([amount, job.status == "retry_wait" ? String(localized: .activityJobsAttempt(max(1, job.attempt), job.maxAttempts)) : nil]
                     .compactMap { $0 }.joined(separator: " · "))
                     .font(.caption).monospacedDigit().foregroundStyle(Theme.textFaint)
             }
@@ -214,7 +214,7 @@ struct JobCard: View {
                     if files.count > 1 {
                         Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).rotationEffect(.degrees(filesOpen ? 90 : 0))
                     }
-                    Text(files.count == 1 ? "本次新增文件" : "本次新增 \(files.count) 个文件").foregroundStyle(Theme.textFaint).fixedSize()
+                    Text(files.count == 1 ? String(localized: .activityJobsImportedFile) : String(localized: .activityJobsImportedFiles(files.count))).foregroundStyle(Theme.textFaint).fixedSize()
                     Text(files[0]).fontWeight(.medium).foregroundStyle(Theme.textMuted).lineLimit(1)
                 }
                 .font(.caption)
@@ -247,9 +247,9 @@ struct JobCard: View {
             } label: {
                 HStack {
                     Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).rotationEffect(.degrees(usageExpanded ? 90 : 0))
-                    Text(usageExpanded ? "收起模型消耗" : "查看模型消耗").fontWeight(.medium)
+                    Text(usageExpanded ? String(localized: .activityJobsCollapseUsage) : String(localized: .activityJobsExpandUsage)).fontWeight(.medium)
                     Spacer()
-                    Text("\(ActivityFormat.integer(usage.totalTokens)) Token · \(usage.requests) 次请求")
+                    Text(String(localized: .activityJobsUsageSummary(ActivityFormat.integer(usage.totalTokens), usage.requests)))
                         .monospacedDigit().foregroundStyle(Theme.textFaint).lineLimit(1)
                 }
                 .font(.caption)
@@ -262,23 +262,23 @@ struct JobCard: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
                         GridRow {
-                            usageMetric("总 Token", usage.totalTokens)
-                            usageMetric("输入", usage.promptTokens)
+                            usageMetric(String(localized: .activityJobsTotalTokens), usage.totalTokens)
+                            usageMetric(String(localized: .activityJobsInputTokens), usage.promptTokens)
                         }
                         GridRow {
-                            usageMetric("输出", usage.completionTokens)
-                            usageMetric("输入缓存", usage.cacheReadTokens)
+                            usageMetric(String(localized: .activityJobsOutputTokens), usage.completionTokens)
+                            usageMetric(String(localized: .activityJobsCacheTokens), usage.cacheReadTokens)
                         }
                     }
                     Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1)
                     DiscoverFlowLayout(spacing: 12, lineSpacing: 4) {
                         if let provider = job.providerRef { Text(provider) }
-                        Text("\(usage.requests) 次模型请求")
+                        Text(String(localized: .activityJobsModelRequests(usage.requests)))
                         if usage.failedRequests > 0 {
-                            Text("\(usage.failedRequests) 次失败").foregroundStyle(Theme.warning.opacity(0.7))
+                            Text(String(localized: .activityJobsFailedRequests(usage.failedRequests))).foregroundStyle(Theme.warning.opacity(0.7))
                         }
-                        Text("累计响应 \(TaskCenter.formatModelDuration(usage.totalDurationMs))")
-                        Text("最慢一次 \(TaskCenter.formatModelDuration(usage.maxDurationMs))")
+                        Text(String(localized: .activityJobsTotalResponseTime(TaskCenter.formatModelDuration(usage.totalDurationMs))))
+                        Text(String(localized: .activityJobsMaxResponseTime(TaskCenter.formatModelDuration(usage.maxDurationMs))))
                     }
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
@@ -314,13 +314,13 @@ struct JobCard: View {
     }
 
     private func cancel() {
-        perform("cancel", fallback: "取消任务失败，请稍后重试") {
+        perform("cancel", fallback: String(localized: .activityJobsCancelFailed)) {
             store.upsert(try await api.jobsCancel(jobId: job.id).job)
         }
     }
 
     private func undismiss() {
-        perform("undismiss", fallback: "撤销忽略失败，请稍后重试") {
+        perform("undismiss", fallback: String(localized: .activityJobsRestoreFailed)) {
             store.upsert(try await api.jobsUndismiss(jobId: job.id).job)
         }
     }
@@ -334,12 +334,12 @@ struct JobCard: View {
             dismissOpen = false
         } catch {
             // 与卡片上其他动作同一展示方式：错误写在卡片内，弹层保持打开（Web dismissCurrentJob）
-            actionError = error.localizedDescription.isEmpty ? "忽略失败，请稍后重试" : error.localizedDescription
+            actionError = error.localizedDescription.isEmpty ? String(localized: .activityJobsDismissFailed) : error.localizedDescription
         }
     }
 
     private func run(_ action: TaskCenter.ErrorAction) {
-        perform(action.type, fallback: "操作未完成，请稍后重试") {
+        perform(action.type, fallback: String(localized: .activityJobsActionFailed)) {
             switch action.type {
             case "retry_job":
                 store.upsert(try await api.jobsRetry(jobId: job.id).job)
@@ -380,7 +380,7 @@ struct DismissJobSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("它会从「需要处理」下架，移到「已结束」。任务记录、失败原因和重试入口都还在，随时可以撤销忽略。")
+                    Text(String(localized: .activityJobsDismissExplanation))
                         .font(.subheadline).foregroundStyle(Theme.textMuted)
                     Text(TaskCenter.nonEmpty(job.subject) ?? TaskCenter.jobTypeLabel(job))
                         .font(.subheadline).foregroundStyle(Theme.text.opacity(0.75))
@@ -392,7 +392,7 @@ struct DismissJobSheet: View {
                         Toggle(isOn: $muteSource) {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(muteLabel).font(.subheadline.weight(.semibold))
-                                Text("不勾选的话，下次扫描媒体库时系统还会自动重新生成一次、再失败一次。手动生成不受影响，你随时可以自己再试。")
+                                Text(String(localized: .activityJobsMuteExplanation))
                                     .font(.caption).foregroundStyle(Theme.textMuted)
                             }
                         }
@@ -408,7 +408,7 @@ struct DismissJobSheet: View {
                             busy = false
                         }
                     } label: {
-                        Text(busy ? "正在忽略…" : "忽略")
+                        Text(busy ? String(localized: .activityJobsDismissing) : String(localized: .activityJobsDismiss))
                             .font(.body.weight(.semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 4)
@@ -420,15 +420,15 @@ struct DismissJobSheet: View {
                 }
                 .padding(20)
             }
-            .navigationTitle("忽略这个任务？")
+            .navigationTitle(String(localized: .activityJobsDismissTitle))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }.disabled(busy)
+                    Button(String(localized: .commonCancel)) { dismiss() }.disabled(busy)
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .adaptiveDetents([.medium, .large])
         .interactiveDismissDisabled(busy)
     }
 }

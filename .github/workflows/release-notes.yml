@@ -1,7 +1,8 @@
 # =============================================================================
 # Release changelog 同步
 #
-# docs/changelog/vX.Y.Z.md 与 torrent-ner-vN.md 是应用和模型日志的事实源。
+# docs/changelog/vX.Y.Z.md、torrent-ner-vN.md 与各客户端的 <前缀>-vX.Y.Z.md（android、androidtv、
+# ios、tvos、macos、transcoder、windows）是服务器、模型和各客户端日志的事实源。
 # 每份文件包含英文正文与完整中文说明（进版本管理、可评审）。
 # 该目录有文件合入 main 时，本工作流把每份 changelog 同步为同名 tag 的
 # GitHub Release body——应用内更新界面会原文展示这段文字。
@@ -14,8 +15,8 @@
 # 对应 Release 尚不存在的文件（例如提前合入下个版本的 changelog）会被
 # 跳过，等 Release 创建后再次触碰该文件即可同步。
 #
-# 同步正文后重新生成该版本的 release.json（scripts/publish-release-info.sh），
-# 官网更新日志读的是这份按语言拆好的清单。
+# 服务器版本先重新生成 release.json（scripts/publish-release-info.sh，官网更新日志读它），
+# 再由 scripts/publish-release-body.sh 写入正文：changelog 加自动生成的「客户端」一节。
 # =============================================================================
 name: release-notes
 
@@ -41,13 +42,36 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           shopt -s nullglob
-          for file in docs/changelog/v*.md docs/changelog/torrent-ner-v*.md; do
+          for file in docs/changelog/v*.md docs/changelog/torrent-ner-v*.md \
+            docs/changelog/{android,androidtv,ios,tvos,macos,transcoder,windows}-v*.md; do
             tag="$(basename "$file" .md)"
             if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
               echo "同步 $file → Release $tag"
-              gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$file"
-              case "$tag" in v*) bash scripts/publish-release-info.sh "$tag" ;; esac
+              case "$tag" in
+                v*)
+                  bash scripts/publish-release-info.sh "$tag"
+                  bash scripts/publish-release-body.sh "$tag"
+                  ;;
+                windows-v*)
+                  # 与 windows-release.yml 同口径：正文末尾附上 CI 验证范围（含 ci-verified 标记）
+                  cat "$file" apps/desktop/release/ci-verified-scope.md > "$RUNNER_TEMP/notes.md"
+                  gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"
+                  bash scripts/publish-release-info.sh "$tag"
+                  ;;
+                torrent-ner-v*) gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$file" ;;
+                *)
+                  gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$file"
+                  bash scripts/publish-release-info.sh "$tag"
+                  ;;
+              esac
             else
               echo "跳过 $file：Release $tag 尚不存在"
             fi
           done
+
+      # 正文与 release.json 变了，让官网立刻对账：每次都会重新同步所有 changelog，按 tag 逐个通知只会
+      # 越来越长；对账只重拉内容指纹变了的记录（失败只告警，官网每天全量对账兜底）
+      - name: 通知官网
+        env:
+          CLOUD_RELEASE_SYNC_TOKEN: ${{ secrets.CLOUD_RELEASE_SYNC_TOKEN }}
+        run: bash scripts/notify-cloud.sh --all

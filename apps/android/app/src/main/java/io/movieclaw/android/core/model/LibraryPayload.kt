@@ -36,4 +36,7 @@ data class LibraryPayload(
     val autoClearMissing: Boolean? = null,
     /** 是否启用实时文件监控（SMB/NFS 网络挂载建议关闭） */
     val realtimeWatch: Boolean? = null,
+    /** 库级刮削覆盖（只存显式覆盖的字段；省略 = 不改动，空对象 = 清空覆盖） */
+    @kotlinx.serialization.SerialName("scrape_overrides")
+    val scrapeOverrides: kotlinx.serialization.json.JsonObject? = null,
 )

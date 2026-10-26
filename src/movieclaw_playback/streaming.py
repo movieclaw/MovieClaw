@@ -2,27 +2,37 @@
 
 - 本地文件：交给 Starlette FileResponse（原生 Range/206/If-Range/HEAD），
   Content-Type 按容器查表；
-- strm 占位文件：读第一个非空、非 ``#`` 开头的行，**只接受
-  http/https/rtsp/rtp 绝对 URI**——File 协议/相对路径必须拒绝，否则 strm
-  就成了任意本地文件读取漏洞（对齐 Jellyfin ProbeProvider.FetchShortcutInfo
-  与 BaseItem.cs:1191-1194 的安全语义）。播放走 302 重定向，不做反向代理
-  （零网盘流量，docs/design/jellyfin-compat.md 6.4）。
+- strm 占位文件：读第一个非空、非 ``#`` 开头的行（``parse_strm``）。两种内容：
+  - http/https/rtsp/rtp 地址（网盘直链、302 服务）：直出走 302；播放器多半连不上的
+    内网 / 回环 / 容器服务名地址先由服务端替播放器跟跳转（``strm_redirect_target``），
+    落不到播放器连得上的地址才按 Range 原样转发（``RemoteRelayResponse``）。换封装 /
+    转码时由服务端的 ffmpeg 直接读直链（``strm_input_args``）；
+  - 服务器本地路径（CloudDrive2 / rclone 挂载，Emby / Kodi 的写法；绝对路径、
+    ``file://``、相对 strm 所在目录的路径）：解析成真实文件后与本地文件同样取字节。
+    只认存在的视频文件——strm 能写任意路径就成了任意文件读取（Jellyfin 10.11.7 因此
+    整个禁掉本地路径，GHSA-j2hf-x4q5-47j3），限定视频扩展名后数据库、密钥都读不到。
+  见 docs/design/strm-playback.md。
 """
 
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import os
+import re
+import time
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from secrets import token_hex
 from typing import TypeVar
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 import anyio
+import httpx
 from starlette.datastructures import MutableHeaders
-from starlette.responses import FileResponse
+from starlette.responses import FileResponse, Response
 from starlette.types import Message, Receive, Scope, Send
 
 from movieclaw_playback.mp4_sample_entry import (
@@ -30,12 +40,39 @@ from movieclaw_playback.mp4_sample_entry import (
     apply_byte_patches,
     hev1_to_hvc1_patches,
 )
+from movieclaw_playback.remote_range import LocalRangeFile, RemoteRangeFile
 
 logger = logging.getLogger("movieclaw_playback.streaming")
 
 STRM_EXT = ".strm"
 
 _ALLOWED_STRM_SCHEMES = {"http", "https", "rtsp", "rtp"}
+
+#: strm 指向本地文件时只认这些扩展名（媒体库视频扩展名 + 光盘镜像）
+_LOCAL_TARGET_EXTS = frozenset(
+    {
+        ".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".wmv", ".mov", ".flv", ".rmvb",
+        ".mpg", ".mpeg", ".m4v", ".webm", ".iso",
+    }
+)  # fmt: skip
+#: strm 只读开头这么多字节：真 strm 是一两行文本，误起名成 .strm 的大文件不能整个读进内存
+_STRM_MAX_BYTES = 64 * 1024
+_URI_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*)://")
+_WINDOWS_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
+
+#: ffmpeg / ffprobe 读网盘直链时只放行网络协议。直链来自库里的文本文件，远端若回一份
+#: 播放列表或清单，ffmpeg 默认会照着打开里面写的地址——不放行 file，就读不到服务器本地文件。
+#: ``httpproxy``：环境里设了 http_proxy 时 ffmpeg 经它连 http 地址，不放行就一律读不了。
+STRM_PROTOCOL_WHITELIST = "http,https,httpproxy,tcp,tls,crypto,rtsp,rtp,udp"
+
+#: 读直链的断线续读：网盘 CDN 中途断开是常态，不续读就会被 ffmpeg 当成读到了片尾。
+#: ``rw_timeout``（微秒）让卡死的连接按超时断开后走续读，而不是让会话永远挂着。
+_STRM_HTTP_OPTIONS = (
+    "-reconnect", "1",
+    "-reconnect_on_network_error", "1",
+    "-reconnect_delay_max", "10",
+    "-rw_timeout", "30000000",
+)
 
 # 一个播放器设备在停止播放后，可能仍保留若干 HTTP Range 连接。它们不一定马上
 # 触发 TCP disconnect，不能只靠 Request.is_disconnected() 才停止读盘。
@@ -189,11 +226,19 @@ class DisconnectAwareFileResponse(FileResponse):
         byte_sink: Callable[[int], None] | None = None,
         byte_patches: tuple[BytePatch, ...] = (),
         probe=None,
+        on_disconnect: Callable[[], None] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(path, **kwargs)
         self._session_stopped = session_stopped
         self._on_close = on_close
+        # 响应没发完就结束（客户端断开 / 播放器上报停止 / 读盘出错）时调一次；发完不调。
+        # 转码会话的分片响应借它告诉会话「取流断了」，见 SessionManager.note_stream_disconnect。
+        # 不能拿 ``_stopped_early`` 判：Starlette 新版的 FileResponse 自己盯着 receive，
+        # 客户端一走就直接取消发送，根本走不到 ``_should_stop_reading``
+        self._on_disconnect = on_disconnect
+        #: 最后一块（more_body=False）是否已交给服务器
+        self._completed = False
         # 每发出一块调用一次的字节计量回调（活动页「观看」视角的速率来源）；
         # 必须是同步且近零开销的，不能拖慢发送循环
         self._byte_sink = byte_sink
@@ -266,13 +311,21 @@ class DisconnectAwareFileResponse(FileResponse):
                     if key != "http.response.pathsend"
                 },
             }
+
+        async def tracked_send(message: Message) -> None:
+            await send(message)
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                self._completed = True
+
         watcher = asyncio.ensure_future(self._watch_disconnect(receive))
         try:
-            await super().__call__(scope, receive, send)
+            await super().__call__(scope, receive, tracked_send)
         finally:
             watcher.cancel()
             if self._probe is not None:
                 self._probe.finish(self._bytes_read, disconnected=self._stopped_early)
+            if not self._completed and self._on_disconnect is not None:
+                self._on_disconnect()
             if self._on_close is not None:
                 self._on_close()
 
@@ -502,27 +555,474 @@ def is_strm(file_path: str) -> bool:
     return file_path.lower().endswith(STRM_EXT)
 
 
-def resolve_strm_url(file_path: str | Path) -> str | None:
-    """读 strm 文件内容解析出远程播放地址；不合法返回 None。
+# ---- 只在网盘上的库文件（docs/design/cloud-storage.md §7.1）-----------------------
+# 宿主把「这条台账路径的字节只在网盘上」登记进来，读字节的入口（media_input / open_strm_range）
+# 据此把路径换成网盘直链。播放层不认识网盘账号与插件：判定与取链都由宿主给的两个函数完成。
+_cloud_check: Callable[[str], bool] | None = None
+_cloud_resolve: Callable[[str], StrmLink | None] | None = None
+_cloud_stamp: Callable[[str], tuple[int, int] | None] | None = None
 
-    取第一个非空且不以 ``#`` 开头的行；仅接受白名单 scheme 的绝对 URI。
-    每次播放现读文件——strm 内容可能是带时效签名的直链，不缓存。
+
+def bind_cloud(
+    check: Callable[[str], bool] | None,
+    resolve: Callable[[str], StrmLink | None] | None,
+    stamp: Callable[[str], tuple[int, int] | None] | None = None,
+) -> None:
+    global _cloud_check, _cloud_resolve, _cloud_stamp
+    _cloud_check, _cloud_resolve, _cloud_stamp = check, resolve, stamp
+
+
+def file_stamp(file_path: str | Path) -> tuple[int, int] | None:
+    """片源的（大小, 修改时间纳秒），缓存按它判断片子有没有变；取不到返回 None。
+
+    只在网盘上的文件本地 stat 不到，用台账记的大小与修改时间——否则释放本地之后，
+    已经抽好的字幕、转好的分片全部判成过期（cloud-storage.md §14.1）。
     """
+    path = str(file_path)
+    if _cloud_stamp is not None and is_cloud(path):
+        return _cloud_stamp(path)
     try:
-        text = Path(file_path).read_text(encoding="utf-8", errors="replace")
+        st = os.stat(path)
     except OSError:
-        logger.warning("strm 文件读取失败：%s", file_path)
         return None
+    return st.st_size, st.st_mtime_ns
+
+
+def is_cloud(file_path: str) -> bool:
+    """这条台账路径的字节只在网盘上（本地没有这个文件）。"""
+    return _cloud_check is not None and _cloud_check(str(file_path))
+
+
+def is_remote(file_path: str) -> bool:
+    """读字节要走网络：strm 条目或只在网盘上的文件。整片通读这类活对它们要换成按索引稀疏读。"""
+    return is_strm(str(file_path)) or is_cloud(file_path)
+
+
+def cloud_link(file_path: str) -> StrmLink | None:
+    """只在网盘上的文件的服务器直链；取不到返回 None。"""
+    if _cloud_resolve is None or not is_cloud(file_path):
+        return None
+    return _cloud_resolve(str(file_path))
+
+
+@dataclass(frozen=True)
+class StrmLink:
+    """strm 文件解析出的远程地址与取它要带的请求头。"""
+
+    url: str
+    headers: dict[str, str] = field(default_factory=dict)
+
+
+#: Kodi / VLC 写法 ``#EXTVLCOPT:http-user-agent=…`` 的选项名 → 请求头名
+_VLC_HEADER_OPTIONS = {
+    "http-user-agent": "User-Agent",
+    "http-referrer": "Referer",
+    "http-referer": "Referer",
+}
+_HEADER_NAME = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+
+
+class StrmError(ValueError):
+    """strm 内容用不了；``str(exc)`` 是给用户看的原因。"""
+
+
+def parse_strm(file_path: str | Path) -> StrmLink | Path:
+    """读 strm 文件解析出播放源：远端地址（``StrmLink``）或本地视频文件（``Path``）。
+
+    取第一个非空且不以 ``#`` 开头的行；UTF-8（容忍 BOM），读不成 UTF-8 的按 GB18030
+    （Windows 中文工具的默认编码）。每次播放现读文件——strm 内容可能是带时效签名的直链，
+    不缓存。用不了抛 ``StrmError``（带原因）。
+
+    远端地址只认 http/https/rtsp/rtp。请求头两种 Kodi 写法都认（115 一类网盘按
+    User-Agent 校验直链）：地址前的 ``#EXTVLCOPT:http-user-agent=…`` /
+    ``http-referrer=…`` 行，与地址后的 ``|User-Agent=…&Referer=…``（值按 URL 编码）。
+    头名只收字母数字与连字符、值里不许有换行——它们会原样进 ffmpeg 的 ``-headers``，
+    放进换行就能注入别的头。地址原样保留、不重新编码：生成工具写的中文、``%2F``、
+    签名里的 ``=:`` 都要原样交给对端。
+
+    不带 ``scheme://`` 的是本地路径（``_local_target``）。
+    """
+    path = Path(file_path)
+    try:
+        with path.open("rb") as f:
+            data = f.read(_STRM_MAX_BYTES)
+    except OSError as exc:
+        raise StrmError(f"strm 文件读取失败（{exc.strerror or exc}）") from exc
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = data.decode("gb18030", errors="replace")
+    headers: dict[str, str] = {}
     for line in text.splitlines():
         candidate = line.strip()
+        if candidate.upper().startswith("#EXTVLCOPT:"):
+            option, _, value = candidate[len("#EXTVLCOPT:") :].partition("=")
+            name = _VLC_HEADER_OPTIONS.get(option.strip().lower())
+            if name is not None:
+                _add_header(headers, name, value.strip())
+            continue
         if not candidate or candidate.startswith("#"):
             continue
-        scheme = urlsplit(candidate).scheme.lower()
-        if scheme in _ALLOWED_STRM_SCHEMES:
-            return candidate
-        logger.warning(
-            "strm 内容不是允许的远程地址（仅接受 http/https/rtsp/rtp），已拒绝：%s",
-            file_path,
+        match = _URI_SCHEME.match(candidate)
+        scheme = match.group(1).lower() if match else ""
+        if scheme == "file":
+            return _local_target(_file_uri_path(candidate), path)
+        if not scheme:
+            return _local_target(candidate, path)
+        if scheme not in _ALLOWED_STRM_SCHEMES:
+            raise StrmError(
+                f"不支持 {scheme}:// 地址（只认 http/https/rtsp/rtp 直链，或服务器上的本地路径；"
+                "共享目录请先挂载到服务器再写挂载路径）"
+            )
+        url, _, suffix = candidate.partition("|")
+        try:  # 主机、端口写坏了在这里报，别让下游各处抛 500
+            urlsplit(url).port  # noqa: B018
+            httpx.URL(url)
+        except (ValueError, httpx.InvalidURL) as exc:
+            raise StrmError(f"strm 里的地址格式不对（{exc}）：{url}") from exc
+        for name, value in parse_qsl(suffix, keep_blank_values=False):
+            _add_header(headers, name.strip(), value.strip())
+        return StrmLink(url=url, headers=headers)
+    raise StrmError("strm 文件里没有播放地址")
+
+
+def _file_uri_path(uri: str) -> str:
+    parts = urlsplit(uri)
+    if parts.netloc not in ("", "localhost"):
+        raise StrmError(f"file:// 地址指向了别的主机（{parts.netloc}），服务器读不到")
+    return unquote(parts.path)
+
+
+def _local_target(written: str, strm_path: Path) -> Path:
+    """strm 里写的本地路径 → 真实的视频文件。
+
+    相对路径按 strm 所在目录解析（Kodi 的写法）。解析到真实位置（展开软链）后必须是
+    存在的普通文件、扩展名是视频——数据库、密钥、系统文件都过不了这一关。有的生成工具把
+    路径按 URL 编码写进去，原样找不到时再按解码后的找一次。
+    """
+    if _WINDOWS_PATH.match(written):
+        raise StrmError(
+            f"strm 里是 Windows 路径（{written}），服务器上用不了，请写服务器上的挂载路径"
         )
+    tried: list[str] = []
+    for raw in dict.fromkeys((written, unquote(written))):
+        candidate = Path(raw) if raw.startswith("/") else strm_path.parent / raw
+        tried.append(str(candidate))
+        try:
+            target = candidate.resolve(strict=True)
+        except (OSError, RuntimeError, ValueError):  # ValueError：路径里有 NUL
+            continue
+        if target.suffix.lower() not in _LOCAL_TARGET_EXTS or not target.is_file():
+            raise StrmError(f"strm 指向的不是视频文件：{raw}")
+        return target
+    if Path(written).suffix.lower() not in _LOCAL_TARGET_EXTS:
+        raise StrmError(f"strm 内容既不是 http/https/rtsp/rtp 地址，也不是视频文件路径：{written}")
+    raise StrmError(
+        f"找不到 strm 指向的本地文件（挂载没上线，或容器里的路径与 strm 里写的不一致）：{tried[0]}"
+    )
+
+
+def resolve_strm(file_path: str | Path) -> StrmLink | Path | None:
+    """``parse_strm`` 的不抛异常版：用不了记一条带原因的日志，返回 None。"""
+    try:
+        return parse_strm(file_path)
+    except StrmError as exc:
+        logger.warning("strm 用不了：%s（%s）", exc, file_path)
         return None
+
+
+def _add_header(headers: dict[str, str], name: str, value: str) -> None:
+    if _HEADER_NAME.match(name) and value and not any(c in value for c in "\r\n"):
+        headers[name] = value
+
+
+def local_strm_container(container: str | None, target: Path) -> str:
+    """strm 指向本地文件时的容器：探过规格用台账的，没探过（台账记的是 ``strm``）按真实文件的
+    扩展名。"""
+    if container and container != "strm":
+        return container
+    return target.suffix.lower().lstrip(".")
+
+
+def strm_location(file_path: str | Path) -> str | None:
+    """strm 指向哪里：远端地址（不含请求头），或本地文件的真实路径；用不了返回 None。"""
+    source = resolve_strm(file_path)
+    if source is None:
+        return None
+    return str(source) if isinstance(source, Path) else source.url
+
+
+def strm_input_args(url: str, headers: dict[str, str] | None = None) -> list[str]:
+    """ffmpeg / ffprobe 读网盘直链 ``url`` 时要放在 ``-i`` 前的输入选项（含 strm 里的请求头）。"""
+    args = ["-protocol_whitelist", STRM_PROTOCOL_WHITELIST]
+    if urlsplit(url).scheme.lower() in {"http", "https"}:
+        args += _STRM_HTTP_OPTIONS
+        extra = dict(headers or {})
+        if user_agent := extra.pop("User-Agent", None):
+            args += ["-user_agent", user_agent]
+        if extra:
+            args += ["-headers", "".join(f"{k}: {v}\r\n" for k, v in extra.items())]
+    return args
+
+
+def media_input(file_path: str) -> tuple[str, list[str]] | None:
+    """ffmpeg / ffprobe 读这个台账文件时的（输入地址, ``-i`` 前的输入选项）。
+
+    本地文件就是路径本身、没有额外选项；strm 每次起 ffmpeg 都**现读**（直链多带时效
+    签名）：远端是直链加网络协议选项，本地路径是它指向的真实文件。strm 用不了返回 None。
+    """
+    if is_cloud(file_path):
+        link = cloud_link(file_path)
+        return None if link is None else strm_source_input(link)
+    if not is_strm(file_path):
+        return file_path, []
+    source = resolve_strm(file_path)
+    return None if source is None else strm_source_input(source)
+
+
+def strm_source_input(source: StrmLink | Path) -> tuple[str, list[str]]:
+    """``parse_strm`` 的结果 → ffmpeg / ffprobe 的（输入地址, ``-i`` 前的输入选项）。"""
+    if isinstance(source, Path):
+        return str(source), []
+    return source.url, strm_input_args(source.url, source.headers)
+
+
+def strm_link_status(link: StrmLink) -> int | None:
+    """（阻塞）直链现在的 HTTP 状态码（只取响应头）；不是 http、连不上返回 None。
+
+    读不出规格时用来分辨「直链过期 / 没权限」与「网盘连不上、格式不支持」。
+    """
+    if urlsplit(link.url).scheme.lower() not in {"http", "https"}:
+        return None
+    headers = {**link.headers, "Range": "bytes=0-0"}
+    try:
+        with (
+            httpx.Client(follow_redirects=True, timeout=5.0) as client,
+            client.stream("GET", link.url, headers=headers) as response,
+        ):
+            return response.status_code
+    except httpx.HTTPError:
+        return None
+
+
+def open_strm_range(file_path: str | Path) -> RemoteRangeFile | LocalRangeFile | None:
+    """按区间读 strm 指向的文件（读索引、抽稀疏关键帧 / 字幕块用）；读不了返回 None。
+
+    远端只认 http/https（要 Range）；本地路径打开真实文件。两者接口相同，调用方不用分。
+    只在网盘上的库文件读网盘直链。
+    """
+    source = cloud_link(str(file_path)) if is_cloud(str(file_path)) else resolve_strm(file_path)
+    if isinstance(source, Path):
+        return LocalRangeFile(source)
+    if source is None or urlsplit(source.url).scheme.lower() not in {"http", "https"}:
+        return None
+    return RemoteRangeFile(source.url, headers=source.headers)
+
+
+#: 播放器多半连不上的主机名后缀（局域网 mDNS、路由器本地域名）
+_LOCAL_SUFFIXES = (".local", ".lan", ".internal", ".localdomain", ".home.arpa")
+#: 运营商级 NAT / Tailscale 一类的地址段：ipaddress 不算它 private，外面同样连不上
+_SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
+
+
+def strm_needs_relay(url: str, headers: dict[str, str] | None = None) -> bool:
+    """这条网盘直链要不要由服务端转发，而不是 302 给播放器。
+
+    strm 里写了请求头（``parse_strm``）、地址里带账号密码（``user:pass@host``，SmartStrm
+    的 WebDAV 写法）的一律转发：302 出去的播放器不会带这些头，浏览器也拒绝带凭据的媒体地址。
+
+    回环、私网、链路本地地址与单标签 / 局域网主机名（容器服务名 ``alist``、``nas.local``）
+    只在服务器所在的网络里连得上：MoviePilot 一类工具常把 strm 写成
+    ``http://127.0.0.1:5244/d/...`` 或 ``http://alist:5244/d/...``，302 给外网的浏览器、
+    电视就是连不上。判断只看地址本身，不看请求方——容器桥接网络里看到的客户端地址
+    常常都是网关，靠它分内外网不可靠；局域网里的播放器多走一跳服务器，代价只是局域网带宽。
+    """
+    parts = urlsplit(url)
+    if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
+        return False
+    if headers or "@" in parts.netloc:
+        return True
+    host = parts.hostname.lower()
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return host == "localhost" or "." not in host or host.endswith(_LOCAL_SUFFIXES)
+    return (
+        ip.is_loopback
+        or ip.is_private
+        or ip.is_link_local
+        or (ip.version == 4 and ip in _SHARED_ADDRESS_SPACE)
+    )
+
+
+#: 替播放器跟跳转最多几跳（alist 的 /d → /p、302 服务 → 网盘 CDN，常见的都在三跳以内）
+_MAX_REDIRECT_HOPS = 5
+#: 跟跳转的结论记多久（秒）：播放器拖进度一次就是几条 Range 请求，不该每条都再问一遍内网服务；
+#: 网盘直链的时效以小时计，一分钟内复用不会过期
+_REDIRECT_TTL_S = 60.0
+_REDIRECT_CACHE_MAX = 256
+_redirect_cache: dict[tuple[str, str | None], tuple[float, str | None]] = {}
+
+
+async def strm_redirect_target(link: StrmLink, user_agent: str | None) -> str | None:
+    """直出 strm 时把播放器 302 到哪；None 表示要由服务端转发（``RemoteRelayResponse``）。
+
+    播放器连得上的地址原样 302。内网地址（``strm_needs_relay``）多半是网盘 302 服务
+    （MoviePilot 的 P115StrmHelper、alist ``/d/``……）：服务端带着播放器自己的 User-Agent
+    替它跟跳转（115 一类直链与 User-Agent 绑定），跳到播放器连得上的地址就把播放器 302
+    过去，整片不经服务器——go-emby2openlist、MediaWarp 一类 302 反代同一思路。一路都是
+    内网、或者内网服务自己出字节（alist 本地代理、CD2 ``/static``）才转发。strm 写了请求头
+    的一律转发：302 出去的播放器不会带这些头。只取响应头：带 ``Range: bytes=0-0``，
+    自己出字节的服务也只回一个字节。结论按（地址, UA）记一分钟。
+    """
+    if not strm_needs_relay(link.url, link.headers):
+        return link.url
+    if link.headers or urlsplit(link.url).scheme.lower() not in {"http", "https"}:
+        return None
+    key = (link.url, user_agent)
+    cached = _redirect_cache.get(key)
+    if cached is not None and cached[0] > time.monotonic():
+        return cached[1]
+    target = await _follow_to_reachable(link, user_agent)
+    if len(_redirect_cache) >= _REDIRECT_CACHE_MAX:
+        _redirect_cache.clear()
+    _redirect_cache[key] = (time.monotonic() + _REDIRECT_TTL_S, target)
+    return target
+
+
+async def _follow_to_reachable(link: StrmLink, user_agent: str | None) -> str | None:
+    headers = {"Range": "bytes=0-0"}
+    if user_agent:
+        headers["User-Agent"] = user_agent
+    url = httpx.URL(link.url)
+    client = httpx.AsyncClient(follow_redirects=False, trust_env=False, timeout=5.0)
+    async with client:
+        for _ in range(_MAX_REDIRECT_HOPS):
+            try:
+                async with client.stream("GET", url, headers=headers) as response:
+                    location = response.headers.get("location") if response.is_redirect else None
+                if not location:
+                    return None
+                url = url.join(location)
+                if url.scheme not in ("http", "https"):
+                    return None
+                if not strm_needs_relay(str(url)):
+                    return str(url)
+            except (httpx.HTTPError, httpx.InvalidURL, ValueError) as exc:
+                logger.info("替播放器跟跳转失败，改由服务端转发：%s（%s）", link.url, exc)
+                return None
     return None
+
+
+#: 转发时透传给播放器的上游响应头
+_RELAY_HEADERS = (
+    "content-type",
+    "content-length",
+    "content-range",
+    "accept-ranges",
+    "last-modified",
+    "etag",
+    "content-encoding",
+)
+
+
+class RemoteRelayResponse(Response):
+    """把网盘直链按播放器的 Range 原样转发（不起 ffmpeg）——Jellyfin 的
+    ``GetStaticRemoteStreamResult`` 同一思路。
+
+    断连、播放器上报停止、字节计量与 ``DisconnectAwareFileResponse`` 同一套：响应开始时起一个
+    后台任务等 ``http.disconnect``，每块只做一次同步检查；上游的 Content-Length 原样透传，提前
+    停止时不补结束帧、交给服务器关连接。上游一律用 GET（预签名直链常常只签了 GET），播放器
+    发的 HEAD 只回响应头。上游不走代理：要转发的都是内网地址。
+    """
+
+    chunk_size = 1024 * 1024
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        range_header: str | None = None,
+        upstream_headers: dict[str, str] | None = None,
+        session_stopped: asyncio.Event | None = None,
+        on_close: Callable[[], None] | None = None,
+        byte_sink: Callable[[int], None] | None = None,
+        probe=None,  # noqa: ANN001 — qoe.serve_probe 的返回值
+    ) -> None:
+        super().__init__()
+        self._url = url
+        self._range = range_header
+        self._upstream_headers = dict(upstream_headers or {})
+        self._session_stopped = session_stopped
+        self._on_close = on_close
+        self._byte_sink = byte_sink
+        self._probe = probe
+        self._disconnected = asyncio.Event()
+        self._bytes = 0
+        self._stopped_early = False
+
+    def _should_stop(self) -> bool:
+        stopped = (
+            self._session_stopped is not None and self._session_stopped.is_set()
+        ) or self._disconnected.is_set()
+        if stopped and not self._stopped_early:
+            self._stopped_early = True
+            logger.info("播放器已断开或上报停止，停止转发网盘直链（已转发 %d 字节）", self._bytes)
+        return stopped
+
+    async def _watch_disconnect(self, receive: Receive) -> None:
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                self._disconnected.set()
+                return
+            await asyncio.sleep(0)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        watcher = asyncio.ensure_future(self._watch_disconnect(receive))
+        started = False
+        try:
+            headers = dict(self._upstream_headers)
+            if self._range:
+                headers["Range"] = self._range
+            client = httpx.AsyncClient(
+                follow_redirects=True, trust_env=False, timeout=httpx.Timeout(30.0, read=60.0)
+            )
+            async with client, client.stream("GET", self._url, headers=headers) as upstream:
+                relayed = [
+                    (name.encode(), value.encode())
+                    for name in _RELAY_HEADERS
+                    if (value := upstream.headers.get(name)) is not None
+                ]
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": upstream.status_code,
+                        "headers": relayed,
+                    }
+                )
+                started = True
+                if scope.get("method") == "HEAD" or upstream.status_code >= 400:
+                    await send({"type": "http.response.body", "body": b"", "more_body": False})
+                    return
+                async for chunk in upstream.aiter_raw(self.chunk_size):
+                    if self._should_stop():
+                        return
+                    if self._probe is not None:
+                        self._probe.first_chunk()
+                    self._bytes += len(chunk)
+                    if self._byte_sink is not None:
+                        self._byte_sink(len(chunk))
+                    await send({"type": "http.response.body", "body": chunk, "more_body": True})
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+        except httpx.HTTPError as exc:
+            logger.warning("转发网盘直链失败：%s", exc)
+            if not started:
+                await send({"type": "http.response.start", "status": 502, "headers": []})
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+        finally:
+            watcher.cancel()
+            if self._probe is not None:
+                self._probe.finish(self._bytes, disconnected=self._stopped_early)
+            if self._on_close is not None:
+                self._on_close()

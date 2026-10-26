@@ -36,12 +36,21 @@ def unauthorized() -> JellyfinError:
     return JellyfinError(401)
 
 
+def forbidden() -> JellyfinError:
+    return JellyfinError(403)
+
+
 def bad_request_text(text: str = GENERIC_ERROR_TEXT) -> JellyfinError:
     return JellyfinError(400, text=text)
 
 
 def not_found() -> JellyfinError:
     return JellyfinError(404)
+
+
+def unavailable_text(text: str) -> JellyfinError:
+    """稍后重试就能好的失败（网盘同时播放数已满、网盘要重新登录），带一句给人看的原因。"""
+    return JellyfinError(503, text=text)
 
 
 def not_found_message(message: str) -> JellyfinError:

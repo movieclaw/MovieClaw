@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { Route } from "next";
@@ -66,18 +67,20 @@ const GROUPED_STORAGE_KEY = "movieclaw.library.gallery-grouped";
  * 直接在 useState 初始值里读会导致首屏与水合后不一致。
  */
 function useStoredFlag(key: string, fallback: boolean): [boolean, (next: boolean) => void] {
-  const [value, setValue] = useState(fallback);
+  const [storedValue, setStoredValue] = useState({ key, value: fallback });
   useEffect(() => {
+    let value = fallback;
     try {
       const stored = window.localStorage.getItem(key);
-      if (stored !== null) setValue(stored === "1");
+      if (stored !== null) value = stored === "1";
     } catch {
       /* 隐私模式等拿不到 storage：保持默认值 */
     }
-  }, [key]);
+    setStoredValue({ key, value });
+  }, [key, fallback]);
   const update = useCallback(
     (next: boolean) => {
-      setValue(next);
+      setStoredValue({ key, value: next });
       try {
         window.localStorage.setItem(key, next ? "1" : "0");
       } catch {
@@ -86,12 +89,12 @@ function useStoredFlag(key: string, fallback: boolean): [boolean, (next: boolean
     },
     [key],
   );
-  return [value, update];
+  return [storedValue.key === key ? storedValue.value : fallback, update];
 }
 
-/** 读写「图床浏览模式」偏好：进详情再退回来还在图廊 */
-export function useVideoGalleryMode(): [boolean, (next: boolean) => void] {
-  return useStoredFlag(MODE_STORAGE_KEY, false);
+/** 按媒体库记住模式；跨库页面保留自己的偏好，不作为新库的默认值。 */
+export function useVideoGalleryMode(libraryId: number | null = null): [boolean, (next: boolean) => void] {
+  return useStoredFlag(libraryId === null ? MODE_STORAGE_KEY : `${MODE_STORAGE_KEY}:${libraryId}`, false);
 }
 
 /** 读写「按作品分组」偏好：默认分组，关掉就是整库一条瀑布流 */
@@ -122,6 +125,7 @@ export function WallPrefItems({
   /** 调用方菜单的行样式：同一个菜单里各项长相必须一致 */
   itemClass: string;
 }) {
+  const t = useTranslations();
   return (
     <>
       {/* 图床浏览：关掉分组，整墙的图就混成一条瀑布流 */}
@@ -131,7 +135,7 @@ export function WallPrefItems({
           onCheckedChange={onGroupedChange}
           className={`${itemClass} flex items-center justify-between`}
         >
-          按作品分组
+          {t("library.gallery.groupByTitle")}
           <DropdownMenu.ItemIndicator>
             <CheckIcon className="size-3.5 text-[var(--accent)]" />
           </DropdownMenu.ItemIndicator>
@@ -140,7 +144,7 @@ export function WallPrefItems({
       {density && onDensityChange && (
         <>
           <DropdownMenu.Label className="px-3 pb-1 pt-1.5 text-caption text-[var(--text-faint)]">
-            瀑布流密度
+            {t("library.gallery.density")}
           </DropdownMenu.Label>
           <DropdownMenu.RadioGroup
             value={density}
@@ -148,9 +152,9 @@ export function WallPrefItems({
           >
             {(
               [
-                ["compact", "紧凑"],
-                ["standard", "标准"],
-                ["loose", "宽松"],
+                ["compact", t("library.gallery.compact")],
+                ["standard", t("library.gallery.standard")],
+                ["loose", t("library.gallery.loose")],
               ] as [PhotoWallDensity, string][]
             ).map(([key, label]) => (
               <DropdownMenu.RadioItem
@@ -357,6 +361,7 @@ const GalleryGroupSection = memo(function GalleryGroupSection({
   spec: DensitySpec;
   onOpen: (index: number) => void;
 }) {
+  const t = useTranslations();
   const entries = useMemo(
     () => group.images.map((image) => ({ group, image })),
     [group],
@@ -371,7 +376,7 @@ const GalleryGroupSection = memo(function GalleryGroupSection({
           {groupTitle(group)}
         </Link>
         <span className="tnum shrink-0 text-caption text-[var(--text-faint)]">
-          {group.images.length} 张
+          {t("library.gallery.imageCount", { count: group.images.length })}
         </span>
       </div>
       <GalleryTiles entries={entries} start={start} width={width} spec={spec} onOpen={onOpen} />
@@ -409,6 +414,7 @@ const GalleryTile = memo(function GalleryTile({
   spec: DensitySpec;
   onOpen: (index: number) => void;
 }) {
+  const t = useTranslations();
   return (
     // 与相册墙的瓦片同一套：绝对定位 + transform 重排走过渡；视口外的瓦片
     // 根本不挂（虚拟化），不再需要 content-visibility 去跳过绘制
@@ -421,7 +427,7 @@ const GalleryTile = memo(function GalleryTile({
       // 所属作品：图廊按作品分页，「回到上次位置」记的是作品在整份排序里的
       // 位置（lib/library-wall-recall.ts），单张图的下标没法用来跳转
       data-gallery-item-id={group.media_item_id}
-      aria-label={`查看 ${group.title} · ${image.label}${group.is_favorite ? "（已收藏）" : ""}`}
+      aria-label={t("library.gallery.view", { title: group.title, label: image.label, favorite: group.is_favorite ? "yes" : "no" })}
       onClick={() => onOpen(index)}
       className="group/tile absolute left-0 top-0 block overflow-hidden rounded-xl bg-[var(--poster-placeholder)] text-left shadow-[0_8px_22px_rgba(0,0,0,0.35)] ring-1 ring-white/[0.07] transition-[transform,width,height,box-shadow] duration-300 ease-out hover:z-[2] hover:shadow-[0_18px_44px_rgba(0,0,0,0.6)] hover:ring-white/25 focus-visible:z-[2] focus-visible:ring-2 focus-visible:ring-[var(--accent)] motion-reduce:transition-none"
       style={{
@@ -459,7 +465,7 @@ const GalleryTile = memo(function GalleryTile({
       <span className="pointer-events-none absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-[rgba(6,8,14,0.85)] via-[rgba(6,8,14,0.25)] to-transparent p-2.5 opacity-0 transition-opacity duration-200 group-hover/tile:opacity-100 group-focus-visible/tile:opacity-100">
         <span className="truncate text-caption font-semibold text-white">{groupTitle(group)}</span>
         <span className="truncate text-micro text-white/70">
-          {image.t_seconds !== null ? `从 ${formatSeconds(image.t_seconds)} 起播` : image.label}
+          {image.t_seconds !== null ? t("library.gallery.startAt", { time: formatSeconds(image.t_seconds) }) : image.label}
         </span>
       </span>
     </button>
@@ -495,6 +501,7 @@ export function VideoGalleryLightbox({
   onToggleFavorite: (mediaItemId: number, favorite: boolean) => void;
   onClose: () => void;
 }) {
+  const t = useTranslations();
   const router = useRouter();
   const entry = entries[index];
   // 墙上的那张先铺底（与墙同一密度档、同一个地址，命中缓存），主图按屏宽像素取
@@ -530,14 +537,14 @@ export function VideoGalleryLightbox({
   }, [entry, router]);
 
   if (!entry) return null;
-  const playLabel = entry.image.t_seconds !== null ? "从此处播放" : "播放";
+  const playLabel = entry.image.t_seconds !== null ? t("library.gallery.playHere") : t("player.controls.play");
   // 收藏的是整部作品（与详情页那颗心同一落点），不是当前这张图或这一集
   const favorite = entry.group.is_favorite;
-  const favoriteLabel = favorite ? "取消收藏" : "收藏";
+  const favoriteLabel = favorite ? t("library.gallery.unfavorite") : t("library.gallery.favorite");
 
   return (
     <ZoomLightbox
-      label={`查看图片：${entry.group.title} · ${entry.image.label}`}
+      label={t("library.gallery.viewImage", { title: entry.group.title, label: entry.image.label })}
       slides={slides}
       index={index}
       hasMore={hasMore}
@@ -570,8 +577,8 @@ export function VideoGalleryLightbox({
           </button>
           <Link
             href={detailHref(entry)}
-            title="前往影片详情"
-            aria-label="前往影片详情"
+            title={t("library.gallery.goToTitle")}
+            aria-label={t("library.gallery.goToTitle")}
             className={LIGHTBOX_ACTION_CLASS}
           >
             <OpenIcon className={LIGHTBOX_ACTION_ICON_CLASS} />

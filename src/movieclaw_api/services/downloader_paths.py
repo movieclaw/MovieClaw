@@ -35,6 +35,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from movieclaw_api.i18n import t, use_locale
+from movieclaw_api.i18n.stored import stored_message
 from movieclaw_api.services.torrent_submit import mapping_covers
 
 logger = logging.getLogger("movieclaw_api.downloader_paths")
@@ -57,21 +59,17 @@ BROKEN_STATES = frozenset(
 
 # 每种状态的用户可读结论 + 该做什么。文案直接进红灯与设置页，
 # 因此说的是"接下来做什么"，不是"可能哪里有问题"
-_DETAIL: dict[PathState, str] = {
-    PathState.OK: "可见，目录有内容",
-    PathState.EMPTY: (
-        "目录存在但完全是空的——通常是容器启动时挂载没有生效"
-        "（docker 会在这种情况下兜底建一个空目录，配置看起来完全正常）。"
-        "重启 movieclaw 容器一般即可修复"
-    ),
-    PathState.NOT_DIR: "这个路径存在，但它是一个文件而不是目录，映射的本地侧写错了",
-    PathState.MISSING: (
-        "movieclaw 侧根本没有这个目录：存放下载的卷没有挂载到 movieclaw，或者路径映射的本地侧写错了"
-    ),
-    PathState.UNMAPPED: (
-        "下载器上报的这个目录没有被任何一条路径映射覆盖，movieclaw 无法把它翻译成自己能访问的位置"
-    ),
+_DETAIL_KEYS: dict[PathState, str] = {
+    PathState.OK: "errors.downloadPath.visible",
+    PathState.EMPTY: "errors.downloadPath.empty",
+    PathState.NOT_DIR: "errors.downloadPath.notDirectory",
+    PathState.MISSING: "errors.downloadPath.missing",
+    PathState.UNMAPPED: "errors.downloadPath.unmapped",
 }
+
+
+def detail_key(state: PathState) -> str:
+    return _DETAIL_KEYS[state]
 
 
 @dataclass(frozen=True)
@@ -82,6 +80,7 @@ class PathProbe:
     remote: str
     state: PathState
     detail: str
+    detail_key: str | None = None
 
     @property
     def healthy(self) -> bool:
@@ -89,12 +88,19 @@ class PathProbe:
 
     def as_dict(self) -> dict[str, str]:
         """落库与接口返回用的扁平形态。"""
-        return {
+        with use_locale("zh-Hans"):
+            detail = (
+                stored_message(self.detail, self.detail_key) if self.detail_key else self.detail
+            )
+        result = {
             "local": self.local,
             "remote": self.remote,
             "state": self.state.value,
-            "detail": self.detail,
+            "detail": detail,
         }
+        if self.detail_key:
+            result["detail_key"] = self.detail_key
+        return result
 
 
 def _classify(local: str) -> PathState:
@@ -122,7 +128,13 @@ def _classify(local: str) -> PathState:
 def probe_local_dir(local: str, remote: str = "") -> PathProbe:
     """体检单个 movieclaw 视角目录。"""
     state = _classify(local)
-    return PathProbe(local=local, remote=remote, state=state, detail=_DETAIL[state])
+    return PathProbe(
+        local=local,
+        remote=remote,
+        state=state,
+        detail=t(detail_key(state)),
+        detail_key=detail_key(state),
+    )
 
 
 def probe_mappings(mappings: list[dict[str, str]] | None) -> list[PathProbe]:
@@ -153,14 +165,19 @@ def diagnose_landing(
     """
     if not local_dir:
         return PathProbe(
-            local="", remote="", state=PathState.UNMAPPED, detail=_DETAIL[PathState.UNMAPPED]
+            local="",
+            remote="",
+            state=PathState.UNMAPPED,
+            detail=t(detail_key(PathState.UNMAPPED)),
+            detail_key=detail_key(PathState.UNMAPPED),
         )
     if mappings and not mapping_covers(local_dir, mappings):
         return PathProbe(
             local=local_dir,
             remote="",
             state=PathState.UNMAPPED,
-            detail=_DETAIL[PathState.UNMAPPED],
+            detail=t(detail_key(PathState.UNMAPPED)),
+            detail_key=detail_key(PathState.UNMAPPED),
         )
     return probe_local_dir(local_dir)
 

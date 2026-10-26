@@ -54,7 +54,7 @@ final class SettingsBMCPStore {
     func fullURL(_ endpoint: API.EndpointView) -> String {
         if endpoint.url.hasPrefix("http") { return endpoint.url }
         let base = status?.baseUrl ?? ""
-        return (base.isEmpty ? "http://<你的地址>" : base) + endpoint.url
+        return (base.isEmpty ? String(localized: .settingsMcpKitAddressPlaceholder) : base) + endpoint.url
     }
 }
 
@@ -68,17 +68,17 @@ enum SettingsBMCPFormat {
 
     /// 最近调用（同 Web `devices-display.relativeTime`：分钟 / 小时 / 天三档，1 分钟内「刚刚活跃」）
     static func relative(_ raw: String?) -> String {
-        guard let raw else { return "从未使用" }
-        guard let date = Formatters.date(raw) else { return "未知" }
+        guard let raw else { return String(localized: .settingsDevicesLabelsNever) }
+        guard let date = Formatters.date(raw) else { return String(localized: .settingsDevicesLabelsUnknownTime) }
         let minutes = Int(Date.now.timeIntervalSince(date) / 60)
-        if minutes < 1 { return "刚刚活跃" }
-        if minutes < 60 { return "\(minutes) 分钟前" }
+        if minutes < 1 { return String(localized: .settingsDevicesLabelsJustNow) }
+        if minutes < 60 { return String(localized: .settingsDevicesLabelsMinutes(minutes)) }
         let hours = minutes / 60
-        if hours < 24 { return "\(hours) 小时前" }
-        return "\(hours / 24) 天前"
+        if hours < 24 { return String(localized: .settingsDevicesLabelsHours(hours)) }
+        return String(localized: .settingsDevicesLabelsDays(hours / 24))
     }
 
-    static func mode(_ expand: Bool) -> String { expand ? "一命令一工具" : "一服务一工具" }
+    static func mode(_ expand: Bool) -> String { expand ? String(localized: .settingsMcpControlsCommandMode) : String(localized: .settingsMcpControlsServiceMode) }
 }
 
 // MARK: - 小件
@@ -90,7 +90,7 @@ struct SettingsBMCPStatusDot: View {
         Circle()
             .fill(on ? Theme.success : Color.white.opacity(0.25))
             .frame(width: 6, height: 6)
-            .accessibilityLabel(on ? "运行中" : "已停用")
+            .accessibilityLabel(on ? String(localized: .settingsMcpControlsRunning) : String(localized: .settingsMembersUiDisabled))
     }
 }
 
@@ -116,7 +116,7 @@ struct SettingsBMCPServiceChips: View {
 
     var body: some View {
         if services.isEmpty {
-            Text("未选服务").font(.caption).foregroundStyle(Theme.textFaint)
+            Text(String(localized: .settingsMcpControlsNoServices)).font(.caption).foregroundStyle(Theme.textFaint)
         } else {
             SettingsBFlow(spacing: 4, lineSpacing: 4) {
                 ForEach(services.prefix(max), id: \.self) { service in
@@ -155,7 +155,7 @@ struct SettingsBMCPCopyField: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button(label) {
                 UIPasteboard.general.string = value
-                feedback.success("已复制")
+                feedback.success(String(localized: .commonCopied))
             }
             .font(.caption.weight(.medium))
             .buttonStyle(.glass)
@@ -184,9 +184,9 @@ struct SettingsBMCPCodeBlock: View {
                     .tracking(1)
                     .foregroundStyle(Theme.textFaint)
                 Spacer()
-                Button("复制") {
+                Button(String(localized: .commonCopy)) {
                     UIPasteboard.general.string = code
-                    feedback.success("已复制")
+                    feedback.success(String(localized: .commonCopied))
                 }
                 .font(.caption.weight(.medium))
                 .buttonStyle(.glass)
@@ -221,20 +221,20 @@ struct SettingsBMCPTokenIssuedView: View {
     let onDone: () -> Void
 
     var body: some View {
-        SubsSheetScaffold(title: "访问令牌", closable: false,
-                          confirm: SubsSheetConfirm(title: "我已保存", identifier: "mcp-issued-done", action: onDone)) {
+        SubsSheetScaffold(title: String(localized: .settingsMcpControlsAccessToken), closable: false,
+                          confirm: SubsSheetConfirm(title: String(localized: .settingsDevicesManualSaved), identifier: "mcp-issued-done", action: onDone)) {
             SettingsFormSection {
-                Text("保存「\(name)」的令牌").font(.headline)
-                Text("令牌只显示这一次，请复制并妥善保存。丢失后可在端点操作菜单轮换新令牌。")
+                Text(String(localized: .settingsMcpControlsSaveTokenTitle(name))).font(.headline)
+                Text(String(localized: .settingsMcpKitTokenOnce))
                     .font(.subheadline).foregroundStyle(Theme.warning)
             }
-            SettingsFormSection("端点地址") {
-                SettingsBMCPCopyField(value: url, label: "复制地址", identifier: "mcp-issued-copy-url")
+            SettingsFormSection(String(localized: .settingsMcpControlsAddress)) {
+                SettingsBMCPCopyField(value: url, label: String(localized: .settingsMcpControlsCopyAddress), identifier: "mcp-issued-copy-url")
             }
-            SettingsFormSection("访问令牌") {
-                SettingsBMCPCopyField(value: token, label: "复制令牌", identifier: "mcp-issued-copy-token")
+            SettingsFormSection(String(localized: .settingsMcpControlsAccessToken)) {
+                SettingsBMCPCopyField(value: token, label: String(localized: .settingsMcpControlsCopyToken), identifier: "mcp-issued-copy-token")
             }
-            SettingsFormSection("客户端配置") {
+            SettingsFormSection(String(localized: .settingsMcpKitClientConfig)) {
                 SettingsBMCPCodeBlock(
                     code: "claude mcp add --transport http movieclaw \(url) --header \"Authorization: Bearer \(token)\"",
                     lang: "bash", identifier: "mcp-issued-copy-command"

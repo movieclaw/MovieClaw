@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 
 import { SharePage } from "@/components/share/share-page";
 
 /** 兜底标题；片名要等解锁并读到影片信息后由视图内的 usePageTitle 覆盖。 */
-export const metadata: Metadata = { title: "分享的影片" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations();
+  return { title: t("library.share.pageTitle") };
+}
 
 /**
  * 影片分享页 `/s/{slug}`（docs/design/media-share.md §1.2）：探针 → 密码卡片 /

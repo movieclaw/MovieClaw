@@ -49,3 +49,18 @@ test("拨开关只带已保存的周期：不夹带界面上没保存的草稿",
     cron_expr: "0 3 * * *",
   });
 });
+
+
+test("English schedules use whole plural messages and preserve raw cron values", () => {
+  const interval = (seconds) => ({ trigger_type: "interval", interval_seconds: seconds, cron_expr: null });
+  assert.equal(describeSchedule(interval(3600), "en"), "Every 1 hour");
+  assert.equal(describeSchedule(interval(7200), "en"), "Every 2 hours");
+  assert.equal(describeSchedule(interval(60), "en"), "Every 1 minute");
+  assert.equal(describeSchedule(interval(1), "en"), "Every 1 second");
+  assert.equal(describeSchedule(interval(0), "en"), "Interval not set");
+  const daily = { trigger_type: "cron", interval_seconds: null, cron_expr: "5 4 * * *" };
+  assert.equal(describeSchedule(daily, "en"), "Daily at 04:05");
+  assert.equal(daily.cron_expr, "5 4 * * *");
+  assert.equal(describeSchedule({ ...daily, cron_expr: "0 */2 * * 1" }, "en"), "cron: 0 */2 * * 1");
+  assert.equal(describeSchedule({ ...daily, cron_expr: null }, "en"), "Not set");
+});

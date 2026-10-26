@@ -4,7 +4,6 @@ import test from "node:test";
 import { initialPlayerState, isBusy, playerReducer } from "../lib/player/machine.ts";
 import {
   formatClock,
-  isInEndCredits,
   planSeek,
   toFileMs,
   toSessionSeconds,
@@ -63,7 +62,9 @@ test("降档是逐级的：档 1 失败后只把 1 标失败，仍会试档 2", 
   assert.deepEqual(state.failedTiers, [1]);
 });
 
-test("连败两次直接跳兜底档：兜底档以下全部标失败", () => {
+test("连败两次跳过剩下的直通档，但不替没试过的硬件档报失败", () => {
+  // 真机：4K HEVC 直通在 hls.js 里 bufferAddCodecError，档 1、档 2 连败。
+  // 以前这里把档 3 也标失败，服务端明明有 VAAPI 也直接落档 4（软件转码同意框）。
   const state = run([
     { type: "request", startMs: 0 },
     { type: "session", session: planSession(1) },
@@ -72,7 +73,75 @@ test("连败两次直接跳兜底档：兜底档以下全部标失败", () => {
     { type: "session", session: planSession(2) },
     { type: "failed", reason: "第二次" },
   ]);
+  assert.equal(state.phase, "degrading");
+  assert.deepEqual(state.failedTiers, [0, 1, 2]);
+});
+
+test("硬件档真失败了才把档 3 记为失败，下一轮落到软件兜底档", () => {
+  const state = run([
+    { type: "request", startMs: 0 },
+    { type: "session", session: planSession(1) },
+    { type: "failed", reason: "直通解不了" },
+    { type: "session", session: planSession(2) },
+    { type: "failed", reason: "直通还是解不了" },
+    { type: "session", session: planSession(3) },
+    { type: "failed", reason: "硬件转码也坏了" },
+  ]);
+  assert.equal(state.phase, "degrading");
   assert.deepEqual(state.failedTiers, [0, 1, 2, 3]);
+});
+
+/** 硬件转码出 HEVC 的会话（#1008）。 */
+function hevcSession() {
+  const session = planSession(3);
+  return {
+    ...session,
+    decision: {
+      ...session.decision,
+      video: { action: "transcode", codec: "hevc", height: 1080, tone_map: false },
+    },
+  };
+}
+
+test("服务端转出的 HEVC 放不了：同一档改要 H.264，不记档 3 失败", () => {
+  // 浏览器报能解 HEVC、实际解不了：记成档 3 失败就会白白落到软件转码（或弹同意框）
+  const state = run([
+    { type: "request", startMs: 0 },
+    { type: "session", session: hevcSession() },
+    { type: "failed", reason: "bufferAddCodecError" },
+  ]);
+  assert.equal(state.phase, "degrading");
+  assert.equal(state.hevcRefused, true);
+  assert.deepEqual(state.failedTiers, []);
+  assert.equal(state.session, null);
+});
+
+test("改要 H.264 之后硬件档再失败，才按原规矩记档 3 失败", () => {
+  const state = run([
+    { type: "request", startMs: 0 },
+    { type: "session", session: hevcSession() },
+    { type: "failed", reason: "HEVC 解不了" },
+    { type: "session", session: planSession(3) },
+    { type: "failed", reason: "H.264 也坏了" },
+  ]);
+  assert.equal(state.phase, "degrading");
+  assert.deepEqual(state.failedTiers, [3]);
+  assert.equal(state.hevcRefused, true);
+});
+
+test("切集 / 重新点播放：HEVC 拒绝记录清掉，重新申报", () => {
+  const refused = run([
+    { type: "request", startMs: 0 },
+    { type: "session", session: hevcSession() },
+    { type: "failed", reason: "HEVC 解不了" },
+  ]);
+  assert.equal(run([{ type: "request", startMs: 0 }], refused).hevcRefused, false);
+  // seek 重开保留：同一部片 HEVC 放不了，换个位置还是放不了
+  const playing = run(
+    [{ type: "session", session: planSession(3) }, { type: "playing" }],
+    { ...refused, phase: "degrading" },
+  );
+  assert.equal(run([{ type: "restart", startMs: 5000 }], playing).hevcRefused, true);
 });
 
 test("出画会重置连败计数：后面再失败重新从逐级降开始", () => {
@@ -97,7 +166,7 @@ test("兜底档也失败：进错误态并给出换播放器的建议", () => {
     { type: "failed", reason: "软转也放不出来" },
   ]);
   assert.equal(state.phase, "error");
-  assert.match(state.error.suggestion, /原生播放器/);
+  assert.equal(state.error.suggestionKey, "player.errors.nativePlayerHint");
 });
 
 test("兜底档失败进错误态时会话必须清空——错误页背后不能还挂着转码", () => {
@@ -319,13 +388,6 @@ test("档 0 没有会话，怎么拖都是就地跳", () => {
     planSeek(3_600_000, { startMs: 0, seekableEndSeconds: 60, hasSession: false }),
     { kind: "native", seconds: 3600 },
   );
-});
-
-test("片尾倒计时按剩余秒数而不是百分比", () => {
-  // 3 小时的电影按 5% 算会提前 9 分钟弹倒计时
-  assert.equal(isInEndCredits(10_780_000, 10_800_000), true);
-  assert.equal(isInEndCredits(10_000_000, 10_800_000), false);
-  assert.equal(isInEndCredits(1000, null), false);
 });
 
 test("时间显示是钟表格式，不足一小时不补出零点位", () => {

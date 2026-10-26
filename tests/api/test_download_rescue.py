@@ -212,6 +212,15 @@ def test_observed_units_multi_episode_and_range() -> None:
     assert _observed_units(_files("Show.S01E05-E08.mkv")) == {(1, 5), (1, 6), (1, 7), (1, 8)}
 
 
+def test_observed_units_ignores_unselected_files() -> None:
+    """下载器里没勾选的文件永远不会落盘，不能算「清单里有」。"""
+    files = [
+        TorrentFile(path="Pack/Show.S01E001.mkv", size_bytes=1, selected=False),
+        TorrentFile(path="Pack/Show.S01E204.mkv", size_bytes=1, selected=True),
+    ]
+    assert _observed_units(files) == {(1, 204)}
+
+
 def test_observed_units_unrecognized_is_empty() -> None:
     """认不出集数（原盘结构/裸名）返回空集——调用方据此保守不动。"""
     assert _observed_units(_files("BDMV/STREAM/00001.m2ts", "Movie.2020.1080p.mkv")) == set()
@@ -258,6 +267,41 @@ def test_explicit_special_episode_still_covered() -> None:
     assert len(covered) == 1
 
 
+def _dated(season: int, episode: int, air: date) -> WantedItem:
+    return WantedItem(
+        subscription_id=1,
+        media_item_id=1,
+        season_number=season,
+        episode_number=episode,
+        air_date=air,
+    )
+
+
+def test_explicit_episode_tolerates_early_release() -> None:
+    """issue #1044：标题明确写了 S01E15 的单集，比记录播出日早一两天发布照样覆盖；
+    早三天以上更像集号错配/远期集，仍剔除。"""
+    published = date(2026, 10, 26)
+    for days, expected in [(0, True), (1, True), (2, True), (3, False)]:
+        open_units = {(1, 15): _dated(1, 15, published + timedelta(days=days))}
+        covered = covered_units(
+            IdentityMatch(episodes=frozenset({(1, 15)})), open_units, published=published
+        )
+        assert bool(covered) is expected, days
+
+
+def test_season_pack_gets_no_early_release_tolerance() -> None:
+    """整季包展开不享受提前容错：不拿它批量承诺明天才播的集。"""
+    published = date(2026, 10, 26)
+    open_units = {
+        (1, 14): _dated(1, 14, published),
+        (1, 15): _dated(1, 15, published + timedelta(days=1)),
+    }
+    covered = covered_units(
+        IdentityMatch(pack_seasons=frozenset({1})), open_units, published=published
+    )
+    assert [(w.season_number, w.episode_number) for w in covered] == [(1, 14)]
+
+
 # ---------------------------------------------------------------------------
 # _rescue_group 完成分支：内容核验端到端
 # ---------------------------------------------------------------------------
@@ -287,6 +331,36 @@ async def test_missing_episodes_requeued(db, tmp_path, monkeypatch) -> None:
         assert len(activities) == 1
         assert activities[0].payload["reason"] == "content_missing"
         assert "S00E01" in activities[0].message
+
+
+@pytest.mark.asyncio
+async def test_unselected_files_in_pack_are_requeued(db, tmp_path, monkeypatch) -> None:
+    """NAS 实例回归：全集包列出了所有集，但下载器里只勾了一部分——没勾的集
+    不会下载，必须退回重找，而不是以 grabbed 永远「等待入库」。"""
+    async with db.session() as session:
+        sub_id = await _grabbed_subscription(session, MediaKind.TV, 300, selected_seasons=[0, 1])
+    status = _completed_status(
+        tmp_path,
+        [
+            "Show/Show.S00E01.mkv",
+            "Show/Show.S00E02.mkv",
+            "Show/Show.S01E01.mkv",
+            "Show/Show.S01E02.mkv",
+        ],
+    )
+    # 只勾了第一季两集（特别篇两集列在清单里但未选中）
+    status.files = [
+        f.model_copy(update={"selected": "S01" in f.path}) for f in status.files
+    ]
+    _stub_query(monkeypatch, status)
+    await _rescue_group(sub_id, _HASH, [(object(), object())])
+
+    async with db.session() as session:
+        wanted = await _wanted_map(session, sub_id)
+        assert wanted[(0, 1)].status == WantedStatus.WANTED
+        assert wanted[(0, 2)].status == WantedStatus.WANTED
+        assert wanted[(1, 1)].status == WantedStatus.GRABBED
+        assert wanted[(1, 2)].status == WantedStatus.GRABBED
 
 
 @pytest.mark.asyncio

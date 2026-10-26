@@ -8,10 +8,10 @@ import SwiftUI
 enum LibraryKindMeta {
     static func label(_ kind: String) -> String {
         switch kind {
-        case "movie": "电影"
-        case "tv": "剧集"
-        case "video": "其他"
-        case "photo": "图片"
+        case "movie": String(localized: .mediaKindMovie)
+        case "tv": String(localized: .mediaKindTv)
+        case "video": String(localized: .libraryKindOther)
+        case "photo": String(localized: .mediaKindPhoto)
         default: kind
         }
     }
@@ -43,24 +43,24 @@ extension [API.EpisodeView] {
 enum ScanPhase {
     static func label(_ phase: String?) -> String {
         switch phase ?? "ingesting" {
-        case "walking": "正在盘点文件"
-        case "ingesting": "正在扫描"
-        case "probing": "正在补探画质与音轨"
-        case "assets": "正在补齐海报与剧照"
-        case "reidentifying": "正在重新识别条目"
-        case "organizing": "正在整理文件名"
-        default: "扫描中"
+        case "walking": String(localized: .libraryScanWalking)
+        case "ingesting": String(localized: .libraryStatusScanning)
+        case "probing": String(localized: .libraryScanProbing)
+        case "assets": String(localized: .libraryScanAssets)
+        case "reidentifying": String(localized: .libraryScanReidentifying)
+        case "organizing": String(localized: .libraryStatusOrganizing)
+        default: String(localized: .libraryHomeScanning)
         }
     }
 
     static func hint(_ phase: String?) -> String {
         switch phase ?? "ingesting" {
-        case "walking": "正在统计待处理的文件数"
-        case "ingesting": "识别到的内容会自动入库"
-        case "probing": "文件已全部入库，正在读取文件本体的规格"
-        case "assets": "文件已全部入库，正在下载图片"
-        case "reidentifying": "完成后条目身份会更新"
-        case "organizing": "完成后自动刷新"
+        case "walking": String(localized: .libraryStatusCounting)
+        case "ingesting": String(localized: .libraryScanIngestingHint)
+        case "probing": String(localized: .libraryScanProbingHint)
+        case "assets": String(localized: .libraryScanAssetsHint)
+        case "reidentifying": String(localized: .libraryScanReidentifyingHint)
+        case "organizing": String(localized: .libraryScanOrganizingHint)
         default: ""
         }
     }
@@ -71,13 +71,14 @@ private func pad2(_ value: Int) -> String { String(format: "%02d", value) }
 /// 「最近添加」的季集摘要（Web `formatRecentAddition`）：连续区间保留精确集号，零散或跨季改为计数。
 func formatRecentAddition(_ addition: API.LibraryRecentAdditionView) -> String? {
     if addition.episodeCount == 0 || addition.seasonCount == 0 { return nil }
-    if addition.seasonCount > 1 { return "新增\(addition.seasonCount)季 · \(addition.episodeCount)集" }
+    if addition.seasonCount > 1 { return String(localized: .libraryRecentAdditionSeasons(addition.seasonCount)) + " · " + String(localized: .libraryRecentAdditionEpisodes(addition.episodeCount)) }
     guard let season = addition.seasonNumber else { return nil }
     if addition.completeSeason {
-        return "\(season == 0 ? "特别篇" : "第\(season)季") · 全\(addition.episodeCount)集"
+        return (season == 0 ? String(localized: .libraryItemSpecials) : String(localized: .libraryRecentAdditionSeason(season)))
+            + " · " + String(localized: .libraryRecentAdditionAllEpisodes(addition.episodeCount))
     }
     guard let start = addition.firstEpisodeNumber, let end = addition.lastEpisodeNumber else {
-        return "S\(pad2(season)) · 新增\(addition.episodeCount)集"
+        return "S\(pad2(season)) · " + String(localized: .libraryRecentAdditionNewEpisodes(addition.episodeCount))
     }
     return start == end ? "S\(pad2(season))E\(pad2(start))" : "S\(pad2(season))E\(pad2(start))–\(pad2(end))"
 }
@@ -86,16 +87,16 @@ func formatRecentAddition(_ addition: API.LibraryRecentAdditionView) -> String? 
 func formatInventorySummary(_ summary: API.LibraryInventorySummaryView) -> String {
     let episodes: String
     if summary.allEpisodesOwned {
-        episodes = "全 \(summary.episodeCount) 集"
+        episodes = String(localized: .subscriptionCollectionAllEpisodes(summary.episodeCount))
     } else if summary.seasonNumber != nil, let total = summary.totalEpisodeCount {
-        episodes = "\(summary.episodeCount)/\(total) 集"
+        episodes = String(localized: .libraryInventoryEpisodeFraction(summary.episodeCount, total))
     } else {
-        episodes = "\(summary.episodeCount) 集"
+        episodes = String(localized: .libraryIssuesEpisodeCount(summary.episodeCount))
     }
     if let season = summary.seasonNumber {
-        return "\(season == 0 ? "特别篇" : "第 \(season) 季") · \(episodes)"
+        return (season == 0 ? String(localized: .libraryItemSpecials) : String(localized: .librarySeasonLabel(season))) + " · " + episodes
     }
-    let seasons = summary.allSeasonsOwned ? "全 \(summary.seasonCount) 季" : "共 \(summary.seasonCount) 季"
+    let seasons = summary.allSeasonsOwned ? String(localized: .subscriptionCollectionAllSeasons(summary.seasonCount)) : String(localized: .subscriptionCollectionSeasons(summary.seasonCount))
     return "\(seasons) · \(episodes)"
 }
 
@@ -108,15 +109,15 @@ enum LibraryInventoryAction {
         return summary.allSeasonsOwned && summary.allEpisodesOwned ? .follow : .backfill
     }
 
-    var label: String { self == .follow ? "自动续订" : "补齐缺集" }
+    var label: String { self == .follow ? String(localized: .mediaCardsAutoRenew) : String(localized: .mediaCardsFillMissing) }
     var systemImage: String { self == .follow ? "bell" : "arrow.down.circle" }
 }
 
 /// 收藏层级说明（Web `favoriteLevelLabel`）：整剧与电影不解释
 func favoriteLevelLabel(kind: String, season: Int?, episode: Int?) -> String? {
     guard kind == "tv", let season else { return nil }
-    if let episode { return "收藏了 S\(pad2(season))E\(pad2(episode))" }
-    return season == 0 ? "收藏了特别篇" : "收藏了第 \(season) 季"
+    if let episode { return String(localized: .libraryFavoriteLevelEpisode("S\(pad2(season))E\(pad2(episode))")) }
+    return season == 0 ? String(localized: .libraryFavoriteLevelSpecials) : String(localized: .libraryFavoriteLevelSeason(String(season)))
 }
 
 /// 字节 → 「19.40 GB」（Web `formatBytes` 口径：1024 进制、保留两位，≥100 或 B 取整）
@@ -136,7 +137,7 @@ func libraryBytes(_ bytes: Int?) -> String {
 /// 相对时间（Web dayjs `fromNow` 中文口径）：「几秒前」「18 天前」「1 个月前」「3 天内」；空值「从未」。
 /// 算法统一在 `Formatters.fromNow`（R-3：全 App 一套口径）。
 func libraryFromNow(_ raw: String?) -> String {
-    guard let date = Formatters.date(raw) else { return "从未" }
+    guard let date = Formatters.date(raw) else { return String(localized: .commonNever) }
     return Formatters.fromNow(date)
 }
 
@@ -145,13 +146,15 @@ func episodeCode(season: Int, episode: Int) -> String { "S\(pad2(season))E\(pad2
 
 /// 媒体库首页摘要（Web `libraryStatsSummary`）：只聚合库列表随带的统计快照
 func libraryStatsSummary(_ libraries: [API.LibraryView]?) -> String {
-    guard let libraries else { return "正在汇总媒体库统计…" }
-    if libraries.isEmpty { return "还没有媒体库，创建后会在这里显示库存统计" }
+    guard let libraries else { return String(localized: .libraryHomeLoadingStats) }
+    if libraries.isEmpty { return String(localized: .libraryHomeNoStats) }
     func count(_ kind: String) -> Int { libraries.filter { $0.kind == kind }.reduce(0) { $0 + $1.stats.itemCount } }
     let size = libraries.reduce(0) { $0 + $1.stats.totalSizeBytes }
     let video = count("video")
-    let videoPart = video > 0 ? " · \(video) 个其他视频" : ""
-    return "\(libraries.count) 个媒体库 · \(count("movie")) 部电影 · \(count("tv")) 部剧集\(videoPart) · 共占用 \(libraryBytes(size)) 存储空间"
+    let videoPart = video > 0 ? String(localized: .libraryHomeOtherVideoCount(video)) : ""
+    return [String(localized: .libraryHomeLibraryCount(libraries.count)), String(localized: .libraryHomeMovieCount(count("movie"))),
+            String(localized: .libraryHomeSeriesCount(count("tv"))) + videoPart, String(localized: .libraryHomeStorageUsed(libraryBytes(size)))]
+        .joined(separator: " · ")
 }
 
 // MARK: - 接口封装（需要信封 message 或生成器没覆盖的组合）
@@ -168,7 +171,7 @@ nonisolated extension APIClient {
             query.append(URLQueryItem(name: "since", value: formatter.string(from: since)))
         }
         let envelope: APIEnvelope<API.PlaybackHistoryClearView> = try await raw("DELETE", "/playback/history", query: query)
-        return (envelope.data, envelope.message ?? "已清除观看记录")
+        return (envelope.data, envelope.message ?? String(localized: .libraryHistoryCleared))
     }
 
     /// 设置收藏 / 已看标记（Web `setPlaybackMarks`）
@@ -213,11 +216,11 @@ enum WallSortDirections {
     static func of(_ sort: String) -> WallSortDirection? {
         switch sort {
         case "title", "probing": WallSortDirection(naturalAsc: true, asc: "A→Z", desc: "Z→A")
-        case "added_at", "release_date", "favorited_at": WallSortDirection(naturalAsc: false, asc: "旧→新", desc: "新→旧")
-        case "rating": WallSortDirection(naturalAsc: false, asc: "低→高", desc: "高→低")
-        case "runtime": WallSortDirection(naturalAsc: true, asc: "短→长", desc: "长→短")
-        case "size": WallSortDirection(naturalAsc: false, asc: "小→大", desc: "大→小")
-        case "last_played": WallSortDirection(naturalAsc: false, asc: "远→近", desc: "近→远")
+        case "added_at", "release_date", "favorited_at": WallSortDirection(naturalAsc: false, asc: String(localized: .libraryRowsOldToNew), desc: String(localized: .libraryRowsNewToOld))
+        case "rating": WallSortDirection(naturalAsc: false, asc: String(localized: .libraryRowsLowToHigh), desc: String(localized: .libraryRowsHighToLow))
+        case "runtime": WallSortDirection(naturalAsc: true, asc: String(localized: .librarySortShortToLong), desc: String(localized: .librarySortLongToShort))
+        case "size": WallSortDirection(naturalAsc: false, asc: String(localized: .librarySortSmallToLarge), desc: String(localized: .librarySortLargeToSmall))
+        case "last_played": WallSortDirection(naturalAsc: false, asc: String(localized: .libraryRowsFarToNear), desc: String(localized: .libraryRowsNearToFar))
         default: nil
         }
     }
@@ -274,12 +277,12 @@ struct WallSortMenu: View {
                 Button {
                     state.reversed.toggle()
                 } label: {
-                    Label("方向：\(direction.label(reversed: state.reversed))", systemImage: "arrow.up.arrow.down")
+                    Label(String(localized: .libraryDirectionValue(direction.label(reversed: state.reversed))), systemImage: "arrow.up.arrow.down")
                 }
             }
         } label: {
             HStack(spacing: 4) {
-                Text(current?.label ?? "排序").font(.subheadline.weight(.semibold))
+                Text(current?.label ?? String(localized: .mediaFiltersSort)).font(.subheadline.weight(.semibold))
                 if let direction = current?.direction {
                     Image(systemName: direction.naturalAsc != state.reversed ? "arrow.up" : "arrow.down")
                         .font(.caption.weight(.semibold))

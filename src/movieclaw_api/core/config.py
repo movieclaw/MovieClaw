@@ -164,6 +164,16 @@ class Settings(BaseSettings):
     # 刷片挑点结果：每个文件一份 JSON（片段起止、预取范围），按 file_id 命名
     # （重建只需再读一遍容器索引，一部片零点几秒）。
     reels_cache_dir: str = Field(default="./data/cache/reels", alias="MOVIECLAW_REELS_CACHE_DIR")
+    # 预切片段（docs/design/reels.md §8）：每部片挑好的那一段切成的 1080p MP4，一段十几到二十几 MB，
+    # 全库约 20 GB；按文件 id 分目录，旁边一份 JSON 记来源文件的大小与修改时间
+    reels_clips_dir: str = Field(
+        default="./data/cache/reels-clips", alias="MOVIECLAW_REELS_CLIPS_DIR"
+    )
+    # 离线下载的转码导出（docs/design/offline-download.md §5.3）：App 选了 1080p / 720p / 480p
+    # 下载时服务端转出的整片 MP4，按导出指纹分目录；下载完或 72 小时没人取就回收
+    offline_exports_dir: str = Field(
+        default="./data/cache/offline-exports", alias="MOVIECLAW_OFFLINE_EXPORTS_DIR"
+    )
     # MKV 精简索引：只含视频轨索引点的 Cues，随播放会话下发，App 起播时不必再下原索引
     # （docs/design/playback-qoe.md §9.12）。每个文件一份几 KB～几十 KB 的记录，按 file_id 命名。
     playback_cues_cache_dir: str = Field(
@@ -302,6 +312,17 @@ class Settings(BaseSettings):
     # 发布侧配套：scripts/gen-release-signing-key.sh 生成密钥对，CI 配置
     # RELEASE_SIGNING_KEY 机密后自动随 Release 上传签名。
     update_manifest_pubkey: str = Field(default="", alias="UPDATE_MANIFEST_PUBKEY")
+    # 插件市场的索引（movieclaw-plugins 仓库的 catalog Release，schema 2）。旁边的
+    # index.json.sig 用随应用发布的公钥校验（services/plugin_market.py）；下载走
+    # UPDATE_DOWNLOAD_MIRROR 加速时同样安全，因为包与图片都按签名索引里的 sha256 核对。
+    plugin_catalog_url: str = Field(
+        default="https://github.com/movieclaw/movieclaw-plugins/releases/download/catalog/index.json",
+        alias="PLUGIN_CATALOG_URL",
+    )
+    # 只给自建 / 开发用的索引：允许加载没有签名的索引（市场里标「未签名」）。
+    plugin_catalog_allow_unsigned: bool = Field(
+        default=False, alias="PLUGIN_CATALOG_ALLOW_UNSIGNED"
+    )
 
     # ------------------------------------------------------------------
     # MovieClaw Cloud（docs/design/cloud-push.md）

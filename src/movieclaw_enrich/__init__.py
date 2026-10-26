@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sequence
 
 from movieclaw_enrich.extractors import (
     EXTRACTORS,
@@ -77,6 +78,9 @@ logger = logging.getLogger("movieclaw_enrich")
 #      正交，仅在带 WEB 来源标记的资源上识别，短别名还需紧邻来源标记
 ENRICH_VERSION = 17
 
+# 站点标记最多留多少条（M-Team 一个种子实际 3~5 个）
+_MAX_SITE_LABELS = 16
+
 # 场景命名的两类粘连（站点生成器丢空格所致），喂模型前拆开：
 # ① 季号紧贴分辨率："S021080p" → "S02 1080p"
 _GLUED_SEASON_RES = re.compile(r"(?i)(S\d{1,3})(?=(?:480|576|720|1080|2160|4320)[pi]\b)")
@@ -108,13 +112,31 @@ def _extract_all(text: str) -> dict[str, object]:
     return merged
 
 
-def enrich(title: str, subtitle: str = "", category: str | None = None) -> TorrentAttrs:
+def _clean_labels(labels: Sequence[str] | None) -> list[str]:
+    """站点标记归一：去空白、去重、保序，并限制条数与长度（站点数据不可信任）。"""
+    seen: dict[str, None] = {}
+    for label in labels or ():
+        text = str(label).strip()[:32]
+        if text:
+            seen.setdefault(text, None)
+    return list(seen)[:_MAX_SITE_LABELS]
+
+
+def enrich(
+    title: str,
+    subtitle: str = "",
+    category: str | None = None,
+    site_labels: Sequence[str] | None = None,
+) -> TorrentAttrs:
     """从标题（+可选副标题）提取扩充属性。
 
     :param title: 种子主标题（通常是场景命名，技术信息的主要来源）。
     :param subtitle: 副标题/小描述（中文 PT 常在这里写集数、音轨、中字信息）。
     :param category: 应用级一级分类值（TorrentCategory 的字符串值）。站点分类
         明确标注 movie/tv 时优先于模型判定（这两类站点极少标错）。
+    :param site_labels: 站点自己给种子打的标记（M-Team 的 labelsNew），原样记进
+        ``attrs.site_labels``——它不参与任何提取，只是随属性一起落库、供匹配内核当证据。
+        因此不属于「提取逻辑」，加它没有 bump ``ENRICH_VERSION``。
     :return: 结构化属性；提取不到的字段保持空值。
     """
     # 词表通道：技术字段，双段各跑一遍、主标题优先
@@ -173,4 +195,5 @@ def enrich(title: str, subtitle: str = "", category: str | None = None) -> Torre
     # 否则保留模型分类头的判定（extract_with_model 已产出 media_type）
     if category in ("movie", "tv"):
         attrs.media_type = category
+    attrs.site_labels = _clean_labels(site_labels)
     return attrs

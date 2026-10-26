@@ -18,10 +18,13 @@ from movieclaw_api.services.playback.ffmpeg_args import (
     MAX_GOP_FRAMES,
     NVENC_TONEMAP,
     SEGMENT_SECONDS,
+    VAAPI_LOW_POWER,
     VIDEOTOOLBOX_TONEMAP,
     WorkerVideoCaps,
     build_hls_command,
     effective_hw_backend,
+    register_encoder_options,
+    register_hevc_encoder,
     register_native_tonemap,
 )
 from movieclaw_playback.decide import (
@@ -446,6 +449,33 @@ def test_vaapi_uses_native_tonemap_filter():
     assert "scale_vaapi" in vf
 
 
+def test_vaapi_low_power_is_used_only_after_the_probe_confirms_it():
+    """issue #763：SR-IOV 虚拟核显上普通编码挂 GPU、低功耗正常。低功耗由自检确认后回写，
+    没确认时命令与原来逐字一致（老核显不支持低功耗，不能硬加）。"""
+    hdr = plan(
+        PlaybackTier.HARDWARE_TRANSCODE,
+        video=VideoPlan(action="transcode", codec="h264", height=1080, tone_map=True),
+    )
+    plain = argv_of(hdr, hw_backend="vaapi")
+    assert "-low_power" not in plain
+    register_encoder_options("vaapi", VAAPI_LOW_POWER)
+    try:
+        argv = argv_of(hdr, hw_backend="vaapi")
+    finally:
+        register_encoder_options("vaapi", ())
+    at = argv.index("h264_vaapi")
+    assert argv[at - 1] == "-c:v"
+    assert tuple(argv[at + 1 : at + 3]) == VAAPI_LOW_POWER  # 紧跟编码器，作用于它
+    # 除了这一对参数，其余与普通编码完全相同：色调映射、缩放、码率控制都不变
+    assert argv[: at + 1] + argv[at + 3 :] == plain
+    # 只作用于 VAAPI：其它后端的命令不受影响
+    register_encoder_options("vaapi", VAAPI_LOW_POWER)
+    try:
+        assert "-low_power" not in argv_of(hdr, hw_backend="qsv")
+    finally:
+        register_encoder_options("vaapi", ())
+
+
 def test_nvenc_without_probed_tonemap_uses_software_tonemap_but_keeps_nvdec():
     """自检没确认 tonemap_cuda 时走软件 tone-map——但解码必须留在 NVDEC。
 
@@ -512,6 +542,84 @@ def test_hardware_scale_pins_eight_bit_output(backend, expected):
         hw_backend=backend,
     )
     assert expected in (pair(argv, "-vf") or "")
+
+
+@pytest.mark.parametrize("backend", ["vaapi", "qsv", "nvenc"])
+@pytest.mark.parametrize(
+    "video",
+    [
+        VideoPlan(action="transcode", codec="h264", height=1080, tone_map=True),
+        # 无标签的 HD 源：决策层按高度认定 BT.709，帧上却是 unknown
+        VideoPlan(action="transcode", codec="h264", height=720, source_color="BT.709"),
+    ],
+    ids=["hdr10", "untagged-hd"],
+)
+def test_hardware_frame_chain_labels_bt709_before_the_encoder_asks_for_it(
+    backend, video, probed_nvenc_tonemap
+):
+    """issue #958：输出要 BT.709 时，硬件帧链路的末端必须先给帧打上 BT.709 标签。
+
+    ``-colorspace bt709`` 参与滤镜格式协商（ffmpeg 7.1 起），而 ``tonemap_vaapi`` / ``vpp_qsv``
+    / ``scale_*`` 把源的色彩空间原样往下传：HDR10 的 bt2020nc、无标签片的 unknown 对不上，
+    ffmpeg 在硬件帧后面插一个软件 scale，报「Impossible to convert ... 'Parsed_scale_vaapi_1'
+    and 'auto_scale_0'」起步即退出——HDR 片因此整部放不了。"""
+    argv = argv_of(plan(PlaybackTier.HARDWARE_TRANSCODE, video=video), hw_backend=backend)
+    assert pair(argv, "-hwaccel_output_format")  # 全程硬件帧
+    vf = pair(argv, "-vf") or ""
+    # VAAPI 的硬件 scale 还把数据转成 limited，帧标签跟着如实写 range=tv（见下一条）
+    tail = ":range=tv" if backend == "vaapi" else ""
+    assert vf.endswith(
+        f",setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709{tail}"
+    )
+    assert pair(argv, "-colorspace") == "bt709"
+
+
+@pytest.mark.parametrize(
+    "video",
+    [
+        VideoPlan(action="transcode", codec="h264", height=1080, tone_map=True),
+        VideoPlan(action="transcode", codec="h264", height=720, source_color="BT.709"),
+    ],
+    ids=["hdr10", "sdr"],
+)
+def test_vaapi_converts_full_range_sources_to_limited_before_declaring_limited(video):
+    """全范围源（color_range=pc：杜比视界 P5 全是）经 VPP 仍是全范围数据，输出侧又声明
+    ``-color_range tv``：帧标签与声明不符，ffmpeg 7.1 在硬件帧后面插接不上的软件 scale，起步即崩
+    （NAS 真机：《空枪》P5 + VAAPI，报「Impossible to convert ... 'Parsed_setparams_N' and
+    'auto_scale_0'」）。要让数据真的是 limited：硬件 scale 带 out_range=tv（GPU 上转换，黑 0→16、
+    白 255→235），帧标签再如实写 range=tv——只写标签不转换，全范围的黑白就被当成 limited 剪掉。"""
+    argv = argv_of(plan(PlaybackTier.HARDWARE_TRANSCODE, video=video), hw_backend="vaapi")
+    vf = pair(argv, "-vf") or ""
+    # 硬件 scale 紧挨着帧标签：转换在前、声明在后
+    assert ":out_range=tv,setparams=colorspace=bt709:" in vf
+    assert vf.endswith(":color_trc=bt709:range=tv")
+    assert pair(argv, "-color_range") == "tv"
+
+
+@pytest.mark.parametrize("backend", ["qsv", "nvenc"])
+def test_full_range_conversion_is_only_written_for_the_backend_that_was_verified(
+    backend, probed_nvenc_tonemap
+):
+    """out_range 只在 VAAPI 真机上验证过；QSV / NVENC 的缩放滤镜认不认、行为如何都没验过，
+    不能顺手带过去。"""
+    video = VideoPlan(action="transcode", codec="h264", height=1080, tone_map=True)
+    argv = argv_of(plan(PlaybackTier.HARDWARE_TRANSCODE, video=video), hw_backend=backend)
+    vf = pair(argv, "-vf")
+    assert vf and "out_range" not in vf and ":range=" not in vf
+
+
+def test_hardware_frame_chain_leaves_uncertain_colors_unlabelled():
+    """产物不确定是 BT.709 时不写输出标签，也就不打帧标签：标没把握的值比留空更糟。"""
+    argv = argv_of(
+        plan(
+            PlaybackTier.HARDWARE_TRANSCODE,
+            video=VideoPlan(action="transcode", codec="h264", height=480, source_color="BT.601"),
+        ),
+        hw_backend="vaapi",
+    )
+    # 整串相等：没有 setparams，也没有 out_range（没声明输出范围，也就不转换）
+    assert pair(argv, "-vf") == "scale_vaapi=format=nv12:w=-2:h=480"
+    assert "-colorspace" not in argv and "-color_range" not in argv
 
 
 @pytest.mark.parametrize("backend", ["vaapi", "qsv", "nvenc", "videotoolbox"])
@@ -826,6 +934,39 @@ def test_videotoolbox_transcode_lets_encoder_choose_level_for_4k():
     assert pair(argv, "-pix_fmt") == "yuv420p"
 
 
+@pytest.mark.parametrize("backend", ["nvenc", "qsv", "vaapi", "videotoolbox"])
+def test_hardware_h264_transcode_lets_encoder_choose_level(backend):
+    """issue #964：输出只钉高度，宽银幕 1080p（2000×1080）与 1080p60 都超出 4.1 的
+    宏块上限，钉死 4.1 时 NVENC 以「Invalid Level」拒绝初始化，一段都不产出。"""
+    argv = argv_of(
+        plan(
+            PlaybackTier.HARDWARE_TRANSCODE,
+            video=VideoPlan(action="transcode", codec="h264", height=1080),
+        ),
+        hw_backend=backend,
+    )
+
+    assert pair(argv, "-profile:v") == "high"
+    assert "-level:v" not in argv
+
+
+@pytest.mark.parametrize(
+    ("backend", "forced_idr"),
+    [("nvenc", "1"), ("qsv", None), ("vaapi", None), ("videotoolbox", None), (None, None)],
+)
+def test_only_nvenc_turns_forced_key_frames_into_idr(backend, forced_idr):
+    """NVENC 默认把 -force_key_frames 强制的帧当普通 I 帧：封装器看不到关键帧，4 秒栅格上
+    没有分片边界，分片被拖成一整个 -g 那么长（Windows 转码器样片矩阵实测 10 秒一段）。"""
+    tier = PlaybackTier.SOFTWARE_TRANSCODE if backend is None else PlaybackTier.HARDWARE_TRANSCODE
+    argv = argv_of(
+        plan(tier, video=VideoPlan(action="transcode", codec="h264", height=1080)),
+        hw_backend=backend,
+    )
+
+    assert pair(argv, "-forced-idr") == forced_idr
+    assert pair(argv, "-force_key_frames") is not None
+
+
 def test_software_h264_transcode_keeps_level_4_1():
     argv = argv_of(
         plan(
@@ -897,8 +1038,11 @@ def test_burn_uses_filter_complex_with_overlay_before_scale():
     字幕的位置和大小全错。"""
     argv = argv_of(_burn_plan())
     graph = argv[argv.index("-filter_complex") + 1]
+    # eof_action=pass:repeatlast=0：字幕流读完后主画面原样通过（ffmpeg 8.1 上默认的重复最后一帧
+    # 会带出一帧溢出时间戳的画面，mp4 muxer 拒收，整条命令失败）
     assert graph == (
-        "[0:v:0][0:s:2]overlay[burned];[burned]scale=-2:1080[pre];[pre]format=yuv420p[vout]"
+        "[0:v:0][0:s:2]overlay=eof_action=pass:repeatlast=0[burned];"
+        "[burned]scale=-2:1080[pre];[pre]format=yuv420p[vout]"
     )
     assert argv[argv.index("-map") + 1] == "[vout]"
     assert "0:v:0" not in [argv[i + 1] for i, a in enumerate(argv) if a == "-map"]
@@ -927,7 +1071,7 @@ def test_burn_with_tonemap_runs_tonemap_before_overlay():
     assert graph.index("tonemapx") < graph.index("overlay")
     # 末端钉 8-bit：10-bit 源经 overlay 的位深靠协商、随 ffmpeg 版本漂，
     # 协商出 10-bit 就是 iPhone 不认的 High 10（2026-08-25 真机事故）
-    assert graph.endswith("overlay[pre];[pre]format=yuv420p[vout]")
+    assert graph.endswith("overlay=eof_action=pass:repeatlast=0[pre];[pre]format=yuv420p[vout]")
 
 
 def test_burn_forces_software_pipeline_for_vaapi():
@@ -1082,8 +1226,10 @@ def test_mac_keeps_4k_hdr_disc_entirely_on_the_gpu():
     assert pair(argv, "-hwaccel_output_format") == "videotoolbox_vld"
     # 缩放时转 10-bit：tonemap_videotoolbox 只收 10-bit（8-bit HLG 实测报错）。
     # 宽度必须是表达式：scale_vt 到 ffmpeg 8.0 才认 -2，7.1 的机器上整条命令失败
+    # 映射前先把矩阵标成 BT.2020 NCL：Metal 版遇到别的矩阵直接断言崩溃（见下面的 gbr 用例）
     assert pair(argv, "-vf") == (
-        f"scale_vt=w=trunc(iw*1080/ih/2)*2:h=1080:format=p010le,{VIDEOTOOLBOX_TONEMAP}"
+        "scale_vt=w=trunc(iw*1080/ih/2)*2:h=1080:format=p010le,"
+        f"setparams=colorspace=bt2020nc,{VIDEOTOOLBOX_TONEMAP}"
     )
     # 硬件帧已是 8-bit NV12：再要 yuv420p 会插一个接不上硬件帧的软件转换
     assert "-pix_fmt" not in argv
@@ -1178,6 +1324,70 @@ def test_bt2020_sdr_stays_on_the_software_color_path():
     assert (pair(argv, "-vf") or "").startswith("colorspace=")
 
 
+# ---------------------------------------------------------------------------
+# 远程 Windows（NVENC）：显卡硬解不了的片源整段软解，只有编码留在 NVENC 上
+# ---------------------------------------------------------------------------
+
+#: 一台 RTX 20 系 Windows 机器的典型申报：NVDEC 没有 AV1，CUDA 滤镜与软件 tone-map 齐全
+WIN_CAPS = WorkerVideoCaps(
+    hw_decoders=frozenset({"h264", "hevc", "vp9", "mpeg2video"}),
+    filters=frozenset({"scale_cuda", "tonemap_cuda", "tonemapx"}),
+)
+
+
+def test_windows_keeps_what_nvdec_decodes_entirely_on_the_gpu():
+    argv = argv_of(
+        vt_transcode("hevc", bit_depth=10), hw_backend="nvenc", worker_caps=WIN_CAPS
+    )
+    assert pair(argv, "-hwaccel") == "cuda"
+    assert pair(argv, "-hwaccel_output_format") == "cuda"
+    assert pair(argv, "-vf") == "scale_cuda=format=yuv420p:w=-2:h=1080"
+    assert "-pix_fmt" not in argv  # 硬件链上 8-bit 由 scale_cuda 的 format 保证
+
+
+@pytest.mark.parametrize("codec", ["av1", "vc1", "mpeg4", None])
+def test_windows_software_decodes_what_nvdec_cannot(codec):
+    """硬解起不来时软件帧撞上 scale_cuda 整条命令失败（RTX 20 没有 AV1 硬解，矩阵实测 -22），
+    AV1 的硬解初始化失败还是致命错误、不会自己退回软解：这类片源不发 -hwaccel。"""
+    argv = argv_of(vt_transcode(codec), hw_backend="nvenc", worker_caps=WIN_CAPS)
+    assert "-hwaccel" not in argv
+    assert "-hwaccel_output_format" not in argv
+    assert pair(argv, "-vf") == "scale=-2:1080"
+    assert pair(argv, "-pix_fmt") == "yuv420p"
+    assert pair(argv, "-c:v") == "h264_nvenc"  # 编码仍在 NVENC 上
+
+
+def test_windows_software_decodes_10bit_h264_although_nvdec_decodes_8bit_h264():
+    """Worker 申报的 h264 说的是 8-bit 的那条路；Hi10P 各代显卡都硬解不了。位深未知按 8-bit 算。"""
+    hi10p = argv_of(
+        vt_transcode("h264", bit_depth=10), hw_backend="nvenc", worker_caps=WIN_CAPS
+    )
+    assert "-hwaccel" not in hi10p
+    assert pair(hi10p, "-vf") == "scale=-2:1080"
+    for depth in (8, None):
+        gpu = argv_of(
+            vt_transcode("h264", bit_depth=depth), hw_backend="nvenc", worker_caps=WIN_CAPS
+        )
+        assert pair(gpu, "-hwaccel_output_format") == "cuda"
+
+
+def test_windows_software_decode_of_hdr_uses_cpu_tonemap_although_the_worker_has_tonemap_cuda():
+    """tonemap_cuda 只收显存里的帧：软解出来的 10-bit AV1 HDR 走 CPU 色调映射，编码仍用显卡。"""
+    argv = argv_of(
+        vt_transcode("av1", bit_depth=10, hdr=True), hw_backend="nvenc", worker_caps=WIN_CAPS
+    )
+    assert "-hwaccel" not in argv
+    assert (pair(argv, "-vf") or "").startswith("tonemapx=")
+    assert pair(argv, "-pix_fmt") == "yuv420p"
+
+
+def test_nas_local_nvenc_ignores_the_worker_decoder_rules():
+    """没有 Worker 申报就是 NAS 本机的显卡，命令照旧。"""
+    argv = argv_of(vt_transcode("av1"), hw_backend="nvenc")
+    assert pair(argv, "-hwaccel") == "cuda"
+    assert pair(argv, "-hwaccel_output_format") == "cuda"
+
+
 def test_remote_disc_reads_the_concat_list_over_http():
     """原盘远程任务：-f concat -safe 0 读 NAS 下发的清单，清单地址也走断线续读。"""
     argv = argv_of(
@@ -1190,3 +1400,239 @@ def test_remote_disc_reads_the_concat_list_over_http():
     i = argv.index("-i")
     assert argv[i - 4 : i] == ["-f", "concat", "-safe", "0"]
     assert "-reconnect" in argv[:i]
+
+
+# ---------------------------------------------------------------------------
+# 离线导出的 HEVC 输出（offline-download.md §5.1）：VideoToolbox 与自检过 HEVC 的 NAS 显卡
+# ---------------------------------------------------------------------------
+
+
+def _hevc_plan(height: int = 1080) -> PlaybackPlan:
+    return plan(
+        PlaybackTier.HARDWARE_TRANSCODE,
+        video=VideoPlan(
+            action="transcode", codec="hevc", source_codec="h264", source_bit_depth=8,
+            height=height,
+        ),
+        audio=AudioPlan(action="transcode", codec="aac", channels=2, track_ref="embedded:0"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("height", "maxrate", "bufsize"), [(1080, "4M", "8M"), (720, "2M", "4M"), (480, "1M", "2M")]
+)
+def test_hevc_export_on_videotoolbox(height, maxrate, bufsize):
+    argv = argv_of(_hevc_plan(height), hw_backend="videotoolbox", start_number=0)
+    assert pair(argv, "-c:v") == "hevc_videotoolbox"
+    assert pair(argv, "-profile:v") == "main"
+    assert pair(argv, "-tag:v") == "hvc1"  # Apple 只认 hvc1
+    assert pair(argv, "-maxrate") == maxrate and pair(argv, "-bufsize") == bufsize
+    # hevc_videotoolbox 没有这个选项；High@4.1 是 H.264 的概念
+    assert "-a53cc" not in argv and "-level:v" not in argv
+
+
+def test_hevc_export_on_the_mac_gpu_chain_keeps_hardware_frames():
+    caps = WorkerVideoCaps(hw_decoders=frozenset({"h264"}), filters=frozenset({"scale_vt"}))
+    argv = argv_of(
+        _hevc_plan(), hw_backend="videotoolbox", worker_caps=caps, start_number=0
+    )
+    assert pair(argv, "-c:v") == "hevc_videotoolbox"
+    assert "-pix_fmt" not in argv  # GPU 链路的帧已是 NV12 硬件帧，再要 yuv420p 会接不上
+
+
+@pytest.mark.parametrize("backend", [None, "vaapi"])
+def test_hevc_plan_without_a_hevc_encoder_stays_h264(backend):
+    """没有 HEVC 编码器的后端（NAS 软件、自检没过 HEVC 的显卡）：照旧出 H.264，不会报错。"""
+    argv = argv_of(_hevc_plan(), hw_backend=backend, start_number=0)
+    assert pair(argv, "-c:v") in {"libx264", "h264_vaapi"}
+    assert pair(argv, "-tag:v") == "avc1"
+    assert pair(argv, "-maxrate") == "6M"  # 码率也按 H.264 给
+
+
+_FORCED_IDR = {"qsv": ("-forced_idr", "1"), "nvenc": ("-forced-idr", "1")}
+
+
+@pytest.mark.parametrize("backend", ["vaapi", "qsv", "nvenc", "videotoolbox"])
+@pytest.mark.parametrize("codec", ["h264", "hevc"])
+def test_forced_keyframes_are_idr_on_every_hardware_encoder(backend, codec):
+    """HLS 只在带关键帧标记的包上切分片。QSV / NVENC 的 -force_key_frames 默认只插普通 I 帧
+    （FFmpeg 7.1：qsvenc 只在帧带 KEY 标记或 forced_idr 时出 IDR，nvenc 没开 forced-idr 时是
+    FORCEINTRA；两家都只给 IDR 包打关键帧标记），4 秒栅格对不上；要显式打开。VAAPI 与
+    VideoToolbox 强制关键帧本来就是 IDR，不加。"""
+    p = _hevc_plan() if codec == "hevc" else plan(
+        PlaybackTier.HARDWARE_TRANSCODE,
+        video=VideoPlan(action="transcode", codec="h264", height=1080, source_bit_depth=8),
+    )
+    if codec == "hevc" and backend != "videotoolbox":
+        register_hevc_encoder(backend, ())
+    try:
+        argv = argv_of(p, hw_backend=backend, start_number=0)
+    finally:
+        register_hevc_encoder(backend, None)
+    encoder = pair(argv, "-c:v")
+    assert encoder is not None and encoder.startswith(codec) and encoder.endswith(backend)
+    at = argv.index(encoder)
+    expected = _FORCED_IDR.get(backend)
+    if expected is None:
+        assert "-forced_idr" not in argv and "-forced-idr" not in argv
+    else:
+        assert tuple(argv[at + 1 : at + 3]) == expected  # 紧跟编码器，作用于它
+    assert "-force_key_frames" in argv
+
+
+@pytest.mark.parametrize(
+    ("backend", "encoder", "options"),
+    [
+        ("vaapi", "hevc_vaapi", ("-low_power", "1")),
+        ("qsv", "hevc_qsv", ()),
+        ("nvenc", "hevc_nvenc", ()),
+    ],
+)
+def test_hevc_export_on_nas_gpus_after_self_test(backend, encoder, options):
+    """issue #1008：自检真编过 HEVC 的 NAS 显卡出 HEVC。帧留在显存里（硬件 scale 已钉 8-bit），
+    不能再要 -pix_fmt；自检探出的参数紧跟编码器。"""
+    register_hevc_encoder(backend, options)
+    try:
+        argv = argv_of(_hevc_plan(), hw_backend=backend, start_number=0)
+    finally:
+        register_hevc_encoder(backend, None)
+    at = argv.index(encoder)
+    assert argv[at - 1] == "-c:v"
+    # 自检探出的参数与强制 IDR 紧跟编码器
+    tail = (*options, *_FORCED_IDR.get(backend, ()))
+    assert tuple(argv[at + 1 : at + 1 + len(tail)]) == tail
+    assert pair(argv, "-profile:v") == "main" and pair(argv, "-tag:v") == "hvc1"
+    assert pair(argv, "-maxrate") == "4M" and pair(argv, "-bufsize") == "8M"
+    assert "-pix_fmt" not in argv and "-a53cc" not in argv
+
+
+# ---------------------------------------------------------------------------
+# 杜比视界元数据的处理（VideoPlan.dolby_vision）
+# ---------------------------------------------------------------------------
+
+
+def _hdr_transcode(dolby_vision: str | None, **video_kw) -> PlaybackPlan:
+    return plan(
+        PlaybackTier.HARDWARE_TRANSCODE,
+        video=VideoPlan(
+            action="transcode",
+            codec="h264",
+            height=1080,
+            source_bit_depth=10,
+            source_codec="hevc",
+            tone_map=True,
+            dolby_vision=dolby_vision,
+            **video_kw,
+        ),
+    )
+
+
+def test_mislabeled_dolby_vision_tonemaps_without_the_rpu():
+    """记录不可信、只认基础层：每条认 RPU 的映射链都要关掉 apply_dovi，否则整片发绿"""
+    software = pair(argv_of(_hdr_transcode("ignore")), "-vf")
+    assert software and software.startswith("tonemapx=") and ":apply_dovi=0" in software
+    gpu = pair(
+        argv_of(_hdr_transcode("ignore"), hw_backend="videotoolbox", worker_caps=MAC_CAPS), "-vf"
+    )
+    assert gpu and f"{VIDEOTOOLBOX_TONEMAP}:apply_dovi=0" in gpu
+    burn = argv_of(_hdr_transcode("ignore", burn_subtitle="embedded:2"))
+    assert ":apply_dovi=0" in burn[burn.index("-filter_complex") + 1]
+    # VAAPI 的映射本来就不认 RPU，也没有这个开关
+    vaapi = pair(argv_of(_hdr_transcode("ignore"), hw_backend="vaapi"), "-vf")
+    assert vaapi and vaapi.startswith("tonemap_vaapi") and "apply_dovi" not in vaapi
+
+
+def test_mislabeled_dolby_vision_on_nvidia_tonemaps_without_the_rpu(probed_nvenc_tonemap):
+    vf = pair(argv_of(_hdr_transcode("ignore"), hw_backend="nvenc"), "-vf")
+    assert vf and f"{NVENC_TONEMAP}:apply_dovi=0" in vf
+
+
+def test_profile_5_keeps_the_rpu_on_the_metal_gpu_chain():
+    """吃 RPU 的那条不看矩阵，不加 setparams"""
+    gpu = pair(
+        argv_of(_hdr_transcode("apply"), hw_backend="videotoolbox", worker_caps=MAC_CAPS), "-vf"
+    )
+    assert gpu and gpu.endswith(VIDEOTOOLBOX_TONEMAP)
+    assert "setparams" not in gpu
+
+
+def test_metal_tonemap_never_sees_a_non_ycbcr_matrix():
+    """《航拍中国》TS 的 HDR10 把矩阵写成 gbr：tonemap_videotoolbox 断言崩溃（ffmpeg 退出码 6）。
+    映射前一律标成 BT.2020 NCL——HDR10 / HLG 按规范就是它，写对了的片是空操作"""
+    for dolby_vision in (None, "ignore"):
+        vf = pair(
+            argv_of(_hdr_transcode(dolby_vision), hw_backend="videotoolbox", worker_caps=MAC_CAPS),
+            "-vf",
+        )
+        assert vf and "setparams=colorspace=bt2020nc,tonemap_videotoolbox=" in vf
+
+
+def test_remux_for_a_dolby_vision_decoder_keeps_the_record():
+    """hvc1 下 ffmpeg 不写 dvcC，换封装后记录就丢了；dvh1 + strict unofficial 才保得住"""
+    keep = argv_of(
+        plan(
+            PlaybackTier.AUDIO_TRANSCODE,
+            video=VideoPlan(action="copy", codec="hevc", dolby_vision="keep"),
+        )
+    )
+    assert pair(keep, "-tag:v") == "dvh1"
+    assert pair(keep, "-strict") == "unofficial"
+    plain = argv_of(plan(PlaybackTier.REMUX, video=VideoPlan(action="copy", codec="hevc")))
+    assert pair(plain, "-tag:v") == "hvc1"
+    assert "-strict" not in plain
+
+
+def test_remux_of_profile_7_strips_the_enhancement_layer_and_rpu():
+    """P7 只给基础层：增强层（NAL 63）与 RPU（NAL 62）都剥掉，封装打 hvc1、不写杜比视界记录"""
+    strip = argv_of(
+        plan(
+            PlaybackTier.REMUX,
+            video=VideoPlan(action="copy", codec="hevc", dolby_vision="strip"),
+        )
+    )
+    assert pair(strip, "-bsf:v") == "filter_units=remove_types=62|63"
+    assert pair(strip, "-tag:v") == "hvc1"
+    assert "-strict" not in strip
+    plain = argv_of(plan(PlaybackTier.REMUX, video=VideoPlan(action="copy", codec="hevc")))
+    assert "-bsf:v" not in plain
+
+
+def test_profile_7_decision_reaches_the_command_as_a_stripping_remux():
+    """从决策到命令一条链：真机快照（HDR10 屏、无杜比视界解码器）+ 无显卡，P7 原盘 remux 出来
+    就是剥层的换封装，而不是被拒绝或转码"""
+    from movieclaw_playback.capability import AudioSupport, ClientCapability, VideoSupport
+    from movieclaw_playback.decide import (
+        AudioTrack,
+        MediaProfile,
+        PlaybackPolicy,
+        decide_playback,
+    )
+
+    projector = ClientCapability(
+        video=(VideoSupport("h264"), VideoSupport("hevc", max_height=2176)),
+        audio=(AudioSupport("aac"), AudioSupport("ac3"), AudioSupport("eac3")),
+        containers=frozenset({"mp4", "mkv", "webm", "ts", "hls-fmp4"}),
+        hdr_passthrough=True,
+        mse="none",
+        native_hls=True,
+        local_tracks=True,
+        dolby_vision_base_layer_profiles=frozenset({4, 8}),
+    )
+    source = MediaProfile(
+        file_id=1,
+        container="mkv",
+        video_codec="hevc",
+        resolution="2160p",
+        hdr="Dolby Vision",
+        dv_profile=7,
+        dv_bl_compatible=True,
+        bit_depth=10,
+        audio_tracks=(AudioTrack(ref="embedded:1", codec="ac3", channels=6, is_default=True),),
+        keyframe_interval_s=1.0,
+    )
+    decision = decide_playback(source, projector, PlaybackPolicy(hardware_available=False))
+    assert isinstance(decision, PlaybackPlan) and decision.tier is PlaybackTier.REMUX
+    argv = argv_of(decision)
+    assert pair(argv, "-c:v") == "copy"
+    assert pair(argv, "-bsf:v") == "filter_units=remove_types=62|63"
+    assert pair(argv, "-tag:v") == "hvc1"

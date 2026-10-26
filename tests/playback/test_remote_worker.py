@@ -817,3 +817,14 @@ def test_registry_reads_read_options_capability():
     caps = parse({**base, "read_options": ["multiple_requests", "initial_request_size"]})
     assert caps.video_caps.read_options == frozenset({"multiple_requests", "initial_request_size"})
     assert parse(base).video_caps.read_options == frozenset()
+
+
+def test_registry_tells_an_empty_decoder_list_from_a_missing_one():
+    """旧版 Worker 没声明 hw_decoders：按 Apple 芯片都能硬解的 h264 / hevc 算；声明了空列表
+    是新版 Worker 明说这块显卡什么都硬解不了，不能被当成没声明。"""
+    parse = RemoteWorkerRegistry._parse_capabilities
+    base = {"backends": ["nvenc"], "encoders": ["h264_nvenc"]}
+    assert parse(base).hw_decoders == ("h264", "hevc")
+    assert parse({**base, "hw_decoders": []}).hw_decoders == ()
+    assert parse({**base, "hw_decoders": ["h264", "vp9"]}).hw_decoders == ("h264", "vp9")
+    assert parse({**base, "hw_decoders": "h264"}).hw_decoders == ("h264", "hevc")  # 非列表=没声明

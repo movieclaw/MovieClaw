@@ -27,9 +27,9 @@ import httpx
 from pydantic import BaseModel, Field
 
 from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_DATA, PLUGIN_FILES
-from movieclaw_api.services.host_ops import OpsError
 from movieclaw_kernel import Context, plugin
 from movieclaw_sdk import net
+from movieclaw_sdk.ops import OpsError
 
 
 class Config(BaseModel):

@@ -1,5 +1,9 @@
 # 通用事件 Webhook 设计
 
+> **已被取代的部分**（2026-10-12）：事件的产生与投递已改成统一事件（`domain-events.md` §6.2）——Webhook 是系统事件
+> 总线上的一个可靠订阅方，报文就是事件信封（`id` / `type` / `occurred_at` / `origin` / `data` + `server`），事件名与载荷
+> 和插件看到的一致，重试改由可靠事件负责。下文的信封字段、`emit_events` 产生点、内存重试、`item.favorited` 等旧名均已不再适用。
+
 > 状态：**v1.1 P1/P2/P3 全部已实施**（2026-08-05）。P1 = 自有协议闭环（播放 +
 > 收藏域）；P2 = Jellyfin 兼容格式 + `playback.progress`；P3 = 订阅域接入
 >（首个非播放域，验证了「builder + 目录一行 + emit 一行」的扩展承诺）。
@@ -94,7 +98,7 @@
 | `webhook.test` | 设置页「发送测试」，载荷为示例数据 | P1 |
 
 预留域（本期不实现，列出仅为验证目录设计的可扩展性；事件名接入时定稿）：
-`subscription.*`（开始下载/订阅入库，产生点即现有 `notify_channels` 调用旁——
+`subscription.*`（开始下载/订阅入库，产生点即通知事件（当时的 `notify_channels`）调用旁——
 `services/subscription/dispatch.py:192`、`wanted_fulfillment.py:89`）、
 `library.*`（新入库）、`system.*`（更新完成等）。
 
@@ -446,7 +450,7 @@ started/stopped/completed/favorited，签名校验通过。
 ### P3（预留域接入示范）
 
 订阅域（`subscription.*`）作为第一个非播放域接入，验证「builder + 目录一行 +
-emit 一行」的扩展承诺；产生点与现有 `notify_channels` 调用相邻。
+emit 一行」的扩展承诺；产生点与通知事件调用相邻。
 
 ## 7. 风险与对策
 

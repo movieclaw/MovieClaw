@@ -13,7 +13,8 @@ from movieclaw_api.services import network_config, network_egress
 from movieclaw_api.services.auth import reset_auth_state
 from movieclaw_api.services.media_discover import reset_media_service
 from movieclaw_api.services.network_egress import reset_network_egress
-from movieclaw_api.settings import WebhookEndpoint, WebhookSetting
+from movieclaw_api.settings import BUILTIN_EGRESS_SERVICES, WebhookEndpoint, WebhookSetting
+from movieclaw_api.settings.cloud import CloudSetting, PushChannelsSetting, PushRelay
 from movieclaw_api.settings.store import reset_setting_store
 from movieclaw_db.crypto import reset_secret_box
 from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
@@ -40,7 +41,7 @@ def client(tmp_path, monkeypatch):
     from movieclaw_api.app import create_app
 
     app = create_app()
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         c.post(
             "/api/v1/auth/bootstrap",
             json={"username": "admin", "password": "s3cret-pass"},
@@ -64,7 +65,9 @@ def test_get_config_returns_defaults_and_catalog(client):
     assert data["proxy_mode"] == "env"
     assert sorted(data["proxy_services"]) == ["fanart", "github", "image", "tmdb"]
     service_ids = [item["id"] for item in data["services"]]
-    assert {"tmdb", "image", "fanart", "douban", "llm", "github"} <= set(service_ids)
+    assert {"tmdb", "image", "fanart", "douban", "llm", "github", "web_search"} <= set(service_ids)
+    # 网页搜索出现在目录里，但默认不走代理，用户自己打开
+    assert "web_search" not in data["proxy_services"]
     # 镜像默认值供前端 placeholder 展示
     assert data["mirror_defaults"]["tmdb_api_base_url"].startswith("http")
 
@@ -265,6 +268,119 @@ def test_test_endpoint_probes_telegram_discord_and_webhook(client, monkeypatch):
     assert requests[2].headers["X-Test"] == "1"
 
 
+def _mock_probe(monkeypatch) -> tuple[list[httpx.Request], list[str]]:
+    """拦下连通性测试的出口：记录发出的请求与所用的服务标签，一律回 200。"""
+    requests: list[httpx.Request] = []
+    services: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={})
+
+    def fake_transport(service, **kwargs):
+        services.append(service)
+        return httpx.MockTransport(handler)
+
+    monkeypatch.setattr(network_config, "egress_transport", fake_transport)
+    return requests, services
+
+
+def test_every_builtin_service_is_testable(client, monkeypatch):
+    """设置页列出的每个内置服务都能点「测试连接」，不能落到「未知的服务标签」。"""
+    _mock_probe(monkeypatch)
+    for item in BUILTIN_EGRESS_SERVICES:
+        resp = client.post("/api/v1/network/test", json={"service": item["id"]})
+        assert "未知的服务标签" not in resp.text, item["id"]
+
+
+def test_test_endpoint_probes_feishu(client, monkeypatch):
+    """飞书只探测线路：不 POST、不带 hook 令牌（不往群里发消息）；
+    接入了 Lark 机器人就测它的主机，没接入测默认的 open.feishu.cn。"""
+    requests, services = _mock_probe(monkeypatch)
+    accounts: list[SimpleNamespace] = []
+
+    async def list_accounts(self, channel_id):
+        assert channel_id == "feishu"
+        return accounts
+
+    monkeypatch.setattr(ChannelAccountRepository, "list_by_channel", list_accounts)
+    monkeypatch.setattr(
+        ChannelAccountRepository,
+        "credentials",
+        lambda row: {
+            "webhook_url": "https://open.larksuite.com/open-apis/bot/v2/hook/hook-token-123",
+            "secret": "sign-secret",
+        },
+    )
+
+    resp = client.post("/api/v1/network/test", json={"service": "feishu"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["ok"] is True
+    assert str(requests[-1].url) == "https://open.feishu.cn/"
+
+    accounts.append(SimpleNamespace(token="encrypted"))
+    resp = client.post("/api/v1/network/test", json={"service": "feishu"})
+    assert resp.status_code == 200, resp.text
+    assert str(requests[-1].url) == "https://open.larksuite.com/"
+    assert all(r.method == "GET" for r in requests)
+    assert all("hook-token-123" not in str(r.url) for r in requests)
+    assert services == ["feishu", "feishu"]
+
+
+def test_test_endpoint_probes_movieclaw_cloud(client, monkeypatch):
+    """Cloud 探测连接第一步用的公开发现文档，不带任何凭据。"""
+    requests, services = _mock_probe(monkeypatch)
+    resp = client.post("/api/v1/network/test", json={"service": "movieclaw_cloud"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["ok"] is True
+    assert str(requests[0].url) == "https://api.movieclaw.io/.well-known/movieclaw-cloud"
+    assert "Authorization" not in requests[0].headers
+    assert services == ["movieclaw_cloud"]
+
+
+def test_test_endpoint_probes_movieclaw_push(client, monkeypatch):
+    """App 推送探测走这个开关的中继：官方中继，或公网上的自建中继（局域网中继
+    总是直连、不受开关影响，不拿来测）。只读公开的 /v1/info，不带凭证。"""
+    requests, services = _mock_probe(monkeypatch)
+    channels = PushChannelsSetting()
+
+    class FakeSettingStore:
+        async def get(self, model):
+            if model is PushChannelsSetting:
+                return channels
+            if model is CloudSetting:
+                return CloudSetting(access_token="instance-token")
+            raise AssertionError(model)
+
+    monkeypatch.setattr(network_config, "get_setting_store", lambda: FakeSettingStore())
+
+    def probe():
+        return client.post("/api/v1/network/test", json={"service": "movieclaw_push"})
+
+    resp = probe()
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["ok"] is True
+    assert str(requests[-1].url) == "https://push.movieclaw.io/v1/info"
+    assert "Authorization" not in requests[-1].headers
+
+    channels.official_enabled = False
+    channels.relays = [
+        PushRelay(id="lan", url="http://192.168.1.5:8080", token="relay-token"),
+        PushRelay(id="off", url="https://off.example.com", enabled=False),
+        PushRelay(id="wan", url="https://relay.example.com", token="relay-token"),
+    ]
+    resp = probe()
+    assert resp.status_code == 200, resp.text
+    assert str(requests[-1].url) == "https://relay.example.com/v1/info"
+    assert "Authorization" not in requests[-1].headers
+
+    channels.relays = channels.relays[:1]
+    resp = probe()
+    assert resp.status_code == 400
+    assert "局域网" in resp.json()["message"]
+    assert services == ["movieclaw_push", "movieclaw_push"]
+
+
 def test_test_endpoint_probes_fanart(client, monkeypatch):
     """Fanart.tv 连通性测试：没 Key 也能测线路（401 缺 Key 照样算通）；配了 Key
     走请求头一并验证（不进 URL），无效 Key 给出明确提示。"""
@@ -315,7 +431,7 @@ def test_requires_login(tmp_path, monkeypatch):
 
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as c:
         assert c.get("/api/v1/network/config").status_code == 401
 
     reset_setting_store()

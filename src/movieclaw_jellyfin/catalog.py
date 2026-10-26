@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import random
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -28,6 +29,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from movieclaw_api.services.library.access import ContentLimit
 from movieclaw_api.services.library.chapters import chapter_image_map, effective_chapters
 from movieclaw_api.services.library.thumbs import primary_aspect
+from movieclaw_api.services.playback import trickplay
 from movieclaw_api.services.playback.disc_source import DiscSource, disc_source_for_file
 from movieclaw_db.models import (
     Collection,
@@ -49,6 +51,7 @@ from movieclaw_jellyfin.ids import (
     episode_guid,
     item_guid,
     library_guid,
+    media_source_guid,
     person_guid,
     root_guid,
     season_guid,
@@ -1434,6 +1437,45 @@ def _apply_chapters(
     dto["Chapters"] = rows
 
 
+def _apply_trickplay(dto: dict[str, Any], files: list[LibraryFile], options: DtoOptions) -> None:
+    """``Trickplay``（#955）：进度条预览图清单，受 fields 门控，单条目全开。
+
+    形状对齐 Jellyfin 10.9+：外层键是媒体源 id，内层键是单格像素宽度；
+    ``TileWidth``/``TileHeight`` 是每张雪碧图一行/一列的格数，``Width``/``Height``
+    才是单格像素。只列已生成的版本——还没生成好的不出现，客户端只显示时间。
+    ``Bandwidth`` 按 Jellyfin 的算法取各张雪碧图每格每秒的最大比特数。
+    """
+    if not options.has("Trickplay"):
+        return
+    manifest: dict[str, dict[str, dict[str, int]]] = {}
+    for f in files:
+        file_id = f.id or 0
+        index = trickplay.load_index(file_id)
+        if index is None:
+            continue
+        directory = trickplay.trickplay_dir(file_id)
+        per_tile_s = index.columns * index.rows * index.interval_ms / 1000
+        bandwidth = 0
+        for name in index.sheets:
+            try:
+                size = (directory / name).stat().st_size
+            except OSError:
+                continue
+            bandwidth = max(bandwidth, math.ceil(size * 8 / per_tile_s))
+        manifest[media_source_guid(file_id)] = {
+            str(index.tile_width): {
+                "Width": index.tile_width,
+                "Height": index.tile_height,
+                "TileWidth": index.columns,
+                "TileHeight": index.rows,
+                "ThumbnailCount": index.count,
+                "Interval": index.interval_ms,
+                "Bandwidth": bandwidth,
+            }
+        }
+    dto["Trickplay"] = manifest
+
+
 def _apply_leaf_media_fields(
     dto: dict[str, Any], files: list[LibraryFile], options: DtoOptions
 ) -> None:
@@ -1513,6 +1555,7 @@ def movie_dto(ctx: DtoContext, bundle: ItemBundle, options: DtoOptions) -> dict[
         if options.has("MediaStreams") and sources:
             dto["MediaStreams"] = sources[0]["MediaStreams"]
     _apply_chapters(dto, bundle.files.get((0, 0), []), options, bundle.chapter_library_ids)
+    _apply_trickplay(dto, bundle.files.get((0, 0), []), options)
     if options.enable_user_data:
         dto["UserData"] = _leaf_user_data(bundle, 0, 0, guid)
     return dto
@@ -1681,6 +1724,7 @@ def episode_dto(
     _apply_chapters(
         dto, bundle.files.get((season, episode), []), options, bundle.chapter_library_ids
     )
+    _apply_trickplay(dto, bundle.files.get((season, episode), []), options)
     _apply_people(dto, bundle, options)
     if options.enable_user_data:
         dto["UserData"] = _leaf_user_data(bundle, season, episode, guid)
@@ -2160,7 +2204,10 @@ def media_source_dto(f: LibraryFile, *, resolve_strm: bool = False) -> dict[str,
     而浏览场景根本用不到直链，Path 保留 strm 占位路径即可。
     """
     from movieclaw_jellyfin.ids import media_source_guid
-    from movieclaw_playback.streaming import resolve_strm_url
+
+    # 别名：本函数的布尔参数就叫 resolve_strm，同名导入会把它覆盖成恒真的函数对象
+    from movieclaw_playback.streaming import local_strm_container, strm_needs_relay
+    from movieclaw_playback.streaming import resolve_strm as read_strm
 
     streams = media_streams_dto(f)
     audio_streams = [s for s in streams if s["Type"] == "Audio"]
@@ -2221,9 +2268,28 @@ def media_source_dto(f: LibraryFile, *, resolve_strm: bool = False) -> dict[str,
         source["Protocol"] = "Http"
         source["IsRemote"] = True
         if resolve_strm:
-            url = resolve_strm_url(f.file_path)
-            if url is None:
+            link = read_strm(f.file_path)
+            if link is None:
                 return None
+            if isinstance(link, Path):
+                # 指向服务器挂载目录里的文件：按本地文件呈现，播放器走 /Videos/{id}/stream
+                try:
+                    source["Size"] = link.stat().st_size
+                except OSError:
+                    return None  # 挂载刚掉线：剔除这个版本，与读不出 strm 一样
+                source["Protocol"] = "File"
+                source["IsRemote"] = False
+                source["Container"] = local_strm_container(f.container, link)
+                return {k: v for k, v in source.items() if v is not None}
+            url = link.url
+            if strm_needs_relay(url, link.headers):
+                # 内网 / 回环 / 容器服务名的直链客户端连不上：按本地文件呈现，播放器走
+                # /Videos/{id}/stream，由服务端替它跟跳转或转发（streaming.strm_redirect_target）
+                source["Protocol"] = "File"
+                source["IsRemote"] = False
+                if f.container and f.container != "strm":
+                    source["Container"] = f.container
+                return {k: v for k, v in source.items() if v is not None}
             source["Path"] = url
             ext = Path(url.split("?", 1)[0]).suffix.lstrip(".").lower()
             if ext:

@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -16,11 +18,11 @@ import {
   UsersIcon,
 } from "@/components/icons";
 import { NoticeCenter } from "@/components/notice-center";
-import { reloadAfterAccountChange } from "@/lib/account-reload";
-import { logout } from "@/lib/api/auth";
+import { usePluginNavItems } from "@/components/sidebar";
+import { signOut } from "@/lib/account-reload";
 import { useAgentConversations } from "@/lib/agent-conversations";
 import { usePageChrome } from "@/lib/page-chrome";
-import { accessiblePathFor, roleLabel, usePermissions } from "@/lib/permissions";
+import { roleLabel, usePermissions } from "@/lib/permissions";
 import { useSession } from "@/lib/session";
 import type { TaskActivityBadge } from "@/lib/task-activity";
 
@@ -40,19 +42,23 @@ import type { TaskActivityBadge } from "@/lib/task-activity";
  * 新会话与 AI 会话是 Agent 能力，管理员专属——与侧栏的 memberNavItems 同口径
  * （安全边界在后端 require_admin，这里是界面裁剪）。
  *
- * Netflix 主题有自己的「我的」页（themes/netflix/pages/my-page），会覆盖本页。
+ * Netflix 主题有自己的「我的」页（plugins/netflix/src/pages/my-page），会覆盖本页。
  */
 export function MorePage() {
+  const t = useTranslations();
+  const locale = useLocale();
   const router = useRouter();
   const { session } = useSession();
   const { isAdmin } = usePermissions();
   const { conversations, hasMore, loadingMore, loadMore } = useAgentConversations();
   const { forkConversation, renameConversation, removeConversation } = useConversationActions();
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  // 手机没有侧边栏：插件网页（docs/design/plugin-web-pages.md）的入口放在这里
+  const pluginItems = usePluginNavItems();
 
   // 手机顶栏标题「我的」（同 App：这一页是正文字号的行内标题，不是大字标题）
   const setTopBarTitle = usePageChrome()?.setTopBarTitle;
-  useEffect(() => setTopBarTitle?.("我的"), [setTopBarTitle]);
+  useEffect(() => setTopBarTitle?.(t("nav.tabs.my")), [setTopBarTitle, t]);
 
   // 最近会话触底续载：列表末尾的哨兵进入视口（留 200px 提前量）就取下一页
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -74,13 +80,7 @@ export function MorePage() {
    * 没有了才去登录页；整页跳转重置全部前端状态（与侧栏用户菜单同一套流程）。
    */
   const handleLogout = async () => {
-    let next: Awaited<ReturnType<typeof logout>> = null;
-    try {
-      next = await logout();
-    } catch {
-      // 即使请求失败（网络断开），也照常跳登录页；会话在后端仍会自然过期
-    }
-    await reloadAfterAccountChange(next ? accessiblePathFor(next, "/") : "/login", next != null);
+    await signOut();
   };
 
   return (
@@ -90,7 +90,7 @@ export function MorePage() {
         <button
           type="button"
           onClick={() => router.push("/settings/profile" as Route)}
-          aria-label={`${session.nickname}，查看和修改个人信息`}
+          aria-label={t("nav.more.profileAria", { name: session.nickname })}
           className="glass-row mb-5 w-full gap-4 rounded-2xl bg-[var(--glass-fill)] px-4 py-3.5 ring-1 ring-inset ring-[var(--line)]"
         >
           <AvatarBadge
@@ -103,36 +103,48 @@ export function MorePage() {
               {session.nickname}
             </span>
             <span className="mt-0.5 block truncate text-ui text-[var(--text-muted)]">
-              @{session.username} · {roleLabel(session)}
+              @{session.username} · {roleLabel(session, locale)}
             </span>
           </span>
           <ChevronRightIcon className="size-4 shrink-0 text-[var(--text-faint)]" />
         </button>
 
-        <MoreGroup label="常用">
+        <MoreGroup label={t("nav.more.quickAccess")}>
           {/* 待处理事项与应用更新：组件自轮询，无事时整行不渲染 */}
           <NoticeCenter collapsed={false} />
-          <MoreRow Icon={GearIcon} label="设置" onClick={() => router.push("/settings" as Route)} />
+          <MoreRow Icon={GearIcon} label={t("auth.menu.settings")} onClick={() => router.push("/settings" as Route)} />
           <AppUpdateEntry collapsed={false} onOpen={() => router.push("/settings/app" as Route)} />
         </MoreGroup>
 
-        <MoreGroup label="账号">
-          <MoreRow Icon={UsersIcon} label="切换账号" onClick={() => setSwitcherOpen(true)} />
-          <MoreRow Icon={LogoutIcon} label="退出登录" danger onClick={() => void handleLogout()} />
+        {pluginItems.length > 0 && (
+          <MoreGroup label={t("nav.cinema.pluginPages")}>
+            {pluginItems.map((item) => (
+              <MoreRow
+                key={item.id}
+                Icon={item.icon}
+                label={item.label}
+                onClick={() => router.push(item.href as Route)}
+              />
+            ))}
+          </MoreGroup>
+        )}
+
+        <MoreGroup label={t("nav.more.account")}>
+          <MoreRow Icon={UsersIcon} label={t("auth.menu.switchAccount")} onClick={() => setSwitcherOpen(true)} />
+          <MoreRow Icon={LogoutIcon} label={t("auth.menu.signOut")} danger onClick={() => void handleLogout()} />
         </MoreGroup>
 
         {isAdmin && (
-          <MoreGroup label="最近会话">
+          <MoreGroup label={t("nav.sessions.recent")}>
             <MoreRow
               Icon={ComposeIcon}
-              label="新会话"
+              label={t("nav.main.new")}
               accent
               onClick={() => router.push("/new" as Route)}
             />
             {conversations.length === 0 ? (
               <p className="px-4 py-3 text-caption leading-5 text-[var(--text-faint)]">
-                还没有会话，点上方的「新会话」开始。
-              </p>
+                {t("nav.more.noSessions")}</p>
             ) : (
               conversations.map((c) => (
                 <MoreRow
@@ -153,8 +165,7 @@ export function MorePage() {
             )}
             {loadingMore && (
               <p className="px-4 py-2.5 text-center text-caption text-[var(--text-faint)]">
-                正在加载更多会话…
-              </p>
+                {t("nav.more.loadingMore")}</p>
             )}
           </MoreGroup>
         )}

@@ -18,7 +18,7 @@ enum RuleSetVocabulary {
 
     /// 片源档（顺序即内置档序 T5…T1）
     static let mediaSources: [(value: String, label: String)] = [
-        ("remux", "Remux"), ("blu-ray", "蓝光"), ("web-dl", "WEB-DL"), ("rip", "Rip 类"), ("tv", "电视录制类"),
+        ("remux", "Remux"), ("blu-ray", String(localized: .subscriptionSmartBluray)), ("web-dl", "WEB-DL"), ("rip", String(localized: .subscriptionRulesSourceRip)), ("tv", String(localized: .subscriptionRulesSourceTv)),
     ]
 
     /// 编码按家族选择：一族的等价写法一并写进白名单
@@ -31,23 +31,28 @@ enum RuleSetVocabulary {
     /// HDR 值域；"SDR" 是哨兵 = 资源未标注任何 HDR 格式
     static let hdrOptions = ["DV", "HDR10+", "HDR10", "HLG", "SDR"]
 
+    /// 只能「排除」的 HDR 项：「DV P5」= 只标了 DV、没有 HDR10 兼容层的杜比视界（Profile 5），
+    /// 服务器转码会偏绿偏紫。它是后端按命名约定与站点标记得出的判定，不是标题里的记号，
+    /// 「只要 P5」没有意义，所以不进三态循环，只在「不限 ↔ 排除」之间切。
+    static let hdrBlockOnly = ["DV P5"]
+
     static let subtitleLanguages: [(value: String, label: String)] = [
-        ("zh", "中文（不限简繁）"), ("zh-Hans", "简体中文"), ("zh-Hant", "繁体中文"), ("en", "英文"),
+        ("zh", String(localized: .subscriptionRulesSubtitleChinese)), ("zh-Hans", String(localized: .subscriptionRulesSubtitleSimplified)), ("zh-Hant", String(localized: .subscriptionRulesSubtitleTraditional)), ("en", String(localized: .subscriptionRulesSubtitleEnglish)),
     ]
 
     static let audioLanguages: [(value: String, label: String)] = [
-        ("cmn", "国语"), ("yue", "粤语"), ("ja", "日语"), ("en", "英语"),
+        ("cmn", String(localized: .subscriptionRulesAudioMandarin)), ("yue", String(localized: .subscriptionRulesAudioCantonese)), ("ja", String(localized: .subscriptionRulesAudioJapanese)), ("en", String(localized: .subscriptionRulesAudioEnglish)),
     ]
 
     /// 洗版目标片源档（三个预设就是全部）
     static let upgradeOptions: [(value: String, label: String)] = [
-        ("web-dl", "洗到 WEB-DL"), ("blu-ray", "洗到蓝光"), ("remux", "洗到 Remux"),
+        ("web-dl", String(localized: .subscriptionRulesUpgradeWeb)), ("blu-ray", String(localized: .subscriptionRulesUpgradeBluray)), ("remux", String(localized: .subscriptionRulesUpgradeRemux)),
     ]
-    static let upgradeSourceLabel = ["web-dl": "WEB-DL", "blu-ray": "蓝光", "remux": "Remux"]
+    static let upgradeSourceLabel = ["web-dl": "WEB-DL", "blu-ray": String(localized: .subscriptionSmartBluray), "remux": "Remux"]
 
     /// 参与洗版比较的维度（顺序即芯片顺序）
     static let ladderOptions: [(value: String, label: String)] = [
-        ("resolution", "分辨率"), ("source", "片源"), ("hdr", "HDR"), ("video_codec", "编码"), ("platform", "平台"),
+        ("resolution", String(localized: .subscriptionSmartResolution)), ("source", String(localized: .subscriptionSmartSource)), ("hdr", "HDR"), ("video_codec", String(localized: .subscriptionRulesDimensionCodec)), ("platform", String(localized: .subscriptionRulesDimensionPlatform)),
     ]
     static let defaultLadder = ["resolution", "source"]
 
@@ -66,8 +71,8 @@ enum RuleSetVocabulary {
         "hulu": "Hulu", "apple_tv_plus": "Apple TV+", "paramount_plus": "Paramount+", "peacock": "Peacock",
         "showtime": "Showtime", "starz": "Starz", "discovery_plus": "Discovery+", "crave": "Crave", "stan": "Stan",
         "roku": "Roku", "google_tv": "Google TV", "itunes": "iTunes", "sony_core": "Sony Pictures Core",
-        "criterion": "Criterion", "iqiyi": "爱奇艺", "wetv": "腾讯视频", "youku": "优酷", "mangotv": "芒果 TV",
-        "bilibili": "哔哩哔哩", "viu": "Viu", "nowplayer": "Now player", "mytv_super": "myTV SUPER",
+        "criterion": "Criterion", "iqiyi": String(localized: .searchPlatformsIqiyi), "wetv": String(localized: .searchPlatformsWetv), "youku": String(localized: .searchPlatformsYouku), "mangotv": String(localized: .searchPlatformsMangotv),
+        "bilibili": String(localized: .searchPlatformsBilibili), "viu": "Viu", "nowplayer": "Now player", "mytv_super": "myTV SUPER",
         "hami_video": "Hami Video", "line_tv": "LINE TV", "kktv": "KKTV", "tving": "TVING", "wavve": "Wavve",
         "coupang_play": "Coupang Play", "kocowa": "KOCOWA", "viki": "Viki", "unext": "U-NEXT", "tver": "TVer",
         "fod": "FOD", "dmm_tv": "DMM TV", "hotstar": "Hotstar", "crunchyroll": "Crunchyroll", "hidive": "HIDIVE",
@@ -201,8 +206,8 @@ extension API.RuleSetView {
 enum RuleSetText {
     static func hdrChipText(_ levels: [String]) -> String {
         let family = RuleSetVocabulary.hdrOptions.filter { $0 != "SDR" }
-        if levels.count == family.count, family.allSatisfy(levels.contains) { return "必须 HDR" }
-        if levels == ["SDR"] { return "排除 HDR" }
+        if levels.count == family.count, family.allSatisfy(levels.contains) { return String(localized: .subscriptionRulesRequireHdr) }
+        if levels == ["SDR"] { return String(localized: .subscriptionRulesExcludeHdr) }
         return "HDR \(levels.joined(separator: "/"))"
     }
 
@@ -226,7 +231,7 @@ enum RuleSetText {
             chips.append(spec.mediaSources.map(RuleSetVocabulary.mediaSourceLabel).joined(separator: " > "))
         }
         if !withoutUpgrade, let target = upgradeTargetLabel(spec) {
-            chips.append("洗到 \(target)\(spec.upgradeKeepOld ? "（保留旧版）" : "")")
+            chips.append(spec.upgradeKeepOld ? String(localized: .subscriptionRulesUpgradeChipKeepOld(target)) : String(localized: .subscriptionUpgradeUpgradeTo(target)))
         }
         if !spec.videoCodecs.isEmpty {
             var rest = spec.videoCodecs
@@ -239,30 +244,34 @@ enum RuleSetText {
             chips.append(labels.joined(separator: "/"))
         }
         if !spec.platforms.isEmpty {
-            chips.append("平台: \(spec.platforms.map(RuleSetVocabulary.platformLabel).joined(separator: "/"))")
+            chips.append(String(localized: .subscriptionRulesPlatformChip(spec.platforms.map(RuleSetVocabulary.platformLabel).joined(separator: "/"))))
         }
         if !spec.platformsBlock.isEmpty {
-            chips.append("排除平台: \(spec.platformsBlock.map(RuleSetVocabulary.platformLabel).joined(separator: "/"))")
+            chips.append(String(localized: .subscriptionRulesBlockedPlatforms(spec.platformsBlock.map(RuleSetVocabulary.platformLabel).joined(separator: "/"))))
         }
         let hdr = spec.effectiveHdr
         if !hdr.levels.isEmpty { chips.append(hdrChipText(hdr.levels)) }
-        if !hdr.block.isEmpty { chips.append("排除 \(hdr.block.joined(separator: "/"))") }
+        if !hdr.block.isEmpty { chips.append(String(localized: .subscriptionRulesExcludeValues(hdr.block.joined(separator: "/")))) }
         if !spec.subtitleLanguages.isEmpty {
-            chips.append("字幕: " + spec.subtitleLanguages.map { v in RuleSetVocabulary.subtitleLanguages.first { $0.value == v }?.label ?? v }.joined(separator: "/"))
+            chips.append(String(localized: .subscriptionRulesSubtitleChip(spec.subtitleLanguages.map { v in RuleSetVocabulary.subtitleLanguages.first { $0.value == v }?.label ?? v }.joined(separator: "/"))))
         }
         if !spec.audioLanguages.isEmpty {
-            chips.append("音轨: " + spec.audioLanguages.map { v in RuleSetVocabulary.audioLanguages.first { $0.value == v }?.label ?? v }.joined(separator: "/"))
+            chips.append(String(localized: .subscriptionRulesAudioChip(spec.audioLanguages.map { v in RuleSetVocabulary.audioLanguages.first { $0.value == v }?.label ?? v }.joined(separator: "/"))))
         }
-        if spec.freeOnly { chips.append("仅免费") }
-        if let seeders = spec.minSeeders { chips.append("做种 ≥ \(seeders)") }
+        if spec.freeOnly { chips.append(String(localized: .subscriptionRulesFreeOnly)) }
+        if let seeders = spec.minSeeders { chips.append(String(localized: .subscriptionRulesSeedersChip(seeders))) }
         if spec.sizeMinMb != nil || spec.sizeMaxMb != nil {
-            let min = spec.sizeMinMb.map(String.init) ?? ""
-            let max = spec.sizeMaxMb.map(String.init) ?? ""
-            chips.append(!min.isEmpty && !max.isEmpty ? "单集 \(min)–\(max)MB" : !min.isEmpty ? "单集 ≥ \(min)MB" : "单集 ≤ \(max)MB")
+            if let min = spec.sizeMinMb, let max = spec.sizeMaxMb {
+                chips.append(String(localized: .subscriptionRulesEpisodeRange(min, max)))
+            } else if let min = spec.sizeMinMb {
+                chips.append(String(localized: .subscriptionRulesEpisodeMin(min)))
+            } else if let max = spec.sizeMaxMb {
+                chips.append(String(localized: .subscriptionRulesEpisodeMax(max)))
+            }
         }
-        if spec.excludeHr { chips.append(spec.hrUnknownPolicy == "strict" ? "排除 H&R（未知也排）" : "排除 H&R") }
-        if !spec.releaseGroupsAllow.isEmpty { chips.append("制作组白名单 \(spec.releaseGroupsAllow.count) 个") }
-        if !spec.releaseGroupsBlock.isEmpty { chips.append("制作组黑名单 \(spec.releaseGroupsBlock.count) 个") }
+        if spec.excludeHr { chips.append(spec.hrUnknownPolicy == "strict" ? String(localized: .subscriptionRulesExcludeHrStrict) : String(localized: .subscriptionRulesExcludeHr)) }
+        if !spec.releaseGroupsAllow.isEmpty { chips.append(String(localized: .subscriptionRulesAllowedGroupCount(spec.releaseGroupsAllow.count))) }
+        if !spec.releaseGroupsBlock.isEmpty { chips.append(String(localized: .subscriptionRulesBlockedGroupCount(spec.releaseGroupsBlock.count))) }
         return chips
     }
 }
@@ -377,12 +386,12 @@ struct RuleSetScope: Equatable {
     func summary(_ options: LibraryRoutingOptions?) -> String? {
         guard kind != nil || !regions.isEmpty || !genres.isEmpty else { return nil }
         var parts: [String] = []
-        if let kind { parts.append(kind == "movie" ? "电影" : "剧集") }
+        if let kind { parts.append(kind == "movie" ? String(localized: .subscriptionFilterMovie) : String(localized: .subscriptionFilterTv)) }
         if !regions.isEmpty {
-            parts.append(options.map { $0.regionLabels(regions).joined(separator: "/") } ?? "\(regions.count) 个区域")
+            parts.append(options.map { $0.regionLabels(regions).joined(separator: "/") } ?? String(localized: .subscriptionRulesRegions(regions.count)))
         }
         if !genres.isEmpty {
-            parts.append(options.map { $0.genres(for: kind).filter { genres.contains($0.id) }.map(\.label).joined(separator: "/") } ?? "\(genres.count) 个类型")
+            parts.append(options.map { $0.genres(for: kind).filter { genres.contains($0.id) }.map(\.label).joined(separator: "/") } ?? String(localized: .subscriptionRulesGenres(genres.count)))
         }
         return parts.joined(separator: " · ")
     }

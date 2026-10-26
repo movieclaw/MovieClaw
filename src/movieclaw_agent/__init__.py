@@ -20,6 +20,7 @@ from movieclaw_agent.runner import AgentRunner
 from movieclaw_agent.skills import (
     Skill,
     build_skills_fragment,
+    compact_skill_blocks,
     discover_skills,
     expand_skill_invocations,
     strip_skill_blocks,
@@ -45,4 +46,5 @@ __all__ = [
     "discover_skills",
     "expand_skill_invocations",
     "strip_skill_blocks",
+    "compact_skill_blocks",
 ]

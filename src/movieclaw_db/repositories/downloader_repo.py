@@ -5,7 +5,7 @@ from sqlmodel import select
 
 from movieclaw_db.crypto import get_secret_box
 from movieclaw_db.models.base import utcnow
-from movieclaw_db.models.downloader_client import ClientType, DownloaderClient
+from movieclaw_db.models.downloader_client import DownloaderClient
 from movieclaw_db.models.site_credential import ConfigStatus
 
 
@@ -59,7 +59,7 @@ class DownloaderRepository:
         self,
         *,
         name: str,
-        client_type: ClientType,
+        client_type: str,
         url: str,
         username: str | None,
         password: str | None,
@@ -93,7 +93,7 @@ class DownloaderRepository:
         downloader_id: int,
         *,
         name: str,
-        client_type: ClientType,
+        client_type: str,
         url: str,
         username: str | None,
         password: str | None,
@@ -119,6 +119,7 @@ class DownloaderRepository:
         row.enabled = enabled
         row.status = ConfigStatus.PENDING
         row.last_error = None
+        row.last_error_ref = None
         row.updated_at = utcnow()
         await self._session.commit()
         await self._session.refresh(row)
@@ -130,6 +131,7 @@ class DownloaderRepository:
         status: ConfigStatus,
         *,
         last_error: str | None = None,
+        last_error_ref: dict | None = None,
         version: str | None = None,
         path_health: list[dict[str, str]] | None = None,
     ) -> bool:
@@ -146,12 +148,14 @@ class DownloaderRepository:
         row.status = status
         if status == ConfigStatus.ACTIVE:
             row.last_error = None
+            row.last_error_ref = None
             row.version = version
             row.path_health = path_health
             row.last_checked_at = now
         elif status == ConfigStatus.FAILED:
             if last_error is not None:
                 row.last_error = last_error
+                row.last_error_ref = last_error_ref
             row.last_checked_at = now
         row.updated_at = now
         await self._session.commit()

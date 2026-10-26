@@ -9,7 +9,8 @@
 #     重启它都不动，端口永不消失；运行期换口靠 reload）。路由见
 #     docker/nginx.conf.template：/api/v1 与 Jellyfin 命名空间直达后端
 #     （播放器取流/下载不再经过 Node，每 GB 省约 10 个 CPU 秒），其余交给 Next
-#   - 后端监听容器内 127.0.0.1:8000，前端监听容器内 127.0.0.1:3001，都不对外
+#   - 后端监听容器内 127.0.0.1:8000，前端默认监听 127.0.0.1:3001，可经
+#     MOVIECLAW_NEXT_PORT 改内部端口以避开 host 网络下的宿主端口冲突
 #   - Next 自己的 /api/v1 rewrite 仍保留（裸机开发不经 nginx 时用），容器里
 #     只是多一条不会被走到的备胎
 #   - 后端健康后才启动前端；运行中任意进程退出、或完整健康链路持续失败时，
@@ -64,12 +65,25 @@ API_STARTUP_TIMEOUT_SECONDS="${MOVIECLAW_API_STARTUP_TIMEOUT_SECONDS:-300}"
 # 设置页请求重启时应用已运行过，后端应很快恢复；单独使用较短的等待窗口，
 # 失败后直接走完整启动/回退，避免前端长时间处于无后端可用的状态。
 API_RESTART_TIMEOUT_SECONDS="${MOVIECLAW_API_RESTART_TIMEOUT_SECONDS:-60}"
-WEB_STARTUP_TIMEOUT_SECONDS="${MOVIECLAW_WEB_STARTUP_TIMEOUT_SECONDS:-60}"
+# 后端每完成一个数据库迁移就往这里写一次时间戳（alembic/env.py）。慢盘首装要跑
+# 上百个迁移，总耗时可能远超上面的启动超时——实测有用户的机器每个迁移 2～10 秒，
+# 300 秒只跑完一半就被杀。等待后端时超时改从「最近一次迁移进展」起算：迁移还在
+# 推进就继续等，超过超时仍无进展才判定卡死。
+MIGRATION_PROGRESS_FILE="$STATE_DIR/migration-progress"
+export MOVIECLAW_MIGRATION_PROGRESS_FILE="$MIGRATION_PROGRESS_FILE"
+# 前端就绪超时同样计为 overlay 启动失败，必须给慢机器留足余量：实测有用户的机器上
+# Next 从拉起到就绪要 67 秒（与后端启动期任务抢 CPU），旧值 60 秒把好版本连续判超时
+# 标成了坏版本。等待期间 nginx 回占位页，多等几十秒没有代价。
+WEB_STARTUP_TIMEOUT_SECONDS="${MOVIECLAW_WEB_STARTUP_TIMEOUT_SECONDS:-180}"
 HEALTHCHECK_INTERVAL_SECONDS="${MOVIECLAW_HEALTHCHECK_INTERVAL_SECONDS:-10}"
 HEALTHCHECK_FAILURE_THRESHOLD="${MOVIECLAW_HEALTHCHECK_FAILURE_THRESHOLD:-6}"
 SHUTDOWN_GRACE_SECONDS="${MOVIECLAW_SHUTDOWN_GRACE_SECONDS:-20}"
-# Next 在容器内的监听口（只给 nginx 反代用）
-NEXT_PORT=3001
+# Next 在容器内的监听口（只给 nginx 反代用；host 网络下也占用宿主端口）
+NEXT_PORT="${MOVIECLAW_NEXT_PORT:-3001}"
+if [[ ! "$NEXT_PORT" =~ ^[0-9]{1,5}$ ]] || [ "$NEXT_PORT" -lt 1 ] || [ "$NEXT_PORT" -gt 65535 ]; then
+    echo "[entrypoint] MOVIECLAW_NEXT_PORT 非法：${NEXT_PORT}，须为 1–65535 的端口。" >&2
+    exit 1
+fi
 API_HEALTH_URL="http://127.0.0.1:8000/api/v1/health"
 # 前端直连探测：穿过 Next 自己的 /api/v1 rewrite 到后端，验证 Next 进程本身可用
 WEB_HEALTH_URL="http://127.0.0.1:$NEXT_PORT/api/v1/health"
@@ -322,6 +336,7 @@ if [ "${1:-}" = "resolve" ]; then
     echo "cli_bin=$ACTIVE_CLI_BIN"
     echo "web_port=$WEB_PORT"
     echo "web_port_source=$WEB_PORT_SOURCE"
+    echo "next_port=$NEXT_PORT"
     exit 0
 fi
 
@@ -374,7 +389,8 @@ except Exception:
 # 被占）属于镜像/环境问题，原因由 nginx 自己打到 stderr，不做重试。
 render_nginx_config() {
     mkdir -p "$NGINX_RUN_DIR"
-    sed -e "s|__WEB_PORT__|$WEB_PORT|g" -e "s|__ASSETS_DIR__|$NGINX_ASSETS_DIR|g" \
+    sed -e "s|__WEB_PORT__|$WEB_PORT|g" -e "s|__NEXT_PORT__|$NEXT_PORT|g" \
+        -e "s|__ASSETS_DIR__|$NGINX_ASSETS_DIR|g" \
         "$NGINX_TEMPLATE" > "$NGINX_RUN_DIR/nginx.conf"
 }
 
@@ -459,7 +475,9 @@ wait_for_health() {
     # 空的 8000 反代到超时。
     local dependency_name="${5:-}"
     local dependency_pid="${6:-}"
-    local started now exit_code
+    # 迁移心跳文件（只有等待后端时传）：超时从最近一次心跳起算，见 MIGRATION_PROGRESS_FILE
+    local progress_file="${7:-}"
+    local started now exit_code last_progress progress extended=0
     started="$(date +%s)"
     WAIT_FAILURE_CODE=1
     WAIT_TIMED_OUT=0
@@ -496,7 +514,24 @@ wait_for_health() {
             return 0
         fi
         now="$(date +%s)"
-        if [ "$(( now - started ))" -ge "$timeout" ]; then
+        last_progress="$started"
+        if [ -n "$progress_file" ] && [ -f "$progress_file" ]; then
+            progress="$(cat "$progress_file" 2>/dev/null || true)"
+            case "$progress" in
+                ''|*[!0-9]*) ;;
+                *)
+                    if [ "$progress" -gt "$last_progress" ]; then
+                        last_progress="$progress"
+                    fi
+                    ;;
+            esac
+        fi
+        if [ "$extended" -eq 0 ] && [ "$(( now - started ))" -ge "$timeout" ] \
+            && [ "$(( now - last_progress ))" -lt "$timeout" ]; then
+            extended=1
+            echo "[entrypoint] $name 已等待 ${timeout}s，数据库迁移仍在推进，继续等待（连续 ${timeout}s 无进展才判定失败）。"
+        fi
+        if [ "$(( now - last_progress ))" -ge "$timeout" ]; then
             WAIT_FAILURE_CODE=124
             WAIT_TIMED_OUT=1
             echo "[entrypoint] 等待 $name 就绪超过 ${timeout}s（${url}），停止本次启动。" >&2
@@ -509,6 +544,9 @@ wait_for_health() {
 start_api() {
     echo "[entrypoint] 启动后端 (FastAPI, 127.0.0.1:8000)……来源：$ACTIVE_SOURCE${ACTIVE_VERSION:+ v$ACTIVE_VERSION}"
     API_START_TS="$(date +%s)"
+    # 清掉上一次启动残留的心跳，免得把旧时间戳当成本次的迁移进展
+    mkdir -p "$STATE_DIR"
+    rm -f "$MIGRATION_PROGRESS_FILE"
     PYTHONPATH="$BACKEND_ROOT/src" APP_PORT=8000 "$PYTHON_BIN" -m movieclaw_api.main &
     API_PID=$!
 }
@@ -608,7 +646,8 @@ terminate_managed_processes() {
 start_current_code() {
     local api_timeout="${1:-$API_STARTUP_TIMEOUT_SECONDS}"
     start_api
-    if ! wait_for_health "后端" "$API_PID" "$API_HEALTH_URL" "$api_timeout"; then
+    if ! wait_for_health "后端" "$API_PID" "$API_HEALTH_URL" "$api_timeout" \
+        "" "" "$MIGRATION_PROGRESS_FILE"; then
         START_FAILURE_CODE="$WAIT_FAILURE_CODE"
         START_FAILURE_UPTIME=$(( $(date +%s) - API_START_TS ))
         START_FAILURE_IS_TIMEOUT="$WAIT_TIMED_OUT"
@@ -644,7 +683,8 @@ start_all() {
 restart_api_keeping_web() {
     stop_health_watchdog
     start_api
-    if ! wait_for_health "后端" "$API_PID" "$API_HEALTH_URL" "$API_RESTART_TIMEOUT_SECONDS"; then
+    if ! wait_for_health "后端" "$API_PID" "$API_HEALTH_URL" "$API_RESTART_TIMEOUT_SECONDS" \
+        "" "" "$MIGRATION_PROGRESS_FILE"; then
         START_FAILURE_CODE="$WAIT_FAILURE_CODE"
         START_FAILURE_UPTIME=$(( $(date +%s) - API_START_TS ))
         START_FAILURE_IS_TIMEOUT="$WAIT_TIMED_OUT"
@@ -702,6 +742,19 @@ handle_startup_failure() {
     return 0
 }
 
+# 基线是最后的兜底：连它都起不来，问题多半不在某个版本本身（慢机超时、数据库
+# 被别的版本迁移过、环境故障），之前的坏版本判定已不可信。留着标记，这台机器就
+# 只剩起不来的基线可选，再也回不到认得这个库的版本——用户实例：慢机上前端超时
+# 把唯一认库的 overlay 标坏，之后容器永远卡在基线报迁移错误，只能手动删标记。
+# 清掉标记，让 Docker 拉起的下一轮重新评估；真坏的版本会再次被标出来。
+forget_bad_overlays_if_baseline_failed() {
+    [ "$ACTIVE_SOURCE" = "baseline" ] || return 0
+    local markers=("$STATE_DIR"/bad-*)
+    [ -e "${markers[0]}" ] || return 0
+    echo "[entrypoint] 镜像内置版本也无法启动：清除之前的坏版本标记，容器重启后重新尝试已安装的版本。" >&2
+    rm -f "$STATE_DIR"/bad-* "$STATE_DIR"/failures-*
+}
+
 # 收到停止信号时把所有子进程（前后端、看门狗、占位页）都带走，确保容器干净退出。
 # SHUTTING_DOWN 标志让主循环把「停机导致的进程退出」与故障区分开——
 # 否则 overlay 启动后 60 秒内 docker stop 会被误计为一次「启动失败」，
@@ -729,6 +782,7 @@ boot_until_running() {
         if handle_startup_failure "$START_FAILURE_UPTIME" "$START_FAILURE_IS_TIMEOUT"; then
             continue
         fi
+        forget_bad_overlays_if_baseline_failed
         return 1
     done
 }

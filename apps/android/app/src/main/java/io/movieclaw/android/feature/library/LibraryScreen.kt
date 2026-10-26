@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -73,6 +74,7 @@ import kotlinx.coroutines.coroutineScope
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.movieclaw.android.core.designsystem.Bg
+import io.movieclaw.android.core.designsystem.glassSurface
 import io.movieclaw.android.core.designsystem.ContinueWatchingCard
 import io.movieclaw.android.core.designsystem.ErrorPane
 import io.movieclaw.android.core.designsystem.Loadable
@@ -90,6 +92,7 @@ import io.movieclaw.android.core.designsystem.Placeholder
 import io.movieclaw.android.core.designsystem.PosterCard
 import io.movieclaw.android.core.designsystem.RemoteImage
 import io.movieclaw.android.core.designsystem.SectionHeader
+import io.movieclaw.android.core.designsystem.TextFaint
 import io.movieclaw.android.core.designsystem.TextMuted
 import io.movieclaw.android.core.designsystem.TextPrimary
 import io.movieclaw.android.core.model.FavoriteItemView
@@ -110,6 +113,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
+import io.movieclaw.android.core.designsystem.mcCards
 
 /** 媒体库首屏的数据（统计行 / 接下来继续 / 我的收藏 / 每库一行 / 按类型的跨库行） */
 @HiltViewModel
@@ -121,7 +125,17 @@ class LibraryViewModel @Inject constructor(
     private val snapshotStore: io.movieclaw.android.core.session.LibraryHomeSnapshotStore,
     private val feedback: io.movieclaw.android.core.designsystem.FeedbackBus,
     private val playbackEvents: io.movieclaw.android.core.playback.PlaybackDataEvents,
+    /** 离线模式：断网时首页换成本机已下载内容（offline-download.md §1「离线媒体库」） */
+    private val offlineStore: io.movieclaw.android.core.offline.OfflineStore,
+    private val reachability: io.movieclaw.android.core.offline.ServerReachability,
 ) : ViewModel() {
+    val offlinePacks = offlineStore.packs
+    val offlinePhase = reachability.phase
+
+    init {
+        // 冷启动先核一次通路；断网时首页直接进离线模式（offline-download.md §2.4「进难出易」）
+        reachability.syncInitial()
+    }
     private val _state = MutableStateFlow<Loadable<LibraryHome>>(Loadable.Loading)
     val state = _state.asStateFlow()
 
@@ -496,7 +510,7 @@ private fun GenreTileCard(
     val shadowOffsetY = with(density) { 1.dp.toPx() }
     Box(
         modifier
-            .width(196.dp)
+            .width(mcCards.genreTileWidth)
             .height(124.6.dp)
             .clip(RoundedCornerShape(corner))
             .background(Color(0xFF202023))
@@ -683,6 +697,11 @@ fun LibraryScreen(
     onOpenCollection: (Long, String) -> Unit = { _, _ -> },
     vm: LibraryViewModel = hiltViewModel(),
 ) {
+    // 离线模式（offline-download.md §1）：断网且服务器不可达时，首页换成本机已下载的内容
+    val offlinePacks by vm.offlinePacks.collectAsStateWithLifecycle()
+    val offlinePhase by vm.offlinePhase.collectAsStateWithLifecycle()
+    val offlineMode = offlinePhase == io.movieclaw.android.core.offline.ServerReachability.Phase.OFFLINE
+
     val state by vm.state.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     var moreOpen by remember { mutableStateOf(false) }
@@ -691,7 +710,10 @@ fun LibraryScreen(
     val origin = vm.origin
 
     Box(Modifier.fillMaxSize().background(Bg)) {
-        when (val s = state) {
+        // 离线模式（offline-download.md §1）：断网时整页换成本机已下载内容
+        if (offlineMode) {
+            OfflineLibraryHome(packs = offlinePacks)
+        } else when (val s = state) {
             Loadable.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = TextMuted)
             }
@@ -735,7 +757,7 @@ fun LibraryScreen(
                         "媒体库",
                         fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp,
                         color = TextPrimary,
-                        modifier = Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 2.dp),
+                        modifier = Modifier.padding(horizontal = mcCards.pagePadding, vertical = 2.dp),
                     )
                     StorageStatsLine(home)
 
@@ -748,8 +770,8 @@ fun LibraryScreen(
                                 SectionHeader(data.row.title)
                                 Spacer(Modifier.height(McMetrics.sectionBottom))
                                 LazyRow(
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = McMetrics.pagePadding),
-                                    horizontalArrangement = Arrangement.spacedBy(McMetrics.rowSpacing),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = mcCards.pagePadding),
+                                    horizontalArrangement = Arrangement.spacedBy(mcCards.rowSpacing),
                                 ) {
                                     items(
                                         home.upNext.filterNot { up ->
@@ -819,8 +841,8 @@ fun LibraryScreen(
                                 )
                                 Spacer(Modifier.height(McMetrics.sectionBottom))
                                 LazyRow(
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = McMetrics.pagePadding),
-                                    horizontalArrangement = Arrangement.spacedBy(McMetrics.rowSpacing),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = mcCards.pagePadding),
+                                    horizontalArrangement = Arrangement.spacedBy(mcCards.rowSpacing),
                                 ) {
                                     items(home.favorites, key = { it.mediaItemId }) { fav ->
                                         val level = favoriteLevelLabel(
@@ -835,7 +857,7 @@ fun LibraryScreen(
                                             meta = listOfNotNull(fav.year?.toString(), level).joinToString(" · ")
                                                 .takeIf { it.isNotBlank() },
                                             rating = fav.rating?.takeIf { it > 0f },
-                                            modifier = Modifier.width(McMetrics.rowCardWidth),
+                                            modifier = Modifier.width(mcCards.posterWidth),
                                             onClick = { onOpenItem(fav.libraryId ?: -1L, fav.mediaItemId) },
                                         )
                                     }
@@ -847,8 +869,8 @@ fun LibraryScreen(
                                 SectionHeader("我的媒体库")
                                 Spacer(Modifier.height(McMetrics.sectionBottom))
                                 LazyRow(
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = McMetrics.pagePadding),
-                                    horizontalArrangement = Arrangement.spacedBy(McMetrics.rowSpacing),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = mcCards.pagePadding),
+                                    horizontalArrangement = Arrangement.spacedBy(mcCards.rowSpacing),
                                 ) {
                                     items(home.libraries, key = { it.id }) { lib ->
                                         LibraryCollageCard(
@@ -879,8 +901,8 @@ fun LibraryScreen(
                                 )
                                 Spacer(Modifier.height(McMetrics.sectionBottom))
                                 LazyRow(
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = McMetrics.pagePadding),
-                                    horizontalArrangement = Arrangement.spacedBy(McMetrics.rowSpacing),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = mcCards.pagePadding),
+                                    horizontalArrangement = Arrangement.spacedBy(mcCards.rowSpacing),
                                 ) {
                                     items(data.items, key = { "${data.row.id}-${it.mediaItemId}" }) { item ->
                                         PosterCard(
@@ -889,7 +911,7 @@ fun LibraryScreen(
                                             title = item.title,
                                             meta = item.year?.toString(),
                                             rating = item.rating?.takeIf { it > 0f },
-                                            modifier = Modifier.width(McMetrics.rowCardWidth),
+                                            modifier = Modifier.width(mcCards.posterWidth),
                                             onClick = { onOpenItem(item.libraryId ?: targetLibraryId ?: -1L, item.mediaItemId) },
                                         )
                                     }
@@ -905,7 +927,7 @@ fun LibraryScreen(
                                     SectionHeader(data.row.title)
                                     Spacer(Modifier.height(McMetrics.sectionBottom))
                                     LazyRow(
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = McMetrics.pagePadding),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = mcCards.pagePadding),
                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     ) {
                                         items(genres, key = { "genre-${k.kind}-${it.value}" }) { genre ->
@@ -932,8 +954,8 @@ fun LibraryScreen(
                         )
                         Spacer(Modifier.height(McMetrics.sectionBottom))
                         LazyRow(
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = McMetrics.pagePadding),
-                            horizontalArrangement = Arrangement.spacedBy(McMetrics.rowSpacing),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = mcCards.pagePadding),
+                            horizontalArrangement = Arrangement.spacedBy(mcCards.rowSpacing),
                         ) {
                             items(row.items, key = { "kind-${row.kind}-${it.mediaItemId}" }) { item ->
                                 PosterCard(
@@ -942,7 +964,7 @@ fun LibraryScreen(
                                     title = item.title,
                                     meta = item.year?.toString(),
                                     rating = item.rating?.takeIf { it > 0f },
-                                    modifier = Modifier.width(McMetrics.rowCardWidth),
+                                    modifier = Modifier.width(mcCards.posterWidth),
                                     onClick = { onOpenItem(item.libraryId ?: -1L, item.mediaItemId) },
                                 )
                             }
@@ -965,10 +987,14 @@ fun LibraryScreen(
             Spacer(Modifier.weight(1f))
             Row(
                 Modifier
-                    .height(36.dp)
+                    // 与右侧放大镜同高（44dp）；每钮位仍是 44 宽
+                    .height(44.dp)
+                    // 与「媒体库」大标题的视觉中心对齐（补偿口径见 McMetrics.topBarActionsOffset）
+                    .offset(y = io.movieclaw.android.core.designsystem.McMetrics.topBarActionsOffset)
                     .clip(RoundedCornerShape(999.dp))
                     .background(GlassCapsule)
-                    .border(1.dp, LineSoft, RoundedCornerShape(999.dp)),
+                    .border(1.dp, LineSoft, RoundedCornerShape(999.dp))
+                    .glassSurface(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
@@ -1004,19 +1030,39 @@ fun LibraryScreen(
             }
             // 搜索（入口口径是「任一搜索分区可用」：影视 / 资源 / 媒体库）；固定间隔成第二组
             if (io.movieclaw.android.core.session.LocalSearchAccess.current.canOpenSearch) {
-                Spacer(Modifier.width(10.dp))
-                McNavButton(Icons.Rounded.Search, contentDescription = "搜索", onClick = onOpenSearch)
+                // 间距与胶囊内两个钮位一致（44dp 图标中心距）：原来 10dp 时是 54dp，看着比
+                // 「▶ ⋯」之间远一截
+                Spacer(Modifier.width(2.dp))
+                McNavButton(
+                    Icons.Rounded.Search,
+                    contentDescription = "搜索",
+                    onClick = onOpenSearch,
+                    modifier = Modifier.offset(y = io.movieclaw.android.core.designsystem.McMetrics.topBarActionsOffset),
+                )
             }
         }
 
         // ⋯ 菜单：自定义首页 / 全部合集 / 管理媒体库（iOS library-more 三项）
+        // 一直组合、只切 visible：收起时缩回右上再移除
         if (moreOpen) {
             Box(Modifier.fillMaxSize().clickable { moreOpen = false })
+        }
+        io.movieclaw.android.core.designsystem.MenuAppear(
+            visible = moreOpen,
+            modifier = Modifier.align(Alignment.TopEnd),
+            originX = 0.85f,
+            originY = 0.1f,
+        ) {
             Column(
                 Modifier
-                    .align(Alignment.TopEnd)
                     .statusBarsPadding()
-                    .padding(end = McMetrics.pagePadding, top = 44.dp)
+                    // 落在「▶ ⋯」玻璃胶囊下方：胶囊高 44、比 52 的顶栏上下各留 4，
+                    // 再加 12 的视觉补偿 → 底边约在状态栏下 60dp；菜单从 72dp 起，
+                    // 不再压住片段 / ⋯ 胶囊（用户反馈）
+                    .padding(
+                        end = mcCards.pagePadding,
+                        top = McMetrics.topBarHeight + McMetrics.topBarActionsOffset + 8.dp,
+                    )
                     .width(190.dp)
                     .clip(RoundedCornerShape(McMetrics.menuRadius))
                     .background(MenuSurface)
@@ -1077,7 +1123,7 @@ private fun StorageStatsLine(home: LibraryHome) {
         style = McType.sub,
         color = TextMuted,
         lineHeight = androidx.compose.ui.unit.TextUnit(21f, androidx.compose.ui.unit.TextUnitType.Sp),
-        modifier = Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 8.dp),
+        modifier = Modifier.padding(horizontal = mcCards.pagePadding, vertical = 8.dp),
     )
 }
 
@@ -1096,12 +1142,12 @@ private fun LibraryCollageCard(
     onClick: () -> Unit,
 ) {
     Column(
-        Modifier.width(230.dp).clickable(onClick = onClick),
+        Modifier.width(mcCards.libraryCardWidth).clickable(onClick = onClick),
     ) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(110.dp)
+                .height((mcCards.libraryCardWidth.value * 110f / 230f).dp)
                 .clip(RoundedCornerShape(McMetrics.cardRadius))
                 .background(Placeholder),
         ) {
@@ -1170,4 +1216,66 @@ internal fun formatBytes(bytes: Long): String {
         i++
     }
     return if (value >= 100 || i == 0) "%.0f %s".format(value, units[i]) else "%.2f %s".format(value, units[i])
+}
+
+
+/** 离线首页：断网时替代常规首页（offline-download.md §1 的「离线媒体库」） */
+@Composable
+private fun OfflineLibraryHome(
+    packs: List<io.movieclaw.android.core.offline.OfflineStore.Pack>,
+) {
+    // 点条目 → 本机副本播放：经通知同一条路由总线（AppNav 消费后 navigate）
+    val onPlay: (io.movieclaw.android.core.offline.OfflineStore.Pack) -> Unit = { pack ->
+        io.movieclaw.android.core.notify.NotifyRouteBus.publish("localPlayer/${pack.mediaItemId}/${pack.fileId}")
+    }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(top = 120.dp),
+    ) {
+        Text(
+            "离线中 · 看本机已下载的 \${packs.size} 部",
+            style = McType.title3,
+            color = TextPrimary,
+            modifier = Modifier.padding(horizontal = 24.dp),
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "网络恢复后自动回到在线模式",
+            style = McType.caption,
+            color = TextFaint,
+            modifier = Modifier.padding(horizontal = 24.dp),
+        )
+        Spacer(Modifier.height(18.dp))
+        packs.forEach { pack ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onPlay(pack) }
+                    .padding(horizontal = 24.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(pack.title, style = McType.subheadline, color = TextPrimary)
+                    pack.subtitle?.let {
+                        Text(it, style = McType.caption2, color = TextFaint)
+                    }
+                }
+                Text(
+                    McFormat.bytes(pack.sizeBytes),
+                    style = McType.caption2,
+                    color = TextMuted,
+                )
+            }
+        }
+        if (packs.isEmpty()) {
+            Text(
+                "本机还没有下载内容。联网时在影片详情页点「下载」存到本机。",
+                style = McType.footnote,
+                color = TextFaint,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+            )
+        }
+    }
 }

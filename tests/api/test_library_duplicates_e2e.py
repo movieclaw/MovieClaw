@@ -32,7 +32,7 @@ import movieclaw_api.services.library.ingest as ingest_mod
 import movieclaw_api.services.library.scan as scan_mod
 import movieclaw_api.services.media_discover as discover_mod
 from movieclaw_api.core.config import get_settings
-from movieclaw_api.services import jobs
+from movieclaw_api.services import acquisition_ingest, jobs
 from movieclaw_api.services.library.recycle import TRASH_DIR_NAME
 from movieclaw_api.services.library.scan import scan_library
 from movieclaw_db.engine import dispose_db, get_database, init_db
@@ -168,7 +168,7 @@ async def db(tmp_path, monkeypatch):
     monkeypatch.setattr(ingest_mod, "_stability", {})
     monkeypatch.setattr(ingest_mod, "_deferred", {})
     monkeypatch.setattr(ingest_mod, "_last_swept", {})
-    monkeypatch.setattr(ingest_mod, "_briefs_cache", (float("-inf"), None))
+    monkeypatch.setattr(acquisition_ingest, "_briefs_cache", (float("-inf"), None))
     yield get_database()
     await jobs.close_job_dispatcher()
     await dispose_db()
@@ -185,7 +185,11 @@ async def client(db):
     admin = Principal(kind="admin", name="管理员")
     app.dependency_overrides[require_login] = lambda: admin
     app.dependency_overrides[require_admin] = lambda: admin
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        headers={"Accept-Language": "zh-Hans"},
+    ) as c:
         yield c
 
 

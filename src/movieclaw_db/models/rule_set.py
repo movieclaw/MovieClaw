@@ -30,6 +30,7 @@ class RuleSet(TimestampMixin, table=True):
     id: int | None = Field(default=None, primary_key=True)
 
     name: str = Field(index=True, unique=True, description="规则组名（唯一，展示用）")
+    name_key: str | None = Field(default=None)
     is_default: bool = Field(default=False, description="新订阅默认选中；全表至多一个 True")
     spec: dict = Field(
         default_factory=dict,

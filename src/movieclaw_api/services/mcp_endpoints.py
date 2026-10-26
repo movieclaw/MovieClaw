@@ -55,11 +55,9 @@ async def _save(config: McpEndpointsSetting) -> None:
 def _validate_slug(slug: str, *, existing: list[McpEndpoint], exclude_id: str = "") -> str:
     slug = slug.strip().lower()
     if not SLUG_PATTERN.match(slug):
-        raise BadRequestException(
-            "地址标识只能用小写字母、数字和连字符，且不能以连字符开头或结尾（如 home-assistant）"
-        )
+        raise BadRequestException(message_key="errors.mcp.slugInvalid")
     if any(e.slug == slug and e.id != exclude_id for e in existing):
-        raise ConflictException(f"地址标识「{slug}」已被其他端点占用，换一个")
+        raise ConflictException(message_key="errors.mcp.slugInUse", params={"slug": slug})
     return slug
 
 
@@ -67,15 +65,19 @@ def _validate_services(services: list[str]) -> list[str]:
     known = set(available_services())
     unknown = [s for s in services if s not in known]
     if unknown:
-        raise BadRequestException(f"这些服务不存在：{', '.join(unknown)}")
+        raise BadRequestException(
+            message_key="errors.mcp.servicesMissing", params={"services": ", ".join(unknown)}
+        )
     if not services:
-        raise BadRequestException("至少选择一个服务，否则这个端点没有任何工具")
+        raise BadRequestException(message_key="errors.mcp.servicesRequired")
     return sorted(set(services))
 
 
 def _validate_timeout(seconds: int) -> int:
     if not 5 <= seconds <= MAX_TIMEOUT_SECONDS:
-        raise BadRequestException(f"超时秒数必须在 5 到 {MAX_TIMEOUT_SECONDS} 之间")
+        raise BadRequestException(
+            message_key="errors.mcp.timeoutRange", params={"maximum": MAX_TIMEOUT_SECONDS}
+        )
     return seconds
 
 
@@ -92,7 +94,7 @@ async def create_endpoint(
     config = await get_config()
     name = name.strip()
     if not name:
-        raise BadRequestException("端点名称不能为空")
+        raise BadRequestException(message_key="errors.mcp.nameRequired")
     endpoint = McpEndpoint(
         id=secrets.token_hex(8),
         slug=_validate_slug(slug, existing=config.endpoints),
@@ -118,7 +120,7 @@ def _find(config: McpEndpointsSetting, endpoint_id: str) -> McpEndpoint:
     for endpoint in config.endpoints:
         if endpoint.id == endpoint_id:
             return endpoint
-    raise NotFoundException("端点不存在或已被删除")
+    raise NotFoundException(message_key="errors.mcp.endpointMissing")
 
 
 async def update_endpoint(
@@ -137,7 +139,7 @@ async def update_endpoint(
     endpoint = _find(config, endpoint_id)
     if name is not None:
         if not name.strip():
-            raise BadRequestException("端点名称不能为空")
+            raise BadRequestException(message_key="errors.mcp.nameRequired")
         endpoint.name = name.strip()
     if description is not None:
         endpoint.description = description.strip()

@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
@@ -29,7 +31,8 @@ import {
 } from "@/lib/page-chrome";
 import { SearchPrefsProvider } from "@/lib/search-prefs";
 import { buildSearchPath } from "@/lib/search-url";
-import { UiPrefsProvider, useTheme } from "@/lib/ui-prefs";
+import { UiPrefsProvider, useLayout, useUiPrefs } from "@/lib/ui-prefs";
+import { SplashLayer } from "@/components/auth-gate";
 import { useResolvedTheme } from "@/themes/registry";
 import { useIsMobile } from "@/lib/use-media-query";
 import { settingsSectionGroupsFor, settingsSections } from "@/lib/mock-data";
@@ -78,7 +81,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     {/* SubscribeEntryProvider：海报卡片「订阅影片」按钮的全站入口，
       订阅弹层只在这里挂一份（见 components/subscribe-entry.tsx）。 */}
     <SubscribeEntryProvider>
+    <ThemeGate>
     <AppShellBody>{children}</AppShellBody>
+    </ThemeGate>
     </SubscribeEntryProvider>
     </AgentConversationsProvider>
     </UiPrefsProvider>
@@ -88,7 +93,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * 主题就绪前不渲染外壳（docs/design/theme-plugins.md §4.3）：所选主题的外框组件还在加载、
+ * 或还不知道它装没装时，先显示与启动页同一副画面，免得先画默认外框再整体换掉。
+ * 有本地快照、模块预加载时几乎无感；加载失败或超时由 ui-prefs 回落默认主题并放行。
+ */
+function ThemeGate({ children }: { children: React.ReactNode }) {
+  const { themePending } = useUiPrefs();
+  return themePending ? <SplashLayer /> : children;
+}
+
 function AppShellBody({ children }: { children: React.ReactNode }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const router = useRouter();
   const pathname = usePathname();
   // PageNav 用这份会话标记在 Safari 判断「真实上一页是否仍在站内」；Chromium
@@ -96,10 +113,9 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   useAppNavigationTracking(pathname);
   // 移动端（< 768px）走另一套骨架：单栏 + 顶栏 + 底部标签栏，见文件末尾的分支渲染
   const isMobile = useIsMobile();
-  // 结构层主题：解析自主题注册表（换外壳 = 提供桌面顶栏 / 底部标签栏等坑位）。
-  // isNetflix 局部名沿用，语义 = 当前主题是结构级主题
-  const theme = useTheme();
-  const isNetflix = theme.structural;
+  // 版式（lib/themes.ts 的 ThemeLayout）：cinema = 顶栏 + 满出血骨架，外框组件
+  // 由主题坑位提供（桌面顶栏 / 底部标签栏等）
+  const cinema = useLayout() === "cinema";
   const { slots } = useResolvedTheme();
   const SettingsNav = slots.settingsNav;
   const MobileSettingsNav = slots.mobileSettingsNav;
@@ -183,7 +199,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
     (keyword: string, scope: SearchScope, options?: SearchSubmitOptions) => {
       router.push(
         buildSearchPath(
-          { keyword, scope, snapshotId: options?.snapshotId },
+          { keyword, also: options?.also, scope, snapshotId: options?.snapshotId },
           options?.vertical,
         ) as Route,
       );
@@ -196,7 +212,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   // 成员的清单里没有概览，落「个人信息」——避免把成员送进一个 403 分区
   const { session } = useSession();
   const defaultSettingsSection =
-    settingsSectionGroupsFor(session.role)[0]?.items[0]?.id ?? settingsSections[0].id;
+    settingsSectionGroupsFor(session.role, undefined, locale)[0]?.items[0]?.id ?? settingsSections[0].id;
   const openSettings = (sectionId: string = defaultSettingsSection) => {
     try {
       sessionStorage.setItem(
@@ -226,7 +242,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   // 页面内部的有限高度剧照，并由自身渐变保证内容可读。新增路由无需登记，
   // 自动继承蒙版。Netflix 主题是纯色平铺设计，蒙版整体不渲染（§3.5）。
   // Netflix 主题的 /library 顶部是原内容首页并入的全出血 Billboard
-  // （themes/netflix/components/library-hero.tsx），同为大图直出的氛围页：
+  // （plugins/netflix/src/components/library-hero.tsx），同为大图直出的氛围页：
   // 不加顶栏让位，让画面从透明顶栏底下穿过（银玻璃的 /library 不在此列）。
   // 判定本体抽在 lib/page-chrome.tsx 的 isHomeRoute：PageNav 的渲染入口要用
   // 同一份判定短路（Netflix 桌面全出血页渲染 PageNav 会被 z-40 顶栏盖住），
@@ -238,7 +254,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   // + 返回、空白正文、贴底输入条，见 components/new-task.tsx），发出第一条后
   // 原地变成 /sessions/[id]，两页外观必须同构才不会跳变。
   const isImmersive =
-    pathname.startsWith("/sessions/") || (isMobile && !isNetflix && pathname === "/new");
+    pathname.startsWith("/sessions/") || (isMobile && !cinema && pathname === "/new");
 
   // 沉浸路由标记：强刷时由 layout.tsx 的内联脚本在首帧绘制前打上（避免闪出
   // 背景大图），这里负责客户端路由切换时的双向同步——进入 /sessions/[id] 关掉背景
@@ -252,7 +268,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   const showMobileTopBar = isMobile && pageNavCount === 0;
   // 银玻璃移动端的液态玻璃底栏：Agent 会话页（沉浸路由）不显示——页底是会话
   // 输入行，底栏压上去就挡住了；iOS 信息的会话页同样收起标签栏。
-  const showGlassTabBar = isMobile && !isNetflix && !isImmersive;
+  const showGlassTabBar = isMobile && !cinema && !isImmersive;
   const pageChrome = useMemo(
     () => ({
       registerPageNav,
@@ -271,7 +287,8 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   );
 
   // 移动端主区内容：设置路由挂「返回 + 标题」条（/settings 是分区列表页，
-  // /settings/[x] 是分区内容页，返回链固定 /settings/[x] → /settings → /my），
+  // /settings/[x] 是分区内容页，/settings/[x]/[y] 是分区里的详情页（插件详情），
+  // 返回链固定 /settings/[x]/[y] → /settings/[x] → /settings → /my），
   // 其余路由原样。两个主题的移动端共用这一段（设置返回条与列表页是基础实现）。
   const mobileMainContent =
     isSettings && MobileSettingsNav ? (
@@ -279,19 +296,21 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
         <MobileSettingsNav
           title={
             isSettingsIndex
-              ? "设置"
-              : (settingsSections.find((s) => s.id === activeSettings)?.label ?? "设置")
+              ? t("settings.metadata.title")
+              : (settingsSectionGroupsFor(session.role, "all", locale).flatMap((g) => g.items).find((s) => s.id === activeSettings)?.label ?? t("settings.metadata.title"))
           }
           // 设置从「更多」页进（银玻璃是底栏头像页签、Netflix 是「我的」页签）：列表页的
           // 返回在银玻璃下按历史回（多半就是 /my），无历史时两个主题都落「更多 / 我的」页
           // 银玻璃的「个人信息」从「我的」页头像卡进（设置列表里不再单列，同原生 App），
           // 返回直接回「我的」，不垫一层设置列表
           backHref={
-            (isSettingsIndex || (!isNetflix && activeSettings === "profile")
+            (isSettingsIndex || (!cinema && activeSettings === "profile")
               ? "/my"
-              : "/settings") as Route
+              : pathname.split("/")[3]
+                ? `/settings/${activeSettings}`
+                : "/settings") as Route
           }
-          historyBack={isSettingsIndex && !isNetflix}
+          historyBack={isSettingsIndex && !cinema}
         />
         <div className="min-h-0 flex-1">{children}</div>
       </div>
@@ -304,7 +323,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   // （Netflix 主题下玻璃已停用，但侧栏仍只在设置模式出现，同样单实例。）
   const sidebarNode = isSettings ? (
     // 设置分区菜单走主题坑位：Netflix = 黑底文字菜单
-    // （themes/netflix/chrome/settings-sidebar），银玻璃 = 玻璃面板 + 胶囊行
+    // （plugins/netflix/src/chrome/settings-sidebar），银玻璃 = 玻璃面板 + 胶囊行
     // 的 SaaS 菜单；两者分区/选中语义同源，由注册表按主题解析
     <SettingsNav
       active={activeSettings}
@@ -324,7 +343,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   );
 
   // ============ Netflix 主题的结构层分支（§3.3 第 3 层） ============
-  if (isNetflix) {
+  if (cinema) {
     return (
       <PageChromeProvider value={pageChrome}>
         {isMobile ? (
@@ -344,19 +363,19 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
               />
             )}
             <main className="absolute inset-0">{mobileMainContent}</main>
-            <slots.mobileTabBar />
+            {!isImmersive && <slots.mobileTabBar />}
           </div>
         ) : (
           /* —— Netflix 桌面：顶栏 + 全宽内容 ——
              氛围页（首页 billboard / 详情 hero）全出血、内容从透明顶栏底下穿过；
-             其余页面由 .nf-nav-offset 为顶栏让位。设置模式保留「分区菜单 + 内容」
+             其余页面由 .topnav-offset 为顶栏让位。设置模式保留「分区菜单 + 内容」
              的信息架构（§0 决策 2：控制台页只换皮肤、不重排）。 */
           <div className="app-shell viewport-app-height relative z-10 w-full">
             {slots.desktopTopNav && (
               <slots.desktopTopNav onSearch={handleSearch} onOpenSettings={openSettings} />
             )}
             {isSettings ? (
-              <div className="nf-nav-offset absolute inset-0 flex">
+              <div className="topnav-offset absolute inset-0 flex">
                 {/* 分区菜单贴全站 4vw 左基线（与顶栏字标同一条线），内容区随后左锚定 */}
                 <aside className="h-full w-[300px] shrink-0 pl-[var(--page-inset)]">
                   {sidebarNode}
@@ -364,7 +383,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
                 <main className="h-full min-w-0 flex-1">{children}</main>
               </div>
             ) : (
-              <main className={`absolute inset-0 ${isHome ? "" : "nf-nav-offset"}`}>
+              <main className={`absolute inset-0 ${isHome ? "" : "topnav-offset"}`}>
                 {children}
               </main>
             )}
@@ -526,6 +545,7 @@ function MobileTopBar({
   /** 标题的附加选项：返回落点、大字、隐藏搜索 */
   titleOptions?: TopBarTitleOptions;
 }) {
+  const t = useTranslations();
   const router = useRouter();
   const pathname = usePathname();
   const backHref = titleOptions?.backHref;
@@ -533,23 +553,23 @@ function MobileTopBar({
   // 搜索入口按「任一搜索分区可用」露出（影视 / 资源 / 媒体库），不只看资源搜索开关
   const { canOpenSearch } = useSearchAccess();
   // 雾层色由 globals.css 的 html[data-theme="netflix"] .mobile-topbar 覆盖，组件里不用管。
-  const isNetflix = useTheme().structural;
-  const large = titleOptions?.large && !isNetflix;
+  const cinema = useLayout() === "cinema";
+  const large = titleOptions?.large && !cinema;
   return (
     <header className="mobile-topbar pointer-events-none absolute inset-x-0 top-0 z-40">
       <div className="pointer-events-auto flex h-[52px] items-center gap-2 px-3">
-        {leading && !isNetflix ? (
+        {leading && !cinema ? (
           <div className="flex min-w-0 shrink items-center pl-1">{leading}</div>
         ) : title ? (
           <>
             {/* 返回键（银玻璃）：会话页这类深层页在手机上底栏收起，
                 顶栏是唯一能离开的地方；能回就按历史回，回不了落到页面给的地址。
                 Netflix 主题的顶栏形态不动。 */}
-            {backHref && !isNetflix && (
+            {backHref && !cinema && (
               <button
                 type="button"
                 onClick={back}
-                aria-label="返回"
+                aria-label={t("nav.actions.back")}
                 className={`${PAGE_NAV_BUTTON_CLASS} shrink-0`}
               >
                 <ChevronLeftIcon className="size-[22px]" />
@@ -567,14 +587,14 @@ function MobileTopBar({
               {title}
             </h1>
           </>
-        ) : isNetflix ? (
+        ) : cinema ? (
           /* 字标可点区拉到 44px 高（与图标键同标准）——红色内联 SVG 本身保持
              h-7 的视觉大小，命中区靠按钮撑起，否则 28px 高的字标在触屏上很难点中。
              Netflix 主题没有首页：字标回媒体库（原内容首页已并入）。 */
           <button
             type="button"
             onClick={() => router.push("/library")}
-            aria-label="回到媒体库"
+            aria-label={t("nav.actions.library")}
             className="flex h-11 shrink-0 items-center transition-opacity active:opacity-60"
           >
             {/* 全站统一用 M 标：M 标 24px 方正得下，全字标 ≈125px 宽会占掉近三分之一顶栏 */}
@@ -590,12 +610,12 @@ function MobileTopBar({
           {actions}
           {/* 搜索固定在最右（右上角）。SearchCommand 自带全局 ⌘K 监听，全站只能挂一份：
               详情页的 PageNav 认领顶栏时本组件不渲染，搜索键改由 PageNav 挂 */}
-          {canOpenSearch && !(titleOptions?.hideSearch && !isNetflix) && (
+          {canOpenSearch && !(titleOptions?.hideSearch && !cinema) && (
             <div className="shrink-0">
               <SearchCommand
                 onSearch={onSearch}
                 triggerClassName={PAGE_NAV_BUTTON_CLASS}
-                preferredMode={isNetflix ? undefined : searchModeForPath(pathname)}
+                preferredMode={cinema ? undefined : searchModeForPath(pathname)}
               />
             </div>
           )}

@@ -23,6 +23,10 @@ struct ScrapeSettingsPayloadTests {
         }
     }
 
+    @Test func qualitySummaryKeepsWidthsUngrouped() {
+        #expect(SettingsBScrapeSummary.quality(setting) == "画质自定义 w500/original/w300/w185 · 海报 ≥500 · 背景 ≥1920")
+    }
+
     @Test func directoryWriteDoesNotMaterializeInheritedLanguage() throws {
         let data = try JSONEncoder().encode(SettingsBScrapeCard.mirror.payload(setting))
         let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])

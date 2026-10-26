@@ -25,6 +25,8 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import stored_fields
+from movieclaw_api.services.subscription.matching import units_reference
 from movieclaw_db.models import (
     ActivityType,
     MediaItem,
@@ -92,7 +94,6 @@ async def close_fulfilled_wanted(session: AsyncSession, media_item_id: int) -> i
 
     # 时间线与派生状态：逐订阅补记（对账可能一次关闭多个订阅的工单）
     from movieclaw_api.services.subscription import recompute_subscription_status
-    from movieclaw_api.services.subscription.matching import units_text
 
     item = await session.get(MediaItem, media_item_id)
     repo = SubscriptionRepository(session)
@@ -100,46 +101,32 @@ async def close_fulfilled_wanted(session: AsyncSession, media_item_id: int) -> i
         subscription = await session.get(Subscription, subscription_id)
         if subscription is None or item is None:
             continue
-        from movieclaw_api import domain_events
+        from movieclaw_api.services.subscription.events import publish_fulfilled
 
-        # 可靠事件随下面这条入库动态一起提交（plugin-phase2a.md §4）
-        await domain_events.record_subscription_units(
+        # 「订阅内容已入库」随下面这条入库动态一起提交（domain-events.md §8）。用户已经从订阅里
+        # 去掉的季集（in_scope 为假）顺带关掉了工单，但不是他在等的：只进 units，不进
+        # requested_units（通知只报后者）
+        await publish_fulfilled(
             session,
-            domain_events.SUBSCRIPTION_FULFILLED,
             subscription_id=subscription_id,
             item=item,
             units=[(w.season_number, w.episode_number) for w in wanted_rows],
+            requested_units=[
+                (w.season_number, w.episode_number) for w in wanted_rows if w.in_scope
+            ],
         )
         await repo.add_activity(
             SubscriptionActivity(
                 subscription_id=subscription_id,
                 wanted_item_id=wanted_rows[0].id,
                 type=ActivityType.IMPORTED,
-                message=f"{units_text(wanted_rows)}已入库（媒体库对账确认）",
                 payload={"units": [[w.season_number, w.episode_number] for w in wanted_rows]},
+                **stored_fields(
+                    "activity.subscription.reconciledImport", units=units_reference(wanted_rows)
+                ),
             )
         )
         await recompute_subscription_status(session, subscription, item)
-        # App 推送与 IM 通道：投一个事件，同一部剧的一批合成一张卡（cloud-push.md §5.1）。
-        # 用户已经从订阅里去掉的季集（in_scope 为假）顺带关掉了工单，但不是他在等的，不推
-        wanted_units = [(w.season_number, w.episode_number) for w in wanted_rows if w.in_scope]
-        if wanted_units:
-            from movieclaw_api.services.push import events as push_events
-
-            push_events.imported(
-                subscription_id=subscription_id, item_id=media_item_id, units=wanted_units
-            )
-        # 事件 Webhook(与 IM 推送同点位:入库已由库存对账确认,事件即事实)
-        from movieclaw_api.services.subscription.events import build_fulfilled_event
-        from movieclaw_api.services.webhook import emit_events
-
-        emit_events(
-            [
-                build_fulfilled_event(
-                    item, [(w.season_number, w.episode_number) for w in wanted_rows]
-                )
-            ]
-        )
         # 内容已进库，该订阅在途种子的落点告警（若有）自动熄灭
         from movieclaw_api.services.system_notice import resolve_notices
 
@@ -153,11 +140,6 @@ async def close_fulfilled_wanted(session: AsyncSession, media_item_id: int) -> i
 
     await audit_ingest_specs(session, media_item_id, fulfilled)
     logger.info("库存对账：条目 #%s 关闭了 %d 个工单", media_item_id, len(fulfilled))
-
-    # L4：通知媒体服务器刷新（未配置为 no-op；失败只告警）
-    from movieclaw_api.services.media_server_notify import notify_media_server_refresh
-
-    await notify_media_server_refresh()
     return len(fulfilled)
 
 
@@ -234,7 +216,6 @@ async def reopen_unfulfilled_wanted(
     await session.commit()
 
     from movieclaw_api.services.subscription import recompute_subscription_status
-    from movieclaw_api.services.subscription.matching import units_text
 
     item = await session.get(MediaItem, media_item_id)
     repo = SubscriptionRepository(session)
@@ -247,10 +228,10 @@ async def reopen_unfulfilled_wanted(
                 subscription_id=subscription_id,
                 wanted_item_id=wanted_rows[0].id,
                 type=ActivityType.REOPENED,
-                message=(
-                    f"{units_text(wanted_rows)}的文件已不属于本条目（身份被改正），重新开始寻找资源"
-                ),
                 payload={"units": [[w.season_number, w.episode_number] for w in wanted_rows]},
+                **stored_fields(
+                    "activity.subscription.identityCorrected", units=units_reference(wanted_rows)
+                ),
             )
         )
         await recompute_subscription_status(session, subscription, item)

@@ -23,10 +23,13 @@ ENGLISH_SUBTITLE, CHINESE_SUBTITLE = 3, 4
 
 
 @pytest.fixture
-def policy_env(seeded: dict) -> dict:
+def policy_env(seeded: dict, monkeypatch) -> dict:
     """把《盗梦空间》改成：国语配音标了默认、英语原声第二；英文字幕标了默认、中文第二；
     原始语言英语。媒体库语言是默认的 zh-CN。"""
     from movieclaw_api.core.config import get_settings
+
+    monkeypatch.setenv("TMDB_LANGUAGE", "zh-CN")
+    get_settings.cache_clear()
 
     async def _update() -> None:
         init_db(get_settings().database_url, echo=False)

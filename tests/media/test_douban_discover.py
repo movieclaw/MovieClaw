@@ -165,6 +165,8 @@ async def test_detail_maps_mobile_fields_to_shared_detail_model() -> None:
     assert detail.card.title == "流浪地球"
     assert detail.card.original_title == "The Wandering Earth"
     assert detail.card.extent == "125分钟"
+    assert detail.card.extent_key == "media.extent.compactMinutes"
+    assert detail.card.extent_params == {"count": 125}
     assert detail.facts.directors == ["郭帆"]
     assert detail.facts.director_credits[0].avatar_url == (
         "https://img.douban.test/director.jpg"

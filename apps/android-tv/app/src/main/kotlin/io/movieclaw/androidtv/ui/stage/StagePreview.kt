@@ -31,8 +31,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.compose.ContentFrame
 import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
-import io.movieclaw.androidtv.core.network.ServerAddress
-import io.movieclaw.androidtv.core.network.generated.McApi
+import io.movieclaw.core.network.ServerAddress
+import io.movieclaw.core.network.generated.McApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -45,7 +45,9 @@ import okhttp3.OkHttpClient
  * - 全局同时只有一个预告播放器，按条目 id 认：首页进详情是同一部就接着放；
  * - 0.5 秒后才建播放器并预滚到片段起点（停 2 秒以内划走的不白建）；
  * - 剧照被滚走就暂停、淡出，滚回来接着放；打开正片播放器时拆掉，关掉后重新开始；
- * - 原盘（镜像 / 目录）Exo 读不了，不放预告，只留剧照。
+ * - 原盘（镜像 / 目录）Exo 读不了，不放预告，只留剧照；
+ * - 服务端开了「片段预切」（docs/design/reels.md §8）：放切好的 1080p 小文件（原盘也有），没切好只留剧照，
+ *   下次划回来切好了就放。
  */
 @Stable
 class StagePreview(
@@ -155,16 +157,19 @@ class StagePreview(
         current = request
         if (interrupted) return
         cycle = scope.launch {
-            val shownAt = System.currentTimeMillis()
-            val dwell = launch { delay(DWELL_MS) }
-            val item = runCatching { api.reelsPreview(request.mediaItemId, request.source, request.season, request.episode) }.getOrNull() ?: return@launch
-            val raw = item.play.streamUrl ?: return@launch
-            if (item.play.disc != null) return@launch
+            // 停稳了才去要片段、建播放器：一路划过去的不发请求、不占解码器
+            delay(DWELL_MS)
+            // 声明会放预切片段（docs/design/reels.md §8）：服务端开了「片段预切」就只给切好的小文件，没切好为 null（保持剧照）
+            val item = runCatching {
+                api.reelsPreview(request.mediaItemId, request.source, request.season, request.episode, modes = "seek,clip")
+            }.getOrNull() ?: return@launch
+            val clip = item.play.mode == "clip"
+            val raw = (if (clip) item.play.clipUrl else item.play.streamUrl) ?: return@launch
+            // 原盘只有预切成小文件才放得了（Exo 读不了原盘目录 / 镜像）
+            if (!clip && item.play.disc != null) return@launch
             val url = server.resolve(raw) ?: return@launch
-            val elapsed = System.currentTimeMillis() - shownAt
-            if (elapsed < ENGINE_DELAY_MS) delay(ENGINE_DELAY_MS - elapsed)
-            startPlayer(url.toString(), item.segment.startMs, item.segment.endMs)
-            dwell.join()
+            // 预切片段第 0 秒就是片段起点、文件尾就是终点：整段放，不截
+            if (clip) startPlayer(url.toString(), 0, 0) else startPlayer(url.toString(), item.segment.startMs, item.segment.endMs)
             dwellDone = true
             startIfReady()
         }
@@ -244,13 +249,8 @@ class StagePreview(
     private fun teardown(keepEnded: Boolean = false) {
         cycle?.cancel()
         cycle = null
-        player?.let { old ->
-            old.pause()
-            scope.launch {
-                delay(500)
-                old.release()
-            }
-        }
+        // 立刻释放：同一时间只留一个播放器（原先晚 0.5 秒放，换片时新旧两路解码器会叠在一起）
+        player?.release()
         player = null
         showing = false
         dwellDone = false
@@ -262,7 +262,6 @@ class StagePreview(
 
     private companion object {
         const val DWELL_MS = 2_000L
-        const val ENGINE_DELAY_MS = 500L
     }
 }
 

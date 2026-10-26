@@ -8,7 +8,7 @@
   按「这个监听器不存在」处理（内核隔离 + 调用方校验）。
 - 载荷是冻结模型，监听器要改就构造新的传给 ``next``。
 
-业务代码拿不到内核总线，所以由内置插件 ``core.registries`` 在启动时 ``bind_bus``；
+业务代码拿不到内核总线，由内置插件 ``core.registries`` 在启动时绑到 ``movieclaw_api.events``；
 没绑（命令行、单测）时一切走默认实现。
 """
 
@@ -29,40 +29,35 @@ logger = logging.getLogger("movieclaw_api.hooks")
 P = TypeVar("P")
 R = TypeVar("R")
 
-_bus: EventBus | None = None
+def _bus() -> EventBus | None:
+    from movieclaw_api import events
 
-
-def bind_bus(bus: EventBus) -> None:
-    global _bus
-    _bus = bus
-
-
-def unbind_bus(bus: EventBus) -> None:
-    global _bus
-    if _bus is bus:
-        _bus = None
+    return events.bus()
 
 
 def active(event: Event[Any, Any]) -> bool:
-    """有没有插件在听：没有就不必构造载荷（零开销的前半段）。"""
-    return _bus is not None and bool(_bus.listeners(event))
+    """有没有插件在听：没有就不必构造载荷（零开销的前半段）。
+
+    系统事件（「发生了什么」）不走这里，经 ``movieclaw_api.events.publish`` 产生。"""
+    bus = _bus()
+    return bus is not None and bool(bus.listeners(event))
 
 
 async def waterfall(
     event: Event[P, R], payload: P, *, terminal: Callable[[P], R | Awaitable[R]]
 ) -> R:
-    if not active(event):
+    bus = _bus()
+    if bus is None or not bus.listeners(event):
         result = terminal(payload)
         return await result if inspect.isawaitable(result) else result  # type: ignore[return-value]
-    assert _bus is not None
-    return await _bus.waterfall(event, payload, terminal=terminal)
+    return await bus.waterfall(event, payload, terminal=terminal)
 
 
 async def bail(event: Event[P, R], payload: P) -> R | None:
-    if not active(event):
+    bus = _bus()
+    if bus is None or not bus.listeners(event):
         return None
-    assert _bus is not None
-    return await _bus.bail(event, payload)
+    return await bus.bail(event, payload)
 
 
 class _Frozen(BaseModel):
@@ -184,11 +179,32 @@ class Veto(_Frozen):
     reason: str
 
 
+# ---------------------------------------------------------------------- 播放
+class MountedFile(_Frozen):
+    """strm 指向服务器上的本地文件（多为网盘挂载），播放器正要来取。"""
+
+    file_id: int
+    path: str
+    """strm 指向的真实文件（已展开软链），例如 ``/cd2/CloudDrive/115/电影/a.mkv``。"""
+    user_agent: str | None = None
+    """播放器的 User-Agent：115 一类直链与它绑定，取直链时要带上。"""
+
+
+class DirectLink(_Frozen):
+    url: str
+    """播放器能直连的 http(s) 地址。也可以是内网的 302 服务（alist ``/d/…``）：系统会带着
+    播放器的 User-Agent 替它跟跳转，落到外网地址再交给播放器；落不到就当没给。"""
+    ttl_s: int = 60
+    """这条地址可以复用多久（秒）。系统按（文件, 播放器 UA）缓存，最长 1 小时；
+    应短于直链本身的有效期。"""
+
+
 SEARCH_KEYWORDS = _hook(
     "subscription.search.keywords",
     Mode.WATERFALL,
     Keywords,
     tuple,
+    # i18n-ignore: contract documentation for plugin developers
     "搜索关键词：在内部推导的关键词基础上追加或替换（核心截到 6 个以内）",
 )
 CANDIDATES_FILTER = _hook(
@@ -196,6 +212,7 @@ CANDIDATES_FILTER = _hook(
     Mode.WATERFALL,
     CandidateBatch,
     FilterResult,
+    # i18n-ignore: contract documentation for plugin developers
     "候选淘汰：规则评估之后按插件规则再淘汰（只能淘汰不能添加，淘汰原因写进订阅动态）",
 )
 CANDIDATES_RANK = _hook(
@@ -203,6 +220,7 @@ CANDIDATES_RANK = _hook(
     Mode.WATERFALL,
     CandidateBatch,
     RankResult,
+    # i18n-ignore: contract documentation for plugin developers
     "候选排序：在核心排序的基础上重排（必须是原集合的重排）",
 )
 DOWNLOADER_SELECT = _hook(
@@ -210,6 +228,7 @@ DOWNLOADER_SELECT = _hook(
     Mode.BAIL,
     DownloaderQuery,
     DownloaderChoice,
+    # i18n-ignore: contract documentation for plugin developers
     "选下载器：按体积 / 站点 / 类型分流（只在没有显式指定时询问；须启用且可用）",
 )
 TORRENT_BEFORE_DELETE = _hook(
@@ -217,7 +236,18 @@ TORRENT_BEFORE_DELETE = _hook(
     Mode.BAIL,
     TorrentDeletion,
     Veto,
+    # i18n-ignore: contract documentation for plugin developers
     "删种前否决：例如 H&R 未达标不许删（否决后删除返回 409）",
+)
+
+STRM_DIRECT_LINK = _hook(
+    "playback.strm.direct-link",
+    Mode.BAIL,
+    MountedFile,
+    DirectLink,
+    # i18n-ignore: contract documentation for plugin developers
+    "网盘挂载直链：strm 指向服务器挂载目录里的文件时，给播放器换一个能直连的网盘地址"
+    "（302 过去，视频流量不经服务器）；不认领返回 None。只读查询可以，但要快",
 )
 
 #: 关键词上限：每个关键词都是一次全站搜索

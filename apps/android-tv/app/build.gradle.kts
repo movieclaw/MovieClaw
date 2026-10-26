@@ -56,11 +56,18 @@ android {
         compose = true
         buildConfig = true
     }
+    // Robolectric 跑 Compose 焦点 / 遥控器按键测试，并截预览图到 build/ui-previews/
+    testOptions.unitTests.isIncludeAndroidResources = true
+    testOptions.unitTests.all {
+        it.maxHeapSize = "2g"
+        it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+    }
 }
 
 dependencies {
     implementation(project(":core:session"))
     implementation(project(":core:playback"))
+    implementation(project(":core:update"))
     // FFmpeg 音频软解：Exo 按类名反射加载，只要在 APK 里（§4.3）
     implementation(project(":core:ffmpeg"))
     implementation(libs.androidx.core.ktx)
@@ -74,12 +81,16 @@ dependencies {
     implementation(libs.compose.material.icons)
     implementation(libs.zxing.core)
     implementation(libs.androidx.tvprovider)
-    implementation(libs.media3.ui.compose)
-    implementation(libs.media3.datasource.okhttp)
+    implementation(shared.media3.ui.compose)
+    implementation(shared.media3.datasource.okhttp)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     debugImplementation(libs.compose.ui.tooling)
-    testImplementation(libs.junit)
+    testImplementation(shared.junit)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    testImplementation(libs.robolectric)
+    debugImplementation(libs.compose.ui.test.manifest)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.uiautomator)

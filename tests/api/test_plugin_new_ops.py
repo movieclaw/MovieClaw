@@ -35,7 +35,7 @@ def client(tmp_path, monkeypatch):
     admin = Principal(kind="admin", name="tester")
     app.dependency_overrides[require_admin] = lambda: admin
     app.dependency_overrides[require_login] = lambda: admin
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         yield c
     get_settings.cache_clear()
     durable_events.reset_state()

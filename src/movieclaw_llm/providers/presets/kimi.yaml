@@ -1,16 +1,20 @@
 # Kimi 开放平台（月之暗面官方，api.moonshot.cn，OpenAI 兼容）。
-# 模型数据以官方文档为准（platform.kimi.com，核实于 2026-09-01）。
-# max_output_tokens 记官方默认值（k3 的 max_completion_tokens 默认 131072、
-# 最高可设 1048576；K2.6 默认 32768、上限未公布）。思考无预算参数，
+# 核实于 2026-10-13：
+# https://platform.kimi.com/docs/models
+# https://platform.kimi.com/docs/guide/kimi-k3-quickstart
+# https://platform.kimi.com/docs/guide/kimi-k2-7-code-quickstart
+# https://platform.kimi.com/docs/guide/kimi-k2-6-quickstart
+# 最大输出与默认输出分开记录；K2 系仅公布默认 32768，最大上限留空。
+# K3 使用 max_completion_tokens，最高 1048576、默认 131072。思考无预算参数，
 # max_thinking_tokens 留空。parallel_tool_calls 官方未公布，一律不声明。
-# 编程专用的 kimi-k2.7-code / -highspeed 未收录（强制思考 + tool_choice
-# 受限，面向代码场景）。kimi-k2.5 已于 2026-08-31 下线，随目录移除。
+# K2.7 Code 为始终思考；K2.6 可关。kimi-k2.5 已于 2026-08-31 下线。
 id: kimi
 display_name: Kimi 官方（月之暗面）
 protocol: openai_chat
 base_url: https://api.moonshot.cn/v1
 compat:
   thinking_field: reasoning_content
+  preserve_thinking: true
   supports_stream_usage: true
 models:
   # 旗舰：2.8T 总参 MoE，1M 上下文，原生视觉理解（图片/视频输入）。
@@ -19,19 +23,38 @@ models:
   # temperature/top_p 官方固定（1.0/0.95），实例配置里请勿另设。
   - id: kimi-k3
     context_window: 1048576
-    max_output_tokens: 131072
+    max_output_tokens: 1048576
+    default_output_tokens: 131072
+    max_tokens_parameter: max_completion_tokens
+    fixed_sampling: true
     supports_tools: true
     supports_thinking: true
     thinking_control:
       kind: effort
       levels: [low, high, max]
     modalities: [text, image, video]
+  # 官方当前 Code / 高速 Code 均为 256K、文本/图片/视频，不能关闭思考
+  - id: kimi-k2.7-code
+    context_window: 262144
+    default_output_tokens: 32768
+    fixed_sampling: true
+    supports_tools: true
+    supports_thinking: true
+    modalities: [text, image, video]
+  - id: kimi-k2.7-code-highspeed
+    context_window: 262144
+    default_output_tokens: 32768
+    fixed_sampling: true
+    supports_tools: true
+    supports_thinking: true
+    modalities: [text, image, video]
   # K2 主力：1T 总参 / 32B 激活 MoE，混合思考，原生多模态。
   # 思考走 thinking.type（enabled 默认 / disabled 可关）——toggle 方言，
   # 菜单为「默认/关」。temperature 分模式固定（思考 1.0 / 非思考 0.6）。
   - id: kimi-k2.6
     context_window: 262144
-    max_output_tokens: 32768
+    default_output_tokens: 32768
+    fixed_sampling: true
     supports_tools: true
     supports_thinking: true
     thinking_control:

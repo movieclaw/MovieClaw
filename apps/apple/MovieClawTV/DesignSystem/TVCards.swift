@@ -71,6 +71,10 @@ enum TVCardCaption {
     /// 不预留位置——「片名 · 年份」合成一行，浮在卡片下方的行间空隙里（同系统 Apple TV App 的紧凑行距；
     /// 预留时每排海报底下常年空着一截，2026-10-04 用户嫌行与行之间空出一块）
     case focused
+    /// 只有焦点所在的那张显示，「片名 · 年份」浮在海报底部的暗带里（同影人页的焦点暗带）：海报墙用。
+    /// 海报墙上下两排挨得近，片名浮在行间会压到下一排；收进图里不占排版，网格也不变。
+    /// 很多海报只印英文、艺术字甚至没字，大库里一张张认不出来是哪部（#942），聚焦时得把库里的片名写出来
+    case band
     /// 不显示
     case hidden
 }
@@ -109,6 +113,37 @@ struct TVPosterCard: View {
         }
         .buttonStyle(.borderless)
         .accessibilityLabel(title)
+    }
+}
+
+/// 演职员竖版长卡（同 iPhone 详情页的演职员卡，2026-10-12 用户要求换掉圆头像）：2:3 照片，下面常显姓名与角色。
+/// 焦点效果与海报卡同一套（`.borderless` 放大抬起）；没有照片的人画姓名首字，一格仍是一位演员，不是坏图
+struct TVPersonPortraitCard: View {
+    let name: String
+    let role: String?
+    let imageURL: URL?
+    let action: () -> Void
+
+    /// 比海报（266）小一档：人物是辅助信息，一排比海报多放一两位
+    static let width: CGFloat = 200
+
+    var body: some View {
+        Button(action: action) {
+            TVCardLabel(title: name, subtitle: role, width: Self.width, caption: .always, badge: nil, compactCaption: true) {
+                ZStack {
+                    LinearGradient(colors: [Color(white: 0.3), Color(white: 0.16)], startPoint: .top, endPoint: .bottom)
+                    Text(TVAvatar.initials(name))
+                        .font(.system(size: Self.width * 0.3, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.35))
+                    if let imageURL {
+                        RemoteImage(url: imageURL, placeholderText: "")
+                    }
+                }
+                .frame(width: Self.width, height: Self.width * 1.5)
+            }
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel([name, role].compactMap { $0 }.joined(separator: "，"))
     }
 }
 
@@ -204,7 +239,7 @@ struct TVLibraryCard: View {
             }
         }
         .buttonStyle(.borderless)
-        .accessibilityLabel(collection ? "合集「\(name)」，\(count) 部" : "\(name)，\(count) 部")
+        .accessibilityLabel(collection ? String(localized: .libraryCollectionTitleCount(name, count)) : String(localized: .libraryNamedTitleCount(name, count)))
     }
 
     /// 卡片 16:9、封面 21:10：封面贴顶完整显示（服务端按 21:10 拼图，4 张海报几乎铺满左右，撑满 16:9 会把两边的海报
@@ -250,7 +285,7 @@ struct TVLibraryCard: View {
     private var collectionTag: some View {
         HStack(spacing: 6) {
             Image(systemName: "rectangle.stack")
-            Text("合集")
+            Text(String(localized: .libraryCollectionsPageTitle))
         }
         .font(.system(size: 20, weight: .semibold))
         .foregroundStyle(.white.opacity(0.88))
@@ -277,7 +312,7 @@ struct TVGenreCard: View {
             Face(label: label, count: count, mediaKind: mediaKind, coverURL: coverURL, width: width)
         }
         .buttonStyle(GenreButtonStyle())
-        .accessibilityLabel("浏览\(label)，\(count) 部\(mediaKind == "tv" ? "剧集" : "电影")")
+        .accessibilityLabel((mediaKind == "tv" ? String(localized: .libraryBrowseGenreSeries(label, count)) : String(localized: .libraryBrowseGenreMovies(label, count))))
     }
 
     // tvOS 的 plain 仍带系统焦点玻璃；只使用上面的细描边与 1.07× 放大。
@@ -304,7 +339,10 @@ struct TVGenreCard: View {
                         .strokeBorder(.white.opacity(isFocused ? 0.88 : 0), lineWidth: 3)
                 }
                 .scaleEffect(isFocused ? 1.07 : 1)
-                .shadow(color: .black.opacity(isFocused ? 0.4 : 0), radius: 18, y: 12)
+                .background {
+                    TVFocusShadow(focused: isFocused, cornerRadius: 20 * width / 416, style: .continuous,
+                                  opacity: 0.4, radius: 18, y: 12, scale: isFocused ? 1.07 : 1)
+                }
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.23), value: isFocused)
                 .preference(key: TVRowFocusKey.self, value: isFocused)
         }
@@ -324,7 +362,7 @@ struct TVSeeAllCard: View {
             SeeAllLabel(total: total, width: width)
         }
         .buttonStyle(.borderless)
-        .accessibilityLabel(total.map { "查看全部 \($0) 部" } ?? "查看全部")
+        .accessibilityLabel(total.map { String(localized: .libraryHomeViewFavorites($0)) } ?? String(localized: .libraryHomeViewAll))
     }
 
     private struct SeeAllLabel: View {
@@ -336,10 +374,10 @@ struct TVSeeAllCard: View {
             VStack(spacing: 18) {
                 Image(systemName: "square.grid.2x2")
                     .font(.system(size: 48, weight: .regular))
-                Text("查看全部")
+                Text(String(localized: .libraryHomeViewAll))
                     .font(.system(size: 28, weight: .semibold))
                 if let total {
-                    Text("\(total) 部")
+                    Text(String(localized: .libraryStatusTitleCount(total)))
                         .font(.system(size: 22))
                         .opacity(0.7)
                 }
@@ -376,6 +414,8 @@ private struct TVCardLabel<Art: View>: View {
     let badge: String?
     var focusDetail: String?
     var note: TVCardNote?
+    /// 小一号的说明文字（人物卡：译名动辄七八个字，按海报卡的字号一半都要截断）
+    var compactCaption = false
     @ViewBuilder let art: () -> Art
 
     /// 在按钮的标签里读到的是这张卡（按钮）的焦点
@@ -392,6 +432,13 @@ private struct TVCardLabel<Art: View>: View {
                             .padding(.vertical, 6)
                             .background(.black.opacity(0.6), in: .capsule)
                             .padding(12)
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if caption == .band {
+                        focusBand
+                            .opacity(isFocused ? 1 : 0)
+                            .animation(.easeOut(duration: 0.2), value: isFocused)
                     }
                 }
                 .overlay(alignment: .bottom) {
@@ -422,11 +469,11 @@ private struct TVCardLabel<Art: View>: View {
             if caption == .always {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.callout.weight(.medium))
+                        .font(compactCaption ? .system(size: 24, weight: .semibold) : .callout.weight(.medium))
                         .lineLimit(1)
                     if let subtitle {
                         Text(subtitle)
-                            .font(.caption)
+                            .font(compactCaption ? .system(size: 20) : .caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -453,6 +500,35 @@ private struct TVCardLabel<Art: View>: View {
         .preference(key: TVRowFocusKey.self, value: isFocused)
     }
 
+    /// `.band` 的暗带：一行放得下就写「片名 · 年份」；放不下时片名折成两行（再长才截断），年份另起一行——
+    /// 截断只落在片名上，年份永远看得见（合成一行截断时被截掉的正是末尾的年份）
+    private var focusBand: some View {
+        ViewThatFits(in: .horizontal) {
+            Text("\(Text(title))\(Text(subtitle.map { " · \($0)" } ?? "").foregroundStyle(.white.opacity(0.7)))")
+                .lineLimit(1)
+                .fixedSize()
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .lineLimit(2)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            }
+        }
+        .font(.system(size: 24, weight: .semibold))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 18)
+        .padding(.top, 60)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            LinearGradient(colors: [.clear, .black.opacity(0.55), .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+        }
+        .allowsHitTesting(false)
+    }
+
     /// `.focused` 的片名：不占排版，从图的底边再往下让出焦点放大的余量（放大约 1.1 倍，
     /// 400 高的海报下沿往下长约 20），落在行间空隙里。空隙（行底留白 20 + 行距 56）只够一行，
     /// 所以片名与副标题合成一行、放不下就截断
@@ -466,6 +542,45 @@ private struct TVCardLabel<Art: View>: View {
             .opacity(isFocused ? 1 : 0)
             .animation(.easeOut(duration: 0.2), value: isFocused)
             .allowsHitTesting(false)
+    }
+}
+
+/// 卡片获得焦点时的投影：挂在卡片底下一块同形状的黑底上，只在获得焦点时显形（整层透明度跟着焦点渐变）。
+/// 不直接 `.shadow` 在卡片上、没焦点时把颜色调成透明：那样每张没焦点的卡照样每帧离屏算一遍投影
+/// （2026-10-11 模拟器量：类型行左右换卡 GPU 每秒 63→10 毫秒）；透明度为 0 的层系统不画。
+/// 黑底与卡片同形状、垫在卡片正下方，卡片不透明时看不见它，投影的轮廓与原先挂在卡片上的一样
+/// 卡片获得焦点会放大的（类型卡、头像），`scale` 传同一个放大倍数：黑底先跟着放大、再投影，与原先投在放大后的卡片上一样
+struct TVFocusShadow<S: InsettableShape>: View {
+    let focused: Bool
+    let shape: S
+    let opacity: Double
+    let radius: CGFloat
+    let y: CGFloat
+    var scale: CGFloat = 1
+
+    init(focused: Bool, shape: S, opacity: Double, radius: CGFloat, y: CGFloat, scale: CGFloat = 1) {
+        self.focused = focused
+        self.shape = shape
+        self.opacity = opacity
+        self.radius = radius
+        self.y = y
+        self.scale = scale
+    }
+
+    var body: some View {
+        shape
+            .fill(.black)
+            .scaleEffect(scale)
+            .shadow(color: .black.opacity(opacity), radius: radius, y: y)
+            .opacity(focused ? 1 : 0)
+    }
+}
+
+extension TVFocusShadow where S == RoundedRectangle {
+    init(focused: Bool, cornerRadius: CGFloat, style: RoundedCornerStyle = .circular, opacity: Double, radius: CGFloat, y: CGFloat,
+         scale: CGFloat = 1) {
+        self.init(focused: focused, shape: RoundedRectangle(cornerRadius: cornerRadius, style: style),
+                  opacity: opacity, radius: radius, y: y, scale: scale)
     }
 }
 
@@ -503,7 +618,16 @@ struct TVShelf<Content: View>: View {
     var detail: String?
     /// 收起行标题（占位不变）：首页大图预告开播、卡片行让位时用
     var titleHidden = false
-    @ViewBuilder let content: () -> Content
+    /// 这一行的卡片：在上层重算时建好存下来，不存闭包——存闭包的话焦点进出这一行（行标题亮暗）都要重跑一遍、
+    /// 整行卡片跟着重建（2026-10-11 模拟器：首页上下换行时主线程一下 30 多毫秒）
+    let content: Content
+
+    init(title: String, detail: String? = nil, titleHidden: Bool = false, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.detail = detail
+        self.titleHidden = titleHidden
+        self.content = content()
+    }
 
     /// 焦点在不在这一行：在就把行标题点亮，不在就压暗（同系统 Apple TV App：眼睛自然落在当前这一行）
     @State private var rowFocused = false
@@ -528,7 +652,7 @@ struct TVShelf<Content: View>: View {
             .opacity(titleHidden ? 0 : 1)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: TVMetrics.cardSpacing) {
-                    content()
+                    content
                 }
                 .padding(.horizontal, TVMetrics.edge)
                 .padding(.vertical, 20)
@@ -583,7 +707,7 @@ extension Formatters {
     static func remaining(positionMs: Int, durationMs: Int?) -> String? {
         guard let durationMs, durationMs > 0 else { return nil }
         let minutes = max(1, (durationMs - positionMs) / 60_000)
-        if minutes >= 60 { return "剩 \(minutes / 60) 小时 \(minutes % 60) 分" }
-        return "剩 \(minutes) 分钟"
+        if minutes >= 60 { return String(localized: .libraryRemainingHoursMinutes(minutes / 60, minutes % 60)) }
+        return String(localized: .libraryRemainingMinutes(minutes))
     }
 }

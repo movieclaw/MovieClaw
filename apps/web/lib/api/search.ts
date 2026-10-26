@@ -1,3 +1,4 @@
+import { appTranslator } from "@/lib/i18n/translate";
 import { HttpError, redirectToLoginOn401, request, resolveRequestUrl } from "@/lib/http";
 import {
   toDiscoveredSearchItem,
@@ -8,7 +9,7 @@ import {
   type TitleSearchDto,
 } from "@/lib/api/discover";
 import type { LibraryItem } from "@/lib/api/libraries";
-import type { SearchScope, SearchTab, TorrentCategory } from "@/lib/categories";
+import type { SearchCategoryLabelKey, SearchScope, SearchTab, TorrentCategory } from "@/lib/categories";
 import type { MediaSource } from "@/lib/media-types";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
@@ -107,6 +108,8 @@ export interface SiteSearchStatus {
   count: number;
   /** 失败原因（可读中文）；成功为 null */
   error: string | null;
+  error_key?: string | null;
+  error_params?: Record<string, string | number> | null;
   /** 该站从发起到返回/失败的耗时（毫秒）；老快照数据可能为 null */
   elapsed_ms: number | null;
   /** 该站明确告知后面还有没有页；null / 缺省 = 不确定（老服务器没有这个字段） */
@@ -116,8 +119,11 @@ export interface SiteSearchStatus {
 /** 跨站聚合搜索结果（见 schemas.search.SearchResponse）。 */
 export interface SearchResponse {
   keyword: string;
+  /** 同搜词回显（后端清洗去重后）；只搜主词时为 null */
+  also_keywords?: string[] | null;
   /** 请求方传入的展示名回显（分类中文名/预设名）；null=全部 */
   label: string | null;
+  label_key?: SearchCategoryLabelKey | null;
   /** 分类组合回显；空=不限分类 */
   categories: TorrentCategory[];
   total: number;
@@ -129,10 +135,13 @@ export interface SearchResponse {
 export interface SearchHistoryItem {
   id: number;
   keyword: string;
+  /** 同搜词快照（英文名/原名）：点历史重搜时原样带上；null=只搜主词（老服务端没有该字段） */
+  also_keywords?: string[] | null;
   /** 搜索垂直；公开契约使用与 CLI 一致的领域名。 */
   vertical: "titles" | "torrents";
   /** 展示名快照（分类中文名/预设名）；null=全部 */
   label: string | null;
+  label_key?: SearchCategoryLabelKey | null;
   /** 分类组合快照（已排序去重）；空=不限分类 */
   categories: TorrentCategory[];
   /** 站点组合快照；空=全部站点 */
@@ -165,7 +174,10 @@ export interface TorrentSearchHistoryResults {
   vertical: "torrents";
   history_id: number;
   keyword: string;
+  /** 同搜词快照；null=只搜主词 */
+  also_keywords?: string[] | null;
   label: string | null;
+  label_key?: SearchCategoryLabelKey | null;
   categories: TorrentCategory[];
   site_ids: string[];
   /** 快照生成时间（带时区的 ISO 串），提示条用 lib/time.ts 换算相对时间 */
@@ -185,7 +197,7 @@ export async function getTorrentSearchHistoryResults(
   const result = await unwrap(
     request<ApiEnvelope<SearchHistoryResults>>(`/search/history/${historyId}/results`, init),
   );
-  if (result.vertical !== "torrents") throw new Error("该历史记录不是 PT 种子搜索");
+  if (result.vertical !== "torrents") throw new Error(appTranslator()("search.results.wrongTorrentHistory"));
   return result;
 }
 
@@ -219,7 +231,7 @@ export async function getTitleSearchHistoryResults(
   const result = await unwrap(
     request<ApiEnvelope<SearchHistoryResults>>(`/search/history/${historyId}/results`, init),
   );
-  if (result.vertical !== "titles") throw new Error("该历史记录不是影视条目搜索");
+  if (result.vertical !== "titles") throw new Error(appTranslator()("search.results.wrongTitleHistory"));
   return { ...result, items: result.items.map(toSearchItem) };
 }
 
@@ -349,9 +361,16 @@ export function searchLibrary(params: { q: string; cursor?: string }): Promise<L
 
 export interface SearchParams {
   keyword: string;
+  /** 同搜词：每站与 keyword 一起搜、按种子合并（后端去重、连主词至多 3 个） */
+  also?: string[];
   /** 搜索范围（标签换算而来）；不传等同「全部」 */
   scope?: SearchScope;
   page?: number;
+  /**
+   * 要新结果（仅流式搜索）：不复用服务端刚跑完的同一个搜索。默认会复用——
+   * 离开搜索页再回来、刷新都直接接上那次搜索，不重新打站（#920）
+   */
+  fresh?: boolean;
 }
 
 /**
@@ -359,27 +378,30 @@ export interface SearchParams {
  * 单站失败不影响整体，其原因见 `sites[].error`。
  */
 export function searchTorrents(
-  { keyword, scope, page }: SearchParams,
+  { keyword, also, scope, page }: SearchParams,
   init?: RequestInit,
 ): Promise<SearchResponse> {
   return unwrap(
     request<ApiEnvelope<SearchResponse>>(
-      `/search/torrents?${searchParamsOf({ keyword, scope, page })}`,
+      `/search/torrents?${searchParamsOf({ keyword, also, scope, page })}`,
       init,
     ),
   );
 }
 
-function searchParamsOf({ keyword, scope, page }: SearchParams): URLSearchParams {
+function searchParamsOf({ keyword, also, scope, page, fresh }: SearchParams): URLSearchParams {
   const params = new URLSearchParams({ keyword });
+  for (const word of also ?? []) params.append("also_keywords", word);
   for (const c of scope?.categories ?? []) params.append("categories", c);
   for (const s of scope?.siteIds ?? []) params.append("sites", s);
   if (scope?.label) params.set("label", scope.label);
+  if (scope?.labelKey) params.set("label_key", scope.labelKey);
   // 无痕搜索（自定义分类的隐私开关）：后端据此跳过搜索历史落库
   if (scope?.skipHistory) params.set("no_history", "true");
   // 图览模式偏好随历史留存：点历史重搜/看快照时后端回传，前端据此还原展示模式
   if (scope?.posterMode) params.set("poster_mode", "true");
   if (page && page > 1) params.set("page", String(page));
+  if (fresh) params.set("fresh", "true");
   return params;
 }
 
@@ -394,7 +416,10 @@ export interface SearchStreamSite {
 /** `start` 事件：宣告本次搜索的范围与参与站点。 */
 export interface SearchStreamStart {
   keyword: string;
+  /** 实际同搜的词（后端清洗去重后），结果页据此写「另含」；只搜主词时为 null */
+  also_keywords?: string[] | null;
   label: string | null;
+  label_key?: SearchCategoryLabelKey | null;
   categories: TorrentCategory[];
   page: number;
   sites: SearchStreamSite[];
@@ -415,6 +440,8 @@ export interface SiteStreamError {
   site_id: string;
   site_name: string;
   error: string;
+  error_key?: string | null;
+  error_params?: Record<string, string | number> | null;
   elapsed_ms: number;
 }
 
@@ -438,6 +465,9 @@ export type SearchStreamEvent =
  *
  * 用 fetch + ReadableStream 手动解析 SSE 而非 EventSource：后者断线会自动重连、
  * 把同一次搜索重放一遍；搜索是一次性动作，失败应该由用户显式重试。
+ *
+ * 搜索在服务端后台跑：中止（离开页面）只是不再看，搜索照常跑完、写快照；
+ * 同样的参数再请求一次即接上它，从头回放全部事件（params.fresh 除外）。
  * 取消上一次搜索走 `init.signal`（AbortController），中止会以 AbortError reject。
  */
 export async function streamSearchTorrents(
@@ -465,7 +495,7 @@ export async function streamSearchTorrents(
     throw new HttpError(message, response.status, details);
   }
   if (!response.body) {
-    throw new HttpError("当前环境不支持流式响应", response.status, null);
+    throw new HttpError(appTranslator()("common.streamUnsupported"), response.status, null);
   }
 
   // SSE 帧以空行分隔；块内 `event:` 行给事件名、`data:` 行给 JSON 载荷

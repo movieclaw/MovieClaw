@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import type { Route } from "next";
 import Link from "next/link";
 
@@ -30,10 +31,11 @@ export function LibraryCollectionsView({
   /** 一个合集都没有时说什么——不同入口的出路不一样，由调用方给 */
   emptyHint?: React.ReactNode;
 }) {
+  const t = useTranslations();
   if (collections.length === 0) {
     return (
       <div className={`py-16 text-center text-ui leading-7 text-[var(--text-muted)] page-inset`}>
-        {emptyHint ?? "还没有合集。筛出一批片之后，点「存为合集」就能把这组条件留下来。"}
+        {emptyHint ?? t("library.collections.emptyLibrary")}
       </div>
     );
   }
@@ -46,12 +48,12 @@ export function LibraryCollectionsView({
   return (
     <div className="flex flex-col gap-7">
       <CollectionGrid
-        title={grouped ? "我的合集" : undefined}
+        title={grouped ? t("library.collections.mine") : undefined}
         collections={mine}
         libraryId={libraryId}
       />
       <CollectionGrid
-        title={grouped ? "系列" : undefined}
+        title={grouped ? t("library.collections.series") : undefined}
         collections={series}
         libraryId={libraryId}
       />
@@ -94,6 +96,7 @@ function CollectionCell({
   collection: Collection;
   libraryId: number | null;
 }) {
+  const t = useTranslations();
   // 跨库合集没有"所属库"，落到 /library/c/{id}；单库的照旧带着库号走，
   // 这样从库页点进去再返回还落回那个库
   const owner = libraryId ?? collection.library_id;
@@ -110,21 +113,21 @@ function CollectionCell({
       <div className="mt-2 min-w-0">
         <p className="truncate text-ui font-medium text-[var(--text-strong)]">{collection.name}</p>
         <p className="mt-0.5 text-sub text-[var(--text-faint)]">
-          {collection.item_count} 部
+          {t("library.collections.itemCount", { count: collection.item_count })}
           {/* 分得清合集从哪来：系列是自动长出来的一整套，自建的是用户存的一组
               条件。**这里不显示「缺 2 部」**——一屏几十个红角标是压迫感不是
               帮助，缺片信息留在详情页（设计文档 6.5.2） */}
           {collection.kind === "series" ? (
-            <span className="ml-1.5">· 系列</span>
+            <span className="ml-1.5">{t("library.collections.seriesSuffix")}</span>
           ) : (
             /* 规则驱动的合集会自己长——这件事要在卡片上说清楚，否则用户
                会以为数字是当初存下来的那个快照 */
-            collection.rule_driven && <span className="ml-1.5">· 自动收录</span>
+            collection.rule_driven && <span className="ml-1.5">{t("library.collections.autoSuffix")}</span>
           )}
-          {collection.visibility === "private" && <span className="ml-1.5">· 只有我</span>}
+          {collection.visibility === "private" && <span className="ml-1.5">{t("library.collections.privateSuffix")}</span>}
           {/* 只有开着「显示已隐藏的合集」时才会出现在这里；标出来用户才知道
               点进去要做什么（把它恢复回来） */}
-          {collection.hidden && <span className="ml-1.5">· 已隐藏</span>}
+          {collection.hidden && <span className="ml-1.5">{t("library.collections.hiddenSuffix")}</span>}
         </p>
       </div>
     </Link>
@@ -138,12 +141,13 @@ function CollectionCell({
  * 那张的完整比例，后面两张只露一条边，读起来仍然是"一摞片"。
  */
 function CollectionCover({ collection }: { collection: Collection }) {
+  const t = useTranslations();
   const shown = (collection.covers ?? []).slice(0, 3);
   return (
     <div className="relative aspect-[2/3] overflow-hidden rounded-xl bg-white/[0.04] ring-1 ring-white/[0.06] transition group-hover:ring-white/20">
       {shown.length === 0 ? (
         <div className="flex h-full items-center justify-center text-sub text-[var(--text-faint)]">
-          暂无封面
+          {t("library.form.noCover")}
         </div>
       ) : (
         // 用全站统一的 PosterImage，不要自己写 <img>：卡片这类格子常处在

@@ -10,8 +10,8 @@ enum EngineKind: String {
 
     var label: String {
         switch self {
-        case .avPlayer: "系统播放器（AVPlayer）"
-        case .native: "自研引擎（AetherEngine）"
+        case .avPlayer: String(localized: .playerEngineSystem)
+        case .native: String(localized: .playerEngineNative)
         }
     }
 }
@@ -226,6 +226,7 @@ protocol PlayerEngine: AnyObject {
     var bufferedEnd: Double? { get }
     var isPaused: Bool { get }
     var videoSize: CGSize { get }
+    var displayMode: PlayerDisplayMode { get set }
     func stats() -> EngineStats
 
     /// 能否原地换音轨（自研引擎直出原文件时可以；服务端流下要重开会话）
@@ -260,6 +261,7 @@ protocol PlayerEngine: AnyObject {
 }
 
 extension PlayerEngine {
+    var displayMode: PlayerDisplayMode { get { .fit } set {} }
     func selectInitialAudio(embeddedIndex: Int, explicit: Bool) { selectAudio(embeddedIndex: embeddedIndex) }
     func rendersSubtitle(_ option: SubtitleOption) -> Bool { rendersSubtitle(kind: option.kind) }
 }

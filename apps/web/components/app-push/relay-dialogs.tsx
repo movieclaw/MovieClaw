@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 /**
  * 自建中继的添加与编辑弹窗（docs/design/cloud-push.md §3、§7.2；交互稿 3.2）。
  *
@@ -46,6 +48,8 @@ export function AddRelayDialog({
   onClose: () => void;
   onAdded: (view: PushChannelsView, name: string) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const urlId = useId();
   const [url, setUrl] = useState("");
   const [probe, setProbe] = useState<RelayProbeView | null>(null);
@@ -58,7 +62,7 @@ export function AddRelayDialog({
 
   const stale = probe != null && probedUrl !== url.trim();
   const current = stale ? null : probe;
-  const blocker = relayAddBlocker({ probe, probedUrl, url, token, name });
+  const blocker = relayAddBlocker({ probe, probedUrl, url, token, name }, locale);
 
   const runProbe = async () => {
     const target = url.trim();
@@ -97,12 +101,12 @@ export function AddRelayDialog({
   };
 
   return (
-    <Modal open onClose={onClose} label="添加自建中继" width="lg">
+    <Modal open onClose={onClose} label={t("settings.pushChannels.addRelay")} width="lg">
       <div className="space-y-4 p-6 max-md:p-5">
         <div>
-          <h2 className="text-title font-bold text-white">添加自建中继</h2>
+          <h2 className="text-title font-bold text-white">{t("settings.pushChannels.addRelay")}</h2>
           <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">
-            先填地址并检测：MovieClaw 会读取中继的 /v1/info，按它声明的鉴权方式决定要不要填令牌。
+            {t("settings.pushChannels.probeHint")}
           </p>
         </div>
 
@@ -110,7 +114,7 @@ export function AddRelayDialog({
 
         <div>
           <label htmlFor={urlId} className="mb-1.5 block text-caption text-[var(--text-muted)]">
-            中继地址
+            {t("settings.pushChannels.address")}
           </label>
           <div className="flex gap-2">
             <input
@@ -137,11 +141,11 @@ export function AddRelayDialog({
               onClick={() => void runProbe()}
               className={SETTINGS_BUTTON_CLASS}
             >
-              {busy === "probe" ? "检测中…" : "检测"}
+              {busy === "probe" ? t("settings.pushChannels.probing") : t("settings.pushChannels.probe")}
             </button>
           </div>
           {stale && (
-            <p className="mt-1.5 text-caption text-[var(--text-faint)]">地址改过了，重新检测一下。</p>
+            <p className="mt-1.5 text-caption text-[var(--text-faint)]">{t("settings.pushChannels.stale")}</p>
           )}
         </div>
 
@@ -151,11 +155,11 @@ export function AddRelayDialog({
         {current?.reachable &&
           !current.error?.trim() &&
           (current.auth_mode === "issuer" ? (
-            <Banner tone="warn">这个中继需要签发方的令牌，暂不支持在这里添加。</Banner>
+            <Banner tone="warn">{t("settings.pushChannels.issuerHint")}</Banner>
           ) : (
             <>
               {relayNeedsToken(current.auth_mode) && (
-                <Field label="令牌" hint="在中继上运行 movieclaw-push token create 生成">
+                <Field label={t("settings.pushChannels.token")} hint={t("settings.pushChannels.tokenHint")}>
                   {(id) => (
                     <input
                       id={id}
@@ -170,7 +174,7 @@ export function AddRelayDialog({
                   )}
                 </Field>
               )}
-              <Field label="名称">
+              <Field label={t("settings.pushChannels.name")}>
                 {(id) => (
                   <input
                     id={id}
@@ -178,7 +182,7 @@ export function AddRelayDialog({
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     maxLength={RELAY_NAME_MAX_LENGTH}
-                    placeholder="如 书房中继"
+                    placeholder={t("settings.pushChannels.namePlaceholder")}
                     className={INPUT_CLASS}
                   />
                 )}
@@ -187,15 +191,13 @@ export function AddRelayDialog({
           ))}
 
         <p className="text-caption leading-5 text-[var(--text-faint)]">
-          给自己打包的 App 用；能推哪些 App 由中继上的推送证书决定。
-          <a href={RELAY_DEPLOY_URL} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
-            怎么部署 ↗
-          </a>
+          {t("settings.pushChannels.ownAppHint")}{locale === "en" && " "}<a href={RELAY_DEPLOY_URL} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
+            {t("settings.pushChannels.deploy")}</a>
         </p>
 
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
-            取消
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -204,7 +206,7 @@ export function AddRelayDialog({
             onClick={() => void save()}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            {busy === "save" ? "保存中…" : "保存"}
+            {busy === "save" ? t("settings.pushChannels.saving") : t("common.save")}
           </button>
         </div>
       </div>
@@ -217,10 +219,12 @@ export function AddRelayDialog({
  * （协议不兼容、要签发方的令牌）同样列出声明，并把原因写在头上。
  */
 function ProbeResult({ probe }: { probe: RelayProbeView }) {
+  const t = useTranslations();
+  const locale = useLocale();
   if (!probe.reachable) {
     return (
       <div className="rounded-xl border border-[var(--danger)]/30 bg-[var(--danger)]/[0.08] px-4 py-3">
-        <p className="text-body font-medium text-[var(--danger)]">连不上这个中继</p>
+        <p className="text-body font-medium text-[var(--danger)]">{t("settings.pushChannels.unreachable")}</p>
         {probe.error && (
           <p className="mt-0.5 text-sub leading-6 text-[var(--text-muted)]">{probe.error}</p>
         )}
@@ -228,7 +232,7 @@ function ProbeResult({ probe }: { probe: RelayProbeView }) {
     );
   }
   const blocked = probe.error?.trim();
-  const auth = authModeLabel(probe.auth_mode);
+  const auth = authModeLabel(probe.auth_mode, locale);
   return (
     <div
       className={`rounded-xl border px-4 py-3.5 ${
@@ -239,34 +243,34 @@ function ProbeResult({ probe }: { probe: RelayProbeView }) {
     >
       {blocked ? (
         <>
-          <p className="text-sub font-medium text-[var(--danger)]">连上了，但不能在这里添加</p>
+          <p className="text-sub font-medium text-[var(--danger)]">{t("settings.pushChannels.incompatible")}</p>
           <p className="mt-0.5 text-sub leading-6 text-[var(--text-muted)]">{blocked}</p>
         </>
       ) : (
         <p className="flex items-center gap-1.5 text-sub font-medium text-[var(--ok)]">
           <CheckIcon className="size-4" />
-          连上了
+          {t("settings.pushChannels.reachable")}
         </p>
       )}
       <dl className="mt-2.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sub">
-        <dt className="text-[var(--text-faint)]">软件</dt>
+        <dt className="text-[var(--text-faint)]">{t("settings.pushChannels.software")}</dt>
         <dd className="break-words font-mono text-[var(--text-muted)]">
-          {probe.software ?? "未声明"}
-          {probe.protocol != null && `\u00a0· 协议\u00a0v${probe.protocol}`}
+          {probe.software ?? t("settings.pushChannels.undeclared")}
+          {probe.protocol != null && t("settings.pushChannels.protocol", { version: probe.protocol })}
         </dd>
-        <dt className="text-[var(--text-faint)]">鉴权方式</dt>
+        <dt className="text-[var(--text-faint)]">{t("settings.pushChannels.auth")}</dt>
         <dd className="text-[var(--text-muted)]">
-          {auth ? `${auth}（${probe.auth_mode}）` : "未声明"}
+          {auth ? t("settings.pushChannels.authWithMode", { auth, mode: probe.auth_mode ?? "" }) : t("settings.pushChannels.undeclared")}
         </dd>
-        <dt className="text-[var(--text-faint)]">能推送的 App</dt>
+        <dt className="text-[var(--text-faint)]">{t("settings.pushChannels.apps")}</dt>
         <dd className="break-words font-mono text-[var(--text-muted)]">
-          {probe.topics.length > 0 ? probe.topics.join(", ") : "未声明"}
+          {probe.topics.length > 0 ? probe.topics.join(", ") : t("settings.pushChannels.undeclared")}
         </dd>
-        <dt className="text-[var(--text-faint)]">覆盖的设备</dt>
+        <dt className="text-[var(--text-faint)]">{t("settings.pushChannels.coveredDevices")}</dt>
         {/* 没有本地设备匹配也允许保存（可能还没装 App），只用黄字提醒；
             原因服务端已经写进 warnings，这里不重复 */}
         <dd className={probe.matched_devices > 0 ? "text-[var(--text-muted)]" : "text-[var(--warn)]"}>
-          {probe.matched_devices} 台
+          {t("settings.pushChannels.coveredCount", { count: probe.matched_devices })}
         </dd>
       </dl>
       {probe.warnings.length > 0 && (
@@ -292,6 +296,7 @@ export function EditRelayDialog({
   onClose: () => void;
   onSaved: (view: PushChannelsView) => void;
 }) {
+  const t = useTranslations();
   const [name, setName] = useState(channel.name);
   const [url, setUrl] = useState(channel.url ?? "");
   const [token, setToken] = useState("");
@@ -319,7 +324,7 @@ export function EditRelayDialog({
   };
 
   return (
-    <Modal open onClose={onClose} label={`编辑「${channel.name}」`}>
+    <Modal open onClose={onClose} label={t("settings.pushChannels.editTitle", { name: channel.name })}>
       <form
         className="space-y-4 p-6 max-md:p-5"
         onSubmit={(e) => {
@@ -327,9 +332,9 @@ export function EditRelayDialog({
           void save();
         }}
       >
-        <h2 className="text-title font-bold text-white">编辑自建中继</h2>
+        <h2 className="text-title font-bold text-white">{t("settings.pushChannels.editRelay")}</h2>
         {error && <ErrorBanner>{error}</ErrorBanner>}
-        <Field label="名称">
+        <Field label={t("settings.pushChannels.name")}>
           {(id) => (
             <input
               id={id}
@@ -341,7 +346,7 @@ export function EditRelayDialog({
             />
           )}
         </Field>
-        <Field label="中继地址" hint="改了地址，保存时会重新检测">
+        <Field label={t("settings.pushChannels.address")} hint={t("settings.pushChannels.addressHint")}>
           {(id) => (
             <input
               id={id}
@@ -356,8 +361,8 @@ export function EditRelayDialog({
           )}
         </Field>
         <Field
-          label="令牌"
-          hint={channel.auth_mode === "none" ? "这个中继不需要令牌" : "留空保持现有令牌不变"}
+          label={t("settings.pushChannels.token")}
+          hint={channel.auth_mode === "none" ? t("settings.pushChannels.noToken") : t("settings.pushChannels.keepToken")}
         >
           {(id) => (
             <input
@@ -365,7 +370,7 @@ export function EditRelayDialog({
               type="text"
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              placeholder={channel.token_hint ?? "留空保持不变"}
+              placeholder={channel.token_hint ?? t("settings.pushChannels.keepValue")}
               autoComplete="off"
               spellCheck={false}
               className={`${INPUT_CLASS} font-mono`}
@@ -374,14 +379,14 @@ export function EditRelayDialog({
         </Field>
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
-            取消
+            {t("common.cancel")}
           </button>
           <button
             type="submit"
             disabled={!canSave || busy}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            {busy ? "保存中…" : "保存"}
+            {busy ? t("settings.pushChannels.saving") : t("common.save")}
           </button>
         </div>
       </form>

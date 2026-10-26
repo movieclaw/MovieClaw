@@ -47,7 +47,7 @@ def client(tmp_path: Path, media_dir: Path, monkeypatch):
     app = create_app()
     # 头像上传/读取需要管理员登录，这里用依赖覆盖绕过（鉴权本身在 test_auth 覆盖）
     app.dependency_overrides[require_login] = lambda: Principal(kind="admin", name="tester")
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         yield c
 
     reset_setting_store()
@@ -100,19 +100,10 @@ def test_reupload_replaces_old_file(client: TestClient, media_dir: Path):
 
 def test_reject_bad_uploads(client: TestClient):
     """拒绝非图片、SVG（可内嵌脚本）、空文件与超大文件。"""
-    assert (
-        client.post(_BASE, files={"file": ("x.txt", b"hi", "text/plain")}).status_code
-        == 400
-    )
+    assert client.post(_BASE, files={"file": ("x.txt", b"hi", "text/plain")}).status_code == 400
     svg = b'<svg xmlns="http://www.w3.org/2000/svg"></svg>'
-    assert (
-        client.post(_BASE, files={"file": ("x.svg", svg, "image/svg+xml")}).status_code
-        == 400
-    )
-    assert (
-        client.post(_BASE, files={"file": ("x.png", b"", "image/png")}).status_code
-        == 400
-    )
+    assert client.post(_BASE, files={"file": ("x.svg", svg, "image/svg+xml")}).status_code == 400
+    assert client.post(_BASE, files={"file": ("x.png", b"", "image/png")}).status_code == 400
 
     from movieclaw_api.services import avatar as avatar_media
 

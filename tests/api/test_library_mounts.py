@@ -15,6 +15,7 @@ PROC_MOUNTS = """\
 192.168.1.80:/volume1/media /volume1/remote/media nfs rw,vers=3 0 0
 //nas/share /mnt/smb cifs rw 0 0
 rclone: /mnt/gd fuse.rclone rw 0 0
+mergerfs_pool /video fuse.mergerfs rw,nosuid,nodev,relatime,user_id=0,group_id=0,allow_other 0 0
 tmpfs /run tmpfs rw 0 0
 /dev/sda1 /mnt/with\\040space ext4 rw 0 0
 overlay / overlay rw 0 0
@@ -28,6 +29,8 @@ def test_longest_prefix_wins_and_fstype_classifies():
     assert mounts.mount_kind_of("/volume1/download", table) == "local"
     assert mounts.mount_kind_of("/mnt/smb/av", table) == "network"  # cifs
     assert mounts.mount_kind_of("/mnt/gd/movies", table) == "network"  # fuse.rclone
+    # 本机 mergerfs 合并盘（fnOS / Unraid 多盘池）：inotify 照常可用，不能按网络跳过实时监控
+    assert mounts.mount_kind_of("/video/plex/tv", table) == "local"  # fuse.mergerfs
     assert mounts.mount_kind_of("/mnt/with space/x", table) == "local"  # 八进制转义的挂载点
     assert mounts.mount_kind_of("/somewhere/else", table) == "local"  # 根挂载兜底
     # /volume1/remote 本身（不是 media 子树）落在 btrfs 上

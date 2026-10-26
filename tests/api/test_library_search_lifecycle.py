@@ -15,7 +15,7 @@ import pytest_asyncio
 from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
-from movieclaw_api.services import jobs, media_scrape
+from movieclaw_api.services import acquisition_ingest, jobs, media_scrape
 from movieclaw_api.services.library import ingest, scan
 from movieclaw_api.services.library.recycle import recycle_file
 from movieclaw_api.services.library.search_index import refresh_index_batch
@@ -75,7 +75,7 @@ async def db(tmp_path, monkeypatch):
     monkeypatch.setattr(ingest, "QUIET_SECONDS", 0)
     for attr in ("_stability", "_deferred", "_failed_retry", "_last_swept"):
         monkeypatch.setattr(ingest, attr, {})
-    monkeypatch.setattr(ingest, "_briefs_cache", (float("-inf"), None))
+    monkeypatch.setattr(acquisition_ingest, "_briefs_cache", (float("-inf"), None))
 
     async def no_assets(*_args, **_kwargs):
         return None
@@ -368,3 +368,36 @@ async def test_background_index_and_scan_writes_can_complete_together(db, client
         assert (await _search(client, "bfgmys"))["index_pending"] is False
     finally:
         await close_search_index()
+
+
+async def test_search_reads_index_and_pending_names_from_one_snapshot(
+    db, client, tmp_path, monkeypatch
+):
+    """索引批次恰好在搜索的两步读取之间提交：刚改名的条目不能两头都漏掉。"""
+    from movieclaw_api.services.library import search
+
+    root = tmp_path / "home"
+    library_id = await _library(client, root, kind="video")
+    video = root / "录像.mkv"
+    video.write_bytes(b"video")
+    nfo = video.with_suffix(".nfo")
+    nfo.write_text("<movie><title>快照旧名验收</title></movie>", encoding="utf-8")
+    await _run_job(client, f"/api/v1/libraries/{library_id}/scan")
+    item_id = (await _search(client, "kzjmys"))["items"][0]["item"]["media_item_id"]
+    await _indexed(client, "kzjmys", item_id)
+    nfo.write_text("<movie><title>快照新名验收</title></movie>", encoding="utf-8")
+    assert await media_scrape.reread_local_nfo(item_id)
+
+    # 第一步（查索引、跳过待更新的）读完后，后台索引把改名处理完并提交
+    original = search.scalar_rows
+
+    async def index_in_between(*args, **kwargs):
+        rows = await original(*args, **kwargs)
+        monkeypatch.setattr(search, "scalar_rows", original)
+        while await refresh_index_batch():
+            pass
+        return rows
+
+    monkeypatch.setattr(search, "scalar_rows", index_in_between)
+    found = await _search(client, "kzxmys")
+    assert [h["item"]["media_item_id"] for h in found["items"]] == [item_id]

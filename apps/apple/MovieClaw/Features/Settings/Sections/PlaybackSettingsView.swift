@@ -7,6 +7,8 @@ struct PlaybackSettingsView: View {
     @State private var policy: API.PlaybackPolicyView?
     @State private var policyError: String?
     @State private var policyBusy = false
+    /// 关「片段预切」前查到的已切片段；非空时弹「要不要一并删除」
+    @State private var clipsToDrop: API.ReelClipStatsView?
     @State private var config: Loadable<API.RemoteTranscodeConfigView> = .loading
     @State private var editing = false
     @State private var showingPairing = false
@@ -24,6 +26,15 @@ struct PlaybackSettingsView: View {
         .task { await loadPolicy() }
         .task { await loadConfig() }
         .polling(every: 5, immediately: true) { await pollStatus() }
+        .polling(every: 15) { await refreshClipProgress() }
+        .confirmationDialog(String(localized: .settingsPlaybackControlsDisableClipsTitle), isPresented: Binding(mcGet: { clipsToDrop != nil }, set: { if !$0 { clipsToDrop = nil } }),
+                            titleVisibility: .visible, presenting: clipsToDrop) { stats in
+            Button(String(localized: .settingsPlaybackClipsOffKeep)) { Task { await savePolicy(clips: false) } }
+            Button(String(localized: .settingsPlaybackClipsOffPurge(stats.count, Formatters.bytes(stats.bytes))), role: .destructive) {
+                Task { await savePolicy(clips: false, purgeClips: true) }
+            }
+            Button(String(localized: .commonCancel), role: .cancel) { }
+        } message: { _ in Text(String(localized: .settingsPlaybackClipsOffHint)) }
         .sheet(isPresented: $editing) {
             if let value = config.value {
                 RemoteTranscodeEditor(config: value) { saved in
@@ -33,14 +44,14 @@ struct PlaybackSettingsView: View {
             }
         }
         .sheet(isPresented: $showingPairing) {
-            SubsSheetScaffold(title: "连接转码器", closeTitle: "完成") {
+            SubsSheetScaffold(title: String(localized: .settingsPlaybackWorkerConnect), closeTitle: String(localized: .commonDone)) {
                 SettingsFormSection {
-                    Label("在 Mac 上打开 MovieClaw Transcoder，查找局域网服务器或输入服务器地址。", systemImage: "1.circle")
-                    Label("选择「连接并配对」，获取配对码。", systemImage: "2.circle")
-                    Label("在服务器的「设备」页输入配对码，核对设备后批准。", systemImage: "3.circle")
-                } footer: { Text("目前支持 macOS Apple Silicon。配对凭证直接返回 Mac，无需手动复制令牌。") }
+                    Label(String(localized: .settingsPlaybackWorkerStep1), systemImage: "1.circle")
+                    Label(String(localized: .settingsPlaybackWorkerStep2), systemImage: "2.circle")
+                    Label(String(localized: .settingsPlaybackWorkerStep3), systemImage: "3.circle")
+                } footer: { Text(String(localized: .settingsPlaybackWorkerFooter)) }
                 SettingsFormSection {
-                    Button("前往设备管理") {
+                    Button(String(localized: .settingsPlaybackWorkerOpenDevices)) {
                         showingPairing = false
                         router.push(.settingsSection(.devices))
                     }.accessibilityIdentifier("playback-pairing-devices")
@@ -53,51 +64,59 @@ struct PlaybackSettingsView: View {
         if let policyError {
             SettingsFormSection {
                 SettingsNotice(text: policyError)
-                if policy == nil { Button("重试") { Task { await loadPolicy() } } }
+                if policy == nil { Button(String(localized: .commonRetry)) { Task { await loadPolicy() } } }
             }
         }
         if let policy {
             SettingsFormSection {
-                Toggle("进度条预览", isOn: Binding(mcGet: { policy.trickplayEnabled }, set: { value in
+                Toggle(String(localized: .settingsPlaybackTrickplayTitle), isOn: Binding(mcGet: { policy.trickplayEnabled }, set: { value in
                     Task { await savePolicy(trickplay: value) }
                 }))
                 .disabled(policyBusy).accessibilityIdentifier("playback-trickplay")
             } footer: {
-                Text(policy.trickplayEnabled ? "首次播放时后台生成预览图，拖动进度条即可查看画面。" : "不为新影片生成预览图，已有预览仍可使用。")
+                Text(policy.trickplayEnabled ? String(localized: .settingsPlaybackTrickplayOn) : String(localized: .settingsPlaybackTrickplayOff))
             }
             SettingsFormSection {
-                Toggle("保留转码缓存", isOn: Binding(mcGet: { policy.transcodeCacheEnabled }, set: { value in
+                Toggle(String(localized: .settingsPlaybackCacheTitle), isOn: Binding(mcGet: { policy.transcodeCacheEnabled }, set: { value in
                     Task { await savePolicy(cache: value) }
                 }))
                 .disabled(policyBusy).accessibilityIdentifier("playback-transcode-cache")
             } footer: {
-                Text(policy.transcodeCacheEnabled ? "续播、重看时复用已转码内容。按可用空间自动限额，24 小时未用自动清理，也可在「更新与维护 → 缓存管理」中清空。" : "播放结束后删除分片，再次播放时重新转码。")
+                Text(policy.transcodeCacheEnabled ? String(localized: .settingsPlaybackCacheOn) : String(localized: .settingsPlaybackCacheOff))
+            }
+            SettingsFormSection {
+                Toggle(String(localized: .settingsPlaybackControlsClipsTitle), isOn: Binding(mcGet: { policy.reelClipsEnabled ?? false }, set: { value in
+                    Task { await toggleClips(value) }
+                }))
+                .disabled(policyBusy).accessibilityIdentifier("playback-reel-clips")
+            } footer: {
+                Text(Self.clipsFooter(enabled: policy.reelClipsEnabled ?? false, progress: policy.reelClipsProgress))
             }
         } else if policyError == nil { SettingsFormSection { SettingsLoadingRow() } }
     }
 
     @ViewBuilder private var remoteSections: some View {
         switch config {
-        case .loading: SettingsFormSection("远程转码") { SettingsLoadingRow() }
+        case .loading: SettingsFormSection(String(localized: .settingsPlaybackControlsRemoteTitle)) { SettingsLoadingRow() }
         case let .failed(message):
-            SettingsFormSection("远程转码") {
+            SettingsFormSection(String(localized: .settingsPlaybackControlsRemoteTitle)) {
                 SettingsNotice(text: message)
-                Button("重试") { Task { await loadConfig() } }
+                Button(String(localized: .commonRetry)) { Task { await loadConfig() } }
             }
         case let .loaded(config):
             SettingsFormSection {
                 Button { editing = true } label: {
                     HStack {
-                        Text("远程转码设置").foregroundStyle(.primary)
+                        Text(String(localized: .settingsPlaybackRemoteSettings)).foregroundStyle(.primary)
                         Spacer()
-                        Label(config.enabled ? "已启用" : "已关闭", systemImage: config.enabled ? "checkmark.circle.fill" : "pause.circle")
+                        Label(config.enabled ? String(localized: .settingsMembersUiEnabled) : String(localized: .settingsPlaybackControlsOff), systemImage: config.enabled ? "checkmark.circle.fill" : "pause.circle")
                             .foregroundStyle(config.enabled ? Theme.success : Theme.textMuted)
                         Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
                     }
                 }.accessibilityIdentifier("remote-transcode-settings")
                 ForEach(config.issues, id: \.self) { issue in SettingsNotice(text: issue, tone: .warn) }
-            } header: { Text("远程转码") } footer: {
-                Text(config.enabled ? "兼容转码器处理需要远程硬件的任务。没有转码器在线时自动使用服务器本地转码。" : "启用后可使用 Mac 的硬件转码能力，服务器仍负责播放会话与缓存。")
+            } header: { Text(String(localized: .settingsPlaybackControlsRemoteTitle)) } footer: {
+                Text(config.enabled ? String(localized: .settingsPlaybackRemoteOnHint) : String(localized: .settingsPlaybackRemoteOffHint))
             }
             workerSection(config)
         }
@@ -109,7 +128,7 @@ struct PlaybackSettingsView: View {
         let offline = authorizedWorkers.filter { !connected.contains($0.name) }
         return SettingsFormSection {
             if let statusError {
-                SettingsNotice(text: "无法刷新转码器状态：\(statusError)", tone: .warn)
+                SettingsNotice(text: String(localized: .settingsPlaybackRemoteStatusFailed(statusError)), tone: .warn)
             }
             if let status {
                 ForEach(status.workers, id: \.workerId) { worker in
@@ -126,32 +145,32 @@ struct PlaybackSettingsView: View {
                         HStack {
                             Text(device.name)
                             Spacer()
-                            Label("未连接", systemImage: "circle").font(.subheadline).foregroundStyle(.secondary)
+                            Label(String(localized: .settingsPlaybackControlsDisconnected), systemImage: "circle").font(.subheadline).foregroundStyle(.secondary)
                         }
-                        Text("已授权 · 最近活跃 \(SettingsTime.deviceRelative(device.lastSeenAt))").font(.caption).foregroundStyle(.secondary)
+                        Text(String(localized: .settingsPlaybackRemoteAuthorizedSeen(SettingsTime.deviceRelative(device.lastSeenAt)))).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 if workers.isEmpty && offline.isEmpty {
-                    Text(config.ready ? "尚无转码器连接" : "启用远程转码后，可连接兼容的转码器")
+                    Text(config.ready ? String(localized: .settingsPlaybackRemoteNoneConnected) : String(localized: .settingsPlaybackRemoteEnableFirst))
                         .foregroundStyle(.secondary)
                 }
-            } else if statusError == nil { SettingsLoadingRow(text: "正在获取转码器状态…") }
-            Button { showingPairing = true } label: { Label("连接转码器", systemImage: "plus") }
+            } else if statusError == nil { SettingsLoadingRow(text: String(localized: .settingsPlaybackRemoteLoading)) }
+            Button { showingPairing = true } label: { Label(String(localized: .settingsPlaybackWorkerConnect), systemImage: "plus") }
                 .accessibilityIdentifier("playback-connect-worker")
             Button { router.push(.settingsSection(.devices)) } label: {
                 HStack {
-                    Text("管理已授权设备")
+                    Text(String(localized: .settingsPlaybackRemoteManageDevices))
                     Spacer()
                     Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
                 }
             }.accessibilityIdentifier("playback-manage-workers")
-        } header: { Text("转码器") } footer: {
-            Text("在线状态每 5 秒刷新。Mac 休眠或断网时显示为未连接。")
+        } header: { Text(String(localized: .settingsDevicesLabelsWorker)) } footer: {
+            Text(String(localized: .settingsPlaybackRemoteStatusHint))
         }
     }
 
     private func workerState(_ worker: SettingsTranscodeWorkerStatus.Worker) -> some View {
-        Label(worker.online ? (worker.draining ? "暂停接单" : "在线") : "已离线",
+        Label(worker.online ? (worker.draining ? String(localized: .settingsPlaybackControlsDraining) : String(localized: .settingsDevicesUiOnline)) : String(localized: .settingsPlaybackControlsOffline),
               systemImage: worker.online ? (worker.draining ? "pause.circle.fill" : "circle.fill") : "circle")
             .font(.subheadline)
             .foregroundStyle(worker.online ? (worker.draining ? Theme.warning : Theme.success) : Theme.textMuted)
@@ -162,15 +181,52 @@ struct PlaybackSettingsView: View {
         catch { policyError = error.localizedDescription }
     }
 
-    private func savePolicy(trickplay: Bool? = nil, cache: Bool? = nil) async {
+    private func savePolicy(trickplay: Bool? = nil, cache: Bool? = nil, clips: Bool? = nil, purgeClips: Bool = false) async {
         guard !policyBusy, let previous = policy else { return }
         var optimistic = previous
         if let trickplay { optimistic.trickplayEnabled = trickplay }
         if let cache { optimistic.transcodeCacheEnabled = cache }
+        if let clips { optimistic.reelClipsEnabled = clips }
         policy = optimistic; policyBusy = true; policyError = nil
         defer { policyBusy = false }
-        do { policy = try await api.playbackPolicySet(body: .init(trickplayEnabled: trickplay, transcodeCacheEnabled: cache)) }
-        catch { policy = previous; policyError = error.localizedDescription }
+        do { policy = try await api.playbackPolicySet(body: .init(trickplayEnabled: trickplay, transcodeCacheEnabled: cache, reelClipsEnabled: clips)) }
+        catch { policy = previous; policyError = error.localizedDescription; return }
+        if purgeClips {
+            do { _ = try await api.reelsClipsClear() } catch { policyError = error.localizedDescription }
+        }
+    }
+
+    /// 关闭时若已有切好的片段，先问要不要一并删除（同 Web reel-clips-toggle-section）
+    private func toggleClips(_ next: Bool) async {
+        guard !next else { return await savePolicy(clips: true) }
+        do {
+            let stats = try await api.reelsClipsStats()
+            if stats.count > 0 { clipsToDrop = stats } else { await savePolicy(clips: false) }
+        } catch { policyError = error.localizedDescription }
+    }
+
+    /// 开着且还在切时刷新进度
+    private func refreshClipProgress() async {
+        guard !policyBusy, let current = policy, current.reelClipsEnabled == true,
+              current.reelClipsProgress?.state != "done" else { return }
+        if let latest = try? await api.playbackPolicyShow(), !policyBusy { policy = latest }
+    }
+
+    /// 片段预切的说明：关着讲开启的好处，开着写进度（文案同 Web reel-clips-toggle-section）
+    static func clipsFooter(enabled: Bool, progress: API.ReelClipProgressView?) -> String {
+        guard enabled else {
+            return String(localized: .settingsPlaybackClipsOffPitch)
+        }
+        guard let progress else { return String(localized: .settingsPlaybackControlsPreparing) }
+        switch progress.state {
+        case "done":
+            let skipped = progress.total - progress.ready
+            return skipped > 0
+                ? String(localized: .settingsPlaybackClipsDoneSkipped(progress.ready, skipped))
+                : String(localized: .settingsPlaybackControlsClipsDone(progress.ready))
+        case "paused": return String(localized: .settingsPlaybackControlsClipsPaused(progress.ready, String(progress.total)))
+        default: return String(localized: .settingsPlaybackControlsClipsRunning(progress.ready, String(progress.total)))
+        }
     }
 
     private func loadConfig() async { await Loadable.load(into: $config) { try await api.transcodeConfigShow() } }
@@ -213,37 +269,37 @@ private struct RemoteTranscodeEditor: View {
     }
 
     var body: some View {
-        SubsSheetScaffold(title: "远程转码设置", onClose: {
+        SubsSheetScaffold(title: String(localized: .settingsPlaybackRemoteSettings), onClose: {
             if dirty { discarding = true } else { dismiss() }
-        }, confirm: .init(title: "保存", enabled: dirty && draft.valid, busy: busy, identifier: "remote-transcode-save") {
+        }, confirm: .init(title: String(localized: .commonSave), enabled: dirty && draft.valid, busy: busy, identifier: "remote-transcode-save") {
             if config.enabled && !draft.enabled { confirmingDisable = true }
             else { Task { await save() } }
         }) {
             SettingsFormSection {
-                Toggle("启用远程硬件转码", isOn: $draft.enabled).accessibilityIdentifier("remote-transcode-enabled")
+                Toggle(String(localized: .settingsPlaybackControlsEnableRemote), isOn: $draft.enabled).accessibilityIdentifier("remote-transcode-enabled")
             } footer: {
-                Text(draft.enabled ? "保存后立即生效，无需重启。没有兼容转码器在线时自动回到服务器本地转码。" : "关闭后，已配对转码器会断开连接，播放使用服务器本地转码。")
+                Text(draft.enabled ? String(localized: .settingsPlaybackRemoteSaveOnHint) : String(localized: .settingsPlaybackRemoteSaveOffHint))
             }
             SettingsFormSection {
-                TextField("自动使用转码器连接地址", text: $draft.baseURL)
+                TextField(String(localized: .settingsPlaybackRemoteAutoAddress), text: $draft.baseURL)
                     .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .accessibilityIdentifier("remote-transcode-base-url")
-            } header: { Text("取源与回传地址") } footer: {
-                Text("留空使用每台转码器连接服务器时的地址。仅当反向代理改写 Host、导致转码器无法取源或回传时，才需要填写转码器可访问的 http(s) 地址。")
+            } header: { Text(String(localized: .settingsPlaybackControlsAddress)) } footer: {
+                Text(String(localized: .settingsPlaybackRemoteAddressHint))
             }
-            if !draft.valid { SettingsFormSection { Text("请输入完整的 http(s) 地址，或留空使用自动地址。").foregroundStyle(Theme.warning) } }
+            if !draft.valid { SettingsFormSection { Text(String(localized: .settingsPlaybackRemoteAddressInvalid)).foregroundStyle(Theme.warning) } }
             if let error { SettingsFormSection { SettingsNotice(text: error) } }
         }
         .disabled(busy)
         .interactiveDismissDisabled(busy || dirty)
-        .alert("放弃未保存的修改？", isPresented: $discarding) {
-            Button("继续编辑", role: .cancel) { }
-            Button("放弃修改", role: .destructive) { dismiss() }
+        .alert(String(localized: .settingsFormDiscardTitle), isPresented: $discarding) {
+            Button(String(localized: .settingsFormKeepEditing), role: .cancel) { }
+            Button(String(localized: .settingsScrapeDiscardChanges), role: .destructive) { dismiss() }
         }
-        .alert("关闭远程转码？", isPresented: $confirmingDisable) {
-            Button("取消", role: .cancel) { }
-            Button("关闭并保存", role: .destructive) { Task { await save() } }
-        } message: { Text("已配对的转码器会断开连接，后续播放使用服务器本地转码。") }
+        .alert(String(localized: .settingsPlaybackRemoteDisableTitle), isPresented: $confirmingDisable) {
+            Button(String(localized: .commonCancel), role: .cancel) { }
+            Button(String(localized: .settingsPlaybackRemoteDisableSave), role: .destructive) { Task { await save() } }
+        } message: { Text(String(localized: .settingsPlaybackRemoteDisableHint)) }
     }
 
     private func save() async {
@@ -281,7 +337,7 @@ nonisolated struct SettingsTranscodeWorkerStatus: Decodable, Sendable {
             return [
                 platform, arch, ffmpeg,
                 backends.isEmpty ? nil : backends.joined(separator: "/"),
-                "任务 \(activeJobs)/\(maxJobs)", "\(Int(lastSeenSeconds.rounded())) 秒前活跃",
+                String(localized: .settingsPlaybackControlsJobs(activeJobs, maxJobs)), String(localized: .settingsPlaybackControlsSeen(Int(lastSeenSeconds.rounded()))),
             ].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         }
     }

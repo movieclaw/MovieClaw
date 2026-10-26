@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request, Response
 
+from movieclaw_api.i18n import t
 from movieclaw_api.services import plugin_callbacks
 
 router = APIRouter(prefix="/hooks", include_in_schema=False)
@@ -21,7 +22,11 @@ _METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]
 async def _hook(request: Request, entry_id: str, name: str, key: str, subpath: str) -> Response:
     service = plugin_callbacks.get_service()
     if service is None:
-        return Response("插件回调未启用", status_code=503, media_type="text/plain; charset=utf-8")
+        return Response(
+            t("errors.plugins.callbacksDisabled"),
+            status_code=503,
+            media_type="text/plain; charset=utf-8",
+        )
 
     async def read_body(limit: int) -> bytes | None:
         """边读边数，超过上限就停（返回 None）。"""

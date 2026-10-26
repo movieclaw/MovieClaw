@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 import uuid
@@ -22,6 +23,7 @@ from dataclasses import dataclass, field
 from movieclaw_agent import AgentEvent, AgentRunner, AgentStartParams
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException, NotFoundException
+from movieclaw_api.i18n.stored import source_text
 
 logger = logging.getLogger("movieclaw_api.agent_runs")
 
@@ -68,6 +70,8 @@ class _AgentRun:
     #: 停止复投——看门狗的职责是解卡「吞掉取消的 runner」，合法的慢收尾
     #: （杀进程组、大转录 seal、DB 提交）不该被自家看门狗再补一刀
     finalizing: bool = False
+    #: 持久化收尾做完（运行标记已清）：之后这个会话就能接着发下一条
+    settled: asyncio.Event = field(default_factory=asyncio.Event)
     #: 终态钩子：**运行协程真正结束后**（_execute 的 finally）调用一次，
     #: 供会话持久化做收尾（停心跳、补配对、清运行标记）。刻意不挂在
     #: 「第一个终态事件」上：取消时事件先落、协程可能还在写盘，此刻收尾
@@ -110,6 +114,7 @@ class AgentRunRegistry:
     ) -> str:
         """分配运行编号并把 runner 放入后台执行，立即返回编号。"""
         if self._closing:
+            # i18n-ignore: developer error
             raise RuntimeError("Agent 运行注册表正在关闭，无法创建新运行")
         self._prune_expired()
         run_id = uuid.uuid4().hex[:12]
@@ -122,6 +127,28 @@ class AgentRunRegistry:
         )
         logger.info("Agent 后台运行已创建 session=%s run=%s", session_id, run_id)
         return run_id
+
+    def latest_run(self, session_id: str) -> str | None:
+        """会话最近一轮的运行编号（保留期内）；没有返回 ``None``。"""
+        self._prune_expired()
+        run_id = self._latest_by_session.get(session_id)
+        return run_id if run_id in self._runs else None
+
+    def is_active(self, run_id: str) -> bool:
+        """运行还在进行（没到终态）。"""
+        run = self._runs.get(run_id)
+        return run is not None and not run.terminal
+
+    async def wait_settled(self, run_id: str, timeout: float) -> None:
+        """等运行协程连同持久化收尾（清运行标记）都做完：之后会话就能接着发下一条。
+
+        终态事件先于收尾发出（订阅者不必等落盘），想紧接着续写的调用方用这个对齐。
+        """
+        run = self._runs.get(run_id)
+        if run is None:
+            return
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(run.settled.wait(), timeout)
 
     async def get_session_events(
         self,
@@ -150,11 +177,13 @@ class AgentRunRegistry:
         ``terminal=True`` 且批次已追平时关闭连接。
         """
         if after_sequence < 0:
-            raise BadRequestException("SSE 事件游标不能为负数")
+            raise BadRequestException(message_key="errors.agent.negativeCursor")
         run = self._get_run(run_id)
         async with run.condition:
             if after_sequence > len(run.events):
-                raise BadRequestException(f"SSE 事件游标 {after_sequence} 超出当前事件范围")
+                raise BadRequestException(
+                    message_key="errors.agent.cursorOutOfRange", params={"cursor": after_sequence}
+                )
             if after_sequence == len(run.events) and not run.terminal:
                 try:
                     await asyncio.wait_for(
@@ -246,7 +275,8 @@ class AgentRunRegistry:
                     AgentEvent(
                         type="agent_error",
                         run_id=run.run_id,
-                        error="Agent 运行异常结束，未返回终态事件",
+                        error=source_text("errors.agent.run.noTerminal"),
+                        error_ref={"message_key": "errors.agent.run.noTerminal", "params": {}},
                     ),
                 )
         except asyncio.CancelledError:
@@ -264,13 +294,20 @@ class AgentRunRegistry:
                     AgentEvent(
                         type="agent_error",
                         run_id=run.run_id,
-                        error=f"Agent 运行发生未知错误：{exc}",
+                        error=source_text("errors.agent.run.unexpected", error=str(exc)),
+                        error_ref={
+                            "message_key": "errors.agent.run.unexpected",
+                            "params": {"error": str(exc)},
+                        },
                     ),
                 )
         finally:
             run.finalizing = True
             run.task = None
-            await self._finalize(run)
+            try:
+                await self._finalize(run)
+            finally:
+                run.settled.set()
 
     def _spawn_cancel_watchdog(self, run: _AgentRun) -> None:
         """派出后台看门狗盯着被取消的任务真正停下（强引用挂在注册表上防 GC）。"""
@@ -318,7 +355,12 @@ class AgentRunRegistry:
             return
         terminal_event = next(
             (s.event for s in reversed(run.events) if s.event.type in TERMINAL_EVENT_TYPES),
-            AgentEvent(type="agent_error", run_id=run.run_id, error="运行未留下终态事件"),
+            AgentEvent(
+                type="agent_error",
+                run_id=run.run_id,
+                error=source_text("errors.agent.run.noTerminalRecord"),
+                error_ref={"message_key": "errors.agent.run.noTerminalRecord", "params": {}},
+            ),
         )
         # 补配对文案：停机取消 → 服务中断；用户取消 → 用户停止；
         # 其余终态（done 无孤儿 / error 断流）按「服务中断」的中性文案兜底
@@ -350,7 +392,7 @@ class AgentRunRegistry:
         self._prune_expired()
         run = self._runs.get(run_id)
         if run is None:
-            raise NotFoundException("Agent 运行不存在或事件历史已过期")
+            raise NotFoundException(message_key="errors.agent.runMissing")
         return run
 
     def _get_session_run(self, session_id: str) -> _AgentRun:
@@ -359,7 +401,7 @@ class AgentRunRegistry:
         run_id = self._latest_by_session.get(session_id)
         run = self._runs.get(run_id) if run_id else None
         if run is None:
-            raise NotFoundException("会话没有可跟随或停止的运行")
+            raise NotFoundException(message_key="errors.agent.noActiveRun")
         return run
 
     def _prune_expired(self) -> None:
@@ -394,6 +436,7 @@ def init_agent_run_registry() -> AgentRunRegistry:
 def get_agent_run_registry() -> AgentRunRegistry:
     """取得已初始化的运行注册表；仅供 lifespan 启动后的请求使用。"""
     if _registry is None:
+        # i18n-ignore: developer error
         raise RuntimeError("Agent 运行注册表尚未初始化")
     return _registry
 

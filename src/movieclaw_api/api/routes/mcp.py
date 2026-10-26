@@ -13,10 +13,10 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, Depends, Request
-from mcp.types import Tool
 
 from movieclaw_api.api.deps import require_admin_session
 from movieclaw_api.exceptions import NotFoundException
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.mcp import (
     EndpointCreatedView,
     EndpointCreateRequest,
@@ -38,7 +38,7 @@ from movieclaw_api.settings import AppServerSetting, get_setting_store
 from movieclaw_api.settings.mcp import McpEndpoint
 from movieclaw_mcp.catalog import available_services, operations_by_domain, tools_by_name
 from movieclaw_mcp.selfcheck import self_check
-from movieclaw_mcp.tools import build_tools, describe_domain
+from movieclaw_mcp.tools import Tool, build_tools, describe_domain
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
@@ -189,11 +189,11 @@ async def check_endpoint(request: Request, endpoint_id: str) -> ApiResponse[Self
     config = await mcp_endpoints.get_config()
     endpoint = next((e for e in config.endpoints if e.id == endpoint_id), None)
     if endpoint is None:
-        raise NotFoundException("端点不存在或已被删除")
+        raise NotFoundException(message_key="errors.mcp.endpointMissing")
     base_url, _ = await _base_url()
     result = await self_check(request.app, endpoint, external_url=base_url)
     if not config.enabled:
-        result.warnings.insert(0, "MCP 总开关是关闭的，所有端点对外一律 404。")
+        result.warnings.insert(0, t("mcp.check.globalDisabled"))
     return ok(SelfCheckView(**vars(result)))
 
 
@@ -247,7 +247,7 @@ def _tool_commands(tool: Tool) -> list[ToolCommand]:
 
 
 def _tool_preview(tool: Tool) -> ToolPreview:
-    """SDK 的 Tool → 管理页要展示的形态（含参数明细）。"""
+    """工具面的 Tool → 管理页要展示的形态（含参数明细）。"""
     schema = tool.input_schema or {}
     required = set(schema.get("required") or [])
     operation = tools_by_name().get(tool.name)

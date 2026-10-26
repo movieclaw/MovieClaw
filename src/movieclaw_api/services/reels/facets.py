@@ -24,6 +24,8 @@ from typing import Any
 from sqlalchemy import func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.media_labels import country_label, genre_label
 from movieclaw_api.schemas.library import FacetValueView
 from movieclaw_api.schemas.reels import ReelFacetsView
 from movieclaw_api.services.auth import Principal
@@ -38,33 +40,36 @@ from movieclaw_api.services.reels.feed import (
 )
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import LibraryFile, MediaMetadata
-from movieclaw_media.genres import MOVIE_GENRES, TV_GENRES, country_label
+from movieclaw_media.genres import MOVIE_GENRES
 
 #: 计数查询同时跑几路（见模块注释的实测）
 FACET_CONCURRENCY = 4
 
-_KINDS = (("movie", "电影"), ("tv", "剧集"))
+# 档位名是消息键，出响应时按读者语言渲染
+_KINDS = (("movie", "media.kind.movie"), ("tv", "media.kind.tv"))
 #: 「其他」单列：它是独立的池（不混进默认），且没有 TMDB 档案，计数口径与电影 / 剧集不同
-_OTHER = ("video", "其他")
+_OTHER = ("video", "library.reels.other")
 _DECADES = (
-    ("2020s", "2020 年代"),
-    ("2010s", "2010 年代"),
-    ("2000s", "2000 年代"),
-    ("1990s", "1990 年代"),
-    ("earlier", "更早"),
+    ("2020s", "library.reels.decade2020s"),
+    ("2010s", "library.reels.decade2010s"),
+    ("2000s", "library.reels.decade2000s"),
+    ("1990s", "library.reels.decade1990s"),
+    ("earlier", "library.facets.earlier"),
 )
 _RATINGS = (9, 8, 7, 6)
 _RUNTIMES = (
-    ("lte60", "60 分钟以内"),
-    ("60to90", "60～90 分钟"),
-    ("90to120", "90～120 分钟"),
-    ("gt120", "120 分钟以上"),
+    ("lte60", "library.reels.runtimeLte60"),
+    ("60to90", "library.reels.runtime60to90"),
+    ("90to120", "library.reels.runtime90to120"),
+    ("gt120", "library.reels.runtimeGt120"),
 )
 
 
 def _genre_label(genre_id: int) -> str:
     """刷片里电影、剧集混着抽，两套 TMDB 类型表都认（同一个 id 两边叫法相同）。"""
-    return MOVIE_GENRES.get(genre_id) or TV_GENRES.get(genre_id) or str(genre_id)
+    if genre_id in MOVIE_GENRES:
+        return genre_label("movie", genre_id)
+    return genre_label("tv", genre_id)
 
 
 async def build_reel_facets(
@@ -151,34 +156,41 @@ async def build_reel_facets(
         if rich
         else nothing(),
         asyncio.gather(
-            *(probe("decades", v, label, LibraryFilter(decades=(v,))) for v, label in _DECADES)
+            *(probe("decades", v, t(key), LibraryFilter(decades=(v,))) for v, key in _DECADES)
         )
         if rich
         else nothing(),
         asyncio.gather(
             *(
-                probe("rating_gte", str(v), f"{v} 分以上", LibraryFilter(rating_gte=v))
+                probe(
+                    "rating_gte",
+                    str(v),
+                    t("library.reels.ratingAtLeast", rating=v),
+                    LibraryFilter(rating_gte=v),
+                )
                 for v in _RATINGS
             )
         )
         if rich
         else nothing(),
         asyncio.gather(
-            *(probe("runtimes", v, label, LibraryFilter(runtimes=(v,))) for v, label in _RUNTIMES)
+            *(probe("runtimes", v, t(key), LibraryFilter(runtimes=(v,))) for v, key in _RUNTIMES)
         )
         if rich
         else nothing(),
-        probe("watch", "unwatched", "没看过", LibraryFilter(watch="unwatched")),
+        probe(
+            "watch", "unwatched", t("library.facets.unwatched"), LibraryFilter(watch="unwatched")
+        ),
     )
     other_count = kinds[-1]
     # 只有「其他」库的用户没有可切换的类型，整行不给；「其他」没有可刷的文件时也不给这一项
     # （选着的除外，得能取消）
     shown = [
-        FacetValueView(value=value, label=label, count=n)
-        for (value, label), n in zip(_KINDS, kinds[:-1], strict=True)
+        FacetValueView(value=value, label=t(key), count=n)
+        for (value, key), n in zip(_KINDS, kinds[:-1], strict=True)
     ]
     if other_count > 0 or kind == _OTHER[0]:
-        shown.append(FacetValueView(value=_OTHER[0], label=_OTHER[1], count=other_count))
+        shown.append(FacetValueView(value=_OTHER[0], label=t(_OTHER[1]), count=other_count))
     return ReelFacetsView(
         total=total,
         filterable=rich,

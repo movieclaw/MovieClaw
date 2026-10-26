@@ -301,3 +301,32 @@ def test_equal_quality_groups_have_deterministic_evidence_and_seed_tiebreaks():
         )
     cov = {"test/z": [18, 4], "test/a": [18, 18], "test/b": [4, 4]}
     assert decide(policy, [a, b, c], now=NOW, coverage=cov).candidate_key == "test/a"
+
+
+def test_current_budget_caps_waiting_deadline_without_extending_it():
+    """订阅跟随当前设置：改短立即收紧在等单元，改长不追溯，手动延长保留。"""
+    six_hours = SmartPolicy(kind="tv", profile_revision=1, wait_seconds=21600)
+    waiting = decide(six_hours, [candidate()], now=NOW, first_seen=NOW)
+    assert waiting.action == "wait"
+    state = waiting.state
+    assert state.deadline == NOW + timedelta(hours=6)
+
+    later = NOW + timedelta(minutes=10)
+    one_hour = SmartPolicy(kind="tv", profile_revision=2, wait_seconds=3600)
+    shortened = decide(one_hour, [candidate()], now=later, state=state)
+    assert shortened.state.deadline == NOW + timedelta(hours=1)
+    assert shortened.state.observation_end <= shortened.state.deadline
+
+    no_wait = SmartPolicy(kind="tv", profile_revision=3, wait_seconds=0)
+    immediate = decide(no_wait, [candidate()], now=later, state=state)
+    assert immediate.action == "download"
+
+    week = SmartPolicy(kind="tv", profile_revision=4, wait_seconds=604800)
+    longer = decide(week, [candidate()], now=later, state=state)
+    assert longer.state.deadline == state.deadline  # 改长不把已定的截止往后挪
+
+    extended = state.model_copy(
+        update={"deadline": NOW + timedelta(hours=9), "manual_extended": True}
+    )
+    kept = decide(no_wait, [candidate()], now=later, state=extended)
+    assert kept.action == "wait" and kept.state.deadline == NOW + timedelta(hours=9)

@@ -1,0 +1,17 @@
+{
+  "auth": {
+    "wrongPassword": "Incorrect username or password"
+  },
+  "siteDiagnostic": {
+    "auth": "Authentication failed: {error}",
+    "network": "Cannot connect to the site. Check your network, proxy and whether the site is available.",
+    "loginRedirect": "The site redirected to its login page. Your cookies have expired or are incomplete. Sign in to the site in your browser, then sync cookies again.",
+    "parse": "Unexpected site response. The site may have changed, or expired credentials may have returned a login page.",
+    "challenge": "Blocked by a Cloudflare challenge (status {code}). cf_clearance is tied to the browser’s User-Agent and public IP address. Syncing cookies alone usually cannot resolve this.",
+    "forbidden": "The site denied access (status {code}). Credentials may have expired. Verify or update them.",
+    "rateLimited": "The site rate limited requests (status {code}). Requests will slow down automatically.",
+    "unavailable": "The site server is temporarily unavailable (status {code}). This is usually a site issue. Wait for it to recover.",
+    "http": "The site returned an unexpected status: {code}. Try again later or check credentials.",
+    "unknown": "Unexpected verification error ({kind}): {error}"
+  }
+}

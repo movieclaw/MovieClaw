@@ -87,7 +87,6 @@ class BaseDownloader(abc.ABC):
     async def resume(self, info_hash: str) -> None:
         """恢复暂停中的下载任务。不存在的 hash 静默忽略（幂等）。"""
 
-
     @abc.abstractmethod
     async def get_limits(self) -> DownloaderLimits:
         """读取下载器的全局限制：限速、备用限速档与任务队列上限。

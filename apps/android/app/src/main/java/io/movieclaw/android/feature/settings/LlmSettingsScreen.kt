@@ -47,7 +47,6 @@ import io.movieclaw.android.core.designsystem.Accent
 import io.movieclaw.android.core.designsystem.ErrorPane
 import io.movieclaw.android.core.designsystem.FlatCard
 import io.movieclaw.android.core.designsystem.Loadable
-import io.movieclaw.android.core.designsystem.McMetrics
 import io.movieclaw.android.core.designsystem.McType
 import io.movieclaw.android.core.designsystem.TextFaint
 import io.movieclaw.android.core.designsystem.TextMuted
@@ -66,6 +65,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import io.movieclaw.android.core.designsystem.mcCards
 
 /**
  * 「模型接入」（iOS `.settingsSection(.llm)` / Web `/settings/llm`）：
@@ -195,7 +195,7 @@ fun LlmSettingsScreen(onBack: () -> Unit, vm: LlmSettingsViewModel = hiltViewMod
                     Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = McMetrics.pagePadding)
+                        .padding(horizontal = mcCards.pagePadding)
                         .padding(bottom = 32.dp),
                 ) {
                     Spacer(Modifier.height(8.dp))
@@ -329,6 +329,7 @@ private fun LlmProviderCard(
             InfoRow("API 端点", provider.baseUrl ?: preset?.baseUrl ?: "官方默认")
             InfoRow("连接测试模型", provider.defaultModel)
             provider.userAgent?.takeIf { it.isNotBlank() }?.let { InfoRow("User-Agent", it) }
+            provider.apiProtocol?.let { InfoRow("API 协议", protocolLabel(it)) }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CardAction("编辑配置", onClick = onEdit)

@@ -173,9 +173,11 @@
  "tests/api/test_playback_watch_restore.py": 0.1,
  "tests/api/test_plugin_bootstrap.py": 1.3,
  "tests/api/test_plugin_data_health.py": 1.3,
+ "tests/api/test_plugin_dependencies.py": 20.0,
  "tests/api/test_plugin_diagnostics.py": 2.1,
  "tests/api/test_plugin_files.py": 31.2,
  "tests/api/test_plugin_isolation.py": 3.8,
+ "tests/api/test_plugin_market.py": 12.0,
  "tests/api/test_plugin_net.py": 1.1,
  "tests/api/test_plugin_new_ops.py": 2.1,
  "tests/api/test_plugin_packages.py": 31.4,
@@ -391,5 +393,6 @@
  "tests/tracker/unit/test_pttime_config.py": 0.2,
  "tests/tracker/unit/test_site_time_contract.py": 0.3,
  "tests/tracker/unit/test_tjupt_config.py": 0.2,
- "tests/tracker/unit/test_user_site_configs.py": 7.1
+ "tests/tracker/unit/test_user_site_configs.py": 7.1,
+ "tests/unit/test_plugin_deps_lock.py": 0.3
 }

@@ -587,7 +587,7 @@ struct AgentMarkdownImage: View {
             if let image = state.image {
                 image.resizable().scaledToFit()
             } else if state.error != nil {
-                Label(alt.isEmpty ? "图片加载失败" : alt, systemImage: "photo")
+                Label(alt.isEmpty ? String(localized: .mediaImagesZoomLoadFailed) : alt, systemImage: "photo")
                     .font(.footnote)
                     .foregroundStyle(Theme.textFaint)
                     .frame(maxWidth: .infinity, minHeight: 60)
@@ -598,7 +598,7 @@ struct AgentMarkdownImage: View {
         }
         .frame(maxWidth: .infinity, maxHeight: 420, alignment: .leading)
         .clipShape(.rect(cornerRadius: 10))
-        .accessibilityLabel(alt.isEmpty ? "图片" : alt)
+        .accessibilityLabel(alt.isEmpty ? String(localized: .mediaKindPhoto) : alt)
     }
 }
 
@@ -634,7 +634,7 @@ struct AgentCodeBlock: View {
             }
             .buttonStyle(.plain)
             .padding(6)
-            .accessibilityLabel(copied ? "已复制" : "复制代码")
+            .accessibilityLabel(copied ? String(localized: .commonCopied) : String(localized: .agentMarkdownCopyCode))
         }
     }
 }

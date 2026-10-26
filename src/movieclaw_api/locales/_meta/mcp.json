@@ -1,0 +1,26 @@
+{
+  "check.endpointDisabled": {
+    "sourceHash": "905234549a93340688b8b46e5880f4a71554fac346b846bdfe1c3352fa220bd0"
+  },
+  "check.externalUrlMissing": {
+    "sourceHash": "05bb6baeb3c91d0113fd5d3dc525317155892d3788103ae587c11b15e877a7f6"
+  },
+  "check.servicesMissing": {
+    "sourceHash": "3d3417d8665b312a241f5c2f5b8079d00746bbea8021006f7766884e024b4e7d"
+  },
+  "check.handshakeOk": {
+    "sourceHash": "7276aecc14f8c2e84e96bbdd9088e8846c3f5e44dea793b69fbfef392858366d"
+  },
+  "check.probeFailed": {
+    "sourceHash": "8a403573f69c77d93eb35d5ae4c7ba64a6571feea10c423d656f8bf5b3457fff"
+  },
+  "check.allOk": {
+    "sourceHash": "c7b3962dde2d0a270dab8e48d61c045ce797b11c0f56103f04c4813569976753"
+  },
+  "check.failed": {
+    "sourceHash": "5cf21444adf5999a214eb9c76f3df62ee96d50780cb0d1317e14732207792b5e"
+  },
+  "check.globalDisabled": {
+    "sourceHash": "485c13e7504caa39cca078606df0964df2354ee06446248d7ff48e290e7aecf0"
+  }
+}

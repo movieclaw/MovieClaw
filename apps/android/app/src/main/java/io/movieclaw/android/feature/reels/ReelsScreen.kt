@@ -83,9 +83,7 @@ import io.movieclaw.android.core.designsystem.McNavButton
 import io.movieclaw.android.core.designsystem.RemoteImage
 import io.movieclaw.android.core.model.FacetValue
 import io.movieclaw.android.core.model.PlaybackMarksRequest
-import io.movieclaw.android.core.playback.ExoEngine
 import io.movieclaw.android.core.playback.PlaybackNetwork
-import io.movieclaw.android.core.playback.mpv.MpvEngine
 import io.movieclaw.android.core.model.ReelEventBatch
 import io.movieclaw.android.core.model.ReelEventView
 import io.movieclaw.android.core.model.ReelFacetsView
@@ -126,6 +124,8 @@ class ReelsViewModel @Inject constructor(
     private val apiFactory: ApiFactory,
     private val repository: SessionRepository,
     private val qualityMemory: QualityMemory,
+    private val playbackPrefs: io.movieclaw.android.core.playback.CorePlaybackPrefs,
+    private val addressBook: io.movieclaw.android.core.network.ServerAddressBook,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -153,6 +153,7 @@ class ReelsViewModel @Inject constructor(
     val players = ReelsPlayers(
         context = appContext,
         apiFactory = apiFactory,
+        prefs = playbackPrefs,
         scope = viewModelScope,
         originProvider = { repository.ui.value.origin },
         deviceIdProvider = { runCatching { repository.deviceId() }.getOrNull() },
@@ -173,14 +174,32 @@ class ReelsViewModel @Inject constructor(
     private val pendingEvents = mutableListOf<ReelEventView>()
 
     init {
-        val host = origin?.let { runCatching { java.net.URI(it).host }.getOrNull() }
-        val network = PlaybackNetwork.of(host)
+        // 网络环境要按**当前选中的入口**算，不能按登录地址：登录用域名、回家后路由切到
+        // 内网，按域名算会一直标成「外网 720p」，还会让 seek 片段白转码。
+        val initialHost = (io.movieclaw.android.core.network.ServerRoutes.baseFor(origin) ?: origin)
+            ?.let { runCatching { java.net.URI(it).host }.getOrNull() }
+        val network = PlaybackNetwork.of(initialHost)
         _ui.update { it.copy(network = network) }
         players.setNetwork(network)
         viewModelScope.launch {
             val cap = qualityMemory.reelsCap(network) ?: ReelsQuality.AUTO
             _ui.update { it.copy(qualityCap = cap) }
             players.setQuality(cap)
+        }
+        // 选路变化（回家 / 出门）时跟着更新画质档位与胶囊文案；已经在播的这条不打断，
+        // 下一条起按新网络走。
+        viewModelScope.launch {
+            addressBook.selection.collect { sel ->
+                if (sel == null || sel.origin != origin) return@collect
+                val host = runCatching { java.net.URI(sel.url).host }.getOrNull()
+                val next = PlaybackNetwork.of(host)
+                if (next == _ui.value.network) return@collect
+                _ui.update { it.copy(network = next) }
+                players.setNetwork(next)
+                val cap = qualityMemory.reelsCap(next) ?: ReelsQuality.AUTO
+                _ui.update { it.copy(qualityCap = cap) }
+                players.setQuality(cap)
+            }
         }
         loadFirstPage()
         loadFacets()
@@ -783,30 +802,20 @@ private fun ReelPage(
                 val slotEngine = players.engineFor(item.id)
                 val slotReady = players.frameReadyId == item.id || players.standbyReadyId == item.id
                 if (slotEngine != null) {
-                    // 画面槽分两种引擎：Exo 走 PlayerView；mpv（光盘镜像专用，v0.32 disc=image）
-                    // 走引擎自带的 SurfaceView（直渲，与正片播放页同一套）。key 住引擎实例——
-                    // 换条时 engineFor 返回的实例会变，key 变了 AndroidView 才会重建、
-                    // 换成对的那块画面（Exo 靠 update 重绑 player，mpv 必须换 view）
+                    // key 住播放器实例：换条时 engineFor 返回的实例会变，key 变了 AndroidView 才会重建
                     key(slotEngine) {
-                        if (slotEngine is MpvEngine) {
-                            AndroidView(
-                                factory = { slotEngine.surfaceView },
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        } else {
-                            AndroidView(
-                                factory = { ctx ->
-                                    androidx.media3.ui.PlayerView(ctx).apply {
-                                        useController = false
-                                        setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                                    }
-                                },
-                                // 引擎是池里的状态（换条 / 预起转正时会变），重组时重绑
-                                update = { view -> view.player = (players.engineFor(item.id) as? ExoEngine)?.player },
-                                onRelease = { view -> view.player = null },
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
+                        AndroidView(
+                            factory = { ctx ->
+                                androidx.media3.ui.PlayerView(ctx).apply {
+                                    useController = false
+                                    setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                }
+                            },
+                            // 播放器是池里的状态（换条 / 预起转正时会变），重组时重绑
+                            update = { view -> view.player = players.engineFor(item.id)?.player },
+                            onRelease = { view -> view.player = null },
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     }
                 }
                 if (!slotReady) {
@@ -854,12 +863,12 @@ private fun ReelPage(
                 // 字幕：窗口抽取的那一小段，本地解析后按与正片同一套叠层画
                 if (isCurrent && players.cues.isNotEmpty()) {
                     io.movieclaw.android.feature.player.SubtitleOverlayLayer(
-                        currentPositionMs = { positionMs },
-                        videoSize = androidx.compose.ui.unit.IntSize(1920, 1080),
-                        cues = players.cues,
-                        enabled = true,
+                        text = io.movieclaw.android.core.playback.SubtitleCues.active(players.cues, positionMs)
+                            .joinToString("\n") { it.text }.ifEmpty { null },
+                        engineCues = emptyList(),
+                        videoWidth = 1920,
+                        videoHeight = 1080,
                         style = io.movieclaw.android.core.playback.SubtitleStyle(),
-                        offsetMs = 0L,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

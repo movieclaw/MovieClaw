@@ -125,6 +125,16 @@ def stack(tmp_path_factory):
         "APP_RELOAD": "false",
         "APP_PORT": str(api_port),
         "DATABASE_URL": database_url,
+        "MOVIECLAW_DATA_DIR": str(data),
+        "AGENT_SESSIONS_DIR": str(data / "agent-sessions"),
+        "AGENT_WORKSPACE_DIR": str(data / "agent-workspace"),
+        "AGENT_SKILLS_DIR": str(data / "agent-skills"),
+        "MOVIECLAW_PLAYBACK_SUBS_CACHE_DIR": str(data / "cache/subtitles"),
+        "MOVIECLAW_SUBTITLE_GEN_CACHE_DIR": str(data / "cache/subtitle-generation"),
+        "MOVIECLAW_TRANSCODE_DIR": str(data / "transcodes"),
+        "MOVIECLAW_TRICKPLAY_CACHE_DIR": str(data / "cache/trickplay"),
+        "IMAGE_CACHE_DIR": str(data / "cache/images"),
+        "PEOPLE_IMAGES_DIR": str(data / "metadata/people"),
         "METADATA_DIR": str(data / "metadata"),
         "LOG_DIR": str(data / "logs"),
         "SECRET_KEY_FILE": str(data / ".secret_key"),
@@ -292,7 +302,11 @@ def test_unidentified_torrent_confirm_then_auto_import(stack) -> None:  # noqa: 
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, **_chromium_kwargs())
-        context = browser.new_context(viewport={"width": 1440, "height": 900}, locale="zh-CN")
+        context = browser.new_context(
+            viewport={"width": 1440, "height": 900},
+            locale="zh-CN",
+            extra_http_headers={"Accept-Language": "zh-Hans"},
+        )
         page = context.new_page()
         page.set_default_timeout(20_000)
         page.set_default_navigation_timeout(120_000)
@@ -403,12 +417,19 @@ def test_unidentified_torrent_confirm_then_auto_import(stack) -> None:  # noqa: 
         _wait_for(imported, timeout=120, what="监听导入按身份锚把《繁花》收进国产剧", interval=2)
         items = api(page, "get", f"/libraries/{cn['id']}/items")["data"]
         assert [i["title"] for i in items] == ["繁花"]
-        entries = api(page, "get", f"/import-watch/{rule['id']}/entries")["data"]
+
+        # 条目行由入库当场提交，监听导入台账要到作业收尾才写：等它落下再断言
+        def ledger():
+            data = api(page, "get", f"/import-watch/{rule['id']}/entries")["data"]
+            return data if data["counts"].get("imported") else None
+
+        entries = _wait_for(ledger, timeout=30, what="监听导入台账记下入库结论", interval=1)
         assert entries["counts"].get("imported") == 1, entries
         assert not entries["counts"].get("pending"), entries
         assert list(dirs["cn_shows"].rglob("*.mkv")), "文件应已整理进国产剧目录"
         page.goto(f"{base}/library/{cn['id']}")
-        expect(page.locator("[data-library-item-id]")).to_have_count(1)
+        # next dev 首次打开这一页要现编译，默认 5 秒偶尔不够
+        expect(page.locator("[data-library-item-id]")).to_have_count(1, timeout=30_000)
         page.screenshot(path=str(shots / "03-imported.png"))
 
         # ---- 连身份都没解析出来的种子：同样按搜索词给候选 ----

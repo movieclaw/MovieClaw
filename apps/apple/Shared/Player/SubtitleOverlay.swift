@@ -79,6 +79,7 @@ struct SubtitleOverlay: View {
     let url: URL?
     let style: SubtitleStyle
     let videoSize: CGSize
+    var displayMode: PlayerDisplayMode = .fit
     /// 当前文件时间（秒）
     let time: () -> Double
     let session: URLSession
@@ -114,9 +115,8 @@ struct SubtitleOverlay: View {
 
     private func videoRect(in size: CGSize) -> CGRect {
         guard videoSize.width > 0, videoSize.height > 0 else { return CGRect(origin: .zero, size: size) }
-        let scale = min(size.width / videoSize.width, size.height / videoSize.height)
-        let fitted = CGSize(width: videoSize.width * scale, height: videoSize.height * scale)
-        return CGRect(x: (size.width - fitted.width) / 2, y: (size.height - fitted.height) / 2, width: fitted.width, height: fitted.height)
+        let bounds = CGRect(origin: .zero, size: size)
+        return displayMode.rect(in: bounds, videoSize: videoSize).intersection(bounds)
     }
 
     private func load() async {
@@ -132,14 +132,14 @@ struct SubtitleOverlay: View {
               (response as? HTTPURLResponse)?.statusCode == 200,
               let text = String(data: data, encoding: .utf8) else {
             #if DEBUG
-            FileHandle.standardError.write(Data("[Overlay] 字幕加载失败 \(url.path)\n".utf8))
+            FileHandle.standardError.write(Data("[Overlay] 字幕加载失败 \(url.path)\n".utf8)) // i18n-ignore: developer diagnostics
             #endif
             return
         }
         cues = WebVTT.parse(text)
         #if DEBUG
         // 开发期：真机无人值守验证外挂字幕确实拿到了、多久拿到
-        FileHandle.standardError.write(Data("[Overlay] 字幕 \(cues.count) 条，耗时 \((ContinuousClock.now - startedAt) / .milliseconds(1)) 毫秒\n".utf8))
+        FileHandle.standardError.write(Data("[Overlay] 字幕 \(cues.count) 条，耗时 \((ContinuousClock.now - startedAt) / .milliseconds(1)) 毫秒\n".utf8)) // i18n-ignore: developer diagnostics
         #endif
     }
 }

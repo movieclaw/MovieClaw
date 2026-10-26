@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.schemas.cloud import (
     CloudConnectionView,
     CloudDisconnectView,
@@ -42,7 +43,9 @@ async def build_status() -> CloudStatusView:
     if not setting.connected and setting.last_disconnect_reason:
         last_disconnect = CloudDisconnectView(
             reason=setting.last_disconnect_reason,
-            message=setting.last_disconnect_message,
+            message=render_value(
+                setting.last_disconnect_message_ref or setting.last_disconnect_message
+            ),
             at=setting.last_disconnect_at,
         )
 
@@ -62,7 +65,7 @@ async def build_status() -> CloudStatusView:
                 qrcode_image=pairing.qrcode_image,
                 expires_at=pairing.expires_at,
                 status=pairing.status,
-                message=pairing.message,
+                message=render_value(pairing.message_ref or pairing.message),
                 instance_name=pairing.instance_name,
             )
             if pairing is not None and not setting.connected

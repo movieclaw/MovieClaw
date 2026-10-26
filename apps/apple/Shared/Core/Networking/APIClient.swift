@@ -7,7 +7,7 @@ import Foundation
 /// 与 Web 端 `lib/http.ts` 的兜底文案保持一致，避免用户对着英文系统错误猜原因。
 nonisolated enum APIError: LocalizedError, Sendable {
     /// 服务器返回了非 2xx；message 取自响应体 `message`，没有则给通用文案
-    case http(status: Int, message: String, code: String?)
+    case http(status: Int, message: String, code: String?, messageKey: String? = nil)
     /// 连不上 / 被中断
     case network(String)
     /// 超时
@@ -17,15 +17,21 @@ nonisolated enum APIError: LocalizedError, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case let .http(_, message, _): message
+        case let .http(_, message, _, _): message
         case let .network(message): message
-        case .timeout: "服务器响应太慢，请求已取消——请稍后重试"
-        case let .decoding(detail): "服务器返回的数据无法解析（App 与服务器版本可能不一致）：\(detail)"
+        case .timeout: String(localized: .errorsNetworkTimeout)
+        case let .decoding(detail): String(localized: .errorsNetworkDecoding(detail))
         }
     }
 
+    /// 服务端错误目录里的稳定键（`message_key`），按错误类型分支用它，不随界面语言变化
+    var messageKey: String? {
+        if case let .http(_, _, _, key) = self { return key }
+        return nil
+    }
+
     var status: Int? {
-        if case let .http(status, _, _) = self { return status }
+        if case let .http(status, _, _, _) = self { return status }
         return nil
     }
 
@@ -47,6 +53,7 @@ nonisolated struct Empty: Codable, Sendable {}
 nonisolated struct APIErrorBody: Decodable, Sendable {
     let message: String?
     let code: String?
+    let messageKey: String?
     /// 请求校验失败（422 `VALIDATION_ERROR`）时逐条说是哪个字段、为什么
     let details: [Detail]?
 
@@ -76,10 +83,16 @@ nonisolated struct APIErrorBody: Decodable, Sendable {
         }
     }
 
-    init(message: String?, code: String?, details: [Detail]?) {
+    private enum CodingKeys: String, CodingKey {
+        case message, code, details
+        case messageKey = "message_key"
+    }
+
+    init(message: String?, code: String?, details: [Detail]?, messageKey: String? = nil) {
         self.message = message
         self.code = code
         self.details = details
+        self.messageKey = messageKey
     }
 
     /// 给用户看的一句话。请求校验失败时服务端的 message 只是一句英文的「request validation failed」，
@@ -87,20 +100,19 @@ nonisolated struct APIErrorBody: Decodable, Sendable {
     /// （2026-10-05：服务器还不认识 Mac 版这个设备类型，账号密码与扫码登录都只报了那句英文）
     func userMessage(status: Int) -> String {
         guard code == "VALIDATION_ERROR" || status == 422 else {
-            return message ?? "请求失败（HTTP \(status)）"
+            return message ?? String(localized: .errorsNetworkHttp(status))
         }
         let fields = (details ?? []).map { detail in
             (path: detail.location.drop { ["body", "query", "path", "header"].contains($0) }, message: detail.message)
         }
         if fields.contains(where: { $0.path.last == "kind" && $0.path.dropLast().last == "client" }) {
-            return "这台服务器还不认识\(ClientPlatform.appName)：服务器版本太旧，请把服务器升级到最新版本后再登录（错误码 422）"
+            return String(localized: .errorsNetworkUnsupportedClient(ClientPlatform.appName))
         }
         guard let first = fields.first, !first.path.isEmpty else {
-            return "服务器拒绝了这次请求：App 与服务器的版本可能不一致，请把两边都升级到最新版本后再试（错误码 422）"
+            return String(localized: .errorsNetworkVersionMismatch)
         }
-        let reason = first.message.map { "：\($0)" } ?? ""
-        return "服务器拒绝了这次请求（字段 \(first.path.joined(separator: "."))\(reason)）。如果填写没有问题，"
-            + "多半是 App 与服务器的版本不一致，请把两边都升级到最新版本后再试（错误码 422）"
+        let reason = first.message.map { String(localized: .errorsNetworkDetail($0)) } ?? ""
+        return String(localized: .errorsNetworkInvalidField(first.path.joined(separator: "."), reason))
     }
 }
 
@@ -207,10 +219,18 @@ nonisolated struct APIClient: Sendable {
         self.session = session
     }
 
-    /// 给请求补上设备令牌（调用方已显式设了 Authorization 的不覆盖）
+    /// 给请求补上设备令牌（调用方已显式设了 Authorization 的不覆盖）与这次走的路线
+    /// （`X-MovieClaw-Route`，服务端据此判断在家还是在外面，docs/design/server-addresses.md §5.2）
     func authorized(_ request: URLRequest) -> URLRequest {
-        guard let token, request.value(forHTTPHeaderField: "Authorization") == nil else { return request }
         var request = request
+        if request.value(forHTTPHeaderField: "Accept-Language") == nil {
+            request.setValue(AppLanguage.identifier, forHTTPHeaderField: "Accept-Language")
+        }
+        request.setValue(TimeZone.current.identifier, forHTTPHeaderField: "X-MovieClaw-Timezone")
+        if let route = ServerRoutes.shared.route(for: server) {
+            request.setValue(route.rawValue, forHTTPHeaderField: "X-MovieClaw-Route")
+        }
+        guard let token, request.value(forHTTPHeaderField: "Authorization") == nil else { return request }
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return request
     }
@@ -221,7 +241,9 @@ nonisolated struct APIClient: Sendable {
         let trimmed = path.hasPrefix("/") ? String(path.dropFirst()) : path
         // path 里可能自带查询串（与 Web 端写法一致），拆开后再合并 query
         let parts = trimmed.split(separator: "?", maxSplits: 1).map(String.init)
-        var components = URLComponents(url: server.apiBase.appending(path: parts[0]), resolvingAgainstBaseURL: false)!
+        // 发到这台服务器当前选中的地址（在家内网、出门外网，见 ServerRoutes）
+        let base = ServerRoutes.shared.origin(for: server).appending(path: "api/v1")
+        var components = URLComponents(url: base.appending(path: parts[0]), resolvingAgainstBaseURL: false)!
         var items: [URLQueryItem] = []
         if parts.count > 1 {
             items += URLComponents(string: "?\(parts[1])")?.queryItems ?? []
@@ -340,20 +362,76 @@ nonisolated struct APIClient: Sendable {
 
     /// 同 `perform`，另外带回响应头（键为小写）
     func performReturningHeaders(_ request: URLRequest) async throws -> (Data, [String: String]) {
+        do {
+            return try await performOnce(request)
+        } catch let error as URLError where Self.shouldFailover(error, method: request.httpMethod) {
+            // 当前地址连不上（出门了还在用内网地址、回家了外网反代挂了）：重新选一次地址，换了就把这个请求
+            // 原样重发一次。只重发读请求，写请求不自动重试，免得重复提交
+            guard let failed = request.url,
+                  let next = await ServerRoutes.shared.failover(server, failed: failed),
+                  let retried = Self.retarget(request, to: next)
+            else { throw Self.mapped(error) }
+            do {
+                return try await performOnce(retried)
+            } catch let error as URLError {
+                throw Self.mapped(error)
+            }
+        } catch let error as URLError {
+            throw Self.mapped(error)
+        }
+    }
+
+    /// 硬错误才换地址：连不上、找不到主机、超时
+    static func shouldFailover(_ error: URLError, method: String?) -> Bool {
+        guard ["GET", "HEAD", nil].contains(method) else { return false }
+        return [.cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .timedOut, .networkConnectionLost,
+                .secureConnectionFailed].contains(error.code)
+    }
+
+    /// 把请求的协议、主机、端口换成新地址，路径与查询原样
+    static func retarget(_ request: URLRequest, to origin: URL) -> URLRequest? {
+        guard let url = request.url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        components.scheme = origin.scheme
+        components.host = origin.host
+        components.port = origin.port
+        guard let target = components.url else { return nil }
+        var request = request
+        request.url = target
+        return request
+    }
+
+    private static func mapped(_ error: URLError) -> Error {
+        switch error.code {
+        case .timedOut: APIError.timeout
+        case .cancelled: CancellationError()
+        default: APIError.network(networkMessage(error))
+        }
+    }
+
+    /// 发一次；网络层失败原样抛 URLError（由 `performReturningHeaders` 决定换地址重试还是换成中文说明）
+    private func performOnce(_ request: URLRequest) async throws -> (Data, [String: String]) {
         let data: Data
         let response: URLResponse
+        let startedAt = Date()
         do {
             (data, response) = try await session.data(for: authorized(request), delegate: PerfTrace.enabled ? PerfTrace.NetworkMetrics.shared : nil)
         } catch let error as URLError {
-            switch error.code {
-            case .timedOut: throw APIError.timeout
-            case .cancelled: throw CancellationError()
-            default: throw APIError.network(Self.networkMessage(error))
+            #if os(iOS)
+            // 连通性判断旁听每个请求的结果（docs/design/offline-download.md §2.2）；常驻的 SSE 连接断开是常态，不算
+            if session !== Self.liveSession {
+                ServerReachability.report(origin: server.origin, outcome: .of(error), startedAt: startedAt)
             }
+            #endif
+            throw error
         }
         guard let http = response as? HTTPURLResponse else {
-            throw APIError.network("服务器响应异常")
+            throw APIError.network(String(localized: .errorsNetworkAbnormal))
         }
+        #if os(iOS)
+        if session !== Self.liveSession {
+            ServerReachability.report(origin: server.origin, outcome: .of(http), startedAt: startedAt)
+        }
+        #endif
         guard (200 ..< 300).contains(http.statusCode) else {
             let body = try? Self.decoder.decode(APIErrorBody.self, from: data)
             let message = (body ?? APIErrorBody(message: nil, code: nil, details: nil)).userMessage(status: http.statusCode)
@@ -362,7 +440,7 @@ nonisolated struct APIClient: Sendable {
                 // 也可能还有请求在路上——它们的 401 不能把当前会话踢下线
                 NotificationCenter.default.post(name: .apiUnauthorized, object: server, userInfo: token.map { ["token": $0] })
             }
-            throw APIError.http(status: http.statusCode, message: message, code: body?.code)
+            throw APIError.http(status: http.statusCode, message: message, code: body?.code, messageKey: body?.messageKey)
         }
         var headers: [String: String] = [:]
         for (key, value) in http.allHeaderFields {
@@ -387,61 +465,61 @@ nonisolated struct APIClient: Sendable {
     /// - 文案里带上出问题的服务器（主机:端口），用户一眼能看出是不是自己填错了地址；
     /// - 末尾保留错误码，用户截图反馈时开发者能精确对照。
     static func networkMessage(_ error: URLError) -> String {
-        let host = error.failingURL.map { "「\(hostLabel($0))」" } ?? "服务器"
+        let host = error.failingURL.map { String(localized: .errorsNetworkNamedHost(hostLabel($0))) } ?? String(localized: .errorsNetworkServer)
         let reason = switch error.code {
         case .notConnectedToInternet:
             #if os(iOS)
-            "手机没有联网：请检查 Wi-Fi 或蜂窝网络；如果其他 App 能上网，请到「设置 → MovieClaw」允许它使用无线局域网与蜂窝数据"
+            String(localized: .errorsNetworkOfflinePhone)
             #else
-            "\(ClientPlatform.deviceNoun)没有联网：请检查 Wi-Fi 或有线网络；连的是局域网地址时，还要在「系统设置 → 隐私与安全性 → 本地网络」里允许 MovieClaw"
+            String(localized: .errorsNetworkOffline(ClientPlatform.deviceNoun))
             #endif
         case .dataNotAllowed:
-            "蜂窝数据不可用：请连接 Wi-Fi，或到「设置 → 蜂窝网络」为 MovieClaw 打开蜂窝数据"
+            String(localized: .errorsNetworkCellularDenied)
         case .cannotFindHost, .dnsLookupFailed:
-            "找不到\(host)：域名无法解析，请检查地址拼写；内网域名需要\(ClientPlatform.deviceNoun)与服务器在同一网络"
+            String(localized: .errorsNetworkDns(host, ClientPlatform.deviceNoun))
         case .cannotConnectToHost:
-            "\(host)拒绝连接：端口不对或服务器没在运行。请确认地址与浏览器里打开 MovieClaw 时的完全一致（包括端口）"
+            String(localized: .errorsNetworkRefused(host))
         case .timedOut:
-            "连接\(host)超时，服务器没有响应：请确认地址和端口正确、服务器在运行；局域网地址需要\(ClientPlatform.deviceNoun)连着同一个网络"
+            String(localized: .errorsNetworkConnectionTimeout(host, ClientPlatform.deviceNoun))
         case .networkConnectionLost:
-            "与\(host)的连接中途断开：请重试；反复出现时检查网络是否稳定"
+            String(localized: .errorsNetworkConnectionLost(host))
         // ATS 拦截明文 http。新版 Info.plist 已放开，正常不会出现；旧版 App 连「http + 域名」会走到这里
         case .appTransportSecurityRequiresSecureConnection:
-            "系统拦截了 http 地址\(host)：请把 App 更新到最新版；暂时可以改用 https 地址或局域网 IP"
+            String(localized: .errorsNetworkHttpBlocked(host))
         case .secureConnectionFailed:
-            "无法与\(host)建立 HTTPS 安全连接：服务器如果没有配置 https，请把地址开头改成 http://"
+            String(localized: .errorsNetworkTlsFailed(host))
         case .serverCertificateUntrusted, .serverCertificateHasUnknownRoot:
-            "\(host)的 HTTPS 证书不受信任（常见于自签名证书）：请换用正规证书（如 Let's Encrypt），或改用 http 地址"
+            String(localized: .errorsNetworkUntrustedCertificate(host))
         case .serverCertificateHasBadDate, .serverCertificateNotYetValid:
-            "\(host)的 HTTPS 证书已过期或尚未生效：请续签证书，并确认\(ClientPlatform.deviceNoun)的日期与时间正确"
+            String(localized: .errorsNetworkExpiredCertificate(host, ClientPlatform.deviceNoun))
         case .clientCertificateRequired, .clientCertificateRejected:
-            "\(host)要求客户端证书，App 暂不支持：请在反向代理上关闭客户端证书校验"
+            String(localized: .errorsNetworkClientCertificate(host))
         case .httpTooManyRedirects:
-            "\(host)重定向次数过多：多半是反向代理的 http / https 跳转配置成了循环"
+            String(localized: .errorsNetworkRedirectLoop(host))
         case .badServerResponse, .cannotParseResponse:
-            "\(host)返回了无法识别的响应：地址可能指向了别的服务，或反向代理配置有误"
+            String(localized: .errorsNetworkBadResponse(host))
         case .badURL, .unsupportedURL:
-            "服务器地址无效：请填写形如 http://192.168.0.100:3000 的地址"
+            String(localized: .errorsNetworkInvalidAddress)
         default:
-            "网络请求失败：请检查网络连接和服务器地址后重试"
+            String(localized: .errorsNetworkFailed)
         }
-        return "\(reason)（错误码 \(error.code.rawValue)）"
+        return String(localized: .errorsNetworkCode(reason, String(error.code.rawValue)))
     }
 
     /// 错误文案里的服务器标识：主机加端口（`192.168.1.10:3000`），不带协议和路径
     private static func hostLabel(_ url: URL) -> String {
-        guard let host = url.host() else { return "服务器" }
+        guard let host = url.host() else { return String(localized: .errorsNetworkServer) }
         return url.port.map { "\(host):\($0)" } ?? host
     }
 
     static func describe(_ error: Error) -> String {
         switch error {
         case let DecodingError.keyNotFound(key, ctx):
-            "缺少字段 \(key.stringValue)（\(ctx.codingPath.map(\.stringValue).joined(separator: "."))）"
+            String(localized: .errorsNetworkMissingField(key.stringValue, ctx.codingPath.map(\.stringValue).joined(separator: ".")))
         case let DecodingError.typeMismatch(_, ctx), let DecodingError.valueNotFound(_, ctx):
-            "字段类型不符 \(ctx.codingPath.map(\.stringValue).joined(separator: "."))"
+            String(localized: .errorsNetworkWrongType(ctx.codingPath.map(\.stringValue).joined(separator: ".")))
         case let DecodingError.dataCorrupted(ctx):
-            "数据损坏 \(ctx.codingPath.map(\.stringValue).joined(separator: "."))"
+            String(localized: .errorsNetworkCorrupted(ctx.codingPath.map(\.stringValue).joined(separator: ".")))
         default: error.localizedDescription
         }
     }

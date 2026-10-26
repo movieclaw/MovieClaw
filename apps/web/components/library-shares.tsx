@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 
 import type { Route } from "next";
@@ -13,7 +14,7 @@ import { CopyIcon, LockIcon } from "@/components/icons";
 import { PosterImage } from "@/components/poster-image";
 import { type ShareView, listShares, revokeShare } from "@/lib/api/shares";
 import { imageUrl } from "@/lib/image-proxy";
-import { LIBRARY_KIND_LABELS } from "@/lib/media-types";
+import { libraryKindLabels } from "@/lib/media-types";
 import { absoluteShareUrl, expiryHint, shareCopyText } from "@/lib/share";
 import { formatDateTime, formatRelativeTime } from "@/lib/time";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
@@ -24,6 +25,8 @@ import { useVisiblePolling } from "@/lib/use-visible-polling";
  * 「取消」。分享多了只有这里能一眼管住；过期 / 已取消的不列。
  */
 export function LibraryShares({ onCountChange }: { onCountChange?: (total: number) => void }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const confirm = useConfirm();
   const toast = useToast();
   const [shares, setShares] = useState<ShareView[] | null>(null);
@@ -47,27 +50,27 @@ export function LibraryShares({ onCountChange }: { onCountChange?: (total: numbe
 
   const copy = (share: ShareView) => {
     const link = absoluteShareUrl(share.url, window.location.origin);
-    void copyText(shareCopyText(share.title, link, share.password))
-      .then(() => toast.success(share.password ? "已复制链接和密码" : "已复制链接"))
-      .catch(() => toast.error("浏览器拒绝访问剪贴板，请手动复制"));
+    void copyText(shareCopyText(share.title, link, share.password, locale))
+      .then(() => toast.success(share.password ? t("library.share.copiedProtected") : t("library.share.copiedLink")))
+      .catch(() => toast.error(t("library.share.clipboardFailed")));
   };
 
   const revoke = async (share: ShareView) => {
     const ok = await confirm({
-      title: `取消《${share.title}》的分享？`,
-      description: "链接立即失效，正在播放的访客会在一分钟内中断。",
-      confirmLabel: "取消分享",
-      cancelLabel: "先不",
+      title: t("library.share.revokeTitle", { title: share.title }),
+      description: t("library.share.revokeShort"),
+      confirmLabel: t("library.share.revoke"),
+      cancelLabel: t("library.share.notNow"),
       tone: "danger",
     });
     if (!ok) return;
     setBusyId(share.id);
     try {
       await revokeShare(share.id);
-      toast.success("分享已取消");
+      toast.success(t("library.share.revoked"));
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "取消分享失败，请稍后重试");
+      toast.error(e instanceof Error ? e.message : t("library.share.revokeFailed"));
     } finally {
       setBusyId(null);
     }
@@ -77,7 +80,7 @@ export function LibraryShares({ onCountChange }: { onCountChange?: (total: numbe
     return (
       <div className="flex items-center gap-2.5 px-6 py-10 text-ui text-[var(--text-muted)] max-md:px-4">
         <BrandLoader className="size-5" />
-        正在读取分享…
+        {t("library.share.loading")}
       </div>
     );
   }
@@ -86,8 +89,8 @@ export function LibraryShares({ onCountChange }: { onCountChange?: (total: numbe
     return (
       <ContentEmptyState
         variant="library"
-        title="还没有分享任何影片"
-        description="在影片详情页的 ⋯ 菜单里可以创建分享：拿到链接的人不用登录就能看这一部影片。"
+        title={t("library.share.empty")}
+        description={t("library.share.emptyHint")}
       />
     );
   }
@@ -96,7 +99,7 @@ export function LibraryShares({ onCountChange }: { onCountChange?: (total: numbe
     <div className="px-6 pb-10 pt-4 max-md:px-4">
       {failed && (
         <div className="mb-3 rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sub text-amber-200">
-          与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据
+          {t("library.share.stale")}
         </div>
       )}
       <ul className="space-y-2">
@@ -122,10 +125,10 @@ export function LibraryShares({ onCountChange }: { onCountChange?: (total: numbe
                 {share.password && (
                   <span
                     className="inline-flex items-center gap-1 text-caption text-[var(--text-faint)]"
-                    title={`密码 ${share.password}`}
+                    title={t("library.share.passwordValue", { password: share.password })}
                   >
                     <LockIcon className="size-3.5" />
-                    密码
+                    {t("library.share.password")}
                   </span>
                 )}
               </div>
@@ -133,19 +136,19 @@ export function LibraryShares({ onCountChange }: { onCountChange?: (total: numbe
                 {[
                   // 合集分享没有"形态"，写它此刻有几部——那才是这条链接的内容
                   share.collection_id !== null
-                    ? `合集 · ${share.item_count ?? 0} 部`
+                    ? t("library.share.collectionCount", { count: share.item_count ?? 0 })
                     : share.kind
-                      ? LIBRARY_KIND_LABELS[share.kind]
+                      ? libraryKindLabels(locale)[share.kind]
                       : null,
                   share.year ? String(share.year) : null,
-                  `${expiryHint(share.expires_at)}（${formatDateTime(share.expires_at)}）`,
+                  `${expiryHint(share.expires_at, Date.now(), locale)}（${formatDateTime(share.expires_at, locale)}）`,
                 ]
                   .filter(Boolean)
                   .join(" · ")}
               </p>
               <p className="tnum mt-0.5 truncate text-caption text-[var(--text-faint)]">
-                {share.view_count > 0 ? `已打开 ${share.view_count} 次` : "还没有人打开"}
-                {share.last_accessed_at ? ` · 最近 ${formatRelativeTime(share.last_accessed_at)}` : ""}
+                {share.view_count > 0 ? t("library.share.views", { count: share.view_count }) : t("library.share.noViews")}
+                {share.last_accessed_at ? t.rich("library.share.recentJoined", { time: () => formatRelativeTime(share.last_accessed_at, locale) }) : ""}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-1.5 max-md:w-full max-md:justify-end">
@@ -155,7 +158,7 @@ export function LibraryShares({ onCountChange }: { onCountChange?: (total: numbe
                 className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sub text-[var(--text-muted)] transition-colors hover:bg-white/[0.07] hover:text-[var(--text)]"
               >
                 <CopyIcon className="size-3.5" />
-                复制
+                {t("library.share.copy")}
               </button>
               <button
                 type="button"
@@ -163,7 +166,7 @@ export function LibraryShares({ onCountChange }: { onCountChange?: (total: numbe
                 onClick={() => revoke(share)}
                 className="rounded-lg px-2.5 py-1.5 text-sub text-[#ff9f9f] transition-colors hover:bg-[rgba(255,90,90,0.16)] disabled:opacity-50"
               >
-                取消
+                {t("common.cancel")}
               </button>
             </div>
           </li>

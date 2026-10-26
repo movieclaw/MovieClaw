@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 /**
  * 全站统一的操作反馈层：Toast 回执 + 确认/输入弹窗。
  *
@@ -340,6 +342,7 @@ function ConfirmDialog({
   options: ConfirmOptions;
   onSettle: (result: ConfirmResult) => void;
 }) {
+  const t = useTranslations();
   // 初始焦点给取消键：危险操作按 Enter 不应直接生效，多一步指向性点击
   const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => cancelRef.current?.focus(), []);
@@ -407,14 +410,14 @@ function ConfirmDialog({
         )}
         <div className="mt-5 flex justify-end gap-2.5">
           <button ref={cancelRef} type="button" onClick={cancel} className={CANCEL_BTN_CLS}>
-            {options.cancelLabel ?? "取消"}
+            {options.cancelLabel ?? t("common.cancel")}
           </button>
           <button
             type="button"
             onClick={() => onSettle({ ok: true, checked })}
             className={confirmButtonCls(options.tone)}
           >
-            {options.confirmLabel ?? "确定"}
+            {options.confirmLabel ?? t("common.confirm")}
           </button>
         </div>
       </div>
@@ -429,6 +432,7 @@ function PromptDialog({
   options: PromptOptions;
   onSettle: (value: string | null) => void;
 }) {
+  const t = useTranslations();
   const [value, setValue] = useState(options.initialValue ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -480,10 +484,10 @@ function PromptDialog({
         </div>
         <div className="mt-5 flex justify-end gap-2.5">
           <button type="button" onClick={() => onSettle(null)} className={CANCEL_BTN_CLS}>
-            取消
+            {t("common.cancel")}
           </button>
           <button type="submit" className={confirmButtonCls("default")}>
-            {options.confirmLabel ?? "确定"}
+            {options.confirmLabel ?? t("common.confirm")}
           </button>
         </div>
       </form>

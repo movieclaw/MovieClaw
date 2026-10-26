@@ -186,3 +186,24 @@ class UpdateProgressView(BaseModel):
     error: str | None
     #: 本次更新的目标版本
     target_version: str | None
+
+
+class ClientReleaseView(BaseModel):
+    """Android 手机 / 电视客户端的最新正式版（GitHub Release 附带的包信息 JSON）。
+
+    App 拿 ``build`` 与自己的 versionCode 比较；下载走 ``/app/clients/{product}/apk``，
+    由服务器经「设置 → 网络」里的 GitHub 出口代取（电视、手机常常直连不了 GitHub）。
+    """
+
+    product: str = Field(description="android / androidtv")
+    version: str = Field(description="versionName，如 0.4.0")
+    build: int = Field(description="versionCode：App 比这个数决定有没有新版")
+    size: int = Field(description="APK 字节数")
+    sha256: str = Field(description="APK 的 sha256（小写十六进制），下载完 App 自己核对")
+    certificate_sha256: str | None = Field(
+        default=None, description="签名证书指纹：与本机安装包不同时覆盖安装会失败"
+    )
+    minimum_sdk: int | None = Field(default=None, description="最低 Android API 级别")
+    changelog: str = Field(default="", description="Release 正文（Markdown）")
+    published_at: str | None = None
+    release_url: str = Field(description="GitHub Release 页面")

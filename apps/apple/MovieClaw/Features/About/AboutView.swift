@@ -13,15 +13,15 @@ struct AboutView: View {
     var body: some View {
         List {
             SettingsFormSection {
-                LabeledContent("版本", value: Self.versionText)
+                LabeledContent(String(localized: .settingsDevicesApprovalVersion), value: Self.versionText)
                 Link(destination: URL(string: "https://github.com/movieclaw/movieclaw")!) {
-                    Label("项目主页（开源）", systemImage: "chevron.left.forwardslash.chevron.right")
+                    Label(String(localized: .settingsAboutProjectHome), systemImage: "chevron.left.forwardslash.chevron.right")
                 }
                 Link(destination: URL(string: "https://github.com/movieclaw/movieclaw/blob/main/docs/privacy-policy.md")!) {
-                    Label("隐私政策", systemImage: "hand.raised")
+                    Label(String(localized: .settingsAboutPrivacyPolicy), systemImage: "hand.raised")
                 }
             } footer: {
-                Text("MovieClaw 是自托管服务的客户端：你的媒体、账号与观看记录都在你自己部署的服务器上，App 不向开发者或任何第三方上传数据。")
+                Text(String(localized: .settingsAboutPrivacySummary))
             }
 
             SettingsFormSection {
@@ -38,9 +38,9 @@ struct AboutView: View {
                     }
                 }
             } header: {
-                Text("开源组件")
+                Text(String(localized: .settingsAboutOpenSource))
             } footer: {
-                Text("播放引擎 AetherEngine 与 FFmpeg 以动态框架随 App 分发，你可以按各自的许可获取源码、修改并替换。本 App 使用的 AetherEngine 修改版源码可通过下方组件链接获取，链接对应本次构建使用的提交。")
+                Text(String(localized: .settingsAboutLicensesHint))
             }
 
             SettingsFormSection {
@@ -48,12 +48,12 @@ struct AboutView: View {
                     Label("The Movie Database (TMDB)", systemImage: "film.stack")
                 }
             } header: {
-                Text("数据来源")
+                Text(String(localized: .settingsAboutDataSources))
             } footer: {
-                Text("影视资料与图片由你的服务器从 TMDB 等来源获取。本产品使用 TMDB API，但未经 TMDB 认可或认证。")
+                Text(String(localized: .settingsAboutTmdbNotice))
             }
         }
-        .navigationTitle("关于")
+        .navigationTitle(String(localized: .settingsAboutTitle))
         .navigationBarTitleDisplayMode(.inline)
         .appBackground()
     }
@@ -76,7 +76,7 @@ private struct LicenseTextView: View {
             VStack(alignment: .leading, spacing: 16) {
                 if let url = URL(string: component.source) {
                     Link(destination: url) {
-                        Label("源码：\(component.source)", systemImage: "link")
+                        Label(String(localized: .settingsAboutSourceLink(component.source)), systemImage: "link")
                             .font(.footnote)
                     }
                 }
@@ -96,7 +96,7 @@ private struct LicenseTextView: View {
     private static func text(of file: String) -> String {
         guard let url = Bundle.main.url(forResource: file, withExtension: "txt"),
               let text = try? String(contentsOf: url, encoding: .utf8)
-        else { return "（许可全文缺失：\(file).txt）" }
+        else { return String(localized: .settingsAboutLicenseMissing(file)) }
         return text
     }
 }

@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { Route } from "next";
@@ -11,7 +14,7 @@ import { ContentEmptyState } from "@/components/content-empty-state";
 import { CollectionLibraryCard, ShelfCardCaption } from "@/components/collection-library-card";
 import { GenreTile } from "@/components/genre-tile";
 import { HScroller } from "@/components/h-scroller";
-import { LIBRARY_KIND_META } from "@/components/library-kind-meta";
+import { libraryKindMeta } from "@/components/library-kind-meta";
 import {
   FilmIcon,
   GearIcon,
@@ -20,6 +23,7 @@ import {
   PlusIcon,
 } from "@/components/icons";
 import { MediaRow } from "@/components/media-row";
+import { ReelClipsTip } from "@/components/reel-clips-tip";
 import { TopBarMenu } from "@/components/top-bar-menu";
 import type { PosterCardAction } from "@/components/poster-card";
 import { UpNextRow } from "@/components/up-next-row";
@@ -55,6 +59,7 @@ import {
   rowTitle,
   SORT_PRESETS,
 } from "@/lib/home-rows";
+import { genreLabels } from "@/lib/genre-labels";
 import { formatBytes } from "@/lib/format";
 import { imageUrl, responsiveImage } from "@/lib/image-proxy";
 import { libraryInventoryAction } from "@/lib/library-inventory-summary";
@@ -63,7 +68,7 @@ import { usePageChrome } from "@/lib/page-chrome";
 import { usePermissions } from "@/lib/permissions";
 import { buildRecentAdditionOverlay } from "@/lib/recent-addition";
 import { formatRelativeTime } from "@/lib/time";
-import { useTheme, useUiPrefs } from "@/lib/ui-prefs";
+import { useLayout, useUiPrefs } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
@@ -98,9 +103,10 @@ export function effectiveLibraryId(
 }
 
 /** 媒体库首页摘要：只聚合接口随库返回的预计算快照，不触发额外请求。 */
-export function libraryStatsSummary(libraries: MediaLibrary[] | null): string {
-  if (libraries === null) return "正在汇总媒体库统计…";
-  if (libraries.length === 0) return "还没有媒体库，创建后会在这里显示库存统计";
+export function libraryStatsSummary(libraries: MediaLibrary[] | null, locale?: AppLocale): string {
+  const t = appTranslator(locale);
+  if (libraries === null) return t("library.home.loadingStats");
+  if (libraries.length === 0) return t("library.home.noStats");
   const movieCount = libraries
     .filter((library) => library.kind === "movie")
     .reduce((total, library) => total + library.stats.item_count, 0);
@@ -114,8 +120,8 @@ export function libraryStatsSummary(libraries: MediaLibrary[] | null): string {
     (total, library) => total + library.stats.total_size_bytes,
     0,
   );
-  const videoPart = videoCount > 0 ? ` · ${videoCount} 个其他视频` : "";
-  return `${libraries.length} 个媒体库 · ${movieCount} 部电影 · ${tvCount} 部剧集${videoPart} · 共占用 ${formatBytes(totalSizeBytes)} 存储空间`;
+  const videoPart = videoCount > 0 ? t("library.home.otherVideoCount", { count: videoCount }) : "";
+  return t("library.home.summary", { libraries: libraries.length, movies: movieCount, tv: tvCount, videoPart, size: formatBytes(totalSizeBytes) });
 }
 
 /**
@@ -152,6 +158,9 @@ let lastLoadedHome: {
 } | null = null;
 
 export function LibraryView({ hero }: { hero?: ReactNode }) {
+  const locale = useLocale();
+  const genreNames = genreLabels(locale);
+  const t = useTranslations();
   const { canManageLibraries } = usePermissions();
   // 银玻璃手机：同原生 App 的媒体库首页（LibraryHomeView.swift）——左上角大字标题
   // 「媒体库」，页面级动作收成右上角一个 ⋯ 菜单：自定义首页 / 全部合集（常驻，合集页
@@ -160,29 +169,29 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
   const chrome = usePageChrome();
   const router = useRouter();
   const isMobile = useIsMobile();
-  const isNf = useTheme().structural;
-  const actionsInTopBar = isMobile && !isNf;
+  const cinema = useLayout() === "cinema";
+  const actionsInTopBar = isMobile && !cinema;
   const setTopBarActions = chrome?.setTopBarActions;
   const setTopBarTitle = chrome?.setTopBarTitle;
   useEffect(() => {
     if (!actionsInTopBar || !setTopBarTitle) return;
-    return setTopBarTitle("媒体库", { large: true });
-  }, [actionsInTopBar, setTopBarTitle]);
+    return setTopBarTitle(t("nav.main.library"), { large: true });
+  }, [actionsInTopBar, setTopBarTitle, t]);
   useEffect(() => {
     if (!actionsInTopBar || !setTopBarActions) return;
     return setTopBarActions(
       <TopBarMenu
-        label="媒体库操作"
+        label={t("library.home.actions")}
         items={[
           {
             id: "customize",
-            label: "自定义首页",
+            label: t("library.home.customize"),
             Icon: ListIcon,
             onSelect: () => router.push("/library/customize" as Route),
           },
           {
             id: "collections",
-            label: "全部合集",
+            label: t("library.home.collections"),
             Icon: LayersIcon,
             onSelect: () => router.push("/library/collections" as Route),
           },
@@ -190,7 +199,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
             ? [
                 {
                   id: "manage",
-                  label: "管理媒体库",
+                  label: t("library.home.manage"),
                   Icon: GearIcon,
                   onSelect: () => router.push("/library/manage" as Route),
                 },
@@ -199,7 +208,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
         ]}
       />,
     );
-  }, [actionsInTopBar, canManageLibraries, router, setTopBarActions]);
+  }, [actionsInTopBar, canManageLibraries, router, setTopBarActions, t]);
   // 首页的行清单存在界面偏好里（成员各存各的），应用启动时已随全站偏好拉过一次
   const { prefs } = useUiPrefs();
   const homePrefs = prefs.home;
@@ -441,10 +450,10 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
       ]),
     );
     return {
-      items: items.map(favoriteItemToMediaItem),
+      items: items.map((item) => favoriteItemToMediaItem(item, locale)),
       hrefOf: (m: MediaItem) => hrefs.get(m.id),
     };
-  }, [favorites]);
+  }, [favorites, locale]);
 
   /** 库行 / 合集行：服务端已按这一行的排序给到前 20，复用发现页的横滚海报行。
    *  已在库的条目点击进**媒体库条目详情**（本地刮削信息 + 片源规格 + 条目操作），
@@ -466,10 +475,10 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
           row={{
             id: `home-${row.id}`,
             title: rowTitle(row),
-            items: items.map(libraryItemToMediaItem),
+            items: items.map((item) => libraryItemToMediaItem(item, locale)),
           }}
           moreHref={moreHref}
-          moreLabel="查看全部"
+          moreLabel={t("library.home.viewAll")}
           cardAction="none"
           cardHref={(m) => hrefs.get(m.id)}
           cardRevealInfoOnTouch
@@ -500,7 +509,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
             <MediaRow
               row={{ id: "favorites", title: rowTitle(row), items: favoriteRow.items }}
               moreHref={"/library/favorites" as Route}
-              moreLabel={`查看全部 ${favorites?.total ?? 0} 部`}
+              moreLabel={t("library.home.viewFavorites", { count: favorites?.total ?? 0 })}
               cardAction="none"
               cardHref={favoriteRow.hrefOf}
               cardRevealInfoOnTouch
@@ -527,7 +536,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
                   href={"/library/collections" as Route}
                   className="shrink-0 text-ui text-[var(--text-faint)] transition hover:text-[var(--text)]"
                 >
-                  全部合集 ›
+                  {t("library.home.collectionsLink")}
                 </Link>
               )}
             </div>
@@ -568,7 +577,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
               {genres.map((genre) => (
                 <GenreTile
                   key={genre.value}
-                  label={genre.label}
+                  label={genreNames[Number(genre.value)] ?? genre.label}
                   count={genre.count}
                   coverUrl={genre.cover_url}
                   mediaKind={row.mediaKind}
@@ -608,25 +617,25 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
           {/* 银玻璃手机的标题在顶栏（大字），页头只留统计行 */}
           {!actionsInTopBar && (
             <h2 className="text-on-image text-[26px] font-bold leading-tight tracking-[-0.02em] text-white max-md:text-[21px]">
-              媒体库
+              {t("nav.main.library")}
             </h2>
           )}
           <p className="text-on-image mt-1.5 text-ui text-[var(--text-muted)] max-md:mt-1 max-md:line-clamp-2 max-md:text-sub">
             {failed && libraries === null
-              ? "暂时无法获取媒体库统计，正在自动重试"
-              : libraryStatsSummary(libraries === null ? null : visibleLibraries)}
+              ? t("library.home.statsFailed")
+              : libraryStatsSummary(libraries === null ? null : visibleLibraries, locale)}
           </p>
         </div>
         {/* 两个页面级动作都是图标钮：自定义首页（所有人）、管理媒体库（有权限的人）。
             银玻璃手机上它们已挂进全局顶栏，页头不再重复；「我的收藏」兜底入口按用户
             要求在银玻璃下撤掉（收藏行在场时行内自带「查看全部」），Netflix 保留。 */}
         <div className="flex shrink-0 items-center gap-2">
-          {favoritesEntryInHeader && isNf && (
+          {favoritesEntryInHeader && cinema && (
             <Link
               href={"/library/favorites" as Route}
               className="shrink-0 text-ui text-[var(--text-faint)] transition hover:text-[var(--text)]"
             >
-              我的收藏 ›
+              {t("library.home.favoritesLink")}
             </Link>
           )}
           {collectionsEntryInHeader && (
@@ -634,14 +643,14 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
               href={"/library/collections" as Route}
               className="shrink-0 text-ui text-[var(--text-faint)] transition hover:text-[var(--text)]"
             >
-              全部合集 ›
+              {t("library.home.collectionsLink")}
             </Link>
           )}
           {!actionsInTopBar && (
             <Link
               href={"/library/customize" as Route}
-              aria-label="自定义首页"
-              title="自定义首页"
+              aria-label={t("library.home.customize")}
+              title={t("library.home.customize")}
               className="btn-glass mt-1 grid size-8 shrink-0 place-items-center !p-0 max-md:mt-0"
             >
               <ListIcon className="size-4" />
@@ -650,8 +659,8 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
           {!actionsInTopBar && canManageLibraries && (
             <Link
               href={"/library/manage" as Route}
-              aria-label="管理媒体库"
-              title="管理媒体库"
+              aria-label={t("library.home.manage")}
+              title={t("library.home.manage")}
               className="btn-glass mt-1 grid size-8 shrink-0 place-items-center !p-0 max-md:mt-0"
             >
               <GearIcon className="size-4" />
@@ -660,10 +669,12 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
         </div>
       </div>
 
+      <ReelClipsTip className="page-inset-mx mt-4" />
+
       {libraries === null && !failed && (
         <div className="mt-16 flex items-center justify-center gap-2.5 text-ui text-[var(--text-muted)]">
           <BrandLoader className="size-5" />
-          正在加载媒体库…
+          {t("library.home.loading")}
         </div>
       )}
 
@@ -671,31 +682,31 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
           提示条（stale-while-error），卡片照常展示上一份快照 */}
       {failed && libraries === null && (
         <div className="mt-16 flex flex-col items-center gap-3 text-center">
-          <p className="text-ui text-[var(--text-muted)]">媒体库加载失败</p>
+          <p className="text-ui text-[var(--text-muted)]">{t("library.home.loadFailed")}</p>
           <button
             type="button"
             onClick={reload}
             className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]"
           >
-            重试
+            {t("common.retry")}
           </button>
         </div>
       )}
 
       {failed && libraries !== null && (
         <div className={`page-inset-mx mt-4 rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sub text-amber-200`}>
-          与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据
+          {t("library.home.stale")}
         </div>
       )}
 
       {libraries !== null && libraries.length === 0 && (
         <ContentEmptyState
           variant="library"
-          title={canManageLibraries ? "为收藏准备一个家" : "还没有可浏览的媒体库"}
+          title={canManageLibraries ? t("library.home.createTitle") : t("library.home.noVisible")}
           description={
             canManageLibraries
-              ? "创建电影库或剧集库，选好根目录后，订阅完成的内容会自动整理到这里。"
-              : "当前账号暂时没有可浏览的媒体库，请联系管理员分配媒体库权限。"
+              ? t("library.home.createHint")
+              : t("library.home.noAccessHint")
           }
           action={
             canManageLibraries ? (
@@ -704,7 +715,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
                 className="btn-accent flex items-center gap-1 rounded-full py-2 pl-3 pr-4 text-ui font-semibold"
               >
                 <PlusIcon className="size-4" />
-                创建第一个媒体库
+                {t("library.home.create")}
               </Link>
             ) : undefined
           }
@@ -717,15 +728,15 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
           className={`page-inset-mx mt-16 rounded-2xl border border-dashed border-white/15 px-6 py-8 text-center`}
           data-testid="home-all-hidden"
         >
-          <p className="text-ui font-semibold text-[var(--text)]">首页空空如也</p>
+          <p className="text-ui font-semibold text-[var(--text)]">{t("library.home.emptyHome")}</p>
           <p className="mt-1 text-sub text-[var(--text-muted)]">
-            所有行都被隐藏了。到「自定义首页」挑几行回来，或恢复默认。
+            {t("library.home.emptyHomeHint")}
           </p>
           <Link
             href={"/library/customize" as Route}
             className="btn-glass mt-4 inline-flex px-4 py-2 text-ui font-medium text-[var(--text)]"
           >
-            自定义首页
+            {t("library.home.customize")}
           </Link>
         </div>
       )}
@@ -819,15 +830,17 @@ function rowFetches(
  */
 /** 海报卡的 id：TMDB 条目用 tmdb_id（订阅状态按它对齐），本地条目没有外部 id，
  *  用带前缀的条目 id 占位——只用来当 Map 键与 React key，不会被当成 TMDB id 请求。 */
-function libraryItemKey(item: LibraryItem): string {
+export function libraryItemKey(item: LibraryItem): string {
   return item.tmdb_id != null ? String(item.tmdb_id) : `local:${item.media_item_id}`;
 }
 
-function libraryItemToMediaItem(item: LibraryItem): MediaItem {
+export function libraryItemToMediaItem(item: LibraryItem, locale?: AppLocale): MediaItem {
+  const t = appTranslator(locale);
   const overlayDetails = buildRecentAdditionOverlay(
     item.kind,
     item.recent_addition,
-    item.added_at ? `${formatRelativeTime(item.added_at)}入库` : null,
+    item.added_at ? t("library.hero.added", { time: formatRelativeTime(item.added_at, locale) }) : null,
+    locale,
   );
   return {
     id: libraryItemKey(item),
@@ -855,14 +868,15 @@ function libraryItemToMediaItem(item: LibraryItem): MediaItem {
 }
 
 /** 收藏卡：海报卡形态同库存条目，hover 层只说「收藏的是哪一层」（整剧与电影不解释）。 */
-function favoriteItemToMediaItem(item: FavoriteItem): MediaItem {
+function favoriteItemToMediaItem(item: FavoriteItem, locale?: AppLocale): MediaItem {
   const level = favoriteLevelLabel(
     item.kind,
     item.favorite_season_number,
     item.favorite_episode_number,
+    locale,
   );
   return {
-    ...libraryItemToMediaItem(item),
+    ...libraryItemToMediaItem(item, locale),
     overlayDetails: level ? { primary: level } : undefined,
   };
 }
@@ -870,7 +884,8 @@ function favoriteItemToMediaItem(item: FavoriteItem): MediaItem {
 /* —— 库卡片：海报货架封面 + 库名（ShelfCardCaption），Emby「我的媒体」磁贴风 —— */
 
 function LibraryCard({ library, items }: { library: MediaLibrary; items: LibraryItem[] }) {
-  const meta = LIBRARY_KIND_META[library.kind];
+  const t = useTranslations();
+  const meta = libraryKindMeta()[library.kind];
   // 封面海报取最近入库的 4 部（items 已是服务端按最近入账排好的那批）
   const posters = items
     .map((s) => s.poster_url)
@@ -888,7 +903,7 @@ function LibraryCard({ library, items }: { library: MediaLibrary; items: Library
       <Link
         href={`/library/${library.id}` as Route}
         scroll={false}
-        aria-label={`打开「${library.name}」`}
+        aria-label={t("library.home.open", { name: library.name })}
         className="block overflow-hidden rounded-2xl ring-1 ring-white/10 outline-none transition duration-300 hover:ring-white/35 focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
       >
         <div className="relative aspect-[21/10] bg-[#0a0c12]">
@@ -905,7 +920,7 @@ function LibraryCard({ library, items }: { library: MediaLibrary; items: Library
             <div className="absolute inset-x-2.5 bottom-2 flex flex-wrap items-center gap-1.5">
               <span className="flex items-center gap-1.5 rounded-full border border-[var(--info)]/35 bg-black/55 px-2 py-0.5 text-micro font-semibold text-[var(--info)] backdrop-blur-md">
                 <span className="size-1.5 animate-pulse rounded-full bg-[var(--info)]" />
-                {importing} 个新文件入库中
+                {t("library.home.importing", { count: importing })}
               </span>
             </div>
           )}
@@ -926,10 +941,10 @@ function LibraryCard({ library, items }: { library: MediaLibrary; items: Library
                   看起来就是卡死了 */}
               <span className="text-caption font-semibold text-white/85">
                 {library.scanning
-                  ? (SCAN_PHASE_LABELS[library.scan_progress?.phase ?? "ingesting"] ?? "扫描中")
+                  ? (SCAN_PHASE_LABELS[library.scan_progress?.phase ?? "ingesting"] ?? t("library.home.scanning"))
                   : library.organizing
-                    ? "整理中"
-                    : "刷新元数据"}
+                    ? t("library.home.organizing")
+                    : t("library.home.refreshing")}
               </span>
               {/* 刷新是全量重刷、以分钟计，多给一行"到哪部了"（并发若干路
                   时取第一部即可，完整列表在单库页的面板里） */}

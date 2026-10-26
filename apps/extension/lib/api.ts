@@ -15,11 +15,21 @@ export function backendOriginPattern(backendUrl: string): string {
   return `${u.protocol}//${u.hostname}/*`;
 }
 
-/** 确保已获得后端源的 host 权限；没有则发起申请（需在用户手势中调用）。 */
-export async function ensureBackendPermission(backendUrl: string): Promise<boolean> {
-  const origins = [backendOriginPattern(backendUrl)];
-  if (await chrome.permissions.contains({ origins })) return true;
-  return chrome.permissions.request({ origins });
+/**
+ * 申请后端源的 host 权限（已授权时直接返回 true、不弹窗）。
+ *
+ * **必须在用户手势里、且在任何 await 之前调用**：Firefox 要求 permissions.request
+ * 同步发生在用户输入处理函数中，前面先 await 一次（例如先 contains 检查）就会抛
+ * 「permissions.request may only be called from a user input handler」。Chrome 宽松，
+ * 以前先查后申请的写法只在 Chrome 上能用。
+ */
+export function requestBackendPermission(backendUrl: string): Promise<boolean> {
+  return chrome.permissions.request({ origins: [backendOriginPattern(backendUrl)] });
+}
+
+/** 只检查、不申请：用于非用户手势的流程（同步时权限早在保存设置时拿到了） */
+export function hasBackendPermission(backendUrl: string): Promise<boolean> {
+  return chrome.permissions.contains({ origins: [backendOriginPattern(backendUrl)] });
 }
 
 /** 统一请求：拼 URL、带令牌、解包 ApiResponse、错误转为可读异常。 */

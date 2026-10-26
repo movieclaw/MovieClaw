@@ -319,3 +319,32 @@ def test_probe_takes_the_disc_image_duration_from_the_main_title(tmp_path, monke
     plain = tmp_path / "plain.iso"
     plain.write_bytes(b"\0" * (300 * S))
     assert media_probe.probe_media(plain).duration_seconds == 4
+
+
+def test_probe_reads_the_main_clip_inside_a_bluray_image(tmp_path, monkeypatch):
+    """蓝光镜像整个交给 ffprobe 多半什么流都认不出（NAS 上 46 个蓝光镜像视频编码全空）：改探主片
+    第一段剪辑在镜像里的字节，带上 PID（按剪辑直推的播放器靠它对轨），整个镜像不再白探一次。"""
+    image, _, _ = _bluray_image(metadata=False)
+    path = tmp_path / "movie.iso"
+    path.write_bytes(image)
+    payload = {
+        "format": {"duration": "60.0"},
+        "streams": [
+            {"codec_type": "video", "codec_name": "h264", "id": "0x1011"},
+            {"codec_type": "audio", "codec_name": "truehd", "channels": 6, "id": "0x1100"},
+        ],
+    }
+    calls: list[list[str]] = []
+
+    def fake_ffprobe(args, **_kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, json.dumps(payload).encode(), b"")
+
+    monkeypatch.setattr(media_probe.subprocess, "run", fake_ffprobe)
+    spec = media_probe.probe_media(path)
+    ((start, end),) = iso_source.iso_disc_source(path).clips[0].byte_ranges
+    (args,) = calls
+    assert args[-1] == f"subfile,,start,{start},end,{end},,:{path}"
+    assert args[args.index("-protocol_whitelist") + 1] == "file,subfile"
+    assert spec.video_codec == "h264" and spec.duration_seconds == 900
+    assert spec.audio_streams[0]["pid"] == 0x1100

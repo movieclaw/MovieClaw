@@ -65,9 +65,11 @@ def data_dir(tmp_path, monkeypatch) -> Path:
     _reset_globals()
 
 
-def _run_tool(*args: str) -> subprocess.CompletedProcess[str]:
-    """在子进程里执行离线重置命令，环境变量沿用当前用例的数据目录。"""
-    env = {**os.environ, "PYTHONPATH": str(_PROJECT_ROOT / "src")}
+def _run_tool(*args: str, lang: str = "zh_CN.UTF-8") -> subprocess.CompletedProcess[str]:
+    """在子进程里执行离线重置命令，环境变量沿用当前用例的数据目录。终端语言默认中文。"""
+    env = {**os.environ, "PYTHONPATH": str(_PROJECT_ROOT / "src"), "LANG": lang}
+    env.pop("LC_ALL", None)
+    env.pop("LC_MESSAGES", None)
     return subprocess.run(
         [sys.executable, "-m", "movieclaw_api.reset_password", *args],
         capture_output=True,
@@ -172,6 +174,24 @@ def test_show_only_prints_username(data_dir: Path) -> None:
 
     with _app() as client:
         assert client.post(f"{_AUTH}/login", json=_ADMIN).status_code == 200
+
+
+def test_follows_terminal_language_then_admin_preference(data_dir: Path) -> None:
+    """终端声明英文就说英文；终端没声明语言（Docker 常见）时跟管理员的界面语言。"""
+    with _app() as client:
+        assert client.post(f"{_AUTH}/bootstrap", json=_ADMIN).status_code == 200
+        assert client.put("/api/v1/ui/preferences", json={"language": "en"}).status_code == 200
+
+    english = _run_tool("--show", lang="en_US.UTF-8")
+    assert english.returncode == 0, english.stderr
+    assert "Administrator username: admin" in english.stdout
+
+    undeclared = _run_tool("--show", lang="C.UTF-8")
+    assert undeclared.returncode == 0, undeclared.stderr
+    assert "Administrator username: admin" in undeclared.stdout
+
+    chinese = _run_tool("--show")
+    assert "当前管理员用户名：admin" in chinese.stdout
 
 
 def test_refuses_when_not_initialized(data_dir: Path) -> None:

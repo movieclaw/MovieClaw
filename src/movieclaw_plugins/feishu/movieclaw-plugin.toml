@@ -1,14 +1,16 @@
 [plugin]
 id = "feishu-channel"
 title = "飞书通道"
-version = "1.0.0"
+title_localized = { en = "Feishu channel" }
+version = "1.1.0"
 entry = "feishu_channel"
 runtime = "process"
-sdk = "^1.0"
+sdk = "^1.2"
 description = "飞书群自定义机器人：把推送发到群里（不能对话）"
+description_localized = { en = "Send push notifications to a Feishu group through a custom bot. Conversations are not supported." }
 
 [requires]
-"im-channels" = "^1.0"
+"im-channels" = "^1.2"
 
 [permissions]
 operations = []

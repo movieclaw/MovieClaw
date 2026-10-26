@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
 
 function trimTrailingSlash(value: string): string {
   return value !== "/" && value.endsWith("/") ? value.slice(0, -1) : value;
@@ -26,6 +27,10 @@ const nextConfig: NextConfig = {
     : {}),
   reactStrictMode: true,
   typedRoutes: true,
+  // 结尾斜杠的规范化改由 middleware.ts 做：插件网页的根地址（/api/v1/plugins/<id>/web/）
+  // 必须带着斜杠转给后端，页面里的相对地址才按 web/ 解析（docs/design/plugin-web-pages.md §3）。
+  // Next 内置的规范化不认例外，开着它会 308 去掉斜杠、后端再补回来，转成死循环。
+  skipTrailingSlashRedirect: true,
   // 关闭左下角 Next.js 开发指示器（dev tools 浮动按钮）
   devIndicators: false,
   async headers() {
@@ -54,7 +59,10 @@ const nextConfig: NextConfig = {
       // 属性也再授不回来，预告片与播放器会一起坏掉。
       { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
     ];
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      { source: "/manifest.webmanifest", headers: [{ key: "Vary", value: "Accept-Language, Cookie" }] },
+    ];
   },
   async rewrites() {
     // API 走同源路径时，由 Next 服务器反代到后端。开发和生产（单容器部署，
@@ -130,13 +138,25 @@ const nextConfig: NextConfig = {
     }
 
     return [
+      // 插件网页的根地址带着结尾斜杠转过去（`:path*` 会把它吞掉），见 skipTrailingSlashRedirect
+      {
+        source: `${apiBaseUrl}/plugins/:id/web/`,
+        destination: `${proxyTarget}${apiBaseUrl}/plugins/:id/web/`,
+      },
       {
         source: `${apiBaseUrl}/:path*`,
         destination: `${proxyTarget}${apiBaseUrl}/:path*`,
+      },
+      // MCP 协议端点挂后端根路径 /mcp/<slug>：Docker 部署由容器内 nginx 放行，
+      // 裸机开发不经 nginx，由这里反代——两边路由清单保持一致
+      // （docker/nginx.conf.template）
+      {
+        source: "/mcp/:path*",
+        destination: `${proxyTarget}/mcp/:path*`,
       },
       ...jellyfinRewrites,
     ];
   },
 };
 
-export default nextConfig;
+export default createNextIntlPlugin("./lib/i18n/request.ts")(nextConfig);

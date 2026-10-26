@@ -15,9 +15,12 @@ updates:
   - package-ecosystem: npm
     directories:
       - /
-      # 除 pnpm 工作区外，web 目录还保留独立的 npm 锁文件。
-      - /apps/web
+      # Web、扩展和主题共用根目录 pnpm 锁文件。
       - /scripts/perf/web_faultlab
+    # next 大版本升级需与主站一起单独评估，不随安全补丁自动跨大版本。
+    ignore:
+      - dependency-name: next
+        update-types: ["version-update:semver-major"]
     schedule:
       interval: weekly
     open-pull-requests-limit: 0

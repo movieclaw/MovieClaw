@@ -31,6 +31,11 @@
 | `… v<版本> 已经安装` | 同一版本不能重复安装：升 `version`；开发循环 `plugin dev --once` 会自动加后缀 |
 | `批准的宿主操作须与插件申请的完全一致` / `批准的路径授权须与插件申请的完全一致` | `approve` 的 `--operations-json` / `--paths-json` 要和上传返回的申请完全一致 |
 | `这个插件申请在主进程里运行…须单独确认` | `runtime = "inline"`：改回 `process`。只有用户自己明确要求进程内运行时才加 `--allow-inline` |
+| `锁文件 … 不合规：…` | 按原因改：钉死 `==`、带 `--hash`、只要轮子、去掉与主程序重名的包；最省事是 `check_plugin.py <目录> --lock` 重新生成 |
+| `需要下载并安装 N 个第三方包…同意请在批准时带上锁文件哈希` | 把要装的包告诉用户，同意后 `approve` 加 `--dependencies <哈希>`；`plugin dev` 加 `--allow-dependencies` |
+| `依赖安装失败…连不上包索引` | 服务器连不上 PyPI：请用户在「设置 → 网络」把包索引换成清华镜像，或打开「插件依赖下载」走代理，然后重新批准 |
+| `依赖安装失败…哈希不对` | 下载到的文件与锁文件不符（镜像出错或被替换）：换包索引重试；仍不对就重新生成锁文件 |
+| `依赖安装失败…没有适用于这台服务器…的轮子` | 锁文件里那个包没有服务器平台 / Python 版本的轮子：换一个提供 linux 两种架构轮子的版本，重新生成锁文件 |
 | `plugin dev` 一直不返回 | 没带 `--once`，它在监视文件；中断后带上 `--once` 重来 |
 | `unknown command "plugin"` | 服务器上的 mclaw 太旧，没有开发者命令：改用 `plugin pack` 的等价做法——把目录打成 zip（清单在根部）后 `app plugins packages upload --file`；或请用户升级 MovieClaw |
 
@@ -63,10 +68,20 @@
 | 插件反复崩溃后所有第三方插件都没加载 | 进入了安全模式：修好插件后 `mclaw app plugins safe-mode exit` |
 | 改了代码重装，行为还是旧的 | 旧版本服务器上，进程内（inline）运行的包会沿用第一次导入的代码。用默认的独立进程运行就没有这个问题；**不要为此重启应用**，告诉用户 |
 | 外部平台调回调地址拿到 404 / 405 / 413 / 429 / 503 / 504 | 依次是：地址或密钥不对（被作废 / 换过）、方法没在 `methods` 里、请求体超过上限、太频繁、插件没在运行、处理超过超时；`mclaw app plugins callbacks list` 看调用次数与最后状态码 |
+| 建任务报 `只能建自己的任务类型` | 任务类型要写全 `<插件 id>:<名字>`，并且和 `ctx.contribute(JOB_HANDLERS, …)` 登记的是同一个字符串 |
+| 任务一直排队不执行 | 处理器没登记上（类型拼写不一致），或插件没在运行；`mclaw jobs list --job-type <类型>` 看状态，`app plugins list` 看插件 `state` |
+| 任务变成「已取消」 | 插件被停用 / 卸载（会取消它的全部活动任务），或用户在任务中心取消；任务里每一步之间要 `await context.raise_if_cancelled()` 才能及时停下 |
+| 去重建任务没建出新的 | `dedupe_key` 相同的任务还在进行（含正在取消的）：返回的 `ref.created` 为假；等它结束再建（`recipes.md` 第 7 节） |
+| 实时事件偶尔没收到 | 正常：实时事件发完即忘（插件不在、积压满了就丢）。该做的事要能从数据库里补回来；必须处理的用可靠事件 |
+| `AgentNotGranted` | 没获得 `agent:<档位>` 授权（清单与 `@plugin(permissions=...)` 都要写，用户批准才生效）；或插件配了 `act_as` 代表成员运行；或这次调用本身由 AI 助手引起（不能递归）；或 `tools=` 超出授权档位 |
+| `AgentBusy` | 这个会话正有一轮在跑，或本插件同时已有 2 轮：不排队，告诉对端稍后再试或先 `cancel()` |
+| `AgentUnavailable` | 服务器还没配模型供应商（让用户去「设置 → 模型接入」配好），或服务正在关闭 |
 | `mclaw plugins …` 提示 unknown command | 命令目录还没刷新：先执行一条 mclaw 业务命令（如 `app plugins list`），看到「服务器接口目录已更新」再调；命令由 `operation_id` 按点拆分而来 |
 
 ## 回到干净状态
 
 - 回滚到上一版：`app plugins packages rollback <id> --yes`
 - 卸载：`app plugins packages uninstall <id> --yes`（插件数据默认保留，重装后还在）
+- 停用 / 启用（插件包与官方插件）：`app plugins switch <id> --enabled=false` / `--enabled=true`
+- 卸载官方插件：`app plugins bundled uninstall <id> --yes`（`--purge-data` 连数据删）；装回：`app plugins bundled restore <id>`
 - 放弃待批准的包：`app plugins packages discard <id> --yes`

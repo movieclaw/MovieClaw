@@ -326,22 +326,26 @@ class ActivityViewModel @Inject constructor(
     }
 
     private fun startPolling() {
+        // 先拉再等：以前先等 10 秒 / 8 秒才第一次拉，新开的页面（「进行中 · 查看全部」是一个新的
+        // ViewModel）头 10 秒拿不到下载任务——总览写着「进行中 · 5」，点进去却是「当前没有进行中的任务」
         pollJob = viewModelScope.launch {
             while (isActive) {
+                origin?.let { origin ->
+                    runCatching { apiFactory.forOrigin(origin).downloadTasks().dataOrThrow() }
+                        .onSuccess { tasks -> _ui.update { it.copy(downloads = tasks.items) } }
+                }
                 delay(10_000)
-                val origin = origin ?: continue
-                runCatching { apiFactory.forOrigin(origin).downloadTasks().dataOrThrow() }
-                    .onSuccess { tasks -> _ui.update { it.copy(downloads = tasks.items) } }
             }
         }
         viewModelScope.launch {
             while (isActive) {
+                origin?.let { origin ->
+                    runCatching { apiFactory.forOrigin(origin).playbackActivity().dataOrThrow() }
+                        .onSuccess { activity ->
+                            _ui.update { it.copy(sessions = activity.sessions, fileDownloads = activity.downloads) }
+                        }
+                }
                 delay(8_000)
-                val origin = origin ?: continue
-                runCatching { apiFactory.forOrigin(origin).playbackActivity().dataOrThrow() }
-                    .onSuccess { activity ->
-                        _ui.update { it.copy(sessions = activity.sessions, fileDownloads = activity.downloads) }
-                    }
             }
         }
     }
@@ -364,6 +368,16 @@ class ActivityViewModel @Inject constructor(
             val origin = origin ?: return@launch
             runCatching { apiFactory.forOrigin(origin).endPlaybackSession(session.deviceId).dataOrThrow() }
                 .onSuccess { _ui.update { it.copy(notice = McNotice("已结束 ${session.deviceName} 的播放", FeedbackTone.Success)) } }
+                .onFailure { e -> _ui.update { it.copy(notice = McNotice(friendlyMessage(e), FeedbackTone.Error)) } }
+        }
+    }
+
+    /** 注销一台播放设备（长按菜单；凭据立即失效，该设备下次要重新登录） */
+    fun revokeDevice(session: ActivePlaybackSession) {
+        viewModelScope.launch {
+            val origin = origin ?: return@launch
+            runCatching { apiFactory.forOrigin(origin).revokePlaybackDevice(session.deviceId).dataOrThrow() }
+                .onSuccess { _ui.update { it.copy(notice = McNotice("已注销 ${session.deviceName}，该设备需重新登录", FeedbackTone.Success)) } }
                 .onFailure { e -> _ui.update { it.copy(notice = McNotice(friendlyMessage(e), FeedbackTone.Error)) } }
         }
     }

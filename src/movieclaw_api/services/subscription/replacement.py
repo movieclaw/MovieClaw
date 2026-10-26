@@ -19,13 +19,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api import hooks
+from movieclaw_api.i18n.stored import reference, reference_fields, stored_fields
 from movieclaw_api.services.download_health import landing_brake, record_stalled
+from movieclaw_api.services.subscription.attempt_notes import note_fields, set_note
+from movieclaw_api.services.subscription.events import publish_download_stuck
 from movieclaw_api.services.subscription.matching import (
     covered_units,
     load_season_titles,
     publish_calendar_date,
     to_candidate,
-    units_text,
+    units_reference,
 )
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import (
@@ -54,6 +57,7 @@ from movieclaw_matcher import (
     evaluate_rules,
     match_identity,
 )
+from movieclaw_matcher.smart import SmartPolicy, watchable
 
 logger = logging.getLogger("movieclaw_api.subscription_replacement")
 
@@ -183,24 +187,20 @@ async def request_replacement(
         ).scalars()
     )
     if len(attempts) > 1:
-        raise BadRequestException(
-            "该下载任务同时关联多个订阅，无法安全判断要替换哪一个；请先在订阅详情中处理"
-        )
+        raise BadRequestException(message_key="errors.subscription.replacementAmbiguous")
     attempt = attempts[0] if attempts else None
     if attempt is None or attempt.id is None:
-        raise BadRequestException("该任务不是可换源的订阅主任务，或已经由其他资源接管")
+        raise BadRequestException(message_key="errors.subscription.replacementNotPrimary")
     if attempt.downloader_id != downloader_id and not await _torrent_exists_on_downloader(
         session, downloader_id, normalized
     ):
-        raise BadRequestException(
-            "任务所在下载器已变化，且指定下载器中查不到该任务，请刷新后重试"
-        )
+        raise BadRequestException(message_key="errors.subscription.downloaderChanged")
     if utcnow() - attempt.last_progress_at < timedelta(minutes=15):
-        raise BadRequestException("该任务尚未连续 15 分钟无进度，请稍后再试")
+        raise BadRequestException(message_key="errors.subscription.replacementTooSoon")
     if await _has_trial(session, attempt.id):
-        raise BadRequestException("同品质替代源已经在验证中，无需重复换种")
+        raise BadRequestException(message_key="errors.subscription.replacementVerifying")
     if not await _current_attempt_wanted(session, attempt):
-        raise BadRequestException("关联单元已退出当前订阅范围，不能再发起换种")
+        raise BadRequestException(message_key="errors.subscription.replacementOutOfScope")
 
     now = utcnow()
     # 任务中心传入的是本次实时快照实际命中的下载器；若用户迁移过任务，
@@ -225,14 +225,14 @@ async def request_replacement(
     )
     await session.commit()
     if not result.rowcount:
-        raise BadRequestException("任务状态已经变化，请刷新活动页后重试")
+        raise BadRequestException(message_key="errors.subscription.taskChanged")
     await session.refresh(attempt)
     await SubscriptionRepository(session).add_activity(
         SubscriptionActivity(
             subscription_id=attempt.subscription_id,
             type=ActivityType.DOWNLOAD_STALLED,
-            message="用户选择立即换种，正在跨站寻找同品质或更高品质的替代源",
             payload={"info_hash": normalized, "reason": "manual_replacement"},
+            **stored_fields("activity.subscription.replacementRequested"),
         )
     )
     return attempt.id
@@ -248,7 +248,7 @@ async def _torrent_exists_on_downloader(
     repo = DownloaderRepository(session)
     adapter = create_downloader(
         DownloaderConfig(
-            type=downloader.client_type.value,
+            type=downloader.client_type,
             url=downloader.url,
             username=downloader.username,
             password=repo.decrypted_password(downloader),
@@ -300,9 +300,11 @@ async def run_replacement_search(attempt_id: int, *, force: bool = False) -> boo
                         info_hash=attempt.info_hash,
                         units=attempt.units,
                         reason="landing_brake",
-                        message=(
-                            f"自动换源已暂停：{group.title}。修好后自动恢复；"
-                            "确认要换也可在活动页手动立即换种"
+                        message=reference(
+                            "activity.subscription.landingBrake",
+                            group=reference(group.title_key, **group.message_params)
+                            if group.title_key
+                            else group.title,
                         ),
                     )
                     logger.info(
@@ -325,10 +327,11 @@ async def run_replacement_search(attempt_id: int, *, force: bool = False) -> boo
                     if out_of_scope
                     else DownloadAttemptStatus.IMPORTED
                 )
-                attempt.cleanup_note = (
-                    "关联单元已退出当前订阅范围；保留下载器任务，不再执行换源"
+                set_note(
+                    attempt,
+                    reference("subscription.attempt.outOfScopeNoReplacement")
                     if out_of_scope
-                    else "关联工单已完成入库，不再执行死种换源"
+                    else reference("subscription.attempt.importedNoReplacement"),
                 )
                 attempt.next_search_at = None
                 attempt.updated_at = now
@@ -393,10 +396,11 @@ async def run_replacement_search(attempt_id: int, *, force: bool = False) -> boo
                     else DownloadAttemptStatus.IMPORTED
                 )
                 attempt.next_search_at = None
-                attempt.cleanup_note = (
-                    "跨站搜索返回前关联单元已退出订阅范围；停止换源"
+                set_note(
+                    attempt,
+                    reference("subscription.attempt.outOfScopeBeforeSearch")
                     if out_of_scope
-                    else "关联工单已完成入库，不再执行死种换源"
+                    else reference("subscription.attempt.importedNoReplacement"),
                 )
                 attempt.updated_at = utcnow()
                 session.add(attempt)
@@ -420,13 +424,14 @@ async def run_replacement_search(attempt_id: int, *, force: bool = False) -> boo
                     SubscriptionActivity(
                         subscription_id=attempt.subscription_id,
                         type=ActivityType.REPLACEMENT_SEARCHED,
-                        message="替代源搜索暂时无法执行，站点连接恢复后将自动重试",
                         payload={"failed": True, "errors": errors[:5]},
+                        **stored_fields("activity.subscription.replacementSearchUnavailable"),
                     )
                 )
                 return False
 
             rows = await _persist_hits(session, list(hits_by_key.values()))
+            # i18n-ignore: audit source label for logs and activity payload
             if await _try_candidates(session, attempt, rows, source="死种主动换源"):
                 return True
             await _postpone_after_empty_search(session, attempt, result_count=len(rows))
@@ -460,6 +465,7 @@ async def _try_passive_replacement_candidates(
     for attempt in attempts:
         if attempt.id is None or await _has_trial(session, attempt.id):
             continue
+        # i18n-ignore: audit source label for logs and activity payload
         if await _try_candidates(session, attempt, torrents, source="新种被动换源"):
             submitted += 1
     return submitted
@@ -536,6 +542,8 @@ async def _try_candidates(
         verdict = evaluate_rules(candidate, spec, pack_episode_count=len(covered))
         if not verdict.accepted or not quality_not_lower(candidate, attempt.quality):
             continue
+        if isinstance(spec, SmartPolicy) and not watchable(candidate, spec):
+            continue  # 换源不能把带字幕的版本换成看不懂的原版
         accepted.append((candidate, covered, verdict, match))
     accepted.sort(
         key=lambda entry: (
@@ -686,11 +694,6 @@ async def _try_candidates(
                 subscription_id=attempt.subscription_id,
                 wanted_item_id=covered[0].id,
                 type=ActivityType.REPLACEMENT_TRIAL,
-                message=(
-                    f"已找到同品质替代源并开始验证{units_text(covered)}："
-                    f"来自 {candidate.site_id} 的「{candidate.title[:60]}」；"
-                    "新源产生真实下载进度后才会切换并清理旧源"
-                ),
                 payload={
                     "old_info_hash": attempt.info_hash,
                     "new_info_hash": normalized_hash,
@@ -699,6 +702,12 @@ async def _try_candidates(
                     "source": source,
                     "units": trial.units,
                 },
+                **stored_fields(
+                    "activity.subscription.replacementVerifying",
+                    units=units_reference(covered),
+                    site=candidate.site_id,
+                    title=candidate.title[:60],
+                ),
             )
         )
         return True
@@ -714,7 +723,7 @@ async def _remove_just_submitted_task(
     repo = DownloaderRepository(session)
     adapter = create_downloader(
         DownloaderConfig(
-            type=downloader.client_type.value,
+            type=downloader.client_type,
             url=downloader.url,
             username=downloader.username,
             password=repo.decrypted_password(downloader),
@@ -897,10 +906,11 @@ async def _postpone_after_empty_search(
             else DownloadAttemptStatus.IMPORTED
         )
         attempt.next_search_at = None
-        attempt.cleanup_note = (
-            "关联单元已退出当前订阅范围；停止换源退避"
+        set_note(
+            attempt,
+            reference("subscription.attempt.outOfScopeBackoff")
             if out_of_scope
-            else "关联工单已完成入库，不再执行死种换源"
+            else reference("subscription.attempt.importedNoReplacement"),
         )
         attempt.updated_at = utcnow()
         session.add(attempt)
@@ -926,19 +936,25 @@ async def _postpone_after_empty_search(
     if not result.rowcount:
         return
     await session.refresh(attempt)
+    if attempt.search_attempts == 1:
+        # 第一次自动换源落空：告诉订阅的人这一集卡住了（之后照常退避重找，不再重复提醒）
+        await publish_download_stuck(
+            session, attempt, retry_hours=int(delay.total_seconds() // 3600)
+        )
     await SubscriptionRepository(session).add_activity(
         SubscriptionActivity(
             subscription_id=attempt.subscription_id,
             type=ActivityType.REPLACEMENT_SEARCHED,
-            message=(
-                f"跨站搜索返回 {result_count} 个资源，但没有不同且同品质的替代源；"
-                f"旧任务继续保留，约 {int(delay.total_seconds() // 3600)} 小时后再试"
-            ),
             payload={
                 "results": result_count,
                 "search_attempts": attempt.search_attempts,
                 "next_search_at": attempt.next_search_at.isoformat(),
             },
+            **stored_fields(
+                "activity.subscription.replacementNotFound",
+                count=result_count,
+                hours=int(delay.total_seconds() // 3600),
+            ),
         )
     )
 
@@ -991,15 +1007,16 @@ async def promote_trial(
             if out_of_scope
             else DownloadAttemptStatus.SUPERSEDED
         )
-        trial.cleanup_note = (
-            "关联单元已退出当前订阅范围；保留试用任务，不再晋升或清理旧源"
+        set_note(
+            trial,
+            reference("subscription.attempt.outOfScopeKeepTrial")
             if out_of_scope
-            else "原工单已被入库或其他并发流程满足"
+            else reference("subscription.attempt.targetSatisfied"),
         )
         if out_of_scope:
             old.status = DownloadAttemptStatus.CANCELLED
             old.next_search_at = None
-            old.cleanup_note = "关联单元已退出当前订阅范围；保留旧下载器任务"
+            set_note(old, reference("subscription.attempt.outOfScopeKeepOld"))
             old.updated_at = utcnow()
             session.add(old)
         trial.updated_at = utcnow()
@@ -1032,15 +1049,16 @@ async def promote_trial(
             if out_of_scope
             else DownloadAttemptStatus.SUPERSEDED
         )
-        trial.cleanup_note = (
-            "晋升前关联单元已退出订阅范围；保留新旧下载器任务"
+        set_note(
+            trial,
+            reference("subscription.attempt.outOfScopeBeforePromotion")
             if out_of_scope
-            else "晋升前原工单已被其他并发流程满足"
+            else reference("subscription.attempt.satisfiedBeforePromotion"),
         )
         if out_of_scope:
             old.status = DownloadAttemptStatus.CANCELLED
             old.next_search_at = None
-            old.cleanup_note = "关联单元已退出当前订阅范围；保留旧下载器任务"
+            set_note(old, reference("subscription.attempt.outOfScopeKeepOld"))
             old.updated_at = utcnow()
             session.add(old)
         trial.updated_at = utcnow()
@@ -1071,7 +1089,7 @@ async def promote_trial(
         # 事务，进程若在下一行退出，巡检会凭该状态幂等续做，不会留下幽灵旧任务。
         old.status = DownloadAttemptStatus.CLEANUP_PENDING
         old.next_search_at = None
-        old.cleanup_note = "替代源已接管，等待清理旧任务"
+        set_note(old, reference("subscription.attempt.awaitingOldCleanup"))
         old.updated_at = now
         session.add(old)
     else:
@@ -1087,15 +1105,16 @@ async def promote_trial(
             subscription_id=old.subscription_id,
             wanted_item_id=switched[0].id,
             type=ActivityType.REPLACEMENT_PROMOTED,
-            message=(
-                f"替代源已产生真实下载进度，已自动换种{units_text(switched)}："
-                f"「{trial.torrent_title[:60]}」"
-            ),
             payload={
                 "old_info_hash": old.info_hash,
                 "new_info_hash": trial.info_hash,
                 "units": trial.units,
             },
+            **stored_fields(
+                "activity.subscription.replacementConfirmed",
+                units=units_reference(switched),
+                title=trial.torrent_title[:60],
+            ),
         )
     )
     await session.commit()
@@ -1116,22 +1135,26 @@ async def reconcile_pending_cleanup(attempt_id: int) -> bool:
         if old is None or old.status != DownloadAttemptStatus.CLEANUP_PENDING:
             return False
         new = (
-            await session.execute(
-                select(SubscriptionDownloadAttempt)
-                .where(
-                    SubscriptionDownloadAttempt.replaces_attempt_id == old.id,
-                    SubscriptionDownloadAttempt.status.in_(  # type: ignore[attr-defined]
-                        (
-                            DownloadAttemptStatus.ACTIVE,
-                            DownloadAttemptStatus.COMPLETED,
-                            # 洗版链路的新源在挂起旧任务时就已经入库了（见下）
-                            DownloadAttemptStatus.IMPORTED,
-                        )
-                    ),
+            (
+                await session.execute(
+                    select(SubscriptionDownloadAttempt)
+                    .where(
+                        SubscriptionDownloadAttempt.replaces_attempt_id == old.id,
+                        SubscriptionDownloadAttempt.status.in_(  # type: ignore[attr-defined]
+                            (
+                                DownloadAttemptStatus.ACTIVE,
+                                DownloadAttemptStatus.COMPLETED,
+                                # 洗版链路的新源在挂起旧任务时就已经入库了（见下）
+                                DownloadAttemptStatus.IMPORTED,
+                            )
+                        ),
+                    )
+                    .order_by(SubscriptionDownloadAttempt.id.desc())  # type: ignore[attr-defined]
                 )
-                .order_by(SubscriptionDownloadAttempt.id.desc())  # type: ignore[attr-defined]
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if new is None:
             logger.warning("旧下载尝试 #%s 等待清理，但找不到仍有效的替代源台账", attempt_id)
             return False
@@ -1157,7 +1180,7 @@ async def reconcile_pending_cleanup(attempt_id: int) -> bool:
         repo = DownloaderRepository(session)
         adapter = create_downloader(
             DownloaderConfig(
-                type=downloader.client_type.value,
+                type=downloader.client_type,
                 url=downloader.url,
                 username=downloader.username,
                 password=repo.decrypted_password(downloader),
@@ -1187,7 +1210,7 @@ async def fail_trial(
     session: AsyncSession,
     trial: SubscriptionDownloadAttempt,
     *,
-    reason: str,
+    reason: dict,
 ) -> None:
     """试用源也没有进度：加入失败候选，并让旧源按专用退避继续找下一源。"""
     if trial.id is None:
@@ -1209,7 +1232,7 @@ async def fail_trial(
         }
         if await _units_have_left_scope(session, old, allowed_units=trial_units):
             trial.status = DownloadAttemptStatus.CANCELLED
-            trial.cleanup_note = "关联单元已退出当前订阅范围；保留试用任务，不自动删除"
+            set_note(trial, reference("subscription.attempt.outOfScopeTrialKept"))
             trial.next_search_at = None
             trial.updated_at = utcnow()
             if old.status in (
@@ -1218,7 +1241,7 @@ async def fail_trial(
             ):
                 old.status = DownloadAttemptStatus.CANCELLED
                 old.next_search_at = None
-                old.cleanup_note = "关联单元已退出当前订阅范围；保留旧下载器任务"
+                set_note(old, reference("subscription.attempt.outOfScopeKeepOld"))
                 old.updated_at = utcnow()
                 session.add(old)
             session.add(trial)
@@ -1234,7 +1257,7 @@ async def fail_trial(
         )
         .values(
             status=DownloadAttemptStatus.FAILED,
-            cleanup_note=reason,
+            **note_fields(reason),
             updated_at=now,
         )
     )
@@ -1262,7 +1285,7 @@ async def fail_trial(
 async def _cleanup_failed_trial(
     session: AsyncSession,
     trial: SubscriptionDownloadAttempt,
-    reason: str,
+    reason: dict,
 ) -> None:
     """失败试用源只在证据充分时移除任务，数据一律保留供后续候选复用。"""
     await session.refresh(trial)
@@ -1282,30 +1305,32 @@ async def _cleanup_failed_trial(
         allowed_units=trial_units,
     ):
         trial.status = DownloadAttemptStatus.CANCELLED
-        trial.cleanup_note = "关联单元已退出当前订阅范围；保留失败试用任务，不自动删除"
+        set_note(trial, reference("subscription.attempt.outOfScopeFailedTrialKept"))
         trial.updated_at = utcnow()
         session.add(trial)
         await session.commit()
         return
     if not trial.owned_by_movieclaw:
         trial.status = DownloadAttemptStatus.RETAINED
-        trial.cleanup_note = f"{reason}；该任务原先已存在，未自动删除"
+        set_note(trial, reference("subscription.attempt.trialPreexisting", reason=reason))
     elif trial.hit_and_run is not False:
         trial.status = DownloadAttemptStatus.RETAINED
-        trial.cleanup_note = f"{reason}；存在 H&R 风险或考核状态未知，未自动删除"
+        set_note(trial, reference("subscription.attempt.trialHitAndRun", reason=reason))
     elif trial.downloader_id is None:
         trial.status = DownloadAttemptStatus.RETAINED
-        trial.cleanup_note = f"{reason}；无法确认任务所在下载器，未自动删除"
+        set_note(trial, reference("subscription.attempt.trialNoDownloader", reason=reason))
     else:
         downloader = await session.get(DownloaderClient, trial.downloader_id)
         if downloader is None:
             trial.status = DownloadAttemptStatus.RETAINED
-            trial.cleanup_note = f"{reason}；下载器配置已不存在，未自动删除"
+            set_note(
+                trial, reference("subscription.attempt.trialDownloaderGone", reason=reason)
+            )
         else:
             repo = DownloaderRepository(session)
             adapter = create_downloader(
                 DownloaderConfig(
-                    type=downloader.client_type.value,
+                    type=downloader.client_type,
                     url=downloader.url,
                     username=downloader.username,
                     password=repo.decrypted_password(downloader),
@@ -1318,8 +1343,8 @@ async def _cleanup_failed_trial(
                     allowed_units=trial_units,
                 ):
                     trial.status = DownloadAttemptStatus.CANCELLED
-                    trial.cleanup_note = (
-                        "删除失败试用任务前关联单元已退出订阅范围；下载器任务保持不动"
+                    set_note(
+                        trial, reference("subscription.attempt.outOfScopeBeforeTrialRemoval")
                     )
                     trial.updated_at = utcnow()
                     session.add(trial)
@@ -1328,10 +1353,13 @@ async def _cleanup_failed_trial(
                 # 试用源与旧源通常共用落点，删除数据可能破坏旧源复用的分片；
                 # 因此失败试用只移除下载器任务，保守保留磁盘数据。
                 await adapter.delete_torrent(trial.info_hash, delete_files=False)
-                trial.cleanup_note = f"{reason}；已移除失败试用任务，数据文件保留"
+                set_note(trial, reference("subscription.attempt.trialRemoved", reason=reason))
             except Exception as exc:  # noqa: BLE001 -- 清理失败不影响旧源继续等待
                 trial.status = DownloadAttemptStatus.RETAINED
-                trial.cleanup_note = f"{reason}；移除失败试用任务失败：{exc}"
+                set_note(
+                    trial,
+                    reference("subscription.attempt.trialRemoveFailed", reason=reason, error=exc),
+                )
             finally:
                 try:
                     await adapter.close()
@@ -1344,7 +1372,7 @@ async def _cleanup_failed_trial(
         SubscriptionActivity(
             subscription_id=trial.subscription_id,
             type=ActivityType.REPLACEMENT_CLEANUP,
-            message=trial.cleanup_note or reason,
+            **reference_fields(trial.cleanup_note_ref or reason),
             payload={
                 "info_hash": trial.info_hash,
                 "failed_trial": True,
@@ -1364,10 +1392,10 @@ async def _stop_replacement_cleanup_if_out_of_scope(
         return False
     old.status = DownloadAttemptStatus.CANCELLED
     old.next_search_at = None
-    old.cleanup_note = "关联单元已退出当前订阅范围；旧下载器任务保持不动"
+    set_note(old, reference("subscription.attempt.outOfScopeOldUntouched"))
     new.status = DownloadAttemptStatus.CANCELLED
     new.next_search_at = None
-    new.cleanup_note = "关联单元已退出当前订阅范围；替代源停止观察"
+    set_note(new, reference("subscription.attempt.outOfScopeReplacementStopped"))
     now = utcnow()
     old.updated_at = now
     new.updated_at = now
@@ -1393,22 +1421,22 @@ async def _cleanup_replaced_attempt(
     if await _stop_replacement_cleanup_if_out_of_scope(session, old, new):
         return
     if not old.owned_by_movieclaw:
-        await _retain_old(session, old, "旧任务在 MovieClaw 投递前已经存在，保留用户任务")
+        await _retain_old(session, old, reference("subscription.attempt.oldPreexisting"))
         return
     if old.hit_and_run is not False:
-        await _retain_old(session, old, "旧任务存在 H&R 风险或考核状态未知，未自动删除")
+        await _retain_old(session, old, reference("subscription.attempt.oldHitAndRun"))
         return
     if old.downloader_id is None:
-        await _retain_old(session, old, "无法确认旧任务所在下载器，未自动删除")
+        await _retain_old(session, old, reference("subscription.attempt.oldNoDownloader"))
         return
     downloader = await session.get(DownloaderClient, old.downloader_id)
     if downloader is None:
-        await _retain_old(session, old, "旧下载器配置已不存在，无法自动删除任务")
+        await _retain_old(session, old, reference("subscription.attempt.oldDownloaderGone"))
         return
     repo = DownloaderRepository(session)
     adapter = create_downloader(
         DownloaderConfig(
-            type=downloader.client_type.value,
+            type=downloader.client_type,
             url=downloader.url,
             username=downloader.username,
             password=repo.decrypted_password(downloader),
@@ -1418,7 +1446,7 @@ async def _cleanup_replaced_attempt(
         old_status = await adapter.get_torrent(old.info_hash)
         if old_status is None:
             old.status = DownloadAttemptStatus.SUPERSEDED
-            old.cleanup_note = "旧任务已不在下载器中"
+            set_note(old, reference("subscription.attempt.oldGone"))
             old.updated_at = utcnow()
             session.add(old)
             await session.commit()
@@ -1445,7 +1473,9 @@ async def _cleanup_replaced_attempt(
         await adapter.delete_torrent(old.info_hash, delete_files=delete_files)
     except Exception as exc:  # noqa: BLE001 -- 清理失败不能回滚已经成功的换源
         logger.warning("换源成功但旧任务自动清理失败：%s", exc)
-        await _retain_old(session, old, f"自动清理失败：{exc}")
+        await _retain_old(
+            session, old, reference("subscription.attempt.cleanupFailed", error=exc)
+        )
         return
     finally:
         try:
@@ -1453,10 +1483,11 @@ async def _cleanup_replaced_attempt(
         except Exception:  # noqa: BLE001 -- 关闭失败不能覆盖已完成的清理结论
             logger.warning("关闭旧任务下载器连接失败", exc_info=True)
     old.status = DownloadAttemptStatus.SUPERSEDED
-    old.cleanup_note = (
-        "旧任务和残留文件已删除"
+    set_note(
+        old,
+        reference("subscription.attempt.oldDeletedWithFiles")
         if delete_files
-        else "旧任务已删除，重叠文件留给新源复用"
+        else reference("subscription.attempt.oldDeletedKeepFiles"),
     )
     old.updated_at = utcnow()
     session.add(old)
@@ -1465,7 +1496,7 @@ async def _cleanup_replaced_attempt(
         SubscriptionActivity(
             subscription_id=old.subscription_id,
             type=ActivityType.REPLACEMENT_CLEANUP,
-            message=old.cleanup_note,
+            **reference_fields(old.cleanup_note_ref),
             payload={"info_hash": old.info_hash, "delete_files": delete_files},
         )
     )
@@ -1491,14 +1522,14 @@ async def _converge_upgraded_old_attempt(
         await _retain_old(
             session,
             old,
-            "无法确认旧任务所在下载器，保留做种",
-            message="洗版已完成，但无法确认旧任务所在下载器，旧任务保留做种",
+            reference("subscription.attempt.upgradeNoDownloader"),
+            message=reference("activity.subscription.upgradeNoDownloader"),
         )
         return
     repo = DownloaderRepository(session)
     adapter = create_downloader(
         DownloaderConfig(
-            type=downloader.client_type.value,
+            type=downloader.client_type,
             url=downloader.url,
             username=downloader.username,
             password=repo.decrypted_password(downloader),
@@ -1510,8 +1541,8 @@ async def _converge_upgraded_old_attempt(
         await _retain_old(
             session,
             old,
-            f"旧任务状态查询失败：{exc}",
-            message=f"洗版已完成，但旧任务状态查询失败：{exc}；旧任务保留做种",
+            reference("subscription.attempt.upgradeOldQueryFailed", error=exc),
+            message=reference("activity.subscription.upgradeOldQueryFailed", error=exc),
         )
         return
     finally:
@@ -1523,12 +1554,11 @@ async def _converge_upgraded_old_attempt(
         await _retain_old(
             session,
             old,
-            "洗版已完成，旧任务保留做种，可在活动页手动清理",
-            message="洗版已完成，旧任务保留做种，可在活动页手动清理",
+            reference("subscription.attempt.upgradeOldKept"),
         )
         return
     old.status = DownloadAttemptStatus.SUPERSEDED
-    old.cleanup_note = "旧任务已不在下载器中"
+    set_note(old, reference("subscription.attempt.oldGone"))
     old.updated_at = utcnow()
     session.add(old)
     await session.commit()
@@ -1536,7 +1566,7 @@ async def _converge_upgraded_old_attempt(
         SubscriptionActivity(
             subscription_id=old.subscription_id,
             type=ActivityType.REPLACEMENT_CLEANUP,
-            message=old.cleanup_note,
+            **reference_fields(old.cleanup_note_ref),
             payload={"info_hash": old.info_hash},
         )
     )
@@ -1545,9 +1575,9 @@ async def _converge_upgraded_old_attempt(
 async def _retain_old(
     session: AsyncSession,
     old: SubscriptionDownloadAttempt,
-    reason: str,
+    reason: dict,
     *,
-    message: str | None = None,
+    message: dict | None = None,
 ) -> None:
     """旧任务保留不删，并把原因如实写进台账与活动流水。
 
@@ -1555,7 +1585,7 @@ async def _retain_old(
     "已完成换种" 放在洗版流水里会读成"已完成换种，但洗版已完成……"。
     """
     old.status = DownloadAttemptStatus.RETAINED
-    old.cleanup_note = reason
+    set_note(old, reason)
     old.updated_at = utcnow()
     session.add(old)
     await session.commit()
@@ -1563,7 +1593,9 @@ async def _retain_old(
         SubscriptionActivity(
             subscription_id=old.subscription_id,
             type=ActivityType.REPLACEMENT_CLEANUP,
-            message=message or f"已完成换种，但{reason}",
+            **reference_fields(
+                message or reference("activity.subscription.oldRetained", reason=reason)
+            ),
             payload={"info_hash": old.info_hash, "retained": True},
         )
     )

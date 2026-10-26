@@ -14,13 +14,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Collection
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_serializer, model_validator
 
 from movieclaw_enrich.models import TorrentAttrs
 from movieclaw_enrich.vocab import PLATFORM_IDS
+from movieclaw_matcher.formats import DV_P5
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +32,9 @@ HDR_LEVELS: tuple[str, ...] = ("DV", "HDR10+", "HDR10", "HLG", "SDR")
 # 高格式蕴含低格式：DV Profile 8 自带 HDR10 基础层，HDR10+ 是 HDR10 的动态
 # 元数据扩展。不建模这层关系的话，"偏好 HDR10 胜过 DV"的用户（播放设备对 DV
 # 支持差）会把一个**已经含 HDR10 基础层**的文件判成低位次，白洗一次
-# （quality-upgrade.md §14.8）。DV Profile 5 确实不含 HDR10 基础层，但标题与
-# probe 都区分不出 profile——按"能播 HDR10"这侧保守建模，错的方向是少洗一次。
+# （quality-upgrade.md §14.8）。DV Profile 5 确实不含 HDR10 基础层，而排序这边仍
+# 按"能播 HDR10"这侧保守建模，错的方向是少洗一次；想**不要** P5 的话走黑名单里的
+# ``DV P5``（见 formats.py，按命名约定 + 站点标记判定），不在这条阶梯上做文章。
 _HDR_IMPLIES: dict[str, set[str]] = {"DV": {"HDR10"}, "HDR10+": {"HDR10"}}
 
 # 别名：解析器与用户都可能给出值域里没有的写法，归一到最接近的那一档。
@@ -88,21 +90,26 @@ _MEDIA_SOURCE_TIER_VALUES: frozenset[str] = frozenset(
 )
 
 
-def _known_hdr_levels(values: list[str]) -> list[str]:
+def _known_hdr_levels(values: list[str], *, extra: tuple[str, ...] = ()) -> list[str]:
     """保序去重地筛出值域内的 HDR 值（大小写不敏感，别名先归一）。
 
     值域外的值仍然丢弃（读取路径永远宽容，与平台/片源档同一取向），但要留一条
     日志：静默吞掉会让用户按文档配出来的东西和自己以为的不一样，且毫无提示。
+
+    ``extra`` 是只在某一侧才成立的附加值（黑名单里的 ``DV P5``：它只有「排除」
+    的意义，写进白名单会被当成未知值丢掉）。分隔符写成 ``DV-P5`` / ``DV_P5`` 也认。
     """
-    known = {v.casefold(): v for v in HDR_LEVELS}
+    domain = (*HDR_LEVELS, *extra)
+    known = {v.casefold(): v for v in domain}
     out: list[str] = []
     for value in values:
-        canon = known.get(_canonical_hdr(value).casefold())
+        key = _canonical_hdr(value).casefold().replace("-", " ").replace("_", " ")
+        canon = known.get(key)
         if canon is None:
             logger.warning(
                 "规则组里的 HDR 值 %r 不在值域（%s）内，已忽略——该值不会产生任何约束",
                 value,
-                "/".join(HDR_LEVELS),
+                "/".join(domain),
             )
         elif canon not in out:
             out.append(canon)
@@ -278,7 +285,10 @@ class RuleSetSpec(BaseModel):
         "资源只标注泛指 HDR 时按 HDR10 计）；任一命中即过，顺序即偏好；空=不限",
     )
     hdr_block: list[str] = Field(
-        default_factory=list, description="HDR 黑名单；资源带其中任一格式即排除"
+        default_factory=list,
+        description='HDR 黑名单；资源带其中任一格式即排除。另有 "DV P5"（只标 DV、没有 '
+        "HDR10 兼容层的杜比视界 Profile 5，转码会偏色）：只能排除、不能当白名单，"
+        "判定见 movieclaw_matcher.formats",
     )
     hdr: HdrPolicy = Field(
         default=HdrPolicy.ANY, description="[兼容层] HDR 三态；hdr_levels 为空时才消费"
@@ -372,7 +382,7 @@ class RuleSetSpec(BaseModel):
         语义下根本写不出来，这正是合并成一个字段的收益之一。
         """
         levels = _known_hdr_levels(self.hdr_levels)
-        block = _known_hdr_levels(self.hdr_block)
+        block = _known_hdr_levels(self.hdr_block, extra=(DV_P5,))
         if not levels and not block:
             levels, block = _hdr_from_legacy(self.hdr, self.dv)
         self.hdr_levels, self.hdr_block = levels, block
@@ -462,6 +472,9 @@ class MediaIdentity:
     # 发任何请求就能算出来的反证（docs/design/identity-confidence.md §6）。
     # NULL=未知（冷门片 TMDB 常缺），反证整体跳过
     runtime_minutes: int | None = None
+    # 已定档的正片集 (季号, 播出日期)：与包种子声明的「全 N 集」对照，发布前
+    # 已播出的集数明显更多说明是同名的另一部剧（见 identity._episode_count_conflict）
+    aired_episodes: tuple[tuple[int, date], ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -491,8 +504,9 @@ class IdentityMatch:
     # 让"这次凭什么认的"一路可追溯（docs/design/identity-confidence.md §5.3）
     confidence: str = "title_year"
     matched_alias: str | None = None
-    # 外部 ID 冲突的如实报告：两边都有 imdb/douban 且不相等时，这里是一句
-    # 可直接进活动流水的中文说明；None = 无冲突。
+    # 身份反证的如实报告：两边都有 imdb/douban 且不相等，或包种子声明的总
+    # 集数远少于条目该季发布前已播出的集数时，这里是一句可直接进活动流水的
+    # 中文说明；None = 无冲突。
     #
     # 内核**只报告不裁决**——冲突未必是"我们认错了"，站点的 IMDb 是上传者
     # 手填的，填错真实存在。而误否决的代价是漏配（订阅永远不满足，用户只
@@ -500,6 +514,10 @@ class IdentityMatch:
     # 是否存在同名同年孪生条目等上下文，那些内核拿不到，交给消费侧
     # （docs/design/identity-confidence.md §5.2）
     id_conflict: str | None = None
+    # 包种子声明的总集数（"全 27 集" 的 27），只在整季/全集包上带。TMDB 少录
+    # 集数时，超出部分的占位单元没有播出日期、过不了发布时间上限，只能靠这个
+    # 声明判断包里有没有它（issue #640）
+    declared_total: int | None = None
 
 
 @dataclass(frozen=True)

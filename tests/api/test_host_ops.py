@@ -64,6 +64,15 @@ def test_wildcards_never_cover_dangerous_operations(app_client) -> None:
     assert all(op.startswith("subscriptions.") for op in granted)
 
 
+def test_site_proxy_needs_an_explicit_grant(app_client) -> None:
+    """站点代请求能以用户的站点身份发任意 POST：``site.*`` 通配不覆盖，必须逐个列出。"""
+    app, _ = app_client
+    host = app.state.kernel.service(HOST_OPS)
+    assert "site.proxy.request" in host.index
+    assert "site.proxy.request" not in expand_grants(["site.*"], host.index)
+    assert "site.proxy.request" in expand_grants(["site.proxy.request"], host.index)
+
+
 def test_granted_operations_pass_and_everything_else_is_denied(app_client) -> None:
     app, client = app_client
     ops = mount_caller(app, client, "test.caller", ("app.plugins.list", "subscriptions.*"))
@@ -98,15 +107,25 @@ def test_plugin_cannot_issue_credentials(app_client) -> None:
     with pytest.raises(OpsError) as hidden:
         call(client, ops, "auth.tokens.create", {"name": "x"})
     assert hidden.value.code == "UNKNOWN_OPERATION"
-    # 二、就算绕过目录直接带凭证请求，插件主体也不是「交互式」的
+    # 二、插件凭证只在插件网关上有效：从网络入口带它一律 401
+    headers = {"Authorization": f"Bearer {ops._token}"}
+    resp = client.post("/api/v1/auth/tokens", json={"name": "x"}, headers=headers)
+    assert resp.status_code == 401
+    # 三、就算经网关绕过目录直接请求，插件主体也不是「交互式」的
     grant = PluginGrant(entry_id="test.minter", operations=frozenset({"auth.tokens.create"}))
     assert not Principal(kind="admin", name="plugin:test.minter", plugin=grant).interactive
-    resp = client.post(
-        "/api/v1/auth/tokens",
-        json={"name": "x"},
-        headers={"Authorization": f"Bearer {ops._token}"},
-    )
-    assert resp.status_code == 403
+
+    async def via_gateway() -> int:
+        import httpx
+
+        from movieclaw_api.services.plugin_gateway import gateway_asgi
+
+        transport = httpx.ASGITransport(app=gateway_asgi(app))
+        async with httpx.AsyncClient(transport=transport, base_url="http://plugin") as http:
+            reply = await http.post("/api/v1/auth/tokens", json={"name": "x"}, headers=headers)
+            return reply.status_code
+
+    assert client.portal.call(via_gateway) == 403
 
 
 def test_credential_dies_with_the_plugin(app_client) -> None:
@@ -155,7 +174,6 @@ def test_acting_as_member_intersects_member_rights(app_client) -> None:
 
 
 def test_events_caused_by_a_plugin_call_carry_the_plugin_origin(app_client) -> None:
-    from movieclaw_api import domain_events
     from movieclaw_db.models import (
         DomainEvent,
         EventConsumer,
@@ -163,6 +181,7 @@ def test_events_caused_by_a_plugin_call_carry_the_plugin_origin(app_client) -> N
         RuleSet,
         Subscription,
     )
+    from movieclaw_sdk.events import SUBSCRIPTION_STATUS_CHANGED
 
     app, client = app_client
 
@@ -177,7 +196,8 @@ def test_events_caused_by_a_plugin_call_carry_the_plugin_origin(app_client) -> N
             session.add(
                 EventConsumer(
                     consumer_id="test:status",
-                    event_name=domain_events.SUBSCRIPTION_STATUS_CHANGED.name,
+                    event_name=SUBSCRIPTION_STATUS_CHANGED.name,
+                    event_names=[SUBSCRIPTION_STATUS_CHANGED.name],
                 )
             )
             await session.commit()

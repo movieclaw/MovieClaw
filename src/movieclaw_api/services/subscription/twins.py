@@ -22,6 +22,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n.stored import source_text
 from movieclaw_db.models import MediaItem
 from movieclaw_matcher import normalize_title
 
@@ -158,29 +159,30 @@ async def ambiguous_verdict(
     loser = better_explained_by_twin(candidate, identity.runtime_minutes, runtimes)
     if loser is not None:
         other = by_id[loser]
-        return "reject", (
-            f"体积与片长更像同名同年的《{other['title']}》"
-            f"（{other['year']}，tmdb={loser}），不像本条目"
+        # 拒绝原因进匹配裁决的文本链（matcher 只收字符串），落中文原文
+        return "reject", source_text(
+            "subscription.twins.reject", title=other["title"], year=other["year"], id=loser
         )
 
     if notify:
         await _inform_user(session, subscription_id=subscription_id, item=item)
-    return "skip", "存在同名影片，资源缺少可区分的影片编号，已跳过；订阅会继续寻找，无需处理"
+    return "skip", source_text("subscription.twins.skip")
 
 
 async def _inform_user(session: AsyncSession, *, subscription_id: int, item: MediaItem) -> None:
     """每个订阅只知会一次。保留已自动处理的记录，不进入待办或点亮红点。"""
     from sqlalchemy.dialects.sqlite import insert
 
-    from movieclaw_api.services.push import events
+    from movieclaw_api import event_refs, events
     from movieclaw_api.services.system_notice import resolve_notices
     from movieclaw_db.models import NoticeSeverity, NoticeStatus, SystemNotice, utcnow
+    from movieclaw_sdk.events import SUBSCRIPTION_IDENTITY_SKIPPED, SubscriptionIdentitySkipped
 
     # 旧版本曾把同一情况写成待确认告警，升级后自动消退。
     await resolve_notices(session, prefix=f"subscription.ambiguous:{subscription_id}:")
     now = utcnow()
-    title = f"《{item.title}》仍在寻找资源"
-    message = "发现同名影片，部分资源暂时无法确认，已跳过。订阅会继续寻找，无需你处理。"
+    title = source_text("subscription.twins.noticeTitle", title=item.title)
+    message = source_text("subscription.twins.noticeBody")
     inserted = await session.execute(
         insert(SystemNotice)
         .values(
@@ -188,7 +190,10 @@ async def _inform_user(session: AsyncSession, *, subscription_id: int, item: Med
             severity=NoticeSeverity.WARNING.value,
             source="subscription",
             title=title,
+            title_key="subscription.twins.noticeTitle",
             message=message,
+            message_key="subscription.twins.noticeBody",
+            message_params={"title": item.title},
             payload={"subscription_id": subscription_id, "media_item_id": item.id},
             status=NoticeStatus.RESOLVED.value,
             resolved_at=now,
@@ -197,8 +202,16 @@ async def _inform_user(session: AsyncSession, *, subscription_id: int, item: Med
         )
         .on_conflict_do_nothing(index_elements=["dedupe_key"])
     )
-    await session.commit()
     if inserted.rowcount:
-        events.identity_skipped(
-            subscription_id=subscription_id, item_id=item.id, title=title, message=message
+        # 第一次跳过才是事件（每个订阅只知会一次，靠上面这行记录去重）
+        media = event_refs.media_ref(item)
+        await events.publish(
+            session,
+            SUBSCRIPTION_IDENTITY_SKIPPED,
+            lambda: (
+                SubscriptionIdentitySkipped(subscription_id=subscription_id, media=media)
+                if media is not None
+                else None
+            ),
         )
+    await session.commit()

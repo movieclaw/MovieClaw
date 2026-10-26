@@ -1,0 +1,62 @@
+{
+  "network": {
+    "timeout": "Connection timed out",
+    "connect": "Cannot connect; check the address, port and network",
+    "proxy": "Cannot connect to the proxy; check Settings → Network",
+    "unknown": "Network error",
+    "failed": "MovieClaw Cloud: {reason}",
+    "http": "MovieClaw Cloud is temporarily unavailable (HTTP {status})",
+    "discovery": "MovieClaw Cloud discovery document is unavailable (HTTP {status})"
+  },
+  "pairing": {
+    "connectFailed": "{reason}. Check this server’s internet connection, or configure a proxy for MovieClaw Cloud in Settings → Network",
+    "expired": "The pairing code has expired. Get a new code",
+    "retrying": "{reason}; retrying…",
+    "denied": "This connection was denied on movieclaw.io",
+    "failed": "Pairing failed. Get a new pairing code",
+    "error": "Pairing encountered an error. Get a new pairing code",
+    "credentials": "MovieClaw Cloud returned incomplete credentials. Get a new pairing code"
+  },
+  "health": {
+    "reason": " ({reason})",
+    "expired": "Cannot connect to MovieClaw Cloud{reason}. The token has expired and official push is paused. It will resume when the cloud recovers. You can also check your network or proxy and select Sync now.",
+    "unreachable": "The last sync failed: {reason}. Push is still available for about {hours, plural, one {# hour} other {# hours}}. Sync will retry automatically.",
+    "cannotConnect": "Cannot connect to MovieClaw Cloud",
+    "revoked": "This server has been disconnected from the MovieClaw account",
+    "unsupported": "This version is no longer supported by MovieClaw official push. Please update"
+  },
+  "disconnect": {
+    "unreachable": "{reason}. If you disconnect anyway, this server will still appear connected on movieclaw.io. Remove it there as well"
+  },
+  "upload": {
+    "actor": "Cloud upload",
+    "queued": "Waiting to upload to cloud storage",
+    "reloginNeeded": "Cloud storage “{account}” needs you to sign in again; uploading resumes after you do",
+    "quotaExceeded": "Cloud storage “{account}” is out of space: {reason}",
+    "rateLimited": "Cloud storage “{account}” is rate-limited: {reason}",
+    "riskControl": "Cloud storage “{account}” triggered risk control; uploading later: {reason}",
+    "apiChanged": "The cloud storage API changed; update the cloud storage plugin: {reason}",
+    "unreachable": "Cloud storage is temporarily unreachable: {reason}",
+    "action": {
+      "relogin": "Sign in again",
+      "retryAfterLogin": "Retry after signing in",
+      "retryAfterSpace": "Retry after freeing space",
+      "retryAfterUpdate": "Retry after updating the plugin"
+    },
+    "localMissing": "The local file is missing",
+    "changingWhileHashing": "The file changed while being fingerprinted (it may still be written)",
+    "changedDuringUpload": "The local file changed during upload",
+    "mismatch": "The cloud copy doesn’t match the local file (size or hash differs), so it wasn’t marked uploaded; check the cloud copy yourself",
+    "conflict": "A different file with the same name already exists in cloud storage: {reason}",
+    "localUnreadable": "The local file can’t be read: {reason}",
+    "yielding": "Someone is streaming remotely; uploading pauses for them",
+    "hashing": "Reading “{name}” to fingerprint it",
+    "uploading": "Uploading “{name}”",
+    "progress": "Uploaded {done} (instant {rapid})",
+    "done": "Upload finished: {done, plural, one {# file} other {# files}} (instant {rapid}){failed, plural, =0 {} one {; # failed (the reason is recorded on the file; it retries later)} other {; # failed (the reasons are recorded on the files; they retry later)}}",
+    "nothingToUpload": "New content of this library is no longer stored in cloud storage; nothing to upload"
+  },
+  "drives": {
+    "pluginNotRunning": "The cloud drive plugin {id} isn’t running; it will be retried automatically"
+  }
+}

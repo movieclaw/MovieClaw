@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 /**
  * MCP 分区的公共小件。
  *
@@ -63,13 +65,14 @@ export function Badge({
  * 完整清单在 title 里，进详情页也能看到。
  */
 export function ServiceChips({ services, max = 4 }: { services: string[]; max?: number }) {
+  const t = useTranslations();
   if (services.length === 0) {
-    return <span className="text-caption text-[var(--text-faint)]">未选服务</span>;
+    return <span className="text-caption text-[var(--text-faint)]">{t("settings.mcp.controls.noServices")}</span>;
   }
   const shown = services.slice(0, max);
   const rest = services.length - shown.length;
   return (
-    <span className="flex flex-wrap items-center gap-1" title={services.join("、")}>
+    <span className="flex flex-wrap items-center gap-1" title={services.join(t("settings.mcp.controls.listSeparator"))}>
       {shown.map((service) => (
         <span
           key={service}
@@ -115,13 +118,14 @@ export function CopyField({
 
 /** 带语言标签与复制按钮的代码块。接入指引里的每段命令都用它。 */
 export function CodeBlock({ code, lang }: { code: string; lang: string }) {
+  const t = useTranslations();
   return (
     <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-black/35">
       <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-1.5">
         <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-faint)]">
           {lang}
         </span>
-        <CopyButton text={code} label="复制" className="btn-glass px-2.5 py-1 text-caption" />
+        <CopyButton text={code} label={t("settings.mcp.controls.copy")} className="btn-glass px-2.5 py-1 text-caption" />
       </div>
       <pre className="scroll-thin overflow-x-auto px-3 py-2.5 font-mono text-caption leading-relaxed text-[var(--text)]">
         {code}

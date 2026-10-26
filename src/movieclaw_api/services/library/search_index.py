@@ -16,8 +16,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import reference
 from movieclaw_api.services import jobs
-from movieclaw_api.services.library.search_matching import name_forms, name_tokens
+from movieclaw_api.services.library.search_matching import (
+    compact,
+    name_forms,
+    name_tokens,
+    prepare_names,
+)
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import MediaItem
 from movieclaw_db.models.person import Person
@@ -115,6 +121,9 @@ async def refresh_index_batch(batch_size: int = 200) -> int:
         for kind, entity_id, _ in pending:
             grouped[kind].append(entity_id)
         sources = {kind: await source_names(session, kind, ids) for kind, ids in grouped.items()}
+    await prepare_names(
+        compact(raw) for names in sources.values() for pairs in names.values() for _, raw in pairs
+    )
     prepared = await asyncio.to_thread(
         lambda: [_prepare(sources[kind].get(entity_id, [])) for kind, entity_id, _ in pending]
     )
@@ -179,7 +188,8 @@ async def _refresh_job(context: jobs.JobContext, input_data: dict[str, object]) 
             await context.update_progress(
                 mode="indeterminate",
                 phase="indexing",
-                message=f"已更新 {total} 个搜索文档",
+                message_key="library.searchIndex.progress",
+                message_params={"count": total},
                 current=total,
             )
 
@@ -194,7 +204,7 @@ async def _enqueue_refresh() -> None:
                 session,
                 job_type="library.search-index.refresh",
                 input_data={},
-                subject="更新媒体库搜索索引",
+                subject_ref=reference("library.searchIndex.subject"),
                 dedupe_key="library.search-index.refresh",
                 resources=[jobs.ResourceRef("library_search", "index", "lock")],
                 priority=-10,

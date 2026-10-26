@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useEffect, useState } from "react";
 import type { Route } from "next";
 
@@ -7,7 +9,7 @@ import { PosterCardVisual } from "@/components/poster-card";
 import type { MediaSearchItem } from "@/lib/api/discover";
 import { getTitleSearchHistoryResults, searchTitles } from "@/lib/api/search";
 import { formatRelativeTime } from "@/lib/time";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
 
@@ -43,10 +45,12 @@ export function MediaSearchResults({
   /** 切到「站点资源」垂直（空态/出错时的逃生入口） */
   onSwitchToTorrent?: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const scrollRef = useScrollRestoration(`search:media:${keyword}:${snapshotId ?? "live"}`);
   // 银玻璃手机端不重复关键词大标题：结果页顶栏的关键词胶囊已写着（同原生 App）
-  const isNf = useTheme().structural;
-  const hideKeyword = useIsMobile() && !isNf;
+  const cinema = useLayout() === "cinema";
+  const hideKeyword = useIsMobile() && !cinema;
   // 每个来源各自三态：null = 加载中；[] = 无结果；error 非空 = 该分区失败
   const [douban, setDouban] = useState<MediaSearchItem[] | null>(null);
   const [doubanError, setDoubanError] = useState<string | null>(null);
@@ -75,8 +79,8 @@ export function MediaSearchResults({
         setTmdb(items.filter((item) => item.source === "tmdb"));
         const doubanStatus = providers.find((status) => status.provider === "douban");
         const tmdbStatus = providers.find((status) => status.provider === "tmdb");
-        if (doubanStatus && !doubanStatus.success) setDoubanError(doubanStatus.message ?? "豆瓣搜索失败");
-        if (tmdbStatus && !tmdbStatus.success) setTmdbError(tmdbStatus.message ?? "TMDB 搜索失败");
+        if (doubanStatus && !doubanStatus.success) setDoubanError(doubanStatus.message ?? t("search.media.doubanFailed"));
+        if (tmdbStatus && !tmdbStatus.success) setTmdbError(tmdbStatus.message ?? t("search.media.tmdbFailed"));
       });
     };
 
@@ -96,12 +100,12 @@ export function MediaSearchResults({
 
     load.catch((reason: Error) => {
       if (controller.signal.aborted) return;
-      const message = reason.message || "影视搜索失败，请稍后重试";
+      const message = reason.message || t("search.media.failed");
       setDoubanError(message);
       setTmdbError(message);
     });
     return () => controller.abort();
-  }, [keyword, snapshotId]);
+  }, [keyword, snapshotId, t]);
 
   // 两个分区都落定后才能判定「全空」；快照与实时结果遵循同一展示规则。
   const doubanSettled = douban !== null || doubanError !== null;
@@ -125,7 +129,7 @@ export function MediaSearchResults({
           {snapshotAt && (
             <div className="ml-auto flex items-center gap-2">
               <span
-                title="这是历史留存的结果快照，来源站数据（评分/海报）可能已变化"
+                title={t("search.media.snapshotHint")}
                 className="flex items-center gap-1.5 rounded-full border border-[var(--info-soft)]/30 bg-[var(--info-soft)]/12 px-2.5 py-1 text-caption text-[var(--info-text)] backdrop-blur-sm"
               >
                 <svg
@@ -140,7 +144,7 @@ export function MediaSearchResults({
                   <circle cx="12" cy="12" r="8.5" />
                   <path d="M12 7.5V12l3 2" />
                 </svg>
-                {formatRelativeTime(snapshotAt)}的快照
+                {t("search.results.snapshotAge", { time: formatRelativeTime(snapshotAt, locale) })}
               </span>
               {onResearch && (
                 <button
@@ -148,7 +152,7 @@ export function MediaSearchResults({
                   onClick={onResearch}
                   className="btn-accent rounded-full px-2.5 py-1 text-caption font-medium"
                 >
-                  重新搜索
+                  {t("search.results.research")}
                 </button>
               )}
             </div>
@@ -162,14 +166,14 @@ export function MediaSearchResults({
       >
         {allEmpty ? (
           <MediaSearchEmpty
-            title={anyError ? "影视搜索出错" : "没有找到相关影视条目"}
-            hint={anyError ?? "换个关键词试试；如果找的是非影视资源，可以直接搜索站点。"}
+            title={anyError ? t("search.media.errorTitle") : t("search.media.empty")}
+            hint={anyError ?? t("search.media.emptyHint")}
             onSwitchToTorrent={onSwitchToTorrent}
           />
         ) : (
           <div className="flex flex-col gap-7">
             <MediaSourceSection
-              label="豆瓣"
+              label={t("search.media.douban")}
               items={douban}
               error={doubanError}
               hrefOf={(item) => `/media/douban/${item.id}` as Route}
@@ -200,6 +204,7 @@ function MediaSourceSection({
   error: string | null;
   hrefOf: (item: MediaSearchItem) => Route;
 }) {
+  const t = useTranslations();
   return (
     <section>
       <div className="mb-3 flex items-center gap-2.5">
@@ -208,7 +213,7 @@ function MediaSourceSection({
         </span>
         {items && items.length > 0 && (
           <span className="text-on-image text-sub text-[rgba(243,245,249,0.75)]">
-            共 {items.length} 条结果
+            {t("search.results.count", { count: items.length })}
           </span>
         )}
       </div>
@@ -221,7 +226,7 @@ function MediaSourceSection({
       )}
       {items?.length === 0 && (
         <p className="text-on-image text-sub text-[rgba(243,245,249,0.6)]">
-          该来源没有找到相关条目
+          {t("search.media.providerEmpty")}
         </p>
       )}
       {items && items.length > 0 && (
@@ -247,6 +252,7 @@ function MediaSearchEmpty({
   hint: string;
   onSwitchToTorrent?: () => void;
 }) {
+  const t = useTranslations();
   return (
     <div className="flex flex-col items-center pt-24 text-center">
       <p className="text-on-image text-body-lg font-semibold text-white">{title}</p>
@@ -257,7 +263,7 @@ function MediaSearchEmpty({
           onClick={onSwitchToTorrent}
           className="btn-accent mt-5 rounded-full px-4 py-1.5 text-sub font-semibold"
         >
-          搜索站点资源
+          {t("search.media.searchResources")}
         </button>
       )}
     </div>

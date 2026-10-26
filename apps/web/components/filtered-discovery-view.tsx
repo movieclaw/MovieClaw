@@ -1,11 +1,13 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DiscoveryFilterChips, useDiscoveryGenres } from "@/components/discovery-filter-dialog";
 import { PosterCard } from "@/components/poster-card";
 import { fetchFilteredDiscovery } from "@/lib/api/discover";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import {
   discoveryFilterCount,
   discoveryFilterLabels,
@@ -38,6 +40,8 @@ export function FilteredDiscoveryView({
   currentYear: number;
   onChange: (filters: DiscoveryFilters) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const [items, setItems] = useState<MediaItem[]>([]);
   const [nextPage, setNextPage] = useState(1);
   const [totalResults, setTotalResults] = useState(0);
@@ -50,9 +54,9 @@ export function FilteredDiscoveryView({
   const firstQueryRef = useRef(true);
   // 页面左右留白随主题走栅格：Netflix 主题放弃居中栏、与发现页内容行同走全幅
   // 4vw 左基线；银玻璃维持居中 1500px 栏 + px-6
-  const isNf = useTheme().structural;
+  const cinema = useLayout() === "cinema";
   // 类型清单：银玻璃的胶囊菜单要列全部类型；Netflix 只在选了类型时拿来翻译名字
-  const genres = useDiscoveryGenres(mediaType, !isNf || filters.genreIds.length > 0);
+  const genres = useDiscoveryGenres(mediaType, !cinema || filters.genreIds.length > 0);
 
   const loadPage = useCallback(async (page: number) => {
     if (loadingRef.current) return;
@@ -79,7 +83,7 @@ export function FilteredDiscoveryView({
       setNextPage(result.page + 1);
     } catch (reason) {
       if (!controller.signal.aborted) {
-        setError((reason as Error).message || "筛选结果加载失败，请稍后重试");
+        setError((reason as Error).message || t("media.discovery.filterFailed"));
       }
     } finally {
       // 只有仍是当前那次请求才收尾：被新条件顶掉的旧请求不能把新请求的加载态清掉
@@ -88,7 +92,7 @@ export function FilteredDiscoveryView({
         loadingRef.current = false;
       }
     }
-  }, [filters, mediaType]);
+  }, [filters, mediaType, t]);
 
   // 条件变化（loadPage 随 filters 换新）：清空重查。首次进入不必等防抖
   useEffect(() => {
@@ -135,15 +139,15 @@ export function FilteredDiscoveryView({
     [genres],
   );
   const filterLabels = useMemo(
-    () => discoveryFilterLabels(filters, genreNames),
-    [filters, genreNames],
+    () => discoveryFilterLabels(filters, genreNames, locale),
+    [filters, genreNames, locale],
   );
   const clearAll = () => onChange(EMPTY_DISCOVERY_FILTERS);
   const allLoaded = !hasMore && items.length > 0;
   return (
     <main
       className={
-        isNf ? "w-full page-inset pb-12" : "mx-auto w-full max-w-[1500px] page-inset pb-12"
+        cinema ? "w-full page-inset pb-12" : "mx-auto w-full max-w-[1500px] page-inset pb-12"
       }
     >
       <header className="mb-7 max-md:mb-5">
@@ -153,15 +157,15 @@ export function FilteredDiscoveryView({
               TMDB DISCOVER
             </p>
             <h1 className="mt-1 text-3xl font-bold tracking-[-0.03em] text-[var(--text)] max-md:text-2xl">
-              筛选结果
+              {t("media.discovery.results")}
             </h1>
             <p className="mt-2 text-body text-[var(--text-muted)]">
               {totalResults > 0
-                ? `找到 ${totalResults.toLocaleString("zh-CN")} 部，已加载 ${items.length} 部`
-                : `已启用 ${activeCount} 项筛选`}
+                ? t("media.discovery.resultsCount", { total: totalResults, loaded: items.length })
+                : t("media.discovery.filterCount", { count: activeCount })}
             </p>
-            {isNf && (
-              <div className="mt-3 flex flex-wrap gap-2" aria-label="当前筛选条件">
+            {cinema && (
+              <div className="mt-3 flex flex-wrap gap-2" aria-label={t("media.discovery.activeFilters")}>
                 {filterLabels.map((label) => (
                   <span
                     key={label}
@@ -173,13 +177,13 @@ export function FilteredDiscoveryView({
               </div>
             )}
           </div>
-          {isNf ? (
+          {cinema ? (
             <button
               type="button"
               onClick={clearAll}
               className="shrink-0 text-ui font-semibold text-[var(--accent-2)] transition hover:text-white"
             >
-              清除全部
+              {t("media.discovery.clearAll")}
             </button>
           ) : (
             <button
@@ -187,12 +191,12 @@ export function FilteredDiscoveryView({
               onClick={clearAll}
               className="btn-glass h-9 shrink-0 px-4 text-sub font-semibold"
             >
-              清空条件
+              {t("media.discovery.clearFilters")}
             </button>
           )}
         </div>
         {/* 银玻璃：六颗可点的条件胶囊，就地改条件、本页原地重查 */}
-        {!isNf && (
+        {!cinema && (
           <div className="mt-4">
             <DiscoveryFilterChips
               mediaType={mediaType}
@@ -215,26 +219,26 @@ export function FilteredDiscoveryView({
 
       {loading && items.length === 0 && <FilteredSkeleton />}
       {!loading && !error && items.length === 0 && (
-        <div className="py-24 text-center text-body text-[var(--text-muted)]">没有符合条件的影片</div>
+        <div className="py-24 text-center text-body text-[var(--text-muted)]">{t("media.discovery.noMatches")}</div>
       )}
       {error && (
         <div className="mt-12 rounded-2xl border border-white/10 bg-black/25 p-8 text-center">
           <p className="text-body text-[var(--text-muted)]">{error}</p>
           <button type="button" onClick={() => void loadPage(nextPage)} className="btn-accent mt-4 h-9 rounded-full px-5 text-ui font-semibold">
-            重试
+            {t("common.retry")}
           </button>
         </div>
       )}
       <div ref={loadMoreRef} className="h-px" aria-hidden="true" />
       {/* 加载进度的读屏播报；银玻璃把「已加载全部」做成可见页脚（同 iOS），告诉用户到底了 */}
       <p
-        className={allLoaded && !isNf ? "mt-8 text-center text-caption text-[var(--text-faint)]" : "sr-only"}
+        className={allLoaded && !cinema ? "mt-8 text-center text-caption text-[var(--text-faint)]" : "sr-only"}
         role="status"
       >
         {loading && items.length > 0
-          ? "正在加载更多影片"
+          ? t("media.discovery.loadingMore")
           : allLoaded
-            ? `已加载全部 ${items.length} 部影片`
+            ? t("media.discovery.allLoaded", { count: items.length })
             : ""}
       </p>
     </main>

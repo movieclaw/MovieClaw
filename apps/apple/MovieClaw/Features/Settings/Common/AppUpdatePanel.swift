@@ -56,13 +56,13 @@ struct AppUpdatePanel<Header: View>: View {
             } else {
                 switch status {
                 case .loading:
-                    SettingsFormSection { SettingsLoadingRow(text: "正在加载版本信息…") }
+                    SettingsFormSection { SettingsLoadingRow(text: String(localized: .settingsUpdateUiLoading)) }
                 case .failed:
                     SettingsFormSection {
                         HStack {
-                            Text("版本信息加载失败").foregroundStyle(Theme.textMuted)
+                            Text(String(localized: .settingsUpdateUiLoadFailed)).foregroundStyle(Theme.textMuted)
                             Spacer()
-                            Button("重试") { Task { await reloadStatus() } }.buttonStyle(.glass)
+                            Button(String(localized: .commonRetry)) { Task { await reloadStatus() } }.buttonStyle(.glass)
                         }
                     }
                 case let .loaded(status):
@@ -75,11 +75,11 @@ struct AppUpdatePanel<Header: View>: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button("重启应用", systemImage: "arrow.clockwise", role: .destructive) {
+                    Button(String(localized: .settingsUpdateUiRestart), systemImage: "arrow.clockwise", role: .destructive) {
                         restartTask?.cancel()
                         restartTask = Task { await doRestart() }
                     }.accessibilityIdentifier("app-restart")
-                } label: { Label("维护操作", systemImage: "ellipsis") }
+                } label: { Label(String(localized: .settingsUpdateUiMaintenanceActions), systemImage: "ellipsis") }
                 .disabled(updating || restartWait != .idle || status.value == nil)
                 .accessibilityIdentifier("app-actions")
             }
@@ -98,7 +98,7 @@ struct AppUpdatePanel<Header: View>: View {
             .sheetFeedback()
         }
         .sheet(isPresented: $changelogOpen) {
-            SubsSheetScaffold(title: "更新说明", closeTitle: "完成") {
+            SubsSheetScaffold(title: String(localized: .settingsPluginMarketChangelog), closeTitle: String(localized: .commonDone)) {
                 SettingsFormSection { SettingsMarkdownText(text: available?.changelog ?? "") }
             }
         }
@@ -214,7 +214,7 @@ struct AppUpdatePanel<Header: View>: View {
     /// 通了才按恢复处理并提示；还没通就留在超时页如实告知，不再无条件报「应用已恢复」
     private func retryAfterTimeout() async {
         guard (try? await api.health()) != nil else {
-            feedback.error("应用仍未恢复，请稍后再试")
+            feedback.error(String(localized: .settingsUpdateUiStillDown))
             return
         }
         await finishRestart()
@@ -227,18 +227,18 @@ struct AppUpdatePanel<Header: View>: View {
         check = nil
         modelCheck = nil
         await initialLoad()
-        feedback.success("应用已恢复")
+        feedback.success(String(localized: .settingsUpdateUiRecovered))
     }
 
     private static var restartCopy: [RestartKind: [RestartWait: (String, String)]] {
         [
         .version: [
-            .waiting: ("正在重启并切换版本…", "前后端会一起重启，服务恢复后页面自动刷新，通常需要几十秒。"),
-            .timeout: ("等待超时，应用尚未恢复", "请稍后手动刷新页面。若反复无法恢复，容器会自动回落到更新前的版本，数据不受影响。"),
+            .waiting: (String(localized: .settingsUpdateUiVersionWaiting), String(localized: .settingsUpdateUiVersionWaitingHint)),
+            .timeout: (String(localized: .settingsUpdateUiRestartTimeout), String(localized: .settingsUpdateUiVersionTimeoutHint)),
         ],
         .app: [
-            .waiting: ("正在重启应用…", "服务恢复后页面会自动刷新，通常需要几秒到几十秒。"),
-            .timeout: ("等待超时，应用尚未恢复", "Docker 部署通常几秒内自动拉起，请稍后手动刷新页面；源码部署且无 systemd 等守护时，需要到服务器上手动启动。"),
+            .waiting: (String(localized: .settingsUpdateUiAppWaiting), String(localized: .settingsUpdateUiAppWaitingHint)),
+            .timeout: (String(localized: .settingsUpdateUiRestartTimeout), String(localized: .settingsUpdateUiAppTimeoutHint)),
         ],
         ]
     }
@@ -252,7 +252,7 @@ struct AppUpdatePanel<Header: View>: View {
                 Text(copy.0).font(.body.weight(.medium))
                 Text(copy.1).font(.subheadline).foregroundStyle(Theme.textMuted).multilineTextAlignment(.center)
                 if restartWait == .timeout {
-                    Button("刷新页面") { Task { await retryAfterTimeout() } }.buttonStyle(.glass)
+                    Button(String(localized: .settingsUpdateUiRefresh)) { Task { await retryAfterTimeout() } }.buttonStyle(.glass)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -268,15 +268,15 @@ struct AppUpdatePanel<Header: View>: View {
     private func content(_ status: API.UpdateStatusView) -> some View {
         let availableModelTag: String? = modelCheck.map { $0.updateAvailable && $0.installable ? $0.latestTag : nil } ?? pendingModelTag
         let sourceLabel = status.codeSource == "overlay"
-            ? "应用内更新"
-            : status.codeSource == "baseline" ? "Docker 镜像内置" : "源码部署"
+            ? String(localized: .settingsUpdateUiSourceOverlay)
+            : status.codeSource == "baseline" ? String(localized: .settingsUpdateUiBaselineSource) : String(localized: .settingsUpdateUiDevSource)
 
         SettingsFormSection {
             HStack(spacing: 16) {
                 Image("MovieClawLogo").resizable().scaledToFit().frame(width: 48, height: 48)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("MovieClaw 服务器").font(.headline)
+                    Text(String(localized: .settingsUpdateUiServerTitle)).font(.headline)
                     Text("v\(status.currentVersion)").font(.title2.weight(.semibold))
                         .accessibilityIdentifier("app-current-version")
                     Text(sourceLabel).font(.subheadline).foregroundStyle(.secondary)
@@ -287,7 +287,7 @@ struct AppUpdatePanel<Header: View>: View {
             if status.canUpdate, !updating {
                 Button { Task { await doCheck() } } label: {
                     HStack {
-                        Text(checking ? "正在检查…" : "检查更新")
+                        Text(checking ? String(localized: .settingsUpdateUiChecking) : String(localized: .settingsUpdateUiCheck))
                         Spacer()
                         if checking { ProgressView() }
                         else { Image(systemName: "arrow.clockwise") }
@@ -295,29 +295,29 @@ struct AppUpdatePanel<Header: View>: View {
                 }.disabled(checking).accessibilityIdentifier("app-check-update")
             }
             if let check, !check.updateAvailable {
-                Label("已是最新版本", systemImage: "checkmark.circle.fill")
+                Label(String(localized: .settingsUpdateUiLatest), systemImage: "checkmark.circle.fill")
                     .foregroundStyle(Theme.success)
             }
             if let checkError { Text(checkError).font(.subheadline).foregroundStyle(Theme.danger) }
             if !status.canUpdate {
-                Text("当前为源码部署，请在服务器上更新。应用内更新适用于 Docker 镜像部署。")
+                Text(String(localized: .settingsUpdateUiSourceHint))
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             if let inactive = status.inactiveOverlayVersion {
-                Text("已安装的 v\(inactive) 未在运行\(status.inactiveOverlayReason.map { "：\($0)" } ?? "")")
+                Text(String(localized: .settingsUpdateUiInactiveInstalled(inactive)) + (status.inactiveOverlayReason.map { String(localized: .settingsUpdateUiReasonSuffix($0)) } ?? ""))
                     .font(.subheadline).foregroundStyle(Theme.textMuted)
             }
             if !status.badVersions.isEmpty {
-                Text("版本 \(status.badVersions.map { "v\($0)" }.joined(separator: "、")) 曾连续启动失败，已被自动回落保护。可在新版本发布后重新更新。")
+                Text(String(localized: .settingsUpdateUiBadVersionsList(AppFormatting.list(status.badVersions.map { "v\($0)" }))))
                     .font(.subheadline).foregroundStyle(Theme.warning)
             }
             if let exit = status.lastAbnormalExit {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("应用曾于 \(SettingsTime.unix(exit.at)) 异常退出并被容器自动恢复：\(exit.detail)（exit=\(exit.exitCode)）。若频繁出现，请查看容器日志排查。")
+                    Text(String(localized: .settingsUpdateUiAbnormalExit(SettingsTime.unix(exit.at), exit.detail, String(exit.exitCode))))
                         .font(.subheadline).foregroundStyle(Theme.warning)
                     HStack {
                         Spacer()
-                        Button("知道了") { Task { await dismissExit() } }
+                        Button(String(localized: .settingsLlmUiUnderstood)) { Task { await dismissExit() } }
                             .buttonStyle(.glass).controlSize(.small)
                             .accessibilityIdentifier("app-dismiss-exit")
                     }
@@ -330,31 +330,31 @@ struct AppUpdatePanel<Header: View>: View {
         if updating, let progress {
             SettingsFormSection {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(progress.detail.isEmpty ? "正在更新…" : progress.detail).font(.body.weight(.medium))
+                    Text(progress.detail.isEmpty ? String(localized: .settingsUpdateUiUpdating) : progress.detail).font(.body.weight(.medium))
                     if progress.phase == "downloading", let percent = progress.percent {
                         ProgressView(value: min(max(percent, 0), 100), total: 100).tint(Theme.accent)
                     }
-                    Text("更新在后台执行，完成后会自动重启并刷新页面。").font(.subheadline).foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .settingsUpdateUiUpdatingHint)).font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
             }
         }
 
         if !updating, let available {
-            SettingsFormSection("可用更新") {
+            SettingsFormSection(String(localized: .settingsUpdateUiAvailable)) {
                 VStack(alignment: .leading, spacing: 16) {
-                    LabeledContent("新版本", value: "v\(available.version)")
+                    LabeledContent(String(localized: .settingsUpdateUiNewVersion), value: "v\(available.version)")
                     if !available.compatible {
-                        Text("本次更新包含依赖变化，请拉取新的 Docker 镜像升级。")
+                        Text(String(localized: .settingsUpdateUiDependencyHint))
                             .font(.subheadline).foregroundStyle(Theme.warning)
                     }
                     if available.knownBad {
-                        Text("这个版本曾在本机启动失败并自动回退。再次安装会重试，若仍然失败会自动回退。")
+                        Text(String(localized: .settingsUpdateUiFailedBefore))
                             .font(.subheadline).foregroundStyle(Theme.warning)
                     }
                     if !available.changelog.isEmpty {
                         Button { changelogOpen = true } label: {
                             HStack {
-                                Text("查看更新说明")
+                                Text(String(localized: .settingsUpdateUiNotes))
                                 Spacer()
                                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
                             }.frame(minHeight: 44).contentShape(Rectangle())
@@ -364,7 +364,7 @@ struct AppUpdatePanel<Header: View>: View {
                     }
                     if available.compatible {
                         Button { Task { await doApply() } } label: {
-                            Text("更新并重启").frame(maxWidth: .infinity).padding(.vertical, 4)
+                            Text(String(localized: .settingsUpdateUiUpdateRestart)).frame(maxWidth: .infinity).padding(.vertical, 4)
                         }
                         .settingsProminentButton()
                         .accessibilityIdentifier("app-apply-update")
@@ -379,44 +379,44 @@ struct AppUpdatePanel<Header: View>: View {
         // 上一次更新（应用或模型）异步失败的统一外显
         if let progress, progress.phase == "failed", let error = progress.error {
             SettingsFormSection {
-                Text("上次更新\(progress.targetVersion.map { "（\($0)）" } ?? "")失败：\(error)")
+                Text(progress.targetVersion.map { String(localized: .settingsUpdateUiLastFailedVersion($0, error)) } ?? String(localized: .settingsUpdateUiLastFailed(error)))
                     .font(.subheadline).foregroundStyle(Theme.danger)
             }
         }
 
         if status.canUpdate {
             SettingsFormSection {
-                LabeledContent("当前模型", value: status.modelTag ?? "无法识别")
+                LabeledContent(String(localized: .settingsUpdateUiCurrentModel), value: status.modelTag ?? String(localized: .settingsUpdateUiUnknownModel))
                 if !updating {
                     Button { Task { await doModelCheck() } } label: {
                         HStack {
-                            Text(modelChecking ? "正在检查…" : "检查模型更新")
+                            Text(modelChecking ? String(localized: .settingsUpdateUiChecking) : String(localized: .settingsUpdateUiCheckModel))
                             Spacer()
                             if modelChecking { ProgressView() }
                         }
                     }.disabled(modelChecking).accessibilityIdentifier("app-check-model")
                 }
                 if let availableModelTag {
-                    LabeledContent("新模型", value: availableModelTag)
-                    Button("更新模型并重启") { Task { await doModelApply() } }
+                    LabeledContent(String(localized: .settingsUpdateUiNewModel), value: availableModelTag)
+                    Button(String(localized: .settingsUpdateUiModelRestart)) { Task { await doModelApply() } }
                         .disabled(updating).accessibilityIdentifier("app-apply-model")
                 }
                 if let modelCheck, availableModelTag == nil {
                     Text(modelCheck.updateAvailable
-                         ? "新模型暂不支持应用内安装" : "模型已是最新")
+                         ? String(localized: .settingsUpdateUiModelNotInstallable) : String(localized: .settingsUpdateUiModelLatest))
                         .foregroundStyle(modelCheck.updateAvailable ? Theme.warning : Theme.success)
                 }
                 if let modelError { Text(modelError).font(.subheadline).foregroundStyle(Theme.danger) }
-            } header: { Text("识别模型") }
-              footer: { Text("用于识别种子名称，可独立更新。安装后服务器会重启。") }
+            } header: { Text(String(localized: .settingsUpdateUiModelSection)) }
+              footer: { Text(String(localized: .settingsUpdateUiModelHint)) }
         }
         if status.canUpdate, let rollback {
             SettingsFormSection {
                 Button { actionError = nil; rollbackOpen = true } label: {
                     HStack {
-                        Label("历史版本", systemImage: "clock.arrow.circlepath").foregroundStyle(.primary)
+                        Label(String(localized: .settingsUpdateUiHistory), systemImage: "clock.arrow.circlepath").foregroundStyle(.primary)
                         Spacer()
-                        Text("\(rollback.targets.count) 个").foregroundStyle(.secondary)
+                        Text(String(localized: .settingsMcpControlsCountUnit(rollback.targets.count))).foregroundStyle(.secondary)
                         Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
                     }
                 }.disabled(updating).accessibilityIdentifier("app-open-rollback")
@@ -434,7 +434,7 @@ struct AppUpdatePanel<Header: View>: View {
                 status = .loaded(value)
             }
         } catch {
-            actionError = "确认告警失败，请稍后重试"
+            actionError = String(localized: .settingsUpdateUiDismissFailed)
         }
     }
 
@@ -497,9 +497,9 @@ struct AppUpdatePanel<Header: View>: View {
     /// 重启应用：请求后端优雅停机，随后走与更新同一套等待流程（请求可能因进程退出而中断，属预期）
     private func doRestart() async {
         let ok = await feedback.confirm(
-            "重启应用？",
-            message: "重启期间服务短暂不可用，正在进行的下载投递/整理任务会中断。Docker 部署通常几秒内自动拉起；源码部署需有 systemd 等守护。",
-            confirmTitle: "确认重启",
+            String(localized: .settingsUpdateUiRestartTitle),
+            message: String(localized: .settingsUpdateUiRestartConfirmHint),
+            confirmTitle: String(localized: .settingsUpdateUiRestartConfirm),
             destructive: true
         )
         guard ok else { return }
@@ -536,13 +536,13 @@ private struct RollbackSheet: View {
     @State private var selected: Int?
 
     private func label(_ target: API.RollbackTargetView) -> String {
-        target.kind == "baseline" ? "镜像内置版本\(target.version.map { " v\($0)" } ?? "")" : "v\(target.version ?? "")"
+        target.kind == "baseline" ? String(localized: .settingsUpdateUiBaselineVersion(target.version.map { " v\($0)" } ?? "")) : "v\(target.version ?? "")"
     }
 
     var body: some View {
         let targets = options?.targets ?? []
         let pick = selected.flatMap { index in targets.indices.contains(index) ? targets[index] : nil }
-        SubsSheetScaffold(title: "历史版本", closeTitle: "完成") {
+        SubsSheetScaffold(title: String(localized: .settingsUpdateUiHistory), closeTitle: String(localized: .commonDone)) {
             if let error { SettingsFormSection { Text(error).foregroundStyle(Theme.danger) } }
             if let options {
                 SettingsFormSection {
@@ -550,18 +550,18 @@ private struct RollbackSheet: View {
                         selected = nil
                         Task { await onRetention(value) }
                     }), in: 2 ... 20) {
-                        LabeledContent("保留版本", value: "\(options.keepVersions) 个")
+                        LabeledContent(String(localized: .settingsUpdateUiKeepVersions), value: String(localized: .settingsMcpControlsCountUnit(options.keepVersions)))
                     }.disabled(retentionBusy).accessibilityIdentifier("app-retention")
                 } footer: {
-                    Text("占用 \(Formatters.bytes(options.versionsDirBytes))。减少保留数量会立即清理较早版本。")
+                    Text(String(localized: .settingsUpdateUiStorageHint(Formatters.bytes(options.versionsDirBytes))))
                 }
             }
             if targets.isEmpty {
-                SettingsFormSection { Text("暂无可回退的历史版本").foregroundStyle(.secondary) }
+                SettingsFormSection { Text(String(localized: .settingsUpdateUiNoHistory)).foregroundStyle(.secondary) }
             }
             SettingsFormSection {
                 // 说明在标题下方、列表之前（同 Web 回退弹窗的头部说明）
-                Text("回退会重启应用；是否需要恢复数据备份取决于目标版本的数据结构差异，结论已在每一项里标明。")
+                Text(String(localized: .settingsUpdateUiRollbackHint))
                     .font(.subheadline).foregroundStyle(Theme.textMuted)
                     .settingsRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
@@ -576,7 +576,7 @@ private struct RollbackSheet: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(label(target)).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
                                     schemaBadge(target)
-                                    let meta = [target.installedAt.map { "装于 \(Formatters.dateTime($0))" },
+                                    let meta = [target.installedAt.map { String(localized: .settingsUpdateUiInstalledAt(Formatters.dateTime($0))) },
                                                 target.sizeBytes.map { Formatters.bytes($0) }].compactMap { $0 }
                                     if !meta.isEmpty {
                                         Text(meta.joined(separator: " · ")).font(.caption).foregroundStyle(Theme.textFaint)
@@ -604,7 +604,7 @@ private struct RollbackSheet: View {
                 Button(role: .destructive) {
                     onConfirm(pick)
                 } label: {
-                    Text(pick.schemaAction == "restore" ? "回退到 \(label(pick)) 并恢复备份" : "回退到 \(label(pick)) 并重启")
+                    Text(pick.schemaAction == "restore" ? String(localized: .settingsUpdateUiRollbackRestore(label(pick))) : String(localized: .settingsUpdateUiRollbackRestart(label(pick))))
                         .frame(maxWidth: .infinity)
                 }
                 .disabled(retentionBusy)
@@ -617,17 +617,17 @@ private struct RollbackSheet: View {
     @ViewBuilder
     private func schemaBadge(_ target: API.RollbackTargetView) -> some View {
         switch target.schemaAction {
-        case "switch": Text("可直接切换，数据保留").font(.caption).foregroundStyle(Theme.success)
-        case "restore": Text("需恢复 \(Formatters.dateTime(target.backupTakenAt)) 的数据备份").font(.caption).foregroundStyle(Theme.warning)
-        default: Text("无对应数据备份").font(.caption).foregroundStyle(Theme.danger)
+        case "switch": Text(String(localized: .settingsUpdateUiSwitchSafe)).font(.caption).foregroundStyle(Theme.success)
+        case "restore": Text(String(localized: .settingsUpdateUiRestoreBackup(Formatters.dateTime(target.backupTakenAt)))).font(.caption).foregroundStyle(Theme.warning)
+        default: Text(String(localized: .settingsUpdateUiBackupMissing)).font(.caption).foregroundStyle(Theme.danger)
         }
     }
 
     private func consequence(_ target: API.RollbackTargetView) -> String {
         switch target.schemaAction {
-        case "switch": "该版本与当前的数据结构一致：直接切换代码，全部数据原样保留。"
-        case "restore": "当前数据结构比该版本新（中间经过数据库升级）。回退将恢复 \(Formatters.dateTime(target.backupTakenAt)) 自动备份的数据，此后产生的数据（订阅活动、入库记录等）将丢失；回退前会再自动备份一次当前数据，切回新版本时可完整还原。"
-        default: "没有可对应时点的数据备份：切换后该版本将直接使用当前数据，若中间经过数据库升级可能无法正常运行（启动失败时会自动回落）。"
+        case "switch": String(localized: .settingsUpdateUiSwitchSafeHint)
+        case "restore": String(localized: .settingsUpdateUiRestoreHint(Formatters.dateTime(target.backupTakenAt)))
+        default: String(localized: .settingsUpdateUiNoBackup)
         }
     }
 

@@ -34,7 +34,8 @@ jellyfin-web 的码率菜单），服务端要按要求把码率压下来。
    `AudioCodec=aac`、`MaxAudioChannels=2`，首版一律给 fMP4 分片，它用 Range 探一下
    首分片就报错、连 init.mp4 都不取（2026-09-23 NAS 抓包）。申报之外的容器当 mp4，
    没申报则全部走服务端默认（fMP4、音频有损 copy / 多声道 E-AC-3）。
-3. **strm 不转码**（沿用 web-player.md 硬边界 2）；**原盘不按码率转码**
+3. ~~strm 不转码~~（2026-10-11 撤销，见 [strm-playback.md](strm-playback.md)：探测到规格的
+   strm 与本地文件一样协商，ffmpeg 直接读网盘直链）；**原盘不按码率转码**
    （单剪辑直出、多剪辑 copy remux，disc-playback.md 不变，转码留作后续）。
 4. **转码能力不可用时行为与今天完全一致**：无硬件加速且软件转码未开、
    或 HDR 源没有显卡做 tone-map，协商结果仍是直连（并写一条说明原因的日志），
@@ -100,12 +101,12 @@ Jellyfin 协议层（src/movieclaw_jellyfin）
 
 ## 3. 协商规则（PlaybackInfo）
 
-对每个 MediaSource（普通本地文件；strm 与原盘各走原路）：
+对每个 MediaSource（普通本地文件与 strm——strm 先按需探测规格；原盘走原路）：
 
 ```text
 1. EnableTranscoding=false                         → 直连，不声明转码（照旧）
 2. plan_capped_transcode(profile, policy)
-     无硬件且软转未开 / HDR 无显卡 / strm / 原盘   → 拒绝 → 直连，不声明转码；
+     无硬件且软转未开 / HDR 无显卡 / 没探到规格的 strm / 原盘 → 拒绝 → 直连，不声明转码；
                                                     播放器要求了转码时写 warning 日志说明原因
 3. SupportsTranscoding = true
 4. direct_play_allowed(源码率, 协商)：
@@ -148,7 +149,7 @@ master 也不查任何服务端状态，播放器重放同一 URL 得到同样�
 `GET /Videos/{item}/master.m3u8`（原 disc-playback.md §3.5 的路由，本设计扩到
 普通文件）：
 
-1. 解析 URL → `TranscodeParams`；解 GUID、按 `MediaSourceId` 选版本；strm 404；
+1. 解析 URL → `TranscodeParams`；解 GUID、按 `MediaSourceId` 选版本；
 2. 原盘 → 原来的 copy remux 规划（`_disc_remux_spec`，行为不变）；
    普通文件 → `_capped_transcode_spec`：`plan_capped_transcode(max_height=MaxHeight)`
    + `bitrate_cap_bps=VideoBitrate`；硬件档经 `select_execution_backend` 选本地

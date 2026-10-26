@@ -152,6 +152,7 @@ struct ImmersiveHeroBackdrop: View {
             .frame(height: height)
             .stretchesOnPull()
             .stretchesOnEdgeOverscroll(first: isFirst, last: isLast)
+            .modifier(PadBackdropUnderSidebar())
             .frame(maxHeight: .infinity, alignment: .bottom)
             .onChange(of: active, initial: true) { old, isActive in
                 // 页签切走再切回时，initial 这一次会随页面重新出现再调一遍（新旧值相同）。
@@ -421,5 +422,68 @@ extension View {
                     .animation(.easeInOut(duration: 0.5), value: tint?.description)
                     .ignoresSafeArea()
             }
+    }
+}
+
+/// 轮播铺不铺满整屏宽。手机横屏铺满：不铺的话两侧安全区（灵动岛、圆角那一截）露出页面底色，文字按安全区自己让位。
+/// iPad 宽窗口只占内容区、不伸到侧边栏底下：伸过去的话展开 / 收起侧边栏时左侧安全区在 0 与侧边栏宽之间突变，
+/// 分页轮播的滚动位置对不齐整页（露出半张下一张）、文字的让位也跟着跳（真机实测标题闪没一下）。
+struct ImmersiveHeroBleed: ViewModifier {
+    let fullWidth: Bool
+
+    func body(content: Content) -> some View {
+        if fullWidth {
+            content.ignoresSafeArea(.container, edges: .horizontal)
+        } else {
+            content
+        }
+    }
+}
+
+/// iPad 宽窗口的轮播：只摆当前这一张，换张时交叉淡入（同 Mac 版大图区），左右轻扫换张。
+///
+/// 不用分页 TabView：iPad 上轮播宽度随侧边栏展开 / 收起在内容区宽与整屏宽之间变，分页视图按新宽度
+/// 重新换算页码，会停在两页之间露出半张下一张、或者直接跳到下一张（模拟器与真机都复现）。
+/// 只放一张就没有「页」的概念，宽度怎么变都不会错位。手机仍用分页滑动（宽度只在转屏时变，系统处理得好）。
+struct ImmersiveHeroFadeCarousel<Slide: View>: View {
+    let count: Int
+    @Binding var index: Int
+    @ViewBuilder let slide: (Int) -> Slide
+
+    var body: some View {
+        ZStack {
+            if count > 0 {
+                slide(min(index, count - 1))
+                    .id(min(index, count - 1))
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.6), value: index)
+        // 与外层上下滚动同时识别：只认明显横向的轻扫，竖着划照常滚页面
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    let dx = value.translation.width, dy = value.translation.height
+                    guard count > 1, abs(dx) > 60, abs(dx) > abs(dy) * 1.5 else { return }
+                    index = dx < 0 ? (index + 1) % count : (index - 1 + count) % count
+                }
+        )
+    }
+}
+
+/// iPad 宽窗口：剧照层画到侧边栏底下（铺满整屏宽），文字仍只排在内容区。
+/// 侧边栏是液态玻璃，自己会把下面的画面模糊——剧照直接铺过去就行，不用系统的 `backgroundExtensionEffect`
+/// （那个要在内容移动时每帧重新取样、镜像、模糊，Mac 版实测滚动时占掉大半主线程）。
+/// 不铺的话浮动侧边栏四周露出一块纯色，和剧照左边沿拼出一个直角（真机反馈）。
+/// 剧照宽度因此固定为整屏，展开 / 收起侧边栏时剧照不动，只有文字跟着内容区走。手机上不加
+struct PadBackdropUnderSidebar: ViewModifier {
+    @Environment(\.cardMetrics) private var cards
+
+    func body(content: Content) -> some View {
+        if cards.isWide {
+            content.ignoresSafeArea(.container, edges: .horizontal)
+        } else {
+            content
+        }
     }
 }

@@ -30,6 +30,9 @@ class AppConfigView(AppConfigPayload):
         description="端口来源：setting（应用内设置）/ env（环境变量）/ default（默认）"
     )
     web_port_default: int = Field(description="内置默认端口，用于「恢复默认」的展示")
+    web_port_reset_target: int | None = Field(
+        default=None, description="Port after clearing the override, including environment defaults"
+    )
     web_port_rejected: int | None = Field(
         default=None,
         description="上次启动时因无法绑定而被自动废弃的端口；null = 无",

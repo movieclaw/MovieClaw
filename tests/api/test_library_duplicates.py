@@ -62,7 +62,11 @@ async def client(db):
     admin = Principal(kind="admin", name="tester")
     app.dependency_overrides[require_login] = lambda: admin
     app.dependency_overrides[require_admin] = lambda: admin
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        headers={"Accept-Language": "zh-Hans"},
+    ) as c:
         yield c
 
 
@@ -974,7 +978,7 @@ async def test_name_parsing_never_runs_on_the_event_loop(client, db, tmp_path, m
     """
     import threading
 
-    from movieclaw_api.services.subscription import upgrade as upgrade_mod
+    from movieclaw_api.services.library import quality as upgrade_mod
 
     loop_thread = threading.get_ident()
     seen: list[int] = []

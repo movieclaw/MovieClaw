@@ -10,12 +10,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -61,6 +61,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import io.movieclaw.android.core.designsystem.mcGridCells
+import io.movieclaw.android.core.designsystem.mcCards
 
 /**
  * 订阅海报墙（订阅首页「剧集订阅 ›」「电影订阅 ›」或一排末尾的「查看全部」压栈进来的二级页；
@@ -122,24 +124,27 @@ fun SubscriptionWallScreen(
     val done = state.items.filterNot { it.status == "active" || it.status == "paused" }
 
     Box(Modifier.fillMaxSize().background(Bg)) {
-        Column(Modifier.fillMaxSize().padding(top = McMetrics.topBarHeight)) {
+        // `statusBarsPadding()` 必须加：顶栏本身是「状态栏 inset + topBarHeight」，
+        // 内容只扣 topBarHeight 的话会少算状态栏那 24dp，于是标题/返回钮和
+        // 「N 部 · N 部进行中」那行叠在一起（真机截图确认）。
+        Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = McMetrics.topBarHeight)) {
             when {
                 state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = TextMuted)
                 }
                 state.error != null -> ErrorPane(message = state.error!!, onRetry = vm::load)
                 else -> LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
+                    columns = mcGridCells(phoneColumns = 2),
                     contentPadding = PaddingValues(
-                        start = McMetrics.pagePadding,
-                        end = McMetrics.pagePadding,
+                        start = mcCards.pagePadding,
+                        end = mcCards.pagePadding,
                         bottom = 32.dp,
                     ),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    item(span = { GridItemSpan(2) }) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
                             "${state.items.size} 部" +
                                 if (active.isNotEmpty()) " · ${active.size} 部进行中" else "",
@@ -172,7 +177,7 @@ private fun LazyGridScope.section(
     onOpenSubscription: (Long) -> Unit,
 ) {
     if (items.isEmpty()) return
-    item(span = { GridItemSpan(2) }, key = "h-$name") {
+    item(span = { GridItemSpan(maxLineSpan) }, key = "h-$name") {
         Row(Modifier.padding(top = 10.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(name, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             Spacer(Modifier.width(6.dp))
@@ -233,8 +238,7 @@ private fun WallSubCard(sub: SubscriptionView, dim: Boolean, origin: String?, on
             modifier = Modifier.padding(top = 6.dp),
         )
         val meta = if (sub.media.kind == "tv") {
-            val season = sub.selectedSeasons.firstOrNull()
-            "第 ${season ?: 1} 季 · ${sub.progress.imported} / ${sub.progress.total}"
+            tvShelfMeta(sub)
         } else {
             listOfNotNull(sub.media.year?.toString(), if (sub.progress.imported > 0) "已入库" else "未入库").joinToString(" · ")
         }

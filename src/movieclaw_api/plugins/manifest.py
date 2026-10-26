@@ -44,16 +44,26 @@ logger = logging.getLogger("movieclaw_api.plugins.manifest")
 #: （自身或 ``名字.`` 开头的子条目）；先到先得。新增内置插件忘了归组，
 #: tests/api/test_plugin_diagnostics.py 会失败。
 BUILTIN_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # i18n-ignore: group id; label via plugins.groups.*
     ("基础", ("core.", "jobs", "scheduler", "storage.", "app-update", "selfheal.")),
-    ("资源站点与下载", ("tracker.", "downloads", "boost")),
-    ("订阅", ("subscription",)),
-    ("媒体库", ("library.", "media.", "enrich.")),
-    ("播放与字幕", ("playback.", "subtitle.", "jellyfin.")),
     (
+        # i18n-ignore: group id; label via plugins.groups.*
+        "资源站点与下载",
+        ("tracker.", "downloads", "boost", "qbittorrent-downloader", "transmission-downloader"),
+    ),
+    # i18n-ignore: group id; label via plugins.groups.*
+    ("订阅", ("subscription",)),
+    # i18n-ignore: group id; label via plugins.groups.*
+    ("媒体库", ("library.", "media.", "enrich.")),
+    # i18n-ignore: group id; label via plugins.groups.*
+    ("播放与字幕", ("playback.", "subtitle.", "jellyfin.", "strm-prefetch", "drives.")),
+    (
+        # i18n-ignore: group id; label via plugins.groups.*
         "通知与推送",
         (
             "channels.",
             "push.",
+            "webhook.",
             "cloud",
             "weixin-channel",
             "telegram-channel",
@@ -61,7 +71,9 @@ BUILTIN_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "feishu-channel",
         ),
     ),
+    # i18n-ignore: group id; label via plugins.groups.*
     ("AI 助手", ("agent.",)),
+    # i18n-ignore: group id; label via plugins.groups.*
     ("插件系统", ("kernel.",)),
 )
 
@@ -77,14 +89,24 @@ def builtin_group(entry_id: str) -> str | None:
     return None
 
 
+#: 下载器适配插件（随带包 id 以此结尾）：要排在 ``downloads`` 等用到下载器的模块前面，
+#: 否则启动那一刻（入库监控的首次扫描）找不到适配器
+_DOWNLOADER_SUFFIX = "-downloader"
+
+
 def with_bundled(bundled: Sequence[Entry]) -> tuple[Entry, ...]:
-    """把随带插件包的内置条目插在通道中枢后面（微信通道原来的位置）。
+    """把随带插件包的内置条目插进清单：下载器适配插件插在 ``downloads`` 前面，其余插在通道中枢
+    后面（微信通道原来的位置）。
 
     启动按清单顺序、停机反过来：放在末尾会让它们最先停，打乱「转码会话最先停」等停机约束。
     """
+    downloaders = [e for e in bundled if e.id.endswith(_DOWNLOADER_SUFFIX)]
+    others = [e for e in bundled if not e.id.endswith(_DOWNLOADER_SUFFIX)]
     entries = list(BUILTIN_MANIFEST)
+    at = next(i for i, e in enumerate(entries) if e.id == "downloads")
+    entries[at:at] = downloaders
     at = next(i for i, e in enumerate(entries) if e.id == "channels.hub") + 1
-    return (*entries[:at], *bundled, *entries[at:])
+    return (*entries[:at], *others, *entries[at:])
 
 
 #: 补丁文件（docs/design/plugin-kernel.md §10.3）：放在数据目录根下，随数据卷持久化
@@ -96,8 +118,10 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         core.database,
         core.registries,
         events.durable_events,
+        events.plugin_events,
         events.host_ops,
         events.plugin_data,
+        events.plugin_jobs,
         events.plugin_health,
         events.plugin_routes,
         events.plugin_callbacks,
@@ -118,6 +142,7 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         agent.agent_runs,
         agent.agent_session_index,
         agent.agent_attachments,
+        agent.agent_invoke,
         library.enrich_backfill,
         library.disc_image_durations,
         library.dolby_vision_backfill,
@@ -125,6 +150,7 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         domains.downloads,
         domains.boost,
         domains.subscription,
+        domains.search_runs,
         domains.library_core,
         domains.media_scrape,
         domains.subtitle_gen,
@@ -135,29 +161,40 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         delivery.channel_hub,
         delivery.cloud,
         delivery.push_hub,
+        delivery.webhook_delivery,
         delivery.push_channels_refresh,
         delivery.push_arrivals,
         delivery.jellyfin_discovery,
         scheduling.jobs,
         library.search_index,
+        library.media_server_refresh,
         playback.storage_guard,
         playback.pgs_warm,
         library.skip_segments_recovery,
         playback.remote_workers,
+        playback.drive_sources,
+        playback.drive_uploads,
         playback.transcode,
     )
 )
 
 
 def load_patches(settings: object) -> list[Patch]:
-    """补丁层：插件页停用的功能 + 环境变量开关 + ``data/plugins.yaml``。
+    """补丁层：插件页停用的插件与功能 + 环境变量开关 + ``data/plugins.yaml``。
 
-    改 yaml / 环境变量需要重启生效；功能开关在运行中切换（services/plugin_features.py），
-    这里只负责重启后保持。功能补丁排最前：同一插件被几处都关时，诊断显示管理员那一处。
+    改 yaml / 环境变量需要重启生效；插件与功能开关在运行中切换（services/plugin_switches.py、
+    services/plugin_features.py），这里只负责重启后保持。开关补丁排最前：同一插件被几处都关时，
+    诊断显示管理员那一处。
     """
     from movieclaw_api.services.plugin_features import feature_patches
+    from movieclaw_api.services.plugin_switches import switch_patches
 
-    return feature_patches(settings) + env_patches(settings) + file_patches(settings)
+    return (
+        switch_patches(settings)
+        + feature_patches(settings)
+        + env_patches(settings)
+        + file_patches(settings)
+    )
 
 
 def patch_file(settings: object) -> Path:
@@ -166,7 +203,18 @@ def patch_file(settings: object) -> Path:
 
 #: 补丁条目认识的字段：disabled 关掉一个条目；其余是本地受信插件的开启与批准（plugins/local.py）
 _PATCH_FIELDS = frozenset(
-    {"id", "disabled", "local", "module", "config", "grants", "act_as", "runtime", "paths"}
+    {
+        "id",
+        "disabled",
+        "local",
+        "module",
+        "command",
+        "config",
+        "grants",
+        "act_as",
+        "runtime",
+        "paths",
+    }
 )
 
 

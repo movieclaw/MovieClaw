@@ -50,6 +50,7 @@ _BATCH = 50
 @register_task(
     "backfill_media_series",
     title="作品系列回填",
+    title_key="settings.scheduledTasks.catalog.backfillMediaSeriesTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=300,
     description=(
@@ -57,6 +58,7 @@ _BATCH = 50
         "补完后合集页自动出现系列合集。只发一次轻量详情请求，不重刮档案、不重下图；"
         "全部补完后本任务自动空转。"
     ),
+    description_key="settings.scheduledTasks.catalog.backfillMediaSeriesDescription",
 )
 async def backfill_media_series() -> None:
     db = get_database()

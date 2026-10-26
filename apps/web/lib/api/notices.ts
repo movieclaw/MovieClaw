@@ -1,4 +1,5 @@
 import { request } from "@/lib/http";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
 interface ApiEnvelope<T> {
@@ -18,7 +19,14 @@ async function unwrap<T>(promise: Promise<ApiEnvelope<T>>): Promise<T> {
 // ---------------------------------------------------------------------------
 
 export type NoticeSeverity = "warning" | "error";
-export type NoticeSource = "subscription" | "ingest" | "downloader" | "site" | "cloud" | "plugin";
+export type NoticeSource =
+  | "subscription"
+  | "ingest"
+  | "downloader"
+  | "site"
+  | "cloud"
+  | "plugin"
+  | "channel";
 
 /** 一条待处理事项 */
 export interface SystemNotice {
@@ -27,6 +35,9 @@ export interface SystemNotice {
   source: NoticeSource;
   title: string;
   message: string;
+  title_key?: string | null;
+  message_key?: string | null;
+  message_params?: Record<string, unknown> | null;
   /** deep-link 参数：subscription_id / entry_path / downloader_id / site_id */
   payload: Record<string, unknown>;
   created_at: string;
@@ -34,8 +45,8 @@ export interface SystemNotice {
 }
 
 /** 列出全部活跃的待处理事项（error 在前，新的在前；空数组 = 一切正常） */
-export async function fetchActiveNotices(): Promise<SystemNotice[]> {
-  return unwrap(request<ApiEnvelope<SystemNotice[]>>("/system/notices"));
+export async function fetchActiveNotices(locale?: AppLocale): Promise<SystemNotice[]> {
+  return unwrap(request<ApiEnvelope<SystemNotice[]>>("/system/notices", locale ? { headers: { "Accept-Language": locale } } : undefined));
 }
 
 /** 忽略一条事项（问题仍在也不再提示；问题消失时服务端仍会自动清场） */
@@ -52,6 +63,9 @@ export function noticeHref(notice: SystemNotice): string {
     }
     case "ingest":
       return "/settings/import-watch";
+    // IM 通道账号的凭据失效，通知与 AI 对话断了（重新绑定后自动消退）
+    case "channel":
+      return "/settings/im-push";
     case "downloader":
       return "/settings/downloaders";
     case "site":

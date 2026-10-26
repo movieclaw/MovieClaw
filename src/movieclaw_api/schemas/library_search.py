@@ -16,6 +16,8 @@ class LibrarySearchMatch(BaseModel):
     source_field: str
     matched_name: str
     label: str
+    label_key: str | None = None
+    label_params: dict | None = None
     person_id: int | None = None
 
 

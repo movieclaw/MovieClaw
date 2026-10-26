@@ -1,3 +1,5 @@
+import { appTranslator } from "../i18n/translate.ts";
+
 /**
  * 停顿归因：分清「解码器卡住」「线路慢」与「连接断了」（与 iOS App 的 `StallWatch` 同一套规则，
  * apps/apple/MovieClaw/Features/Player/PlaybackWatchdogs.swift）。
@@ -116,11 +118,11 @@ export function stallReason(
   deadLimitS: number = SERVER_DEAD_S,
 ): string {
   if (verdict === "decode-stalled") {
-    return `播放停滞超过 ${STALL_TIMEOUT_S} 秒，这一档的码流浏览器吃不下`;
+    return appTranslator()("player.errors.decodeStall", { seconds: STALL_TIMEOUT_S });
   }
   return deadLimitS < SERVER_DEAD_S
-    ? `连续 ${deadLimitS} 秒没有收到数据——连接可能中断了`
-    : `连续 ${deadLimitS} 秒没有收到服务端的数据——转码可能中断了`;
+    ? appTranslator()("player.errors.directStall", { seconds: deadLimitS })
+    : appTranslator()("player.errors.serverStall", { seconds: deadLimitS });
 }
 
 /** `currentTime` 前方的连续缓冲秒数；不在任何缓冲区间内记 0。 */

@@ -215,11 +215,9 @@ async def test_projection_matches_only_exact_external_ids_and_present_files(db) 
     missing_only = _card("77", title="只有缺失文件")
     invalid_tmdb_id = _card("not-a-number")
 
-    async with db.session() as session:
-        projector = DiscoverLibraryProjectionService(session)
-        await projector.apply_cards(
-            [movie, douban, tv, same_name_different_id, missing_only, invalid_tmdb_id]
-        )
+    await DiscoverLibraryProjectionService(db).apply_cards(
+        [movie, douban, tv, same_name_different_id, missing_only, invalid_tmdb_id]
+    )
 
     assert movie.library_status is not None
     assert movie.library_status.media_item_id == ids["movie"]
@@ -246,8 +244,7 @@ async def test_detail_links_are_sorted_and_related_cards_keep_summary_only(db) -
         related=[_card("db-42", source=MediaSource.DOUBAN, title="豆瓣电影")],
     )
 
-    async with db.session() as session:
-        await DiscoverLibraryProjectionService(session).apply_detail(detail)
+    await DiscoverLibraryProjectionService(db).apply_detail(detail)
 
     assert detail.card.library_status is not None
     assert [link.model_dump() for link in detail.library_links] == [
@@ -379,3 +376,37 @@ def test_discover_endpoints_serialize_summary_and_detail_links(
             "media_item_id": ids["douban_movie"],
         }
     ]
+
+
+def test_discover_upstream_wait_holds_no_db_connection(client: TestClient, monkeypatch) -> None:
+    """等上游期间不占数据库连接（#965）。
+
+    豆瓣全局限速 1 次/秒，发现页十来行并发回源时每行要等十几秒；若库存投影的
+    会话一路占着连接等上游，十几行就把连接池（5 + 溢出 10）占满，整站接口排队
+    30 秒超时。上游返回后投影照常生效。
+    """
+    from movieclaw_api.services import media_discover
+
+    ids = client.portal.call(_seed_library_status, get_database())
+    checked_out: list[int] = []
+
+    class _WatchingDouban(_DoubanDiscoverStub):
+        async def full_collection(self, collection_id: str) -> MediaRow:
+            checked_out.append(get_database().engine.sync_engine.pool.checkedout())
+            return await super().full_collection(collection_id)
+
+        async def media_detail(self, douban_id: str) -> MediaDetail:
+            checked_out.append(get_database().engine.sync_engine.pool.checkedout())
+            return await super().media_detail(douban_id)
+
+    monkeypatch.setattr(media_discover, "get_douban_media_service", lambda: _WatchingDouban())
+
+    collection = client.get(
+        "/api/v1/discover/collections/douban:movie:movie_top250/titles",
+        params={"limit": 250},
+    ).json()["data"]
+    detail = client.get("/api/v1/discover/titles/douban:db-42").json()["data"]
+
+    assert checked_out == [0, 0]
+    assert collection["titles"][0]["library_status"]["media_item_id"] == ids["douban_movie"]
+    assert detail["library_links"][0]["media_item_id"] == ids["douban_movie"]

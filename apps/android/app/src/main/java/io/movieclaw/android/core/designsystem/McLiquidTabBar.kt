@@ -42,9 +42,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -117,6 +120,8 @@ fun McLiquidTabBar(
     dots: Map<Int, TabDot> = emptyMap(),
     /** 背景模糊源（内容层已用 `tabGlassSource` 标记）；null = 退回黑底等价玻璃 */
     hazeState: dev.chrisbanes.haze.HazeState? = null,
+    /** 气泡折射取样源（页签内容被记录进的那一层）；null / API<33 时气泡保持原填充材质 */
+    glassSource: TabGlassLayerHolder? = null,
 ) {
     val count = icons.size
     if (count == 0) return
@@ -151,6 +156,7 @@ fun McLiquidTabBar(
                 origin = origin,
                 dots = dots,
                 hazeState = hazeState,
+                glassSource = glassSource,
             )
         }
     }
@@ -170,6 +176,7 @@ private fun androidx.compose.foundation.layout.BoxScope.LiquidCapsule(
     origin: String?,
     dots: Map<Int, TabDot>,
     hazeState: dev.chrisbanes.haze.HazeState?,
+    glassSource: TabGlassLayerHolder?,
 ) {
     // 只在越过一半时变一次：收起/展开的切换点（页签浮现、指示器淡出跟它走）
     val collapsed by remember { derivedStateOf { mini() > 0.5f } }
@@ -208,9 +215,61 @@ private fun androidx.compose.foundation.layout.BoxScope.LiquidCapsule(
         glowJob = scope.launch { glow.animateTo(0f, tween(520, easing = LinearOutSlowInEasing)) }
     }
 
+    // 液态玻璃气泡（AGSL / API 33+）：折射气泡底下的真实画面。取数全走 lambda、绘制阶段现读——
+    // 气泡弹簧/拖动每帧都在动，走组合参数整条底栏会逐帧重组
+    val insetPx = with(androidx.compose.ui.platform.LocalDensity.current) { 3.dp.toPx() }
+    // 气泡当前被图层缩放的比例（与下面 graphicsLayer 同一套算式，shader 也要按缩放后的
+    // **屏上**几何取样）。口径照网页 lib/liquid-spring.ts 的 liquidTransform：
+    //   位置弹簧 + 按速度横向拉伸（拉长时纵向略收，体积守恒的错觉）+ 行进/拖动整体抬起。
+    // 抬起是**两轴**一起放大的（网页 scale(1+0.12*lift)）：只抬纵向的话，格子本来就比高宽，
+    // 一抬就成圆球，不像「被拎起来的药丸」。拖动那一档比网页的 12% 再大些（1.18），
+    // 与底栏拉开差距（实机反馈：要明显高出导航栏一截）。
+    val dpx = androidx.compose.ui.platform.LocalDensity.current.density
+    val pillScale: () -> Offset = {
+        val stretch = if (pillMoving || dragActive) min(abs(pillV) / dpx * 0.00035f, 0.30f) else 0f
+        val lift = if (dragActive) 1.18f else if (pillMoving) 1.06f else 1f
+        Offset((1f + stretch) * lift, (1f - stretch * 0.45f) * lift)
+    }
+    var barOrigin by remember { mutableStateOf(Offset.Zero) }
+    val glassActive = glassSource != null && android.os.Build.VERSION.SDK_INT >= 33
+    val glassBubbleSource = if (glassActive) {
+        remember(glassSource) {
+            GlassBubbleSource(
+                layer = { glassSource?.layer },
+                sourceOrigin = { glassSource?.origin ?: Offset.Zero },
+                bubbleOrigin = { barOrigin + Offset(insetPx + pillX, insetPx) },
+                glow = { glow.value },
+                glowInBubble = { glowCenter - Offset(insetPx + pillX, insetPx) },
+                scale = pillScale,
+            )
+        }
+    } else {
+        null
+    }
+
+    // 收起态的迷你圆钮也用气泡那套折射材质（iOS 26 的系统玻璃本身就带边缘折射，
+    // 收起胶囊同样是玻璃球；之前这里只有一层模糊 + 遮罩，看着比展开态"薄"一层）。
+    // 几何就是栏自身左上角（迷你态下栏 = 那个 44dp 圆钮），形状由 shader 的胶囊 SDF
+    // 按节点尺寸算出来，44×44 时正是圆。
+    val glassMiniSource = if (glassActive) {
+        remember(glassSource) {
+            GlassBubbleSource(
+                layer = { glassSource?.layer },
+                sourceOrigin = { glassSource?.origin ?: Offset.Zero },
+                bubbleOrigin = { barOrigin },
+                glow = { glow.value },
+                glowInBubble = { glowCenter },
+            )
+        }
+    } else {
+        null
+    }
+
     Box(
         Modifier
             .align(Alignment.BottomStart)
+            // 气泡把取样源画面摆正要用：栏原点（根坐标）。布局变了才回调
+            .onGloballyPositioned { barOrigin = it.positionInRoot() }
             .layout { measurable, _ ->
                 val m = mini()
                 val w = lerp(fullW, 44.dp, m).roundToPx()
@@ -290,6 +349,14 @@ private fun androidx.compose.foundation.layout.BoxScope.LiquidCapsule(
             Modifier
                 .matchParentSize()
                 .clip(RoundedCornerShape(999.dp))
+                // 收起态：迷你圆钮用气泡材质（折射 + 菲涅尔边光 + 按压辉光）
+                .then(
+                    if (collapsed && glassMiniSource != null) {
+                        Modifier.glassBubble(glassMiniSource, contentOnTop = false)
+                    } else {
+                        Modifier
+                    },
+                )
                 // 真背景模糊（Haze 1.x）：必须排在遮罩色之前——
                 // 越靠前的 Modifier 绘制越靠底层，模糊放 background 后面会被遮罩整个盖住
                 .then(
@@ -450,21 +517,44 @@ private fun androidx.compose.foundation.layout.BoxScope.LiquidCapsule(
                     .fillMaxHeight()
                     .graphicsLayer {
                         translationX = pillX
-                        val stretch = if (pillMoving || dragActive) {
-                            min(abs(pillV) / density * 0.00035f, 0.32f)
-                        } else 0f
-                        // 拖动 = 「放大的气泡」：明显高出导航栏一截（iOS 液态底栏的手感；
-                        // 之前只有 4.5% 的行进抬起，拖起来上下仍与栏齐平——实机反馈）。
+                        val s = pillScale()
                         // 页签层在玻璃裁剪之外，探出的部分不会被裁
-                        val lift = if (dragActive) 1.22f else if (pillMoving) 1.045f else 1f
-                        val widen = if (dragActive) 1.08f else 1f
-                        scaleX = (1f + stretch) * widen
-                        scaleY = lift
+                        scaleX = s.x
+                        scaleY = s.y
                         alpha = indicatorAlpha
                     }
-                    .clip(RoundedCornerShape(999.dp))
+                    // 拖动时的投影（网页 data-dragging 的 `0 10px 24px -8px rgba(0,0,0,.7)`）：
+                    // 气泡压在栏身上的「拎起来」感。放在裁剪之前——裁剪会把它裁没
                     .then(
                         if (dragActive) {
+                            Modifier.shadow(10.dp, RoundedCornerShape(999.dp), clip = false, ambientColor = Color.Black, spotColor = Color.Black)
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .clip(RoundedCornerShape(999.dp))
+                    .then(
+                        // 收起（滚动中/圆钮态）时不挂 shader：气泡已淡出，没必要再跑一遍 AGSL
+                        if (glassBubbleSource != null && !collapsed) {
+                            // 液态玻璃气泡：AGSL 折射气泡底下的真实画面（透镜 + 色散 + 菲涅尔 + 高光）。
+                            // 极淡的底衬：取样层还没就位（首帧、切页签瞬间）时不至于整块消失；
+                            // 拖动中的描边高光保留（与 shader 的菲涅尔边光叠起来正是「放大的气泡」）
+                            Modifier
+                                .background(Color.White.copy(alpha = 0.06f))
+                                .glassBubble(glassBubbleSource, contentOnTop = false)
+                                // 描边挂在气泡后面：shader 输出不透明，画在它下面会被盖掉
+                                .then(
+                                    if (dragActive) {
+                                        Modifier.border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(999.dp))
+                                    } else {
+                                        Modifier
+                                    },
+                                )
+                        } else if (glassBubbleSource != null) {
+                            // 收起过渡：气泡正在淡出、取样层也已停录，这里不再补填充
+                            // （补一层平白膜会在收缩那一瞬闪出「一块白」——实机看到过）
+                            Modifier
+                        } else if (dragActive) {
                             // 拖动中的「气泡」材质：更亮 + 内描边高光
                             Modifier
                                 .background(Color.White.copy(alpha = 0.20f))

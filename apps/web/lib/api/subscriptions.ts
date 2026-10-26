@@ -27,6 +27,8 @@ export interface SubscriptionMedia {
   douban_id: string | null;
   title: string;
   original_title: string;
+  /** 国际英文名：「手动选种」与中文名、原名一起搜；老服务端没有该字段 */
+  english_title?: string | null;
   year: number | null;
   poster_url: string | null;
   /** 宽幅剧照（TMDB w1280，沉浸场景可升 original）；老版本服务端没有这个字段 */
@@ -74,6 +76,57 @@ export interface PrepareResult {
    */
   suggested_seasons: number[];
   candidates: ResolveCandidate[];
+  /** 从豆瓣条目订阅、且豆瓣集数多于 TMDB 已录集数时给出（issue #640）；旧服务端没有 */
+  douban_episodes?: DoubanEpisodes | null;
+  /** 智能选择摘要：按设置、记忆和作品信息解析出的结果与整句文案。旧服务端没有 */
+  smart?: SmartPlan | null;
+}
+
+/** 第一次碰到某种语言时问的那一句；文案由服务端生成。 */
+export interface SmartQuestion {
+  language: string;
+  prompt: string;
+  subtitles_label: string;
+  understood_label: string;
+}
+
+export interface SmartScopeOption {
+  /** 回传给创建接口的 smart_scope；only = 只这部 */
+  value: string;
+  label: string;
+}
+
+export interface SmartPlan {
+  configured: boolean;
+  profile_revision: number;
+  memory_revision: number;
+  resolution: SmartPreferences["resolution"] | null;
+  source: SmartPreferences["source"] | null;
+  /** 如「优先 4K WEB-DL」 */
+  quality_label: string | null;
+  /** 如「按「韩国的剧」的习惯」 */
+  quality_note: string | null;
+  /** 被更具体的习惯盖住的那条，如「「韩国的剧」是 1080p」 */
+  quality_shadow: string | null;
+  wait_label: string | null;
+  subtitle_language: string | null;
+  subtitle_language_label: string | null;
+  subtitle_understood: boolean | null;
+  /** 如「英语 · 只下带中文字幕的」；中文或未知语言为空 */
+  subtitle_line: string | null;
+  /** 仅管理员、且这种语言还没回答过时给出 */
+  question: SmartQuestion | null;
+  subtitle_edit_question?: SmartQuestion | null;
+  scope_options: SmartScopeOption[];
+  can_edit: boolean;
+}
+
+/** 订阅弹层的豆瓣集数提示：豆瓣说本季比 TMDB 录的多。 */
+export interface DoubanEpisodes {
+  season_number: number;
+  douban_count: number;
+  /** TMDB 已录到的最大集号 */
+  tmdb_count: number;
 }
 
 export interface SubscriptionProgress {
@@ -102,6 +155,17 @@ export interface WantedUpgrade {
   indeterminate: boolean;
 }
 
+/**
+ * 被订阅窗口截断的一季：从第 start 集起到 end（null=不设上界，之后播出的
+ * 新集照常纳入），本季已录 total 集。
+ */
+export interface EpisodeWindow {
+  season_number: number;
+  start: number;
+  end: number | null;
+  total: number;
+}
+
 export interface Subscription {
   id: number;
   media: SubscriptionMedia;
@@ -118,6 +182,11 @@ export interface Subscription {
   progress: SubscriptionProgress;
   /** 剧集按季收录统计；电影为空数组 */
   season_collection: SeasonOverview[];
+  /**
+   * 被订阅窗口截断的季（只订阅了一季的一段）；没有窗口为空。有内容时订阅
+   * 不会判「已收齐」，用户可以继续订阅。旧服务端没有
+   */
+  episode_windows?: EpisodeWindow[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -218,6 +287,31 @@ export interface WantedItem {
   grab_title: string | null;
   /** 洗版派生状态；规则组未配洗版目标或单元未入库时为 null */
   upgrade: WantedUpgrade | null;
+  /** 集数下限展开的占位集：TMDB 还没录这一集（issue #640） */
+  provisional?: boolean | null;
+}
+
+/** 「调整集数」编辑器的一行：订阅范围内的一季。 */
+export interface EpisodeSeason {
+  season_number: number;
+  /** TMDB 已录到的最大集号 */
+  tmdb_count: number;
+  /** 已设的集数下限；null=以 TMDB 为准 */
+  floor: number | null;
+  /** 已设的订阅窗口；null=订阅整季。旧服务端没有 */
+  window?: { start: number; end: number | null } | null;
+}
+
+/** 待确认的集数提示：站点或豆瓣显示本季比现在追的更多集。 */
+export interface EpisodeHint {
+  season_number: number;
+  tmdb_count: number;
+  floor: number | null;
+  /** 建议集数（站点与豆瓣证据取大） */
+  suggested: number;
+  site_episode: number | null;
+  site_title: string | null;
+  douban_count: number | null;
 }
 
 export interface SubscriptionDetail extends Subscription {
@@ -229,6 +323,21 @@ export interface SubscriptionDetail extends Subscription {
   forecast_pending: boolean;
   /** 当前观看者能否调整这条订阅：超管与发起人为 true，只关注的成员为 false（只能取消关注） */
   can_manage: boolean;
+  /** 剧集订阅范围内各季的 TMDB 集数与集数下限；电影为空。旧服务端没有 */
+  episode_seasons?: EpisodeSeason[] | null;
+  /** 待确认的集数提示；有提示时订阅不会判「已收齐」。旧服务端没有 */
+  episode_hints?: EpisodeHint[] | null;
+  /** 智能订阅的字幕要求；中文、语言未知或规则模式为空。旧服务端没有 */
+  smart_subtitle?: SmartSubtitle | null;
+  /** 智能订阅的画质按哪条习惯 */
+  smart_quality_note?: string | null;
+}
+
+export interface SmartSubtitle {
+  language: string;
+  language_label: string;
+  line: string;
+  understood: boolean;
 }
 
 /** 规则组过滤条件（见 movieclaw_matcher.RuleSetSpec）：全部键可缺省=不限。 */
@@ -288,6 +397,7 @@ export interface ScopeRule {
 export interface RuleSet {
   id: number;
   name: string;
+  name_key?: string | null;
   is_default: boolean;
   spec: RuleSetSpec;
   /** 适用范围；空 = 未声明（只能手选或作为默认兜底） */
@@ -304,6 +414,14 @@ export interface SubscriptionTargetPreviewPayload {
 export interface CreateSubscriptionPayload {
   selection_mode?: "rules" | "smart";
   smart_profile_revision?: number;
+  /** 管理员对字幕问题的回答，写入「看得懂的语言」 */
+  smart_language_answer?: "subtitles" | "understood";
+  /** 管理员在弹层里改过的画质 */
+  smart_resolution?: SmartPreferences["resolution"];
+  smart_source?: SmartPreferences["source"];
+  /** 改过的画质记在哪：only=只这部，或 SmartPlan.scope_options 的 value */
+  smart_scope?: string;
+  smart_memory_revision?: number;
   /** Discover 返回或歧义候选确认后的稳定引用 */
   title_ref: string;
   /** 从豆瓣候选改选 TMDB 条目时保留原始豆瓣身份 */
@@ -313,6 +431,10 @@ export interface CreateSubscriptionPayload {
   rule_set_id?: number | null;
   /** 入库目标库；缺省用该类型的默认库 */
   library_id?: number | null;
+  /** 每季集数下限 {季号: 集数}：确认「按豆瓣集数追」时带上 */
+  episode_floors?: Record<number, number>;
+  /** 每季订阅窗口 {季号: {start, end}}：完结季前 N 集 / 在播季最新 N 集起 */
+  episode_caps?: Record<number, { start: number; end: number | null }>;
 }
 
 export interface CreateSubscriptionResult {
@@ -583,6 +705,10 @@ export function updateSubscription(
     rule_set_id?: number;
     /** 换入库目标库；显式传 null=清除指定、改回按默认库路由；缺省不变 */
     library_id?: number | null;
+    /** 整体替换每季集数下限 {季号: 集数}；{} 清除、改回以 TMDB 为准；缺省不变 */
+    episode_floors?: Record<number, number>;
+    /** 整体替换每季订阅窗口 {季号: {start, end}}；{} 清除、改回订阅整季；缺省不变 */
+    episode_caps?: Record<number, { start: number; end: number | null }>;
   },
 ): Promise<SubscriptionDetail> {
   return unwrap(
@@ -693,6 +819,19 @@ export function setSubscriptionFollowFuture(
     request<ApiEnvelope<SubscriptionDetail>>(`/subscriptions/${id}/follow-future`, {
       method: "PATCH",
       body: JSON.stringify({ enabled }),
+    }),
+  );
+}
+
+/** 忽略某季的集数提示，继续以 TMDB 集数为准（更大的新证据仍会再提示）。 */
+export function dismissSubscriptionEpisodeHint(
+  id: number,
+  seasonNumber: number,
+): Promise<SubscriptionDetail> {
+  return unwrap(
+    request<ApiEnvelope<SubscriptionDetail>>(`/subscriptions/${id}/episode-hints/dismiss`, {
+      method: "POST",
+      body: JSON.stringify({ season_number: seasonNumber }),
     }),
   );
 }
@@ -856,7 +995,8 @@ export interface SubscriptionActivity {
     | "upgrade_grabbed"
     | "upgraded"
     | "upgrade_verify_failed"
-    | "spec_mismatch";
+    | "spec_mismatch"
+    | "episode_hint";
   message: string;
   payload: Record<string, unknown>;
   created_at: string;
@@ -950,6 +1090,43 @@ export interface SmartSelectionState {
   following: string | null;
   target_reached: boolean;
   prediction?: { start: string; end: string; episodes: number[]; lag_seconds: number } | null;
+  /** 因字幕或音轨看不懂而跳过的资源数 */
+  subtitle_blocked?: number;
+}
+
+/** 智能设置只有一套：画质、洗版、最低要求共用，等待时间电影和剧集各一个。 */
+export interface SmartDefaults {
+  configured: boolean;
+  movie_revision: number;
+  tv_revision: number;
+  resolution: SmartPreferences["resolution"];
+  source: SmartPreferences["source"];
+  allow_upgrade: boolean;
+  strict_resolution: boolean;
+  movie_wait_seconds: number;
+  tv_wait_seconds: number;
+}
+export type SmartDefaultsInput = Omit<SmartDefaults, "configured">;
+
+export interface SmartMemory {
+  revision: number;
+  /** 看得懂的语言，中文在最前且不可移除 */
+  languages: { key: string; label: string; source_title: string | null; removable: boolean }[];
+  addable_languages: { key: string; label: string }[];
+  habits: { key: string; label: string; quality_label: string; source_title: string | null }[];
+}
+
+export function getSmartDefaults(): Promise<SmartDefaults> {
+  return unwrap(request<ApiEnvelope<SmartDefaults>>("/subscriptions/smart-defaults"));
+}
+export function saveSmartDefaults(input: SmartDefaultsInput): Promise<SmartDefaults> {
+  return unwrap(request<ApiEnvelope<SmartDefaults>>("/subscriptions/smart-defaults", { method: "PUT", body: JSON.stringify(input) }));
+}
+export function getSmartMemory(): Promise<SmartMemory> {
+  return unwrap(request<ApiEnvelope<SmartMemory>>("/subscriptions/smart-memory"));
+}
+export function updateSmartMemory(change: { revision: number; language?: string; understood?: boolean; remove_habit?: string }): Promise<SmartMemory> {
+  return unwrap(request<ApiEnvelope<SmartMemory>>("/subscriptions/smart-memory", { method: "PATCH", body: JSON.stringify(change) }));
 }
 export function getSmartProfile(kind: "movie" | "tv"): Promise<SmartProfile> {
   return unwrap(request<ApiEnvelope<SmartProfile>>(`/subscriptions/smart-profiles/${kind}`));

@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
 import { useConfirm, useToast } from "@/components/feedback";
@@ -15,7 +16,7 @@ import {
   revokeItemShare,
 } from "@/lib/api/shares";
 import { imageUrl } from "@/lib/image-proxy";
-import { LIBRARY_KIND_LABELS, type LibraryKind } from "@/lib/media-types";
+import { libraryKindLabels, type LibraryKind } from "@/lib/media-types";
 import {
   DEFAULT_SHARE_EXPIRY_DAYS,
   SHARE_EXPIRY_OPTIONS,
@@ -66,6 +67,8 @@ export function ShareDialog({
   /** 打开时已知的有效分享（调用方先查过）；null = 还没分享 */
   initialShare: ShareView | null;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const toast = useToast();
   const confirm = useConfirm();
   const [share, setShare] = useState<ShareView | null>(initialShare);
@@ -87,7 +90,7 @@ export function ShareDialog({
 
   // 合集分享没有"形态"与年份，副标题由调用方用 seasonSummary 那一格给
   // （「12 部 · 会自动收录新片」这类）
-  const kindLabel = kind ? LIBRARY_KIND_LABELS[kind] : null;
+  const kindLabel = kind ? libraryKindLabels(locale)[kind] : null;
   const subtitle = [
     year ? String(year) : null,
     seasonSummary ? [kindLabel, seasonSummary].filter(Boolean).join(" · ") : kindLabel,
@@ -107,7 +110,7 @@ export function ShareDialog({
 
   const create = async () => {
     const pw = passwordOn ? password : "";
-    const invalid = passwordOn ? validateSharePassword(pw) : null;
+    const invalid = passwordOn ? validateSharePassword(pw, locale) : null;
     if (invalid) {
       setError(invalid);
       return;
@@ -129,12 +132,12 @@ export function ShareDialog({
       toast.success(
         result.existed
           ? collectionId !== undefined
-            ? "这个合集已有一条有效分享"
-            : "这部影片已有一条有效分享"
-          : "分享链接已生成",
+            ? t("library.share.existingCollection")
+            : t("library.share.existingItem")
+          : t("library.share.created"),
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "生成分享链接失败，请稍后重试");
+      setError(e instanceof Error ? e.message : t("library.share.createFailed"));
     } finally {
       setBusy(false);
     }
@@ -142,10 +145,10 @@ export function ShareDialog({
 
   const revoke = async () => {
     const ok = await confirm({
-      title: `取消《${title}》的分享？`,
-      description: "链接立即失效，正在播放的访客会在一分钟内中断。之后可以重新生成一条新链接。",
-      confirmLabel: "取消分享",
-      cancelLabel: "先不",
+      title: t("library.share.revokeTitle", { title }),
+      description: t("library.share.revokeDetail"),
+      confirmLabel: t("library.share.revoke"),
+      cancelLabel: t("library.share.notNow"),
       tone: "danger",
     });
     if (!ok) return;
@@ -154,29 +157,29 @@ export function ShareDialog({
       if (collectionId !== undefined) await revokeCollectionShare(collectionId);
       else await revokeItemShare(libraryId ?? 0, mediaItemId ?? 0);
       setShare(null);
-      toast.success("分享已取消");
+      toast.success(t("library.share.revoked"));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "取消分享失败，请稍后重试");
+      toast.error(e instanceof Error ? e.message : t("library.share.revokeFailed"));
     } finally {
       setBusy(false);
     }
   };
 
-  const copy = (text: string, what: string) => {
+  const copy = (text: string, what: "link" | "password" | "both") => {
     void copyText(text)
-      .then(() => toast.success(`已复制${what}`))
-      .catch(() => toast.error("浏览器拒绝访问剪贴板，请手动复制"));
+      .then(() => toast.success(t("library.share.copySuccess", { what })))
+      .catch(() => toast.error(t("library.share.clipboardFailed")));
   };
 
   const origin = typeof window === "undefined" ? "" : window.location.origin;
   const link = share ? absoluteShareUrl(share.url, origin) : "";
 
   return (
-    <Modal open={open} onClose={busy ? () => {} : onClose} label="分享影片" width="lg">
+    <Modal open={open} onClose={busy ? () => {} : onClose} label={t("library.share.dialogTitle")} width="lg">
       {/* 头部常驻：标题与影片身份——滚到表单底部时仍知道在分享哪一部 */}
       <div className="border-b border-white/[0.07] p-6">
         <h3 className="text-title-sm font-semibold text-[var(--text)]">
-          {share ? `《${title}》已分享` : `分享《${title}》`}
+          {t("library.share.itemTitle", { shared: share ? "yes" : "no", title })}
         </h3>
 
         <div className="mt-4 flex items-center gap-3.5">
@@ -187,7 +190,7 @@ export function ShareDialog({
             <p className="truncate text-ui font-medium text-[var(--text)]">{title}</p>
             <p className="mt-0.5 text-caption text-[var(--text-muted)]">{subtitle}</p>
             <p className="mt-1 text-caption text-[var(--text-faint)]">
-              任何拿到链接的人都能观看这部影片，不需要登录。
+              {t("library.share.anyoneHint")}
             </p>
           </div>
         </div>
@@ -199,17 +202,17 @@ export function ShareDialog({
             share={share}
             link={link}
             busy={busy}
-            onCopyLink={() => copy(link, "链接")}
-            onCopyPassword={() => share.password && copy(share.password, "密码")}
-            onCopyAll={() => copy(shareCopyText(title, link, share.password), "链接和密码")}
+            onCopyLink={() => copy(link, "link")}
+            onCopyPassword={() => share.password && copy(share.password, "password")}
+            onCopyAll={() => copy(shareCopyText(title, link, share.password, locale), "both")}
             onRevoke={revoke}
             onClose={onClose}
           />
         ) : (
           <>
             <div className="mt-5">
-              <p className="text-sub font-medium text-[var(--text-muted)]">有效期</p>
-              <div className="mt-2 flex flex-wrap gap-2" role="radiogroup" aria-label="有效期">
+              <p className="text-sub font-medium text-[var(--text-muted)]">{t("library.share.expiry")}</p>
+              <div className="mt-2 flex flex-wrap gap-2" role="radiogroup" aria-label={t("library.share.expiry")}>
                 {SHARE_EXPIRY_OPTIONS.map((option) => (
                   <button
                     key={option.days}
@@ -223,18 +226,18 @@ export function ShareDialog({
                         : "bg-white/[0.05] text-[var(--text-muted)] hover:bg-white/[0.09] hover:text-[var(--text)]"
                     }`}
                   >
-                    {option.label}
+                    {t("library.share.days", { count: option.days })}
                   </button>
                 ))}
               </div>
               <p className="mt-2 text-caption text-[var(--text-faint)]">
-                {days} 天后自动失效（{formatDateTime(new Date(Date.now() + days * 86_400_000).toISOString())}）；到期后可以再分享一次。
+                {t.rich("library.share.expiryDescription", { count: days, date: () => formatDateTime(new Date(Date.now() + days * 86_400_000).toISOString(), locale) })}
               </p>
             </div>
 
             <div className="mt-5">
               <label className="flex cursor-pointer items-center justify-between gap-3">
-                <span className="text-sub font-medium text-[var(--text-muted)]">密码保护</span>
+                <span className="text-sub font-medium text-[var(--text-muted)]">{t("library.share.protection")}</span>
                 <input
                   type="checkbox"
                   checked={passwordOn}
@@ -253,7 +256,7 @@ export function ShareDialog({
                     maxLength={32}
                     spellCheck={false}
                     autoComplete="off"
-                    aria-label="访问密码"
+                    aria-label={t("library.share.accessPassword")}
                     className="tnum w-40 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 font-mono text-ui text-[var(--text)] outline-none focus:border-[var(--accent)]/60"
                   />
                   <button
@@ -265,14 +268,14 @@ export function ShareDialog({
                     className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sub text-[var(--text-muted)] transition-colors hover:bg-white/[0.07] hover:text-[var(--text)]"
                   >
                     <RefreshIcon className="size-3.5" />
-                    换一个
+                    {t("library.share.regenerate")}
                   </button>
                 </div>
               )}
               <p className="mt-2 text-caption text-[var(--text-faint)]">
                 {passwordOn
-                  ? "访客打开链接时需要输入这个密码；密码之前不会显示片名和海报。"
-                  : "不设密码：拿到链接就能看。"}
+                  ? t("library.share.passwordHint")
+                  : t("library.share.noPasswordHint")}
               </p>
             </div>
 
@@ -283,7 +286,7 @@ export function ShareDialog({
             )}
 
             <p className="mt-5 text-caption text-[var(--text-faint)]">
-              访客的播放会出现在「活动」页，你随时可以取消分享。
+              {t("library.share.activityHint")}
             </p>
           </>
         )}
@@ -298,7 +301,7 @@ export function ShareDialog({
             onClick={onClose}
             className="btn-glass px-4 py-2 text-ui text-[var(--text-muted)] disabled:opacity-50"
           >
-            取消
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -306,7 +309,7 @@ export function ShareDialog({
             onClick={create}
             className="rounded-xl bg-white px-4 py-2 text-ui font-semibold text-black transition hover:bg-white/90 disabled:opacity-50"
           >
-            {busy ? "正在生成…" : "生成链接"}
+            {busy ? t("library.share.generating") : t("library.share.generate")}
           </button>
         </div>
       )}
@@ -333,19 +336,21 @@ function ShareReady({
   onRevoke: () => void;
   onClose: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const facts = [
-    `${expiryHint(share.expires_at)}（${formatDateTime(share.expires_at)}）`,
-    share.view_count > 0 ? `已打开 ${share.view_count} 次` : "还没有人打开",
-    share.last_accessed_at ? `最近 ${formatRelativeTime(share.last_accessed_at)}` : null,
+    t.rich("library.share.expiryFact", { hint: () => expiryHint(share.expires_at, Date.now(), locale), date: () => formatDateTime(share.expires_at, locale) }),
+    share.view_count > 0 ? t("library.share.views", { count: share.view_count }) : t("library.share.noViews"),
+    share.last_accessed_at ? t.rich("library.share.recent", { time: () => formatRelativeTime(share.last_accessed_at, locale) }) : null,
   ].filter(Boolean);
 
   return (
     <>
       <div className="mt-5 space-y-2">
-        <ShareRow label="链接" value={link} onCopy={onCopyLink} />
+        <ShareRow label={t("library.share.link")} value={link} onCopy={onCopyLink} />
         {share.password && (
           <ShareRow
-            label="密码"
+            label={t("library.share.password")}
             value={share.password}
             mono
             icon={<LockIcon className="size-3.5 text-[var(--text-faint)]" />}
@@ -353,10 +358,10 @@ function ShareReady({
           />
         )}
       </div>
-      <p className="tnum mt-3 text-caption text-[var(--text-faint)]">{facts.join(" · ")}</p>
+      <p className="tnum mt-3 text-caption text-[var(--text-faint)]">{facts.map((fact, index) => <span key={index}>{index > 0 ? " · " : ""}{fact}</span>)}</p>
       {isRelativeShareUrl(share.url) && (
         <p className="mt-2 text-caption text-[var(--text-faint)]">
-          链接用的是当前浏览器的地址。在「设置 → 网络 → 外部访问」填写外网地址后，链接会用该地址生成。
+          {t("library.share.originHint")}
         </p>
       )}
       <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
@@ -366,7 +371,7 @@ function ShareReady({
           className="inline-flex items-center gap-1.5 rounded-xl bg-white px-4 py-2 text-ui font-semibold text-black transition hover:bg-white/90"
         >
           <CopyIcon className="size-4" />
-          {share.password ? "复制链接和密码" : "复制链接"}
+          {share.password ? t("library.share.copyProtected") : t("library.share.copyLink")}
         </button>
         <div className="flex gap-2">
           <button
@@ -375,14 +380,14 @@ function ShareReady({
             onClick={onRevoke}
             className="rounded-xl px-3.5 py-2 text-ui text-[#ff9f9f] transition-colors hover:bg-[rgba(255,90,90,0.16)] disabled:opacity-50"
           >
-            取消分享
+            {t("library.share.revoke")}
           </button>
           <button
             type="button"
             onClick={onClose}
             className="btn-glass px-4 py-2 text-ui text-[var(--text-muted)]"
           >
-            关闭
+            {t("common.close")}
           </button>
         </div>
       </div>
@@ -403,6 +408,8 @@ function ShareRow({
   icon?: React.ReactNode;
   onCopy: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -411,7 +418,7 @@ function ShareRow({
   }, [copied]);
   return (
     <div className="flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2.5">
-      <span className="w-8 shrink-0 text-sub text-[var(--text-muted)]">{label}</span>
+      <span className={`${locale === "zh-Hans" ? "w-8" : "w-16"} shrink-0 text-sub text-[var(--text-muted)]`}>{label}</span>
       {icon}
       <span
         className={`min-w-0 flex-1 truncate text-ui text-[var(--text)] ${mono ? "font-mono" : ""}`}
@@ -428,7 +435,7 @@ function ShareRow({
         className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-sub text-[var(--text-muted)] transition-colors hover:bg-white/[0.07] hover:text-[var(--text)]"
       >
         {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-        {copied ? "已复制" : "复制"}
+        {copied ? t("library.share.copied") : t("library.share.copy")}
       </button>
     </div>
   );

@@ -444,3 +444,174 @@ async def test_real_qbittorrent_timeout_recovery_download_and_import(db, tmp_pat
         server.server_close()
         thread.join(timeout=5)
         reset_secret_box()
+
+
+async def test_real_qbittorrent_pack_missing_episode_narrows_instead_of_looping(
+    db, tmp_path, monkeypatch
+):
+    """整季包实际只有 E01、订阅要 E01+E02（NAS 智能投递 #219 的形态）。
+
+    E02 退回重找、不再无限对账；E01 由恢复任务在同一个暂停任务上选文件并真实下完。
+    """
+    from movieclaw_downloader.torrent import compute_info_hash
+
+    name = f"movieclaw-smart-lab-{uuid4().hex[:10]}"
+    seed = tmp_path / "seed"
+    pack_dir = seed / "Test.Show.S01"
+    pack_dir.mkdir(parents=True)
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    size = 16384
+    content = os.urandom(size * 4)
+    file_name = "Test.Show.S01E01.1080p.WEB-DL-A.mkv"
+    (pack_dir / file_name).write_bytes(content)
+
+    class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(
+        ("0.0.0.0", 0), functools.partial(QuietHandler, directory=str(seed))
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    torrent_bytes = bencode(
+        {
+            b"info": {
+                b"name": "Test.Show.S01",
+                b"files": [{b"length": len(content), b"path": [file_name]}],
+                b"piece length": size,
+                b"pieces": b"".join(
+                    hashlib.sha1(content[n : n + size]).digest()
+                    for n in range(0, len(content), size)
+                ),
+                b"private": 1,
+            },
+            b"url-list": [f"http://host.docker.internal:{server.server_port}/"],
+        }
+    )
+    pack_hash = compute_info_hash(torrent_bytes)
+    config = tmp_path / "config"
+    (config / "qBittorrent").mkdir(parents=True)
+    (config / "qBittorrent" / "qBittorrent.conf").write_text(
+        "[Preferences]\nWebUI\\HostHeaderValidation=false\nWebUI\\CSRFProtection=false\n"
+    )
+    subprocess.run(
+        [
+            "docker", "run", "--detach", "--rm", "--name", name,
+            "-e", "PUID=0", "-e", "PGID=0", "-p", "127.0.0.1::8080",
+            "-v", f"{downloads}:/downloads", "-v", f"{config}:/config",
+            "lscr.io/linuxserver/qbittorrent@sha256:b522f9f4b769f8f36d49d22d5eb6a92e9aa18904c6a1830b1439df511ec21983",
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+    try:
+        address = subprocess.check_output(["docker", "port", name, "8080/tcp"], text=True).strip()
+        url = f"http://{address}"
+        password = None
+        for _ in range(60):
+            logs = subprocess.check_output(
+                ["docker", "logs", name], text=True, stderr=subprocess.STDOUT
+            )
+            found = re.search(r"temporary password is provided for this session: (\S+)", logs)
+            if found:
+                password = re.sub(r"\x1b\[[0-9;]*m", "", found.group(1))
+                break
+            await asyncio.sleep(1)
+        assert password, "隔离下载器未就绪"
+        monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost,host.docker.internal")
+        monkeypatch.setenv("no_proxy", "127.0.0.1,localhost,host.docker.internal")
+        monkeypatch.setenv("SUBSCRIPTION_DISPATCH_DRY_RUN", "false")
+        get_settings.cache_clear()
+        reset_secret_box()
+        init_secret_box(None, tmp_path / "lab.secret")
+
+        async def download_torrent(_url):
+            return torrent_bytes
+
+        async def get_site(_site):
+            return SimpleNamespace(download_torrent=download_torrent)
+
+        monkeypatch.setattr(
+            "movieclaw_api.services.torrent_submit.get_site_access",
+            lambda: SimpleNamespace(get=get_site),
+        )
+        async with db.session() as session:
+            library = await LibraryRepository(session).create(
+                name="实验剧集库", kind="tv", root_paths=[str(downloads)]
+            )
+            downloader = await DownloaderRepository(session).create(
+                name="隔离下载器",
+                client_type=ClientType.QBITTORRENT,
+                url=url,
+                username="admin",
+                password=password,
+                save_path=str(downloads),
+                path_mappings=[{"local": str(downloads), "remote": "/downloads"}],
+            )
+            downloader.status = ConfigStatus.ACTIVE
+            await session.commit()
+            await save_profile(session, "tv", SmartPreferences(wait_seconds=0), 0)
+            sub = await _service(session).create(
+                MediaKind.TV,
+                200,
+                selected_seasons=[1],
+                library_id=library.id,
+                selection_mode="smart",
+                smart_profile_revision=1,
+            )
+            sub_id = sub.id
+            from tests.api.test_subscription_pipeline import _insert_torrent
+
+            pack = await _insert_torrent(
+                session,
+                "pack",
+                "Test Show S01 1080p WEB-DL-A",
+                {
+                    "media_type": "tv",
+                    "year": 2024,
+                    "seasons": [1],
+                    "resolution": "1080p",
+                    "media_source": "WEB-DL",
+                    "release_group": "A",
+                },
+            )
+            pack.download_url = "https://test.invalid/pack.torrent"
+            await session.commit()
+            await evaluate_and_dispatch(session, [pack], source="真实下载器实验")
+            rows = await _wanted_map(session, sub_id)
+            assert rows[(1, 2)].status == "wanted"
+            assert rows[(1, 2)].selection_state["reason"] == "candidate_rejected"
+            intent = (await session.execute(select(SubscriptionDownloadAttempt))).scalar_one()
+            assert intent.status == "submitting" and intent.units == [[1, 1]]
+            assert intent.content_missing["units"] == [[1, 2]]
+
+        adapter = create_downloader(
+            DownloaderConfig(type="qbittorrent", url=url, username="admin", password=password)
+        )
+        paused = await adapter.get_torrent(pack_hash, include_files=True)
+        assert paused.state == "paused"  # 选不全时绝不恢复，也不改成全量
+        async with db.session() as session:
+            await recover_submissions(session, now=utcnow() + timedelta(minutes=2))
+            intent = (await session.execute(select(SubscriptionDownloadAttempt))).scalar_one()
+            assert intent.status == "active" and intent.info_hash == pack_hash
+            rows = await _wanted_map(session, sub_id)
+            assert rows[(1, 1)].status == "grabbed" and rows[(1, 1)].info_hash == pack_hash
+            # 负面记忆：同一个包不会再被选来补 E02
+            assert (
+                await evaluate_and_dispatch(session, [pack], source="重找")
+            ).dispatched_units == 0
+        for _ in range(90):
+            status = await adapter.get_torrent(pack_hash, include_files=True)
+            if status and status.completed:
+                break
+            await asyncio.sleep(1)
+        assert status and status.completed, "E01 未真实下载完成"
+        await adapter.close()
+    finally:
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        reset_secret_box()

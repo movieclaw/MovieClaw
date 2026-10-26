@@ -1,3 +1,5 @@
+import { appTranslator } from "./i18n/translate.ts";
+import type { AppLocale } from "./i18n/negotiate.ts";
 import type { LibraryKind } from "@/lib/media-types";
 
 function pad(value: number): string {
@@ -15,8 +17,10 @@ export function favoriteLevelLabel(
   kind: LibraryKind,
   seasonNumber: number | null,
   episodeNumber: number | null,
+  locale?: AppLocale,
 ): string | null {
+  const t = appTranslator(locale);
   if (kind !== "tv" || seasonNumber === null) return null;
-  if (episodeNumber !== null) return `收藏了 S${pad(seasonNumber)}E${pad(episodeNumber)}`;
-  return seasonNumber === 0 ? "收藏了特别篇" : `收藏了第 ${seasonNumber} 季`;
+  if (episodeNumber !== null) return t("library.favoriteLevel.episode", { code: `S${pad(seasonNumber)}E${pad(episodeNumber)}` });
+  return seasonNumber === 0 ? t("library.favoriteLevel.specials") : t("library.favoriteLevel.season", { season: seasonNumber });
 }

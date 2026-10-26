@@ -51,6 +51,8 @@ apps/web/tmp/
 
 # 本地 UI 验收的临时产物（截图、隔离数据库、开发日志），只留本地不入仓库
 .tmp-uidev/
+# pytest 的临时根（隔离库、测试日志、SQLite 模板）：收在仓库内避免写满系统盘
+.tmp-pytest/
 
 # 运行期数据：SQLite 数据库文件及其 WAL/SHM 附属文件（部署时挂载为 volume）
 /data/
@@ -72,3 +74,6 @@ cli/LICENSE
 # CI 都现场导出；本地缺失时服务端从代码现算，编译 Go CLI 前跑一次该脚本。
 src/movieclaw_api/data/spec.json
 cli/internal/spec/data/spec.json
+
+# 随带主题插件的构建产物（plugins/<id>/ 由 pnpm theme:build 编进来，docs/design/theme-plugins.md §8）
+src/movieclaw_plugins/netflix/

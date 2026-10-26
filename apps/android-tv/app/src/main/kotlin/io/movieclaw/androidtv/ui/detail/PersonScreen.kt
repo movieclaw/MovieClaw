@@ -36,10 +36,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.LocalSession
-import io.movieclaw.androidtv.core.model.generated.PersonCreditView
-import io.movieclaw.androidtv.core.model.generated.PersonView
-import io.movieclaw.androidtv.core.network.ApiException
-import io.movieclaw.androidtv.core.network.generated.McApi
+import io.movieclaw.core.model.generated.PersonCreditView
+import io.movieclaw.core.model.generated.PersonView
+import io.movieclaw.core.network.ApiException
+import io.movieclaw.core.network.generated.McApi
 import io.movieclaw.androidtv.ui.components.Avatar
 import io.movieclaw.androidtv.ui.components.CaptionMode
 import io.movieclaw.androidtv.ui.components.McIcons
@@ -65,6 +65,8 @@ internal object WallLayout {
     const val COLUMN_SPACING = 24
     const val ROW_SPACING = 40
     const val POSTER_WIDTH = (1920f - 80 * 2 - (COLUMNS - 1) * COLUMN_SPACING) / COLUMNS
+    /** 一排占的高度（海报 2:3 + 行距）：往上补页时按它补滚动量 */
+    const val ROW_STRIDE = POSTER_WIDTH * 1.5f + ROW_SPACING
 }
 
 @Stable

@@ -161,8 +161,19 @@ async def test_real_search_distinguishes_no_candidate_from_site_failure(db, monk
 
     import movieclaw_api.services.site_search as site_search
 
+    stuck: list = []
+
+    async def published(session, event, build):  # type: ignore[no-untyped-def]
+        if event.name == "subscription.download_stuck":
+            stuck.append(await build())
+
+    monkeypatch.setattr("movieclaw_api.events.publish", published)
     monkeypatch.setattr(site_search, "search_all_sites", empty_search)
     assert await run_replacement_search(attempt_id) is False
+    # 第一次换源落空：告诉订阅的人卡住了
+    assert [(e.media.title, e.torrent_title, e.retry_hours, e.units) for e in stuck] == [
+        ("搜索换源", "Old.1080p.WEB-DL", 1, ())
+    ]
     # 换源与主动搜索共用召回词集合（wanted_search.recall_keywords）：
     # 英文名 → 中文名 → 原名。此前只用 (原名, 主标题) 两个，在非英语片上
     # 跟主动搜索犯的是同一个错——原名是「原始语言标题」，不是英文名
@@ -189,6 +200,13 @@ async def test_real_search_distinguishes_no_candidate_from_site_failure(db, monk
         assert attempt.search_attempts == 1
         delay = attempt.next_search_at - utcnow()
         assert timedelta(minutes=14) < delay <= timedelta(minutes=15)
+
+    # 之后照常退避重找，再落空也不重复提醒
+    monkeypatch.setattr(site_search, "search_all_sites", empty_search)
+    assert await run_replacement_search(attempt_id, force=True) is False
+    async with db.session() as session:
+        assert (await session.get(SubscriptionDownloadAttempt, attempt_id)).search_attempts == 2
+    assert len(stuck) == 1
 
 
 @pytest.mark.asyncio

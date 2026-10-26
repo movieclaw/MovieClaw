@@ -8,13 +8,16 @@
 
 from __future__ import annotations
 
+import io
 import json
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 ROUTES: dict[str, dict] = {
+    "/3/genre/tv/list": {"genres": []},
     "/3/movie/300": {
         "id": 300,
         "title": "某电影",
@@ -33,6 +36,7 @@ ROUTES: dict[str, dict] = {
         "name": "测试剧集",
         "original_name": "Test Show",
         "first_air_date": "2024-01-01",
+        "poster_path": "/i18n.png",
         "overview": "一部用于端到端验收的假剧集。",
         "status": "Returning Series",
         "external_ids": {},
@@ -78,6 +82,25 @@ def serve(log_path: Path) -> tuple[ThreadingHTTPServer, int]:
     """起一个假 TMDB，返回 (server, port)。请求路径逐行追加到 log_path。"""
     lock = threading.Lock()
 
+    discovery_titles = [
+        {
+            "id": 900 + index,
+            "title": f"Discovery title {index}",
+            "release_date": "2024-01-01",
+            "overview": "An isolated title for content browsing.",
+            "vote_average": 8,
+            "poster_path": "/i18n.png",
+            "backdrop_path": None,
+            "genre_ids": [],
+        }
+        for index in range(1, 5)
+    ]
+
+    from PIL import Image
+
+    poster = io.BytesIO()
+    Image.new("RGB", (320, 480), "#26364d").save(poster, format="PNG")
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args) -> None:  # 静默默认访问日志
             return
@@ -86,11 +109,72 @@ def serve(log_path: Path) -> tuple[ThreadingHTTPServer, int]:
             parsed = urlparse(self.path)
             with lock, log_path.open("a", encoding="utf-8") as fh:
                 fh.write(parsed.path + "\n")
+            if os.environ.get("E2E_I18N_ARTWORK") == "1" and parsed.path.rsplit("/", 1)[-1] in {
+                "i18n-blue.png",
+                "i18n-red.png",
+                "i18n-poster.png",
+                "i18n-logo.png",
+            }:
+                color = "#d02030" if parsed.path.endswith("red.png") else "#2030d0"
+                output = io.BytesIO()
+                Image.new("RGB", (1600, 900), color).save(output, format="PNG")
+                body = output.getvalue()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if parsed.path.endswith("/i18n.png"):
+                body = poster.getvalue()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if parsed.path in ("/3/search/movie", "/3/search/tv"):
                 query = parse_qs(parsed.query).get("query", [""])[0]
                 payload: dict | None = {"results": _search(parsed.path.rsplit("/", 1)[1], query)}
             else:
                 payload = ROUTES.get(parsed.path)
+            if os.environ.get("E2E_I18N_DISCOVERY") == "1":
+                if parsed.path == "/3/movie/300":
+                    payload = {**ROUTES[parsed.path], "poster_path": "/i18n.png"}
+                elif parsed.path == "/3/genre/movie/list":
+                    payload = {"genres": [{"id": 18, "name": "Drama"}]}
+                elif parsed.path in (
+                    "/3/discover/movie",
+                    "/3/trending/movie/day",
+                    "/3/trending/movie/week",
+                    "/3/movie/popular",
+                    "/3/movie/now_playing",
+                    "/3/movie/upcoming",
+                    "/3/movie/top_rated",
+                ):
+                    payload = {
+                        "page": 1,
+                        "results": discovery_titles,
+                        "total_pages": 1,
+                        "total_results": len(discovery_titles),
+                    }
+            if os.environ.get("E2E_I18N_ARTWORK") == "1" and parsed.path == "/3/movie/300/images":
+
+                def artwork(path, language=None, width=1600, height=900):
+                    return {
+                        "file_path": path,
+                        "iso_639_1": language,
+                        "width": width,
+                        "height": height,
+                        "vote_average": 8,
+                        "vote_count": 20,
+                    }
+
+                payload = {
+                    "backdrops": [artwork("/i18n-blue.png"), artwork("/i18n-red.png", "en")],
+                    "posters": [artwork("/i18n-poster.png", "zh", 1000, 1500)],
+                    "logos": [artwork("/i18n-logo.png", "ja", 1600, 600)],
+                }
             body = json.dumps(payload or {}).encode("utf-8")
             self.send_response(200 if payload is not None else 404)
             self.send_header("Content-Type", "application/json")

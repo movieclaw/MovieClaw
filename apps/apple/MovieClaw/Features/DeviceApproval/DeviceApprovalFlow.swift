@@ -78,9 +78,9 @@ struct DeviceApprovalFlow: View {
                     case .looking: lookingContent
                     case let .request(request): requestContent(request)
                     case let .approved(name):
-                        resultContent(approved: true, message: "「\(name)」会自动登录，回到那台设备上继续即可。")
+                        resultContent(approved: true, message: String(localized: .authPairingApprovedResult(name)))
                     case .denied:
-                        resultContent(approved: false, message: "这台设备不会登录。如需连接，请在设备上重新发起配对。")
+                        resultContent(approved: false, message: String(localized: .authPairingDeniedResult))
                     }
                 }
                 .padding(24)
@@ -89,11 +89,11 @@ struct DeviceApprovalFlow: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .appBackground()
-            .navigationTitle("批准设备登录")
+            .navigationTitle(String(localized: .settingsDevicesApprovalTitle))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭", systemImage: "xmark") { dismiss() }
+                    Button(String(localized: .commonClose), systemImage: "xmark") { dismiss() }
                         .disabled(busy)
                         .accessibilityIdentifier("device-approval-close")
                 }
@@ -106,7 +106,7 @@ struct DeviceApprovalFlow: View {
     @ViewBuilder
     private var inputContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("输入 Apple TV、Android TV、Mac、命令行或转码器上显示的配对码，或者扫它旁边的二维码。")
+            Text(String(localized: .authPairingEnterHint))
                 .font(.subheadline).foregroundStyle(.secondary)
         }
         VStack(alignment: .leading, spacing: 8) {
@@ -136,7 +136,7 @@ struct DeviceApprovalFlow: View {
         }
         VStack(spacing: 10) {
             Button { Task { await lookUp() } } label: {
-                Text("继续").foregroundStyle(.black).frame(maxWidth: .infinity)
+                Text(String(localized: .commonContinue)).foregroundStyle(.black).frame(maxWidth: .infinity)
             }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -146,7 +146,7 @@ struct DeviceApprovalFlow: View {
                 error = nil
                 withAnimation(.smooth(duration: 0.35)) { stage = .scanning }
             } label: {
-                Label("扫描二维码", systemImage: "qrcode.viewfinder").frame(maxWidth: .infinity)
+                Label(String(localized: .authPairingScanQR), systemImage: "qrcode.viewfinder").frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
@@ -158,7 +158,7 @@ struct DeviceApprovalFlow: View {
     private var lookingContent: some View {
         HStack(spacing: 14) {
             ProgressView()
-            Text("正在查找 \(code) 的请求…").font(.body).foregroundStyle(.secondary)
+            Text(String(localized: .authPairingLookingUp(code))).font(.body).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, minHeight: 80)
     }
@@ -189,7 +189,7 @@ struct DeviceApprovalFlow: View {
                 .foregroundStyle(Theme.accent)
                 .accessibilityIdentifier("device-request-code")
             // 配对码是这张卡真正的安全控制：大号等宽字，让人真的去和设备屏幕逐字比对
-            Text("先核对与设备屏幕上显示的配对码完全一致")
+            Text(String(localized: .authPairingCheckCode))
                 .font(.footnote).foregroundStyle(.secondary)
         }
         VStack(alignment: .leading, spacing: 4) {
@@ -197,11 +197,11 @@ struct DeviceApprovalFlow: View {
             Text(grant.body).font(.footnote).foregroundStyle(.secondary)
             // 来源地址认得出时才写；桥接网络的容器只看得到网桥网关，那时不如不写，判断依据就是配对码
             if !request.sourceIp.isEmpty {
-                Text("来源 \(request.sourceIp)").font(.footnote.monospaced()).foregroundStyle(.tertiary).padding(.top, 2)
+                Text(String(localized: .authPairingSource(request.sourceIp))).font(.footnote.monospaced()).foregroundStyle(.tertiary).padding(.top, 2)
             }
         }
         if blocked {
-            Text("转码器只能由管理员批准：请把这个配对码告诉管理员，让他在网页或 App 的批准页输入。")
+            Text(String(localized: .authPairingTranscoderAdminOnly))
                 .font(.footnote).foregroundStyle(Theme.warning)
         }
         if let error {
@@ -210,14 +210,14 @@ struct DeviceApprovalFlow: View {
         VStack(spacing: 10) {
             if !blocked {
                 Button { Task { await decide(request, approve: true) } } label: {
-                    Label("批准登录", systemImage: "checkmark").foregroundStyle(.black).frame(maxWidth: .infinity)
+                    Label(String(localized: .settingsDevicesApprovalApprove), systemImage: "checkmark").foregroundStyle(.black).frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .accessibilityIdentifier("device-approve-\(request.userCode)")
             }
             Button(role: .destructive) { Task { await decide(request, approve: false) } } label: {
-                Text("拒绝").frame(maxWidth: .infinity)
+                Text(String(localized: .authPairingDeny)).frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
@@ -229,8 +229,8 @@ struct DeviceApprovalFlow: View {
 
     /// 「以谁的身份批准」：批准的后果是设备登录成这个账号，必须写明
     private var accountLine: some View {
-        let name = model.session.map { $0.nickname.isEmpty ? $0.username : $0.nickname } ?? "当前账号"
-        return Text("以「\(name)」的身份批准 · 换账号请先在「我的」页切换")
+        let name = model.session.map { $0.nickname.isEmpty ? $0.username : $0.nickname } ?? String(localized: .authPairingCurrentAccount)
+        return Text(String(localized: .authPairingApproveAs(name)))
             .font(.caption).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
     }
@@ -243,14 +243,14 @@ struct DeviceApprovalFlow: View {
             Image(systemName: approved ? "checkmark.circle.fill" : "xmark.circle.fill")
                 .font(.system(size: 52))
                 .foregroundStyle(approved ? Theme.success : Theme.danger)
-            Text(approved ? "已批准" : "已拒绝").font(.title2.weight(.bold))
+            Text(approved ? String(localized: .settingsDevicesApprovalApproved) : String(localized: .settingsDevicesApprovalDenied)).font(.title2.weight(.bold))
             Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("device-approval-result")
-        Button { dismiss() } label: { Text("完成").foregroundStyle(.black).frame(maxWidth: .infinity) }
+        Button { dismiss() } label: { Text(String(localized: .commonDone)).foregroundStyle(.black).frame(maxWidth: .infinity) }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .accessibilityIdentifier("device-approval-done")
@@ -260,7 +260,7 @@ struct DeviceApprovalFlow: View {
 
     private func lookUp() async {
         guard let target = PairingQRCode.normalize(code) else {
-            error = "配对码形如 MCLW-7F3K，请对照设备上显示的重新输入。"
+            error = String(localized: .settingsDevicesApprovalInvalidCode)
             stage = .input
             return
         }
@@ -275,7 +275,7 @@ struct DeviceApprovalFlow: View {
             let request = try await api.authDevicesRequest(userCode: target)
             stage = .request(request)
         } catch let failure as APIError where failure.status == 404 {
-            error = "没有找到配对码 \(target) 的请求：请核对设备上显示的码，或让设备重新发起（配对码 5 分钟内有效）。" + serverMismatchHint
+            error = String(localized: .authPairingRequestNotFound(target)) + serverMismatchHint
             stage = .input
         } catch {
             self.error = error.localizedDescription
@@ -285,10 +285,11 @@ struct DeviceApprovalFlow: View {
 
     /// 二维码来自另一台服务器时补一句：电视连的是 A，手机当前账号在 B，在 B 上当然查不到
     private var serverMismatchHint: String {
-        guard let host, let origin = model.server?.origin, let current = origin.host else { return "" }
-        let mine = origin.port.map { "\(current):\($0)" } ?? current
-        guard mine.lowercased() != host.lowercased() else { return "" }
-        return "二维码来自 \(host)，而当前账号连的是 \(mine)；如果那台设备连的是另一台服务器，请先在「我的」页切换到那台服务器上的账号。"
+        guard let host, let server = model.server, let current = server.origin.host else { return "" }
+        let mine = server.origin.port.map { "\(current):\($0)" } ?? current
+        // 同一台服务器的另一个地址（电视连内网、手机登录用的域名）不算另一台
+        guard !ServerRoutes.shared.hostLabels(of: server).contains(where: { $0.lowercased() == host.lowercased() }) else { return "" }
+        return String(localized: .authPairingServerMismatch(host, mine))
     }
 
     private func decide(_ request: API.DeviceRequestView, approve: Bool) async {

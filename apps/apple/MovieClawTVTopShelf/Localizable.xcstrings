@@ -1,0 +1,30 @@
+{
+  "sourceLanguage": "zh-Hans",
+  "strings": {
+    "topShelf.continueWatching": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接下来继续"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接下来继续"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up Next"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -2,9 +2,20 @@ import SwiftUI
 
 /// 面板的三栏（下滑 / 点按下呼出）。打开时焦点落在哪一栏由 `TVPlayerPanel.firstTab` 定
 enum TVPlayerPanelTab: String, CaseIterable, Hashable {
+    // i18n-ignore: stable pre-existing identifiers, not display text.
     case subtitles = "字幕"
+    // i18n-ignore: stable pre-existing identifiers, not display text.
     case audio = "音轨"
+    // i18n-ignore: stable pre-existing identifiers, not display text.
     case quality = "画质"
+
+    var title: String {
+        switch self {
+        case .subtitles: String(localized: .playerControlsSubtitles)
+        case .audio: String(localized: .playerControlsAudio)
+        case .quality: String(localized: .playerControlsQuality)
+        }
+    }
 }
 
 /// 播放器的字幕 / 音轨 / 画质面板（2026-10-04 用户选定「压暗三栏 + 焦点即预览」，同 Netflix 电视版的「音频与字幕」）：
@@ -87,7 +98,7 @@ struct TVPlayerPanel: View {
         let active = focusedTab == tab
         return VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(tab.rawValue)
+                Text(tab.title)
                     .font(.system(size: 32, weight: .bold))
                 Text("\(count(tab))")
                     .font(.system(size: 22, weight: .medium))
@@ -113,6 +124,9 @@ struct TVPlayerPanel: View {
                     .padding(.horizontal, -40)
             }
             .focusSection()
+            // 左右换栏时落在这一栏已选中的那一项上，而不是位置最近的一行：画质选了 720p（第三行）时，
+            // 从音轨栏按右会落到第一行「原画」，顺手按确认就误改了
+            .defaultFocus(focus, .panelOption(activeOptionID(tab)), priority: .userInitiated)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.easeOut(duration: 0.2), value: active)
@@ -141,7 +155,7 @@ struct TVPlayerPanel: View {
                 let active = item.ref == controller.currentAudio || (controller.currentAudio == nil && item.isDefault)
                 let parts = TVTrackText.split(item.label)
                 option(id: "audio-\(item.ref)", title: parts.title,
-                       detail: [parts.detail, item.isDefault ? "默认" : nil, item.unavailableReason].compactMap { $0 }.joined(separator: " · "),
+                       detail: [parts.detail, item.isDefault ? String(localized: .playerSubtitlesDefault) : nil, item.unavailableReason].compactMap { $0 }.joined(separator: " · "),
                        active: active, disabled: item.unavailableReason != nil) {
                     controller.selectAudio(item.ref)
                 }
@@ -159,7 +173,7 @@ struct TVPlayerPanel: View {
     private func subtitleRow(_ row: TVSubtitleSections.Row) -> some View {
         switch row {
         case .off:
-            option(id: "subtitle-off", title: "关闭", detail: nil, active: controller.selectedSubtitle == nil) {
+            option(id: "subtitle-off", title: String(localized: .commonOff), detail: nil, active: controller.selectedSubtitle == nil) {
                 controller.selectSubtitle(nil)
             }
         case let .option(item):
@@ -170,7 +184,7 @@ struct TVPlayerPanel: View {
         case let .unavailable(item):
             option(id: "subtitle-\(item.ref)", title: item.label, detail: item.reason, active: false, disabled: true) {}
         case let .more(count, names):
-            option(id: "subtitle-more", title: "展开其他 \(count) 条字幕", detail: names, active: false) {
+            option(id: "subtitle-more", title: String(localized: .playerSubtitlesExpandOthers(count)), detail: names, active: false) {
                 expanded = true
                 // 展开后焦点挪到其他语言的第一条（「展开」这一行没了，焦点不能悬空）
                 Task { @MainActor in
@@ -200,7 +214,7 @@ struct TVPlayerPanel: View {
                     if let detail, !detail.isEmpty {
                         Text(detail)
                             .font(.system(size: 21))
-                            .lineLimit(id.hasPrefix("subtitle-") ? nil : 1)
+                            .lineLimit(id.hasPrefix("subtitle-") || (AppLanguage.identifier == "en" && id.hasPrefix("quality-")) ? nil : 1)
                             .fixedSize(horizontal: false, vertical: true)
                             .opacity(0.6)
                     }
@@ -215,7 +229,7 @@ struct TVPlayerPanel: View {
         .disabled(disabled)
         .focused(focus, equals: .panelOption(id))
         .accessibilityIdentifier("tv-panel-\(id)")
-        .accessibilityValue(active ? "已选中" : "")
+        .accessibilityValue(active ? String(localized: .playerTracksSelected) : "")
     }
 
     // MARK: 焦点
@@ -250,7 +264,7 @@ struct TVPlayerPanel: View {
         case .audio:
             (controller.currentAudio ?? AudioOption.defaultRef(in: controller.audioOptions)).map { "audio-\($0)" } ?? ""
         case .quality:
-            "quality-" + (QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? "原画")
+            "quality-" + (QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? String(localized: .playerQualityOriginal))
         }
     }
 }
@@ -327,13 +341,13 @@ enum TVSubtitleSections {
                       expanded: Bool) -> [Section] {
         var sections = [Section(id: "off", title: nil, rows: [.off])]
         let current = options.first { $0.ref == selected }
-        if let current { sections.append(Section(id: "current", title: selected == live ? "正在使用" : "之前在用", rows: [.option(current)])) }
+        if let current { sections.append(Section(id: "current", title: selected == live ? String(localized: .playerTracksUsingNow) : String(localized: .playerTracksUsedBefore), rows: [.option(current)])) }
         let rest = options.filter { $0.ref != current?.ref }
         let chinese = rest.filter { group(of: $0.language) == .chinese }
         let english = rest.filter { group(of: $0.language) == .english }
         let others = rest.filter { group(of: $0.language) == .other }
-        if !chinese.isEmpty { sections.append(Section(id: "zh", title: "中文", rows: chinese.map(Row.option))) }
-        if !english.isEmpty { sections.append(Section(id: "en", title: "英语", rows: english.map(Row.option))) }
+        if !chinese.isEmpty { sections.append(Section(id: "zh", title: String(localized: .mediaLanguagesChinese), rows: chinese.map(Row.option))) }
+        if !english.isEmpty { sections.append(Section(id: "en", title: String(localized: .mediaLanguagesEnglish), rows: english.map(Row.option))) }
         var otherRows: [Row] = others.map(Row.option) + unavailable.map(Row.unavailable)
         let total = options.count + unavailable.count
         if !expanded, total > collapseTotal, otherRows.count >= collapseOthers {
@@ -343,7 +357,7 @@ enum TVSubtitleSections {
             let shown = unique.prefix(4).joined(separator: " · ")
             otherRows = [.more(count: otherRows.count, names: unique.count > 4 ? shown + " …" : shown)]
         }
-        if !otherRows.isEmpty { sections.append(Section(id: "other", title: "其他语言", rows: otherRows)) }
+        if !otherRows.isEmpty { sections.append(Section(id: "other", title: String(localized: .playerTracksOtherLanguages), rows: otherRows)) }
         return sections
     }
 

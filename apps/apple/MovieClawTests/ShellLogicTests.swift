@@ -11,7 +11,7 @@ struct ShellLogicTests {
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
 
     private func ago(_ seconds: Double) -> String {
-        Formatters.fromNow(now.addingTimeInterval(-seconds), now: now)
+        Formatters.fromNow(now.addingTimeInterval(-seconds), now: now, locale: Locale(identifier: "zh-Hans"))
     }
 
     /// dayjs relativeTime 默认阈值：每档先四舍五入再比较（数值取自 dayjs 1.11 源码的阈值表）
@@ -37,7 +37,7 @@ struct ShellLogicTests {
         #expect(ago(400 * 86400) == "1 年前")
         #expect(ago(800 * 86400) == "2 年前")
         // 将来时刻用 zh-cn 的「%s内」
-        #expect(Formatters.fromNow(now.addingTimeInterval(3 * 86400), now: now) == "3 天内")
+        #expect(Formatters.fromNow(now.addingTimeInterval(3 * 86400), now: now, locale: Locale(identifier: "zh-Hans")) == "3 天内")
     }
 
     @Test func legacyRelativeHelpersShareOneAlgorithm() {
@@ -79,6 +79,8 @@ struct ShellLogicTests {
             == .settingsSection(.importWatch, query: ["suggest": "auto", "kinds": "movie,tv"]))
         #expect(AppRoute(webPath: "/settings/app?tab=storage") == .settingsSection(.app, query: ["tab": "storage"]))
         #expect(AppRoute(webPath: "/settings/app?tab=remote") == .settingsSection(.playback))
+        // 「使用建议」推送（开启片段预切）点开的地址
+        #expect(AppRoute(webPath: "/settings/playback") == .settingsSection(.playback))
         // Web 把旧「搜索」分区重定向到 /settings/sites（不带页签）
         #expect(AppRoute(webPath: "/settings/search") == .settingsSection(.sites))
     }

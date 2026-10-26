@@ -14,7 +14,7 @@ struct MacAccountButton: View {
                 MacAvatar(url: MacAccounts.avatarURL(model.session?.avatarUrl, username: model.session?.username, server: model.server, size: 30),
                           name: model.session?.nickname ?? "", size: 30)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(model.session?.nickname ?? "账号")
+                    Text(model.session?.nickname ?? String(localized: .navNativeAccount))
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
                     Text(model.server?.hostLabel ?? "")
@@ -38,8 +38,8 @@ struct MacAccountButton: View {
         .popover(isPresented: $showsPanel, arrowEdge: .top) {
             MacAccountPanel(close: { showsPanel = false })
         }
-        .help("切换账号")
-        .accessibilityLabel("当前账号 \(model.session?.nickname ?? "")，点按切换")
+        .help(String(localized: .authMenuSwitchAccount))
+        .accessibilityLabel(String(localized: .authMenuCurrentAccount(model.session?.nickname ?? "")))
         .accessibilityIdentifier("mac-account-button")
     }
 }
@@ -63,7 +63,7 @@ struct MacAccountPanel: View {
                 .padding(16)
             if !others.isEmpty {
                 Divider()
-                Text("切换到")
+                Text(String(localized: .authMenuSwitchTo))
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
@@ -89,16 +89,16 @@ struct MacAccountPanel: View {
             }
             Divider()
             VStack(spacing: 2) {
-                MacPanelAction(title: "添加账号…", symbol: "person.badge.plus") {
+                MacPanelAction(title: String(localized: .authMenuAddAccountEllipsis), symbol: "person.badge.plus") {
                     close()
                     openWindow(id: MacAddAccountView.windowID)
                 }
                     .accessibilityIdentifier("mac-account-add")
-                MacPanelAction(title: "关于 MovieClaw", symbol: "info.circle") {
+                MacPanelAction(title: String(localized: .settingsAboutWindowTitle), symbol: "info.circle") {
                     close()
                     openWindow(id: "about")
                 }
-                MacPanelAction(title: "退出登录…", symbol: "rectangle.portrait.and.arrow.right", destructive: true) {
+                MacPanelAction(title: String(localized: .authMenuSignOutEllipsis), symbol: "rectangle.portrait.and.arrow.right", destructive: true) {
                     close()
                     router.confirmingLogout = true
                 }
@@ -126,11 +126,14 @@ struct MacAccountPanel: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
+                if let server = model.server {
+                    ServerRouteLabel(server: server, font: .system(size: 11))
+                }
             }
             Spacer(minLength: 0)
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.secondary)
-                .help("正在使用")
+                .help(String(localized: .playerTracksUsingNow))
         }
     }
 
@@ -142,7 +145,7 @@ struct MacAccountPanel: View {
             try await model.switchAccount(to: saved.account.username, on: saved.server)
             close()
         } catch AppModel.AccountError.needsPassword {
-            error = "「\(saved.account.nickname)」的登录已失效，请用「添加账号」重新登录"
+            error = String(localized: .authMenuExpiredMacHint(saved.account.nickname))
         } catch {
             self.error = error.localizedDescription
         }
@@ -183,7 +186,7 @@ private struct MacAccountRow: View {
         .buttonStyle(.plain)
         .disabled(busy)
         .onHover { hovering = $0 }
-        .accessibilityLabel("切换到 \(saved.account.nickname)，\(saved.server.hostLabel)")
+        .accessibilityLabel(String(localized: .authMenuSwitchToAccount(saved.account.nickname, saved.server.hostLabel)))
         .accessibilityIdentifier("mac-account-\(saved.account.username)")
     }
 }

@@ -1383,6 +1383,52 @@ async def test_scan_ingests_strm_placeholders(db, tmp_path, monkeypatch) -> None
     assert probed == []
 
 
+async def test_scan_clears_strm_spec_when_the_link_points_to_another_file(
+    db, tmp_path, monkeypatch
+) -> None:
+    """.strm 被改写（plugin-strm-prefetch.md §4）：直链换了文件 → 规格清空回到待探；
+    只换签名参数 → 规格照旧。定期对账不碰（不 stat 本体），手动扫描才看。"""
+    import os
+
+    from movieclaw_api.services.media_probe import MediaSpec
+    from movieclaw_api.services.playback import strm_probe
+
+    spec = MediaSpec("1080p", "h264", None, 8, 30, 4_000_000)
+    monkeypatch.setattr(strm_probe, "probe_media", lambda *_a, **_k: spec)
+    root = tmp_path / "media" / "tv"
+    show = root / "测试剧集 (2024)" / "Season 01"
+    show.mkdir(parents=True)
+    e1 = show / "测试剧集.S01E01.strm"
+    e2 = show / "测试剧集.S01E02.strm"
+    e1.write_text("https://cloud.example.com/e1.mkv?sign=a", encoding="utf-8")
+    e2.write_text("https://cloud.example.com/e2.mkv?sign=a", encoding="utf-8")
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="网盘剧集库", kind="tv", root_paths=[str(root)]
+        )
+    await scan_library(library.id)
+    async with db.session() as session:
+        ids = {f.file_path: f.id for f in (await session.execute(select(LibraryFile))).scalars()}
+    for file_id in ids.values():
+        assert (await strm_probe.probe_file(file_id)).status == "probed"
+
+    def rewrite(path, url):
+        path.write_text(url, encoding="utf-8")
+        st = path.stat()
+        os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+
+    rewrite(e1, "https://cloud.example.com/e1.mkv?sign=b")  # 只换签名
+    rewrite(e2, "https://cloud.example.com/e2-remux.mkv?sign=b")  # 换了文件
+    # 定期对账（不补探）不看本体
+    await scan_library(library.id, backfill_existing_specs=False)
+    async with db.session() as session:
+        assert (await session.get(LibraryFile, ids[str(e2)])).video_codec == "h264"
+    await scan_library(library.id)
+    async with db.session() as session:
+        assert (await session.get(LibraryFile, ids[str(e1)])).video_codec == "h264"
+        assert (await session.get(LibraryFile, ids[str(e2)])).video_codec is None
+
+
 async def test_tv_files_in_movie_library_refuse_to_identify(db, tmp_path) -> None:
     """事故回归：剧集文件落在**电影库**里，绝不能按电影建档。
 

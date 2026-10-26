@@ -802,7 +802,7 @@ async def test_translate_rate_limit_reduces_concurrency_and_retries(
         "chs",
         file_id=32,
         progress=snapshots.append,
-        phase=lambda _phase, message: messages.append(message),
+        phase=lambda _phase, message: messages.append(message["message"]),
     )
 
     assert len(out) == 500 and stats.failed_blocks == 0
@@ -847,6 +847,40 @@ async def test_sample_sync_score_degrades_without_ffmpeg(monkeypatch, tmp_path) 
     monkeypatch.setattr(sync, "_ffmpeg", lambda: None)
     score = await sync.sample_sync_score(tmp_path / "x.mkv", _events(100), 6000)
     assert score is None  # 无法检测=未知,不误判为不同步
+
+
+def test_sync_audio_skips_undecodable_first_track() -> None:
+    """NAS 醉梦 E01 台账音轨：第一轨 Audio Vivid 探测不出 codec，抽样改用第二轨 EAC3。"""
+    zui_meng = [
+        {"codec": None, "channels": 10, "language": "chi", "default": False},
+        {"codec": "eac3", "channels": 6, "language": "chi", "default": False},
+        {"codec": "eac3", "channels": 2, "language": "chi", "default": False},
+        {"codec": "aac", "channels": 2, "language": "chi", "default": True},
+    ]
+    assert sync.audio_index(zui_meng) == 1
+    assert sync.audio_index(zui_meng[1:]) == 0
+    assert sync.audio_index(None) == 0
+    # 换不了（别的语言、都解不了）维持第一条
+    assert sync.audio_index([zui_meng[0], {**zui_meng[1], "language": "eng"}]) == 0
+    assert sync.audio_index([zui_meng[0], {**zui_meng[1], "codec": None}]) == 0
+
+
+async def test_extract_pcm_reads_requested_track(tmp_path: Path) -> None:
+    """真 ffmpeg：第一轨静音、第二轨正弦波，按序号抽到的是第二轨。"""
+    if sync._ffmpeg() is None:
+        pytest.skip("需要 ffmpeg")
+    media = tmp_path / "two-tracks.mkv"
+    proc = await asyncio.create_subprocess_exec(
+        sync._ffmpeg(), "-v", "error",
+        "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=16000",
+        "-t", "3", "-map", "0:a", "-map", "1:a", "-c:a", "pcm_s16le", str(media),
+    )  # fmt: skip
+    assert await proc.wait() == 0
+    silent = await sync.extract_pcm(media, 0, 2)
+    tone = await sync.extract_pcm(media, 0, 2, 1)
+    assert silent is not None and tone is not None
+    assert np.abs(silent).max() < 0.01 < np.abs(tone).max()
 
 
 # ---------------------------------------------------------------------------

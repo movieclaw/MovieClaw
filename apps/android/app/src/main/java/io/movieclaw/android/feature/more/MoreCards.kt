@@ -95,7 +95,7 @@ internal fun MoreConnectionCard(origin: String?, savedCount: Int, onClick: () ->
 }
 
 @Composable
-internal fun MoreAppearanceCard(liquid: Boolean, onChange: (Boolean) -> Unit) {
+internal fun MoreAppearanceCard(liquid: Boolean?, onChange: (Boolean) -> Unit) {
     FlatCard(Modifier.fillMaxWidth(), radius = 20.dp) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 12.dp),
@@ -109,7 +109,15 @@ internal fun MoreAppearanceCard(liquid: Boolean, onChange: (Boolean) -> Unit) {
                 Text("透明背景与轻盈动效", style = McType.caption, color = TextMuted)
             }
             Spacer(Modifier.width(8.dp))
-            Switch(checked = liquid, onCheckedChange = onChange, colors = SwitchDefaults.colors(checkedTrackColor = AccountTint))
+            // 值未知（DataStore 还没读出来）先不挂：挂一颗默认"关"的开关会在真实值到达时
+            // 自己播一遍开启动画（切页时看到的那下动画）
+            if (liquid != null) {
+                Switch(
+                    checked = liquid,
+                    onCheckedChange = onChange,
+                    colors = SwitchDefaults.colors(checkedTrackColor = AccountTint),
+                )
+            }
         }
     }
 }

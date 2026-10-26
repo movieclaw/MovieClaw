@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 
 import { LibraryItemDetailView } from "@/components/library-item-detail-view";
 
 /** 兜底标题；影片名要等接口返回，就绪后由视图内的 usePageTitle 覆盖。 */
-export const metadata: Metadata = { title: "影片详情" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations();
+  return { title: t("media.detail.pageTitle") };
+}
 
 /** 只接受单个非负整数查询参数；重复、负数和非数字一律按缺失处理。 */
 function queryNumber(value: string | string[] | undefined): number | undefined {

@@ -3,6 +3,7 @@ package io.movieclaw.androidtv.ui.components
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Language
@@ -10,6 +11,7 @@ import androidx.compose.material.icons.filled.PlayCircleFilled
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.material.icons.outlined.ContactPage
 import androidx.compose.material.icons.outlined.FolderOff
 import androidx.compose.material.icons.outlined.Info
@@ -61,6 +64,8 @@ object McIcons {
     val Restart = Icons.Filled.SkipPrevious
     /** forward.end.fill */
     val SkipForward = Icons.Filled.SkipNext
+    /** list.number（播放器的「选集」） */
+    val Episodes = Icons.AutoMirrored.Filled.PlaylistPlay
     /** plus */
     val Plus = Icons.Filled.Add
     /** rectangle.portrait.and.arrow.right */
@@ -88,6 +93,10 @@ object McIcons {
     val Filter = Icons.Filled.FilterList
     /** ‹ */
     val Back = Icons.Filled.ChevronLeft
+    /** chevron.right（菜单里的二级菜单） */
+    val Forward = Icons.Filled.ChevronRight
+    /** xmark.circle（清除筛选） */
+    val ClearCircle = Icons.Outlined.Cancel
     /** globe（搜索键盘换输入法） */
     val Globe = Icons.Filled.Language
     /** delete.left.fill */

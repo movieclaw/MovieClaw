@@ -33,6 +33,10 @@ pysubs2 从 ASS 里取（``plaintext``），不需要为它再抽一份 SRT。
 7. **看得见进度**：ffmpeg 用 ``-progress`` 把已处理到的时间点写进一个小文件，
    AI 字幕任务据此显示「排队中 / 已读到 01:12:33」，失败时带上原因。大文件
    在 NAS 上要读几分钟，用户得知道它在动、为什么慢。
+8. **能不通读就不通读**：MKV 的 Cues 给每条字幕都记了位置（mkvmerge 的默认，片库
+   抽样 98%），先按索引只读字幕块（``playback.subtitle_cues``），拼成只含字幕轨的
+   小 MKV 再交 ffmpeg——不过闸门、不排队，几秒出结果；网盘（strm）条目从此不用为
+   字幕把整片拉下来。索引不全才退回上面的整片通读（docs/design/subtitle-cues.md）。
 """
 
 from __future__ import annotations
@@ -50,7 +54,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n.stored import reference
 from movieclaw_db.models import LibraryFile
+from movieclaw_playback.streaming import file_stamp, is_remote, media_input, open_strm_range
+from movieclaw_playback.subtitle_cues import SubtitleTracks, build_subtitle_mkv
 
 logger = logging.getLogger("movieclaw_api.media_extract")
 
@@ -61,6 +68,11 @@ EXTRACT_TIMEOUT = 120.0
 _ASSUMED_READ_BYTES_PER_SEC = 20 * 1024 * 1024
 #: 体积估算的封顶：再大的文件也不该让一个卡死的 ffmpeg 挂上几个小时。
 _MAX_EXTRACT_TIMEOUT = 3600.0
+#: 按字幕索引取块的并发：本地是 pread（NFS 上也只是小读），网盘是 Range 请求（复用连接；
+#: 仿网盘服务每请求 80 毫秒延迟时，一集 600 来个请求 8 路 17 秒、16 路 8.5 秒）
+_LOCAL_WORKERS = 16
+_REMOTE_WORKERS = 16
+_EBML_MAGIC = b"\x1a\x45\xdf\xa3"
 # 先给 ffmpeg 一个正常退出窗口，超时或取消后再强制杀掉整个进程组。
 _PROCESS_TERM_TIMEOUT = 2.0
 _PROCESS_KILL_TIMEOUT = 5.0
@@ -116,6 +128,8 @@ _READ_GATE: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
 # 预检发起的后台抽取：用户关掉对话框也要把产物抽完落缓存，所以它自己就是
 # 一个等待者，不随请求取消；这里只为「已经在抽了吗」提供同步答案。
 _BACKGROUND_TASKS: dict[_JobKey, asyncio.Task[None]] = {}
+# 按字幕索引读取的任务（不随请求取消，见 ``_extract_batch``）：只为留住引用
+_SPARSE_TASKS: set[asyncio.Task[bool]] = set()
 
 # 抽取失败过的轨 → 当时视频的 mtime_ns。**失败结论必须记住**：前端在轮询，
 # 不记就会每隔两三秒催起一个新的 ffmpeg 去读同一个坏轨，一条读不出来的轨
@@ -123,7 +137,8 @@ _BACKGROUND_TASKS: dict[_JobKey, asyncio.Task[None]] = {}
 _FAILED_EXTRACTIONS: dict[_JobKey, int] = {}
 # 失败原因（超时 / ffmpeg 报错 / 启动失败）：任务失败时直接告诉用户，而不是
 # 一句「具体原因见服务端日志」。随失败结论一起失效。
-_FAILURE_REASONS: dict[_JobKey, str] = {}
+#: 失败原因是文案引用：后台记下，按读者语言渲染
+_FAILURE_REASONS: dict[_JobKey, dict] = {}
 
 
 @dataclass(frozen=True)
@@ -205,8 +220,22 @@ def _job_key(spec: _ExtractionSpec, index: int) -> _JobKey:
     return (str(spec.video), index, str(spec.out_path))
 
 
+def _ffmpeg_input(video: Path) -> list[str]:
+    """``-i`` 及其前面的输入选项。网盘（strm）条目读现解析出的直链（不合法就照旧给占位
+    文件，ffmpeg 报读不出来，按抽取失败处理）。"""
+    source = media_input(str(video))
+    if source is None:
+        return ["-i", str(video)]
+    url, options = source
+    return [*options, "-i", url]
+
+
 def _extract_timeout(video: Path) -> float:
-    """按体积估算通读上限：下限 EXTRACT_TIMEOUT，封顶 _MAX_EXTRACT_TIMEOUT。"""
+    """按体积估算通读上限：下限 EXTRACT_TIMEOUT，封顶 _MAX_EXTRACT_TIMEOUT。
+
+    网盘（strm）条目看不出体积（占位文件只有一行地址），直接给封顶值。"""
+    if is_remote(str(video)):
+        return _MAX_EXTRACT_TIMEOUT
     try:
         size = video.stat().st_size
     except OSError:
@@ -223,7 +252,7 @@ def _read_gate() -> asyncio.Semaphore:
     return _READ_GATE[1]
 
 
-def _remember_failure(spec: _ExtractionSpec, index: int, reason: str) -> None:
+def _remember_failure(spec: _ExtractionSpec, index: int, reason: dict) -> None:
     """记下这条轨在当前视频版本上抽不出来及原因；视频换了（mtime 变）自然作废。"""
     stamp = _video_stamp(spec)
     if stamp is not None:
@@ -238,11 +267,14 @@ def _is_fresh(out_path: Path, video: Path) -> bool:
     抽取要通读整个容器，不能每次点开字幕都重来一遍；而只有视频本体变了
     （洗版、改名归并）才需要重抽。
     """
+    stamp = file_stamp(video)
+    if stamp is None:
+        return False
     try:
         return (
             out_path.is_file()
             and out_path.stat().st_size > 0
-            and out_path.stat().st_mtime_ns > video.stat().st_mtime_ns
+            and out_path.stat().st_mtime_ns > stamp[1]
         )
     except OSError:
         return False  # stat 失败按未缓存处理，走正常抽取
@@ -302,7 +334,7 @@ def _last_position(path: Path) -> float | None:
     return None
 
 
-def failure_reason(file: LibraryFile, index: int) -> str | None:
+def failure_reason(file: LibraryFile, index: int) -> dict | None:
     """这条轨上次抽取失败的原因（视频没换才有效）；没失败过返回 None。"""
     spec = _extraction_spec(file, index)
     if spec is None or not _known_failed(spec, index):
@@ -317,7 +349,7 @@ def _can_extract(spec: _ExtractionSpec) -> bool:
             "或为该影片放置外挂字幕文件（官方 Docker 镜像已内置 ffmpeg）"
         )
         return False
-    return spec.video.is_file()
+    return spec.video.is_file() or is_remote(str(spec.video))
 
 
 def _new_tmp_path(out_path: Path) -> Path:
@@ -335,7 +367,7 @@ def _codec_args(spec: _ExtractionSpec) -> list[str]:
 def _extract_command(spec: _ExtractionSpec, index: int, tmp_path: Path) -> list[str]:
     return [
         "ffmpeg", "-nostdin", "-v", "error", "-y",
-        "-i", str(spec.video),
+        *_ffmpeg_input(spec.video),
         "-map", f"0:s:{index}",
         *_codec_args(spec),
         str(tmp_path),
@@ -353,7 +385,7 @@ def _batch_command(
     argv = [
         "ffmpeg", "-nostdin", "-v", "error", "-y",
         "-progress", str(progress_path), "-nostats",
-        "-i", str(video),
+        *_ffmpeg_input(video),
     ]
     for index, spec, tmp_path in outputs:
         argv += ["-map", f"0:s:{index}", *_codec_args(spec), str(tmp_path)]
@@ -479,10 +511,8 @@ async def _shared_extract(
 
 
 def _video_stamp(spec: _ExtractionSpec) -> int | None:
-    try:
-        return spec.video.stat().st_mtime_ns
-    except OSError:
-        return None
+    stamp = file_stamp(spec.video)
+    return None if stamp is None else stamp[1]
 
 
 def extraction_failed(file: LibraryFile, index: int) -> bool:
@@ -554,7 +584,7 @@ def schedule_extraction(file: LibraryFile, index: int) -> bool:
             stamp = _video_stamp(spec)
             if stamp is not None:
                 _FAILED_EXTRACTIONS[key] = stamp
-                _FAILURE_REASONS.setdefault(key, "读取过程中出错（详见服务端日志）")
+                _FAILURE_REASONS.setdefault(key, reference("library.subtitleSource.readError"))
         else:
             _FAILED_EXTRACTIONS.pop(key, None)
             _FAILURE_REASONS.pop(key, None)
@@ -603,7 +633,20 @@ async def _terminate_async_process(
 
 
 async def _extract_batch(batch: list[tuple[int, _ExtractionSpec]]) -> None:
-    """排队过全局闸门，一趟 ffmpeg 抽出这个文件所有还缺缓存的轨。"""
+    """先按字幕索引只读字幕块；读不出再排队过全局闸门，一趟 ffmpeg 通读整个文件。"""
+    pending = [
+        (index, spec)
+        for index, spec in batch
+        if _cached_track(spec) is None and not _known_failed(spec, index)
+    ]
+    if pending and _can_extract(pending[0][1]):
+        # 按索引读不随请求取消：它很轻，网盘上却是几百个请求，播放器换轨、关页面就作废的话
+        # 下次还得重来一遍。在独立任务里跑完、落进缓存，等待者走了也照样
+        sparse = asyncio.create_task(_run_sparse_extraction(pending))
+        _SPARSE_TASKS.add(sparse)
+        sparse.add_done_callback(_SPARSE_TASKS.discard)
+        if await asyncio.shield(sparse):
+            return
     # 同一视频同一时刻只有一个批次（``_shared_extract`` 按视频单飞），状态按视频记
     key = str(batch[0][1].video)
     state = _READ_STATES[key] = _ReadState()
@@ -655,12 +698,14 @@ def _new_progress_path() -> Path:
     return directory / f".read-{uuid.uuid4().hex}.progress"
 
 
-def _ffmpeg_failure(returncode: int | None, stderr: bytes) -> str:
-    """把 ffmpeg 的结局收敛成一句给用户看的原因。"""
+def _ffmpeg_failure(returncode: int | None, stderr: bytes) -> dict:
+    """把 ffmpeg 的结局收敛成一句给用户看的原因（文案引用）。"""
     if returncode not in (0, None):
         text = stderr.decode(errors="replace").strip().replace("\n", " ")[:200]
-        return f"ffmpeg 报错：{text}" if text else f"ffmpeg 异常退出（退出码 {returncode}）"
-    return "没有读出任何字幕内容，或写入缓存失败（详见服务端日志）"
+        if text:
+            return reference("library.subtitleSource.ffmpegError", error=text)
+        return reference("library.subtitleSource.ffmpegExit", code=returncode)
+    return reference("library.subtitleSource.noContent")
 
 
 async def _run_ffmpeg(pending: list[tuple[int, _ExtractionSpec]], progress_path: Path) -> bool:
@@ -668,7 +713,7 @@ async def _run_ffmpeg(pending: list[tuple[int, _ExtractionSpec]], progress_path:
     outputs = [(index, spec, _new_tmp_path(spec.out_path)) for index, spec in pending]
     timeout = _extract_timeout(video)
 
-    def _discard(reason: str | None) -> None:
+    def _discard(reason: dict | None) -> None:
         # reason 为空 = 不记失败（取消、多轨整趟失败待逐轨重试）
         for index, spec, tmp_path in outputs:
             _cleanup(tmp_path)
@@ -685,7 +730,7 @@ async def _run_ffmpeg(pending: list[tuple[int, _ExtractionSpec]], progress_path:
             start_new_session=True,
         )
     except OSError as exc:
-        _discard(f"ffmpeg 无法启动：{exc}")
+        _discard(reference("library.subtitleSource.startFailed", error=str(exc)))
         logger.warning("内封字幕抽取进程启动失败：%s（%s）", video, exc)
         return True
 
@@ -700,10 +745,7 @@ async def _run_ffmpeg(pending: list[tuple[int, _ExtractionSpec]], progress_path:
     except TimeoutError:
         await _terminate_async_process(proc, communicate)
         # 超时也要记住：不记的话每次打开播放器都会把这个文件再白读一遍。
-        _discard(
-            f"读取超时：{timeout / 60:.0f} 分钟内没读完整个视频（按每秒 20 MB 估算的上限），"
-            "存储读取太慢或文件损坏都会这样"
-        )
+        _discard(reference("library.subtitleSource.timeout", minutes=f"{timeout / 60:.0f}"))
         logger.warning(
             "内封字幕抽取超时（%.0f 秒）：%s（%d 条轨），视频文件不变就不再重试",
             timeout, video, len(outputs),
@@ -718,6 +760,111 @@ async def _run_ffmpeg(pending: list[tuple[int, _ExtractionSpec]], progress_path:
         if _cached_track(spec) is None:
             _remember_failure(spec, index, _ffmpeg_failure(proc.returncode, stderr))
     return True
+
+
+def _sparse_tracks(video: Path) -> SubtitleTracks | None:
+    """（阻塞）按 Cues 读出全部字幕轨的块；不是 MKV、索引不全、读失败都返回 None。"""
+    try:
+        if is_remote(str(video)):
+            reader = open_strm_range(video)
+            if reader is None:
+                return None
+            with reader as f:
+                if f.read(4) != _EBML_MAGIC or f.size is None:
+                    return None
+                return build_subtitle_mkv(f, f.pread, f.size, str(video), workers=_REMOTE_WORKERS)
+        with open(video, "rb") as f:
+            if f.read(4) != _EBML_MAGIC:
+                return None  # 不是 MKV（MP4 的 mov_text 等）：直接整片抽，不记日志
+            fd = f.fileno()
+            return build_subtitle_mkv(
+                f,
+                lambda length, offset: os.pread(fd, length, offset),
+                os.fstat(fd).st_size,
+                str(video),
+                workers=_LOCAL_WORKERS,
+            )
+    except (OSError, ValueError, IndexError) as exc:
+        logger.info("按字幕索引读取失败，退回整片读取：%s（%s）", video, exc)
+        return None
+
+
+def _sparse_command(
+    source: Path, start_s: float, outputs: list[tuple[int, _ExtractionSpec, Path]]
+) -> list[str]:
+    """从只含字幕轨的小 MKV 转出各轨。``-copyts`` 保留绝对时间、再减去原片起点：
+    小 MKV 的起点是第一条字幕，不这么做转出的字幕会整体提前（subtitle_cues.SubtitleTracks）。"""
+    argv = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-copyts", "-i", str(source)]
+    for index, spec, tmp_path in outputs:
+        argv += ["-map", f"0:s:{index}", *_codec_args(spec)]
+        if start_s:
+            argv += ["-output_ts_offset", f"{-start_s:.6f}"]
+        argv.append(str(tmp_path))
+    return argv
+
+
+async def _run_sparse_extraction(pending: list[tuple[int, _ExtractionSpec]]) -> bool:
+    """按字幕索引抽出 pending 的全部轨；全部成功返回 True，否则清掉产物返回 False（不记失败，
+    交给整片通读）。只读几百 KB 到几 MB，不占全局闸门。"""
+    video = pending[0][1].video
+    started_at = time.monotonic()
+    tracks = await asyncio.to_thread(_sparse_tracks, video)
+    if tracks is None:
+        return False
+    read_s = time.monotonic() - started_at
+    directory = cache_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    source = directory / f".sparse-{uuid.uuid4().hex}.mkv"
+    outputs = [(index, spec, _new_tmp_path(spec.out_path)) for index, spec in pending]
+    try:
+        source.write_bytes(tracks.data)
+        proc = await asyncio.create_subprocess_exec(
+            *_sparse_command(source, tracks.start_s, outputs),
+            stdin=subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+        communicate = asyncio.create_task(proc.communicate())
+        try:
+            _, stderr = await asyncio.wait_for(asyncio.shield(communicate), EXTRACT_TIMEOUT)
+        except (asyncio.CancelledError, TimeoutError):
+            await asyncio.shield(_terminate_async_process(proc, communicate))
+            raise
+    except asyncio.CancelledError:
+        for _, _, tmp_path in outputs:
+            _cleanup(tmp_path)
+        raise
+    except (OSError, TimeoutError) as exc:
+        for _, _, tmp_path in outputs:
+            _cleanup(tmp_path)
+        logger.warning("按字幕索引转换失败，退回整片读取：%s（%s）", video, exc)
+        return False
+    finally:
+        _cleanup(source)
+    if proc.returncode != 0 or not all(_valid_output(tmp) for _, _, tmp in outputs):
+        for _, _, tmp_path in outputs:
+            _cleanup(tmp_path)
+        logger.warning(
+            "按字幕索引转换失败，退回整片读取：%s（%s）",
+            video, stderr.decode(errors="replace")[:200],
+        )
+        return False
+    for index, spec, tmp_path in outputs:
+        _finish_extraction(spec, index, tmp_path, proc.returncode, stderr, started_at)
+    logger.info(
+        "按字幕索引抽出 %d 条字幕轨：%s（%d 个字幕块，读取 %.1f 秒，共 %.1f 秒）",
+        len(outputs), video.name, sum(tracks.blocks.values()), read_s,
+        time.monotonic() - started_at,
+    )
+    return all(_cached_track(spec) is not None for _, spec in pending)
+
+
+def _valid_output(path: Path) -> bool:
+    try:
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:
+        return False
 
 
 def _forget_extraction_job(key: str, task: asyncio.Task[None]) -> None:
@@ -806,13 +953,15 @@ def _extract_window(spec: _WindowSpec) -> ExtractedTrack | None:
         return full
     if _is_fresh(spec.out_path, spec.video):
         return ExtractedTrack(path=spec.out_path, format=spec.fmt)
-    if shutil.which("ffmpeg") is None or not spec.video.is_file():
+    if shutil.which("ffmpeg") is None or not (
+        spec.video.is_file() or is_remote(str(spec.video))
+    ):
         return None
     tmp_path = _new_tmp_path(spec.out_path)
     argv = [
         "ffmpeg", "-nostdin", "-v", "error", "-y",
         "-ss", str(spec.start_s), "-t", str(spec.end_s - spec.start_s),
-        "-i", str(spec.video),
+        *_ffmpeg_input(spec.video),
         "-copyts",
         "-map", f"0:s:{spec.index}", "-c:s", "copy", "-f", spec.fmt,
         str(tmp_path),

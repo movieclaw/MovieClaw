@@ -12,25 +12,34 @@
  *   命中后按站点【防抖】合并连续变化，避免打爆后端。
  * - 事件可能漏（浏览器关闭期间的变化、SW 冷启动窗口），再加两道兜底：启动时全量推、
  *   alarms 周期性全量推。
+ *
+ * 授权后接手同步：Firefox 里点「允许读取本站 Cookie」弹出权限提示会把弹窗关掉，弹窗里
+ * 授权之后的代码根本不会执行（以前因此从没推过 Cookie）。弹窗在申请前把「授权意图」
+ * 写进 storage，这里监听 permissions.onAdded，读到意图就替弹窗完成首次同步，并用图标
+ * 角标报告结果（✓ 成功 / ! 失败）。弹窗若还活着（Chrome 通常如此），会先清掉意图自己同步，
+ * 这里稍等片刻再取意图，避免重复推送。
  */
 
-import { api } from '../lib/api';
 import {
   type BackendConfig,
   type ManagedSitesMap,
+  clearPendingGrant,
   isConfigured,
   loadConfig,
   loadManagedSites,
-  recordSyncState,
+  loadPendingGrant,
 } from '../lib/config';
-import { readCookieHeader } from '../lib/cookies';
 import { registrableDomain } from '../lib/domain';
+import { hostsFromOrigins, isPendingGrantFresh, storeMatches } from '../lib/sync-logic';
+import { syncSiteCookies } from '../lib/sync';
 
 /** 防抖等待：合并这段时间内对同一站点的连续 Cookie 变化 */
 const DEBOUNCE_MS = 2000;
 /** 定时兜底的周期（分钟） */
 const PERIODIC_MINUTES = 30;
 const ALARM_NAME = 'movieclaw-periodic-sync';
+/** 授权后等弹窗先接手的时间；弹窗已关闭时由后台完成同步 */
+const GRANT_HANDOFF_MS = 1500;
 
 export default defineBackground(() => {
   /** 每个可注册域名的防抖计时器 */
@@ -83,30 +92,50 @@ export default defineBackground(() => {
     if (!entry) return;
 
     try {
-      const cookie = await readCookieHeader(`https://${entry.host}/`);
-      if (!cookie) {
-        await recordSyncState(domain, {
-          ok: false,
-          at: Date.now(),
-          message: '未读到 Cookie（可能已在浏览器中退出登录）',
-        });
-        return;
-      }
-      const result = await api.pushCookies(config, entry.host, cookie);
-      await recordSyncState(domain, {
-        ok: true,
-        at: Date.now(),
-        message: `已同步到 ${result.display_name}`,
+      await syncSiteCookies(config, {
+        domain,
+        host: entry.host,
+        url: `https://${entry.host}/`,
+        cookieStoreId: entry.cookieStoreId,
       });
-      setErrorBadge(false);
+      setBadge('none');
     } catch (err) {
       console.error('[MovieClaw] 自动同步失败：', domain, err);
-      await recordSyncState(domain, {
-        ok: false,
-        at: Date.now(),
-        message: (err as Error).message,
-      });
-      setErrorBadge(true);
+      setBadge('error');
+    }
+  }
+
+  /** 正在接手的域名：同一次授权可能分多次触发 onAdded（每个匹配模式一次），只处理一次 */
+  const grantsInFlight = new Set<string>();
+
+  /** 新获得站点权限：若有对应的授权意图（弹窗被权限提示关掉了），替弹窗完成首次同步 */
+  async function onPermissionsAdded(origins: string[]): Promise<void> {
+    const domains = [...new Set(hostsFromOrigins(origins).map(registrableDomain))].filter(
+      (d) => !grantsInFlight.has(d),
+    );
+    if (!domains.length) return;
+    domains.forEach((d) => grantsInFlight.add(d));
+    try {
+      await new Promise((resolve) => setTimeout(resolve, GRANT_HANDOFF_MS));
+      for (const domain of domains) await takeOverGrant(domain);
+    } finally {
+      domains.forEach((d) => grantsInFlight.delete(d));
+    }
+  }
+
+  async function takeOverGrant(domain: string): Promise<void> {
+    const pending = await loadPendingGrant(domain);
+    if (!pending) return; // 弹窗已接手，或不是从弹窗授权的
+    await clearPendingGrant(domain);
+    if (!isPendingGrantFresh(pending, Date.now())) return;
+    const config = await loadConfig();
+    if (!isConfigured(config)) return;
+    try {
+      await syncSiteCookies(config, pending);
+      setBadge('ok');
+    } catch (err) {
+      console.error('[MovieClaw] 授权后同步失败：', domain, err);
+      setBadge('error');
     }
   }
 
@@ -120,10 +149,12 @@ export default defineBackground(() => {
     }
   }
 
-  /** 出错时在扩展图标上打个红色小角标，成功则清除 */
-  function setErrorBadge(hasError: boolean): void {
-    chrome.action.setBadgeText({ text: hasError ? '!' : '' });
-    if (hasError) chrome.action.setBadgeBackgroundColor({ color: '#dc2626' });
+  /** 图标角标：出错红色「!」，授权后同步成功绿色「✓」（打开弹窗即清除），none 清除 */
+  function setBadge(kind: 'none' | 'ok' | 'error'): void {
+    chrome.action.setBadgeText({ text: kind === 'error' ? '!' : kind === 'ok' ? '✓' : '' });
+    if (kind !== 'none') {
+      chrome.action.setBadgeBackgroundColor({ color: kind === 'error' ? '#dc2626' : '#16a34a' });
+    }
   }
 
   // ---- 事件注册（顶层同步注册，保证能唤醒 SW）----------------------------
@@ -133,8 +164,22 @@ export default defineBackground(() => {
     void (async () => {
       if (!(await getAutoEnabled())) return;
       const domain = registrableDomain(info.cookie.domain);
-      if ((await getManaged())[domain]) schedule(domain);
+      const entry = (await getManaged())[domain];
+      // 只响应同步时那个 cookie store 的变化（Firefox 容器标签页）
+      if (entry && storeMatches(entry.cookieStoreId, info.cookie.storeId)) schedule(domain);
     })();
+  });
+
+  // 1b) 授权后接手：Firefox 弹窗被权限提示关掉时由这里完成首次同步
+  chrome.permissions.onAdded.addListener((permissions) => {
+    void onPermissionsAdded(permissions.origins ?? []);
+  });
+
+  // 1c) 弹窗申请授权前发来的唤醒消息：只为让后台（Firefox 事件页 / Chrome SW）提前醒着，
+  //     意图本身已写入 storage，这里无需处理
+  chrome.runtime.onMessage.addListener((message) => {
+    if ((message as { type?: string } | undefined)?.type === 'movieclaw:grant-pending') return false;
+    return undefined;
   });
 
   // 2) 兜底：浏览器启动时全量推一次（关闭期间 Cookie 可能已变）

@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 
 import { MediaDetailView } from "@/components/media-detail-view";
 
 /** 兜底标题；片名要等接口返回，就绪后由视图内的 usePageTitle 覆盖为「{片名}」。 */
-export const metadata: Metadata = { title: "影片详情" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations();
+  return { title: t("media.detail.pageTitle") };
+}
 
 /** 豆瓣独立详情路由；视觉与 TMDB 详情页完全复用 MediaDetailView。 */
 export default async function DoubanMediaDetailPage({

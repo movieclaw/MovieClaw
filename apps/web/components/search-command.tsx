@@ -1,5 +1,9 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -26,6 +30,7 @@ import {
 } from "@/lib/api/search";
 import {
   presetSummary,
+  searchScopeLabel,
   SCOPE_ALL,
   scopeEquals,
   scopeOfTab,
@@ -38,7 +43,7 @@ import {
 import { useSearchAccess } from "@/lib/search-access";
 import { useSearchPrefs } from "@/lib/search-prefs";
 import { formatRelativeTime } from "@/lib/time";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 
 /**
@@ -72,6 +77,8 @@ export interface SearchSubmitOptions {
   vertical?: SearchVertical;
   /** 非空 = 预览该条历史的结果快照（点历史记录进入），而非发起实时搜索 */
   snapshotId?: number;
+  /** 同搜词（点历史回放时带回该条记录的英文名/原名） */
+  also?: string[];
 }
 
 export interface SearchCommandProps {
@@ -187,6 +194,7 @@ export function SearchCommand({
   triggerClassName = "glass-row !size-8 shrink-0 justify-center !p-0 max-md:!size-11",
   preferredMode,
 }: SearchCommandProps) {
+  const t = useTranslations();
   const searchAccess = useSearchAccess();
   const [open, setOpen] = useState(false);
   // 本次打开带的草稿（openSearchPalette 唤起时）；触发键 / ⌘K 打开时为 null
@@ -236,9 +244,9 @@ export function SearchCommand({
           setDraft(null);
           setOpen(true);
         }}
-        aria-label="搜索（⌘K 或 Ctrl+K）"
+        aria-label={t("search.command.open")}
         aria-haspopup="dialog"
-        title="搜索（⌘K 或 Ctrl+K）"
+        title={t("search.command.open")}
         className={triggerClassName}
       >
         <SearchIcon className="size-[18px] max-md:size-[22px]" />
@@ -276,11 +284,11 @@ function draftTabKey(draft: SearchPaletteDraft | null, tabs: SearchTab[]): strin
 }
 
 /** 各模式的一句话说明（桌面页脚 / 手机全屏页列表末尾）。 */
-const MODE_HINT: Record<SearchVertical, string> = {
-  media: "在豆瓣与 TMDB 中搜索影视条目",
-  torrent: "跨全部已配置站点搜索种子",
-  library: "在媒体库中搜索已入库的影片",
-};
+const MODE_HINT_KEYS = {
+  media: "search.palette.modeHintMedia",
+  torrent: "search.palette.modeHintTorrent",
+  library: "search.palette.modeHintLibrary",
+} as const;
 
 function SearchPalette({
   preferredMode,
@@ -293,15 +301,17 @@ function SearchPalette({
   onClose: () => void;
   onSearch: (keyword: string, scope: SearchScope, options?: SearchSubmitOptions) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const { visibleTabs, loading: tabsLoading } = useSearchPrefs();
   const searchAccess = useSearchAccess();
   const confirm = useConfirm();
   const toast = useToast();
   // 银玻璃：最近搜索用 iOS 式分组行；手机上面板改成全屏搜索页（SearchHomeView 的版式）。
   // Netflix 主题沿用原来的浮层与可折叠分组，展示不动。
-  const silver = !useTheme().structural;
+  const panel = useLayout() === "panel";
   const isMobile = useIsMobile();
-  const fullPage = silver && isMobile;
+  const fullPage = panel && isMobile;
   const [keyword, setKeyword] = useState(draft?.keyword ?? "");
   // 面板每次重新挂载，但模式与资源分类从浏览器级记忆恢复；带草稿打开时以草稿为准。
   const [rememberedState] = useState(readSearchPaletteState);
@@ -484,6 +494,7 @@ function SearchPalette({
       item.keyword,
       {
         label: item.label,
+        labelKey: item.label_key,
         categories: item.categories,
         siteIds: item.site_ids,
         // 还原发起搜索时的图览模式；skipHistory 恒 false——能出现在历史里的
@@ -491,7 +502,7 @@ function SearchPalette({
         posterMode: item.poster_mode,
         skipHistory: false,
       },
-      { vertical: "torrent", snapshotId },
+      { vertical: "torrent", snapshotId, also: item.also_keywords ?? undefined },
     );
   };
 
@@ -521,7 +532,7 @@ function SearchPalette({
       // ←→ 收起 / 展开分组只属于 Netflix 主题的可折叠分组；银玻璃的分组永远展开
       case "ArrowRight": {
         const group = filteredGroups[sel];
-        if (silver || !group || group.items.length === 1) break;
+        if (panel || !group || group.items.length === 1) break;
         event.preventDefault();
         setCollapsedGroups((prev) => {
           const next = new Set(prev);
@@ -532,7 +543,7 @@ function SearchPalette({
       }
       case "ArrowLeft": {
         const group = filteredGroups[sel];
-        if (silver || !group || group.items.length === 1) break;
+        if (panel || !group || group.items.length === 1) break;
         event.preventDefault();
         setCollapsedGroups((prev) => new Set(prev).add(group.key));
         break;
@@ -549,7 +560,7 @@ function SearchPalette({
   const removeOne = (id: number) => {
     setItems((prev) => (prev ? prev.filter((i) => i.id !== id) : prev));
     deleteSearchHistoryEntry(id)
-      .catch(() => toast.error("删除搜索历史失败，请重试"))
+      .catch(() => toast.error(t("search.history.deleteFailed")))
       .finally(() => setHistoryRefresh((prev) => prev + 1));
   };
 
@@ -561,8 +572,8 @@ function SearchPalette({
     if (
       group.items.length > 1 &&
       !(await confirm({
-        title: `删除「${group.keyword}」的 ${group.items.length} 条搜索记录？`,
-        confirmLabel: "删除",
+        title: t("search.history.deleteGroup", { keyword: group.keyword, count: group.items.length }),
+        confirmLabel: t("common.delete"),
         tone: "danger",
       }))
     ) {
@@ -574,7 +585,7 @@ function SearchPalette({
     Promise.allSettled(group.items.map((item) => deleteSearchHistoryEntry(item.id)))
       .then((results) => {
         if (results.some((result) => result.status === "rejected")) {
-          toast.error("部分搜索历史删除失败，请重试");
+          toast.error(t("search.history.partialDeleteFailed"));
         }
       })
       .finally(() => setHistoryRefresh((prev) => prev + 1));
@@ -593,7 +604,7 @@ function SearchPalette({
     if (!historyVertical) return;
     setItems([]);
     clearSearchHistory(historyVertical)
-      .catch(() => toast.error("清空搜索历史失败，请重试"))
+      .catch(() => toast.error(t("search.history.clearFailed")))
       .finally(() => setHistoryRefresh((prev) => prev + 1));
   };
 
@@ -608,13 +619,13 @@ function SearchPalette({
       // 手机全屏页没有实体键盘，不提 ⌘K；资源模式把当前分类写进占位文字（同 iOS 收起态）
       placeholder={
         mode === "media"
-          ? `搜索电影、剧集…${fullPage ? "" : " · 下次按 ⌘K / Ctrl+K 唤醒"}`
+          ? t("search.palette.mediaPlaceholder", { fullPage: fullPage ? "yes" : "no" })
           : mode === "torrent"
-            ? `搜索资源或 IMDb ID…${fullPage ? "" : " · 下次按 ⌘K / Ctrl+K 唤醒"}`
-            : `搜索已入库的影片…${fullPage ? "" : " · 下次按 ⌘K / Ctrl+K 唤醒"}`
+            ? t("search.palette.torrentPlaceholder", { fullPage: fullPage ? "yes" : "no" })
+            : t("search.palette.libraryPlaceholder", { fullPage: fullPage ? "yes" : "no" })
       }
       aria-label={
-        mode === "media" ? "搜索影视条目" : mode === "torrent" ? "搜索站点资源" : "搜索媒体库"
+        mode === "media" ? t("search.palette.mediaSearch") : mode === "torrent" ? t("search.palette.torrentSearch") : t("search.palette.librarySearch")
       }
       // 手机键盘的回车键显示为「搜索」
       enterKeyHint="search"
@@ -631,9 +642,9 @@ function SearchPalette({
 
   /* —— 最近搜索 —— */
   const historyList = filteredGroups.length > 0 && (
-    <ul aria-label="最近搜索">
+    <ul aria-label={t("search.history.recent")}>
       {filteredGroups.map((group, index) =>
-        silver ? (
+        panel ? (
           <SilverHistoryGroup
             key={group.key}
             group={group}
@@ -664,15 +675,15 @@ function SearchPalette({
     <button
       type="button"
       onClick={removeAll}
-      aria-label={`清空${mode === "media" ? "影视" : "资源"}搜索历史`}
+      aria-label={t("search.history.clearMode", { mode })}
       className="touch-target rounded-md px-1.5 py-0.5 text-caption text-[var(--text-faint)] transition-colors hover:bg-white/[0.08] hover:text-[var(--text-muted)]"
     >
-      清空
+      {t("common.clear")}
     </button>
   );
 
   const suggestionList = suggestions.length > 0 && (
-    <ul aria-label="搜索联想">
+    <ul aria-label={t("search.palette.suggestions")}>
       {suggestions.map((suggestion, index) => (
         <SuggestionRow
           key={`${suggestion.type}:${suggestion.text}`}
@@ -692,7 +703,7 @@ function SearchPalette({
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="搜索"
+          aria-label={t("common.search")}
           className="search-palette-panel flex h-full w-full flex-col bg-[rgba(15,17,23,0.94)] pt-[var(--safe-top)]"
           onKeyDown={handleKeyDown}
         >
@@ -706,10 +717,10 @@ function SearchPalette({
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => changeTab("all")}
-                  aria-label={`搜索范围：${tabLabel(currentTab)}，点按改为全部分类`}
+                  aria-label={t("search.palette.scopeReset", { scope: tabLabel(currentTab, locale) })}
                   className="flex h-7 max-w-[40%] shrink-0 items-center gap-1 rounded-full bg-[#56637a] pl-2.5 pr-1.5 text-sub font-medium text-white"
                 >
-                  <span className="truncate">{tabLabel(currentTab)}</span>
+                  <span className="truncate">{tabLabel(currentTab, locale)}</span>
                   <XIcon className="size-3 shrink-0 opacity-80" />
                 </button>
               )}
@@ -717,7 +728,7 @@ function SearchPalette({
               {keyword && (
                 <button
                   type="button"
-                  aria-label="清除关键词"
+                  aria-label={t("search.palette.clearKeyword")}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
                     setKeyword("");
@@ -734,7 +745,7 @@ function SearchPalette({
               onClick={onClose}
               className="shrink-0 text-body-lg text-[var(--text)] active:opacity-60"
             >
-              取消
+              {t("common.cancel")}
             </button>
           </div>
           {availableModes.length > 1 && (
@@ -749,15 +760,15 @@ function SearchPalette({
               <ul className="pt-1">
                 <ScopeRow
                   icon={<SearchIcon className="size-[18px]" />}
-                  title={`搜索“${trimmed}”`}
+                  title={t("search.palette.searchKeyword", { keyword: trimmed })}
                   subtitle={
                     mode === "media"
-                      ? "豆瓣与 TMDB 影视条目"
+                      ? t("search.palette.mediaSources")
                       : mode === "torrent"
                         ? currentTab
-                          ? `在「${tabLabel(currentTab)}」中搜索`
-                          : "在全部分类中搜索"
-                        : "已入库的影片"
+                          ? t("search.palette.inScope", { scope: tabLabel(currentTab, locale) })
+                          : t("search.palette.allCategoriesHint")
+                        : t("search.palette.libraryTitles")
                   }
                   onClick={submit}
                 />
@@ -765,7 +776,7 @@ function SearchPalette({
             )}
             {suggestionList && (
               <section>
-                <SectionTitle title="搜索联想" />
+                <SectionTitle title={t("search.palette.suggestions")} />
                 {suggestionList}
               </section>
             )}
@@ -773,12 +784,12 @@ function SearchPalette({
             {/* 最近搜索：资源模式下面还有浏览列表，不需要空态占位 */}
             {historyVertical && items !== null && items.length === 0 && !torrentActive && (
               <p className="px-2.5 py-10 text-center text-sub text-[var(--text-faint)]">
-                还没有搜索记录。{MODE_HINT[mode]}。
+                {t("search.history.emptyModeHint", { mode })}
               </p>
             )}
             {filteredGroups.length > 0 && (
               <section>
-                <SectionTitle title="最近搜索" action={clearHistoryButton} />
+                <SectionTitle title={t("search.history.recent")} action={clearHistoryButton} />
                 {historyList}
               </section>
             )}
@@ -787,11 +798,11 @@ function SearchPalette({
                 输了关键词 = 换个范围搜（点一行即按该范围搜索并记住） */}
             {torrentActive && !trimmed && (
               <section>
-                <SectionTitle title="浏览最新资源" />
+                <SectionTitle title={t("search.palette.browseLatest")} />
                 <ul>
                   <ScopeRow
                     icon={<LayersIcon className="size-[18px]" />}
-                    title="全部分类"
+                    title={t("search.palette.allCategories")}
                     chevron
                     onClick={() => onSearch("", SCOPE_ALL, { vertical: "torrent" })}
                   />
@@ -799,8 +810,8 @@ function SearchPalette({
                     <ScopeRow
                       key={tabKeyOf(tab)}
                       icon={<TabIcon tab={tab} />}
-                      title={tabLabel(tab)}
-                      subtitle={presetSummary(tab)}
+                      title={tabLabel(tab, locale)}
+                      subtitle={presetSummary(tab, locale)}
                       chevron
                       onClick={() => onSearch("", scopeOfTab(tab), { vertical: "torrent" })}
                     />
@@ -810,12 +821,12 @@ function SearchPalette({
             )}
             {torrentActive && trimmed && (
               <section>
-                <SectionTitle title="在其他范围搜索" />
+                <SectionTitle title={t("search.palette.otherScopes")} />
                 <ul>
                   {tabKey !== "all" && (
                     <ScopeRow
                       icon={<LayersIcon className="size-[18px]" />}
-                      title="全部分类"
+                      title={t("search.palette.allCategories")}
                       onClick={() => {
                         changeTab("all");
                         submitTorrent("all");
@@ -828,8 +839,8 @@ function SearchPalette({
                       <ScopeRow
                         key={tabKeyOf(tab)}
                         icon={<TabIcon tab={tab} />}
-                        title={tabLabel(tab)}
-                        subtitle={presetSummary(tab)}
+                        title={tabLabel(tab, locale)}
+                        subtitle={presetSummary(tab, locale)}
                         onClick={() => {
                           changeTab(tabKeyOf(tab));
                           submitTorrent(tabKeyOf(tab));
@@ -841,7 +852,7 @@ function SearchPalette({
             )}
             {torrentActive && (
               <p className="px-2.5 pt-3 text-caption text-[var(--text-faint)]">
-                {MODE_HINT.torrent}。搜索框里的分类标记就是搜索范围，✕ 掉即搜全部分类。
+                {t("search.palette.scopeHint")}
               </p>
             )}
           </div>
@@ -861,29 +872,29 @@ function SearchPalette({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="搜索"
+        aria-label={t("common.search")}
         className="search-palette-panel flex w-full max-w-[600px] flex-col overflow-hidden rounded-2xl border border-white/[0.09] bg-[rgba(21,23,29,0.96)] shadow-[0_24px_80px_rgba(0,0,0,0.55),0_2px_8px_rgba(0,0,0,0.4)] backdrop-blur-2xl max-md:max-h-[calc(100dvh-var(--safe-top)-var(--keyboard-inset)-20px)]"
         onKeyDown={handleKeyDown}
       >
         {/* —— 输入行 —— */}
-        <div className="flex items-center gap-3 pl-4 pr-3">
+        <div className={`flex items-center gap-3 pl-4 pr-3 ${locale === "en" ? "max-md:flex-wrap max-md:gap-y-0" : ""}`}>
           <SearchIcon className="size-[17px] shrink-0 text-[var(--text-faint)]" />
           {input}
-          <ModeSwitch mode={mode} modes={availableModes} onChange={changeMode} />
+          <ModeSwitch mode={mode} modes={availableModes} onChange={changeMode} stretch={locale === "en" && isMobile} />
         </div>
 
         {/* —— 分类 chips（仅资源模式；影视/媒体库搜索没有分类维度）—— */}
         {mode === "torrent" && (
           <div className="flex flex-wrap gap-1.5 px-4 pb-3">
             <CategoryChip
-              label="全部"
+              label={t("common.all")}
               active={tabKey === "all"}
               onClick={() => changeTab("all")}
             />
             {visibleTabs.map((tab) => (
               <CategoryChip
                 key={tabKeyOf(tab)}
-                label={tabLabel(tab)}
+                label={tabLabel(tab, locale)}
                 active={tabKey === tabKeyOf(tab)}
                 onClick={() => changeTab(tabKeyOf(tab))}
               />
@@ -898,49 +909,49 @@ function SearchPalette({
           {historyVertical && items !== null && items.length > 0 && (
             <div className="flex items-center justify-between px-2.5 pb-1 pt-1">
               <span className="text-caption font-medium tracking-wide text-[var(--text-faint)]">
-                最近搜索
+                {t("search.history.recent")}
               </span>
               {clearHistoryButton}
             </div>
           )}
           {historyVertical && items !== null && items.length === 0 && (
             <p className="px-2.5 py-6 text-center text-sub text-[var(--text-faint)]">
-              还没有搜索记录，输入关键词回车开始搜索
+              {t("search.history.empty")}
             </p>
           )}
           {historyVertical && items !== null && items.length > 0 && filteredGroups.length === 0 && (
             <p className="px-2.5 py-6 text-center text-sub text-[var(--text-faint)]">
-              没有匹配「{trimmed}」的搜索记录，回车直接搜索
+              {t("search.history.noMatch", { keyword: trimmed })}
             </p>
           )}
           {historyList}
           {mode === "library" &&
             (suggestionList || (
               <p className="px-2.5 py-6 text-center text-sub text-[var(--text-faint)]">
-                {MODE_HINT.library}，输入关键词回车开始搜索
+                {t("search.palette.libraryEmpty")}
               </p>
             ))}
         </div>
 
         {/* —— 页脚：左侧模式说明，右侧快捷键 —— */}
-        <div className="flex h-10 shrink-0 items-center justify-between border-t border-white/[0.06] px-4">
+        <div className={`flex ${locale === "en" ? "min-h-10 flex-wrap gap-y-2 py-2" : "h-10"} shrink-0 items-center justify-between border-t border-white/[0.06] px-4`}>
           <span className="text-caption text-[var(--text-faint)]">
             {mode === "torrent"
-              ? `${MODE_HINT.torrent}，留空回车 = 浏览该分类最新资源`
-              : MODE_HINT[mode]}
+              ? t("search.palette.torrentFooter")
+              : t(MODE_HINT_KEYS[mode])}
           </span>
           <span className="flex items-center gap-3 text-caption text-[var(--text-faint)] max-md:hidden">
             <span className="flex items-center gap-1">
-              <Kbd>⏎</Kbd> {mode === "torrent" && !trimmed ? "浏览" : "搜索"}
+              <Kbd>⏎</Kbd> {mode === "torrent" && !trimmed ? t("search.palette.browse") : t("common.search")}
             </span>
             <span className="flex items-center gap-1">
-              <Kbd>Tab</Kbd> 切换范围
+              <Kbd>Tab</Kbd> {t("search.palette.switchScope")}
             </span>
             <span className="flex items-center gap-1">
-              <Kbd>↑↓</Kbd> {mode === "library" ? "联想" : "历史"}
+              <Kbd>↑↓</Kbd> {mode === "library" ? t("search.palette.suggestionKey") : t("search.palette.historyKey")}
             </span>
             <span className="flex items-center gap-1">
-              <Kbd>esc</Kbd> 关闭
+              <Kbd>esc</Kbd> {t("common.close")}
             </span>
           </span>
         </div>
@@ -966,17 +977,18 @@ function ModeSwitch({
   /** 撑满一行、各段等分（手机全屏搜索页，同 iOS 搜索栏下的范围分段） */
   stretch?: boolean;
 }) {
+  const t = useTranslations();
   const options: { id: SearchVertical; label: string; hint: string }[] = [
-    { id: "media", label: "影视", hint: "影视条目（豆瓣与 TMDB）" },
-    { id: "torrent", label: "资源", hint: "跨站点种子搜索" },
-    { id: "library", label: "媒体库", hint: "已入库的本地影片" },
+    { id: "media", label: t("search.vertical.media"), hint: t("search.palette.mediaDescription") },
+    { id: "torrent", label: t("search.vertical.torrent"), hint: t("search.palette.torrentDescription") },
+    { id: "library", label: t("search.vertical.library"), hint: t("search.palette.libraryDescription") },
   ] satisfies { id: SearchVertical; label: string; hint: string }[];
   const visibleOptions = options.filter((option) => modes.includes(option.id));
   if (visibleOptions.length <= 1) return null;
   return (
     <div
       role="radiogroup"
-      aria-label="搜索范围"
+      aria-label={t("search.palette.scope")}
       className={`flex shrink-0 gap-0.5 rounded-lg bg-white/[0.06] p-0.5 ${stretch ? "w-full" : ""}`}
     >
       {visibleOptions.map((opt) => {
@@ -1058,6 +1070,8 @@ function HistoryGroupRow({
   onRemoveItem: (id: number) => void;
   onRemoveGroup: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const latest = group.items[0];
   const mediaCount = group.items.filter((item) => item.vertical === "titles").length;
   const torrentCount = group.items.length - mediaCount;
@@ -1086,20 +1100,20 @@ function HistoryGroupRow({
         <button
           type="button"
           onClick={onPick}
-          className="flex min-w-0 flex-1 items-center gap-2.5 py-2 pl-2.5 text-left"
+          className={`flex min-w-0 flex-1 items-center gap-2.5 py-2 pl-2.5 text-left ${locale === "en" ? "max-sm:flex-wrap max-sm:gap-y-1" : ""}`}
         >
-          <span className="min-w-0 flex-1 truncate text-ui leading-5 text-[var(--text)]/90">
+          <span className={`min-w-0 flex-1 truncate text-ui leading-5 text-[var(--text)]/90 ${locale === "en" ? "max-sm:basis-full" : ""}`}>
             {group.keyword}
           </span>
           {group.items.length > 1 ? (
             <>
               <span className="shrink-0 rounded-md bg-white/[0.07] px-1.5 py-0.5 text-micro text-[var(--text-muted)]">
-                {group.items.length} 种范围
+                {t("search.history.scopeCount", { count: group.items.length })}
               </span>
               <span className="hidden shrink-0 text-micro text-[var(--text-faint)] sm:inline">
-                {mediaCount > 0 && `影视 ${mediaCount}`}
+                {mediaCount > 0 && t("search.history.titleCount", { count: mediaCount })}
                 {mediaCount > 0 && torrentCount > 0 && " · "}
-                {torrentCount > 0 && `资源 ${torrentCount}`}
+                {torrentCount > 0 && t("search.history.resourceCount", { count: torrentCount })}
               </span>
             </>
           ) : (
@@ -1107,19 +1121,19 @@ function HistoryGroupRow({
           )}
           {latest.has_snapshot && (
             <span
-              title="最近一次搜索已有结果快照，点击秒开预览"
+              title={t("search.history.latestSnapshotHint")}
               className="shrink-0 rounded-md bg-[var(--info-soft)]/15 px-1.5 py-0.5 text-micro text-[var(--info-text-2)]"
             >
-              快照
+              {t("search.history.snapshot")}
             </span>
           )}
           <span className="shrink-0 text-caption text-[var(--text-faint)]">
-            {formatRelativeTime(latest.last_searched_at)}
+            {formatRelativeTime(latest.last_searched_at, locale)}
           </span>
         </button>
         <button
           type="button"
-          aria-label={expanded ? `收起 ${group.keyword} 的搜索范围` : `展开 ${group.keyword} 的搜索范围`}
+          aria-label={expanded ? t("search.history.collapseScopes", { keyword: group.keyword }) : t("search.history.expandScopes", { keyword: group.keyword })}
           aria-expanded={expanded}
           onMouseDown={(event) => event.preventDefault()}
           onClick={onToggle}
@@ -1139,7 +1153,7 @@ function HistoryGroupRow({
           </svg>
         </button>
         <DeleteHistoryButton
-          label={`删除搜索历史组：${group.keyword}`}
+          label={t("search.history.deleteGroupLabel", { keyword: group.keyword })}
           onClick={onRemoveGroup}
           className="touch-reveal mr-1 opacity-0 group-hover/history:opacity-100"
         />
@@ -1178,34 +1192,36 @@ function HistorySingleRow({
   onPick: () => void;
   onRemove: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   return (
     <li className="group/single relative">
       <button
         type="button"
         onMouseEnter={onHover}
         onClick={onPick}
-        className={`flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition-colors ${
+        className={`flex w-full items-center gap-2.5 ${locale === "en" ? "max-sm:flex-wrap max-sm:gap-y-1" : ""} rounded-[10px] px-2.5 py-2 text-left transition-colors ${
           active ? "bg-white/[0.07]" : ""
         }`}
       >
-        <span className="min-w-0 flex-1 truncate text-ui leading-5 text-[var(--text)]/90">
+        <span className={`min-w-0 flex-1 truncate text-ui leading-5 text-[var(--text)]/90 ${locale === "en" ? "max-sm:basis-full" : ""}`}>
           {item.keyword}
         </span>
         <HistoryTypeBadges item={item} />
         {item.has_snapshot && (
           <span
-            title="已留存结果快照，点击秒开预览"
+            title={t("search.history.snapshotHint")}
             className="shrink-0 rounded-md bg-[var(--info-soft)]/15 px-1.5 py-0.5 text-micro text-[var(--info-text-2)]"
           >
-            快照
+            {t("search.history.snapshot")}
           </span>
         )}
         <span className="shrink-0 text-caption text-[var(--text-faint)] transition-opacity group-hover/single:opacity-0">
-          {formatRelativeTime(item.last_searched_at)}
+          {formatRelativeTime(item.last_searched_at, locale)}
         </span>
       </button>
       <DeleteHistoryButton
-        label={`删除搜索历史：${item.keyword}`}
+        label={t("search.history.deleteLabel", { keyword: item.keyword })}
         onClick={onRemove}
         // !absolute 是必需的：.touch-target 在移动端的无层 position:relative
         // 会顶掉普通 absolute（同 media-track-rows / sidebar 的既有处理）
@@ -1225,27 +1241,29 @@ function HistoryVariantRow({
   onPick: () => void;
   onRemove: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   return (
     <li className="group/variant flex items-center rounded-lg transition-colors hover:bg-white/[0.05]">
       <button
         type="button"
         onClick={onPick}
-        className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-left"
+        className={`flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-left ${locale === "en" ? "max-sm:flex-wrap max-sm:gap-y-1" : ""}`}
       >
-        <span className="min-w-0 flex-1 truncate text-sub text-[var(--text-muted)]">
-          {item.vertical === "titles" ? "影视" : `资源 · ${item.label ?? "全部"}`}
+        <span className={`min-w-0 flex-1 truncate text-sub text-[var(--text-muted)] ${locale === "en" ? "max-sm:basis-full" : ""}`}>
+          {item.vertical === "titles" ? t("search.vertical.media") : t("search.history.variant", { scope: historyScopeName(item, locale) ?? t("common.all"), also: alsoSuffix(item, locale) })}
         </span>
         {item.has_snapshot && (
           <span className="shrink-0 rounded-md bg-[var(--info-soft)]/15 px-1.5 py-0.5 text-micro text-[var(--info-text-2)]">
-            快照
+            {t("search.history.snapshot")}
           </span>
         )}
         <span className="shrink-0 text-micro text-[var(--text-faint)]">
-          {formatRelativeTime(item.last_searched_at)}
+          {formatRelativeTime(item.last_searched_at, locale)}
         </span>
       </button>
       <DeleteHistoryButton
-        label={`删除搜索历史：${item.keyword}（${item.vertical === "titles" ? "影视" : item.label ?? "资源全部"}）`}
+        label={t("search.history.deleteVariant", { keyword: item.keyword, scope: item.vertical === "titles" ? t("search.vertical.media") : historyScopeName(item, locale) ?? t("search.history.allResources") })}
         onClick={onRemove}
         className="touch-reveal mr-1 opacity-0 group-hover/variant:opacity-100"
       />
@@ -1255,6 +1273,8 @@ function HistoryVariantRow({
 
 /** 单记录组在主行直接显示垂直与资源分类，不必展开才能辨认。 */
 function HistoryTypeBadges({ item }: { item: SearchHistoryItem }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const isMedia = item.vertical === "titles";
   return (
     <>
@@ -1265,11 +1285,16 @@ function HistoryTypeBadges({ item }: { item: SearchHistoryItem }) {
             : "bg-white/[0.07] text-[var(--text-muted)]"
         }`}
       >
-        {isMedia ? "影视" : "资源"}
+        {isMedia ? t("search.vertical.media") : t("search.vertical.torrent")}
       </span>
-      {!isMedia && item.label && (
+      {!isMedia && historyScopeName(item, locale) && (
         <span className="shrink-0 rounded-md bg-white/[0.07] px-1.5 py-0.5 text-micro text-[var(--text-muted)]">
-          {item.label}
+          {historyScopeName(item, locale)}
+        </span>
+      )}
+      {!isMedia && !!item.also_keywords?.length && (
+        <span className="min-w-0 truncate rounded-md bg-white/[0.07] px-1.5 py-0.5 text-micro text-[var(--text-muted)]">
+          {t("search.history.also", { keywords: item.also_keywords?.join(" / ") ?? "" })}
         </span>
       )}
     </>
@@ -1277,15 +1302,27 @@ function HistoryTypeBadges({ item }: { item: SearchHistoryItem }) {
 }
 
 /** 记录的范围：「影视」「资源」「资源 · 电影」（同 iOS SearchHomeView.scopeLabel）。 */
-function historyScopeLabel(item: SearchHistoryItem): string {
-  if (item.vertical === "titles") return "影视";
-  return item.label ? `资源 · ${item.label}` : "资源";
+function historyScopeName(item: SearchHistoryItem, locale: AppLocale): string | null {
+  return searchScopeLabel({ label: item.label, labelKey: item.label_key }, locale);
+}
+
+function historyScopeLabel(item: SearchHistoryItem, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  if (item.vertical === "titles") return t("search.vertical.media");
+  return (historyScopeName(item, locale) ? t("search.history.withScope", { scope: historyScopeName(item, locale) ?? "" }) : t("search.vertical.torrent")) + alsoSuffix(item, locale);
+}
+
+/** 详情页带英文名/原名同搜的记录，与只搜片名的同词记录区分开：「 · 另含 Dune」。 */
+function alsoSuffix(item: SearchHistoryItem, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  return item.also_keywords?.length ? t("search.history.alsoSuffix", { keywords: item.also_keywords.join(" / ") }) : "";
 }
 
 /** 记录的时间与快照：「4 小时前 · 快照」（同 iOS SearchHomeView.detailLine）。 */
-function historyDetailLine(item: SearchHistoryItem): string {
-  const time = formatRelativeTime(item.last_searched_at);
-  return item.has_snapshot ? `${time} · 快照` : time;
+function historyDetailLine(item: SearchHistoryItem, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  const time = formatRelativeTime(item.last_searched_at, locale);
+  return item.has_snapshot ? t("search.history.snapshotTime", { time }) : time;
 }
 
 /**
@@ -1312,6 +1349,8 @@ function SilverHistoryGroup({
   onRemoveItem: (id: number) => void;
   onRemoveGroup: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const [latest, ...rest] = group.items;
   return (
     <li className="border-b border-white/[0.06] py-0.5 last:border-b-0">
@@ -1332,13 +1371,13 @@ function SilverHistoryGroup({
               {group.keyword}
             </span>
             <span className="block truncate text-caption text-[var(--text-muted)]">
-              {historyScopeLabel(latest)} · {historyDetailLine(latest)}
+              {historyScopeLabel(latest, locale)} · {historyDetailLine(latest, locale)}
             </span>
           </span>
         </button>
         <DeleteHistoryButton
           label={
-            rest.length > 0 ? `删除搜索历史组：${group.keyword}` : `删除搜索历史：${group.keyword}`
+            rest.length > 0 ? t("search.history.deleteGroupLabel", { keyword: group.keyword }) : t("search.history.deleteLabel", { keyword: group.keyword })
           }
           onClick={onRemoveGroup}
           className="touch-reveal mr-1.5 opacity-0 group-hover/history:opacity-100"
@@ -1358,12 +1397,12 @@ function SilverHistoryGroup({
               ↳
             </span>
             <span className="min-w-0 flex-1 truncate text-sub text-[var(--text-muted)]">
-              {historyScopeLabel(item)}
-              <span className="text-[var(--text-faint)]"> · {historyDetailLine(item)}</span>
+              {historyScopeLabel(item, locale)}
+              <span className="text-[var(--text-faint)]"> · {historyDetailLine(item, locale)}</span>
             </span>
           </button>
           <DeleteHistoryButton
-            label={`删除搜索历史：${item.keyword}（${item.vertical === "titles" ? "影视" : item.label ?? "资源全部"}）`}
+            label={t("search.history.deleteVariant", { keyword: item.keyword, scope: item.vertical === "titles" ? t("search.vertical.media") : historyScopeName(item, locale) ?? t("search.history.allResources") })}
             onClick={() => onRemoveItem(item.id)}
             className="touch-reveal mr-1.5 opacity-0 group-hover/variant:opacity-100"
           />
@@ -1399,6 +1438,7 @@ function SuggestionRow({
   onHover: () => void;
   onPick: () => void;
 }) {
+  const t = useTranslations();
   return (
     <li>
       <button
@@ -1406,7 +1446,7 @@ function SuggestionRow({
         onMouseDown={(event) => event.preventDefault()}
         onMouseEnter={onHover}
         onClick={onPick}
-        aria-label={`搜索「${suggestion.text}」`}
+        aria-label={t("search.palette.searchSuggestion", { keyword: suggestion.text })}
         className={`flex w-full items-center gap-3 rounded-[10px] px-2.5 py-2 text-left transition-colors hover:bg-white/[0.04] active:bg-white/[0.07] ${
           active ? "bg-white/[0.06]" : ""
         }`}
@@ -1430,7 +1470,7 @@ function SuggestionRow({
           )}
         </span>
         <span className="shrink-0 text-caption text-[var(--text-faint)]">
-          {suggestion.type === "person" ? "人物" : "影片"}
+          {suggestion.type === "person" ? t("search.palette.person") : t("search.palette.title")}
         </span>
       </button>
     </li>

@@ -1,0 +1,10 @@
+{
+  "metadata": {
+    "description": "MovieClaw dashboard — your media tracking workspace.",
+    "manifestDescription": "Your media tracking workspace"
+  },
+  "newSession": {
+    "configureModel": "Connect an AI model to start a conversation",
+    "createFailed": "Could not create session: {reason}"
+  }
+}

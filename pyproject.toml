@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "movieclaw"
-version = "0.34.0"
+version = "0.43.0"
 description = "Best-practice Python HTTP service template powered by FastAPI."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,6 +13,8 @@ authors = [
   { name = "MovieClaw" }
 ]
 dependencies = [
+  "babel>=2.17,<3.0",
+  "pyicumessageformat>=1.0,<2.0",
   "fastapi>=0.116.0,<1.0.0",
   # 库封面拼贴（氛围光货架，双端共用）与 Jellyfin 图片缩放（docs/design/jellyfin-compat.md 5.6）
   "pillow>=10.4.0,<12.0.0",
@@ -115,21 +117,30 @@ where = ["src"]
 [tool.setuptools.package-data]
 # 基线 spec：构建期由 movieclaw_api.export_openapi 现场导出。服务端运行期读它
 # 渲染 Agent 的 mclaw 工具描述，Go CLI 在自己的构建期把同一份嵌进二进制。
-movieclaw_api = ["data/spec.json"]
+movieclaw_api = ["data/spec.json", "locales/**/*.json"]
 # 内置技能层（docs/design/agent-skills.md）：Docker 部署整棵 src 拷贝本就带上，
 # 这行给 wheel 形态兜底。
 movieclaw_agent = ["builtin-skills/**/*"]
 # 随应用携带的插件包（docs/design/plugin-channels.md §7）：清单是加载与打包的依据
 movieclaw_plugins = ["*/movieclaw-plugin.toml"]
+# 网页主题的 CSS 契约表（docs/design/theme-plugins.md §4.4）
+movieclaw_sdk = ["theme_css.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
 asyncio_mode = "auto"
+# 通过的用例当场删掉自己的 tmp_path，只留失败现场：一套 API 用例每轮会建几十个
+# 各 1.5 MB 的隔离库，默认还会保留最近几轮。临时根目录收进仓库内 .tmp-pytest/
+# 见 tests/conftest.py（CI 想换位置可覆盖 MOVIECLAW_TEST_TMP）。
+# 清理发生在用例的 teardown，用例自己打的补丁可能还没还原：Linux 的 shutil.rmtree
+# 按 fd 调 os.scandir，补丁 os.scandir 的包装器要放过整数参数。
+tmp_path_retention_policy = "failed"
 markers = [
   "integration: 依赖真实网络或 cookie 的集成测试，CI 中可用 -m 'not integration' 跳过",
   "real_password_hash: 使用生产 Argon2 参数的专项测试，不启用低成本测试 hasher",
+  "strm_prefetch: 需要随带插件「网盘规格预探」运行的测试（其余测试默认停用它）",
 ]
 
 [tool.ruff]

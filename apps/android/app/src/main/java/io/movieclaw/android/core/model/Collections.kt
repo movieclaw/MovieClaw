@@ -45,3 +45,52 @@ data class CollectionCover(
     /** 微缩占位图 data URI；缺图时为 null */
     val blur: String? = null,
 )
+
+/** 系列里的一部作品：库里有没有、在追没在追（服务端 `SeriesPartView`） */
+@Serializable
+data class SeriesPartView(
+    val tmdbId: Long,
+    val title: String,
+    val releaseDate: String? = null,
+    val posterUrl: String? = null,
+    /** 库里已有的那条；null = 缺这一部 */
+    val mediaItemId: Long? = null,
+    /** 已经在追（有订阅） */
+    val subscribed: Boolean = false,
+)
+
+/** 系列合集的「已有 N / 共 M」与缺片名单（服务端 `CollectionSeriesView`） */
+@Serializable
+data class CollectionSeriesView(
+    val seriesName: String? = null,
+    val ownedCount: Int = 0,
+    val total: Int = 0,
+    val imageUrl: String? = null,
+    val parts: List<SeriesPartView> = emptyList(),
+    /** 拉到上游档案了吗；false = 没配 TMDB / 网络不通 / 本地系列没有上游档案 */
+    val available: Boolean = false,
+)
+
+/* ---------------- 写入侧（详情页 ⋯ 菜单的「加入合集…」，iOS `AddToCollectionSheet`） ---------------- */
+
+/** `POST /collections/{id}/items` 的请求体（服务端 `CollectionItemsPayload`）；幂等，已在里面不会报错 */
+@Serializable
+data class CollectionItemsPayload(
+    val mediaItemIds: List<Long> = emptyList(),
+)
+
+/**
+ * `POST /collections` 的请求体（服务端 `CollectionPayload`，字段全部可选）。
+ * 从详情页新建时只用 `{name, libraryId, itemIds}`：建完顺手把这部片放进去。
+ */
+@Serializable
+data class CollectionPayload(
+    val name: String? = null,
+    val libraryId: Long? = null,
+    val rules: kotlinx.serialization.json.JsonElement? = null,
+    val sort: String? = null,
+    val visibility: String? = null,
+    val hidden: Boolean? = null,
+    val itemIds: List<Long>? = null,
+    val snapshot: Boolean? = null,
+)

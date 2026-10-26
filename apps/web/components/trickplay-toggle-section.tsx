@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { useCallback, useEffect, useState } from "react";
 
 import { Toggle } from "@/components/cloud-push-ui";
@@ -18,6 +20,7 @@ import { fetchPlaybackPolicy, savePlaybackPolicy } from "@/lib/api/playback";
  * 关掉只是不再生成新的，重新打开即恢复。
  */
 export function TrickplayToggleRow() {
+  const t = useTranslations();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,18 +60,18 @@ export function TrickplayToggleRow() {
 
   return (
     <SettingsRow
-      label="生成进度条预览图"
+      label={t("settings.playback.controls.trickplayTitle")}
       description={
         enabled
-          ? "拖动进度条时可以看到画面缩略图；影片入库后首次播放会在后台慢慢生成"
-          : "不再为新影片生成预览，已生成的照常显示；重新打开即恢复生成"
+          ? t("settings.playback.controls.trickplayOn")
+          : t("settings.playback.controls.trickplayOff")
       }
       error={error}
     >
       {enabled !== null && (
         <Toggle
           checked={enabled}
-          label="生成进度条预览图"
+          label={t("settings.playback.controls.trickplayTitle")}
           disabled={busy}
           onChange={(next) => void toggle(next)}
         />

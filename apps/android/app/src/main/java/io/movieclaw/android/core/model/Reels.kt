@@ -84,12 +84,16 @@ data class ReelSubtitleView(
     val format: String? = null,
 )
 
-/** 怎么放这一条（一期 mode=seek：从原片中间起播） */
+/** 怎么放这一条：seek = 从原片中间起播；clip = 放服务端预切好的片段文件 */
 @Serializable
 data class ReelPlayView(
     val mode: String = "seek",
-    /** 原片取流地址（相对路径，含令牌） */
+    /** 原片取流地址（相对路径，含令牌）；clip 时是「接着看」转正片用的地址 */
     val streamUrl: String? = null,
+    /** clip：预切片段地址（相对路径，含令牌，支持 Range）；1080p H.264 SDR + AAC MP4 */
+    val clipUrl: String? = null,
+    /** clip：片段文件大小（字节） */
+    val clipSizeBytes: Long? = null,
     val sizeBytes: Long? = null,
     /**
      * 光盘的交付方式（服务端 v0.32 起「大图预告」与「片段」也放开原盘 / 镜像 / DVD / TS / AVI）：

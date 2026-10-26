@@ -41,11 +41,13 @@ _BATCH_SIZE = 500
 _backfill_task: asyncio.Task | None = None
 
 
-def _enrich_batch(inputs: list[tuple[str, str | None, str | None]]) -> list[dict]:
+def _enrich_batch(
+    inputs: list[tuple[str, str | None, str | None, list[str] | None]],
+) -> list[dict]:
     """整批扩充计算（含 NER 推理），供工作线程调用。"""
     return [
-        enrich(title, subtitle, category).model_dump(mode="json", exclude_defaults=True)
-        for title, subtitle, category in inputs
+        enrich(title, subtitle, category, labels).model_dump(mode="json", exclude_defaults=True)
+        for title, subtitle, category, labels in inputs
     ]
 
 
@@ -74,8 +76,12 @@ async def reenrich_stale_torrents() -> int:
                 )
                 if not rows:
                     break
-                # 行字段在主线程读齐，工作线程只做纯函数推理——ORM 对象不跨线程
-                inputs = [(row.title, row.subtitle, row.category) for row in rows]
+                # 行字段在主线程读齐，工作线程只做纯函数推理——ORM 对象不跨线程。
+                # 站点标记不是从标题推出来的，旧 attrs 里有就带回去，不然重算会把它抹掉
+                inputs = [
+                    (row.title, row.subtitle, row.category, (row.attrs or {}).get("site_labels"))
+                    for row in rows
+                ]
                 attrs_list = await asyncio.to_thread(_enrich_batch, inputs)
                 for row, attrs in zip(rows, attrs_list, strict=True):
                     row.attrs = attrs

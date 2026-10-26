@@ -91,12 +91,14 @@ class CloudSetting(SettingSchema):
     unsupported_message: str = Field(
         default="", description="云端说版本不再受支持时的说明；空 = 受支持"
     )
+    unsupported_message_ref: dict | None = None
     notices: list[CloudNotice] = Field(default_factory=list)
     dismissed_notice_ids: list[str] = Field(default_factory=list)
 
     # -- 被动断开（在官网解绑、账号删除）：未连接页面上告诉管理员发生了什么 ----------
     last_disconnect_reason: str = ""
     last_disconnect_message: str = ""
+    last_disconnect_message_ref: dict | None = None
     last_disconnect_at: datetime | None = None
 
     # -- 上报 ----------------------------------------------------------------------

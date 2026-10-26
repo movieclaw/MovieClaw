@@ -1,0 +1,110 @@
+[
+  {
+    "header": null,
+    "locale": "zh-Hans"
+  },
+  {
+    "header": "",
+    "locale": "zh-Hans"
+  },
+  {
+    "header": "   ",
+    "locale": "zh-Hans"
+  },
+  {
+    "header": "fr",
+    "locale": "en"
+  },
+  {
+    "header": "zh",
+    "locale": "zh-Hans"
+  },
+  {
+    "header": "zh-CN, en;q=0.8",
+    "locale": "zh-Hans"
+  },
+  {
+    "header": "zh-Hant-TW",
+    "locale": "zh-Hans"
+  },
+  {
+    "header": "zh-HK",
+    "locale": "zh-Hans"
+  },
+  {
+    "header": "ZH-sg",
+    "locale": "zh-Hans"
+  },
+  {
+    "header": "en-GB,zh;q=0.9",
+    "locale": "en"
+  },
+  {
+    "header": "ja,zh;q=0.7,en;q=0.8",
+    "locale": "en"
+  },
+  {
+    "header": "de,ja;q=0.8",
+    "locale": "en"
+  },
+  {
+    "header": "en;q=0.2,zh;q=0.9",
+    "locale": "zh-Hans"
+  },
+  {
+    "header": "zh;q=0,en;q=0.5",
+    "locale": "en"
+  },
+  {
+    "header": "zh;q=garbage,en",
+    "locale": "en"
+  },
+  {
+    "header": "zh;q=NaN",
+    "locale": "en"
+  },
+  {
+    "header": "zh;q=1.1",
+    "locale": "en"
+  },
+  {
+    "header": "zh;q=-1",
+    "locale": "en"
+  },
+  {
+    "header": "zhfoo",
+    "locale": "en"
+  },
+  {
+    "header": "zh_CN",
+    "locale": "en"
+  },
+  {
+    "header": "*,zh;q=0.3",
+    "locale": "zh-Hans"
+  },
+  {
+    "header": "zh;q=0.8,en;q=0.8",
+    "locale": "zh-Hans"
+  },
+  {
+    "header": "zh;q=0x1",
+    "locale": "en"
+  },
+  {
+    "header": "zh;q=1e0",
+    "locale": "en"
+  },
+  {
+    "header": "zh;q=.8",
+    "locale": "en"
+  },
+  {
+    "header": "zh;q=0.9999",
+    "locale": "en"
+  },
+  {
+    "header": "zh;q=1.000",
+    "locale": "zh-Hans"
+  }
+]

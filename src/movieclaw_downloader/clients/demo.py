@@ -32,6 +32,7 @@ from movieclaw_downloader.models import (
     TorrentFile,
     TorrentStatus,
 )
+from movieclaw_downloader.registry import DownloaderAdapter
 
 #: 模拟下载速度与时长区间：几百 MB 的演示片约一分钟下完，审核员能看到进度在走
 DOWNLOAD_SPEED = 8 * 1024 * 1024
@@ -383,3 +384,18 @@ class DemoDownloader(BaseDownloader):
 
     async def close(self) -> None:
         return None
+
+
+# 与正式下载器走同一张适配器注册表；只有演示站插件启用时才向内核登记。
+ADAPTER = DownloaderAdapter(
+    type="demo",
+    title="演示下载器",
+    factory=DemoDownloader,
+    connection={
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "title": "演示地址", "examples": ["http://demo.local"]}
+        },
+        "required": ["url"],
+    },
+)

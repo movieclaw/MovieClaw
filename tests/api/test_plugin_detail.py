@@ -1,0 +1,271 @@
+"""插件详情（设置 → 插件 → 点一个插件）：按用户关心的问题聚合，「给系统加了什么」翻成人话。"""
+
+from __future__ import annotations
+
+import re
+import sys
+
+import pytest
+from fastapi.testclient import TestClient
+
+from movieclaw_api.core.config import get_settings
+from movieclaw_api.plugins.local import PACKAGE
+from movieclaw_api.services import durable_events
+
+PLUGIN = """
+from fastapi import APIRouter
+from pydantic import BaseModel, ConfigDict
+
+from movieclaw_api import hooks
+from movieclaw_sdk.events import LIBRARY_INGEST_COMPLETED, PLUGIN_EVENTS, plugin_event
+from movieclaw_api.plugins.keys import PLUGIN_DATA, PLUGIN_ROUTES
+from movieclaw_kernel import DURABLE_EVENTS
+from movieclaw_scheduler import SCHEDULED_TASKS, TaskDefinition, TriggerType
+from movieclaw_sdk import plugin
+from movieclaw_sdk.callbacks import PLUGIN_CALLBACKS, CallbackResponse
+
+
+class GrabFailed(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    site: str
+
+
+GRAB_FAILED = plugin_event("acme-detail.grab.failed", GrabFailed, title="抓取失败")
+
+
+@plugin(
+    "acme-detail",
+    title="详情示例",
+    inject=(DURABLE_EVENTS, PLUGIN_ROUTES, PLUGIN_DATA, PLUGIN_CALLBACKS, PLUGIN_EVENTS),
+)
+async def apply(ctx) -> None:
+    async def on_imported(event) -> None:
+        pass
+
+    def pick(query):
+        return None
+
+    async def patrol() -> None:
+        return None
+
+    ctx.on(LIBRARY_INGEST_COMPLETED, on_imported, id="imported", durable=True)
+    ctx.on(hooks.DOWNLOADER_SELECT, pick)
+    await ctx.use(PLUGIN_EVENTS).register(ctx, GRAB_FAILED)
+    # 贡献 id 会带「插件id:」前缀，任务 key 不带——详情 href 必须用后者（回归见「定时任务」行）
+    ctx.contribute(
+        SCHEDULED_TASKS,
+        "acme_detail_patrol",
+        TaskDefinition(
+            key="acme_detail_patrol",
+            title="详情示例巡检",
+            handler=patrol,
+            default_trigger_type=TriggerType.INTERVAL,
+            default_interval_seconds=3600,
+        ),
+    )
+    router = APIRouter()
+
+    @router.get("/recent", operation_id="plugins.acme-detail.recent")
+    async def recent() -> dict:
+        return {}
+
+    ctx.use(PLUGIN_ROUTES).mount(ctx, router)
+    await ctx.use(PLUGIN_DATA).scoped(ctx).set("seen", 1)
+
+    async def hook(req):
+        return CallbackResponse.text("ok")
+
+    ctx.use(PLUGIN_CALLBACKS).endpoint(ctx, "push", hook)
+    await ctx.use(PLUGIN_CALLBACKS).issue(ctx, "push")
+"""
+
+
+@pytest.fixture
+def app_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'detail.db'}")
+    monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
+    monkeypatch.setenv("SITE_CONFIGS_DIR", str(tmp_path / "site-configs"))
+    monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    from movieclaw_api import spec_state
+
+    monkeypatch.setattr(spec_state, "routes_changed", lambda app: None)
+    get_settings.cache_clear()
+    durable_events.reset_state()
+    (tmp_path / "plugins").mkdir()
+    (tmp_path / "plugins" / "acme_detail.py").write_text(PLUGIN, encoding="utf-8")
+    (tmp_path / "plugins.yaml").write_text(
+        # events / notifications：本地插件在 plugins.yaml 里声明（domain-events.md §7），
+        # 详情页的「会发出」「会发通知」行与「账号 → 通知」的开关都由它而来
+        "- id: acme-detail\n"
+        "  local: true\n"
+        "  module: acme_detail\n"
+        "  events:\n"
+        "    - name: acme-detail.grab.failed\n"
+        "      title: 抓取失败\n"
+        "  notifications:\n"
+        "    - event: acme-detail.grab.failed\n"
+        "      title: \"{site} 抓取失败\"\n"
+        "      audience: admins\n",
+        encoding="utf-8",
+    )
+    folder = tmp_path / "plugins" / "data" / "acme-detail"
+    folder.mkdir(parents=True)
+    (folder / "cache.bin").write_bytes(b"x" * 2048)
+    yield tmp_path
+    # 和别的本地插件用例一样卸掉导入的插件模块：不清的话，同一进程里后跑的
+    # 「进程外插件不在宿主里导入」断言会把这里留下的模块当成违规（分组运行时稳定复现）
+    for name in [m for m in sys.modules if m == PACKAGE or m.startswith(PACKAGE + ".")]:
+        del sys.modules[name]
+    durable_events.reset_state()
+    get_settings.cache_clear()
+
+
+def start() -> TestClient:
+    from movieclaw_api.api.deps import require_admin, require_login
+    from movieclaw_api.app import create_app
+    from movieclaw_api.services.auth import Principal
+
+    app = create_app()
+    admin = Principal(kind="admin", name="tester")
+    app.dependency_overrides[require_admin] = lambda: admin
+    app.dependency_overrides[require_login] = lambda: admin
+    return TestClient(app, headers={"Accept-Language": "zh-Hans"})
+
+
+def detail(client: TestClient, entry_id: str) -> dict:
+    reply = client.get(f"/api/v1/app/plugins/{entry_id}")
+    assert reply.status_code == 200, reply.text
+    return reply.json()["data"]
+
+
+def test_detail_translates_what_a_plugin_adds(app_env) -> None:
+    with start() as client:
+        data = detail(client, "acme-detail")
+        assert data["kind"] == "local"
+        assert data["plugin"]["state"] == "active"
+        titles = {(a["kind"], a["title"]) for a in data["adds"]}
+        assert ("command", "mclaw plugins acme-detail recent") in titles
+        assert ("trigger", "「一个下载条目整理入库完成」后会自动处理") in titles
+        assert any(k == "decision" and "下载器" in t for k, t in titles)
+        assert [c["endpoint"] for c in data["callbacks"]] == ["push"]
+        assert "****" in data["callbacks"][0]["url"]
+        assert [c["events"] for c in data["consumers"]] == [["library.ingest.completed"]]
+        assert data["data_rows"] == 1
+        assert data["disk_bytes"] == 2048
+        # 管理接口的固定路径不会被当成插件 id
+        assert client.get("/api/v1/app/plugins/callbacks").status_code == 200
+
+
+def test_row_links_land_on_the_row_itself(app_env) -> None:
+    """带「查看」的行直达具体那一行：通知行带 ?event=、定时任务行带 ?task=。
+
+    事件行落在 Webhook 页顶部（那一页的行是推送目标，事件订阅在编辑卡里，没有
+    可逐事件直达的行）；通知行的键与「账号 → 通知」的开关行键闭环核对。
+    """
+    with start() as client:
+        data = detail(client, "acme-detail")
+        by_kind = {a["kind"]: a for a in data["adds"]}
+        assert (
+            by_kind["notification"]["href"]
+            == "/settings/notifications?event=acme-detail.grab.failed"
+        )
+        assert by_kind["event"]["href"] == "/settings/webhook"
+        # 定位键是任务 key，不是带「插件id:」前缀的贡献 id
+        assert by_kind["task"]["href"] == "/settings/app?tab=tasks&task=acme_detail_patrol"
+        # 闭环：href 里的键就是「账号 → 通知」那一行的 key（通知规则的 pref_key = 事件名）
+        me = client.get("/api/v1/push/me").json()["data"]
+        assert "acme-detail.grab.failed" in {e["key"] for e in me["events"]}
+
+        hrefs = [a["href"] for a in detail(client, "library.core")["adds"] if a["kind"] == "task"]
+        assert hrefs
+        assert all(re.fullmatch(r"/settings/app\?tab=tasks&task=\w+", href) for href in hrefs)
+        assert "/settings/app?tab=tasks&task=library_reconcile" in hrefs
+
+
+def test_official_channel_and_system_module(app_env) -> None:
+    with start() as client:
+        weixin = detail(client, "weixin-channel")
+        assert weixin["kind"] == "official"
+        assert weixin["version"] and weixin["description"]
+        assert weixin["package"] is None
+        [channel] = [a for a in weixin["adds"] if a["kind"] == "channel"]
+        assert channel["title"] == "消息通道「微信」"
+        assert channel["detail"] == "还没有接入账号" and channel["href"] == "/settings/im-push"
+
+        scheduler = detail(client, "scheduler")
+        assert scheduler["kind"] == "system"
+        assert client.get("/api/v1/app/plugins/no-such-plugin").status_code == 404
+
+
+def test_every_registration_shows_up_without_a_list_to_maintain(app_env) -> None:
+    """详情不维护注册表清单：内置下载模块登记的删除选项、以及一个全新的注册表，都能显示。"""
+    from dataclasses import dataclass
+    from functools import partial
+
+    from movieclaw_kernel import Entry, RegistryKey, Stability, plugin
+
+    @dataclass(frozen=True)
+    class Widget:
+        label: str
+
+    widgets = RegistryKey(
+        "test.widgets", schema=Widget, stability=Stability.INTERNAL, doc="测试小部件"
+    )
+
+    @plugin("test-widgets", title="测试小部件")
+    async def widget_plugin(ctx) -> None:
+        ctx.contribute(widgets, "spinner", Widget("转圈的小部件"))
+
+    with start() as client:
+        downloads = detail(client, "downloads")
+        assert (
+            "delete",
+            "删除影片时的选项「同时删除下载任务和源文件」",
+        ) in {(a["kind"], a["title"]) for a in downloads["adds"]}
+
+        kernel = client.app.state.kernel
+        client.portal.call(partial(kernel.mount, Entry("test-widgets", widget_plugin)))
+        [added] = detail(client, "test-widgets")["adds"]
+        assert added == {
+            "kind": "other",
+            "title": "转圈的小部件",
+            "detail": "测试小部件",
+            "href": None,
+        }
+
+
+def test_detail_says_where_the_code_lives(app_env) -> None:
+    with start() as client:
+        system = detail(client, "downloads")["source"]
+        assert system["path"].startswith("src/movieclaw_api/plugins/domains.py:")
+        assert system["entry"] == "downloads()"
+
+        local = detail(client, "acme-detail")
+        assert local["source"] == {"path": "data/plugins/acme_detail.py", "entry": "acme_detail"}
+        assert local["data_path"] == "data/plugins/data/acme-detail"
+
+        official = detail(client, "weixin-channel")["source"]
+        assert official["path"].startswith("src/") and "weixin" in official["path"]
+        assert official["entry"] and "." not in official["entry"]
+
+
+def test_infrastructure_modules_describe_themselves(app_env) -> None:
+    """不往注册表登记的基础模块：介绍取入口函数自己的说明，能力里列出它提供的服务。"""
+    with start() as client:
+        registries = detail(client, "core.registries")
+        # 就是入口函数说明文字的第一段（写在代码里，不另维护）
+        import inspect
+
+        from movieclaw_api.plugins.core import registries as entry
+
+        first = inspect.getdoc(entry.apply).split("\n\n", 1)[0]
+        assert registries["description"] == " ".join(x.strip() for x in first.splitlines())
+        assert registries["description"]
+        database = detail(client, "core.database")
+        assert {
+            "kind": "service",
+            "title": "提供服务「数据库引擎（迁移完成后提供）」",
+            "detail": "别的插件可以用 db",
+            "href": None,
+        } in database["adds"]

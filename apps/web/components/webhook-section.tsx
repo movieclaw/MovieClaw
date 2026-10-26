@@ -12,7 +12,7 @@
  *     立刻展示并提示复制保存——之后任何读取都只有打码值。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Banner, ErrorBanner, Toggle } from "@/components/cloud-push-ui";
 import { CopyButton } from "@/components/copy-button";
@@ -42,6 +42,9 @@ import {
   saveWebhookConfig,
   sendWebhookTest,
 } from "@/lib/api/webhook";
+import { useLocale, useTranslations } from "next-intl";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 import { formatRelativeTime } from "@/lib/time";
 
 const INPUT_CLASS = `${SETTINGS_INPUT_CLASS} w-full`;
@@ -96,10 +99,13 @@ function textToHeaders(text: string): Record<string, string> {
 }
 
 export function WebhookSection() {
+  const t = useTranslations();
+  const locale = useLocale();
+  const loadGeneration = useRef(0);
   const confirm = useConfirm();
   const toast = useToast();
   const [config, setConfig] = useState<WebhookConfigView | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   const [busy, setBusy] = useState(false);
   /** 编辑卡中的草稿；null = 未打开 */
   const [draft, setDraft] = useState<WebhookEndpointPayload | null>(null);
@@ -110,16 +116,18 @@ export function WebhookSection() {
   const [records, setRecords] = useState<WebhookDelivery[]>([]);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     try {
-      setConfig(await getWebhookConfig());
+      const view = await getWebhookConfig();
+      if (generation === loadGeneration.current) setConfig(view);
     } catch (e) {
-      setError((e as Error).message);
+      if (generation === loadGeneration.current) setError((e as Error).message);
     }
-  }, []);
+  }, [setError]);
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, locale]);
 
   /** 全量保存：任何变更（开关/增删改）都走这一条路，响应即最新视图。 */
   async function save(next: {
@@ -164,9 +172,9 @@ export function WebhookSection() {
     if (config == null) return;
     if (
       !(await confirm({
-        title: `删除「${ep.name || ep.url}」？`,
-        description: "删除后该地址不再收到任何事件，签名密钥同时作废。",
-        confirmLabel: "删除",
+        title: t("settings.webhook.ui.deleteTitle", {name: ep.name || ep.url}),
+        description: t("settings.webhook.ui.deleteHint"),
+        confirmLabel: t("common.delete"),
         tone: "danger",
       }))
     )
@@ -182,7 +190,7 @@ export function WebhookSection() {
   async function handleSubmitDraft() {
     if (config == null || draft == null) return;
     if (!draft.url.trim()) {
-      setError("请填写目标地址");
+      setError({key: "settings.webhook.ui.urlRequired"});
       return;
     }
     const rest = currentPayloads().filter((p) => p.id !== draft.id);
@@ -203,9 +211,9 @@ export function WebhookSection() {
   async function handleRotate(ep: WebhookEndpointView) {
     if (
       !(await confirm({
-        title: "轮换签名密钥？",
-        description: "旧密钥立刻作废，下游需要更新为新密钥后才能继续验签。",
-        confirmLabel: "轮换",
+        title: t("settings.webhook.ui.rotateTitle"),
+        description: t("settings.webhook.ui.rotateHint"),
+        confirmLabel: t("settings.webhook.ui.rotateConfirm"),
         tone: "danger",
       }))
     )
@@ -226,8 +234,8 @@ export function WebhookSection() {
     setBusy(true);
     try {
       const result = await sendWebhookTest(ep.id);
-      if (result.ok) toast.success(`测试事件已送达（HTTP ${result.status_code}，${result.duration_ms}ms）`);
-      else toast.error(result.error || "测试投递失败");
+      if (result.ok) toast.success(t("settings.webhook.ui.testDelivered", {status: result.status_code ?? "", duration: result.duration_ms}));
+      else toast.error(result.error || t("settings.webhook.ui.testFailed"));
       await load();
     } catch (e) {
       toast.error((e as Error).message);
@@ -263,39 +271,37 @@ export function WebhookSection() {
     <div className="space-y-10">
       <div className="space-y-4">
         <p className="text-sub leading-6 text-[var(--text-muted)]">
-          播放、收藏等事件发生后，MovieClaw 会向下面配置的地址推送 JSON（自有协议带
-          HMAC-SHA256 签名，头 <code className="rounded bg-white/[0.08] px-1 py-0.5 text-caption">X-MovieClaw-Signature</code>），
-          供 Home Assistant、观影记录等外部服务实时订阅。
+          {t.rich("settings.webhook.ui.intro", {code: chunks => <code className="rounded bg-white/[0.08] px-1 py-0.5 text-caption">{chunks}</code>})}
         </p>
 
         {error && <ErrorBanner>{error}</ErrorBanner>}
 
         {revealed && (
-          <Banner tone="ok" title={`「${revealed.name}」的签名密钥（仅显示这一次，请立即保存）`}>
+          <Banner tone="ok" title={t("settings.webhook.ui.revealedTitle", {name: revealed.name})}>
             <div className="mt-2 flex items-center gap-2">
               <code className="min-w-0 flex-1 break-all rounded-lg bg-black/30 px-3 py-2 font-mono text-caption text-[var(--text)]">
                 {revealed.secret}
               </code>
-              <CopyButton text={revealed.secret} label="复制" className={SETTINGS_BUTTON_CLASS} />
+              <CopyButton text={revealed.secret} label={t("common.copy")} className={SETTINGS_BUTTON_CLASS} />
             </div>
             <button
               type="button"
               onClick={() => setRevealed(null)}
               className="mt-2 text-caption text-[var(--text-muted)] underline underline-offset-2 hover:text-[var(--text)]"
             >
-              我已保存，关闭
+              {t("settings.webhook.ui.savedClose")}
             </button>
           </Banner>
         )}
       </div>
 
       {/* 总开关 */}
-      <SettingsSection title="事件推送">
+      <SettingsSection title={t("settings.webhook.ui.eventsTitle")}>
         <SettingsList>
-          <SettingsRow label="启用事件推送" description="关闭后所有推送目标都不再收到事件">
+          <SettingsRow label={t("settings.webhook.ui.enable")} description={t("settings.webhook.ui.enableHint")}>
             <Toggle
               checked={config.enabled}
-              label="启用事件推送"
+              label={t("settings.webhook.ui.enable")}
               onChange={(v) => void handleToggleGlobal(v)}
             />
           </SettingsRow>
@@ -304,9 +310,9 @@ export function WebhookSection() {
 
       {/* endpoint 列表 */}
       <SettingsSection
-        title="推送目标"
+        title={t("settings.webhook.ui.endpoints")}
         description={
-          config.endpoints.length > 0 ? `已配置 ${config.endpoints.length} 个推送目标` : undefined
+          config.endpoints.length > 0 ? t("settings.webhook.ui.endpointCount", {count: config.endpoints.length}) : undefined
         }
         action={
           <button
@@ -316,7 +322,7 @@ export function WebhookSection() {
             className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`}
           >
             <PlusIcon className="size-4" />
-            新增 Endpoint
+            {t("settings.webhook.ui.add")}
           </button>
         }
       >
@@ -324,8 +330,8 @@ export function WebhookSection() {
           {config.endpoints.length === 0 && draft == null ? (
             <SettingsEmpty
               icon={<SendIcon className="size-5" />}
-              title="还没有推送目标"
-              description="点「新增 Endpoint」，把播放事件推给你的自动化服务。"
+              title={t("settings.webhook.ui.empty")}
+              description={t("settings.webhook.ui.emptyHint")}
             />
           ) : (
             config.endpoints.length > 0 && (
@@ -398,14 +404,16 @@ function EndpointRow({
   onRecords: () => void;
   onDelete: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   const last = endpoint.last_delivery;
   const status = !endpoint.enabled
-    ? { label: "已停用", color: "#c0c4cc" }
+    ? { label: t("settings.webhook.ui.disabled"), color: "#c0c4cc" }
     : last == null
-      ? { label: "未投递过", color: "#c0c4cc" }
+      ? { label: t("settings.webhook.ui.neverDelivered"), color: "#c0c4cc" }
       : last.ok
-        ? { label: `投递成功 · ${formatRelativeTime(last.at)}`, color: "var(--ok)" }
-        : { label: `投递失败 · ${formatRelativeTime(last.at)}`, color: "var(--danger)" };
+        ? { label: t("settings.webhook.ui.deliveredAt", {time: formatRelativeTime(last.at, locale)}), color: "var(--ok)" }
+        : { label: t("settings.webhook.ui.failedAt", {time: formatRelativeTime(last.at, locale)}), color: "var(--danger)" };
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
@@ -415,7 +423,7 @@ function EndpointRow({
             {endpoint.name || endpoint.url}
           </p>
           <span className="shrink-0 rounded-full bg-white/[0.08] px-2 py-0.5 text-caption text-[var(--text-muted)]">
-            {endpoint.format === "movieclaw" ? "自有协议" : "Jellyfin 兼容"}
+            {endpoint.format === "movieclaw" ? t("settings.webhook.ui.nativeFormat") : t("settings.webhook.ui.jellyfinFormat")}
           </span>
         </div>
         <p className="mt-0.5 flex items-center gap-1.5 truncate text-caption text-[var(--text-faint)]">
@@ -426,19 +434,19 @@ function EndpointRow({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <button type="button" onClick={onEdit} className={SETTINGS_BUTTON_CLASS}>
-          编辑
+          {t("settings.webhook.ui.editAction")}
         </button>
         <SettingsMoreMenu
-          label={`${endpoint.name || endpoint.url} 的更多操作`}
+          label={t("settings.webhook.ui.more", {name: endpoint.name || endpoint.url})}
           items={[
-            { label: "发送测试", onSelect: onTest, disabled: busy },
-            { label: expanded ? "收起发送记录" : "发送记录", onSelect: onRecords },
-            { label: "删除", onSelect: onDelete, disabled: busy, danger: true },
+            { label: t("settings.webhook.ui.sendTest"), onSelect: onTest, disabled: busy },
+            { label: expanded ? t("settings.webhook.ui.hideDeliveries") : t("settings.webhook.ui.deliveries"), onSelect: onRecords },
+            { label: t("common.delete"), onSelect: onDelete, disabled: busy, danger: true },
           ]}
         />
         <Toggle
           checked={endpoint.enabled}
-          label={`启用 ${endpoint.name || endpoint.url}`}
+          label={t("settings.webhook.ui.enableEndpoint", {name: endpoint.name || endpoint.url})}
           onChange={onToggle}
         />
       </div>
@@ -448,10 +456,12 @@ function EndpointRow({
 
 /** 最近投递记录（内存环形缓冲，重启清空）。 */
 function DeliveryList({ records }: { records: WebhookDelivery[] }) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   if (records.length === 0) {
     return (
       <p className="border-t border-[var(--line)] px-4 py-3 text-caption text-[var(--text-faint)]">
-        还没有投递记录（重启后记录会清空）。
+        {t("settings.webhook.ui.noRecords")}
       </p>
     );
   }
@@ -460,7 +470,7 @@ function DeliveryList({ records }: { records: WebhookDelivery[] }) {
       {records.map((r) => (
         <div
           key={r.event_id + r.at}
-          className="flex items-center gap-2.5 px-4 py-2 text-caption text-[var(--text-muted)]"
+          className={`${locale === "en" ? "flex-wrap " : ""}flex items-center gap-2.5 px-4 py-2 text-caption text-[var(--text-muted)]`}
         >
           <span
             className="size-1.5 shrink-0 rounded-full"
@@ -468,11 +478,10 @@ function DeliveryList({ records }: { records: WebhookDelivery[] }) {
           />
           <span className="w-44 shrink-0 truncate font-mono">{r.event}</span>
           <span className="shrink-0">
-            {r.status_code != null ? `HTTP ${r.status_code}` : "未送达"} · {r.duration_ms}ms · 尝试{" "}
-            {r.attempts} 次
+            {t("settings.webhook.ui.deliverySummary", {status: r.status_code != null ? `HTTP ${r.status_code}` : t("settings.webhook.ui.notDelivered"), duration: r.duration_ms, attempts: r.attempts})}
           </span>
-          <span className="min-w-0 flex-1 truncate text-[var(--danger)]">{r.error}</span>
-          <span className="shrink-0 text-[var(--text-faint)]">{formatRelativeTime(r.at)}</span>
+          <span className={locale === "en" && r.error ? "min-w-0 basis-full break-words text-[var(--danger)]" : "min-w-0 flex-1 truncate text-[var(--danger)]"}>{r.error}</span>
+          <span className="shrink-0 text-[var(--text-faint)]">{formatRelativeTime(r.at, locale)}</span>
         </div>
       ))}
     </div>
@@ -499,6 +508,7 @@ function EndpointEditor({
   onSubmit: () => void;
   onRotate?: () => void;
 }) {
+  const t = useTranslations();
   // 事件目录按 group 分组渲染，组内顺序即目录顺序
   const groups = catalog.reduce<Map<string, WebhookCatalogEntry[]>>((acc, entry) => {
     acc.set(entry.group, [...(acc.get(entry.group) ?? []), entry]);
@@ -526,11 +536,11 @@ function EndpointEditor({
 
   return (
     <SettingsCard
-      title={draft.id ? "编辑 Endpoint" : "新增 Endpoint"}
+      title={draft.id ? t("settings.webhook.ui.edit") : t("settings.webhook.ui.add")}
       action={
         <div className="flex items-center gap-2">
           <button type="button" onClick={onCancel} className={SETTINGS_BUTTON_CLASS}>
-            取消
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -538,7 +548,7 @@ function EndpointEditor({
             onClick={onSubmit}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            保存
+            {t("common.save")}
           </button>
         </div>
       }
@@ -546,17 +556,17 @@ function EndpointEditor({
       <div className="space-y-4">
         <div className="grid gap-3 md:grid-cols-2">
           <label className="block">
-            <span className="mb-1.5 block text-caption text-[var(--text-muted)]">显示名</span>
+            <span className="mb-1.5 block text-caption text-[var(--text-muted)]">{t("settings.webhook.ui.name")}</span>
             <input
               type="text"
               value={draft.name}
               onChange={(e) => onChange({ ...draft, name: e.target.value })}
-              placeholder="如 Home Assistant"
+              placeholder={t("settings.webhook.ui.namePlaceholder")}
               className={INPUT_CLASS}
             />
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-caption text-[var(--text-muted)]">目标地址</span>
+            <span className="mb-1.5 block text-caption text-[var(--text-muted)]">{t("settings.webhook.ui.url")}</span>
             <input
               type="text"
               value={draft.url}
@@ -568,11 +578,11 @@ function EndpointEditor({
         </div>
 
         <div>
-          <span className="mb-1.5 block text-caption text-[var(--text-muted)]">外发格式</span>
+          <span className="mb-1.5 block text-caption text-[var(--text-muted)]">{t("settings.webhook.ui.format")}</span>
           <SettingsTabs
             tabs={[
-              { id: "movieclaw", label: "自有协议（HMAC 签名）" },
-              { id: "jellyfin", label: "Jellyfin 兼容（模板渲染）" },
+              { id: "movieclaw", label: t("settings.webhook.ui.nativeTab") },
+              { id: "jellyfin", label: t("settings.webhook.ui.jellyfinTab") },
             ]}
             value={draft.format}
             onChange={(format) => {
@@ -587,8 +597,7 @@ function EndpointEditor({
           />
           {draft.format === "jellyfin" && (
             <p className="mt-1.5 text-caption text-[var(--text-faint)]">
-              与 Jellyfin Webhook 插件同一套模板变量：下游文档里「贴进 Jellyfin
-              插件」的模板可直接贴到下方，实现免适配接入。此格式不签名，鉴权用附加请求头。
+              {t("settings.webhook.ui.jellyfinHint")}
             </p>
           )}
         </div>
@@ -597,8 +606,7 @@ function EndpointEditor({
           <>
             <label className="block">
               <span className="mb-1.5 block text-caption text-[var(--text-muted)]">
-                Handlebars 模板（支持 {"{{Var}}"} 与 if_equals / if_exist / link_to /
-                url_encode / json_encode）
+                {t("settings.webhook.ui.templateLabel", {variable: "{{Var}}"})}
               </span>
               <textarea
                 value={draft.template}
@@ -610,7 +618,7 @@ function EndpointEditor({
             </label>
             <label className="block">
               <span className="mb-1.5 block text-caption text-[var(--text-muted)]">
-                附加请求头（每行一条，如 Authorization: Bearer xxx；可留空）
+                {t("settings.webhook.ui.headersLabel")}
               </span>
               <textarea
                 defaultValue={headersToText(draft.headers)}
@@ -623,7 +631,7 @@ function EndpointEditor({
         )}
 
         <div>
-          <span className="mb-1.5 block text-caption text-[var(--text-muted)]">订阅事件</span>
+          <span className="mb-1.5 block text-caption text-[var(--text-muted)]">{t("settings.webhook.ui.subscribedEvents")}</span>
           <div className="space-y-3">
             {[...groups.entries()].map(([group, entries]) => {
               const usable = entries.filter(selectable);
@@ -647,7 +655,7 @@ function EndpointEditor({
                       return (
                         <label
                           key={entry.event}
-                          title={enabled ? undefined : "该事件没有 Jellyfin 对应物，仅自有协议可订阅"}
+                          title={enabled ? undefined : t("settings.webhook.ui.unsupported")}
                           className={`flex items-center gap-1.5 text-sub ${
                             enabled
                               ? "cursor-pointer text-[var(--text-muted)]"
@@ -674,11 +682,11 @@ function EndpointEditor({
         </div>
 
         <div>
-          <span className="mb-1.5 block text-caption text-[var(--text-muted)]">网络出口</span>
+          <span className="mb-1.5 block text-caption text-[var(--text-muted)]">{t("settings.webhook.ui.egress")}</span>
           <SettingsTabs
             tabs={[
-              { id: "lan", label: "内网直连（默认）" },
-              { id: "wan", label: "跟随代理配置" },
+              { id: "lan", label: t("settings.webhook.ui.lan") },
+              { id: "wan", label: t("settings.webhook.ui.wan") },
             ]}
             value={draft.egress_scope}
             onChange={(scope) => onChange({ ...draft, egress_scope: scope })}
@@ -688,8 +696,7 @@ function EndpointEditor({
         {draft.id && draft.format === "movieclaw" && (
           <div className="flex items-center justify-between gap-3 rounded-xl bg-white/[0.04] px-3.5 py-2.5">
             <p className="min-w-0 text-caption text-[var(--text-muted)]">
-              签名密钥 <code className="font-mono">{secretMasked || "（无）"}</code>
-              ——明文仅在创建时展示过一次，丢失只能轮换
+              {t.rich("settings.webhook.ui.secretHint", {secret: secretMasked || t("settings.webhook.ui.none"), code: chunks => <code className="font-mono">{chunks}</code>})}
             </p>
             {onRotate && (
               <button
@@ -698,7 +705,7 @@ function EndpointEditor({
                 onClick={onRotate}
                 className={SETTINGS_BUTTON_CLASS}
               >
-                轮换密钥
+                {t("settings.webhook.ui.rotate")}
               </button>
             )}
           </div>

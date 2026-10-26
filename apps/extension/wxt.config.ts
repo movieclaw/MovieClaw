@@ -22,17 +22,36 @@ import { defineConfig } from 'wxt';
  *   fetch chrome-extension://<ID>/movieclaw-marker.json 是否成功来判断扩展已安装。
  *   matches 只能写具体域名或 <all_urls>，而 MovieClaw 是自部署、后台域名不可枚举，
  *   故用 <all_urls>（代价是任意网页都能探测到本扩展的存在，属可接受的指纹开销）。
+ *
+ * Firefox（wxt zip -b firefox --mv3）：
+ * - 必须声明 browser_specific_settings.gecko.id：Firefox 的 MV3 扩展没有 ID 时安装会被判为
+ *   「已损坏」（web-ext lint: EXTENSION_ID_REQUIRED）。Chrome 不认这个键，只给 Firefox 加。
+ * - key 是 Chrome 专用字段，Firefox 会报未知字段警告，故不写入 Firefox 清单。
+ * - background.service_worker → background.scripts 的转换由 WXT 按目标浏览器自动完成。
  */
 export default defineConfig({
-  manifest: {
+  manifest: ({ browser }) => ({
     name: 'MovieClaw',
     description: '读取当前站点的 Cookie 并同步到 MovieClaw 主程序，用于站点模拟访问。',
-    key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAskXlDErX8qq2gHh8+QiTIH18AdDk843BHG8FjCONMUMVILBpI0D1xGiknjpESKTmOe6e6A0/iQiIApZCWDiVY68/kpHuutm0N7Sa/8uW6Y+52Bj9tr4QmcNSz6bfI8qBW9dHY9Bzu4G9e4dMJxrMZ26EPgJ/i3NX9qibKQ4AoxLAS7hxrvGUDRsRMNVnf3X1fOtkW0BTPspzPi6sZvywVZ8vEalGdiHCsLE02umtb+rJJqUImznHuA4LgViXYuwFUHvlQJPEpQykHS2/HLib/z8Jw4o9Whk8hsLXU402brJxMxQF2qNtJ91YZZ6P0vcCF33Ju2LuxUtVg+EKIZ7aiwIDAQAB',
+    ...(browser === 'firefox'
+      ? {
+          browser_specific_settings: {
+            gecko: {
+              id: 'extension@movieclaw.io',
+              strict_min_version: '128.0',
+              // 扩展只把 Cookie 推送到用户自己部署的 MovieClaw 后端，不向开发者收集任何数据
+              data_collection_permissions: { required: ['none'] },
+            },
+          },
+        }
+      : {
+          key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAskXlDErX8qq2gHh8+QiTIH18AdDk843BHG8FjCONMUMVILBpI0D1xGiknjpESKTmOe6e6A0/iQiIApZCWDiVY68/kpHuutm0N7Sa/8uW6Y+52Bj9tr4QmcNSz6bfI8qBW9dHY9Bzu4G9e4dMJxrMZ26EPgJ/i3NX9qibKQ4AoxLAS7hxrvGUDRsRMNVnf3X1fOtkW0BTPspzPi6sZvywVZ8vEalGdiHCsLE02umtb+rJJqUImznHuA4LgViXYuwFUHvlQJPEpQykHS2/HLib/z8Jw4o9Whk8hsLXU402brJxMxQF2qNtJ91YZZ6P0vcCF33Ju2LuxUtVg+EKIZ7aiwIDAQAB',
+        }),
     permissions: ['cookies', 'activeTab', 'storage', 'alarms'],
     // 可选的站点权限：运行时按站点逐个申请，安装时零警告
     optional_host_permissions: ['*://*/*'],
     web_accessible_resources: [
       { resources: ['movieclaw-marker.json'], matches: ['<all_urls>'] },
     ],
-  },
+  }),
 });

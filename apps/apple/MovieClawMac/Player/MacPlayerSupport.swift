@@ -4,11 +4,14 @@ import SwiftUI
 // 播放器与 AppKit 打交道的几块：拿到所在窗口（全屏）、跟踪指针、音量记忆、播放时不让显示器睡眠。
 // 都是 Mac 独有的，iPhone / Apple TV 版没有对应物，所以不放进 Shared。
 
-/// 播放器所在的窗口：全屏进出。（播放器打开时主界面把窗口工具栏整个藏起，系统标题栏连同红绿灯都不显示；
+/// 播放器所在的窗口：全屏进出、置顶。（播放器打开时主界面把窗口工具栏整个藏起，系统标题栏连同红绿灯都不显示；
 /// 窗口模式下控制层左上角另画一组原生红绿灯（`MacWindowControls`），关闭播放器靠返回按钮、Esc 与 ⌘.）
 ///
 /// 全屏取舍：退出播放器时「播放期间进的全屏」一并退掉，回到原来的窗口；打开播放器之前窗口就已经是全屏的，
 /// 关掉播放器后保持全屏（那是用户自己对整个 App 的选择，不归播放器管）。
+///
+/// 置顶：播放期间窗口浮在所有窗口（含别的 App）前面，边看边干别的不会被盖住；菜单栏「窗口 › 播放时置顶」可关，默认开、
+/// 记在本机。全屏时不置顶（全屏有自己的空间，浮动层级只会让别的 App 的窗口切不过来），关掉播放器回到普通层级。
 @MainActor
 @Observable
 final class MacPlayerWindow {
@@ -21,12 +24,34 @@ final class MacPlayerWindow {
     /// 贴合画面之前窗口的样子（关掉播放器时还原）与当前画面尺寸（退出全屏后重新贴合）
     private var frameBeforePlayer: NSRect?
     private var fittedVideo: CGSize?
+    /// 锁着画面比例时根视图该有的最小尺寸（经 `MacWindowMinimumKey` 交给 `MacRootView`），没锁时为 nil
+    private(set) var minimumSize: CGSize?
+    /// 播放时窗口能缩到多小（同 IINA、QuickTime 可以缩成小窗边看边干别的）：比主界面的最小尺寸小得多，
+    /// 控制层在窄窗口里自己精简（`MacPlayerTransport`）。实际下限再按画面比例换算
+    static let playerMinimumSize = CGSize(width: 480, height: 270)
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    /// 盯着窗口的全屏属性（见 `attach`）
+    @ObservationIgnored private var behaviorObservation: NSKeyValueObservation?
+
+    /// 「播放时置顶」开关（菜单栏「窗口」里），播放器读出来设给这里
+    static let floatsOnTopKey = "movieclaw.mac.player.floatsOnTop"
+    var floatsOnTop = true {
+        didSet { updateLevel() }
+    }
 
     func attach(_ window: NSWindow?) {
         guard let window, window !== self.window else { return }
         detachObservers()
         self.window = window
+        // 置顶（.floating）期间 SwiftUI 每逢窗口最小 / 最大尺寸变动（贴合画面就会变）重算全屏属性，给成 .fullScreenNone，
+        // 全屏按钮、F 键、双击、绿灯都静默无效。它一改就标回可全屏的主窗口
+        behaviorObservation = window.observe(\.collectionBehavior, options: [.initial]) { window, _ in
+            MainActor.assumeIsolated {
+                guard window.collectionBehavior.contains(.fullScreenNone) else { return }
+                window.collectionBehavior.remove(.fullScreenNone)
+                window.collectionBehavior.insert(.fullScreenPrimary)
+            }
+        }
         isFullScreen = window.styleMask.contains(.fullScreen)
         wasFullScreenBeforePlayer = isFullScreen
         let center = NotificationCenter.default
@@ -35,11 +60,17 @@ final class MacPlayerWindow {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.isFullScreen = value
+                    self.updateLevel()
                     // 播放中退出全屏：回到的是进全屏前的窗口，重新贴合画面
                     if !value, let video = self.fittedVideo { self.fit(to: video) }
                 }
             })
         }
+        updateLevel()
+    }
+
+    private func updateLevel() {
+        window?.level = floatsOnTop && !isFullScreen ? .floating : .normal
     }
 
     func toggleFullScreen() {
@@ -62,8 +93,11 @@ final class MacPlayerWindow {
         fittedVideo = video
         guard !window.styleMask.contains(.fullScreen) else { return }
         let aspect = video.width / video.height
-        let minimum = NSSize(width: max(window.contentMinSize.width, window.minSize.width),
-                             height: max(window.contentMinSize.height, window.minSize.height))
+        // contentMinSize 是 SwiftUI 按根视图最小尺寸（含此刻已报上去的 minimumSize）加上标题栏等边距设的：
+        // 扣掉边距、换成播放时的最小尺寸
+        let applied = minimumSize ?? MacRootView.minimumSize
+        let inset = CGSize(width: window.contentMinSize.width - applied.width, height: window.contentMinSize.height - applied.height)
+        let minimum = NSSize(width: Self.playerMinimumSize.width + inset.width, height: Self.playerMinimumSize.height + inset.height)
         let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame
         let current = window.contentRect(forFrameRect: window.frame).size
         var size = NSSize(width: max(current.width, minimum.width, minimum.height * aspect), height: 0)
@@ -78,12 +112,17 @@ final class MacPlayerWindow {
         frame.origin = NSPoint(x: window.frame.minX, y: window.frame.maxY - frame.height)
         window.setFrame(Self.constrained(frame, to: visible), display: true, animate: true)
         window.contentAspectRatio = size
+        // 锁了比例，拖边缩小时系统只守最小宽度、高度按比例跟着降，不管最小高度（2.4:1 的片拖到 960 宽只剩 400 高）；
+        // 根视图的最小高度若比这还高，内容就比窗口高、上下溢出，控制条与顶栏被切掉。最小尺寸换成这个比例下两边都够的大小
+        minimumSize = CGSize(width: max(minimum.width, minimum.height * aspect) - inset.width,
+                             height: max(minimum.height, minimum.width / aspect) - inset.height)
     }
 
     /// 关闭播放器时调：解除比例锁，窗口回到打开播放器前的大小（左上角留在现在的位置）。
     /// 还在全屏（正在退出播放期间进的全屏）时等退出完成再还原
     func restoreFrameOnExit() {
         fittedVideo = nil
+        minimumSize = nil
         guard let window, let before = frameBeforePlayer else { return }
         frameBeforePlayer = nil
         window.contentResizeIncrements = NSSize(width: 1, height: 1)
@@ -109,9 +148,11 @@ final class MacPlayerWindow {
         return frame
     }
 
-    /// 离开播放器：停止观察
+    /// 离开播放器：停止观察，窗口回到普通层级
     func detach() {
         detachObservers()
+        window?.level = .normal
+        window = nil
     }
 
     /// 鼠标是否正在这个窗口里（只有这时才隐藏指针：鼠标在别的窗口 / 别的 App 上时不能把它藏掉）
@@ -123,6 +164,17 @@ final class MacPlayerWindow {
     private func detachObservers() {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
+        behaviorObservation?.invalidate()
+        behaviorObservation = nil
+    }
+}
+
+/// 播放器锁着画面比例时要的窗口最小尺寸（`MacPlayerWindow.minimumSize`），由根视图接过去作最外层的最小 frame——
+/// 窗口最小尺寸只认最外层，里层再加 frame 不起作用；直接改 NSWindow.contentMinSize 会被 SwiftUI 立刻改回去
+struct MacWindowMinimumKey: PreferenceKey {
+    static let defaultValue: CGSize? = nil
+    static func reduce(value: inout CGSize?, nextValue: () -> CGSize?) {
+        value = value ?? nextValue()
     }
 }
 
@@ -141,7 +193,7 @@ struct MacWindowReader: NSViewRepresentable {
             super.init(frame: .zero)
         }
 
-        required init?(coder: NSCoder) { fatalError("init(coder:) 不支持") }
+        required init?(coder: NSCoder) { fatalError("init(coder:) 不支持") } // i18n-ignore: developer message
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -215,7 +267,7 @@ final class MacDisplaySleepGuard {
     func update(playing: Bool) {
         if playing, activity == nil {
             activity = ProcessInfo.processInfo.beginActivity(
-                options: [.idleDisplaySleepDisabled, .userInitiated], reason: "正在播放视频"
+                options: [.idleDisplaySleepDisabled, .userInitiated], reason: String(localized: .playerEnginePlayingVideo)
             )
         } else if !playing, let activity {
             ProcessInfo.processInfo.endActivity(activity)

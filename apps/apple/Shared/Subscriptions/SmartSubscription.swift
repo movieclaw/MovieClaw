@@ -17,12 +17,12 @@ nonisolated struct SmartPreferences: Codable, Hashable, Sendable {
 
     var resolutionLabel: String { resolution == "2160p" ? "4K" : "1080p" }
     var targetLabel: String {
-        "\(resolutionLabel) \(["web-dl": "WEB-DL", "blu-ray": "蓝光", "remux": "Remux"][source] ?? source)"
+        "\(resolutionLabel) \(["web-dl": "WEB-DL", "blu-ray": String(localized: .subscriptionSmartBluray), "remux": "Remux"][source] ?? source)"
     }
     var waitLabel: String {
-        if waitSeconds == 0 { return "尽快下载" }
-        if waitSeconds % 86400 == 0 { return "最多等 \(waitSeconds / 86400) 天" }
-        return "最多等 \(waitSeconds / 3600) 小时"
+        if waitSeconds == 0 { return String(localized: .subscriptionSmartAsap) }
+        if waitSeconds % 86400 == 0 { return String(localized: .subscriptionSmartWaitDays(waitSeconds / 86400)) }
+        return String(localized: .subscriptionSmartWaitHours(waitSeconds / 3600))
     }
     static func defaults(kind: String) -> Self { .init(waitSeconds: kind == "movie" ? 86400 : 10800) }
 }
@@ -70,10 +70,44 @@ nonisolated extension API.SubscriptionDetailView {
     var smartNotice: String? {
         guard isSmart, let smartStatus, smartStatus != "active" else { return nil }
         switch smartStatus {
-        case "invalid_policy": return "智能设置无法读取，自动选择已暂停。"
-        case "shadow": return "当前仅记录选择结果，尚未开启自动下载。"
-        default: return "智能自动选择已关闭。已有下载和入库继续完成。"
+        case "invalid_policy": return String(localized: .subscriptionSmartStatusInvalidPolicy)
+        case "shadow": return String(localized: .subscriptionSmartStatusShadow)
+        default: return String(localized: .subscriptionSmartStatusDisabled)
         }
+    }
+}
+
+/// 订阅弹层里管理员做的选择（字幕回答、改过的画质与记住的范围），随创建请求提交，由服务端写入记忆。
+nonisolated struct SmartChoice: Hashable, Sendable {
+    var language: String?
+    var resolution: String?
+    var source: String?
+    var scope = "only"
+
+    /// 题目出现时即使没改也回传默认答案：答过就不再问。成员不能写记忆，什么都不带。
+    func payload(for plan: API.SmartPlanView) -> (language: String?, resolution: String?, source: String?, scope: String?, memoryRevision: Int?) {
+        guard plan.canEdit else { return (nil, nil, nil, nil, nil) }
+        let language = language ?? (plan.question != nil ? "subtitles" : nil)
+        let resolution = resolution.flatMap { $0 == plan.resolution ? nil : $0 }
+        let source = source.flatMap { $0 == plan.source ? nil : $0 }
+        return (language, resolution, source, resolution != nil || source != nil ? scope : nil, plan.memoryRevision)
+    }
+
+    func qualityChanged(_ plan: API.SmartPlanView) -> Bool {
+        (resolution ?? plan.resolution) != plan.resolution || (source ?? plan.source) != plan.source
+    }
+}
+
+nonisolated enum SmartLabels {
+    static func quality(resolution: String?, source: String?) -> String {
+        let r = resolution == "2160p" ? "4K" : (resolution ?? "")
+        let s = ["web-dl": "WEB-DL", "blu-ray": String(localized: .subscriptionSmartBluray), "remux": "Remux"][source ?? ""] ?? (source ?? "")
+        return "\(r) \(s)"
+    }
+    static func wait(_ seconds: Int) -> String {
+        if seconds == 0 { return String(localized: .subscriptionSmartAsap) }
+        if seconds % 86400 == 0 { return String(localized: .subscriptionSmartWaitDays(seconds / 86400)) }
+        return String(localized: .subscriptionSmartWaitHours(seconds / 3600))
     }
 }
 
@@ -90,28 +124,34 @@ nonisolated struct SmartSelection {
     var presentation: (label: String, note: String) {
         let reason = self["reason"] ?? ""
         if reason == "user_extended" || (values["manual_extended"]?.boolValue == true && ["observing", "waiting_target", "waiting_series"].contains(reason)) {
-            return ("观察中", "按你延长的时间继续等待合适版本")
+            return (String(localized: .subscriptionSmartObserving), String(localized: .subscriptionSmartExtended))
         }
         switch reason {
-        case "identity_unconfirmed": return ("寻找中", "部分资源未通过影片身份核验，已跳过，继续寻找。")
-        case "waiting_target": return ("等版本", "历史发布记录支持等待目标品质版本")
-        case "waiting_series": return ("等版本", "已有合格候选，等待当前跟随版本")
-        case "manual_requested": return ("选择中", "已请求立即下载，正在核验当前候选")
-        case "manual_candidate_unavailable": return ("选择中", "指定候选已不可用，正在重新选择")
-        case "reconciling": return ("待核对", "正在核对提交结果，系统会恢复同一任务")
-        case "submitting": return ("提交中", "正在提交所选资源")
-        case "deadline_fallback": return ("选择中", "等待上限已到，正在选择当前合格版本")
-        case "published_window_elapsed": return ("选择中", "资源已发布一段时间，正在选择当前合格版本")
-        case "observation_finished": return ("选择中", "观察结束，正在选择当前合格版本")
-        case "target_available": return ("选择中", "目标版本已出现，正在选择")
-        default: return ("观察中", "已有合格候选，短暂观察更合适的版本")
+        case "awaiting_subtitles":
+            let count = values["subtitle_blocked"].flatMap(\.intValue) ?? 1
+            return (String(localized: .subscriptionSmartWaitingSubtitles), String(localized: .subscriptionSmartSubtitleCandidates(count)))
+        case "deadline_awaiting_subtitles": return (String(localized: .subscriptionSmartWaitingSubtitles), String(localized: .subscriptionSmartSubtitleDeadline))
+        case "identity_unconfirmed": return (String(localized: .subscriptionSmartSearching), String(localized: .subscriptionSmartIdentityUnconfirmed))
+        case "waiting_target": return (String(localized: .subscriptionSmartWaitingVersion), String(localized: .subscriptionSmartWaitingTarget))
+        case "waiting_series": return (String(localized: .subscriptionSmartWaitingVersion), String(localized: .subscriptionSmartWaitingSeries))
+        case "manual_requested": return (String(localized: .subscriptionSmartSelecting), String(localized: .subscriptionSmartManualRequested))
+        case "manual_candidate_unavailable": return (String(localized: .subscriptionSmartSelecting), String(localized: .subscriptionSmartCandidateUnavailable))
+        case "reconciling": return (String(localized: .subscriptionSmartReconciling), String(localized: .subscriptionSmartReconcileNote))
+        case "candidate_rejected": return (String(localized: .subscriptionSmartSearching), String(localized: .subscriptionSmartCandidateRejected))
+        case "submitting": return (String(localized: .subscriptionSmartSubmitting), String(localized: .subscriptionSmartSubmitNote))
+        case "deadline_fallback": return (String(localized: .subscriptionSmartSelecting), String(localized: .subscriptionSmartDeadlineFallback))
+        case "published_window_elapsed": return (String(localized: .subscriptionSmartSelecting), String(localized: .subscriptionSmartPublishedWindowElapsed))
+        case "observation_finished": return (String(localized: .subscriptionSmartSelecting), String(localized: .subscriptionSmartObservationFinished))
+        case "target_available": return (String(localized: .subscriptionSmartSelecting), String(localized: .subscriptionSmartTargetAvailable))
+        default: return (String(localized: .subscriptionSmartObserving), String(localized: .subscriptionSmartObserveNote))
         }
     }
+    var awaitingSubtitles: Bool { ["awaiting_subtitles", "deadline_awaiting_subtitles"].contains(self["reason"] ?? "") }
     var followingLabel: String? {
         guard let raw = self["following"] else { return nil }
         let parts = raw.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard parts.count >= 3 else { return raw }
-        let source = ["1": "电视 / DVD", "2": "压制版", "3": "WEB-DL", "4": "蓝光", "5": "Remux", "6": "原盘"][parts[2]] ?? "未知片源"
+        let source = ["1": String(localized: .subscriptionSmartStatusSourceTv), "2": String(localized: .subscriptionSmartStatusSourceEncode), "3": "WEB-DL", "4": String(localized: .subscriptionSmartBluray), "5": "Remux", "6": String(localized: .subscriptionSmartStatusSourceDisc)][parts[2]] ?? String(localized: .subscriptionSmartStatusSourceUnknown)
         return "\(parts[0]) · \(parts[1]) · \(source)"
     }
 }

@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -45,6 +46,8 @@ import {
 import { useSubscribeEntry } from "@/components/subscribe-entry";
 import { SubscriptionAdjustDialog } from "@/components/subscription-adjust-dialog";
 import { SubscriptionCancelDialog } from "@/components/subscription-cancel-dialog";
+import { EpisodeWindowBanner } from "@/components/subscription-episode-cap";
+import { EpisodeFloorDialog, EpisodeHintBanner } from "@/components/subscription-episode-floor";
 import { UpgradeRunDialog } from "@/components/upgrade-run-dialog";
 import {
   deleteSubscriptionPermanently,
@@ -71,10 +74,16 @@ import { formatBytes, formatDuration } from "@/lib/format";
 import { imageUrl } from "@/lib/image-proxy";
 import { seasonsWithIndeterminate } from "@/lib/media-source-annotation";
 import { shouldShowResourceTiming } from "@/lib/resource-timing";
-import { buildSearchPath } from "@/lib/search-url";
-import { subscriptionStatusMeta } from "@/lib/subscription-ui";
+import { buildSearchPath, titleSearchAlso } from "@/lib/search-url";
+import { rangeLabel } from "@/lib/subscription-episode-cap";
+import { subscriptionStatusMetaFor } from "@/lib/subscription-ui";
 import { formatDateTime, formatRelativeTime } from "@/lib/time";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { formatList, formatNumber } from "@/lib/i18n/format";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+import { ruleSetLabel } from "@/lib/rule-set-label";
 import { usePermissions } from "@/lib/permissions";
 
 /** 预测后台刷新期间补取详情的间隔与次数上限（约 1 分钟，覆盖大索引的慢机器）。 */
@@ -107,6 +116,9 @@ export function SubscriptionInspectorView({
   /** 进入即打开「洗一轮版」弹层（库详情洗版入口跳转并轨到既有订阅，§13.4） */
   autoOpenUpgradeRun?: boolean;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
+  const subscriptionStatusMeta = subscriptionStatusMetaFor(locale);
   const router = useRouter();
   const confirm = useConfirm();
   // 暂停/取消订阅会改变全站订阅状态（海报卡片的「已订阅」徽标），操作后同步刷新
@@ -119,6 +131,7 @@ export function SubscriptionInspectorView({
   const [busy, setBusy] = useState(false);
   const [switchingRule, setSwitchingRule] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
+  const [editingEpisodes, setEditingEpisodes] = useState(false);
   const [upgradeRunning, setUpgradeRunning] = useState(autoOpenUpgradeRun);
   const [managing, setManaging] = useState(false);
   // 管理员取消订阅：弹窗里选"要不要连种子/媒体库文件一起删"
@@ -126,6 +139,11 @@ export function SubscriptionInspectorView({
   const toast = useToast();
 
   const [downloads, setDownloads] = useState<SubscriptionDownload[]>([]);
+
+  // 每季已播集数：「最新 N 集」的展示锚点（TMDB 宣称的集数可能还没播到）
+  const airedBySeason = Object.fromEntries(
+    (detail?.season_collection ?? []).map((s) => [s.season_number, s.aired_count]),
+  );
 
   const reload = useCallback(() => {
     Promise.all([
@@ -143,7 +161,7 @@ export function SubscriptionInspectorView({
 
   useEffect(() => {
     reload();
-  }, [reload]);
+  }, [reload, locale]);
 
   // 预测刷新在后台跑（订阅创建/调整/恢复后要几秒才落库），刚取到的详情可能还是
   // 旧预测。后端标了 forecast_pending 就隔一会儿只重取详情，直到预测落库；
@@ -217,14 +235,14 @@ export function SubscriptionInspectorView({
     const rs = ruleSets.find((r) => r.id === detail?.rule_set_id);
     if (!rs) return `#${detail?.rule_set_id}`;
     // 规则组配了洗版目标时在 fact 里带出（quality-upgrade.md §8.3）
-    const target = upgradeTargetLabel(rs.spec);
-    return target ? `${rs.name} · 洗到 ${target}` : rs.name;
-  }, [ruleSets, detail]);
+    const target = upgradeTargetLabel(rs.spec, locale);
+    return target ? t("subscription.inspector.ruleTarget", { name: ruleSetLabel(rs, locale), target }) : ruleSetLabel(rs, locale);
+  }, [ruleSets, detail, locale, t]);
   usePageTitle(detail?.media.title);
 
   // 兜底态（加载中/失败）也渲染 PageNav（片名未知，末项留空）：向外壳登记
   // 「本页自带顶栏」，否则移动端全局顶栏（☰ + logo）会先显示再消失、顶部闪一下。
-  const navFallback = { label: "我的订阅", href: "/subscriptions" as Route };
+  const navFallback = { label: t("subscription.inspector.mySubscriptions"), href: "/subscriptions" as Route };
 
   // Netflix 桌面返回语言一套：全出血(isHome)详情页用 NetflixBackButton；带
   // PageNav 工具条的页面用 PageNav 内返回键；两者同图标 / 同尺寸档 / 同 4vw
@@ -239,13 +257,13 @@ export function SubscriptionInspectorView({
       <div className="flex h-full flex-col">
         <DetailNav title="" fallback={navFallback} onBack={back} />
         <div className="flex flex-1 flex-col items-center justify-center gap-4">
-          <p className="text-body text-[var(--text-muted)]">未能加载该订阅，可能已被删除。</p>
+          <p className="text-body text-[var(--text-muted)]">{t("subscription.inspector.loadFailed")}</p>
           {/* 失败态的返回出口与全站同一语言：走 useBackNavigation（上方 back，
               有站内历史 router.back()，直达落地 replace 到结构父级），不再用
               <Link replace> 固定跳兜底地址——真实来路优先，兜底只补直达 */}
           <button type="button" onClick={back} className="btn-glass px-4 py-2 text-ui font-medium">
             <ChevronLeftIcon className="size-4" />
-            返回订阅列表
+            {t("subscription.inspector.backToList")}
           </button>
         </div>
       </div>
@@ -258,7 +276,7 @@ export function SubscriptionInspectorView({
         <DetailNav title="" fallback={navFallback} onBack={back} />
         <div className="flex flex-1 items-center justify-center gap-2.5 text-ui text-[var(--text-muted)]">
           <BrandLoader className="size-5" />
-          正在加载订阅详情…
+          {t("subscription.inspector.loading")}
         </div>
       </div>
     );
@@ -274,14 +292,16 @@ export function SubscriptionInspectorView({
   const upgradingCount = detail.progress.upgrading ?? 0;
   // 电影只有一个单元，「洗版中（1）」读着别扭——单单元不带计数
   const upgradingText =
-    detail.progress.total > 1 ? `洗版中（${upgradingCount}）` : "洗版中";
+    detail.progress.total > 1 ? t("subscription.inspector.upgradingCount", { count: upgradingCount }) : t("subscription.inspector.upgrading");
   const statusLabel =
     detail.status === "completed" && upgradingCount > 0
-      ? `已收齐 · ${upgradingText}`
+      ? t("subscription.inspector.collectedUpgrading", { upgrading: upgradingText })
       : detail.status === "active" && upgradingCount > 0 && detail.progress.wanted === 0
         ? `${meta.label} · ${upgradingText}`
         : meta.label;
   const isMovie = detail.media.kind === "movie";
+  // 「调整集数」只对有季可调的剧集订阅出现（旧服务端没有 episode_seasons 也就不出现）
+  const canEditEpisodes = canTune && !isMovie && (detail.episode_seasons?.length ?? 0) > 0;
   // imageUrl 而非 cachedImageUrl：订阅对象已入库时海报是本地资产的相对路径
   const poster = detail.media.poster_url ? imageUrl(detail.media.poster_url) : null;
 
@@ -289,13 +309,13 @@ export function SubscriptionInspectorView({
     const resuming = detail.status === "paused";
     const ok = await confirm({
       title: resuming
-        ? `恢复《${detail.media.title}》的订阅追踪？`
-        : `暂停《${detail.media.title}》的订阅追踪？`,
+        ? t("subscription.inspector.resumeTitle", { title: detail.media.title })
+        : t("subscription.inspector.pauseTitle", { title: detail.media.title }),
       description: resuming
-        ? "恢复后会继续搜索缺失资源，并按当前规则自动投递符合条件的结果。"
-        : "暂停后不会继续搜索或投递资源；已经提交的下载不受影响，可随时恢复。",
-      confirmLabel: resuming ? "恢复追踪" : "暂停追踪",
-      cancelLabel: "返回",
+        ? t("subscription.inspector.resumeDescription")
+        : t("subscription.inspector.pauseDescription"),
+      confirmLabel: resuming ? t("subscription.inspector.resume") : t("subscription.inspector.pause"),
+      cancelLabel: t("common.back"),
     });
     if (!ok) return;
     setBusy(true);
@@ -304,7 +324,7 @@ export function SubscriptionInspectorView({
         detail.id,
         resuming ? "active" : "paused",
       );
-      toast.success(resuming ? "已恢复订阅追踪" : "已暂停订阅追踪");
+      toast.success(resuming ? t("subscription.inspector.resumed") : t("subscription.inspector.paused"));
       reload();
       refreshSubscriptions();
     } finally {
@@ -318,11 +338,11 @@ export function SubscriptionInspectorView({
     setBusy(true);
     try {
       await setSubscriptionFollowFuture(detail.id, enabling);
-      toast.success(enabling ? "已开启自动续订" : "已关闭自动续订");
+      toast.success(enabling ? t("subscription.inspector.followEnabled") : t("subscription.inspector.followDisabled"));
       reload();
       refreshSubscriptions();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "设置自动续订失败，请稍后重试");
+      toast.error(e instanceof Error ? e.message : t("subscription.inspector.followFailed"));
     } finally {
       setBusy(false);
     }
@@ -332,20 +352,20 @@ export function SubscriptionInspectorView({
   // 原样进 toast——按钮不做前置禁用判断，语义由唯一实现（服务端）说了算
   const searchNow = async () => {
     const ok = await confirm({
-      title: `立即搜索《${detail.media.title}》的缺失资源？`,
+      title: t("subscription.inspector.searchTitle", { title: detail.media.title }),
       description:
-        "将跳过当前搜索冷却，重新搜索已经可以搜索的缺口。命中当前规则组的资源可能会自动提交下载。",
-      confirmLabel: "立即搜索",
-      cancelLabel: "返回",
+        t("subscription.inspector.searchDescription"),
+      confirmLabel: t("subscription.inspector.searchNow"),
+      cancelLabel: t("common.back"),
     });
     if (!ok) return;
     setBusy(true);
     try {
       const { reset_count } = await searchMissingSubscriptionResources(detail.id);
-      toast.success(`${reset_count} 个缺口已重新排队，正在搜索`);
+      toast.success(t("subscription.inspector.requeued", { count: reset_count }));
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "触发搜索失败，请稍后重试");
+      toast.error(e instanceof Error ? e.message : t("subscription.inspector.searchFailed"));
     } finally {
       setBusy(false);
     }
@@ -366,10 +386,10 @@ export function SubscriptionInspectorView({
       return;
     }
     const ok = await confirm({
-      title: `取消订阅《${detail.media.title}》？`,
-      description: "将取消你的订阅关注；已经下载或入库的文件不会被删除。",
-      confirmLabel: "取消订阅",
-      cancelLabel: "先不",
+      title: t("subscription.inspector.cancelTitle", { title: detail.media.title }),
+      description: t("subscription.inspector.unfollowDescription"),
+      confirmLabel: t("subscription.inspector.cancel"),
+      cancelLabel: t("subscription.inspector.notNow"),
       tone: "danger",
     });
     if (!ok) return;
@@ -389,12 +409,12 @@ export function SubscriptionInspectorView({
       setCancelling(false);
       toast.success(
         cleanup_job_id
-          ? "已取消订阅，正在后台清理关联内容（可在任务中心查看进度）"
-          : "已取消订阅",
+          ? t("subscription.inspector.cancelledCleanup")
+          : t("subscription.inspector.cancelled"),
       );
       afterRemoved();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "取消订阅失败，请稍后重试");
+      toast.error(e instanceof Error ? e.message : t("subscription.inspector.cancelFailed"));
     } finally {
       setBusy(false);
     }
@@ -438,7 +458,7 @@ export function SubscriptionInspectorView({
             不再把“追踪中 · 缺几集 · 已入库几集”揉成一条长句。 */}
         <div className="relative z-10 flex items-center justify-between gap-4 px-6 pt-5 max-md:px-4 max-md:pt-4">
           <p className="text-caption font-semibold tracking-[0.2em] text-[var(--accent-2)]">
-            {isMovie ? "电影订阅" : "剧集订阅"}
+            {isMovie ? t("subscription.inspector.movieSubscription") : t("subscription.inspector.tvSubscription")}
           </p>
           <span className="flex shrink-0 items-center gap-2 text-sub text-white/65">
             <span
@@ -452,7 +472,7 @@ export function SubscriptionInspectorView({
         <div className="relative z-10 grid grid-cols-[112px_minmax(0,1fr)] gap-5 px-6 pb-6 pt-4 max-md:grid-cols-[80px_minmax(0,1fr)] max-md:gap-4 max-md:px-4 max-md:pb-4 max-md:pt-3">
           <Link
             href={`/media/${detail.media.kind}/${detail.media.tmdb_id}`}
-            aria-label={`查看《${detail.media.title}》详情`}
+            aria-label={t("subscription.inspector.viewTitle", { title: detail.media.title })}
             className="block w-28 shrink-0 self-start overflow-hidden rounded-xl bg-white/[0.05] shadow-[0_16px_40px_rgba(0,0,0,0.45)] ring-1 ring-white/15 max-md:w-20 max-md:rounded-lg"
           >
             {poster ? (
@@ -460,13 +480,13 @@ export function SubscriptionInspectorView({
                 src={poster}
                 // 海报列 112 宽（手机 80）
                 width={112}
-                alt={`${detail.media.title} 海报`}
+                alt={t("subscription.inspector.poster", { title: detail.media.title })}
                 className="aspect-[2/3] w-full object-cover"
               />
             ) : (
               <span className="flex aspect-[2/3] flex-col items-center justify-center gap-2 text-caption text-white/35">
                 <FilmIcon className="size-6" />
-                暂无海报
+                {t("subscription.inspector.noPoster")}
               </span>
             )}
           </Link>
@@ -491,7 +511,7 @@ export function SubscriptionInspectorView({
                   detail.media.original_title !== detail.media.title && (
                     <span className="truncate">{detail.media.original_title}</span>
                   )}
-                <span className="shrink-0">订阅于 {formatDateTime(detail.created_at)}</span>
+                <span className={locale === "en" ? "min-w-0" : "shrink-0"}>{t("subscription.inspector.subscribedAt", { date: formatDateTime(detail.created_at, locale) })}</span>
               </p>
             </div>
 
@@ -499,33 +519,36 @@ export function SubscriptionInspectorView({
                 每列保持可扫读；超长季列表或规则名只在值行截断。 */}
             <div className={`mt-4 grid grid-cols-[repeat(auto-fit,minmax(80px,1fr))] gap-3 border-y border-white/[0.08] py-3 max-md:col-span-2 max-md:mt-1 ${detail.selection_mode === "smart" ? "max-md:grid-cols-2" : ""}`}>
               <SubscriptionFact
-                label="收录范围"
+                label={t("subscription.inspector.scope")}
                 value={
                   isMovie
-                    ? "正片"
+                    ? t("subscription.inspector.feature")
                     : detail.selected_seasons.length > 0
-                      ? `第 ${detail.selected_seasons.join("、")} 季`
-                      : "未勾选季"
+                      ? detail.episode_windows?.length
+                        ? rangeLabel(detail.selected_seasons, detail.episode_windows, airedBySeason, locale)
+                        : t("subscription.inspector.selectedSeasons", { count: detail.selected_seasons.length, seasons: formatList(detail.selected_seasons.map(String), locale) })
+                      : t("subscription.inspector.noSeasons")
                 }
               />
               {!isMovie && (
                 <SubscriptionFact
-                  label="自动续订"
-                  value={detail.follow_future ? "已开启" : "已关闭"}
+                  label={t("subscription.inspector.followFuture")}
+                  value={detail.follow_future ? t("subscription.inspector.enabled") : t("subscription.inspector.disabled")}
                 />
               )}
               {detail.selection_mode === "smart" && detail.smart_policy && <>
-                <SubscriptionFact label="智能目标" value={smartSummary(detail.smart_policy)} />
-                <SubscriptionFact label="后续洗版" value={detail.smart_policy.allow_upgrade ? "逐集达标核验后停止" : "关闭"} />
+                <SubscriptionFact label={t("subscription.inspector.smartTarget")} value={smartSummary(detail.smart_policy, locale)} />
+                <SubscriptionFact label={t("subscription.inspector.futureUpgrades")} value={detail.smart_policy.allow_upgrade ? t("subscription.inspector.stopWhenVerified") : t("subscription.inspector.off")} />
+                {detail.smart_subtitle && <SubscriptionFact label={t("subscription.inspector.subtitles")} value={detail.smart_subtitle.understood ? t("subscription.inspector.notNeeded") : detail.smart_subtitle.line.split(" · ")[1] ?? detail.smart_subtitle.line} />}
               </>}
-              {canManageSubscriptions && detail.selection_mode !== "smart" && <SubscriptionFact label="规则组" value={ruleSetName} />}
+              {canManageSubscriptions && detail.selection_mode !== "smart" && <SubscriptionFact label={t("subscription.inspector.ruleSet")} value={ruleSetName} />}
             </div>
 
-            <ProgressStrip progress={detail.progress} unitLabel={isMovie ? "部" : "集"} />
+            <ProgressStrip progress={detail.progress} isMovie={isMovie} />
 
             {/* 一套 DOM 同时服务桌面与移动端：桌面右对齐、移动端等宽单行。
                 只有“更多”的承载物因交互范式不同分为下拉菜单与底部抽屉。 */}
-            <div className="mt-auto flex flex-wrap justify-end gap-2 pt-4 max-md:col-span-2 max-md:grid max-md:grid-flow-col max-md:auto-cols-fr max-md:pt-3">
+            <div className={`mt-auto flex flex-wrap justify-end gap-2 pt-4 max-md:col-span-2 max-md:grid max-md:pt-3 ${locale === "en" ? "max-md:grid-cols-2 max-md:grid-flow-row" : "max-md:grid-flow-col max-md:auto-cols-fr"}`}>
               {/* 缺口存在且未暂停时才有意义；其余情况后端会给可读错误，按钮直接隐藏更干净 */}
               {canTune && detail.progress.wanted > 0 && detail.status !== "paused" && (
                 <button
@@ -535,7 +558,7 @@ export function SubscriptionInspectorView({
                   className="btn-accent inline-flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-full px-4 text-sub font-semibold disabled:opacity-40 max-md:h-11 max-md:px-2"
                 >
                   <RefreshIcon className="size-4 shrink-0" />
-                  <span className="whitespace-nowrap">立即搜索</span>
+                  <span className="whitespace-nowrap">{t("subscription.inspector.searchNow")}</span>
                 </button>
               )}
               {/* 有缺口，或配了洗版目标且有已入库单元（手选换版本，§13.8）时展示 */}
@@ -549,14 +572,16 @@ export function SubscriptionInspectorView({
                   href={
                     `${buildSearchPath({
                       keyword: detail.media.title,
+                      // 英文名/原名一起搜，与订阅自己的召回词一致
+                      also: titleSearchAlso(detail.media.english_title, detail.media.original_title),
                       scope: scopeOfMediaKind(detail.media.kind),
                     })}&for_sub=${detail.id}` as Route
                   }
                   className="btn-glass inline-flex h-10 min-w-0 items-center justify-center gap-1.5 border border-white/10 bg-white/[0.05] px-4 text-sub font-medium backdrop-blur-md max-md:h-11 max-md:px-2"
-                  title="到站点资源搜索里挑一条种子，直接投给本订阅（跳过规则组限制；替换已入库版本时按入库实测裁决，证明更优才替换）"
+                  title={t("subscription.inspector.manualHint")}
                 >
                   <SearchIcon className="size-4 shrink-0" />
-                  <span className="whitespace-nowrap">手动选种</span>
+                  <span className="whitespace-nowrap">{t("subscription.inspector.pickManually")}</span>
                 </Link>
               )}
               {(canSubscribe || canManageSubscriptions) && (
@@ -571,6 +596,7 @@ export function SubscriptionInspectorView({
                       canManageSubscriptions={canManageSubscriptions}
                       followFuture={isMovie ? null : detail.follow_future}
                       onAdjust={() => setAdjusting(true)}
+                      onAdjustEpisodes={canEditEpisodes ? () => setEditingEpisodes(true) : undefined}
                       onUpgradeRun={() => setUpgradeRunning(true)}
                       onToggleFollowFuture={() => void toggleFollowFuture()}
                       onSwitchRule={detail.selection_mode === "smart" ? undefined : () => setSwitchingRule(true)}
@@ -585,7 +611,7 @@ export function SubscriptionInspectorView({
                     className="hidden h-11 min-w-0 items-center justify-center gap-1.5 rounded-full bg-white/[0.035] px-2 text-sub font-medium text-white/65 transition hover:bg-white/[0.09] hover:text-white disabled:opacity-40 max-md:flex"
                   >
                     <MoreIcon className="size-4 shrink-0" />
-                    <span className="whitespace-nowrap">更多</span>
+                    <span className="whitespace-nowrap">{t("subscription.inspector.more")}</span>
                   </button>
                 </>
               )}
@@ -596,6 +622,22 @@ export function SubscriptionInspectorView({
 
       {/* —— 2. 单视图主体：搜索轮次摘要 → 按季分组的集履历 → 排查记录 —— */}
       <div className="mt-7 space-y-4">
+        <EpisodeWindowBanner
+          detail={detail}
+          canTune={canTune}
+          onChanged={() => {
+            reload();
+            refreshSubscriptions();
+          }}
+        />
+        <EpisodeHintBanner
+          detail={detail}
+          canTune={canTune}
+          onChanged={() => {
+            reload();
+            refreshSubscriptions();
+          }}
+        />
         <SmartSubscriptionStatus detail={detail} />
         <SearchRoundBar activities={activities} wanted={detail.wanted} />
         <WantedBreakdown
@@ -610,7 +652,7 @@ export function SubscriptionInspectorView({
             // 标注已刷新快照：顺手重跑一轮体检完成排期（幂等），再刷新详情
             try {
               await runSubscriptionUpgradeRound(id);
-              toast.success(`${message}，已重新体检并排期洗版`);
+              toast.success(t("subscription.inspector.annotated", { message }));
             } catch {
               toast.success(message);
             }
@@ -635,6 +677,14 @@ export function SubscriptionInspectorView({
             setManaging(false);
             setAdjusting(true);
           }}
+          onAdjustEpisodes={
+            canEditEpisodes
+              ? () => {
+                  setManaging(false);
+                  setEditingEpisodes(true);
+                }
+              : undefined
+          }
           onUpgradeRun={() => {
             setManaging(false);
             setUpgradeRunning(true);
@@ -664,6 +714,18 @@ export function SubscriptionInspectorView({
           onClose={() => setAdjusting(false)}
           onSaved={() => {
             setAdjusting(false);
+            reload();
+            refreshSubscriptions();
+          }}
+        />
+      )}
+
+      {canEditEpisodes && editingEpisodes && (
+        <EpisodeFloorDialog
+          detail={detail}
+          onClose={() => setEditingEpisodes(false)}
+          onSaved={() => {
+            setEditingEpisodes(false);
             reload();
             refreshSubscriptions();
           }}
@@ -719,6 +781,8 @@ interface SubscriptionManageActionsProps {
   /** null 表示电影订阅，不展示没有业务语义的自动续订动作。 */
   followFuture: boolean | null;
   onAdjust: () => void;
+  /** 打开「调整集数」弹层；undefined=不展示（电影 / 无权调整） */
+  onAdjustEpisodes?: () => void;
   /** 打开「洗一轮版」弹层（quality-upgrade.md §13.5 的订阅详情入口） */
   onUpgradeRun: () => void;
   onToggleFollowFuture: () => void;
@@ -738,12 +802,14 @@ function SubscriptionManageMenu({
   canManageSubscriptions,
   followFuture,
   onAdjust,
+  onAdjustEpisodes,
   onUpgradeRun,
   onToggleFollowFuture,
   onSwitchRule,
   onTogglePause,
   onRemove,
 }: SubscriptionManageActionsProps) {
+  const t = useTranslations();
   const itemClass =
     "glass-row nav-item cursor-pointer px-3 py-2 text-ui font-medium outline-none " +
     "data-[highlighted]:!bg-[var(--glass-fill-hover)] data-[highlighted]:!text-[var(--text)] " +
@@ -758,7 +824,7 @@ function SubscriptionManageMenu({
           className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sub font-medium text-white/65 transition hover:bg-white/[0.08] hover:text-white data-[state=open]:bg-white/[0.1] data-[state=open]:text-white disabled:opacity-40"
         >
           <MoreIcon className="size-4" />
-          更多
+          {t("subscription.inspector.more")}
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -770,12 +836,17 @@ function SubscriptionManageMenu({
         >
           {canTune && (
             <DropdownMenu.Item onSelect={onAdjust} className={itemClass}>
-              调整订阅…
+              {t("subscription.inspector.adjustMenu")}
+            </DropdownMenu.Item>
+          )}
+          {onAdjustEpisodes && (
+            <DropdownMenu.Item onSelect={onAdjustEpisodes} className={itemClass}>
+              {t("subscription.inspector.episodesMenu")}
             </DropdownMenu.Item>
           )}
           {canTune && (
             <DropdownMenu.Item onSelect={onUpgradeRun} disabled={busy} className={itemClass}>
-              洗一轮版…
+              {t("subscription.inspector.upgradeMenu")}
             </DropdownMenu.Item>
           )}
           {canTune && followFuture !== null && (
@@ -784,12 +855,12 @@ function SubscriptionManageMenu({
               disabled={busy}
               className={itemClass}
             >
-              {followFuture ? "关闭自动续订" : "开启自动续订"}
+              {followFuture ? t("subscription.inspector.disableFollow") : t("subscription.inspector.enableFollow")}
             </DropdownMenu.Item>
           )}
           {canManageSubscriptions && onSwitchRule && (
             <DropdownMenu.Item onSelect={onSwitchRule} className={itemClass}>
-              更换规则组…
+              {t("subscription.inspector.switchRuleMenu")}
             </DropdownMenu.Item>
           )}
           {canTune && (
@@ -798,7 +869,7 @@ function SubscriptionManageMenu({
               disabled={busy || completed}
               className={itemClass}
             >
-              {paused ? "恢复追踪" : "暂停追踪"}
+              {paused ? t("subscription.inspector.resume") : t("subscription.inspector.pause")}
             </DropdownMenu.Item>
           )}
           {canSubscribe && <DropdownMenu.Separator className="my-1 h-px bg-white/[0.07]" />}
@@ -808,7 +879,7 @@ function SubscriptionManageMenu({
               disabled={busy}
               className={`${itemClass} !text-[#ff8b8b] data-[highlighted]:!bg-[#ff6b6b]/10`}
             >
-              取消订阅
+              {t("subscription.inspector.cancel")}
             </DropdownMenu.Item>
           )}
         </DropdownMenu.Content>
@@ -830,12 +901,14 @@ function SubscriptionManageSheet({
   followFuture,
   onClose,
   onAdjust,
+  onAdjustEpisodes,
   onUpgradeRun,
   onToggleFollowFuture,
   onSwitchRule,
   onTogglePause,
   onRemove,
 }: SubscriptionManageActionsProps & { open: boolean; onClose: () => void }) {
+  const t = useTranslations();
   const sheetForm = useSheetForm();
   const rowClass =
     "flex min-h-12 w-full items-center justify-between gap-3 px-4 py-3 text-left text-ui " +
@@ -847,15 +920,18 @@ function SubscriptionManageSheet({
   if (sheetForm) {
     const icon = "size-[18px]";
     return (
-      <SheetScaffold open={open} onClose={onClose} title="管理订阅">
+      <SheetScaffold open={open} onClose={onClose} title={t("subscription.inspector.manage")}>
         <SheetSection>
           {canTune && (
-            <SheetRow icon={<PencilIcon className={icon} />} label="调整订阅" chevron onClick={onAdjust} />
+            <SheetRow icon={<PencilIcon className={icon} />} label={t("subscription.inspector.adjust")} chevron onClick={onAdjust} />
+          )}
+          {onAdjustEpisodes && (
+            <SheetRow icon={<ListIcon className={icon} />} label={t("subscription.inspector.episodes")} chevron onClick={onAdjustEpisodes} />
           )}
           {canTune && (
             <SheetRow
               icon={<UpgradeIcon className={icon} />}
-              label="洗一轮版"
+              label={t("subscription.inspector.upgradeRound")}
               chevron
               disabled={busy}
               onClick={onUpgradeRun}
@@ -864,18 +940,18 @@ function SubscriptionManageSheet({
           {canTune && followFuture !== null && (
             <SheetRow
               icon={<BellIcon className={icon} />}
-              label={followFuture ? "关闭自动续订" : "开启自动续订"}
+              label={followFuture ? t("subscription.inspector.disableFollow") : t("subscription.inspector.enableFollow")}
               disabled={busy}
               onClick={onToggleFollowFuture}
             />
           )}
           {canManageSubscriptions && onSwitchRule && (
-            <SheetRow icon={<ListIcon className={icon} />} label="更换规则组" chevron onClick={onSwitchRule} />
+            <SheetRow icon={<ListIcon className={icon} />} label={t("subscription.inspector.switchRule")} chevron onClick={onSwitchRule} />
           )}
           {canTune && (
             <SheetRow
               icon={paused ? <PlayIcon className={icon} /> : <PauseGlyph className={icon} />}
-              label={paused ? "恢复追踪" : "暂停追踪"}
+              label={paused ? t("subscription.inspector.resume") : t("subscription.inspector.pause")}
               chevron
               disabled={busy || completed}
               onClick={onTogglePause}
@@ -887,7 +963,7 @@ function SubscriptionManageSheet({
             <SheetRow
               destructive
               icon={<TrashIcon className={icon} />}
-              label="取消订阅"
+              label={t("subscription.inspector.cancel")}
               disabled={busy}
               onClick={onRemove}
             />
@@ -898,20 +974,26 @@ function SubscriptionManageSheet({
   }
 
   return (
-    <Modal open={open} onClose={onClose} label="管理订阅">
+    <Modal open={open} onClose={onClose} label={t("subscription.inspector.manage")}>
       <div className="p-4 pt-3">
         <div aria-hidden className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20" />
-        <h2 className="px-2 text-title-sm font-bold text-white">管理订阅</h2>
+        <h2 className="px-2 text-title-sm font-bold text-white">{t("subscription.inspector.manage")}</h2>
         <div className="mt-3 overflow-hidden rounded-xl bg-white/[0.035]">
           {canTune && (
             <button type="button" onClick={onAdjust} className={rowClass}>
-              <span>调整订阅</span>
+              <span>{t("subscription.inspector.adjust")}</span>
+              <span aria-hidden className="text-white/35">›</span>
+            </button>
+          )}
+          {onAdjustEpisodes && (
+            <button type="button" onClick={onAdjustEpisodes} className={rowClass}>
+              <span>{t("subscription.inspector.episodes")}</span>
               <span aria-hidden className="text-white/35">›</span>
             </button>
           )}
           {canTune && (
             <button type="button" disabled={busy} onClick={onUpgradeRun} className={rowClass}>
-              <span>洗一轮版</span>
+              <span>{t("subscription.inspector.upgradeRound")}</span>
               <span aria-hidden className="text-white/35">›</span>
             </button>
           )}
@@ -922,12 +1004,12 @@ function SubscriptionManageSheet({
               onClick={onToggleFollowFuture}
               className={rowClass}
             >
-              <span>{followFuture ? "关闭自动续订" : "开启自动续订"}</span>
+              <span>{followFuture ? t("subscription.inspector.disableFollow") : t("subscription.inspector.enableFollow")}</span>
             </button>
           )}
           {canManageSubscriptions && onSwitchRule && (
             <button type="button" onClick={onSwitchRule} className={rowClass}>
-              <span>更换规则组</span>
+              <span>{t("subscription.inspector.switchRule")}</span>
               <span aria-hidden className="text-white/35">›</span>
             </button>
           )}
@@ -938,7 +1020,7 @@ function SubscriptionManageSheet({
               onClick={onTogglePause}
               className={rowClass}
             >
-              <span>{paused ? "恢复追踪" : "暂停追踪"}</span>
+              <span>{paused ? t("subscription.inspector.resume") : t("subscription.inspector.pause")}</span>
               <span aria-hidden className="text-white/35">›</span>
             </button>
           )}
@@ -949,7 +1031,7 @@ function SubscriptionManageSheet({
               onClick={onRemove}
               className={`${rowClass} border-t border-white/[0.07] !text-[#ff8b8b] hover:!bg-[#ff6b6b]/10`}
             >
-              <span>取消订阅</span>
+              <span>{t("subscription.inspector.cancel")}</span>
             </button>
           )}
         </div>
@@ -958,7 +1040,7 @@ function SubscriptionManageSheet({
           onClick={onClose}
           className="btn-glass mt-3 h-11 w-full text-ui font-medium"
         >
-          关闭
+          {t("common.close")}
         </button>
       </div>
     </Modal>
@@ -997,8 +1079,10 @@ function RuleSetSwitchDialog({
   onClose: () => void;
   onPick: (ruleSetId: number) => Promise<void>;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   const sheetForm = useSheetForm();
 
   const pick = async (id: number) => {
@@ -1011,7 +1095,7 @@ function RuleSetSwitchDialog({
     try {
       await onPick(id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "更换失败，请稍后重试");
+      setError(e instanceof Error ? e.message : { key: "subscription.inspector.switchFailed" });
       setBusy(false);
     }
   };
@@ -1021,18 +1105,18 @@ function RuleSetSwitchDialog({
     return (
       <SheetScaffold
         onClose={onClose}
-        title="更换规则组"
-        subtitle="点选即应用，只影响之后的资源评估；已下载/已入库的内容不受影响。需要新的组合条件可去「设置 → 订阅规则 → 规则组」新建。"
+        title={t("subscription.inspector.switchRule")}
+        subtitle={t("subscription.inspector.switchDescription")}
       >
         {error && <SheetNotice tone="error">{error}</SheetNotice>}
         <SheetSection>
           {ruleSets.map((rs) => {
-            const chips = specSummary(rs.spec);
+            const chips = specSummary(rs.spec, {}, locale);
             return (
               <SheetChoiceRow
                 key={rs.id}
-                label={`${rs.name}${rs.is_default ? "（默认）" : ""}`}
-                detail={chips.length === 0 ? "全不限" : chips.join(" · ")}
+                label={t("subscription.inspector.defaultName", { name: ruleSetLabel(rs, locale), isDefault: rs.is_default ? "yes" : "no" })}
+                detail={chips.length === 0 ? t("subscription.inspector.unrestricted") : chips.join(" · ")}
                 selected={rs.id === currentId}
                 disabled={busy}
                 onSelect={() => void pick(rs.id)}
@@ -1045,12 +1129,11 @@ function RuleSetSwitchDialog({
   }
 
   return (
-    <Modal open onClose={onClose} label="更换规则组" width="lg">
+    <Modal open onClose={onClose} label={t("subscription.inspector.switchRule")} width="lg">
       <div className="scroll-thin max-h-[76dvh] overflow-y-auto p-6 max-md:p-5">
-        <h2 className="text-title font-bold text-white">更换规则组</h2>
+        <h2 className="text-title font-bold text-white">{t("subscription.inspector.switchRule")}</h2>
         <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">
-          点选即应用，只影响之后的资源评估；已下载/已入库的内容不受影响。
-          需要新的组合条件可去「设置 → 订阅规则 → 规则组」新建。
+          {t("subscription.inspector.switchDescriptionDesktop")}
         </p>
         {error && (
           <p className="mt-3 rounded-lg border border-red-400/25 bg-red-500/10 px-3.5 py-2.5 text-sub leading-6 text-red-200">
@@ -1059,7 +1142,7 @@ function RuleSetSwitchDialog({
         )}
         <div className="mt-4 space-y-1.5">
           {ruleSets.map((rs) => {
-            const chips = specSummary(rs.spec);
+            const chips = specSummary(rs.spec, {}, locale);
             const current = rs.id === currentId;
             return (
               <button
@@ -1075,22 +1158,22 @@ function RuleSetSwitchDialog({
               >
                 <span className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-ui font-medium text-white/90">
-                    {rs.name}
+                    {ruleSetLabel(rs, locale)}
                     {rs.is_default && (
                       <span className="ml-2 text-caption font-normal text-[var(--text-faint)]">
-                        默认
+                        {t("subscription.inspector.default")}
                       </span>
                     )}
                   </span>
                   {current && (
                     <span className="shrink-0 text-caption font-medium text-[var(--ok)]">
-                      当前使用 ✓
+                      {t("subscription.inspector.current")}
                     </span>
                   )}
                 </span>
                 <span className="mt-1 flex flex-wrap gap-1.5">
                   {chips.length === 0 ? (
-                    <span className="text-caption text-[var(--text-faint)]">全不限</span>
+                    <span className="text-caption text-[var(--text-faint)]">{t("subscription.inspector.unrestricted")}</span>
                   ) : (
                     chips.map((chip) => (
                       <span
@@ -1128,11 +1211,12 @@ function SubscriptionFact({ label, value }: { label: string; value: string }) {
  * 数字图例与颜色同时表达状态，不让色觉成为理解进度的唯一通道。 */
 function ProgressStrip({
   progress,
-  unitLabel,
+  isMovie,
 }: {
   progress: SubscriptionDetail["progress"];
-  unitLabel: "部" | "集";
+  isMovie: boolean;
 }) {
+  const t = useTranslations();
   const { total, wanted, grabbed, downloaded, imported } = progress;
   const denom = Math.max(total, 1);
   const inPipeline = grabbed + downloaded;
@@ -1143,17 +1227,15 @@ function ProgressStrip({
   return (
     <div className="mt-4 max-md:col-span-2 max-md:mt-1">
       <div className="flex items-center justify-between gap-4 text-sub">
-        <span className="font-semibold text-white/85">收录进度</span>
+        <span className="font-semibold text-white/85">{t("subscription.progress.title")}</span>
         <span className="tnum shrink-0 text-white/55">
-          {imported} / {total} {unitLabel}
+          {t("subscription.progress.count", { imported, total, kind: isMovie ? "movie" : "tv" })}
         </span>
       </div>
       <div
         role="img"
         aria-label={
-          `共 ${total} ${unitLabel}，已入库 ${imported}` +
-          (upgrading > 0 ? `（其中洗版中 ${upgrading}）` : "") +
-          `，下载中 ${inPipeline}，缺失 ${wanted}`
+          t("subscription.progress.description", { total, kind: isMovie ? "movie" : "tv", imported, hasUpgrade: upgrading > 0 ? "yes" : "no", upgrading, downloading: inPipeline, wanted })
         }
         className="mt-2 flex h-1.5 w-full overflow-hidden rounded-full bg-white/[0.12]"
       >
@@ -1174,10 +1256,10 @@ function ProgressStrip({
         />
       </div>
       <div className="tnum mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-caption text-white/45">
-        <ProgressLegend color="var(--ok)" label={`已入库 ${importedSettled}`} />
-        {upgrading > 0 && <ProgressLegend color="#2dd4bf" label={`洗版中 ${upgrading}`} />}
-        <ProgressLegend color="var(--info-legend)" label={`下载中 ${inPipeline}`} />
-        <ProgressLegend color="rgba(255,255,255,0.2)" label={`缺失 ${wanted}`} />
+        <ProgressLegend color="var(--ok)" label={t("subscription.progress.importedLegend", { count: importedSettled })} />
+        {upgrading > 0 && <ProgressLegend color="#2dd4bf" label={t("subscription.progress.upgrading", { count: upgrading })} />}
+        <ProgressLegend color="var(--info-legend)" label={t("subscription.progress.downloadingLegend", { count: inPipeline })} />
+        <ProgressLegend color="rgba(255,255,255,0.2)" label={t("subscription.progress.wanted", { count: wanted })} />
       </div>
     </div>
   );
@@ -1234,6 +1316,8 @@ function SearchRoundBar({
   activities: SubscriptionActivity[];
   wanted: WantedItem[];
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const latest = activities.find((a) => a.type === "searched");
   if (!latest) return null;
 
@@ -1255,15 +1339,11 @@ function SearchRoundBar({
           style={{ boxShadow: "0 0 0 3px color-mix(in oklab, var(--info) 14%, transparent)" }}
         />
         <span className="text-sub font-medium text-white/85">
-          {formatRelativeTime(latest.created_at)}搜了一轮
+          {t("subscription.inspector.searchedAgo", { time: formatRelativeTime(latest.created_at, locale) })}
         </span>
         <span className="tnum basis-full text-caption leading-5 text-[var(--text-faint)]">
           {hasStats ? (
-            <>
-              {String(p.results)} 结果 · 命中 {String(p.identity_hits ?? 0)} · 拒绝{" "}
-              {String(p.rejected ?? 0)} · 投递 {String(p.dispatched_units ?? 0)} 个单元
-              {nextDue ? ` · 下轮 ${formatDateTime(nextDue)}` : ""}
-            </>
+            t("subscription.inspector.searchStats", { results: Number(p.results), hits: Number(p.identity_hits ?? 0), rejected: Number(p.rejected ?? 0), dispatched: Number(p.dispatched_units ?? 0), hasNext: nextDue ? "yes" : "no", next: nextDue ? formatDateTime(nextDue, locale) : "" })
           ) : (
             latest.message
           )}
@@ -1282,6 +1362,8 @@ function SearchRoundBar({
  * 叫「活动流水」用户根本不知道什么时候该看它。
  */
 function ActivityLogSection({ activities }: { activities: SubscriptionActivity[] }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const [open, setOpen] = useState(false);
   if (activities.length === 0) return null;
   return (
@@ -1292,11 +1374,11 @@ function ActivityLogSection({ activities }: { activities: SubscriptionActivity[]
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sub font-semibold text-white/70 transition-colors hover:bg-white/[0.035]"
       >
-        排查记录
+        {t("subscription.inspector.history")}
         <span className="font-normal text-caption text-[var(--text-faint)] max-md:hidden">
-          按时间回放系统做过的每一步
+          {t("subscription.inspector.historyDescription")}
         </span>
-        <span className="tnum font-normal text-[var(--text-faint)]">{activities.length}</span>
+        <span className="tnum font-normal text-[var(--text-faint)]">{formatNumber(activities.length, { useGrouping: locale === "en" }, locale)}</span>
         <ChevronDownIcon
           className={`ml-auto size-4 shrink-0 text-[var(--text-faint)] transition-transform ${
             open ? "rotate-180" : ""
@@ -1341,7 +1423,7 @@ function activityColor(type: SubscriptionActivity["type"]): string {
 
 /**
  * 活动时间线（全宽竖轨）：圆点定性（颜色）+ 中文流水句 + 相对时间。
- * message 由后端写入时渲染成完整句子，前端不做模板拼接。
+ * message 由后端按读取者语言渲染成完整句子，前端不做模板拼接。
  */
 function ActivityTimeline({
   activities,
@@ -1351,10 +1433,12 @@ function ActivityTimeline({
   /** 已被外层卡片（排查记录折叠区）包裹时不再画自己的边框底色 */
   bare?: boolean;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   if (activities.length === 0) {
     return (
       <p className="solid-card rounded-2xl border border-white/[0.07] bg-[rgba(14,16,22,0.45)] p-5 text-sub leading-6 text-[var(--text-muted)] backdrop-blur-xl">
-        暂无活动记录。系统开始搜索、匹配或投递后，每个动作都会记录在这里。
+        {t("subscription.inspector.noHistory")}
       </p>
     );
   }
@@ -1381,14 +1465,14 @@ function ActivityTimeline({
                 {!last && <span className="mt-1.5 w-px flex-1 bg-white/[0.08]" />}
               </div>
               <div
-                className={`flex min-w-0 flex-1 items-baseline gap-5 ${last ? "" : "pb-5"}`}
+                className={`flex min-w-0 flex-1 items-baseline gap-5 ${locale === "en" ? "max-md:flex-wrap max-md:gap-y-1" : ""} ${last ? "" : "pb-5"}`}
               >
-                <p className="min-w-0 flex-1 text-ui leading-6 text-white/85">{a.message}</p>
+                <p className={`min-w-0 flex-1 text-ui leading-6 text-white/85 ${locale === "en" ? "max-md:basis-full [overflow-wrap:anywhere]" : ""}`}>{a.message}</p>
                 <span
                   className="tnum shrink-0 text-caption text-[var(--text-faint)]"
-                  title={formatDateTime(a.created_at)}
+                  title={formatDateTime(a.created_at, locale)}
                 >
-                  {formatRelativeTime(a.created_at)}
+                  {formatRelativeTime(a.created_at, locale)}
                 </span>
               </div>
             </li>
@@ -1456,6 +1540,8 @@ function WantedBreakdown({
   /** 片源标注成功后回调（父组件重跑体检 + 刷新 + toast） */
   onAnnotated: (message: string) => void | Promise<void>;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   // 「无法确认档位」季的标注弹窗（docs/design/media-source-annotation.md §5.1）
   const [annotateSeason, setAnnotateSeason] = useState<number | null>(null);
   // 惰性初始化只在挂载时算一次：详情每 30s 静默刷新一遍，若跟着 wanted 重算，
@@ -1476,7 +1562,7 @@ function WantedBreakdown({
   if (wanted.length === 0) {
     return (
       <p className="solid-card rounded-2xl border border-white/[0.07] bg-[rgba(14,16,22,0.45)] p-5 text-sub leading-6 text-[var(--text-muted)] backdrop-blur-xl">
-        当前没有追踪项。开启「自动续订」后，新集播出会自动加入。
+        {t("subscription.inspector.noWanted")}
       </p>
     );
   }
@@ -1539,20 +1625,20 @@ function WantedBreakdown({
                     />
                   )}
                   <span className="min-w-0 flex-1 truncate">
-                    {isMovie ? "正片" : season === 0 ? "特别篇" : `第 ${season} 季`}
+                    {isMovie ? t("subscription.inspector.feature") : season === 0 ? t("subscription.inspector.specials") : t("media.season.title", { number: season })}
                     {/* 计数不带「已安排」标签：集行的状态胶囊已让语义自明，
                         短形态在窄屏不与洗版数、标注按钮抢宽度 */}
                     {!isMovie && (
                       <span
                         className="tnum ml-2 font-normal text-[var(--text-faint)]"
-                        title={`${arranged}/${items.length} 已安排`}
+                        title={t("subscription.inspector.arranged", { arranged, total: items.length })}
                       >
-                        {arranged}/{items.length}
+                        {formatNumber(arranged, { useGrouping: locale === "en" }, locale)}/{formatNumber(items.length, { useGrouping: locale === "en" }, locale)}
                       </span>
                     )}
                     {items.some((w) => w.upgrade?.active) && (
                       <span className="tnum ml-2 font-normal text-[#2dd4bf]/80">
-                        洗版 {items.filter((w) => w.upgrade?.active).length}
+                        {t("subscription.inspector.seasonUpgrading", { count: items.filter((w) => w.upgrade?.active).length })}
                       </span>
                     )}
                   </span>
@@ -1581,7 +1667,7 @@ function WantedBreakdown({
                       }}
                       className="shrink-0 rounded-md border border-white/[0.12] px-2 py-0.5 text-caption font-medium text-white/75 transition hover:bg-white/[0.07] hover:text-white"
                     >
-                      标注片源
+                      {t("subscription.inspector.annotateSource")}
                     </button>
                   )}
                 </div>
@@ -1624,20 +1710,9 @@ function WantedBreakdown({
   );
 }
 
-/**
- * wantedPresentation 长词 → 状态胶囊三字短名。整套词表恰好能全部收敛到
- * 三字（配合微型链固定占宽 → 所有胶囊等宽，右轨对成一列状态列）；
- * 丢掉的字由行说明与展开链补全（「已提交下载器」），胶囊只承担短名。
- */
-const SHORT_STATUS: Record<string, string> = {
-  入库失败: "失败",
-  已提交下载: "已提交",
-  排队搜索: "排队中",
-  预测窗口: "预测中",
-};
-
 /** 里程碑链的一站。state：done=历史（中性）/ now=卡点（状态色）/ todo=未到 */
 interface Milestone {
+  id: "release" | "search" | "dispatch" | "download" | "import" | "upgrade";
   lab: string;
   /** fail = 卡在这一站且不会自愈（需要用户处理），与 now 同色同亮点、走红色 */
   state: "done" | "now" | "todo" | "fail";
@@ -1663,8 +1738,10 @@ function milestonesOf(
   w: WantedItem,
   isMovie: boolean,
   live: SubscriptionDownload | undefined,
-  failure?: SubscriptionActivity,
+  failure: SubscriptionActivity | undefined,
+  locale: AppLocale,
 ): Milestone[] {
+  const t = appTranslator(locale);
   const M: Milestone[] = [];
   const now = new Date();
 
@@ -1677,17 +1754,20 @@ function milestonesOf(
     const undated = w.status === "wanted" && w.next_search_at === null;
     M.push(
       undated
-        ? { lab: "上映", state: "now", time: "", det: "上映日期未公布，定档后自动排队" }
-        : { lab: "上映", state: "done", time: "", det: "已定档或已上映" },
+        ? { id: "release", lab: t("subscription.milestone.release"), state: "now", time: "", det: t("subscription.milestone.releaseUndated") }
+        : { id: "release", lab: t("subscription.milestone.release"), state: "done", time: "", det: t("subscription.milestone.released") },
     );
+  } else if (!w.air_date && w.provisional) {
+    // 集数下限的占位集：TMDB 没录、播没播不知道，已在照常搜索（issue #640）
+    M.push({ id: "release", lab: t("subscription.milestone.air"), state: "done", time: "", det: t("subscription.milestone.provisional") });
   } else if (!w.air_date) {
-    M.push({ lab: "播出", state: "now", time: "", det: "播出日期未公布，定档后自动排队" });
+    M.push({ id: "release", lab: t("subscription.milestone.air"), state: "now", time: "", det: t("subscription.milestone.airUndated") });
   } else {
     M.push({
-      lab: "播出",
+      id: "release", lab: t("subscription.milestone.air"),
       state: "done",
       time: w.air_date,
-      det: new Date(w.air_date) > now ? `${w.air_date} 播出` : "已播出",
+      det: new Date(w.air_date) > now ? t("subscription.milestone.airDate", { date: w.air_date }) : t("subscription.milestone.aired"),
     });
   }
   // 未定档 = 不可调度，搜索站保持 todo；已定档未播出的等待语义交给搜索站
@@ -1697,20 +1777,20 @@ function milestonesOf(
   //   （排队 / 冷却 / 预测窗口 / 待搜索的精确措辞单源维护，不重写一遍）
   if (w.status !== "wanted") {
     M.push({
-      lab: "搜索",
+      id: "search", lab: t("subscription.milestone.search"),
       state: "done",
-      time: w.last_search_at ? formatRelativeTime(w.last_search_at) : "",
-      det: w.search_attempts > 0 ? `搜索 ${w.search_attempts} 次后命中` : "被动匹配命中",
+      time: w.last_search_at ? formatRelativeTime(w.last_search_at, locale) : "",
+      det: w.search_attempts > 0 ? t("subscription.milestone.foundAfter", { count: w.search_attempts }) : t("subscription.milestone.passiveMatch"),
     });
   } else if (preAir) {
-    M.push({ lab: "搜索", state: "todo", time: "", det: "定档后进入搜索队列" });
+    M.push({ id: "search", lab: t("subscription.milestone.search"), state: "todo", time: "", det: t("subscription.milestone.searchAfterDate") });
   } else {
     M.push({
-      lab: "搜索",
+      id: "search", lab: t("subscription.milestone.search"),
       state: "now",
-      time: w.search_attempts > 0 ? `已搜 ${w.search_attempts} 次` : "",
-      det: wantedPresentation(w).note,
-      why: w.selection_state?.reason !== "identity_unconfirmed" && w.last_reject_reason ? `最近一次被拒：${w.last_reject_reason}` : undefined,
+      time: w.search_attempts > 0 ? t("subscription.milestone.searchAttempts", { count: w.search_attempts }) : "",
+      det: wantedPresentation(w, locale).note,
+      why: w.selection_state?.reason !== "identity_unconfirmed" && w.last_reject_reason ? t("subscription.milestone.rejected", { reason: w.last_reject_reason }) : undefined,
     });
   }
 
@@ -1718,28 +1798,28 @@ function milestonesOf(
   if (w.grabbed_at) {
     const src = [
       w.grab_title,
-      resourceTimingNote(w.resource_timing, false),
+      resourceTimingNote(w.resource_timing, false, locale),
     ].filter((s): s is string => !!s);
     M.push({
-      lab: "投递",
+      id: "dispatch", lab: t("subscription.milestone.dispatch"),
       state: "done",
-      time: formatRelativeTime(w.grabbed_at),
-      det: "已提交下载器",
+      time: formatRelativeTime(w.grabbed_at, locale),
+      det: t("subscription.milestone.submitted"),
       src: src.length ? src : undefined,
     });
   } else {
     // 重开的工单（缺失重下）grabbed_at 已清但上次投递的时间链还在：
     // 保留「上次 · 站点：耗时」注解，与旧版行内第二行的信息对齐
-    const lastTiming = resourceTimingNote(w.resource_timing, true);
+    const lastTiming = resourceTimingNote(w.resource_timing, true, locale);
     // 投递失败会退回队列自动重试（卡点仍在搜索站），所以不占用失败站，
     // 只借搜索站同款的红色注解把原因说清——否则链上写着「尚未找到资源」，
     // 而真相是资源找到了、提交下载器时出错
     const dispatchFailure = failure?.type === "dispatch_failed" ? failure : undefined;
     M.push({
-      lab: "投递",
+      id: "dispatch", lab: t("subscription.milestone.dispatch"),
       state: "todo",
       time: "",
-      det: dispatchFailure ? "上次投递未成功，已退回队列" : w.selection_state?.candidate_key ? "已有候选，等待选择与核验完成" : "尚未找到符合要求的资源",
+      det: dispatchFailure ? t("subscription.milestone.dispatchRetry") : w.selection_state?.candidate_key ? t("subscription.milestone.candidateWaiting") : t("subscription.milestone.noMatch"),
       why: dispatchFailure?.message,
       src: lastTiming ? [lastTiming] : undefined,
     });
@@ -1753,68 +1833,68 @@ function milestonesOf(
   const downloadedAt = w.downloaded_at ?? w.imported_at;
   if (downloadedAt) {
     M.push({
-      lab: "下载",
+      id: "download", lab: t("subscription.milestone.download"),
       state: "done",
-      time: formatRelativeTime(downloadedAt),
-      det: "全部落盘",
+      time: formatRelativeTime(downloadedAt, locale),
+      det: t("subscription.milestone.onDisk"),
     });
   } else if (w.grabbed_at) {
     M.push({
-      lab: "下载",
+      id: "download", lab: t("subscription.milestone.download"),
       state: "now",
-      time: "进行中",
-      det: live ? downloadNote(live) : "已提交下载器，等待进度汇报",
+      time: t("subscription.milestone.inProgress"),
+      det: live ? downloadNote(live, locale) : t("subscription.milestone.waitingProgress"),
     });
   } else {
-    M.push({ lab: "下载", state: "todo", time: "", det: "等待投递完成" });
+    M.push({ id: "download", lab: t("subscription.milestone.download"), state: "todo", time: "", det: t("subscription.milestone.waitingDispatch") });
   }
 
   // 5. 入库
   if (w.imported_at) {
     M.push({
-      lab: "入库",
+      id: "import", lab: t("subscription.milestone.import"),
       state: "done",
-      time: formatRelativeTime(w.imported_at),
-      det: w.upgrade ? `已整理入库 · ${w.upgrade.current_label}` : "已整理入库",
+      time: formatRelativeTime(w.imported_at, locale),
+      det: w.upgrade ? t("subscription.milestone.importedQuality", { quality: w.upgrade.current_label }) : t("subscription.milestone.imported"),
     });
   } else if (failure?.type === "import_failed") {
     // 文件已落盘却整理不进库：不修配置就永远停在这里，如实标红并把
     // 后端写好的中文原因（含修复指引）原样带出来，别让用户干等
     M.push({
-      lab: "入库",
+      id: "import", lab: t("subscription.milestone.import"),
       state: "fail",
       time: "",
-      det: "下载完成了，但 movieclaw 无法把文件整理入库",
+      det: t("subscription.milestone.importFailed"),
       why: failure.message,
     });
   } else if (w.downloaded_at) {
-    M.push({ lab: "入库", state: "now", time: "", det: "下载完成，等待整理入库" });
+    M.push({ id: "import", lab: t("subscription.milestone.import"), state: "now", time: "", det: t("subscription.milestone.waitingImport") });
   } else {
-    M.push({ lab: "入库", state: "todo", time: "", det: "下载完成后自动整理" });
+    M.push({ id: "import", lab: t("subscription.milestone.import"), state: "todo", time: "", det: t("subscription.milestone.importAfterDownload") });
   }
 
   // 6. 洗版（规则组配了洗版目标才出现这一站）
   if (w.upgrade) {
     if (w.upgrade.active) {
       M.push({
-        lab: "洗版",
+        id: "upgrade", lab: t("subscription.milestone.upgrade"),
         state: "now",
-        time: w.upgrade.search_attempts > 0 ? `已搜 ${w.upgrade.search_attempts} 次` : "",
-        det: `当前 ${w.upgrade.current_label} → 目标 ${w.upgrade.target_label}`,
+        time: w.upgrade.search_attempts > 0 ? t("subscription.milestone.searchAttempts", { count: w.upgrade.search_attempts }) : "",
+        det: t("subscription.milestone.upgradeTarget", { current: w.upgrade.current_label, target: w.upgrade.target_label }),
       });
     } else if (w.upgrade.indeterminate) {
       M.push({
-        lab: "洗版",
+        id: "upgrade", lab: t("subscription.milestone.upgrade"),
         state: "now",
         time: "",
-        det: `${w.upgrade.current_label} · 无法确认是否低于洗版目标，不自动洗；可在季标题「标注片源」或手动选种替换`,
+        det: t("subscription.milestone.indeterminate", { quality: w.upgrade.current_label }),
       });
     } else {
       M.push({
-        lab: "洗版",
+        id: "upgrade", lab: t("subscription.milestone.upgrade"),
         state: "done",
         time: "",
-        det: `当前 ${w.upgrade.current_label}`,
+        det: t("subscription.milestone.currentQuality", { quality: w.upgrade.current_label }),
       });
     }
   }
@@ -1842,7 +1922,7 @@ function MilestoneChain({ chain, color, selection }: { chain: Milestone[]; color
         // 颜色由外层胶囊色统一给（入库失败时整行已是红色）
         const isNow = m.state === "now" || m.state === "fail";
         return (
-          <li key={m.lab} className="flex gap-3">
+          <li key={m.id} className="flex gap-3">
             <span className="flex flex-col items-center">
               <span
                 className={`shrink-0 rounded-full ${
@@ -1902,7 +1982,7 @@ function MilestoneChain({ chain, color, selection }: { chain: Milestone[]; color
               >
                 {m.det}
               </span>
-              {m.lab === "搜索" && selection}
+              {m.id === "search" && selection}
               {m.why && (
                 <span className="basis-full text-caption leading-5 text-[#ff8a8a]/90">
                   {m.why}
@@ -1950,21 +2030,23 @@ function WantedRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   // 入库失败是死局（多为下载器路径映射缺失/卷未挂载），必须让胶囊自己变红：
   // 工单状态仍是「已下载」，不覆盖的话这一行看起来与正常等待入库毫无区别，
   // 用户扫列表时根本不会点开去看链。投递失败会自动退回队列重试，不算卡住，
   // 只在链上留一条注解（见 milestonesOf）
   const stuckOnImport = failure?.type === "import_failed" ? failure : undefined;
-  const { label, color, note: statusNote } = stuckOnImport
-    ? { label: "入库失败", color: "var(--danger)", note: stuckOnImport.message }
-    : wantedPresentation(w);
+  const { label, shortLabel, color, note: statusNote } = stuckOnImport
+    ? { label: t("subscription.wanted.importFailed"), shortLabel: t("subscription.wanted.failureShort"), color: "var(--danger)", note: stuckOnImport.message }
+    : wantedPresentation(w, locale);
   // 已提交下载且拿到了实时快照：说明行升级为进度行（进度条 + 速度/ETA）。
   // 入库失败时不要这条进度行——它只会重复「已下载完成」，把失败原因挤掉
   const live =
     !stuckOnImport && (w.status === "grabbed" || w.status === "downloaded")
       ? download
       : undefined;
-  const chain = milestonesOf(w, isMovie, live, failure);
+  const chain = milestonesOf(w, isMovie, live, failure, locale);
   const lit = stuckIndex(chain);
   const complete = chain.every((m) => m.state === "done");
   // 电影只有「正片」一条工单，折叠没有任何可选性——链常展开、去掉箭头与点击热区，
@@ -1988,10 +2070,10 @@ function WantedRow({
           说明文案被压成一条缝。桌面保持 nowrap 单行 */}
       <span className="flex items-center gap-x-3 gap-y-1 max-md:flex-wrap">
         <span className="tnum w-11 shrink-0 text-sub font-semibold text-white/90">
-          {isMovie ? "正片" : `E${String(w.episode_number).padStart(2, "0")}`}
+          {isMovie ? t("subscription.inspector.feature") : `E${String(w.episode_number).padStart(2, "0")}`}
         </span>
         <span className="tnum min-w-0 flex-1 truncate text-sub leading-5 text-[var(--text-muted)] max-md:order-last max-md:basis-full max-md:whitespace-normal max-md:line-clamp-2">
-          {live ? downloadNote(live) : statusNote}
+          {live ? downloadNote(live, locale) : statusNote}
         </span>
         <span
           className="flex shrink-0 items-center gap-[7px] rounded-full px-2.5 py-[3px] text-micro font-semibold max-md:ml-auto"
@@ -1999,13 +2081,13 @@ function WantedRow({
             backgroundColor: `color-mix(in oklab, ${color} 14%, transparent)`,
             color,
           }}
-          title={`第 ${lit + 1}/${chain.length} 站：${chain[lit].lab}${complete ? "（已收齐）" : ""}`}
+          title={t("subscription.inspector.station", { index: lit + 1, total: chain.length, station: chain[lit].lab, complete: complete ? "yes" : "no" })}
         >
           {/* 微型链固定占最长链（6 站）的宽度：与三字短名合力让胶囊等宽 */}
           <span className="flex w-[42px] shrink-0 items-center gap-[3px]">
             {chain.map((m, i) => (
               <span
-                key={m.lab}
+                key={m.id}
                 className="size-[4.5px] shrink-0 rounded-full"
                 style={{
                   backgroundColor:
@@ -2022,7 +2104,7 @@ function WantedRow({
               />
             ))}
           </span>
-          {SHORT_STATUS[label] ?? label}
+          {shortLabel ?? label}
         </span>
         {collapsible && (
           <ChevronDownIcon
@@ -2068,110 +2150,101 @@ function WantedRow({
 }
 
 /** 实时快照 → 一行进度说明。词表见 SubscriptionDownload.state。 */
-function downloadNote(d: SubscriptionDownload): string {
+function downloadNote(d: SubscriptionDownload, locale: AppLocale): string {
+  const t = appTranslator(locale);
   if (d.state === "missing") {
-    return "种子已不在下载器中（可能被手动删除），稍后自动重新寻找资源";
+    return t("subscription.download.missing");
   }
-  const pct = d.progress != null ? `${Math.floor(d.progress * 100)}%` : "";
-  if (d.state === "completed") return "已下载完成，等待整理入库";
-  if (d.state === "paused") return `${pct} · 已在下载器中暂停`;
+  const pct = d.progress != null ? formatNumber(Math.floor(d.progress * 100) / 100, { style: "percent", maximumFractionDigits: 0 }, locale) : "";
+  if (d.state === "completed") return t("subscription.download.completed");
+  if (d.state === "paused") return t("subscription.download.paused", { percent: pct });
   if (d.state === "error") {
     // 下载器里这条任务坏了（多半是文件缺失），不是死种：说清原因，并交代
     // 换源判定已暂停、要去下载器里处理。成员拿到的精简快照不含下载器原文
     //（error_message 与 downloader_name 都为 null），也进不了下载器，改为提示等管理员处理。
     // 超管快照的 downloader_name 在非 missing 态恒有值，据此区分，超管文案保持原样
     if (!d.error_message && d.downloader_name === null) {
-      return `${pct} · 下载任务出错，换源判定已暂停，需管理员在下载器中处理`;
+      return t("subscription.download.memberError", { percent: pct });
     }
-    return `${pct} · ${d.error_message || "下载器报告任务出错"}；换源判定已暂停，请在下载器中处理`;
+    return t("subscription.download.adminError", { percent: pct, reason: d.error_message || t("subscription.download.errorFallback") });
   }
-  if (d.state === "stalled") return `${pct} · 等待连接做种`;
+  if (d.state === "stalled") return t("subscription.download.stalled", { percent: pct });
   // downloading / unknown：速度与 ETA 有则展示
   const parts = [pct];
   if (d.dlspeed_bytes != null && d.dlspeed_bytes > 0) {
     parts.push(`${formatBytes(d.dlspeed_bytes)}/s`);
   }
-  if (d.eta_seconds != null) parts.push(`剩余约 ${formatDuration(d.eta_seconds)}`);
+  if (d.eta_seconds != null) parts.push(t("subscription.download.remaining", { duration: formatDuration(d.eta_seconds, locale) }));
   if (d.size_bytes != null && parts.length === 1) parts.push(formatBytes(d.size_bytes));
   return parts.filter(Boolean).join(" · ");
 }
 
 /** 资源时间链 → 用户能直接感知的“隔了多久才拉到”。 */
-function resourceTimingNote(timing: ResourceTiming | null, previous: boolean): string | null {
+function resourceTimingNote(timing: ResourceTiming | null, previous: boolean, locale: AppLocale): string | null {
   if (!timing || !shouldShowResourceTiming(timing.publish_to_submit_seconds)) return null;
-  const delay = (seconds: number) =>
-    seconds < 60 ? "不到 1 分钟" : formatDuration(seconds);
-  const prefix = `${previous ? "上次 · " : ""}${timing.dry_run ? "模拟 · " : ""}${timing.site_id}：`;
-  if (
-    timing.publish_to_seen_seconds != null &&
-    timing.seen_to_submit_seconds != null &&
-    timing.publish_to_submit_seconds != null
-  ) {
-    return (
-      `${prefix}资源发布后 ${delay(timing.publish_to_seen_seconds)}进入索引，` +
-      `${delay(timing.seen_to_submit_seconds)}后提交下载器` +
-      `（总耗时 ${delay(timing.publish_to_submit_seconds)}）`
-    );
+  const t = appTranslator(locale);
+  const delay = (seconds: number) => seconds < 60 ? t("subscription.timing.underMinute") : formatDuration(seconds, locale);
+  const context = { previous: previous ? "yes" : "no", dryRun: timing.dry_run ? "yes" : "no", site: timing.site_id };
+  if (timing.publish_to_seen_seconds != null && timing.seen_to_submit_seconds != null && timing.publish_to_submit_seconds != null) {
+    return t("subscription.timing.full", { ...context, seen: delay(timing.publish_to_seen_seconds), submitted: delay(timing.seen_to_submit_seconds), total: delay(timing.publish_to_submit_seconds) });
   }
-  if (timing.publish_to_submit_seconds != null) {
-    return `${prefix}资源发布后 ${delay(timing.publish_to_submit_seconds)}提交下载器`;
-  }
-  if (timing.seen_to_submit_seconds != null) {
-    return `${prefix}进入索引后 ${delay(timing.seen_to_submit_seconds)}提交下载器`;
-  }
+  if (timing.publish_to_submit_seconds != null) return t("subscription.timing.releaseToSubmit", { ...context, duration: delay(timing.publish_to_submit_seconds) });
+  if (timing.seen_to_submit_seconds != null) return t("subscription.timing.seenToSubmit", { ...context, duration: delay(timing.seen_to_submit_seconds) });
   return null;
 }
 
-function wantedPresentation(w: WantedItem): { label: string; color: string; note: string } {
+function wantedPresentation(w: WantedItem, locale: AppLocale): { label: string; shortLabel?: string; color: string; note: string } {
+  const t = appTranslator(locale);
   if (w.status === "imported") {
     if (w.selection_state?.target_reached && !w.upgrade?.active) {
-      return { label: "已入库", color: "var(--ok)", note: `${w.upgrade?.current_label ? `${w.upgrade.current_label} · ` : ""}已达标，已停止洗版` };
+      return { label: t("subscription.wanted.imported"), color: "var(--ok)", note: t("subscription.wanted.targetReached", { hasQuality: w.upgrade?.current_label ? "yes" : "no", quality: w.upgrade?.current_label ?? "" }) };
     }
     // 洗版中（quality-upgrade.md §8.3）：已入库但规则组的洗版目标还没达到。
     // 标签与差距文案由后端统一生成（当前档 → 目标档），前端零拼接
     if (w.upgrade?.active) {
       // 搜索次数不进说明行——行尾已有统一的「已搜索 n 次」元素，重复即噪音
       return {
-        label: "洗版中",
+        label: t("subscription.inspector.upgrading"),
         color: "#2dd4bf",
-        note: `当前 ${w.upgrade.current_label} → 目标 ${w.upgrade.target_label}`,
+        note: t("subscription.milestone.upgradeTarget", { current: w.upgrade.current_label, target: w.upgrade.target_label }),
       };
     }
     if (w.upgrade?.indeterminate) {
       // 无法确认档位（§13.8）：不参与自动洗版——如实说明并给出人工出路，
       // 否则这类单元与档位健康的单元毫无区别，用户以为它在洗版盘子里
       return {
-        label: "已入库",
+        label: t("subscription.wanted.imported"),
         color: "var(--ok)",
-        note: `${w.upgrade.current_label} · 无法确认是否低于洗版目标，不自动洗；可在季标题「标注片源」，或手动选种替换`,
+        note: t("subscription.wanted.indeterminate", { quality: w.upgrade.current_label }),
       };
     }
     if (w.upgrade) {
       // 规则组开了洗版但该单元已到顶/暂休：带出当前档位，让「库里是什么
       // 版本」始终可见（自然学习路径，quality-upgrade.md §8.5）
       return {
-        label: "已入库",
+        label: t("subscription.wanted.imported"),
         color: "var(--ok)",
-        note: `${w.upgrade.current_label} · 入库于 ${formatDateTime(w.imported_at)}`,
+        note: t("subscription.wanted.importedQuality", { quality: w.upgrade.current_label, date: formatDateTime(w.imported_at, locale) }),
       };
     }
-    return { label: "已入库", color: "var(--ok)", note: `入库于 ${formatDateTime(w.imported_at)}` };
+    return { label: t("subscription.wanted.imported"), color: "var(--ok)", note: t("subscription.wanted.importedAt", { date: formatDateTime(w.imported_at, locale) }) };
   }
   if (w.status === "downloaded") {
     return {
-      label: "已下载",
+      label: t("subscription.wanted.downloaded"),
       color: "var(--ok)",
-      note: `完成于 ${formatDateTime(w.downloaded_at ?? w.grabbed_at)}，待整理入库`,
+      note: t("subscription.wanted.downloadedAt", { date: formatDateTime(w.downloaded_at ?? w.grabbed_at, locale) }),
     };
   }
   if (w.status === "grabbed") {
     return {
-      label: "已提交下载",
+      label: t("subscription.wanted.submitted"),
+      shortLabel: t("subscription.wanted.submittedShort"),
       color: "var(--ok)",
-      note: `${formatRelativeTime(w.grabbed_at)}提交给下载器`,
+      note: t("subscription.wanted.submittedAgo", { time: formatRelativeTime(w.grabbed_at, locale) }),
     };
   }
-  const smart = smartWantedPresentation(w);
+  const smart = smartWantedPresentation(w, locale);
   if (smart) return smart;
   // status === "wanted"：按调度语义解释它此刻卡在哪。
   // 文案刻意写短：徽标已经说清「是什么状态」，这一行只补「关键的那个时间点」。
@@ -2179,9 +2252,9 @@ function wantedPresentation(w: WantedItem): { label: string; color: string; note
   // 到只剩半个日期（iPhone 实测）——机制说明留给徽标语义本身。
   if (w.next_search_at === null) {
     return {
-      label: "未定档",
+      label: t("subscription.wanted.undated"),
       color: "#9ca3af",
-      note: "上映/播出日期未公布，定档后自动排队",
+      note: t("subscription.wanted.undatedNote"),
     };
   }
   const due = new Date(w.next_search_at);
@@ -2197,28 +2270,30 @@ function wantedPresentation(w: WantedItem): { label: string; color: string; note
   ) {
     const sites = forecast.sites
       .slice(0, 2)
-      .map((site) => site.site_id)
-      .join("、");
+      .map((site) => site.site_id);
+    const siteNames = formatList(sites, locale);
     return {
-      label: "预测窗口",
+      label: t("subscription.wanted.forecast"),
+      shortLabel: t("subscription.wanted.forecastShort"),
       color: "var(--warn)",
-      note: `预计 ${formatDateTime(forecast.window_start)} ～ ${formatDateTime(forecast.window_end)}，重点探测 ${sites}`,
+      note: t("subscription.wanted.forecastNote", { start: formatDateTime(forecast.window_start, locale), end: formatDateTime(forecast.window_end, locale), sites: siteNames }),
     };
   }
   if (w.air_date && new Date(w.air_date) > now) {
     return {
-      label: "待播出",
+      label: t("subscription.wanted.unaired"),
       color: "var(--warn)",
-      note: `${w.air_date} 播出，${formatDateTime(w.next_search_at)} 起兜底搜索`,
+      note: t("subscription.wanted.airThenSearch", { date: w.air_date, searchAt: formatDateTime(w.next_search_at, locale) }),
     };
   }
   if (due <= new Date()) {
     return {
-      label: "排队搜索",
+      label: t("subscription.wanted.queued"),
+      shortLabel: t("subscription.wanted.queuedShort"),
       color: "var(--info)",
       note: w.last_search_at
-        ? `上次搜索 ${formatRelativeTime(w.last_search_at)}`
-        : "等待搜索任务执行",
+        ? t("subscription.wanted.lastSearch", { time: formatRelativeTime(w.last_search_at, locale) })
+        : t("subscription.wanted.waitingSearch"),
     };
   }
   // 从未搜索过却排在远处 = 档期未到（电影上映+宽限、剧集播出+宽限），
@@ -2227,14 +2302,14 @@ function wantedPresentation(w: WantedItem): { label: string; color: string; note
   // 那种情况维持原本的冷却展示
   if (!w.last_search_at && due.getTime() - now.getTime() > 60 * 60 * 1000) {
     return {
-      label: "待搜索",
+      label: t("subscription.wanted.scheduled"),
       color: "#f5c451",
-      note: `档期未到，${formatDateTime(w.next_search_at)} 起兜底搜索`,
+      note: t("subscription.wanted.beforeSchedule", { date: formatDateTime(w.next_search_at, locale) }),
     };
   }
   return {
-    label: "冷却中",
+    label: t("subscription.wanted.cooldown"),
     color: "var(--info)",
-    note: `暂无合适资源，${formatDateTime(w.next_search_at)} 再试`,
+    note: t("subscription.wanted.retryAt", { date: formatDateTime(w.next_search_at, locale) }),
   };
 }

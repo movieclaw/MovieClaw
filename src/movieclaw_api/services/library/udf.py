@@ -105,6 +105,7 @@ class UDFReader:
                 (e for e in entries if e.is_dir and e.name.upper() == name.upper()), None
             )
             if match is None:
+                # i18n-ignore: parser diagnostic, logged only
                 raise UDFError(f"目录不存在：{name}")
             block, part_ref = match.icb_block, match.icb_part_ref
         return self._read_directory(block, part_ref)
@@ -139,6 +140,7 @@ class UDFReader:
         """读整个文件（最多 ``limit`` 字节；超过即视为异常，抛 ``UDFError``）。"""
         fe = self._read_file_entry(entry.icb_block, entry.icb_part_ref)
         if fe.size > limit:
+            # i18n-ignore: parser diagnostic, logged only
             raise UDFError(f"文件过大：{entry.name}（{fe.size} 字节）")
         if fe.embedded is not None:
             return fe.embedded[: fe.size]
@@ -151,6 +153,7 @@ class UDFReader:
             want = min(ext.length, fe.size - len(out))
             out += self._read_at(sector * SECTOR, want)
         if len(out) < fe.size:
+            # i18n-ignore: parser diagnostic, logged only
             raise UDFError(f"文件数据不完整：{entry.name}")
         return bytes(out)
 
@@ -160,6 +163,7 @@ class UDFReader:
         self._fh.seek(offset)
         data = self._fh.read(length)
         if len(data) != length:
+            # i18n-ignore: parser diagnostic, logged only
             raise UDFError(f"读到镜像末尾：偏移 {offset}")
         return data
 
@@ -171,6 +175,7 @@ class UDFReader:
     def _parse_volume_structure(self) -> None:
         avdp = self._sector(256)
         if _tag(avdp) != _TAG_AVDP:
+            # i18n-ignore: parser diagnostic, logged only
             raise UDFError("不是 UDF 镜像（第 256 扇区没有锚点描述符）")
         vds_len, vds_loc = _u32(avdp, 16), _u32(avdp, 20)
         lvd: bytes | None = None
@@ -184,6 +189,7 @@ class UDFReader:
             elif tag == _TAG_TD:
                 break
         if lvd is None:
+            # i18n-ignore: parser diagnostic, logged only
             raise UDFError("没有逻辑卷描述符")
         fsd_block, fsd_ref = _u32(lvd, 252), _u16(lvd, 256)
         off = 440
@@ -209,17 +215,20 @@ class UDFReader:
             self._meta_extents = [(start + e.block, e.length // SECTOR) for e in meta.extents]
         fsd = self._sector(self._resolve(fsd_block, fsd_ref))
         if _tag(fsd) != _TAG_FSD:
+            # i18n-ignore: parser diagnostic, logged only
             raise UDFError("没有文件集描述符")
         self._root = (_u32(fsd, 404), _u16(fsd, 408))
 
     def _resolve(self, block: int, part_ref: int) -> int:
         """分区内逻辑块号 → 镜像里的物理扇区号。"""
         if part_ref >= len(self._maps):
+            # i18n-ignore: parser diagnostic, logged only
             raise UDFError(f"分区引用越界：{part_ref}")
         pm = self._maps[part_ref]
         if not pm.is_metadata:
             start = self._phys_start.get(pm.physical_part_number)
             if start is None:
+                # i18n-ignore: parser diagnostic, logged only
                 raise UDFError("找不到物理分区")
             return start + block
         remaining = block
@@ -227,6 +236,7 @@ class UDFReader:
             if remaining < blocks:
                 return start + remaining
             remaining -= blocks
+        # i18n-ignore: parser diagnostic, logged only
         raise UDFError(f"元数据块越界：{block}")
 
     # --- 文件项 ---------------------------------------------------------------
@@ -239,6 +249,7 @@ class UDFReader:
         d = self._sector(sector)
         tag = _tag(d)
         if tag not in (_TAG_FE, _TAG_EFE):
+            # i18n-ignore: parser diagnostic, logged only
             raise UDFError(f"不是文件项：扇区 {sector}，标签 {tag}")
         ad_type = _u16(d, 34) & 0x07
         size = int.from_bytes(d[56:64], "little")
@@ -294,6 +305,7 @@ class UDFReader:
             chunks = bytearray()
             for ext in fe.extents:
                 if len(chunks) + ext.length > _MAX_DIR_BYTES:
+                    # i18n-ignore: parser diagnostic, logged only
                     raise UDFError("目录过大")
                 ref = ext.long_part_ref if ext.long_part_ref is not None else fe.part_ref
                 chunks += self._read_at(self._resolve(ext.block, ref) * SECTOR, ext.length)

@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 /**
  * 待处理事项（状态化告警中心）的全局入口 + 面板。
  *
@@ -60,17 +62,19 @@ function NoticeCenterInner({
   collapsed: boolean;
   variant: "row" | "bell";
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [notices, setNotices] = useState<SystemNotice[]>([]);
   const [open, setOpen] = useState(false);
   const router = useRouter();
 
   const refresh = useCallback(() => {
-    fetchActiveNotices()
+    fetchActiveNotices(locale)
       .then(setNotices)
       .catch(() => {
         // 拉取失败（离线/后端重启）不打扰：保留上次结果，下轮轮询自愈
       });
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     refresh();
@@ -109,7 +113,7 @@ function NoticeCenterInner({
     <Modal
       open={open}
       onClose={() => setOpen(false)}
-      label="待处理事项"
+      label={t("notify.center.title")}
       width="lg"
       // dvh 而非 vh：iOS 浏览器里 vh 按「地址栏收起后」的大视口算，76vh 的
       // 弹层会超出实际可视高度（subscribe-dialog 同款约定）
@@ -119,7 +123,7 @@ function NoticeCenterInner({
           同一条视线，且它是整个面板的机制说明、不是某条事项的信息，降到底栏 */}
       <div className="flex items-center gap-2.5 px-5 pb-4 pt-5">
         <BellIcon className="size-5 shrink-0 text-[var(--danger)]" />
-        <h2 className="flex-1 text-title-sm font-semibold text-[var(--text)]">待处理事项</h2>
+        <h2 className="flex-1 text-title-sm font-semibold text-[var(--text)]">{t("notify.center.title")}</h2>
         <span className="shrink-0 rounded-full bg-white/[0.07] px-2 py-0.5 text-caption font-semibold text-[var(--text-muted)]">
           {visible.length}
         </span>
@@ -157,14 +161,13 @@ function NoticeCenterInner({
             </div>
             {/* 操作条：一道发丝线与正文分开，主次分明——「去处理」是这条事项
                 真正的出口（实心玻璃按钮），「忽略」是退路（纯文字，最弱） */}
-            <div className="mt-3 flex items-center justify-end gap-2 border-t border-white/[0.05] pt-2.5">
+            <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-white/[0.05] pt-2.5">
               <button
                 type="button"
                 onClick={() => dismiss(notice.id)}
                 className="rounded-lg px-2.5 py-1.5 text-sub text-[var(--text-faint)] transition-colors hover:bg-white/[0.06] hover:text-[var(--text-muted)] max-md:py-2"
               >
-                忽略
-              </button>
+                {t("notify.center.ignore")}</button>
               {/* 第二出口：不知道怎么办就交给 AI——后端带着现场自检组装工单 */}
               <HandoffButton
                 kind="notice"
@@ -174,10 +177,9 @@ function NoticeCenterInner({
               <button
                 type="button"
                 onClick={() => goto(notice)}
-                className="btn-glass gap-1 px-3 py-1.5 text-sub font-medium text-[var(--text)] max-md:py-2"
+                className="btn-glass gap-1 whitespace-nowrap px-3 py-1.5 text-sub font-medium text-[var(--text)] max-md:py-2"
               >
-                去处理
-                <ChevronRightIcon className="size-3.5" />
+                {t("notify.center.resolve")}<ChevronRightIcon className="size-3.5" />
               </button>
             </div>
           </div>
@@ -185,8 +187,7 @@ function NoticeCenterInner({
       </div>
       {/* 底栏：面板的机制说明——告诉用户这里的东西不需要手动清理 */}
       <div className="border-t border-white/[0.06] px-5 py-3 text-caption text-[var(--text-faint)]">
-        这里只列需要你处理的运行时问题，修复后会自动消失。
-      </div>
+        {t("notify.center.description")}</div>
     </Modal>
   );
 
@@ -196,9 +197,9 @@ function NoticeCenterInner({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          aria-label={`待处理事项（${visible.length}）`}
-          title={`待处理事项（${visible.length}）`}
-          className="nf-icon-btn relative"
+          aria-label={t("notify.center.countTitle", { count: visible.length })}
+          title={t("notify.center.countTitle", { count: visible.length })}
+          className="icon-btn relative"
         >
           <BellIcon className="size-[20px]" />
           {/* 红点即状态信号：顶栏密度高，只点一颗点、不摆计数徽标。无需条件
@@ -216,7 +217,7 @@ function NoticeCenterInner({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title={collapsed ? `待处理（${visible.length}）` : undefined}
+        title={collapsed ? t("notify.center.countShort", { count: visible.length }) : undefined}
         className={`glass-row nav-item py-2 !text-[var(--danger)] max-md:py-2.5 ${
           collapsed ? "justify-center px-0" : "px-3"
         }`}
@@ -229,7 +230,7 @@ function NoticeCenterInner({
         </span>
         {!collapsed && (
           <>
-            <span className="flex-1 text-ui font-medium">待处理</span>
+            <span className="flex-1 text-ui font-medium">{t("notify.center.pending")}</span>
             <span className="rounded-full bg-[var(--danger-solid)] px-1.5 py-0.5 text-[11px] font-semibold leading-none text-white">
               {visible.length}
             </span>

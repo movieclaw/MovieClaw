@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { useEffect, useMemo, useState } from "react";
 
 import { XIcon } from "@/components/icons";
@@ -49,6 +51,7 @@ export function EndpointForm({
   onSubmit: (payload: McpEndpointPayload) => void;
   onCancel: () => void;
 }) {
+  const t = useTranslations();
   const [draft, setDraft] = useState(initial);
   const [query, setQuery] = useState("");
   const [preview, setPreview] = useState<McpToolPreview[] | null>(null);
@@ -59,10 +62,10 @@ export function EndpointForm({
   const slugError = useMemo(() => {
     const slug = draft.slug.trim();
     if (!slug || !slugEditable) return "";
-    if (!SLUG_PATTERN.test(slug)) return "只能用小写字母、数字和连字符，且不能以连字符开头或结尾";
-    if (takenSlugs.includes(slug)) return "这个标识已被其他端点占用";
+    if (!SLUG_PATTERN.test(slug)) return t("settings.mcp.controls.slugInvalid");
+    if (takenSlugs.includes(slug)) return t("settings.mcp.controls.slugTaken");
     return "";
-  }, [draft.slug, slugEditable, takenSlugs]);
+  }, [draft.slug, slugEditable, takenSlugs, t]);
 
   /** 右栏预览：服务或模式一变就重算。请求很轻（纯内存渲染），不做防抖也不卡。 */
   useEffect(() => {
@@ -116,7 +119,7 @@ export function EndpointForm({
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-medium tracking-tight">{submitLabel}</h2>
-        <button type="button" onClick={onCancel} aria-label="取消" className="btn-glass p-1.5">
+        <button type="button" onClick={onCancel} aria-label={t("settings.mcp.controls.cancel")} className="btn-glass p-1.5">
           <XIcon className="size-4" />
         </button>
       </div>
@@ -126,18 +129,18 @@ export function EndpointForm({
         <div className="space-y-5">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className="mb-1.5 block text-caption text-[var(--text-muted)]">端点名称</span>
+              <span className="mb-1.5 block text-caption text-[var(--text-muted)]">{t("settings.mcp.controls.name")}</span>
               <input
                 type="text"
                 value={draft.name}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                placeholder="家庭影音助理"
+                placeholder={t("settings.mcp.controls.namePlaceholder")}
                 className={INPUT_CLASS}
               />
             </label>
             <label className="block">
               <span className="mb-1.5 block text-caption text-[var(--text-muted)]">
-                地址标识{!slugEditable && "（建成后不可改）"}
+                {t("settings.mcp.controls.slug")}{!slugEditable && t("settings.mcp.controls.slugFixed")}
               </span>
               <input
                 type="text"
@@ -156,36 +159,38 @@ export function EndpointForm({
             <p className="-mt-2 text-caption text-[var(--danger)]">{slugError}</p>
           ) : (
             <p className="-mt-2 font-mono text-caption text-[var(--text-faint)]">
-              {baseUrl}/mcp/{draft.slug || "<地址标识>"}
+              {baseUrl}/mcp/{draft.slug || t("settings.mcp.controls.slugPlaceholder")}
             </p>
           )}
 
           {/* 工具模式：两张对比卡，差异写在卡面上 */}
           <div>
-            <p className="mb-2 text-caption text-[var(--text-muted)]">工具形态</p>
+            <p className="mb-2 text-caption text-[var(--text-muted)]">{t("settings.mcp.controls.mode")}</p>
             <div className="grid gap-2 sm:grid-cols-2">
               {[
                 {
                   on: expand,
-                  title: "展开",
+                  expand: true,
+                  title: t("settings.mcp.controls.expanded"),
                   sample: "subscriptions_update",
-                  desc: "一条命令一个工具，参数带类型，模型照 schema 填",
+                  desc: t("settings.mcp.controls.expandedHint"),
                   count: totals.commands,
                   size: totals.expandedBytes,
                 },
                 {
                   on: !expand,
-                  title: "折叠",
+                  expand: false,
+                  title: t("settings.mcp.controls.collapsed"),
                   sample: "subscriptions(command, params)",
-                  desc: "一个服务一个工具，工具少、占的上下文小",
+                  desc: t("settings.mcp.controls.collapsedHint"),
                   count: totals.services,
                   size: totals.collapsedBytes,
                 },
               ].map((mode) => (
                 <button
-                  key={mode.title}
+                  key={mode.expand ? "expanded" : "collapsed"}
                   type="button"
-                  onClick={() => setDraft({ ...draft, expand_tools: mode.title === "展开" })}
+                  onClick={() => setDraft({ ...draft, expand_tools: mode.expand })}
                   className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
                     mode.on
                       ? "border-[var(--accent)]/60 bg-[var(--accent-soft)]"
@@ -195,7 +200,7 @@ export function EndpointForm({
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="text-sub font-medium">{mode.title}</span>
                     <span className="text-caption tabular-nums text-[var(--text-muted)]">
-                      {totals.services > 0 ? `${mode.count} 个工具 · ${formatBytes(mode.size)}` : "—"}
+                      {totals.services > 0 ? t("settings.mcp.controls.modeSize", { count: mode.count, bytes: formatBytes(mode.size) }) : "—"}
                     </span>
                   </div>
                   <p className="mt-1 font-mono text-[11px] text-[var(--accent)]">{mode.sample}</p>
@@ -209,14 +214,14 @@ export function EndpointForm({
           <div>
             <div className="mb-2 flex items-center justify-between gap-3">
               <p className="text-caption text-[var(--text-muted)]">
-                开放的服务 · 已选 {totals.services} / {services.length}
+                {t("settings.mcp.controls.selectedServices", { count: totals.services, total: services.length })}
               </p>
               <div className="flex items-center gap-2">
                 <input
                   type="search"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="搜索服务…"
+                  placeholder={t("settings.mcp.controls.searchServices")}
                   className="field-shell w-44 rounded-lg border border-white/[0.08] bg-black/25 px-2.5 py-1 text-caption outline-none placeholder:text-[var(--text-faint)]"
                 />
                 {totals.services > 0 && (
@@ -225,7 +230,7 @@ export function EndpointForm({
                     onClick={() => setDraft({ ...draft, services: [] })}
                     className="btn-glass px-2.5 py-1 text-caption"
                   >
-                    清空
+                    {t("settings.mcp.controls.clear")}
                   </button>
                 )}
               </div>
@@ -253,7 +258,7 @@ export function EndpointForm({
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-sub">{service.domain}</span>
                         <span className="text-caption tabular-nums text-[var(--text-faint)]">
-                          {service.command_count} 条命令
+                          {t("settings.mcp.controls.commandsCount", { count: service.command_count })}
                         </span>
                       </div>
                       <p className="text-caption leading-relaxed text-[var(--text-muted)]">
@@ -265,13 +270,12 @@ export function EndpointForm({
               })}
             </div>
             <p className="mt-2 text-caption leading-relaxed text-[var(--text-faint)]">
-              勾中的服务，接进来的模型就能全部执行，和你自己在命令行上能做的一样——
-              勾了「library」它就可以删除磁盘上的媒体文件。
+              {t("settings.mcp.controls.serviceWarning")}
             </p>
           </div>
 
           <label className="block max-w-[200px]">
-            <span className="mb-1.5 block text-caption text-[var(--text-muted)]">单次调用超时（秒）</span>
+            <span className="mb-1.5 block text-caption text-[var(--text-muted)]">{t("settings.mcp.controls.timeout")}</span>
             <input
               type="number"
               min={5}
@@ -286,26 +290,25 @@ export function EndpointForm({
         {/* ── 右栏：实时后果 ───────────────────────────────────── */}
         <aside className="lg:sticky lg:top-4 lg:self-start">
           <div className="rounded-xl border border-white/[0.08] bg-black/20 p-4">
-            <p className="text-caption text-[var(--text-faint)]">客户端将看到</p>
+            <p className="text-caption text-[var(--text-faint)]">{t("settings.mcp.controls.clientSees")}</p>
             <p className="mt-1 text-2xl font-medium tabular-nums tracking-tight">
-              {toolCount} <span className="text-base font-normal text-[var(--text-muted)]">个工具</span>
+              {toolCount} <span className="text-base font-normal text-[var(--text-muted)]">{t("settings.mcp.controls.toolUnit", { count: toolCount })}</span>
             </p>
             <p className="mt-0.5 text-caption text-[var(--text-muted)]">
-              {totals.services} 个服务 · 覆盖 {totals.commands} 条命令 · 定义约 {formatBytes(bytes)}
+              {t("settings.mcp.controls.previewSummary", { services: totals.services, commands: totals.commands, bytes: formatBytes(bytes) })}
             </p>
 
             {expand && toolCount > TOOL_HINT_THRESHOLD && (
               <p className="mt-3 rounded-lg border border-[var(--warn,#f5c451)]/35 bg-[var(--warn,#f5c451)]/10 px-2.5 py-2 text-caption leading-relaxed">
-                超过 {TOOL_HINT_THRESHOLD} 个工具后模型选择准确率会下降。
-                改用<b>折叠</b>可降到 {totals.services} 个工具、约 {formatBytes(totals.collapsedBytes)}。
+                {t.rich("settings.mcp.controls.toolHint", { threshold: TOOL_HINT_THRESHOLD, count: totals.services, bytes: formatBytes(totals.collapsedBytes), mode: (chunks) => <b>{chunks}</b> })}
               </p>
             )}
 
             <div className="mt-3 border-t border-white/[0.06] pt-3">
               {preview === null ? (
-                <p className="text-caption text-[var(--text-faint)]">正在计算…</p>
+                <p className="text-caption text-[var(--text-faint)]">{t("settings.mcp.controls.calculatingNow")}</p>
               ) : preview.length === 0 ? (
-                <p className="text-caption text-[var(--text-faint)]">选中服务后这里会列出工具</p>
+                <p className="text-caption text-[var(--text-faint)]">{t("settings.mcp.controls.previewEmpty")}</p>
               ) : (
                 <ul className="scroll-thin max-h-64 space-y-1 overflow-y-auto">
                   {preview.slice(0, 60).map((tool) => (
@@ -315,7 +318,7 @@ export function EndpointForm({
                   ))}
                   {preview.length > 60 && (
                     <li className="text-caption text-[var(--text-faint)]">
-                      …… 还有 {preview.length - 60} 个
+                      {t("settings.mcp.controls.moreTools", { count: preview.length - 60 })}
                     </li>
                   )}
                 </ul>
@@ -327,7 +330,7 @@ export function EndpointForm({
 
       <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] pt-4">
         <button type="button" onClick={onCancel} className={SETTINGS_BUTTON_CLASS}>
-          取消
+          {t("settings.mcp.controls.cancel")}
         </button>
         <button
           type="button"

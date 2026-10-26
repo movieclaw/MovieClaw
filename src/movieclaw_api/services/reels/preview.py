@@ -29,8 +29,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.access import assert_item_visible
-from movieclaw_api.services.reels import segments
+from movieclaw_api.services.reels import clips, segments
 from movieclaw_api.services.reels.feed import (
+    MODE_CLIP,
     ReelCandidate,
     _assemble,
     _file_ref,
@@ -67,8 +68,14 @@ async def build_preview(
     source: str,
     season: int = 0,
     episode: int = 0,
+    modes: set[str] | None = None,
 ) -> dict[str, Any] | None:
-    """一部片的大图预告；放不了返回 None。"""
+    """一部片的大图预告；放不了返回 None。
+
+    开了「片段预切」且 App 会放 ``clip`` 时（docs/design/reels.md §8）：一律放精彩片段
+    （不再做续播回忆），切好了给小文件；没切好返回 None（App 保持剧照）并把这部排进最高档，
+    下次划回来就有了。
+    """
     await assert_item_visible(session, principal, media_item_id)
     libraries = await _playable_library_kinds(session, principal)
     files = (await _files_of(session, [media_item_id], list(libraries))).get(media_item_id, [])
@@ -76,6 +83,8 @@ async def build_preview(
         return None
     kind = unit_kind(libraries.get(files[0].library_id, "movie"))
     member_id = principal.member_id if principal.member_id is not None else 0
+    if MODE_CLIP in (modes or set()) and await clips.enabled():
+        return await _clip_preview(session, media_item_id, kind, files, member_id)
 
     candidate = None
     if source == "resume":
@@ -90,6 +99,31 @@ async def build_preview(
         candidate = ReelCandidate(media_item_id, kind, chosen, segment)
 
     items = await _assemble(session, [candidate], member_id)
+    if not items:
+        return None
+    item = items[0]
+    item["play"]["subtitle"] = None
+    return item
+
+
+async def _clip_preview(
+    session: AsyncSession,
+    media_item_id: int,
+    kind: str,
+    files: list[LibraryFile],
+    member_id: int,
+) -> dict[str, Any] | None:
+    chosen = choose_file(files, kind)
+    if chosen is None:
+        return None
+    segment = segments.cached_segment(_file_ref(chosen, kind))
+    info = clips.ready_clip(chosen, segment) if isinstance(segment, ReelSegment) else None
+    if info is None:
+        if segment is not None:  # None = 挑不了这一段（太短、读不出），切了也没有
+            await clips.request_now(media_item_id)
+        return None
+    candidate = ReelCandidate(media_item_id, kind, chosen, segment)  # type: ignore[arg-type]
+    items = await _assemble(session, [candidate], member_id, clips_by_file={info.file_id: info})
     if not items:
         return None
     item = items[0]

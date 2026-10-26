@@ -93,7 +93,7 @@ mclaw 的真实结果、画完不复述。
 - `routes/agent.py::get_agent_tools(cli_env, *, generative_ui=False)`：开关默认关，
   新接入的通道不会因为忘记关而误带；网页会话的两条装配路径（发消息 / 改写重问）
   显式传 `generative_ui=True`；
-- **IM / 微信通道**（`im_channel` / `weixin_channel` 的受限工具集）永远不带：那边
+- **IM 通道**（`channel_agent` 走不带卡片的 full 档）永远不带：那边
   无法解析卡片，模型调了只会收到一句「已展示卡片」而用户什么都看不到；
 - `tests/api/test_media_ui_tool_wiring.py` 三条守护：默认关、网页显式开、IM/微信
   模块连 `make_media_ui_tool` 的 import 都不允许出现。

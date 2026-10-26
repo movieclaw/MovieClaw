@@ -62,41 +62,41 @@ struct LibraryCustomizeView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         if loadFailed {
                             // 读取失败时整张清单不画——残缺清单上点一下圆圈就会整份保存，把认不出的库行/合集行永久丢掉
-                            Text("读取媒体库与合集失败，行清单可能不完整；下拉刷新重试。")
+                            Text(String(localized: .libraryCustomizeLoadFailedPull))
                                 .foregroundStyle(Theme.warning)
                                 .accessibilityIdentifier("customize-load-failed")
                         }
                         if let saveError {
                             Text(saveError).foregroundStyle(Theme.danger)
                         }
-                        Text("首页的行")
+                        Text(String(localized: .libraryCustomizeHomeRows))
                     }
                 } footer: {
                     if libraries != nil {
-                        Text("\(rows.filter { !$0.hidden }.count) 行显示、\(rows.filter(\.hidden).count) 行隐藏。轻点圆圈显示或隐藏，按住右侧把手拖动排序。改动只影响你自己的首页。")
+                        Text(String(localized: .libraryCustomizeRowsSummary(rows.filter { !$0.hidden }.count, rows.filter(\.hidden).count)))
                             .accessibilityIdentifier("customize-summary")
                     }
                 }
 
                 if libraries != nil {
                     Section {
-                        Button("恢复默认布局", role: .destructive) { Task { await restoreDefaults() } }
+                        Button(String(localized: .libraryCustomizeRestoreLayout), role: .destructive) { Task { await restoreDefaults() } }
                             .accessibilityIdentifier("restore-defaults")
                     }
                 }
             }
             // 常驻编辑态：拖动把手一直在。不给 onDelete，行首就不会冒出红色减号（与显隐圆圈打架）；删除在单行设置页里
             .environment(\.editMode, .constant(.active))
-            .navigationTitle("自定义首页")
+            .navigationTitle(String(localized: .libraryHomeCustomize))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("添加一行", systemImage: "plus") { adding = true }
+                    Button(String(localized: .libraryCustomizeAddRow), systemImage: "plus") { adding = true }
                         .disabled(libraries == nil)
                         .accessibilityIdentifier("add-row")
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成", systemImage: "checkmark", role: .confirm) { dismiss() }
+                    Button(String(localized: .commonDone), systemImage: "checkmark", role: .confirm) { dismiss() }
                         .accessibilityIdentifier("customize-done")
                 }
             }
@@ -202,7 +202,7 @@ struct LibraryCustomizeView: View {
             saveTask = nil
         } catch is CancellationError {
         } catch {
-            saveError = error.localizedDescription.isEmpty ? "保存失败，请稍后再试" : error.localizedDescription
+            saveError = error.localizedDescription.isEmpty ? String(localized: .libraryCustomizeSaveFailed) : error.localizedDescription
         }
     }
 
@@ -216,7 +216,7 @@ struct LibraryCustomizeView: View {
     }
 
     private func restoreDefaults() async {
-        guard await feedback.confirm("恢复默认布局？", message: "你自己加的行会被移除，排序和名字回到默认。", confirmTitle: "恢复默认", destructive: true) else { return }
+        guard await feedback.confirm(String(localized: .libraryCustomizeRestoreLayoutTitle), message: String(localized: .libraryCustomizeRestoreLayoutHint), confirmTitle: String(localized: .libraryCustomizeReset), destructive: true) else { return }
         saveTask?.cancel()
         saveTask = nil
         draft = nil
@@ -249,7 +249,7 @@ private struct RowLine: View {
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(row.hidden ? "显示「\(row.title)」" : "隐藏「\(row.title)」")
+            .accessibilityLabel(row.hidden ? String(localized: .libraryCustomizeShowNamed(row.title)) : String(localized: .libraryCustomizeHideNamed(row.title)))
             .accessibilityIdentifier("row-visibility-\(row.id)")
 
             // 不能设置的行（接下来继续、我的媒体库）不包按钮：包了再 disabled 会连文字一起置灰，看着像被隐藏了
@@ -338,9 +338,9 @@ private struct RowSettingsView: View {
     /// 这一行从哪来：名字改掉之后，靠它认出这一行指向哪个库 / 哪些库 / 哪个合集
     private var source: String? {
         switch row.kind {
-        case let .library(library, _, _, _, _, _): "\(library.name)库"
+        case let .library(library, _, _, _, _, _): String(localized: .libraryRowsLibraryMeta(library.name))
         case let .mediaKind(_, libraries, _, _, _, _, _): libraries.map(\.name).joined(separator: "、")
-        case let .collection(collection, _, _, _): "合集「\(collection.name)」"
+        case let .collection(collection, _, _, _): String(localized: .libraryCustomizeCollectionRow(collection.name))
         default: nil
         }
     }
@@ -362,13 +362,13 @@ private struct RowSettingsView: View {
                     }
                     .accessibilityIdentifier("row-name")
                 } header: {
-                    Text("名字")
+                    Text(String(localized: .libraryCollectionsName))
                 } footer: {
-                    Text("留空就跟随排序自动取名。")
+                    Text(String(localized: .libraryCustomizeNameFollowsSort))
                 }
             }
 
-            Section("排序") {
+            Section(String(localized: .librarySortTitleLabel)) {
                 ForEach(sortKeys, id: \.self) { key in
                     Button {
                         // 换依据时回到该档的自然方向
@@ -393,7 +393,7 @@ private struct RowSettingsView: View {
                 }
                 if let direction, let sort = row.sort {
                     // 自然方向在前：「新→旧」「高→低」「A→Z」
-                    Picker("顺序", selection: Binding(
+                    Picker(String(localized: .libraryCustomizeOrderPicker), selection: Binding(
                         mcGet: { row.reversed },
                         set: { setSort(sort, reversed: $0) }
                     )) {
@@ -407,24 +407,24 @@ private struct RowSettingsView: View {
 
             if let unwatched {
                 Section {
-                    Toggle("只显示我没看过的", isOn: Binding(mcGet: { unwatched }, set: setUnwatched))
+                    Toggle(String(localized: .libraryCustomizeUnwatched), isOn: Binding(mcGet: { unwatched }, set: setUnwatched))
                         .accessibilityIdentifier("row-unwatched")
                 }
             }
 
             if let source {
                 Section {
-                    LabeledContent("来源", value: source)
+                    LabeledContent(String(localized: .libraryCollectionsSource), value: source)
                 } footer: {
                     if case .mediaKind = row.kind {
-                        Text("同一部片在几个库里都有时只出现一次；从首页排除的库不算在内。")
+                        Text(String(localized: .libraryCustomizeDedupeHint))
                     }
                 }
             }
 
             if row.removable {
                 Section {
-                    Button("删除这一行", role: .destructive, action: onRemove)
+                    Button(String(localized: .libraryCustomizeRemove), role: .destructive, action: onRemove)
                         .accessibilityIdentifier("row-remove")
                 }
             }
@@ -482,22 +482,22 @@ private struct RowSettingsView: View {
 
     static func sortLabel(_ key: String) -> String {
         switch key {
-        case "unwatched_first": "未看优先"
-        case "favorited_at": "收藏时间"
-        case "release_date": "上映时间"
-        case "last_played": "上次观看"
-        case "rating": "评分"
-        case "random": "随便看看"
-        case "title": "片名"
-        default: "添加时间"
+        case "unwatched_first": String(localized: .libraryRowsUnwatchedFirst)
+        case "favorited_at": String(localized: .libraryRowsFavoritedHint)
+        case "release_date": String(localized: .libraryRowsReleasedHint)
+        case "last_played": String(localized: .libraryCustomizeSortLastPlayed)
+        case "rating": String(localized: .libraryRowsRatingHint)
+        case "random": String(localized: .libraryRowsRandom)
+        case "title": String(localized: .libraryRowsTitleHint)
+        default: String(localized: .libraryCustomizeSortAdded)
         }
     }
 
     static func sortHint(_ key: String) -> String? {
         switch key {
-        case "unwatched_first": "没看完的在前，再按收藏时间"
-        case "last_played": "只列我播放过的"
-        case "random": "每天换一批"
+        case "unwatched_first": String(localized: .libraryRowsUnwatchedHint)
+        case "last_played": String(localized: .libraryCustomizePlayedOnly)
+        case "random": String(localized: .libraryRowsRandomHint)
         default: nil
         }
     }
@@ -522,20 +522,20 @@ private struct AddRowSheet: View {
                         // 类型排最前：「全部电影」是比单个库更大的来源
                         ForEach(kinds, id: \.kind) { group in
                             choice(
-                                title: "全部\(HomeRows.mediaKindLabel(group.kind))",
+                                title: String(localized: .libraryCustomizeAllKind(HomeRows.mediaKindLabel(group.kind))),
                                 icon: Self.kindIcon(group.kind),
-                                detail: "\(group.libraries.count) 个库"
+                                detail: String(localized: .libraryCustomizeLibraryCount(group.libraries.count))
                             ) { add(HomeRows.newMediaKindRow(group.kind, libraries: group.libraries)) }
                             .accessibilityIdentifier("add-row-kind-\(group.kind)")
                         }
                     } header: {
-                        Text("按类型")
+                        Text(String(localized: .libraryCustomizeByKind))
                     } footer: {
-                        Text("同类型的库合成一行，同一部片只出现一次。")
+                        Text(String(localized: .libraryCustomizeKindRowsHint))
                     }
                 }
                 if !libraries.isEmpty {
-                    Section("媒体库") {
+                    Section(String(localized: .libraryCustomizeLibrary)) {
                         ForEach(libraries, id: \.id) { library in
                             choice(title: library.name, icon: Self.kindIcon(library.kind), detail: nil) {
                                 add(HomeRows.newLibraryRow(library))
@@ -545,10 +545,10 @@ private struct AddRowSheet: View {
                     }
                 }
                 if !collections.isEmpty {
-                    Section("合集") {
+                    Section(String(localized: .libraryCollectionsPageTitle)) {
                         ForEach(collections, id: \.id) { collection in
                             let onHome = onHome.contains(collection.id)
-                            choice(title: collection.name, icon: "square.stack", detail: onHome ? nil : "\(collection.itemCount) 部", done: onHome) {
+                            choice(title: collection.name, icon: "square.stack", detail: onHome ? nil : String(localized: .libraryStatusTitleCount(collection.itemCount)), done: onHome) {
                                 add(HomeRows.newCollectionRow(collection))
                             }
                             .disabled(onHome)
@@ -556,15 +556,15 @@ private struct AddRowSheet: View {
                     }
                 }
             }
-            .navigationTitle("添加一行")
+            .navigationTitle(String(localized: .libraryCustomizeAddRow))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭", systemImage: "xmark", role: .close) { dismiss() }
+                    Button(String(localized: .commonClose), systemImage: "xmark", role: .close) { dismiss() }
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .adaptiveDetents([.medium, .large])
     }
 
     private func choice(title: String, icon: String, detail: String?, done: Bool = false, action: @escaping () -> Void) -> some View {

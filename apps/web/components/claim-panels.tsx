@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { formatList } from "@/lib/format";
 import { useEffect, useState } from "react";
 
 import {
@@ -55,6 +57,8 @@ export function ClaimConfirmPanel({
   onConfirm: (season?: number) => void;
   onCancel: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [detail, setDetail] = useState<MediaDetailData | null>(null);
   const [failed, setFailed] = useState(false);
   const [season, setSeason] = useState("");
@@ -83,13 +87,10 @@ export function ClaimConfirmPanel({
   const year = item?.year ?? seed.year;
   const credits = detail
     ? [
-        detail.info.directors.length > 0 ? `导演 ${detail.info.directors.slice(0, 2).join(" / ")}` : "",
+        detail.info.directors.length > 0 ? t("library.claim.directors", { names: detail.info.directors.slice(0, 2).join(" / ") }) : "",
         // cast 是 MediaCastMember 对象数组，取 name 拼接；直接 join 会渲染成 [object Object]
         detail.info.cast.length > 0
-          ? `主演 ${detail.info.cast
-              .slice(0, 4)
-              .map((member) => member.name)
-              .join(" / ")}`
+          ? t("library.claim.cast", { names: detail.info.cast.slice(0, 4).map((member) => member.name).join(" / ") })
           : "",
       ]
         .filter(Boolean)
@@ -119,7 +120,7 @@ export function ClaimConfirmPanel({
             ) : null}
             {seed.episodeCount ? (
               <span className="text-sub text-[var(--text-muted)]">
-                对应季 {seed.episodeCount} 集
+                {t("library.claim.seasonEpisodes", { count: seed.episodeCount })}
               </span>
             ) : null}
             {item && item.rating > 0 ? (
@@ -128,7 +129,7 @@ export function ClaimConfirmPanel({
           </div>
           {seed.reasons && seed.reasons.length > 0 && (
             <p className="mt-0.5 text-caption text-[var(--text-faint)]">
-              与本地文件的佐证：{seed.reasons.join("、")}
+              {t("library.claim.localEvidence", { reasons: formatList(seed.reasons, locale) })}
             </p>
           )}
           {item?.overview ? (
@@ -137,10 +138,10 @@ export function ClaimConfirmPanel({
             </p>
           ) : failed ? (
             <p className="mt-1 text-caption text-[var(--text-faint)]">
-              详情加载失败（不影响认领，可打开 TMDB 页面核对）
+              {t("library.claim.detailFailed")}
             </p>
           ) : (
-            <p className="mt-1 text-caption text-[var(--text-faint)]">正在加载详情…</p>
+            <p className="mt-1 text-caption text-[var(--text-faint)]">{t("library.claim.loadingDetails")}</p>
           )}
           {credits && (
             <p className="mt-1 truncate text-caption text-[var(--text-faint)]" title={credits}>
@@ -149,35 +150,30 @@ export function ClaimConfirmPanel({
           )}
         </div>
       </div>
-      <div className="mt-2.5 flex items-center gap-3 border-t border-white/[0.06] pt-2.5">
+      <div className={`mt-2.5 flex items-center gap-3 border-t border-white/[0.06] pt-2.5 ${locale === "zh-Hans" ? "" : "flex-wrap"}`}>
         <a
           href={`https://www.themoviedb.org/${kind}/${seed.tmdbId}`}
           target="_blank"
           rel="noreferrer"
           className="text-caption text-[var(--text-muted)] underline decoration-white/20 underline-offset-2 transition hover:text-white/80"
         >
-          在 TMDB 打开核对 ↗
+          {t("library.claim.checkTmdb")}
         </a>
         <span className="flex-1" />
         {movie && fileCount > 1 && (
-          <span className="text-caption text-[var(--text-faint)]">整组视为同一部片的多个版本</span>
+          <span className="text-caption text-[var(--text-faint)]">{t("library.claim.multipleVersions")}</span>
         )}
         {askSeason && (
           <label className="flex items-center gap-1.5 text-caption text-[var(--text-muted)]">
-            第
-            <input
-              value={season}
-              onChange={(e) => setSeason(e.target.value)}
-              inputMode="numeric"
-              placeholder="?"
-              aria-label="季号"
-              className="w-10 rounded-md bg-white/[0.06] px-1.5 py-1 text-center text-sub text-white outline-none focus:bg-white/[0.1]"
-            />
-            季
+            {t.rich("library.claim.seasonInput", { input: () => (
+              <input value={season} onChange={(e) => setSeason(e.target.value)} inputMode="numeric" placeholder="?"
+                aria-label={t("library.claim.seasonNumber")}
+                className="w-10 rounded-md bg-white/[0.06] px-1.5 py-1 text-center text-sub text-white outline-none focus:bg-white/[0.1]" />
+            ) })}
           </label>
         )}
         <button type="button" disabled={busy} onClick={onCancel} className="btn-glass px-3 py-1.5 text-sub font-medium disabled:opacity-40">
-          取消
+          {t("common.cancel")}
         </button>
         <button
           type="button"
@@ -185,7 +181,7 @@ export function ClaimConfirmPanel({
           onClick={() => onConfirm(askSeason ? Number(season.trim()) : undefined)}
           className="btn-accent rounded-full px-3.5 py-1.5 text-sub font-semibold disabled:opacity-40"
         >
-          认领{fileCount > 1 ? `全部 ${fileCount} 个文件` : ""}
+          {t("library.claim.assign", { all: fileCount > 1 ? "yes" : "no", count: fileCount })}
         </button>
       </div>
     </div>
@@ -204,6 +200,7 @@ export function ClaimSearchPanel({
   initialQuery: string;
   onPick: (seed: ClaimSeed) => void;
 }) {
+  const t = useTranslations();
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<MediaSearchItem[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -236,7 +233,7 @@ export function ClaimSearchPanel({
           onKeyDown={(e) => {
             if (e.key === "Enter") search();
           }}
-          placeholder="片名关键词，或直接粘 TMDB ID"
+          placeholder={t("library.claim.queryPlaceholder")}
           autoFocus
           className="min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-sub text-[var(--text)] outline-none placeholder:text-white/30 focus:border-[var(--accent)]/60"
         />
@@ -246,7 +243,7 @@ export function ClaimSearchPanel({
             onClick={() => onPick({ tmdbId: Number(query.trim()), title: `TMDB #${query.trim()}` })}
             className="btn-accent shrink-0 rounded-full px-3.5 py-1.5 text-sub font-semibold"
           >
-            查看该 ID
+            {t("library.claim.viewId")}
           </button>
         ) : (
           <button
@@ -255,7 +252,7 @@ export function ClaimSearchPanel({
             onClick={search}
             className="btn-glass shrink-0 px-3.5 py-1.5 text-sub font-medium disabled:opacity-40"
           >
-            {searching ? "搜索中…" : "搜索"}
+            {searching ? t("library.claim.searching") : t("common.search")}
           </button>
         )}
       </div>
@@ -263,17 +260,10 @@ export function ClaimSearchPanel({
       {error && <p className="mt-2 text-caption text-red-300">{error}</p>}
       {results !== null && results.length === 0 && !error && (
         <p className="mt-2 text-caption leading-relaxed text-[var(--text-muted)]">
-          没有找到{movie ? "电影" : "剧集"}结果，换个关键词试试（TMDB 对中文名支持有限时可试英文/原名）。
-          确认 TMDB 没收录的话，可以
-          <a
-            href={`https://www.themoviedb.org/${movie ? "movie" : "tv"}/new`}
-            target="_blank"
-            rel="noreferrer"
-            className="underline decoration-white/20 underline-offset-2 transition hover:text-white/80"
-          >
-            去 TMDB 补录该条目 ↗
-          </a>
-          ——它是维基式社区库，收录后回来搜索或粘 ID 即可认领
+          {t.rich("library.claim.emptySearch", { kind, create: (chunks) => (
+            <a href={`https://www.themoviedb.org/${movie ? "movie" : "tv"}/new`} target="_blank" rel="noreferrer"
+              className="underline decoration-white/20 underline-offset-2 transition hover:text-white/80">{chunks}</a>
+          ) })}
         </p>
       )}
       {results !== null && results.length > 0 && (

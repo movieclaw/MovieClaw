@@ -42,6 +42,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n.stored import (
+    reference,
+    reference_fields,
+    render_value,
+    source_render,
+    source_text,
+    stored_fields,
+)
 from movieclaw_api.services import jobs
 from movieclaw_api.services.library.series import (
     build_series_key,
@@ -103,9 +111,28 @@ _asset_semaphore = asyncio.Semaphore(2)
 PhaseHook = Callable[[str], None] | None
 
 # 刮削的阶段顺序（进度里的「第几步 / 共几步」按它算）
-_TMDB_STEPS = ("拉取 TMDB 档案", "写入元数据", "读取本地 NFO", "下载图片", "写入媒体目录")
-_LOCAL_STEPS = ("读取 NFO", "生成封面")
-_IMAGE_STEP = "下载图片"
+# 阶段即消息键：进度里存键，读时按读者语言渲染
+_QUEUED = "library.scrape.phase.queued"
+_TMDB_STEPS = (
+    "library.scrape.phase.fetch",
+    "library.scrape.phase.metadata",
+    "library.scrape.phase.localNfo",
+    "library.scrape.phase.images",
+    "library.scrape.phase.mediaDir",
+)
+_LOCAL_STEPS = ("library.scrape.phase.readNfo", "library.scrape.phase.cover")
+_IMAGE_STEP = "library.scrape.phase.images"
+
+
+def _with_images(head: dict, summary: dict | None) -> dict:
+    """完成结论后接图片摘要（没有就只有结论）。"""
+    if summary is None:
+        return head
+    return reference(
+        "library.scrape.withImages",
+        head=head,
+        images=reference("library.scrape.imagesSummary", summary=summary),
+    )
 
 
 def _format_bytes(size: int) -> str:
@@ -175,31 +202,38 @@ class AssetTally:
         for name in _TALLY_FIELDS:
             setattr(self, name, getattr(self, name) + getattr(other, name))
 
-    def label(self) -> str:
-        """进行中的一句话：「下载图片 120 / 480 · 已下 230 MB」。"""
+    def label(self) -> dict:
+        """进行中的一句话（文案引用）：「下载图片 120 / 480 · 已下 230 MB」。"""
         if self.grabbing:
-            return f"从视频截取分集剧照 · 已截 {self.grabbed} 张"
+            return reference("library.scrape.images.grabbing", count=self.grabbed)
         if not self.planned:
-            return _IMAGE_STEP  # 刚进这一步、还没数清张数（或这部片没有图床图片）
-        text = f"{_IMAGE_STEP} {self.settled} / {self.planned}"
-        return f"{text} · 已下 {_format_bytes(self.bytes)}" if self.bytes else text
+            return reference(_IMAGE_STEP)  # 刚进这一步、还没数清张数（或这部片没有图床图片）
+        if self.bytes:
+            return reference(
+                "library.scrape.images.countingBytes",
+                done=self.settled,
+                total=self.planned,
+                size=_format_bytes(self.bytes),
+            )
+        return reference("library.scrape.images.counting", done=self.settled, total=self.planned)
 
-    def summary(self) -> str:
-        """完成摘要：「新下载 312 张（1.2 GB）、沿用 168 张、3 张失败」，零项不写。"""
+    def summary(self) -> dict | None:
+        """完成摘要（文案引用）：「新下载 312 张（1.2 GB）、沿用 168 张、3 张失败」，零项不写。"""
         parts = []
         if self.downloaded:
-            parts.append(f"新下载 {self.downloaded} 张（{_format_bytes(self.bytes)}）")
-        if self.reused:
-            parts.append(f"沿用 {self.reused} 张")
-        if self.adopted:
-            parts.append(f"从媒体目录收编 {self.adopted} 张")
-        if self.derived:
-            parts.append(f"本地缩图 {self.derived} 张")
-        if self.grabbed:
-            parts.append(f"从视频截取 {self.grabbed} 张")
-        if self.failed:
-            parts.append(f"{self.failed} 张失败，下次刷新自动补下")
-        return "、".join(parts)
+            parts.append(
+                reference(
+                    "library.scrape.images.downloaded",
+                    count=self.downloaded,
+                    size=_format_bytes(self.bytes),
+                )
+            )
+        for name in ("reused", "adopted", "derived", "grabbed", "failed"):
+            if count := getattr(self, name):
+                parts.append(reference(f"library.scrape.images.{name}", count=count))
+        if not parts:
+            return None
+        return {"message_list": parts, "separator_key": "common.list.separator"}
 
     def as_dict(self) -> dict[str, int]:
         return {name: getattr(self, name) for name in _TALLY_FIELDS}
@@ -223,13 +257,13 @@ class ScrapeProgress:
     步骤序号、图片计数从这里读。
     """
 
-    phase: str = "排队中"
+    phase: str = _QUEUED
     step: int = 0
     steps: int = 0
     images: AssetTally = field(default_factory=AssetTally)
 
-    def label(self) -> str:
-        return self.images.label() if self.phase == _IMAGE_STEP else self.phase
+    def label(self) -> dict:
+        return self.images.label() if self.phase == _IMAGE_STEP else reference(self.phase)
 
     def fraction(self) -> float:
         """这个条目大约完成了几成（整库进度条用）：按步骤算，下载图片那一步按张数细分。"""
@@ -246,8 +280,9 @@ def is_scraping(media_item_id: int) -> bool:
 
 
 def scraping_phase(media_item_id: int) -> str | None:
-    """该条目正在进行的刮削阶段；没在刮返回 None。"""
-    return _scraping.get(media_item_id)
+    """该条目正在进行的刮削阶段（按读者语言）；没在刮返回 None。"""
+    phase = _scraping.get(media_item_id)
+    return render_value(phase) if phase is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +307,7 @@ async def scrape_media_item(
     """
     if media_item_id in _scraping:
         return False
-    _scraping[media_item_id] = "排队中"
+    _scraping[media_item_id] = reference(_QUEUED)
     progress = progress if progress is not None else ScrapeProgress()
 
     def _record() -> None:
@@ -307,6 +342,11 @@ async def _scrape(
         recompute_subscription_status,
         refresh_release_forecasts,
     )
+    from movieclaw_api.services.subscription.episode_cap import caps_of
+    from movieclaw_api.services.subscription.episode_floor import (
+        floors_of,
+        refresh_douban_evidence,
+    )
 
     def _phase(text: str) -> None:
         steps = _LOCAL_STEPS if text in _LOCAL_STEPS else _TMDB_STEPS
@@ -326,14 +366,14 @@ async def _scrape(
         local_only = item.source != MediaSource.TMDB
         kind = MediaKind(item.kind)
     if local_only:
-        _phase("读取 NFO")
+        _phase("library.scrape.phase.readNfo")
         await reread_local_nfo(media_item_id)
-        _phase("生成封面")
+        _phase("library.scrape.phase.cover")
         from movieclaw_api.services.library.thumbs import ensure_local_assets
 
         await ensure_local_assets(media_item_id, force=force)
         return True
-    _phase("拉取 TMDB 档案")
+    _phase("library.scrape.phase.fetch")
     async with db.session() as session:
         repo = MediaItemRepository(session)
         item = await session.get(MediaItem, media_item_id)
@@ -352,7 +392,7 @@ async def _scrape(
             (e.season_number, e.episode_number) for e in await repo.list_episodes(media_item_id)
         }
 
-        _phase("写入元数据")
+        _phase("library.scrape.phase.metadata")
         _merge_identity(item, profile, await repo.get_metadata(media_item_id))
         await apply_display_profile(session, media_item_id, profile, language)
         # 先提交再读 NFO：上面的影人 upsert 已经 flush，这条连接此刻攥着 SQLite
@@ -365,7 +405,7 @@ async def _scrape(
         # 本地 NFO 吸收：必须在 TMDB 落库**之后**——NFO 里有值的字段压过 TMDB，
         # 这是「本地刮削成果优先」的落点（此前是在详情页读时判定，每打开一次
         # 就回媒体盘读一次）。失败只告警，档案已经是 TMDB 那份、页面不受影响
-        _phase("读取本地 NFO")
+        _phase("library.scrape.phase.localNfo")
         await absorb_local_nfo(session, media_item_id)
         # 系列合集：刮完就把它所在的每个库补齐一行（幂等，只写合集行不写成员行）
         await ensure_series_collections_for_item(session, media_item_id)
@@ -385,9 +425,17 @@ async def _scrape(
         if subscription is not None and kind is MediaKind.TV:
             episodes = await repo.list_episodes(media_item_id)
             expected = expected_units(
-                kind, episodes, list(subscription.selected_seasons), subscription.follow_future
+                kind,
+                episodes,
+                list(subscription.selected_seasons),
+                subscription.follow_future,
+                floors_of(subscription),
+                caps_of(subscription),
             )
             await _grow_and_sync(session, subscription, item, expected, known_keys)
+            # 豆瓣集数随刷新复查（详情走持久缓存，不额外打豆瓣）：TMDB 少录的
+            # 剧在判「已收齐」之前，还有机会被豆瓣证据拦下来提示用户
+            await refresh_douban_evidence(session, subscription, item)
             await recompute_subscription_status(session, subscription, item)
             # 新集出现或 air_date 改档后立即重建目标快照。快照内带 target_air_date，
             # 即使本次刷新中断，读取端也不会使用旧档期的预测。
@@ -399,7 +447,7 @@ async def _scrape(
 
     _phase(_IMAGE_STEP)
     await download_item_assets(media_item_id, force=force, tally=progress.images)
-    _phase("写入媒体目录")
+    _phase("library.scrape.phase.mediaDir")
     await mirror_media_dir_assets(media_item_id, force=force)
     return True
 
@@ -561,7 +609,7 @@ async def refresh_library_metadata(library_id: int) -> None:
                     return
                 if _refresh_tasks.stop_requested(library_id):
                     return
-                state.active[item_id] = (title, "排队中")
+                state.active[item_id] = (title, reference(_QUEUED))
                 try:
                     ok = await scrape_media_item(
                         item_id,
@@ -627,7 +675,7 @@ async def enqueue_library_metadata_refresh_job(
         actor_id=actor_id,
         origin=origin,
         progress={
-            **jobs.default_progress("等待刷新媒体库元数据"),
+            **jobs.default_progress(message_key="library.scrape.queuedLibrary"),
             "total": len(targets),
             "details": {"failed": 0, "active": []},
         },
@@ -670,7 +718,7 @@ async def enqueue_item_metadata_refresh_job(
         actor_id=actor_id,
         origin=origin,
         progress={
-            **jobs.default_progress("等待刷新条目元数据"),
+            **jobs.default_progress(message_key="library.scrape.queuedItem"),
             "details": {"media_item_id": media_item_id, "title": title},
         },
     )
@@ -733,7 +781,7 @@ async def _run_library_metadata_refresh_job(
     checkpoint = {"resume_at": resume_at, "failed": failed, "images": images.as_dict()}
     state = RefreshState(total=total, processed=resume_at, failed=failed)
     if not _refresh_tasks.try_start(library_id, state):
-        raise jobs.JobRetry("该媒体库已有元数据刷新正在收尾", delay_seconds=5)
+        raise jobs.JobRetry(**stored_fields("library.scrape.libraryBusy"), delay_seconds=5)
 
     # 正在处理的条目：media_item_id -> (标题, 结构化进度)；字典保持开始顺序
     running: dict[int, tuple[str, ScrapeProgress]] = {}
@@ -748,16 +796,19 @@ async def _run_library_metadata_refresh_job(
         percent = (done + moving) / total * 100 if total else 100.0
         # 摘要一句话写「正在刷新哪部、到哪一步」：活动页时间线只显示这一句，件数另有
         # current / total。片名用「」——时间线会把摘要里《》括起来的当成任务标题
-        message = f"已刷新 {done} / {total} 个条目"
+        message = stored_fields("library.scrape.progressDone", done=done, total=total)
         if running:
             title, progress = next(iter(running.values()))
-            message = f"正在刷新「{title}」：{progress.label()}"
-            if len(running) > 1:
-                message += f"（另有 {len(running) - 1} 部同时进行）"
+            message = stored_fields(
+                "library.scrape.progressItem",
+                title=title,
+                phase=progress.label(),
+                others=len(running) - 1,
+            )
         return {
             "mode": "determinate",
             "phase": "refreshing",
-            "message": message,
+            **message,
             "current": done,
             "total": total,
             "percent": round(min(percent, 100.0), 1),
@@ -767,7 +818,7 @@ async def _run_library_metadata_refresh_job(
                     {
                         "media_item_id": item_id,
                         "title": title,
-                        "phase": progress.label(),
+                        "phase": source_render(progress.label()),
                         "step": progress.step,
                         "steps": progress.steps,
                     }
@@ -791,10 +842,10 @@ async def _run_library_metadata_refresh_job(
         if not isinstance(raw, dict):
             return
         item_id = int(raw["media_item_id"])
-        title = str(raw.get("title") or f"条目 #{item_id}")
+        title = str(raw.get("title") or source_text("library.scrape.itemFallback", id=item_id))
         progress = ScrapeProgress()
         running[item_id] = (title, progress)
-        state.active[item_id] = (title, "排队中")
+        state.active[item_id] = (title, reference(_QUEUED))
         ok = False
         try:
             ok = await scrape_media_item(
@@ -826,16 +877,14 @@ async def _run_library_metadata_refresh_job(
             }
             await writer.write(_payload(), force=True)
 
-        message = f"元数据刷新完成，共 {total} 个条目"
-        if failed:
-            message += f"，其中 {failed} 个未完成"
-        if summary := images.summary():
-            message += f"；图片：{summary}"
+        message = _with_images(
+            reference("library.scrape.finished", total=total, failed=failed), images.summary()
+        )
         # 收尾再写一版：完成后 details 原样保留，任务卡据此显示图片明细
         await writer.write(_payload(), force=True)
-        logger.info("媒体库 #%s %s", library_id, message)
+        logger.info("媒体库 #%s %s", library_id, source_render(message))
         return {
-            "message": message,
+            **reference_fields(message),
             "library_id": library_id,
             "processed": total,
             "total": total,
@@ -856,9 +905,13 @@ async def _run_item_metadata_refresh_job(
     """单条目刷新处理器；阶段（第几步 / 共几步）与图片逐张记账写入公共进度，
     取消与重启都可安全重跑。下载图片那一步是确定进度（120 / 480 张）。"""
     media_item_id = int(input_data["media_item_id"])
-    title = str(input_data.get("title") or f"条目 #{media_item_id}")
+    title = str(
+        input_data.get("title") or source_text("library.scrape.itemFallback", id=media_item_id)
+    )
     if is_scraping(media_item_id):
-        raise jobs.JobRetry(f"《{title}》已有一次刮削正在收尾", delay_seconds=5)
+        raise jobs.JobRetry(
+            **stored_fields("library.scrape.itemBusy", title=title), delay_seconds=5
+        )
 
     progress = ScrapeProgress()
     writer = _ProgressWriter(context)
@@ -871,7 +924,7 @@ async def _run_item_metadata_refresh_job(
         return {
             "mode": "determinate" if counting else "indeterminate",
             "phase": "refreshing",
-            "message": progress.label(),
+            **reference_fields(progress.label()),
             "current": tally.settled if counting else None,
             "total": tally.planned if counting else None,
             "percent": round(tally.settled / tally.planned * 100, 1) if counting else None,
@@ -896,20 +949,29 @@ async def _run_item_metadata_refresh_job(
                 await asyncio.wait_for(asyncio.shield(runner), timeout=_PROGRESS_POLL_INTERVAL)
         if not await runner:
             raise jobs.JobFailed(
-                f"《{title}》元数据刷新未完成，请检查 TMDB 配置或后端日志",
+                **stored_fields("library.scrape.itemFailed", title=title),
                 code="METADATA_REFRESH_FAILED",
                 actions=[
-                    {"type": "retry_job", "label": "重试"},
-                    {"type": "open_settings", "label": "检查设置", "target": "metadata"},
+                    {
+                        "type": "retry_job",
+                        "label": source_text("activity.jobs.retry"),
+                        "label_key": "activity.jobs.retry",
+                    },
+                    {
+                        "type": "open_settings",
+                        "label": source_text("library.scrape.checkSettings"),
+                        "label_key": "library.scrape.checkSettings",
+                        "target": "metadata",
+                    },
                 ],
             )
         # 收尾再写一版：完成后 details 原样保留，任务卡据此显示图片明细
         await writer.write(_payload(final=True), force=True)
-        message = f"《{title}》元数据刷新完成"
-        if summary := progress.images.summary():
-            message += f"；图片：{summary}"
+        message = _with_images(
+            reference("library.scrape.itemFinished", title=title), progress.images.summary()
+        )
         return {
-            "message": message,
+            **reference_fields(message),
             "library_id": int(input_data["library_id"]),
             "media_item_id": media_item_id,
             "images": progress.images.as_dict(),
@@ -1510,8 +1572,10 @@ async def _grow_and_sync(
             SubscriptionActivity(
                 subscription_id=subscription.id,
                 type=ActivityType.WANTED_ADDED,
-                message=(f"元数据刷新发现 {len(to_add)} 个新集（{label} 起），已加入追踪"),
                 payload={"units": [[w.season_number, w.episode_number] for w in to_add]},
+                **stored_fields(
+                    "activity.subscription.metadataNewEpisodes", count=len(to_add), first=label
+                ),
             )
         )
         logger.info("《%s》发现 %d 个新集，已补工单", item.title, len(to_add))
@@ -1561,21 +1625,25 @@ async def _sync_movie_schedule(
     row.updated_at = now
     session.add(row)
     if next_search is not None:
-        message = f"《{item.title}》档期更新，{next_search.date().isoformat()} 起开始搜索资源"
+        message = stored_fields(
+            "activity.subscription.releaseScheduled",
+            title=item.title,
+            date=next_search.date().isoformat(),
+        )
     else:
-        message = f"《{item.title}》档期撤销，重新定档/上映后再安排搜索"
+        message = stored_fields("activity.subscription.releaseCleared", title=item.title)
     await repo.add_activity(
         SubscriptionActivity(
             subscription_id=subscription.id,
             type=ActivityType.ADJUSTED,
-            message=message,
+            **message,
             payload={
                 "release_date": release_date.isoformat() if release_date else None,
                 "status": item.status,
             },
         )
     )
-    logger.info("电影《%s》档期同步：%s", item.title, message)
+    logger.info("电影《%s》档期同步：%s", item.title, message["message"])
 
 
 # ---------------------------------------------------------------------------
@@ -1696,7 +1764,13 @@ async def cleanup_orphan_items(media_item_ids: Iterable[int], *, defer_assets: b
     磁盘删除单独放线程池；某个目录删不掉只记日志，不阻断其余清理
     （宁可留点垃圾，也不能让删库这类操作半途失败）。
     """
-    from movieclaw_db.models import CollectionItem, MediaShare, PlaybackState, Subscription
+    from movieclaw_db.models import (
+        CollectionItem,
+        MediaShare,
+        PlaybackState,
+        Subscription,
+        WatchRecord,
+    )
 
     ids = list(dict.fromkeys(media_item_ids))
     if not ids:
@@ -1726,11 +1800,12 @@ async def cleanup_orphan_items(media_item_ids: Iterable[int], *, defer_assets: b
                     )
                 ).scalars()
             )
-            # 用户数据三张表：有任意一行就说明用户在这部作品上留下过痕迹
+            # 用户数据：有任意一行就说明用户在这部作品上留下过痕迹
             # （playback_state 只在真正开播/标已看/收藏时才建行），保留条目
             user_data: set[int] = set()
             for column in (
                 PlaybackState.media_item_id,
+                WatchRecord.media_item_id,
                 CollectionItem.media_item_id,
                 MediaShare.media_item_id,
             ):

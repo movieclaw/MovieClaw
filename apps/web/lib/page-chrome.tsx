@@ -101,7 +101,7 @@ export const PageChromeProvider = PageChromeContext.Provider;
 
 /**
  * 「全出血（isHome / 氛围页）路由」判定：这些路由的主区不为顶栏让位
- * （外壳按它决定加不加 .nf-nav-offset、渲染不渲染全局蒙版），大图从顶栏
+ * （外壳按它决定加不加 .topnav-offset、渲染不渲染全局蒙版），大图从顶栏
  * 底下穿过。抽出为纯函数供外壳与 page-nav 共用，两处判定必须同源。
  *
  * 为什么 PageNav 也要吃这份判定（防遮挡硬约束）：Netflix 桌面的全出血页若

@@ -73,6 +73,8 @@ class MediaCard(BaseModel):
         default="",
         description="规模：电影=片长、剧集=季数。TMDB 列表接口不含此字段，仅详情接口回填",
     )
+    extent_key: str | None = None
+    extent_params: dict[str, int] = Field(default_factory=dict)
     badges: list[str] = Field(
         default_factory=list,
         description="资源质量徽章（4K/HDR 等）。预留给后续站点资源匹配，当前恒为空",
@@ -191,6 +193,9 @@ class MediaFacts(BaseModel):
     network: str | None = Field(default=None, description="播出平台（仅剧集）")
     aliases: list[str] = Field(default_factory=list, description="别名/其他译名")
     source_url: str | None = Field(default=None, description="来源站条目地址")
+    english_title: str | None = Field(
+        default=None, description="国际英文名（TMDB 译名）；豆瓣没有该数据，恒为 None"
+    )
 
 
 class MediaImage(BaseModel):

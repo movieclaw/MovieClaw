@@ -6,6 +6,18 @@ import Testing
 /// 口径逐条对照 Web `lib/task-activity.ts`、`lib/download-attention.ts`、`components/task-center-view.tsx`、
 /// `lib/episode-units.ts`、`lib/ingest-history.ts`、`lib/api/notices.ts`。
 struct ActivityLogicTests {
+    @Test @MainActor func deliveryColorsUseExecutorFactsAndDecodeLegacyResponses() {
+        let legacy: API.PlaybackDeliveryView = decode(["mode": "transcode", "label": "软件转码"])
+        #expect(legacy.executionKind == nil)
+        #expect(ActivityPlaybackSessionRow.deliveryColor(legacy) == Theme.danger)
+        let software: API.PlaybackDeliveryView = decode(["mode": "transcode", "label": "Software transcode", "execution_kind": "software"])
+        #expect(ActivityPlaybackSessionRow.deliveryColor(software) == Theme.danger)
+        let hardware: API.PlaybackDeliveryView = decode(["mode": "transcode", "label": "Custom raw label", "execution_kind": "hardware"])
+        #expect(ActivityPlaybackSessionRow.deliveryColor(hardware) == Theme.warning)
+        let remote: API.PlaybackDeliveryView = decode(["mode": "transcode", "label": "Remote transcode", "execution_kind": "remote"])
+        #expect(ActivityPlaybackSessionRow.deliveryColor(remote) == .purple)
+    }
+
     private func nn(_ value: Any?) -> Any { value ?? NSNull() }
 
     private func decode<T: Decodable>(_ json: [String: Any]) -> T {
@@ -16,12 +28,14 @@ struct ActivityLogicTests {
     private func job(
         id: String = "j1", type: String = "library.scan", status: String = "succeeded", dismissed: Bool = false,
         message: String = "", subject: String? = nil, resources: [[String: String]] = [], details: [String: Any] = [:],
-        cancelledBy: String? = nil, updated: String = "2026-09-25T10:00:00+00:00"
+        cancelledBy: String? = nil, updated: String = "2026-09-25T10:00:00+00:00", typeLabel: String? = nil,
+        current: Int? = nil, total: Int? = nil
     ) -> API.JobView {
         decode([
-            "id": id, "job_type": type, "subject": nn(subject), "definition_version": 1, "handler_revision": "x",
+            "id": id, "job_type": type, "job_type_label": nn(typeLabel), "subject": nn(subject), "definition_version": 1, "handler_revision": "x",
             "status": status, "input_data": [:], "result": NSNull(), "error": NSNull(), "usage": [:],
-            "progress": ["mode": "determinate", "phase": "completed", "message": message, "details": details],
+            "progress": ["mode": "determinate", "phase": "completed", "message": message, "details": details,
+                         "current": nn(current), "total": nn(total)],
             "resources": resources.map { ["resource_type": $0["type"]!, "resource_id": $0["id"]!, "relation": "target"] },
             "origin": "system", "attempt": 1, "max_attempts": 2, "revision": 1,
             "cancel_requested_by": nn(cancelledBy), "dismissed_at": nn(dismissed ? "2026-09-25T10:00:00+00:00" : nil),
@@ -45,6 +59,17 @@ struct ActivityLogicTests {
             "media_item_id": nn(mediaItemId), "media_title": "深渊无间", "media_kind": "tv",
             "plan": nn(plan), "subscriptions": subscriptions, "can_replace": canReplace,
         ])
+    }
+
+    @Test func jobTypeLabelPrefersLocalThenServerName() {
+        // 内置类型：本地文案（服务端没给名字的老版本也一样）
+        #expect(TaskCenter.jobTypeLabel(job(type: "library.scan")) == "扫描媒体库")
+        // 插件任务：服务端给的名字；历史标题也用它
+        let plugin = job(type: "strm-prefetch:backfill", status: "succeeded", typeLabel: "网盘规格预探")
+        #expect(TaskCenter.jobTypeLabel(plugin) == "网盘规格预探")
+        #expect(TaskCenter.historicalJobTitle(plugin) == "网盘规格预探完成")
+        // 都没有：原始类型
+        #expect(TaskCenter.jobTypeLabel(job(type: "acme:sync", typeLabel: "")) == "acme:sync")
     }
 
     @Test func attentionAndDismissed() {
@@ -105,6 +130,11 @@ struct ActivityLogicTests {
         #expect(ActivityFormat.watched(7_560_000) == "2 小时 6 分钟")
         #expect(ActivityFormat.duration(seconds: 5400) == "1.5 小时")
         #expect(ActivityFormat.playClock(ms: 630_000) == "10:30")
+        #expect(ActivityFormat.dayLabel("2025-09-03T04:00:00+00:00") == "2025年9月3日")
+        #expect(ActivityFormat.duration(seconds: 45) == "45 秒")
+        #expect(ActivityFormat.runtime(minutes: 60) == "1 小时")
+        #expect(TaskCenter.cardProgressAmount(job(details: [:], current: 3, total: 12)) == "3 / 12 个文件")
+        #expect(TaskCenter.historicalJobTitle(job(type: "library.scan", status: "cancelled", subject: "电影")) == "「电影」扫描已取消")
     }
 
     @Test func noticeRouting() {

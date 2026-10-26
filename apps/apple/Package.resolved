@@ -1,12 +1,12 @@
 {
-  "originHash" : "df74583e9ea0477838c91e99cf194054dfd5d937011aa6555a890aef83db6193",
+  "originHash" : "a8339056c427c0955ae4af6bcfb56d3e4b241ff389ffb56378c4974bd225def9",
   "pins" : [
     {
       "identity" : "aetherengine",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/yipengfei329/AetherEngine",
       "state" : {
-        "revision" : "aa3e04fab1e48134267e7fc763db645b388c9cd6"
+        "revision" : "615e416843c50869fe26a61fc37679a29fc7f40d"
       }
     },
     {
@@ -43,6 +43,15 @@
       "state" : {
         "revision" : "e636c2b2458930770932a36d311ec9d478575b90",
         "version" : "0.3.1"
+      }
+    },
+    {
+      "identity" : "sparkle",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sparkle-project/Sparkle",
+      "state" : {
+        "revision" : "eef1a539a373c1f1a320624b1130fc5de7b2e100",
+        "version" : "2.10.0"
       }
     }
   ],

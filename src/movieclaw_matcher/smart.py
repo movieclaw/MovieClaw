@@ -27,6 +27,11 @@ RESOLUTION_RANK = {"480p": 1, "576p": 2, "720p": 3, "1080p": 4, "1440p": 5, "216
 TARGET_SOURCE_RANK = {"web-dl": 3, "blu-ray": 4, "remux": 5}
 
 
+def reference(key: str, **params) -> dict:
+    """Carry presentation references with pure results; render only at the API boundary."""
+    return {"message_key": key, "message_params": params}
+
+
 class SmartPreferences(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -41,6 +46,9 @@ class SmartPolicy(SmartPreferences):
     algorithm_version: Literal[1] = ALGORITHM_VERSION
     profile_revision: int = Field(ge=1)
     kind: Literal["movie", "tv"]
+    # 看得懂的语言（smart_memory.LANGUAGE_KEYS 的键）。非空 = 作品语言看不懂，资源的
+    # 字幕或音轨里至少要有其中一种；空 = 不加要求（作品语言看得懂或未知）。
+    watchable_languages: tuple[str, ...] = ()
 
     @property
     def upgrade_source(self) -> UpgradeSource | None:
@@ -103,6 +111,26 @@ def eligible(candidate: TorrentCandidate, policy: SmartPolicy) -> bool:
     return candidate.seeders is None or candidate.seeders > 0
 
 
+def watchable(candidate: TorrentCandidate, policy: SmartPolicy) -> bool:
+    """资源的字幕或音轨里有没有看得懂的语言。未声明按看不懂处理（与规则组同口径）。"""
+    if not policy.watchable_languages:
+        return True
+    from movieclaw_matcher.smart_memory import audio_codes, subtitle_codes
+
+    attrs = candidate.attrs
+    return any(
+        _lang_match(subtitle_codes(key), attrs.subtitle_languages)
+        or _lang_match(audio_codes(key), attrs.audio_languages)
+        for key in policy.watchable_languages
+    )
+
+
+def _lang_match(required: tuple[str, ...], declared: list[str]) -> bool:
+    from movieclaw_matcher.rules import _any_lang_match
+
+    return _any_lang_match(list(required), declared)
+
+
 def series_key(candidate: TorrentCandidate) -> str | None:
     return series_key_attrs(candidate.attrs)
 
@@ -139,6 +167,7 @@ class SelectionState(BaseModel):
     anchor_source: Literal["first_seen", "published_at"] = "first_seen"
     first_observed_at: datetime | None = None
     manual_extended: bool = False
+    messages: dict[str, dict | None] = Field(default_factory=dict, exclude=True)
     wait_explanation: str | None = None
     identity_explanation: str | None = None
     reason: str = "observing"
@@ -151,6 +180,8 @@ class SelectionState(BaseModel):
     prediction: dict | None = None
     following: str | None = None
     selected_series: str | None = None
+    # 因字幕或音轨看不懂而跳过的资源数（只计品质合格的）
+    subtitle_blocked: int = 0
 
 
 class SelectionDecision(BaseModel):
@@ -188,12 +219,13 @@ def decide(
         state = state.model_copy(update={"target_reached": False}, deep=True)
     if current is not None and (not policy.allow_upgrade or target_met(current, policy)):
         return SelectionDecision(action="stop", state=state, reason="upgrade_stopped")
-    pool = [c for c in candidates if eligible(c, policy)]
+    base = [c for c in candidates if eligible(c, policy)]
     if current is not None:
-        pool = [c for c in pool if is_upgrade(c.attrs, current, policy)]
+        base = [c for c in base if is_upgrade(c.attrs, current, policy)]
+
     # 确定性排序；免费与镜像数量不作为品质或可靠性的证据。
-    pool.sort(
-        key=lambda c: (
+    def order(c: TorrentCandidate) -> tuple:
+        return (
             -(quality_vector(c.attrs)[0] or 0),
             -(quality_vector(c.attrs)[1] or 0),
             -(coverage or {}).get(candidate_key(c), [0, 0])[0],
@@ -203,7 +235,19 @@ def decide(
             series_key(c) or "",
             candidate_key(c),
         )
-    )
+
+    pool = sorted((c for c in base if watchable(c, policy)), key=order)
+    blocked = sorted((c for c in base if not watchable(c, policy)), key=order)
+    if (
+        current is None
+        and state
+        and state.forced_candidate
+        and any(candidate_key(c) == state.forced_candidate for c in blocked)
+    ):
+        # 用户明确选了看不懂的原版（「这次先下原版」），只为这一次放行
+        pool = sorted(pool + blocked, key=order)
+    elif not pool and blocked:
+        return _await_subtitles(policy, blocked, now=now, first_seen=first_seen, state=state)
     if not pool:
         if state:
             state = state.model_copy(deep=True)
@@ -241,9 +285,17 @@ def decide(
         )
     state = state.model_copy(deep=True)
     state.following = following
+    state.subtitle_blocked = len(blocked)
     state.first_observed_at = state.first_observed_at or observed
     # 兼容已存在的人工延期状态；新发现的旧发布时间不得覆盖用户决定。
     state.manual_extended = state.manual_extended or state.reason == "user_extended"
+    # 订阅跟随当前类型设置：设置把等待改短（含改成不等待）时，已在等待的单元按新预算
+    # 立即收紧；改长不追溯，已定的截止不往后挪。用户手动延长过的保留用户决定。
+    if not state.manual_extended:
+        budget_end = state.anchor + timedelta(seconds=policy.wait_seconds)
+        if budget_end < state.deadline:
+            state.deadline = budget_end
+            state.observation_end = min(state.observation_end, budget_end)
     if not state.manual_extended and anchor < state.anchor:
         state.anchor, state.anchor_source = anchor, source
         state.deadline = min(state.deadline, anchor + timedelta(seconds=policy.wait_seconds))
@@ -273,19 +325,35 @@ def decide(
     if state.prediction and not state.manual_extended:
         end = datetime.fromisoformat(state.prediction["end"])
         state.observation_end = end if end <= state.deadline else min(now, state.observation_end)
-    state.wait_explanation = (
-        "已保留用户手动延长的等待时间。"
+    wait_key, state.wait_explanation = (
+        ("subscription.selection.manualWait", "已保留用户手动延长的等待时间。")
         if state.manual_extended
-        else "历史到达窗口超出等待上限，不耗尽预算；选择当前合格候选，品质目标保持不变。"
+        else (
+            "subscription.selection.predictionBeyondBudget",
+            "历史到达窗口超出等待上限，不耗尽预算；选择当前合格候选，品质目标保持不变。",
+        )
         if state.prediction and datetime.fromisoformat(state.prediction["end"]) > state.deadline
-        else "历史到达窗口已经结束；重新核验当前合格候选，不重新计时。"
+        else (
+            "subscription.selection.predictionElapsed",
+            "历史到达窗口已经结束；重新核验当前合格候选，不重新计时。",
+        )
         if state.prediction and datetime.fromisoformat(state.prediction["end"]) <= now
-        else "同季此前独立单集的发布延迟提供等待依据；到期仍无目标版本，就选择当前合格候选。"
+        else (
+            "subscription.selection.predictionSupported",
+            "同季此前独立单集的发布延迟提供等待依据；到期仍无目标版本，就选择当前合格候选。",
+        )
         if state.prediction
-        else "按已匹配资源的最早站点发布时间计算，转载、合包和新建订阅不重新计时。"
+        else (
+            "subscription.selection.publishedAnchor",
+            "按已匹配资源的最早站点发布时间计算，转载、合包和新建订阅不重新计时。",
+        )
         if state.anchor_source == "published_at"
-        else "发布时间不明确，只进行一次有上限的观察；不会把本次发现时间当作发布时间。"
+        else (
+            "subscription.selection.unknownPublication",
+            "发布时间不明确，只进行一次有上限的观察；不会把本次发现时间当作发布时间。",
+        )
     )
+    state.messages["wait_explanation"] = reference(wait_key)
     chosen = pool[0]
     followed = next((c for c in pool if following and series_key(c) == following), None)
     if current is not None:
@@ -357,6 +425,15 @@ def decide(
         )
         + f"做种数：{chosen.seeders if chosen.seeders is not None else '未知'}。"
     )
+    state.messages["choice_explanation"] = reference(
+        "subscription.selection.choice",
+        groupCount=group_count,
+        resourceCount=resource_count,
+        hasVerified="yes" if verified else "no",
+        verified=verified,
+        hasSeeders="yes" if chosen.seeders is not None else "no",
+        seeders=chosen.seeders if chosen.seeders is not None else 0,
+    )
     state.selected_series = series_key(chosen)
     state.reason, state.candidate_key, state.candidate_title = (
         reason,
@@ -365,6 +442,61 @@ def decide(
     )
     return SelectionDecision(
         action="download", state=state, candidate_key=candidate_key(chosen), reason=reason
+    )
+
+
+def _await_subtitles(
+    policy: SmartPolicy,
+    blocked: list[TorrentCandidate],
+    *,
+    now: datetime,
+    first_seen: datetime | None,
+    state: SelectionState | None,
+) -> SelectionDecision:
+    """只有看不懂的原版：按原版的发布时间起算等待，到期也不下原版，只停下来等。"""
+    from movieclaw_matcher.smart_waiting import publication_anchor
+
+    published = publication_anchor(blocked, now)
+    observed = min(first_seen or now, now)
+    anchor = min(observed, published) if published else observed
+    source = "published_at" if published and published <= observed else "first_seen"
+    budget_end = anchor + timedelta(seconds=policy.wait_seconds)
+    if state is None:
+        state = SelectionState(
+            anchor=anchor,
+            anchor_source=source,
+            first_observed_at=observed,
+            deadline=budget_end,
+            observation_end=budget_end,
+        )
+    else:
+        state = state.model_copy(deep=True)
+        state.manual_extended = state.manual_extended or state.reason == "user_extended"
+        if not state.manual_extended and budget_end < state.deadline:
+            state.anchor, state.anchor_source = anchor, source
+            state.deadline = budget_end
+            state.observation_end = min(state.observation_end, budget_end)
+    expired = now >= state.deadline
+    state.reason = "deadline_awaiting_subtitles" if expired else "awaiting_subtitles"
+    state.subtitle_blocked = len(blocked)
+    state.candidate_key, state.candidate_title = candidate_key(blocked[0]), blocked[0].title
+    state.forced_candidate = None
+    state.choice_explanation = None
+    state.wait_explanation = (
+        "等待期已过，仍没有你看得懂的字幕或音轨版本；不会自动下载原版，出现后立即选择。"
+        if expired
+        else "已找到的资源都没有你看得懂的字幕或音轨，继续等待带字幕的版本。"
+    )
+    state.messages["wait_explanation"] = reference(
+        "subscription.selection.subtitlesExpired"
+        if expired
+        else "subscription.selection.subtitlesWaiting"
+    )
+    return SelectionDecision(
+        action="no_candidate" if expired else "wait",
+        state=state,
+        reason=state.reason,
+        next_at=None if expired else state.deadline,
     )
 
 

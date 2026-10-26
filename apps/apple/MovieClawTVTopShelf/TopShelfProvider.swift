@@ -20,7 +20,7 @@ final class TopShelfProvider: TVTopShelfContentProvider {
             return entry
         }
         let section = TVTopShelfItemCollection(items: items)
-        section.title = "接下来继续"
+        section.title = String(localized: .topShelfContinueWatching)
         return TVTopShelfSectionedContent(sections: [section])
     }
 }

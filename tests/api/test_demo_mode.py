@@ -190,7 +190,7 @@ def test_demo_allows_browsing_login_and_account_switching(client: TestClient, mo
 
 
 @pytest.mark.parametrize("account", [_ADMIN, _MEMBER])
-@pytest.mark.parametrize("client_type", ["tvos", "macos", "androidtv"])
+@pytest.mark.parametrize("client_type", ["tvos", "macos", "androidtv", "windows"])
 def test_demo_app_pairing_full_flow(client: TestClient, monkeypatch, account, client_type) -> None:
     """模拟 App 出码、手机批准、App 兑换并访问媒体库，权限跟随批准者。"""
     _provision(client)
@@ -284,7 +284,7 @@ def test_demo_blocks_sensitive_reads(client: TestClient, monkeypatch) -> None:
 def test_every_unlisted_write_is_rejected_in_demo_mode(client: TestClient, monkeypatch) -> None:
     """行为级默认拒绝：以超管身份请求 OpenAPI 里每一条写接口，白名单之外必须
     403 DEMO_READ_ONLY（守卫先于参数校验与业务逻辑执行，哑参数足够）。"""
-    from tests.api.test_auth import fill_path_params
+    from api.test_auth import fill_path_params
 
     admin_cookie, _ = _provision(client)
     # 生产环境刻意关闭 HTTP 接口清单；守护测试直接枚举应用，仍覆盖全部业务路由。
@@ -645,7 +645,7 @@ def test_review_account_gets_the_real_ai_model_and_its_own_sessions(
 ) -> None:
     """公开访客用预设回复的演示模型；审核账号用部署者配好的真实模型，会话只对它可见。"""
     from movieclaw_api.api.routes import agent as agent_routes
-    from movieclaw_api.services import demo_agent
+    from movieclaw_api.services import agent_toolkit, demo_agent
 
     admin_cookie, _ = _provision(client)
     _enable_review(monkeypatch)
@@ -665,7 +665,7 @@ def test_review_account_gets_the_real_ai_model_and_its_own_sessions(
 
     # 接好模型后（这里用演示路由器顶替真实供应商）：走真实工具，令牌也算审核凭证
     issued: list[str] = []
-    real_issue = agent_routes.auth_service.issue_agent_token
+    real_issue = agent_toolkit.auth_service.issue_agent_token
 
     async def _issue(session_id: str) -> str:
         issued.append(await real_issue(session_id))
@@ -675,7 +675,7 @@ def test_review_account_gets_the_real_ai_model_and_its_own_sessions(
         return demo_agent.router()
 
     monkeypatch.setattr(agent_routes, "acquire_llm_router", _router)
-    monkeypatch.setattr(agent_routes.auth_service, "issue_agent_token", _issue)
+    monkeypatch.setattr(agent_toolkit.auth_service, "issue_agent_token", _issue)
     started = client.post("/api/v1/sessions", json={"content": "你好"}, headers=bearer)
     assert started.status_code == 202, started.text
     session_id = started.json()["data"]["session_id"]
@@ -703,3 +703,34 @@ def test_review_agent_tokens_expire(monkeypatch) -> None:
     assert demo_service.is_review_token("expired-token") is False
     assert demo_service.is_review_token("live-token") is True
     demo_service.reset_demo_state()
+
+
+def test_demo_guard_covers_dynamic_plugin_routes(client: TestClient, monkeypatch) -> None:
+    """主干把插件路由移到顶层后，也必须保留演示站的默认只读保护。"""
+    from fastapi import APIRouter
+
+    from movieclaw_api.plugins.keys import PLUGIN_ROUTES
+    from movieclaw_kernel import Entry, plugin
+
+    calls = []
+
+    @plugin("demo-sync-write", title="演示只读验证", inject=(PLUGIN_ROUTES,))
+    async def apply(ctx):
+        router = APIRouter()
+
+        @router.post("/write", operation_id="plugins.demo-sync-write.write")
+        async def write():
+            calls.append(True)
+            return {"saved": True}
+
+        ctx.use(PLUGIN_ROUTES).mount(ctx, router, zone="admin")
+
+    admin_cookie, _ = _provision(client)
+    client.portal.call(client.app.state.kernel.mount, Entry("demo-sync-write", apply))
+    _enable_review(monkeypatch)
+    _use(client, admin_cookie)
+    _assert_demo_denied(client.post("/api/v1/plugins/demo-sync-write/write"))
+    assert calls == []
+    _login(client, _REVIEW)
+    assert client.post("/api/v1/plugins/demo-sync-write/write").status_code == 200
+    assert calls == [True]

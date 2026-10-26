@@ -1,3 +1,6 @@
+import { appTranslator } from "./i18n/translate.ts";
+import type { AppLocale } from "./i18n/negotiate.ts";
+import { formatList } from "./i18n/format.ts";
 import type { ConfirmCheckbox, ConfirmOptions } from "@/components/feedback";
 
 /**
@@ -10,94 +13,103 @@ import type { ConfirmCheckbox, ConfirmOptions } from "@/components/feedback";
  * 确认；进行中的「停止」不设确认——停止本身就是在纠正一个重操作。
  */
 
-export function scanLibraryConfirm(name: string): ConfirmOptions {
+export function scanLibraryConfirm(name: string, cloudTitles: string[] = []): ConfirmOptions {
+  const t = appTranslator();
+  // 挂了网盘目录的库：扫描顺带把网盘目录重新列一次（cloud-storage.md §4.3）
+  const cloud = formatList([...new Set(cloudTitles)]);
   return {
-    title: `扫描「${name}」？`,
-    description: "本次扫描会检查库文件夹的最新变化：",
+    title: t("library.confirm.scanTitle", { name }),
+    description: t("library.confirm.scanIntro"),
     bullets: [
-      "找出新增的影片文件，自动识别并加入媒体库",
-      "标记已经不在硬盘上的文件（记录保留，文件回来自动恢复）",
-      "为新入库的影片补齐简介、海报等信息",
-      "首次扫描会读取每个文件的画质与音轨信息，文件多时较慢、可随时停止",
-      "不会移动、修改或删除你的任何文件",
+      t("library.confirm.scanNew"),
+      t("library.confirm.scanMissing"),
+      ...(cloud ? [t("library.confirm.cloudListing", { cloud })] : []),
+      t("library.confirm.scanMetadata"),
+      t("library.confirm.scanProbe"),
+      cloud ? t("library.confirm.scanSafeCloud") : t("library.confirm.scanSafe"),
     ],
-    confirmLabel: "开始扫描",
+    confirmLabel: t("library.confirm.startScan"),
   };
 }
 
 export function refreshLibraryConfirm(name: string): ConfirmOptions {
+  const t = appTranslator();
   return {
-    title: `刷新「${name}」的元数据？`,
-    description: "本次刷新会为库里的全部影片：",
+    title: t("library.confirm.refreshLibraryTitle", { name }),
+    description: t("library.confirm.refreshLibraryIntro"),
     bullets: [
-      "重新获取最新的简介、评分、演职员和剧集信息",
-      "海报或背景图有更新时重新下载（你手动锁定的不动）",
-      "同步更新影片文件夹里的海报和 NFO 信息文件",
-      "影片较多时需要一段时间，可随时停止",
-      "不会移动、修改或删除你的视频文件",
+      t("library.confirm.refreshDetails"),
+      t("library.confirm.refreshArtwork"),
+      t("library.confirm.syncSidecars"),
+      t("library.confirm.refreshTime"),
+      t("library.confirm.videoSafe"),
     ],
-    confirmLabel: "开始刷新",
+    confirmLabel: t("library.confirm.startRefresh"),
   };
 }
 
-export function refreshItemConfirm(title: string): ConfirmOptions {
+export function refreshItemConfirm(title: string, locale?: AppLocale): ConfirmOptions {
+  const t = appTranslator(locale);
   return {
-    title: `刷新《${title}》的元数据？`,
-    description: "本次刷新会：",
+    title: t("library.confirm.refreshItemTitle", { title }),
+    description: t("library.confirm.refreshItemIntro"),
     bullets: [
-      "重新获取这部作品的简介、评分和演职员",
-      "重新下载海报和背景图（你手动锁定的不动）",
-      "同步更新影片文件夹里的海报和 NFO 信息文件",
-      "不会改动你的视频文件",
+      t("library.confirm.refreshItemDetails"),
+      t("library.confirm.refreshItemArtwork"),
+      t("library.confirm.syncSidecars"),
+      t("library.confirm.itemSafe"),
     ],
-    confirmLabel: "刷新",
+    confirmLabel: t("library.confirm.refresh"),
   };
 }
 
 /** 其他库（家庭录像这类本地视频）没有刮削链：「刷新」是重读视频旁的 NFO + 重新生成封面，
  *  不联网——TMDB 那套文案放在这里既不对、也吓人。 */
 export function rereadLibraryNfoConfirm(name: string): ConfirmOptions {
+  const t = appTranslator();
   return {
-    title: `重新读取「${name}」的 NFO 与封面？`,
-    description: "本次会为库里的全部视频：",
+    title: t("library.confirm.readLibraryTitle", { name }),
+    description: t("library.confirm.readLibraryIntro"),
     bullets: [
-      "重新读取视频旁同名的 NFO 文件，标题、简介、系列等以 NFO 为准",
-      "NFO 里写了系列（<set>）的，按库设置自动归进系列合集",
-      "重新生成封面",
-      "不联网，不会修改或删除你的文件",
+      t("library.confirm.readNfo"),
+      t("library.confirm.nfoCollections", { tag: "<set>" }),
+      t("library.confirm.regenerateCover"),
+      t("library.confirm.readSafe"),
     ],
-    confirmLabel: "开始读取",
+    confirmLabel: t("library.confirm.startRead"),
   };
 }
 
-export function rereadItemNfoConfirm(title: string): ConfirmOptions {
+export function rereadItemNfoConfirm(title: string, locale?: AppLocale): ConfirmOptions {
+  const t = appTranslator(locale);
   return {
-    title: `重新读取《${title}》的 NFO 与封面？`,
-    description: "本次会：",
+    title: t("library.confirm.readItemTitle", { title }),
+    description: t("library.confirm.readItemIntro"),
     bullets: [
-      "重新读取视频旁同名的 NFO 文件，标题、简介、系列等以 NFO 为准",
-      "重新生成封面",
-      "不联网，不会改动你的文件",
+      t("library.confirm.readNfo"),
+      t("library.confirm.regenerateCover"),
+      t("library.confirm.readItemSafe"),
     ],
-    confirmLabel: "读取",
+    confirmLabel: t("library.confirm.read"),
   };
 }
 
 /** 整库生成章节：默认只补缺（跳过已经抓齐的文件），勾选项决定是否全部重做
  *  （force）。一个菜单入口 + 弹窗内开关，与「刷新元数据」的交互保持一致。 */
 export function chapterImagesConfirm(name: string): ConfirmOptions & { checkbox: ConfirmCheckbox } {
+  const t = appTranslator();
   return {
-    title: `为「${name}」生成章节？`,
-    description: "后台低优先级执行，可在任务中心观察或取消：",
+    title: t("library.confirm.chaptersTitle", { name }),
+    description: t("library.confirm.chaptersIntro"),
     bullets: [
-      "只处理章节图还缺的文件（含上次没抓完、图丢了的），已经齐的不动",
-      "每个文件按章节数定位读取若干次，网络挂载的库会有读取流量",
-      "不会移动、修改或删除你的视频文件",
+      t("library.confirm.chaptersMissing"),
+      t("library.confirm.chaptersReads"),
+      t("library.confirm.videoSafe"),
     ],
     checkbox: {
-      label: "已有的章节也重新生成",
-      description: "按当前章节与合成策略全部重新生成，你手动选定的图不会被覆盖",
+      label: t("library.confirm.chaptersForce"),
+      description: t("library.confirm.chaptersForceHint"),
     },
-    confirmLabel: "开始生成",
+    confirmLabel: t("library.confirm.startChapters"),
   };
 }

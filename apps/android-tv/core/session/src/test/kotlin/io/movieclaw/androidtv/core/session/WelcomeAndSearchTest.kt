@@ -1,8 +1,8 @@
 package io.movieclaw.androidtv.core.session
 
-import io.movieclaw.androidtv.core.model.generated.LibraryItemView
-import io.movieclaw.androidtv.core.model.generated.LibrarySearchHit
-import io.movieclaw.androidtv.core.model.generated.LibrarySearchMatch
+import io.movieclaw.core.model.generated.LibraryItemView
+import io.movieclaw.core.model.generated.LibrarySearchHit
+import io.movieclaw.core.model.generated.LibrarySearchMatch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

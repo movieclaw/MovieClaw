@@ -19,6 +19,8 @@
  * 不改 modal.tsx，因此对其他弹窗零影响。
  */
 
+import { useLocale, useTranslations } from "next-intl";
+
 import type { ReactNode } from "react";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -26,13 +28,13 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { CheckIcon, ChevronRightIcon, XIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { useIsMobile } from "@/lib/use-media-query";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 
-/** 是否走表单弹层形态：银玻璃主题（非 structural）+ 手机版式。 */
+/** 是否走表单弹层形态：panel 版式 + 手机。 */
 export function useSheetForm(): boolean {
   const isMobile = useIsMobile();
-  const isNf = useTheme().structural;
-  return isMobile && !isNf;
+  const cinema = useLayout() === "cinema";
+  return isMobile && !cinema;
 }
 
 /** 右上角确认键：界面上是 ✓，label 作读屏名；busy 时换成转圈。 */
@@ -60,7 +62,7 @@ export function SheetScaffold({
   label,
   subtitle,
   confirm,
-  closeLabel = "关闭",
+  closeLabel,
   raised = false,
   children,
 }: {
@@ -80,6 +82,8 @@ export function SheetScaffold({
   /** 若干 SheetSection */
   children: ReactNode;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const busy = !!confirm?.busy;
   return (
     <Modal open={open} onClose={busy ? () => {} : onClose} label={label ?? title} raised={raised}>
@@ -89,14 +93,14 @@ export function SheetScaffold({
         <div className="grid shrink-0 grid-cols-[2.25rem_1fr_2.25rem] items-center gap-2 px-3 pb-2 pt-3">
           <button
             type="button"
-            aria-label={closeLabel}
+            aria-label={closeLabel ?? t("common.close")}
             disabled={busy}
             onClick={onClose}
             className="btn-glass size-9 !gap-0 p-0 text-white/80"
           >
             <XIcon className="size-4" />
           </button>
-          <h2 className="truncate text-center text-ui font-semibold text-white">{title}</h2>
+          <h2 className={`text-center text-ui font-semibold text-white ${locale === "en" ? "[overflow-wrap:anywhere]" : "truncate"}`}>{title}</h2>
           {confirm ? (
             busy ? (
               <span
@@ -333,6 +337,7 @@ export function SheetMenuRow({
   extra?: ReactNode;
   children?: ReactNode;
 }) {
+  const t = useTranslations();
   const current = options.find((o) => o.value === value);
   return (
     <DropdownMenu.Root>
@@ -341,7 +346,7 @@ export function SheetMenuRow({
           <span className="flex items-center gap-2">
             <span className="shrink-0">{label}</span>
             <span className="min-w-0 flex-1 truncate text-right text-[var(--text-muted)]">
-              {current?.label ?? "未选择"}
+              {current?.label ?? t("common.notSelected")}
             </span>
             {/* 上下箭头：原生菜单行的「可展开选择」记号 */}
             <svg

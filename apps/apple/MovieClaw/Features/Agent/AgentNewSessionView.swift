@@ -19,20 +19,23 @@ struct AgentNewSessionView: View {
     @State private var creating = false
     @State private var error: String?
     @State private var askingConsent = false
+    /// 正在输入（小幕抬头倾听）
+    @State private var composerAttentive = false
 
     var body: some View {
         let locked = llmConfigured == false
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(.rect)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .safeAreaBar(edge: .bottom, spacing: 0) {
                 VStack(alignment: .leading, spacing: 10) {
                     AgentComposer(
                         draft: $draft,
-                        placeholder: locked ? "请先接入 AI 模型，再开始对话" : nil,
+                        placeholder: locked ? String(localized: .homeNewSessionConfigureModel) : nil,
                         busy: creating,
                         disabled: locked,
                         autoFocus: !locked,
+                        onAttentionChange: { composerAttentive = $0 },
                         modelOptions: modelOptions,
                         modelValue: choice.model,
                         // 换模型后旧档位可能不在新菜单里，清回默认
@@ -41,9 +44,10 @@ struct AgentNewSessionView: View {
                         onThinkingChange: { update(AgentComposerPrefs(model: choice.model, thinking: $0)) },
                         onSubmit: submit
                     )
+                    .agentCompanionAnchor()
                     if locked { AgentLLMSetupNotice() }
                     if let error {
-                        Text("创建会话失败：\(error)")
+                        Text(String(localized: .homeNewSessionCreateFailed(error)))
                             .font(.system(size: 14))
                             .foregroundStyle(Theme.danger)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -54,12 +58,14 @@ struct AgentNewSessionView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.top, 8)
+                .modifier(AgentComposerBottomGap())
             }
+            .agentCompanion(error != nil ? .failed : creating ? .working : .idle, attentive: composerAttentive)
             .background(Theme.background.ignoresSafeArea())
-            .navigationTitle("新会话")
+            .navigationTitle(String(localized: .navMainNew))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarVisibility(.hidden, for: .tabBar)
+            .background { HidesTabBarWhenPushed() }
             .sheet(isPresented: $askingConsent) {
                 AgentAIConsentSheet(providers: AgentAIConsent.providers(modelOptions), onAgree: send)
             }
@@ -108,7 +114,7 @@ struct AgentNewSessionView: View {
 
     /// 这张空页是会话的「前一帧」，不该留在导航栈里：把栈顶的 /new 换成 /sessions/{id}
     private func replaceRoute(with id: String) {
-        let tab = router.selectedTab
+        let tab = router.selection
         if var path = router.paths[tab], path.last == .newSession {
             path[path.count - 1] = .session(id: id)
             router.paths[tab] = path

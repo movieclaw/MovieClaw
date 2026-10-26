@@ -172,3 +172,18 @@ def test_clear_all_history(client: TestClient) -> None:
 
     assert client.delete("/api/v1/search/history").status_code == 200
     assert _history(client) == []
+
+
+def test_also_keywords_join_the_dedup_key(client: TestClient) -> None:
+    """同搜词是「搜什么」的一部分：带不带同搜词是两条历史，同样的同搜词重搜只累加次数。"""
+    plain = {"keyword": "沙丘"}
+    with_also = {"keyword": "沙丘", "also_keywords": ["Dune", "Dune: Part One"]}
+    client.get("/api/v1/search/torrents", params=plain)
+    client.get("/api/v1/search/torrents", params=with_also)
+    client.get("/api/v1/search/torrents", params=with_also)
+
+    items = sorted(_history(client), key=lambda i: len(i["also_keywords"] or []))
+    assert [(i["also_keywords"], i["search_count"]) for i in items] == [
+        (None, 1),
+        (["Dune", "Dune: Part One"], 2),
+    ]

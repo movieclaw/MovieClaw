@@ -15,9 +15,11 @@ from movieclaw_db.models.cache_entry import CacheEntry
 from movieclaw_db.models.channel_account import ChannelAccount, ChannelAccountStatus
 from movieclaw_db.models.collection import Collection, CollectionItem
 from movieclaw_db.models.domain_event import DomainEvent, EventConsumer, EventDeadLetter
+from movieclaw_db.models.download_file_source import DownloadFileSource
 from movieclaw_db.models.download_hint import DownloadHint
 from movieclaw_db.models.download_target_pref import DownloadTargetPref
 from movieclaw_db.models.downloader_client import ClientType, DownloaderClient
+from movieclaw_db.models.drive_account import DriveAccount
 from movieclaw_db.models.import_watch import ImportWatch
 from movieclaw_db.models.ingest_entry import IngestEntry, IngestStatus
 from movieclaw_db.models.jellyfin_device import JellyfinDevice
@@ -31,9 +33,12 @@ from movieclaw_db.models.job import (
     JobStatus,
 )
 from movieclaw_db.models.library import Library
+from movieclaw_db.models.library_cloud_folder import LibraryCloudFolder
 from movieclaw_db.models.library_dir_snapshot import LibraryDirSnapshot
 from movieclaw_db.models.library_duplicate_unit import LibraryDuplicateUnit
 from movieclaw_db.models.library_file import FileSource, FileState, LibraryFile
+from movieclaw_db.models.library_file_fingerprint import LibraryFileFingerprint
+from movieclaw_db.models.library_file_replica import LibraryFileReplica
 from movieclaw_db.models.llm_provider import LlmProvider
 from movieclaw_db.models.login_device import LoginDevice
 from movieclaw_db.models.manual_download_intent import ManualDownloadIntent
@@ -50,10 +55,12 @@ from movieclaw_db.models.member_scoped import (
 from movieclaw_db.models.person import MediaItemPerson, Person
 from movieclaw_db.models.playback_log import PlaybackLog
 from movieclaw_db.models.playback_metric import PlaybackMetric
+from movieclaw_db.models.playback_preference import PlaybackPreference
 from movieclaw_db.models.playback_state import PlaybackState
 from movieclaw_db.models.plugin_callback import PluginCallback
 from movieclaw_db.models.plugin_data import PluginData
 from movieclaw_db.models.push_download_watch import PushDownloadWatch
+from movieclaw_db.models.push_outbox import PushOutbox
 from movieclaw_db.models.push_preference import PushPreference
 from movieclaw_db.models.ratio_boost_stat import RatioBoostStat
 from movieclaw_db.models.ratio_boost_task import BoostTaskState, RatioBoostTask
@@ -79,9 +86,11 @@ from movieclaw_db.models.site_user_profile import SiteUserProfile
 from movieclaw_db.models.smart_subscription import (
     SmartCandidate,
     SmartDecisionRecord,
+    SmartMemoryRow,
     SmartProfile,
     SmartSeason,
 )
+from movieclaw_db.models.strm_probe_state import StrmProbeState
 from movieclaw_db.models.subscription import (
     DownloadAttemptStatus,
     Subscription,
@@ -94,6 +103,8 @@ from movieclaw_db.models.subscription import (
 from movieclaw_db.models.subscription_activity import ActivityType, SubscriptionActivity
 from movieclaw_db.models.subtitle_auto_mute import SubtitleAutoMute
 from movieclaw_db.models.system_notice import NoticeSeverity, NoticeStatus, SystemNotice
+from movieclaw_db.models.tip import TipEvent, TipRecord
+from movieclaw_db.models.watch_record import WatchRecord
 
 __all__ = [
     "TimestampMixin",
@@ -102,6 +113,7 @@ __all__ = [
     "CacheEntry",
     "ChannelAccount",
     "ChannelAccountStatus",
+    "DriveAccount",
     "SiteCookie",
     "SiteCredential",
     "AuthType",
@@ -113,6 +125,7 @@ __all__ = [
     "AppSetting",
     "ClientType",
     "DomainEvent",
+    "DownloadFileSource",
     "DownloadHint",
     "DownloadTargetPref",
     "DownloaderClient",
@@ -135,6 +148,9 @@ __all__ = [
     "LibraryDirSnapshot",
     "LibraryDuplicateUnit",
     "LibraryFile",
+    "LibraryCloudFolder",
+    "LibraryFileFingerprint",
+    "LibraryFileReplica",
     "LlmProvider",
     "LoginDevice",
     "ManualDownloadIntent",
@@ -153,9 +169,12 @@ __all__ = [
     "Person",
     "PlaybackLog",
     "PushDownloadWatch",
+    "PushOutbox",
     "PushPreference",
     "PlaybackMetric",
+    "PlaybackPreference",
     "PlaybackState",
+    "WatchRecord",
     "PluginCallback",
     "PluginData",
     "MediaSeason",
@@ -169,6 +188,7 @@ __all__ = [
     "ReelEvent",
     "RuleSet",
     "Subscription",
+    "SmartMemoryRow",
     "SmartProfile",
     "SmartCandidate",
     "SmartDecisionRecord",
@@ -183,12 +203,15 @@ __all__ = [
     "SubscriptionActivity",
     "SubtitleAutoMute",
     "SearchHistory",
+    "StrmProbeState",
     "SiteTorrent",
     "SiteTorrentSwarmSample",
     "SiteSyncCursor",
     "TorrentSource",
     "SiteUserProfile",
     "SystemNotice",
+    "TipEvent",
+    "TipRecord",
     "NoticeSeverity",
     "NoticeStatus",
 ]

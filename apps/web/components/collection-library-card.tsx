@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import type { Route } from "next";
 import Link from "next/link";
 
@@ -11,6 +12,7 @@ import { imageUrl } from "@/lib/image-proxy";
 /** 首页合集的虚拟库卡片：封面复用真实媒体库的服务端货架渲染，不参与真实库统计。
  * 与库卡片保持同一宽高比，点击仍进入原合集；名字用合集原名，首页海报行改名不影响它。 */
 export function CollectionLibraryCard({ collection }: { collection: Collection }) {
+  const t = useTranslations();
   const href = collection.library_id === null
     ? `/library/c/${collection.id}`
     : `/library/${collection.library_id}/c/${collection.id}`;
@@ -23,7 +25,7 @@ export function CollectionLibraryCard({ collection }: { collection: Collection }
     <Link
       href={href as Route}
       scroll={false}
-      aria-label={`打开合集「${collection.name}」，${collection.item_count} 部`}
+      aria-label={t("library.collections.open", { name: collection.name, count: collection.item_count })}
       className="group/lib block rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
       data-testid={`collection-library-card-${collection.id}`}
     >
@@ -37,7 +39,7 @@ export function CollectionLibraryCard({ collection }: { collection: Collection }
         {/* 合集标记放在封面左下的倒影暗区：与库卡「N 个新文件入库中」同位置、同一套玻璃胶囊
             （合集没有扫描状态，不会撞车），名称行因此只有名字，长合集名不被图标挤短 */}
         <span className="absolute bottom-2 left-2.5 flex items-center gap-1 rounded-full border border-white/[0.16] bg-black/50 px-2 py-0.5 text-micro font-semibold text-white/90 backdrop-blur-md">
-          <LayersIcon className="size-3" />合集
+          <LayersIcon className="size-3" />{t("library.collections.pageTitle")}
         </span>
       </div>
       <ShelfCardCaption name={collection.name} />

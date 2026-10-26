@@ -1,14 +1,16 @@
 [plugin]
 id = "telegram-channel"
 title = "Telegram 通道"
-version = "1.0.0"
+title_localized = { en = "Telegram channel" }
+version = "1.1.0"
 entry = "telegram_channel"
 runtime = "process"
-sdk = "^1.0"
+sdk = "^1.2"
 description = "接入你用 @BotFather 创建的 bot：私聊对话 AI 助手、接收推送"
+description_localized = { en = "Connect a bot created with @BotFather for private conversations with the AI assistant and push notifications." }
 
 [requires]
-"im-channels" = "^1.0"
+"im-channels" = "^1.2"
 
 [permissions]
 operations = []

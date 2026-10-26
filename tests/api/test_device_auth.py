@@ -40,7 +40,7 @@ def _make_client(tmp_path, monkeypatch, *, name: str, peer=None):  # type: ignor
     from movieclaw_api.app import create_app
 
     kwargs = {"client": peer} if peer else {}
-    return TestClient(create_app(), **kwargs)
+    return TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}, **kwargs)
 
 
 @pytest.fixture
@@ -361,6 +361,7 @@ def test_member_can_pair_a_cli_that_acts_as_the_member(client: TestClient) -> No
         ("tvos", "客厅 Apple TV", "Apple TV App"),
         ("macos", "书房的 MacBook", "Mac App"),
         ("androidtv", "客厅 BRAVIA", "Android TV App"),
+        ("windows", "书房 Windows", "Windows App"),
     ],
 )
 def test_app_pairs_by_code_and_signs_in_as_the_approver(
@@ -385,6 +386,7 @@ def test_app_pairs_by_code_and_signs_in_as_the_approver(
     assert (me["username"], me["device"]["kind"]) == ("family", kind)
     rows = [d for d in client.get(f"{_AUTH}/devices").json()["data"] if d["kind"] == kind]
     assert [(r["name"], r["family"], r["kind_label"]) for r in rows] == [(name, "login", label)]
+    assert device.get("/api/v1/members", headers=_bearer(data["token"])).status_code == 403
 
 
 def test_member_cannot_approve_a_transcoder(client: TestClient) -> None:
@@ -675,6 +677,34 @@ def test_transcoder_shows_connected_while_its_control_link_is_up(client: TestCli
             break
         time.sleep(0.1)
     assert _paired_devices(client)[0]["connected"] is False
+
+
+def test_worker_rejections_stay_in_the_protocol_wording_whatever_the_language(
+    client: TestClient,
+) -> None:
+    """Mac / Windows 转码器按 1008 关闭原因的中文措辞区分「凭证失效」与「远程转码没开」：
+    连接带英文语言头时原因也不能跟着翻译，否则转码器认不出该提示重新配对还是去开开关。"""
+    from starlette.websockets import WebSocketDisconnect
+
+    english = {"Accept-Language": "en"}
+
+    def rejection(headers: dict[str, str]) -> tuple[int, str]:
+        with (
+            client.websocket_connect("/api/v1/transcode-worker/ws", headers=headers) as ws,
+            pytest.raises(WebSocketDisconnect) as closed,
+        ):
+            ws.receive_json()
+        return closed.value.code, closed.value.reason
+
+    token = _pair(client, client_type="worker", name="mac-mini")
+    assert rejection({**english, **_bearer(token)}) == (
+        1008,
+        "服务端尚未启用远程转码，请在网页「应用 → 远程转码」打开开关并确认地址",
+    )
+    assert rejection({**english, **_bearer("mc_not-a-real-token")}) == (
+        1008,
+        "凭证无效或已被吊销，请在网页「设置 → 设备」重新配对",
+    )
 
 
 @pytest.mark.parametrize("paired", [True, False])

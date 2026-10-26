@@ -97,6 +97,8 @@ background under **Settings → Appearance**, and it stays consistent on every d
 connected to the same instance.
 
 
+Windows client development is available in [`apps/desktop`](apps/desktop/README.md), using Tauri/WebView2 and bundled mpv. See its build, packaging and validation requirements before distributing a Windows build.
+
 ## Just say the word. It handles the rest.
 
 MovieClaw puts an autonomous, general-purpose AI agent inside your media server.
@@ -218,6 +220,12 @@ movies released by the Blender Foundation and others (CC BY).
 - Updates and rollbacks are buttons in the web UI. Routine upgrades download only a few megabytes, a broken update rolls itself back, and your data is never touched.
 - Errors are written for humans, for the person who deploys things but doesn't write code. (Log and UI messages are currently in Chinese.)
 
+### Plugins
+
+- The core stays general; personal setups are plugins. Messaging channels, downloaders, cloud-drive direct links and more live in the
+  [movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins) repo. Install them from **Settings → Plugins → Plugin market**; you can still upload a `.mcplugin` by hand.
+- Want to write one? Start with that repo's `example/GUIDE.md`, or ask the AI assistant to write it for you.
+
 ## Boundaries
 
 ### What it won't do
@@ -271,10 +279,10 @@ services:
       # Left side is the host port — if it's taken, change the left side
       # (e.g. "8096:3000") and keep the right side at 3000
       - "3000:3000"
-      # Optional: LAN auto-discovery for players (Jellyfin protocol). Uncomment
-      # to enable; leave it off if Jellyfin / Emby already runs on this host —
-      # the port clash would stop the container from starting
-      # - "7359:7359/udp"
+      # LAN auto-discovery: MovieClaw's apps and Jellyfin players use it to
+      # find the server. Comment it out if Jellyfin / Emby already runs on this
+      # host — the port clash would stop the container from starting
+      - "7359:7359/udp"
     volumes:
       - ./data:/app/data              # Runtime data — backing up this folder is all you need
                                       # (includes the hidden file .secret_key; make sure your
@@ -352,8 +360,8 @@ then:
    downloads from any source flow into the library too.
 
 > Just want one command to try it out?
-> `docker run -d --name movieclaw --init -p 3000:3000 --restart unless-stopped -e TZ=Asia/Shanghai -v "$(pwd)/data:/app/data" -v /volume1/media:/media -v /volume1/downloads:/downloads movieclaw/movieclaw:latest`
-> The mount rules are exactly the same as above. For LAN auto-discovery by players, add `-p 7359:7359/udp`.
+> `docker run -d --name movieclaw --init -p 3000:3000 -p 7359:7359/udp --restart unless-stopped -e TZ=Asia/Shanghai -v "$(pwd)/data:/app/data" -v /volume1/media:/media -v /volume1/downloads:/downloads movieclaw/movieclaw:latest`
+> The mount rules are exactly the same as above. `-p 7359:7359/udp` is LAN auto-discovery; drop it if Jellyfin / Emby already runs on this host.
 
 ### Everyday upgrades skip the image pull
 
@@ -379,7 +387,7 @@ device" means someone actually connected and played on real hardware:
 | Infuse / VidHub | **Verified on device** | Connects as a Jellyfin server: browsing, direct play, progress sync — zero changes on the player side |
 | Fileball / SenPlayer | Same API | Rides the same Jellyfin-compatible path, but hasn't been individually verified on device |
 | Emby / Jellyfin official apps | Not applicable | They connect to their own servers; MovieClaw can notify an Emby/Jellyfin instance to refresh after imports |
-| LAN auto-discovery | Partial | Requires mapping `7359/udp`. On a bridged network broadcasts may not reach the container, and when they do you need to set **Settings → Network → External URL** to a LAN address (e.g. `http://192.168.1.10:3000`); host networking or entering the address in the player is the reliable route |
+| LAN auto-discovery | Yes | Requires mapping `7359/udp`. On a bridged network the container doesn't know the host's LAN address: open MovieClaw once in a browser by its LAN address (e.g. `http://192.168.1.10:3000`) and the server remembers it, or set **Settings → Network → External URL** |
 | Remote hardware transcoding | macOS Apple Silicon | Menu-bar app encoding through VideoToolbox (an always-on Mac mini is plenty). The protocol is open — other platforms can implement it |
 
 Details in [jellyfin-compat.md](docs/design/jellyfin-compat.md),
@@ -493,14 +501,17 @@ do you actually change the listening port: add `-e MOVIECLAW_WEB_PORT=8096`, or 
 after setup under **Settings → Network** (restarts itself on save).
 
 **Host networking has a further trap**: the container's internal frontend (3001) and
-backend (8000) also bind directly on the host. They're not currently configurable, and
-`MOVIECLAW_WEB_PORT` doesn't reach them. If either port is taken, the container exits at
-startup with `EADDRINUSE: address already in use` in `docker logs`. Host mode also
-listens on UDP 7359 for Jellyfin LAN discovery, which collides with an existing Jellyfin
+backend (8000) also bind directly on the host. `MOVIECLAW_WEB_PORT` only changes nginx's
+public port. If 3001 is taken, set `MOVIECLAW_NEXT_PORT=13001` (or another free port) to
+move the internal frontend; the backend still requires port 8000 to be free. With host
+networking, remove `ports` because port mappings are ignored. This frontend port option
+requires a new Docker image: pull the updated image and recreate the container; an
+in-app update cannot replace the entrypoint or nginx template. Host mode also
+listens on UDP 7359 for LAN discovery, which collides with an existing Jellyfin
 or Emby.
 
-**Bottom line: unless you specifically need LAN auto-discovery, change the left side of
-the colon and stay off host networking.**
+**Bottom line: change the left side of the colon and stay off host networking.** LAN
+auto-discovery works on a bridged network too (just map `7359/udp`).
 </details>
 
 <details>
@@ -655,6 +666,10 @@ live in [`docs/design/`](docs/design/), one file per topic: library, metadata, s
 quality upgrades, Jellyfin compatibility, in-app updates, the CLI… browse by filename.
 The reasoning behind this README's own structure is in
 [readme-rewrite.md](docs/design/readme-rewrite.md).
+
+Third-party plugins, and the store metadata next to each of them (`store.json`), live in
+[movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins). How to write one is in that
+repo's `example/GUIDE.md`. The in-app plugin market reads that repo's signed catalog; uploading a `.mcplugin` file works too.
 
 Questions, ideas, bug reports — please
 [open an issue](https://github.com/movieclaw/movieclaw/issues).

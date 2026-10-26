@@ -1,8 +1,8 @@
 package io.movieclaw.androidtv.ui.home
 
-import io.movieclaw.androidtv.core.model.generated.CollectionView
-import io.movieclaw.androidtv.core.model.generated.HomeRowPref
-import io.movieclaw.androidtv.core.model.generated.LibraryView
+import io.movieclaw.core.model.generated.CollectionView
+import io.movieclaw.core.model.generated.HomeRowPref
+import io.movieclaw.core.model.generated.LibraryView
 
 /** 一档排序的方向（WallSortDirection）：反转了自然方向才带 order */
 data class SortDirection(val naturalAsc: Boolean) {

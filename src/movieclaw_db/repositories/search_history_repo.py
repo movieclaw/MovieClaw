@@ -54,8 +54,10 @@ class SearchHistoryRepository:
         poster_mode: bool = False,
         vertical: str = "torrent",
         member_id: int = 0,
+        also_keywords: list[str] | None = None,
+        label_key: str | None = None,
     ) -> int | None:
-        """记录一次搜索：同 (keyword, 垂直, 组合快照) 已存在则累加次数，否则新建一行。
+        """记录一次搜索：同 (keyword, 同搜词, 垂直, 组合快照) 已存在则累加次数，否则新建一行。
 
         ``updated_at`` 被刷新为当前时间，即「最近一次搜索时间」；``label`` 与
         ``poster_mode`` 一并刷新为最新值——它们是「怎么展示」而非「搜什么」，
@@ -70,6 +72,8 @@ class SearchHistoryRepository:
             return None
         categories_json = self.snapshot(categories)
         site_ids_json = self.snapshot(site_ids)
+        # 同搜词保序存（调用方已清洗去重）：同一详情页每次给出的顺序一致，不必排序
+        also_json = json.dumps(also_keywords, ensure_ascii=False) if also_keywords else None
         result = await self._session.execute(
             select(SearchHistory).where(
                 SearchHistory.member_id == member_id,
@@ -78,12 +82,14 @@ class SearchHistoryRepository:
                 # 快照为 None 时，SQLAlchemy 会把 == None 翻译成 IS NULL
                 SearchHistory.categories_json == categories_json,
                 SearchHistory.site_ids_json == site_ids_json,
+                SearchHistory.also_keywords_json == also_json,
             )
         )
         row = result.scalar_one_or_none()
         if row is not None:
             row.search_count += 1
             row.label = label
+            row.label_key = label_key
             row.poster_mode = poster_mode
             row.updated_at = utcnow()
         else:
@@ -91,8 +97,10 @@ class SearchHistoryRepository:
                 member_id=member_id,
                 keyword=keyword,
                 label=label,
+                label_key=label_key,
                 categories_json=categories_json,
                 site_ids_json=site_ids_json,
+                also_keywords_json=also_json,
                 poster_mode=poster_mode,
                 vertical=vertical,
             )

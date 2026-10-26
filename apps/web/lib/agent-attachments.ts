@@ -6,6 +6,8 @@
  * 只兜底校验（≤5MB、魔数嗅探）。GIF 不压缩（canvas 会丢动画帧），原样上传。
  */
 
+import { appTranslator } from "@/lib/i18n/translate";
+
 import { type AgentAttachmentUpload, uploadSessionAttachment } from "@/lib/api/agent";
 
 /** composer 里的一张待发送图片（已上传，等待随消息引用）。 */
@@ -55,7 +57,7 @@ async function compressImage(file: File): Promise<{ blob: Blob; name: string }> 
 /** 压缩并上传一张图片，返回可入 composer 的附件对象；失败时抛出中文错误。 */
 export async function prepareImageAttachment(file: File): Promise<ComposerImage> {
   if (!isAcceptedImage(file)) {
-    throw new Error("不支持的图片格式，请选择 JPG / PNG / WebP / GIF 图片");
+    throw new Error(appTranslator()("agent.composer.imageTypeUnsupported"));
   }
   const { blob, name } = await compressImage(file);
   const uploaded: AgentAttachmentUpload = await uploadSessionAttachment(blob, name);

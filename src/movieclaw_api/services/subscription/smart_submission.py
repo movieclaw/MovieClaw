@@ -1,5 +1,7 @@
 """智能投递的数据库意图。网络失败只能重放同一意图。"""
 
+import logging
+from datetime import timedelta
 from uuid import uuid4
 
 from pydantic import TypeAdapter
@@ -7,6 +9,8 @@ from sqlalchemy import update
 from sqlalchemy.dialects.sqlite import insert
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import reference, source_render
+from movieclaw_api.services.subscription.attempt_notes import set_note
 from movieclaw_api.services.subscription.smart_profiles import conflict
 from movieclaw_db.models import (
     DownloadAttemptStatus,
@@ -20,9 +24,20 @@ from movieclaw_db.models import (
 from movieclaw_matcher import TorrentCandidate
 from movieclaw_matcher.smart import series_key
 
+logger = logging.getLogger("movieclaw_api.download_dispatch")
+
+# 恢复失败的退避：1 分钟起翻倍，封顶 1 小时。下载器离线等真故障仍会自愈，
+# 但不会每 30 秒刷一次日志
+SMART_RECOVER_BASE_DELAY = timedelta(minutes=1)
+SMART_RECOVER_MAX_DELAY = timedelta(hours=1)
+
 
 class SubmissionRejected(Exception):
-    """网络提交前已确定本意图无效，可以结束而无需对账。"""
+    """网络提交前已确定本意图无效，可以结束而无需对账。``ref`` 是原因的文案引用。"""
+
+    def __init__(self, key: str, **params) -> None:
+        self.ref = reference(key, **params)
+        super().__init__(source_render(self.ref))
 
 
 class _ClaimLost(Exception):
@@ -205,7 +220,7 @@ async def prepare_remote(session, intent, info_hash, downloader_id, save_path):
             or parent.status != DownloadAttemptStatus.REPLACEMENT_PENDING
             or parent.info_hash == info_hash
         ):
-            raise SubmissionRejected("替代目标已结束，或候选与原任务相同")
+            raise SubmissionRejected("subscription.smart.replacementEnded")
 
     duplicate = (
         await session.execute(
@@ -217,7 +232,7 @@ async def prepare_remote(session, intent, info_hash, downloader_id, save_path):
         )
     ).first()
     if duplicate:
-        raise SubmissionRejected("候选与本订阅已有下载记录相同")
+        raise SubmissionRejected("subscription.smart.duplicateAttempt")
 
     await ensure_can_submit(session, intent)
     if previous.get("info_hash") not in (None, info_hash) or intent.downloader_id not in (
@@ -247,7 +262,7 @@ async def reconcile_remote(session, intent):
         raise conflict()
     adapter = create_downloader(
         DownloaderConfig(
-            type=row.client_type.value,
+            type=row.client_type,
             url=row.url,
             username=row.username,
             password=DownloaderRepository.decrypted_password(row),
@@ -308,10 +323,10 @@ async def ensure_can_submit(session, intent):
         raise conflict()
 
 
-async def reject_intent(session, intent, targets, reason):
+async def reject_intent(session, intent, targets, reason: dict):
     intent.status = DownloadAttemptStatus.FAILED
     intent.submission = {**(intent.submission or {}), "stage": "rejected"}
-    intent.cleanup_note = reason
+    set_note(intent, reason)
     intent.updated_at = utcnow()
     for row in targets:
         row.selection_state = {**(row.selection_state or {}), "reason": "candidate_rejected"}
@@ -320,3 +335,135 @@ async def reject_intent(session, intent, targets, reason):
             row.grabbed_at = None
             row.next_selection_at = utcnow()
     await session.commit()
+
+
+async def settle_unsatisfiable(session, intent, targets, exc):
+    """文件清单证明本发布满足不了部分单元：收窄意图，不再无限重放。
+
+    满足不了的单元退回重找，并在意图上记负面记忆（``content_missing``），
+    选种不会再拿这份发布补它们；其余仍在途的单元保留在意图里，下一轮恢复
+    只为它们选文件。没有剩余在途单元时意图失败，并清理本次投递自己新建、
+    尚未开始下载的暂停任务（``remove_own_paused_task``，issue #997）。
+    返回被退回的工单。
+    """
+    payload = dict(intent.submission or {})
+    unusable = set(exc.units)
+    released = [r for r in targets if (r.season_number, r.episode_number) in unusable]
+    now = utcnow()
+    for row in released:
+        explanation = reference("subscription.smart.unsatisfiedRetry", reason=exc.ref)
+        row.selection_state = {
+            **(row.selection_state or {}),
+            "reason": "candidate_rejected",
+            "choice_explanation": source_render(explanation),
+        }
+        row.selection_messages = {
+            **(row.selection_messages or {}),
+            "choice_explanation": explanation,
+        }
+        if row.id in payload["wanted_ids"] and row.status == WantedStatus.GRABBED:
+            row.status = WantedStatus.WANTED
+            row.grabbed_at = None
+            row.next_selection_at = now
+    memory = dict(intent.content_missing or {})
+    units = {tuple(u) for u in memory.get("units", [])} | unusable
+    sources = {tuple(s) for s in memory.get("sources", [])} | {(intent.site_id, intent.torrent_id)}
+    intent.content_missing = {
+        "units": [list(u) for u in sorted(units)],
+        "sources": [list(s) for s in sorted(sources)],
+    }
+    released_ids = {r.id for r in released}
+    # 已入库或已退出范围的单元不必再为它选文件
+    pending = {
+        r.id
+        for r in targets
+        if r.id not in released_ids
+        and r.in_scope
+        and (r.status == WantedStatus.GRABBED or r.id in payload["upgrade_ids"])
+    }
+    payload["wanted_ids"] = [i for i in payload["wanted_ids"] if i in pending]
+    payload["upgrade_ids"] = [i for i in payload["upgrade_ids"] if i in pending]
+    remaining = [[r.season_number, r.episode_number] for r in targets if r.id in pending]
+    intent.units = remaining
+    if payload.get("select_units") is not None:
+        payload["select_units"] = remaining
+    if remaining:
+        set_note(intent, reference("subscription.smart.unsatisfiedPartial", reason=exc.ref))
+    else:
+        intent.status = DownloadAttemptStatus.FAILED
+        payload["stage"] = "rejected"
+        removed = await remove_own_paused_task(session, intent)
+        key = (
+            "subscription.smart.unsatisfiedAllRemoved"
+            if removed
+            else "subscription.smart.unsatisfiedAll"
+        )
+        set_note(intent, reference(key, reason=exc.ref))
+    intent.submission = payload
+    intent.updated_at = now
+    return released
+
+
+async def remove_own_paused_task(session, intent) -> bool:
+    """意图确定失败后，删掉它自己新建且从未开始下载的暂停任务（保留数据）。
+
+    暂停态本是留给重试找回同一任务的；意图一旦终结就再没有流程会碰它，
+    会变成永久 0% 的孤儿任务（issue #997）。只删同时满足以下条件的任务：
+    带本意图的所有权标签（下载器对已存在的任务不加标签，标签即证明是本次
+    新建）、未完成、进度为 0、没有其他在途投递记录指向同一 hash。任何一条
+    不满足或删除失败都原样保留，返回 False。
+    """
+    owner = (intent.submission or {}).get("selection_owner")
+    info_hash = intent.info_hash
+    if not owner or not intent.downloader_id or not info_hash or info_hash.startswith("pending:"):
+        return False
+    shared = (
+        await session.execute(
+            select(SubscriptionDownloadAttempt.id).where(
+                SubscriptionDownloadAttempt.info_hash == info_hash,
+                SubscriptionDownloadAttempt.id != intent.id,
+                SubscriptionDownloadAttempt.status != DownloadAttemptStatus.FAILED,
+            )
+        )
+    ).first()
+    if shared:
+        return False
+    from movieclaw_db.models import DownloaderClient
+    from movieclaw_db.repositories.downloader_repo import DownloaderRepository
+    from movieclaw_downloader.factory import create_downloader
+    from movieclaw_downloader.models import DownloaderConfig
+
+    row = await session.get(DownloaderClient, intent.downloader_id)
+    if row is None:
+        return False
+    try:
+        adapter = create_downloader(
+            DownloaderConfig(
+                type=row.client_type,
+                url=row.url,
+                username=row.username,
+                password=DownloaderRepository.decrypted_password(row),
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 -- 清理失败只记录，不改变意图结论
+        logger.warning("智能投递 #%s 的暂停任务清理失败：%s", intent.id, exc)
+        return False
+    try:
+        status = await adapter.get_torrent(info_hash)
+        if (
+            status is None
+            or owner not in status.tags
+            or status.completed
+            or (status.progress or 0) > 0
+        ):
+            return False
+        await adapter.delete_torrent(info_hash, delete_files=False)
+        logger.info("智能投递 #%s 无法满足，已移除本次新建的暂停任务 hash=%s", intent.id, info_hash)
+        return True
+    except Exception as exc:  # noqa: BLE001 -- 清理失败只记录，不改变意图结论
+        logger.warning(
+            "智能投递 #%s 的暂停任务清理失败：hash=%s error=%s", intent.id, info_hash, exc
+        )
+        return False
+    finally:
+        await adapter.close()

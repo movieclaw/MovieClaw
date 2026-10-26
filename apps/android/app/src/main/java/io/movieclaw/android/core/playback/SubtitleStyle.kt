@@ -31,8 +31,8 @@ private val Context.subtitleStyleStore by preferencesDataStore(name = "mc_subtit
  *   · 位置 = 字幕底边距画面底部的百分比（iOS 8%）
  *   · 背景 = 要不要整行底框（默认关：靠一层柔和投影压住亮画面，不做描边）
  *
- * 前三个参数都由 `SubtitleAss.rewriteAssStyles` 落到 ASS 的 `Style:` 行上，
- * 所以改样式要**重新转换一次**字幕（不是只改绘制参数）。
+ * 都是本机叠层（`SubtitleOverlayLayer`）的绘制参数，改了立刻重画。时间轴微调只作用于服务端给的字幕，
+ * 直连时引擎自己解出的字幕时机由引擎定。
  */
 @Serializable
 data class SubtitleStyle(

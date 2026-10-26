@@ -1,26 +1,39 @@
 import SwiftUI
 
 /// 菜单栏（docs/design/macos-app.md §3.3）：Mac 用户习惯从菜单栏与快捷键找功能，侧边栏能做的事在这里都有一份。
-/// - 「MovieClaw › 关于 MovieClaw」打开关于窗口（版本、开源许可）；
+/// - 「MovieClaw › 关于 MovieClaw」打开关于窗口（版本、开源许可）；下面是「检查更新…」（下好了变成「重新启动以更新到 x…」，
+///   商店版是灰的「由 TestFlight 更新」，开发版没有，见 MacUpdater）；「设置…」⌘, 由 Settings 场景自带；
 /// - 「前往」：首页 ⌘1、我的收藏 ⌘2、各个媒体库 ⌘3…、搜索 ⌘F、返回 ⌘[；
-/// - 「账号」：切换到本机登录过的其他账号、添加账号、退出登录。
+/// - 「账号」：切换到本机登录过的其他账号、添加账号、退出登录；
+/// - 「窗口 › 播放时置顶」：播放期间窗口浮在所有窗口前面（默认开，见 `MacPlayerWindow`）。
 /// 播放器里的快捷键（空格、←→、F……）由播放器自己处理（`MacPlayerScreen`）。
 struct MacCommands: Commands {
     let model: AppModel
     @FocusedValue(\.macRouter) private var router
     @FocusedValue(\.macFocusSearch) private var focusSearch
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(MacPlayerWindow.floatsOnTopKey) private var floatsOnTop = true
+    private let updater = MacUpdater.shared
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
-            Button("关于 MovieClaw") { openWindow(id: "about") }
+            Button(String(localized: .settingsAboutWindowTitle)) { openWindow(id: "about") }
+            switch updater.channel {
+            case .sparkle:
+                Button(updater.menuTitle) { updater.primaryAction() }
+            case .store:
+                Button(String(localized: .settingsMacUpdateByTestFlight)) {}
+                    .disabled(true)
+            case .none:
+                EmptyView()
+            }
         }
         // 只有一个主窗口：不要「新建窗口」，避免开出两份播放器、两套导航状态
         CommandGroup(replacing: .newItem) {}
-        CommandMenu("前往") {
-            Button("首页") { go(.home) }
+        CommandMenu(String(localized: .navMacGo)) {
+            Button(String(localized: .navNativeHome)) { go(.home) }
                 .keyboardShortcut("1")
-            Button("我的收藏") { go(.favorites) }
+            Button(String(localized: .navNativeFavorites)) { go(.favorites) }
                 .keyboardShortcut("2")
             if let router {
                 let libraries = LibraryHomeStore.shared.libraries?.filter { $0.viewerAccess && $0.kind != "photo" } ?? []
@@ -32,16 +45,20 @@ struct MacCommands: Commands {
                     }
                 }
                 Divider()
-                Button("返回") { router.pop() }
+                Button(String(localized: .commonBack)) { router.pop() }
                     .keyboardShortcut("[")
                     .disabled(router.path.isEmpty || router.player != nil)
             }
             Divider()
-            Button("搜索") { focusSearch?() }
+            Button(String(localized: .commonSearch)) { focusSearch?() }
                 .keyboardShortcut("f")
                 .disabled(focusSearch == nil)
         }
-        CommandMenu("账号") {
+        CommandGroup(after: .windowSize) {
+            Divider()
+            Toggle(String(localized: .playerWindowAlwaysOnTop), isOn: $floatsOnTop)
+        }
+        CommandMenu(String(localized: .navNativeAccount)) {
             if case .ready = model.phase {
                 let current = MacAccounts.currentID(model)
                 ForEach(MacAccounts.all(model)) { saved in
@@ -50,16 +67,16 @@ struct MacCommands: Commands {
                         Task { try? await model.switchAccount(to: saved.account.username, on: saved.server) }
                     } label: {
                         if saved.id == current {
-                            Label("\(saved.account.nickname)（\(saved.server.hostLabel)）", systemImage: "checkmark")
+                            Label(String(localized: .authMenuSavedAccount(saved.account.nickname, saved.server.hostLabel)), systemImage: "checkmark")
                         } else {
-                            Text("\(saved.account.nickname)（\(saved.server.hostLabel)）")
+                            Text(String(localized: .authMenuSavedAccount(saved.account.nickname, saved.server.hostLabel)))
                         }
                     }
                 }
                 Divider()
-                Button("添加账号…") { openWindow(id: MacAddAccountView.windowID) }
+                Button(String(localized: .authMenuAddAccountEllipsis)) { openWindow(id: MacAddAccountView.windowID) }
                     .disabled(router == nil)
-                Button("退出登录…") { router?.confirmingLogout = true }
+                Button(String(localized: .authMenuSignOutEllipsis)) { router?.confirmingLogout = true }
                     .disabled(router == nil)
             }
         }

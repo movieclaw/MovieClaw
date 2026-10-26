@@ -43,6 +43,16 @@ import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.automirrored.rounded.Rule
+import androidx.compose.material.icons.rounded.Chat
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.MoveToInbox
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Webhook
+import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -124,6 +134,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
+import io.movieclaw.android.core.designsystem.mcCards
 
 /* ---------------- 设置索引 ---------------- */
 
@@ -138,21 +149,29 @@ enum class SettingsSection(
      */
     val memberVisible: Boolean = false,
 ) {
-    PROFILE("个人信息", "昵称、头像、登录密码", "账号", memberVisible = true),
-    NOTIFY("通知", "下载完成、入库、今天有更新时在本机提醒", "账号", memberVisible = true),
-    DEVICES("设备管理", "已登录的客户端与播放器,可改名或注销", "账号", memberVisible = true),
-    MEMBERS("家庭成员", "成员权限、媒体库可见范围、重置密码", "账号"),
-    PLAYBACK("播放", "软件转码、进度预览、转码缓存", "播放与内容"),
-    SUBSCRIPTION_WEB("订阅与追更", "在网页端管理订阅规则与规则集", "播放与内容"),
-    SITES_WEB("站点与索引器", "在网页端管理站点与登录态", "播放与内容"),
-    DOWNLOADERS_WEB("下载器", "在网页端管理下载器与限速", "播放与内容"),
-    IMPORT_WATCH_WEB("导入与观看记录", "在网页端管理导入监听与记录导入", "播放与内容"),
-    OVERVIEW_WEB("总览", "服务器概况与体检", "服务器"),
+    PROFILE("个人信息", "头像、昵称与登录密码", "账号", memberVisible = true),
+    NOTIFY("通知", "自己收哪些通知，哪些设备能收到", "账号", memberVisible = true),
+    DEVICES("设备", "登录着你的账号的浏览器、App、命令行与转码器", "账号", memberVisible = true),
+    MEMBERS("成员", "家庭成员账号、能力开关与可见范围", "账号"),
+    PLAYBACK("播放", "远程转码与播放体验", "播放"),
+    SUBSCRIPTION_WEB("订阅规则", "分辨率、片源、编码与洗版条件；订阅按它筛选结果", "播放"),
+    SITES_WEB("资源站点", "接入种子站、登录态与刷流保护", "播放"),
+    DOWNLOADERS_WEB("下载器", "接入 qBittorrent 等下载器，查看连接与限速", "播放"),
+    IMPORT_WATCH_WEB("自动入库", "监听下载目录，下载完成自动整理进媒体库", "播放"),
+    OVERVIEW_WEB("概览", "配置状态一览：缺什么、有什么问题、下一步做什么", "服务器"),
+    // iOS 有、Android 原先没有独立入口的分区：现在都有原生页（概览仍走网页端兜底）
+    SCRAPE_WEB("刮削与整理", "海报、简介、命名与目录整理的全局默认", "播放"),
+    APP_PUSH_WEB("App 推送", "官方通道与自建推送中继的状态和开关", "服务器"),
+    IM_PUSH_WEB("IM 推送", "微信 / Telegram / Discord / 飞书推送的内容开关", "服务器"),
+    WEBHOOK_WEB("Webhook", "端点、测试发送与投递记录", "服务器"),
+    MCP_WEB("MCP 服务", "总开关、接入地址与端点清单", "服务器"),
+    AI_WEB("AI 设定", "智能体与字幕处理的默认模型", "服务器"),
+    CLOUD_WEB("MovieClaw Cloud", "查看连接状态、续期与统计上报", "账号"),
     /** 模型供应商接入（iOS `.settingsSection(.llm)`「模型接入」）：AI 字幕生成等能力的落点 */
-    LLM("模型接入", "接入 OpenAI、百炼等模型供应商，可同时接入多家", "服务器"),
+    LLM("模型接入", "接入 OpenAI、百炼等模型供应商，查看服务器已有接入", "服务器"),
     MAINTENANCE("更新与维护", "服务器更新、存储清理、重启", "服务器"),
-    NETWORK("网络", "服务器网络配置与连通性测试", "服务器"),
-    LOGS("日志", "服务器运行日志", "服务器"),
+    NETWORK("网络", "代理、镜像与外部访问地址，解决 TMDB 等不可达", "服务器"),
+    LOGS("系统日志", "后端运行日志，按天存档", "服务器"),
 }
 
 @HiltViewModel
@@ -176,35 +195,41 @@ class SettingsViewModel @Inject constructor(
 fun SettingsIndexScreen(
     onBack: () -> Unit,
     onOpen: (SettingsSection) -> Unit,
+    showBack: Boolean = true,
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val sections = vm.visibleSections()
     Box(Modifier.fillMaxSize().background(Bg)) {
-        LazyColumn(
-            contentPadding = PaddingValues(
-                top = McMetrics.topBarHeight,
-                bottom = 24.dp,
-            ),
-            modifier = Modifier.fillMaxSize().statusBarsPadding(),
+        // 宽窗口里索引列限宽居中（760dp，同 iOS `padReadableWidth`）；手机上原样铺满
+        io.movieclaw.android.core.designsystem.McReadableWidthBox(
+            Modifier.fillMaxSize().statusBarsPadding(),
         ) {
-            sections.groupBy { it.group }.forEach { (group, items) ->
-                item(key = "h-$group") {
-                    Text(
-                        group,
-                        style = McType.groupLabel,
-                        color = TextFaint,
-                        modifier = Modifier.padding(start = McMetrics.pagePadding, end = McMetrics.pagePadding, top = 24.dp, bottom = 6.dp),
-                    )
-                }
-                items(items, key = { it.name }) { section ->
-                    SettingsIndexRow(section = section, onClick = { onOpen(section) })
+            LazyColumn(
+                contentPadding = PaddingValues(
+                    top = McMetrics.topBarHeight,
+                    bottom = 24.dp,
+                ),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                sections.groupBy { it.group }.forEach { (group, items) ->
+                    item(key = "h-$group") {
+                        Text(
+                            group,
+                            style = McType.groupLabel,
+                            color = TextFaint,
+                            modifier = Modifier.padding(start = mcCards.pagePadding, end = mcCards.pagePadding, top = 24.dp, bottom = 6.dp),
+                        )
+                    }
+                    items(items, key = { it.name }) { section ->
+                        SettingsIndexRow(section = section, onClick = { onOpen(section) })
+                    }
                 }
             }
         }
         McTopBar(
             variant = McTopBarVariant.Sub,
             title = "服务器设置",
-            onBack = onBack,
+            onBack = if (showBack) onBack else null,
             modifier = Modifier.align(Alignment.TopCenter),
         )
     }
@@ -220,7 +245,7 @@ private fun SettingsIndexRow(section: SettingsSection, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .height(45.dp)
             .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
@@ -241,6 +266,7 @@ private fun SettingsIndexRow(section: SettingsSection, onClick: () -> Unit) {
             style = McType.bodyMedium,
             color = TextMuted,
             maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
         Icon(
@@ -262,8 +288,20 @@ private fun sectionIcon(section: SettingsSection) = when (section) {
     SettingsSection.LLM -> Icons.Rounded.AutoAwesome
     SettingsSection.MAINTENANCE -> Icons.Rounded.Storage
     SettingsSection.NETWORK -> Icons.Rounded.Language
+    // 已原生接入的分区：不再用「外链」图标（那原本是网页占位用的）
+    SettingsSection.DOWNLOADERS_WEB -> Icons.Rounded.Download
+    SettingsSection.SITES_WEB -> Icons.Rounded.Public
+    SettingsSection.SUBSCRIPTION_WEB -> Icons.AutoMirrored.Rounded.Rule
+    SettingsSection.IMPORT_WATCH_WEB -> Icons.Rounded.MoveToInbox
+    SettingsSection.AI_WEB -> Icons.Rounded.AutoAwesome
+    SettingsSection.APP_PUSH_WEB -> Icons.Rounded.Notifications
+    SettingsSection.IM_PUSH_WEB -> Icons.Rounded.Chat
+    SettingsSection.WEBHOOK_WEB -> Icons.Rounded.Webhook
+    SettingsSection.MCP_WEB -> Icons.Rounded.Extension
+    SettingsSection.SCRAPE_WEB -> Icons.Rounded.Image
+    SettingsSection.CLOUD_WEB -> Icons.Rounded.Cloud
+    SettingsSection.OVERVIEW_WEB -> Icons.Rounded.Dashboard
     SettingsSection.LOGS -> Icons.Rounded.Tune
-    else -> Icons.Rounded.OpenInNew
 }
 
 /** 子页顶栏（实测：返回钮 36×36 在 x=8，标题 20/600 在 x=48，雾层向下渐隐到 76） */
@@ -699,7 +737,7 @@ fun DevicesSettingsScreen(
     val feedback = LocalFeedback.current
 
     Column(Modifier.fillMaxSize()) {
-        SettingsTopBar(title = "设备管理", onBack = onBack) { }
+        SettingsTopBar(title = "设备", onBack = onBack) { }
         // 批准设备登录入口（Apple TV / 转码器在别的设备上显示配对码，拿这里批准）
         Row(
             verticalAlignment = Alignment.CenterVertically,

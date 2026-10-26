@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+
 /**
  * 设置 -> 成员：成员账号、能力与资源范围的唯一管理入口。
  *
@@ -40,7 +43,7 @@ import { listSiteCatalog, type CatalogItem } from "@/lib/api/sites";
 import { formatRelativeTime } from "@/lib/time";
 
 interface PasswordResult {
-  title: string;
+  kind: "created" | "reset";
   username: string;
   password: string;
 }
@@ -53,6 +56,8 @@ function generatePassword(): string {
 }
 
 export function MembersSection() {
+  const t = useTranslations();
+
   const toast = useToast();
   const confirm = useConfirm();
   const [members, setMembers] = useState<MemberView[] | null>(null);
@@ -65,10 +70,10 @@ export function MembersSection() {
   const reload = useCallback(async () => setMembers(await listMembers()), []);
 
   useEffect(() => {
-    void reload().catch((error) => toast.error(`加载成员失败：${(error as Error).message}`));
+    void reload().catch((error) => toast.error(t("settings.members.ui.loadFailed", { error: (error as Error).message })));
     void listLibraries().then(setLibraries).catch(() => {});
     void listSiteCatalog().then(setSites).catch(() => {});
-  }, [reload, toast]);
+  }, [reload, toast, t]);
 
   const replaceMember = (next: MemberView) => {
     setMembers((rows) => rows?.map((row) => (row.id === next.id ? next : row)) ?? rows);
@@ -77,35 +82,35 @@ export function MembersSection() {
 
   const resetPassword = async (member: MemberView) => {
     const accepted = await confirm({
-      title: `重置「${member.nickname}」的密码？`,
+      title: t("settings.members.actions.resetTitle", { name: member.nickname }),
       // 重置多半是忘了密码：密码换来的登录下线，配对的命令行保留
       // （docs/design/login-devices.md「失效联动」），要一并收回走「全部下线」
       description:
-        "旧密码立即失效，该成员在网页、App 和播放器上的登录会全部下线；命令行不受影响，要一并收回请用「全部下线」。新密码只显示一次。",
-      confirmLabel: "重置密码",
+        t("settings.members.actions.resetHint"),
+      confirmLabel: t("settings.members.actions.reset"),
     });
     if (!accepted) return;
     try {
       const result = await resetMemberPassword(member.id);
       setPasswordResult({
-        title: "密码已重置",
+        kind: "reset",
         username: result.username,
         password: result.password,
       });
       // 重置接口不回成员视图，设备数变了得重拉一次
       void reload().catch(() => undefined);
     } catch (error) {
-      toast.error(`重置失败：${(error as Error).message}`);
+      toast.error(t("settings.members.actions.resetFailed", { error: (error as Error).message }));
     }
   };
 
   /** 全部下线：借出去的账号要收回、设备丢了——账号本身不动，重新登录即可。 */
   const signOutEverywhere = async (member: MemberView) => {
     const accepted = await confirm({
-      title: `让「${member.nickname}」在全部设备上下线？`,
+      title: t("settings.members.actions.signOutTitle", { name: member.nickname }),
       description:
-        "该成员的网页、App、命令行、播放器都会立即下线，账号本身不受影响，之后用密码重新登录即可。",
-      confirmLabel: "全部下线",
+        t("settings.members.actions.signOutHint"),
+      confirmLabel: t("settings.members.actions.signOut"),
       tone: "danger",
     });
     if (!accepted) return;
@@ -114,7 +119,7 @@ export function MembersSection() {
       replaceMember(next);
       toast.success(message);
     } catch (error) {
-      toast.error(`操作失败：${(error as Error).message}`);
+      toast.error(t("settings.members.actions.failed", { error: (error as Error).message }));
     }
   };
 
@@ -122,27 +127,27 @@ export function MembersSection() {
     const enabling = member.status !== "active";
     if (!enabling) {
       const accepted = await confirm({
-        title: `停用「${member.nickname}」？`,
-        description: "该成员的全部设备会立即下线，个人数据和订阅保留，可随时重新启用。",
-        confirmLabel: "停用成员",
+        title: t("settings.members.actions.disableTitle", { name: member.nickname }),
+        description: t("settings.members.actions.disableHint"),
+        confirmLabel: t("settings.members.actions.disable"),
         tone: "danger",
       });
       if (!accepted) return;
     }
     try {
       replaceMember(await setMemberStatus(member.id, enabling));
-      toast.success(enabling ? "成员已启用" : "成员已停用");
+      toast.success(enabling ? t("settings.members.actions.enabledToast") : t("settings.members.actions.disabledToast"));
     } catch (error) {
-      toast.error(`操作失败：${(error as Error).message}`);
+      toast.error(t("settings.members.actions.failed", { error: (error as Error).message }));
     }
   };
 
   const removeMember = async (member: MemberView) => {
     const accepted = await confirm({
-      title: `删除成员「${member.nickname}」？`,
+      title: t("settings.members.actions.deleteTitle", { name: member.nickname }),
       description:
-        "头像、播放进度等个人数据会被清理；订阅转由管理员接管，已下载内容不受影响。此操作不可恢复。",
-      confirmLabel: "删除成员",
+        t("settings.members.actions.deleteHint"),
+      confirmLabel: t("settings.members.actions.delete"),
       tone: "danger",
     });
     if (!accepted) return;
@@ -150,19 +155,19 @@ export function MembersSection() {
       await deleteMember(member.id);
       setMembers((rows) => rows?.filter((row) => row.id !== member.id) ?? rows);
       setEditing(null);
-      toast.success("成员已删除");
+      toast.success(t("settings.members.actions.deletedToast"));
     } catch (error) {
-      toast.error(`删除失败：${(error as Error).message}`);
+      toast.error(t("settings.members.actions.deleteFailed", { error: (error as Error).message }));
     }
   };
 
   return (
     <SettingsSection
-      title="成员账号"
+      title={t("settings.members.ui.accounts")}
       description={
         members && members.length > 0
-          ? `${members.length} 位成员 · 管理登录状态、功能权限和可见媒体库`
-          : "管理登录状态、功能权限和可见媒体库"
+          ? t("settings.members.ui.count", { count: members.length })
+          : t("settings.members.ui.description")
       }
       action={
         <button
@@ -171,28 +176,28 @@ export function MembersSection() {
           className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1`}
         >
           <PlusIcon className="size-4" />
-          添加成员
+          {t("settings.members.ui.add")}
         </button>
       }
     >
       {members !== null && members.length === 0 ? (
         <SettingsEmpty
-          title="还没有成员账号"
-          description="添加后即可分别控制订阅、搜索和媒体库可见范围。"
+          title={t("settings.members.ui.emptyTitle")}
+          description={t("settings.members.ui.emptyHint")}
         />
       ) : (
         <div className="css-glass overflow-hidden !rounded-xl">
           <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,.8fr)_minmax(88px,130px)_36px] gap-4 border-b border-[var(--line)] px-4 py-2.5 text-caption font-medium text-[var(--text-faint)] max-md:hidden">
-            <span>成员</span>
-            <span>功能权限</span>
-            <span>媒体库范围</span>
-            <span>最近活动</span>
-            <span className="sr-only">操作</span>
+            <span>{t("settings.members.ui.member")}</span>
+            <span>{t("settings.members.ui.permissions")}</span>
+            <span>{t("settings.members.ui.libraries")}</span>
+            <span>{t("settings.members.ui.recentActivity")}</span>
+            <span className="sr-only">{t("settings.members.ui.actions")}</span>
           </div>
           {members === null ? (
             <div className="flex items-center justify-center gap-2 px-5 py-10 text-ui text-[var(--text-muted)]">
               <BrandLoader className="size-5" />
-              正在加载成员…
+              {t("settings.members.ui.loading")}
             </div>
           ) : (
             <div className="divide-y divide-[var(--line)]">
@@ -219,7 +224,7 @@ export function MembersSection() {
         onCreated={(member, password) => {
           setCreating(false);
           setMembers((rows) => (rows ? [...rows, member] : [member]));
-          setPasswordResult({ title: "成员已创建", username: member.username, password });
+          setPasswordResult({ kind: "created", username: member.username, password });
         }}
       />
 
@@ -233,7 +238,7 @@ export function MembersSection() {
           onSaved={(next) => {
             replaceMember(next);
             setEditing(null);
-            toast.success("成员设置已保存");
+            toast.success(t("settings.members.ui.saved"));
           }}
         />
       )}
@@ -260,12 +265,16 @@ function MemberTableRow({
   onToggleStatus: () => void;
   onDelete: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
+
   const permissionLabels = [
-    member.allow_subscribe ? "订阅" : null,
-    member.allow_search ? "资源搜索" : null,
-    member.allow_direct_download ? "下载" : null,
+    member.allow_subscribe ? t("settings.members.ui.subscribe") : null,
+    member.allow_search ? t("settings.members.ui.search") : null,
+    member.allow_direct_download ? t("settings.members.ui.download") : null,
+    member.allow_video_download ? null : t("settings.members.ui.noOffline"),
     // 分级上限直接摆在摘要里：这是"这个号是给谁用的"最要紧的一条信息
-    member.content_age_limit !== null ? `${member.content_age_limit}+ 以下` : null,
+    member.content_age_limit !== null ? t("settings.members.access.ageSummary", { age: member.content_age_limit }) : null,
   ].filter(Boolean);
   const visibleNames = libraries
     .filter((library) => member.library_ids.includes(library.id))
@@ -279,11 +288,11 @@ function MemberTableRow({
     .map((library) => library.name);
   const libraryScope = member.all_libraries
     ? grantedSelected.length > 0
-      ? `全部共享库 + 指定成员的库：${grantedSelected.join("、")}`
-      : "全部共享库"
+      ? t("settings.members.access.sharedWithPrivate", { names: grantedSelected.join(t("settings.members.access.separator")) })
+      : t("settings.members.access.shared")
     : visibleNames.length > 0
-      ? visibleNames.join("、")
-      : "未分配媒体库";
+      ? visibleNames.join(t("settings.members.access.separator"))
+      : t("settings.members.access.unassigned");
 
   return (
     <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,.8fr)_minmax(88px,130px)_36px] items-center gap-4 px-4 py-3.5 transition-colors hover:bg-white/[0.025] max-md:grid-cols-[minmax(0,1fr)_36px] max-md:gap-x-3 max-md:gap-y-2.5">
@@ -296,7 +305,7 @@ function MemberTableRow({
             </span>
             <span
               className={`size-1.5 shrink-0 rounded-full ${member.status === "active" ? "bg-[var(--ok)]" : "bg-white/25"}`}
-              title={member.status === "active" ? "已启用" : "已停用"}
+              title={member.status === "active" ? t("settings.members.ui.enabled") : t("settings.members.ui.disabled")}
             />
           </div>
           <p className="truncate text-caption text-[var(--text-faint)]">@{member.username}</p>
@@ -306,7 +315,7 @@ function MemberTableRow({
         {permissionLabels.length > 0 ? (
           permissionLabels.map((label) => <Badge key={label}>{label}</Badge>)
         ) : (
-          <span className="text-caption text-[var(--text-faint)]">仅浏览与播放</span>
+          <span className="text-caption text-[var(--text-faint)]">{t("settings.members.ui.browseOnly")}</span>
         )}
       </div>
       {/* min-w-0：网格子项默认 min-width:auto，会把整行撑到内容宽度、把最右的
@@ -316,11 +325,11 @@ function MemberTableRow({
       </p>
       <div className="min-w-0 max-md:col-start-1">
         <p className="truncate text-caption text-[var(--text-faint)]">
-          {member.last_login_at ? formatRelativeTime(member.last_login_at) : "从未登录"}
+          {member.last_login_at ? formatRelativeTime(member.last_login_at, locale) : t("settings.members.ui.neverSignedIn")}
         </p>
         {/* 网页、App、命令行、播放器合计；要逐台看在「设备」的「全部成员」视图里 */}
         <p className="truncate text-caption text-[var(--text-faint)]">
-          {member.device_count > 0 ? `${member.device_count} 台设备登录中` : "无登录中的设备"}
+          {member.device_count > 0 ? t("settings.members.ui.deviceCount", { count: member.device_count }) : t("settings.members.ui.noDevices")}
         </p>
       </div>
       <MemberActionsMenu
@@ -350,22 +359,24 @@ function MemberActionsMenu({
   onToggleStatus: () => void;
   onDelete: () => void;
 }) {
+  const t = useTranslations();
+
   return (
     // 手机上 ⋯ 挪到首行右侧（网格定位留在外层，菜单本身用统一组件）
     <div className="max-md:col-start-2 max-md:row-start-1">
       <SettingsMoreMenu
-        label={`${member.nickname} 的更多操作`}
+        label={t("settings.members.ui.more", { name: member.nickname })}
         items={[
-          { label: "编辑成员", onSelect: onEdit },
-          { label: "重置密码", onSelect: onResetPassword },
+          { label: t("settings.members.ui.edit"), onSelect: onEdit },
+          { label: t("settings.members.actions.reset"), onSelect: onResetPassword },
           // 停用的成员设备早已全部注销，这一项对他没有意义
-          ...(member.status === "active" ? [{ label: "全部下线", onSelect: onSignOut }] : []),
+          ...(member.status === "active" ? [{ label: t("settings.members.actions.signOut"), onSelect: onSignOut }] : []),
           {
-            label: member.status === "active" ? "停用成员" : "启用成员",
+            label: member.status === "active" ? t("settings.members.actions.disable") : t("settings.members.actions.enable"),
             onSelect: onToggleStatus,
             warn: member.status === "active",
           },
-          { label: "删除成员", onSelect: onDelete, danger: true },
+          { label: t("settings.members.actions.delete"), onSelect: onDelete, danger: true },
         ]}
       />
     </div>
@@ -381,6 +392,8 @@ function CreateMemberDialog({
   onClose: () => void;
   onCreated: (member: MemberView, password: string) => void;
 }) {
+  const t = useTranslations();
+
   const toast = useToast();
   const [username, setUsername] = useState("");
   const [nickname, setNickname] = useState("");
@@ -396,67 +409,67 @@ function CreateMemberDialog({
   }, [open]);
 
   const submit = async () => {
-    if (username.trim().length < 3) return toast.error("用户名至少 3 个字符");
-    if (password.length < 8) return toast.error("密码至少 8 位");
+    if (username.trim().length < 3) return toast.error(t("settings.members.ui.usernameShort"));
+    if (password.length < 8) return toast.error(t("settings.members.ui.passwordShort"));
     setBusy(true);
     try {
       const member = await createMember(username.trim(), password, nickname.trim());
       onCreated(member, password);
     } catch (error) {
-      toast.error(`创建失败：${(error as Error).message}`);
+      toast.error(t("settings.members.ui.createFailed", { error: (error as Error).message }));
       setBusy(false);
     }
   };
 
   return (
-    <Modal open={open} onClose={onClose} label="添加成员" width="lg">
+    <Modal open={open} onClose={onClose} label={t("settings.members.ui.add")} width="lg">
       <div className="p-6 max-md:p-5">
-        <h2 className="text-title font-bold text-white">添加成员</h2>
+        <h2 className="text-title font-bold text-white">{t("settings.members.ui.add")}</h2>
         <p className="mt-1 text-sub text-[var(--text-muted)]">
-          新成员默认可以订阅和浏览全部媒体库，资源搜索默认关闭。
+          {t("settings.members.ui.defaults")}
         </p>
 
         <div className="mt-5 grid grid-cols-2 gap-4 max-md:grid-cols-1">
-          <Field label="用户名" hint="登录使用，创建后不可修改">
+          <Field label={t("settings.members.credentials.username")} hint={t("settings.members.credentials.usernameHint")}>
             <input
               value={username}
               onChange={(event) => setUsername(event.target.value)}
               autoFocus
               autoComplete="off"
-              placeholder="如 yee"
+              placeholder={t("settings.members.credentials.usernameExample")}
               className={INPUT_CLASS}
             />
           </Field>
-          <Field label="昵称" hint="页面展示名，可留空">
+          <Field label={t("settings.members.ui.nickname")} hint={t("settings.members.ui.nicknameHint")}>
             <input
               value={nickname}
               onChange={(event) => setNickname(event.target.value)}
-              placeholder="如 小叶"
+              placeholder={t("settings.members.ui.nicknameExample")}
               className={INPUT_CLASS}
             />
           </Field>
         </div>
         <div className="mt-4">
           <SectionTitle
-            title="初始密码"
-            description="已随机生成。点击密码行即可复制，创建成功后还会显示一次。"
+            title={t("settings.members.credentials.initialPassword")}
+            description={t("settings.members.credentials.initialHint")}
           />
           <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-black/20">
-            <CredentialRow label="密码" value={password} mono />
+            <CredentialRow kind="password" value={password} mono />
             <button
               type="button"
               onClick={() => setPassword(generatePassword())}
               className="flex w-full items-center justify-between border-t border-white/[0.08] bg-white/[0.035] px-4 py-3 text-left text-sub font-medium text-white/85 transition-colors hover:bg-white/[0.07]"
             >
-              重新生成密码
-              <span className="text-caption text-[var(--text-faint)]">换一个随机密码</span>
+              {t("settings.members.credentials.regenerate")}<span className="text-caption text-[var(--text-faint)]">{t("settings.members.credentials.regenerateHint")}
+            </span>
             </button>
           </div>
         </div>
 
         <div className="mt-6 flex justify-end gap-3">
           <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
-            取消
+            {t("settings.members.ui.cancel")}
           </button>
           <button
             type="button"
@@ -464,7 +477,7 @@ function CreateMemberDialog({
             onClick={() => void submit()}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            {busy ? "创建中…" : "创建成员"}
+            {busy ? t("settings.members.ui.creating") : t("settings.members.ui.create")}
           </button>
         </div>
       </div>
@@ -485,11 +498,14 @@ function EditMemberDialog({
   onClose: () => void;
   onSaved: (member: MemberView) => void;
 }) {
+  const t = useTranslations();
+
   const toast = useToast();
   const [nickname, setNickname] = useState(member.nickname);
   const [allowSubscribe, setAllowSubscribe] = useState(member.allow_subscribe);
   const [allowSearch, setAllowSearch] = useState(member.allow_search);
   const [allowDirectDownload, setAllowDirectDownload] = useState(member.allow_direct_download);
+  const [allowVideoDownload, setAllowVideoDownload] = useState(member.allow_video_download);
   const [allLibraries, setAllLibraries] = useState(member.all_libraries);
   const [libraryIds, setLibraryIds] = useState(member.library_ids);
   const [allSites, setAllSites] = useState(member.all_sites);
@@ -510,6 +526,7 @@ function EditMemberDialog({
       allow_subscribe: allowSubscribe,
       allow_search: allowSearch,
       allow_direct_download: allowSearch && allowDirectDownload,
+      allow_video_download: allowVideoDownload,
       all_libraries: allLibraries,
       library_ids: allLibraries ? libraryIds.filter((id) => selectedModeIds.includes(id)) : libraryIds,
       all_sites: allSites,
@@ -522,7 +539,7 @@ function EditMemberDialog({
     try {
       onSaved(await updateMember(member.id, payload));
     } catch (error) {
-      toast.error(`保存失败：${(error as Error).message}`);
+      toast.error(t("settings.members.ui.saveFailed", { error: (error as Error).message }));
       setBusy(false);
     }
   };
@@ -531,7 +548,7 @@ function EditMemberDialog({
     <Modal
       open
       onClose={onClose}
-      label={`编辑成员 ${member.nickname}`}
+      label={t("settings.members.ui.editAria", { name: member.nickname })}
       width="2xl"
       panelClassName="flex max-h-[82dvh] flex-col"
     >
@@ -539,31 +556,31 @@ function EditMemberDialog({
         <div className="flex items-center gap-3">
           <AvatarBadge nickname={member.nickname} avatarUrl={member.avatar_url} className="size-11" />
           <div className="min-w-0">
-            <h2 className="truncate text-title font-bold text-white">编辑成员</h2>
+            <h2 className="truncate text-title font-bold text-white">{t("settings.members.ui.edit")}</h2>
             <p className="truncate text-sub text-[var(--text-muted)]">@{member.username}</p>
           </div>
           <StatusBadge status={member.status} />
         </div>
 
         <div className="mt-6 border-t border-white/[0.07] pt-5">
-          <SectionTitle title="基本信息" />
-          <Field label="昵称">
+          <SectionTitle title={t("settings.members.ui.basic")} />
+          <Field label={t("settings.members.ui.nickname")}>
             <input value={nickname} onChange={(event) => setNickname(event.target.value)} className={INPUT_CLASS} />
           </Field>
         </div>
 
         <div className="mt-6 border-t border-white/[0.07] pt-5">
-          <SectionTitle title="功能权限" description="关闭后相关入口会从成员页面隐藏，后端同时拒绝调用。" />
+          <SectionTitle title={t("settings.members.ui.permissions")} description={t("settings.members.access.permissionHint")} />
           <div className="divide-y divide-white/[0.055]">
             <PermissionToggle
-              label="订阅追踪"
-              description="发起订阅并管理自己的订阅"
+              label={t("settings.members.access.subscribe")}
+              description={t("settings.members.access.subscribeHint")}
               checked={allowSubscribe}
               onChange={setAllowSubscribe}
             />
             <PermissionToggle
-              label="资源搜索"
-              description="在被分配的 PT 站点里搜索种子资源（媒体库内搜索不受此开关影响）"
+              label={t("settings.members.ui.search")}
+              description={t("settings.members.access.searchHint")}
               checked={allowSearch}
               onChange={(checked) => {
                 setAllowSearch(checked);
@@ -571,41 +588,47 @@ function EditMemberDialog({
               }}
             />
             <PermissionToggle
-              label="一键下载"
-              description="从搜索结果直接提交下载，依赖资源搜索"
+              label={t("settings.members.access.directDownload")}
+              description={t("settings.members.access.directDownloadHint")}
               checked={allowDirectDownload}
               disabled={!allowSearch}
               onChange={setAllowDirectDownload}
+            />
+            <PermissionToggle
+              label={t("settings.members.access.videoDownload")}
+              description={t("settings.members.access.videoDownloadHint")}
+              checked={allowVideoDownload}
+              onChange={setAllowVideoDownload}
             />
           </div>
         </div>
 
         <div className="mt-6 border-t border-white/[0.07] pt-5">
           <SectionTitle
-            title="内容分级"
-            description="给孩子用的档案设一个年龄上限：超过这个分级的作品在海报墙、搜索、合集、播放器和详情页都看不到，直接改地址栏也进不去。"
+            title={t("settings.members.access.contentRating")}
+            description={t("settings.members.access.ratingHint")}
           />
           <div className="flex flex-wrap gap-1.5">
-            {AGE_LIMITS.map((option) => (
+            {AGE_LIMITS.map((value) => (
               <button
-                key={option.value ?? "none"}
+                key={value ?? "none"}
                 type="button"
-                onClick={() => setAgeLimit(option.value)}
+                onClick={() => setAgeLimit(value)}
                 className={`h-8 rounded-lg px-3 text-ui transition ${
-                  ageLimit === option.value
+                  ageLimit === value
                     ? "bg-white/[0.16] text-white"
                     : "bg-white/[0.05] text-white/70 hover:bg-white/[0.10] hover:text-white"
                 }`}
               >
-                {option.label}
+                {value === null ? t("settings.members.access.unlimited") : t("settings.members.access.underAge", { age: value })}
               </button>
             ))}
           </div>
           {ageLimit !== null && (
             <div className="mt-3 divide-y divide-white/[0.055]">
               <PermissionToggle
-                label="未分级的作品也给看"
-                description="大量中文影片在 TMDB 上没有分级信息。默认一并隐藏——「我不确定的一律不给看」更稳妥；打开之后这些片会出现在这个成员面前。"
+                label={t("settings.members.access.unrated")}
+                description={t("settings.members.access.unratedHint")}
                 checked={allowUnrated}
                 onChange={setAllowUnrated}
               />
@@ -615,16 +638,16 @@ function EditMemberDialog({
 
         <div className="mt-6 border-t border-white/[0.07] pt-5">
           <SectionTitle
-            title="媒体库范围"
-            description="「全部媒体库」自动包含对所有成员开放的库，含以后新建的；「指定成员」的库需要单独勾选。"
+            title={t("settings.members.ui.libraries")}
+            description={t("settings.members.access.libraryHint")}
           />
           <AccessPicker
             allSelected={allLibraries}
-            allLabel="全部媒体库"
-            limitedLabel="指定媒体库"
+            allLabel={t("settings.members.access.allLibraries")}
+            limitedLabel={t("settings.members.access.selectedLibraries")}
             options={libraries.map((library) => ({
               id: library.id,
-              label: library.access_mode === "selected" ? `${library.name} · 指定成员` : library.name,
+              label: library.access_mode === "selected" ? t("settings.members.access.privateLibrary", { name: library.name }) : library.name,
             }))}
             selected={libraryIds}
             onModeChange={setAllLibraries}
@@ -632,7 +655,7 @@ function EditMemberDialog({
           />
           {allLibraries && selectedModeIds.length > 0 && (
             <div className="mt-3">
-              <p className="text-caption text-[var(--text-faint)]">指定成员的库（需单独勾选）</p>
+              <p className="text-caption text-[var(--text-faint)]">{t("settings.members.access.privateLibraries")}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {libraries
                   .filter((library) => library.access_mode === "selected")
@@ -664,11 +687,11 @@ function EditMemberDialog({
 
         {allowSearch && (
           <div className="mt-6 border-t border-white/[0.07] pt-5">
-            <SectionTitle title="可搜索站点" />
+            <SectionTitle title={t("settings.members.access.searchableSites")} />
             <AccessPicker
               allSelected={allSites}
-              allLabel="全部启用站点"
-              limitedLabel="指定站点"
+              allLabel={t("settings.members.access.allSites")}
+              limitedLabel={t("settings.members.access.selectedSites")}
               options={sites.map((site) => ({ id: site.site_id, label: site.display_name }))}
               selected={siteIds}
               onModeChange={setAllSites}
@@ -681,7 +704,7 @@ function EditMemberDialog({
 
       <div className="flex shrink-0 justify-end gap-3 border-t border-white/[0.07] px-6 py-4 max-md:px-5">
         <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
-          取消
+          {t("settings.members.ui.cancel")}
         </button>
         <button
           type="button"
@@ -690,7 +713,7 @@ function EditMemberDialog({
           className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1.5`}
         >
           <CheckIcon className="size-4" />
-          {busy ? "保存中…" : "保存设置"}
+          {busy ? t("settings.members.ui.saving") : t("settings.members.ui.save")}
         </button>
       </div>
     </Modal>
@@ -704,30 +727,34 @@ function PasswordResultDialog({
   result: PasswordResult | null;
   onClose: () => void;
 }) {
+  const t = useTranslations();
+
   if (!result) return null;
-  const credentialText = `账号：${result.username}\n密码：${result.password}`;
+  const title = result.kind === "created" ? t("settings.members.credentials.created") : t("settings.members.credentials.reset");
+  const credentialText = t("settings.members.credentials.allDetails", { username: result.username, password: result.password });
   return (
-    <Modal open onClose={onClose} label={result.title} width="md" raised>
+    <Modal open onClose={onClose} label={title} width="md" raised>
       <div className="p-6 max-md:p-5">
-        <h2 className="text-title font-bold text-white">{result.title}</h2>
+        <h2 className="text-title font-bold text-white">{title}</h2>
         <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">
-          密码只在这里显示一次。点击账号或密码即可复制，关闭弹窗后无法再次查看。
+          {t("settings.members.credentials.once")}
         </p>
         <div className="mt-5 overflow-hidden rounded-xl border border-white/[0.08] bg-black/20">
-          <CredentialRow label="账号" value={result.username} />
-          <CredentialRow label="密码" value={result.password} mono />
+          <CredentialRow kind="account" value={result.username} />
+          <CredentialRow kind="password" value={result.password} mono />
           <CopySurface
             text={credentialText}
-            successMessage="账号和密码已复制"
+            successMessage={t("settings.members.credentials.copiedAll")}
+            ariaLabel={t("settings.members.credentials.copyAllAria")}
             idleLabel=""
             className="flex w-full items-center justify-between border-t border-white/[0.08] bg-white/[0.035] px-4 py-3 text-left text-sub font-medium text-white/85 transition-colors hover:bg-white/[0.07]"
           >
-            复制全部登录信息
+            {t("settings.members.credentials.copyAll")}
           </CopySurface>
         </div>
         <div className="mt-5 flex justify-end">
           <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
-            完成
+            {t("settings.members.ui.done")}
           </button>
         </div>
       </div>
@@ -773,13 +800,7 @@ function SectionTitle({ title, description }: { title: string; description?: str
  * 折算成年龄已经是我们替他做的一次翻译，再让他猜"填几"只会更糊涂。
  * 这几档对着的是家里真实的年龄段。
  */
-const AGE_LIMITS: { value: number | null; label: string }[] = [
-  { value: null, label: "不限" },
-  { value: 6, label: "6 岁以下" },
-  { value: 12, label: "12 岁以下" },
-  { value: 16, label: "16 岁以下" },
-  { value: 18, label: "18 岁以下" },
-];
+const AGE_LIMITS = [null, 6, 12, 16, 18] as const;
 
 function PermissionToggle({
   label,
@@ -828,6 +849,8 @@ function AccessPicker<T extends string | number>({
   onModeChange: (all: boolean) => void;
   onSelectedChange: (selected: T[]) => void;
 }) {
+  const t = useTranslations();
+
   const toggle = (id: T) =>
     onSelectedChange(selected.includes(id) ? selected.filter((value) => value !== id) : [...selected, id]);
 
@@ -840,7 +863,7 @@ function AccessPicker<T extends string | number>({
       {!allSelected && (
         <div className="mt-3 flex flex-wrap gap-2">
           {options.length === 0 ? (
-            <p className="text-caption text-[var(--text-faint)]">暂无可选项</p>
+            <p className="text-caption text-[var(--text-faint)]">{t("settings.members.access.none")}</p>
           ) : (
             options.map((option) => (
               <button
@@ -880,21 +903,28 @@ function Badge({ children }: { children: React.ReactNode }) {
 }
 
 function StatusBadge({ status }: { status: MemberView["status"] }) {
+  const t = useTranslations();
+
   return (
     <span className={`ml-auto rounded-full border px-2.5 py-1 text-caption font-medium ${status === "active" ? "border-emerald-400/25 bg-[var(--ok)]/10 text-emerald-300" : "border-white/[0.1] bg-white/[0.04] text-[var(--text-faint)]"}`}>
-      {status === "active" ? "已启用" : "已停用"}
+      {status === "active" ? t("settings.members.ui.enabled") : t("settings.members.ui.disabled")}
     </span>
   );
 }
 
-function CredentialRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+function CredentialRow({ kind, value, mono = false }: { kind: "account" | "password"; value: string; mono?: boolean }) {
+  const t = useTranslations();
+
+  const locale = useLocale() as AppLocale;
+  const label = kind === "account" ? t("settings.members.credentials.account") : t("settings.members.credentials.password");
   return (
     <CopySurface
       text={value}
-      successMessage={`${label}已复制`}
+      successMessage={kind === "account" ? t("settings.members.credentials.copiedAccount") : t("settings.members.credentials.copiedPassword")}
+      ariaLabel={kind === "account" ? t("settings.members.credentials.copyAccountAria") : t("settings.members.credentials.copyPasswordAria")}
       className="flex w-full items-center gap-4 border-b border-white/[0.06] px-4 py-3 text-left transition-colors hover:bg-white/[0.045]"
     >
-      <span className="w-10 shrink-0 text-caption text-[var(--text-faint)]">{label}</span>
+      <span className={`${locale === "en" ? "w-16" : "w-10"} shrink-0 text-caption text-[var(--text-faint)]`}>{label}</span>
       <span className={`min-w-0 flex-1 break-all text-ui text-white ${mono ? "font-mono" : ""}`}>
         {value}
       </span>
@@ -905,18 +935,24 @@ function CredentialRow({ label, value, mono = false }: { label: string; value: s
 function CopySurface({
   text,
   successMessage,
-  idleLabel = "点击复制",
+  ariaLabel,
+  idleLabel,
   className,
   children,
 }: {
   text: string;
   successMessage: string;
+  ariaLabel: string;
   idleLabel?: string;
   className: string;
   children: React.ReactNode;
 }) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
+
   const toast = useToast();
   const [copied, setCopied] = useState(false);
+  const hint = idleLabel ?? t("settings.members.credentials.clickCopy");
 
   useEffect(() => {
     if (!copied) return;
@@ -930,7 +966,7 @@ function CopySurface({
       setCopied(true);
       toast.success(successMessage);
     } catch {
-      toast.error("复制失败，请长按内容手动复制");
+      toast.error(t("settings.members.credentials.copyFailed"));
     }
   };
 
@@ -938,16 +974,16 @@ function CopySurface({
     <button
       type="button"
       onClick={() => void copy()}
-      aria-label={`${successMessage.replace("已复制", "")}，点击复制`}
-      className={className}
+      aria-label={ariaLabel}
+      className={`${className} ${locale === "en" ? "max-sm:flex-wrap max-sm:gap-y-1" : ""}`}
     >
       {children}
-      {(copied || idleLabel) && (
+      {(copied || hint) && (
         <span
           aria-live="polite"
-          className={`shrink-0 text-caption ${copied ? "text-emerald-300" : "text-[var(--text-faint)]"}`}
+          className={`shrink-0 text-caption ${locale === "en" ? "max-sm:ml-auto max-sm:w-full max-sm:text-right" : ""} ${copied ? "text-emerald-300" : "text-[var(--text-faint)]"}`}
         >
-          {copied ? "已复制" : idleLabel}
+          {copied ? t("common.copied") : hint}
         </span>
       )}
     </button>

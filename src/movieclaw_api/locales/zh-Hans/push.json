@@ -1,0 +1,55 @@
+{
+  "relay": {
+    "scheme": "中继地址要以 http:// 或 https:// 开头",
+    "query": "中继地址不能带 ? 或 # 后面的部分",
+    "invalidInfo": "不是 MovieClaw 推送中继（/v1/info 的格式不对）",
+    "network": "中继{reason}",
+    "response": "中继返回 {reason}",
+    "notJson": "中继的响应不是 JSON",
+    "mismatch": "中继的响应和请求对不上",
+    "unauthorized": "中继拒绝了凭证：{reason}",
+    "forbidden": "中继拒绝推送：{reason}",
+    "unavailable": "中继暂时不可用：{reason}",
+    "rejected": "中继拒绝了请求：{reason}",
+    "noAddresses": "没有可用的中继地址",
+    "protocol": "中继的协议版本是 {version}，这个版本只支持 {supported}",
+    "issuerAdd": "这个中继要签发方的令牌，这里还不能添加",
+    "issuerUse": "这个中继要签发方的令牌，这里还不能用",
+    "neverConnected": "还没连上过这个中继",
+    "missingToken": "缺少中继令牌"
+  },
+  "channels": {
+    "official": "MovieClaw 官方推送",
+    "disabled": "已停用",
+    "disconnected": "未连接 MovieClaw Cloud",
+    "connecting": "正在连接 MovieClaw Cloud",
+    "noEndpoints": "MovieClaw Cloud 没有给出推送中继地址",
+    "noScope": "MovieClaw Cloud 没有授予推送权限",
+    "expired": "令牌已过期：连不上 MovieClaw Cloud，官方推送暂停",
+    "quotaExhausted": "今天的推送额度已经用完",
+    "lastFailure": "最近一次推送失败：{reason}",
+    "unreachable": "暂时连不上 MovieClaw Cloud",
+    "ok": "正常",
+    "topicNotAllowed": "中继不推这个 App"
+  },
+  "warnings": {
+    "publicHttp": "地址是 http:// 而且不在局域网：令牌会明文经过公网，建议在中继前面加 HTTPS",
+    "publicNoAuth": "这个中继不要令牌、又在公网上：知道地址的人都能用它往你的 App 推送",
+    "noDevices": "目前没有设备会用到这个中继，它能推送的 App：{apps}",
+    "undeclared": "（没有声明）"
+  },
+  "outcome": {
+    "noChannel": "没有能推这个 App 的可用通道",
+    "queued": "通道暂时不可用，稍后自动重试",
+    "failed": "通道一直不可用，重试后仍没发出去",
+    "deviceQuota": "这台设备今天的推送已达上限",
+    "delivered": "已送达苹果推送服务",
+    "streamSent": "已通过实时连接送出",
+    "streamQueued": "手机现在没连着，连上后补发",
+    "imSent": "已交给 {count} 个 IM 账号发送",
+    "imMissing": "IM 账号没有推送目标，重新绑定试试"
+  },
+  "status": {
+    "episodes": "E{first} 等 {count} 集"
+  }
+}

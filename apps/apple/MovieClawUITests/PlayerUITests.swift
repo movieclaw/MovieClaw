@@ -203,7 +203,118 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForNonExistence(timeout: 10), "播放器没有关闭")
     }
 
-    /// 剧集片尾 40 秒内出现「即将播放」卡片 → 点「立即播放」→ 换到下一集并开始播放
+    /// 倍速（docs/design/playback-speed.md）：⋯ → 倍速 → 1.5×，进度真按 1.5 倍走、时间旁有角标；
+    /// 同一部剧换一集打开沿用并提示，换一部片从正常速度起；选回正常就忘掉
+    @MainActor
+    func testSpeedMenuRemembersPerTitle() throws {
+        continueAfterFailure = false
+        let (show, current, next, _) = try XCTUnwrap(try findEpisodePair(), "服务器上没有找到同季相邻两集都在位的剧集")
+        let (movie, _) = try XCTUnwrap(try findMovie(container: "mp4"), "服务器上没有找到 MP4 电影")
+        let beforeCurrent = try resumeState(show, 1, current)
+        let beforeNext = try resumeState(show, 1, next)
+        let beforeMovie = try resume(movie)
+        defer {
+            try? restoreEpisode(show, current, beforeCurrent)
+            try? restoreEpisode(show, next, beforeNext)
+            try? restoreResume(movie, positionMs: beforeMovie)
+        }
+        startSeconds = 30
+
+        // 1. 这一集：⋯ 一级「倍速」写着「正常」→ 展开子菜单 → 选 1.5×
+        var app = launchRoute(String(format: "/play/%d/s01e%02d?t=%d", show, current, startSeconds))
+        XCTAssertTrue(waitForPosition(app, atLeast: startSeconds + 2, timeout: 90), "没有开始播放")
+        tapControl(app, "player-设置")
+        let speedEntry = menuItem(app, "倍速")
+        XCTAssertTrue(speedEntry.waitForExistence(timeout: 5), "设置菜单没有「倍速」")
+        XCTAssertTrue(menuItem(app, "画质").exists, "设置菜单没有「画质」")
+        XCTAssertTrue(menuItem(app, "播放诊断").exists, "设置菜单没有「播放诊断」")
+        XCTAssertTrue("\(speedEntry.label) \(speedEntry.value ?? "")".contains("正常"), "「倍速」没写当前值：\(speedEntry.label)")
+        shot(app, "speed-root")
+        speedEntry.tap()
+        XCTAssertTrue(app.buttons["1.5×"].waitForExistence(timeout: 3), "倍速子菜单没有打开")
+        shot(app, "speed-options")
+        app.buttons["1.5×"].tap()
+        XCTAssertTrue(app.buttons["1.5×"].waitForNonExistence(timeout: 3), "选了倍速菜单没有收起")
+        XCTAssertTrue(app.staticTexts["player-rate-badge"].waitForExistence(timeout: 3), "时间旁没有倍速角标")
+        XCTAssertEqual(app.staticTexts["player-rate-badge"].label, "1.5×")
+        // 进度按 1.5 倍走：墙钟 10 秒 ≈ 片子 15 秒（读数取整、读控件本身有延迟，给宽一点）
+        let advanced = advance(app, overSeconds: 10)
+        XCTAssertTrue((12 ... 18).contains(advanced), "1.5 倍速下 10 秒走了 \(advanced) 秒")
+        shot(app, "speed-1.5-playing")
+        tapControl(app, "player-close")
+        XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForNonExistence(timeout: 10), "播放器没有关闭")
+        app.terminate()
+
+        // 2. 同一部剧的下一集：沿用 1.5×，开播提示点明
+        app = launchRoute(String(format: "/play/%d/s01e%02d?t=%d", show, next, startSeconds))
+        let notice = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "倍速 1.5×")).firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 60), "同一部剧换集没有提示沿用的倍速")
+        XCTAssertTrue(waitForPosition(app, atLeast: startSeconds + 2, timeout: 60), "下一集没有开始播放")
+        XCTAssertTrue(app.staticTexts["player-rate-badge"].waitForExistence(timeout: 3), "同一部剧换集没有沿用倍速")
+        let carried = advance(app, overSeconds: 10)
+        XCTAssertTrue((12 ... 18).contains(carried), "沿用的 1.5 倍速下 10 秒走了 \(carried) 秒")
+        shot(app, "speed-carried")
+        tapControl(app, "player-close")
+        XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForNonExistence(timeout: 10), "播放器没有关闭")
+        app.terminate()
+
+        // 3. 换一部片：从正常速度起
+        app = launchRoute("/play/\(movie)/s00e00?t=\(startSeconds)")
+        XCTAssertTrue(waitForPosition(app, atLeast: startSeconds + 2, timeout: 90), "电影没有开始播放")
+        XCTAssertFalse(app.staticTexts["player-rate-badge"].exists, "换一部片不该带着倍速")
+        let normal = advance(app, overSeconds: 10)
+        XCTAssertTrue((8 ... 12).contains(normal), "正常速度下 10 秒走了 \(normal) 秒")
+        tapControl(app, "player-close")
+        XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForNonExistence(timeout: 10), "播放器没有关闭")
+        app.terminate()
+
+        // 4. 回到那部剧选回「正常」：角标消失，记忆清掉（不给之后的用例留倍速）。
+        //    这一遍不钉控制层：⋯ 是系统菜单，开着时控制层不能 4 秒自己收起（收起会把菜单一起带走）
+        app = launchRoute(String(format: "/play/%d/s01e%02d?t=%d", show, current, startSeconds), pinChrome: false)
+        XCTAssertTrue(waitForPosition(app, atLeast: startSeconds + 2, timeout: 90), "没有开始播放")
+        tapControl(app, "player-设置")
+        XCTAssertTrue(menuItem(app, "倍速").waitForExistence(timeout: 5), "设置菜单没有打开")
+        sleep(6)
+        XCTAssertTrue(menuItem(app, "倍速").isHittable, "菜单开着时控制层自己收起了")
+        shot(app, "speed-menu-held")
+        menuItem(app, "倍速").tap()
+        XCTAssertTrue(app.buttons["正常"].waitForExistence(timeout: 3), "倍速子菜单没有打开")
+        app.buttons["正常"].tap()
+        XCTAssertTrue(app.staticTexts["player-rate-badge"].waitForNonExistence(timeout: 3), "选回正常后角标没消失")
+        tapControl(app, "player-close")
+        XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForNonExistence(timeout: 10), "播放器没有关闭")
+    }
+
+    @MainActor
+    private func launchRoute(_ route: String, pinChrome: Bool = true) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-mcServer", server, "-mcUser", username, "-mcPass", password, "-mcRoute", route]
+        // 钉住控制层：读进度、点菜单时不用和 4 秒自动收起赛跑
+        if pinChrome { app.launchArguments += ["-mcPlayerPinChrome", "YES"] }
+        app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForExistence(timeout: 30), "播放器没有打开")
+        return app
+    }
+
+    /// ⋯ 系统菜单里的项：子菜单的标签是「标题 + 当前值」、画质档带一行说明，按开头找
+    @MainActor
+    private func menuItem(_ app: XCUIApplication, _ title: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+    }
+
+    /// 墙钟 seconds 秒里播放头走了多少秒
+    @MainActor
+    private func advance(_ app: XCUIApplication, overSeconds seconds: UInt32) -> Int {
+        let start = position(app) ?? 0
+        let began = Date()
+        sleep(seconds)
+        let end = position(app) ?? 0
+        // 读控件本身要时间：按实际经过的墙钟折算回 seconds 秒
+        let elapsed = Date().timeIntervalSince(began)
+        return Int((Double(end - start) * Double(seconds) / elapsed).rounded())
+    }
+
+    /// 剧集放完（或进了认出的片尾）出现「即将播放」卡片 → 点「立即播放」→ 换到下一集并开始播放
     @MainActor
     func testUpNextPlaysNextEpisode() throws {
         let (show, current, next, durationMs) = try XCTUnwrap(try findEpisodePair(), "服务器上没有找到同季相邻两集都在位的剧集")
@@ -288,11 +399,15 @@ final class PlayerUITests: XCTestCase {
         shot(app, "\(shotPrefix)-subtitles")
         // 点在「⋯」键的角上而不是图标正中：真机手指落点不准，只有图标笔画可点时这里会点空（真机反馈的根因）
         tapControl(app, "player-设置", at: CGVector(dx: 0.15, dy: 0.2))
-        XCTAssertTrue(app.buttons["quality-原画"].waitForExistence(timeout: 5), "设置菜单没有打开（点按钮边缘应同样生效）")
+        XCTAssertTrue(menuItem(app, "画质").waitForExistence(timeout: 5), "设置菜单没有打开（点按钮边缘应同样生效）")
         shot(app, "\(shotPrefix)-settings")
+        // 系统菜单：点「画质」展开子菜单
+        menuItem(app, "画质").tap()
+        XCTAssertTrue(menuItem(app, "原画").waitForExistence(timeout: 3), "画质子菜单没有打开\n\(app.debugDescription)")
+        shot(app, "\(shotPrefix)-settings-quality")
         // 点画面空白处收起菜单
         tapEmptyArea(app, dx: 0.95, dy: 0.55)
-        XCTAssertTrue(app.buttons["quality-原画"].waitForNonExistence(timeout: 3), "点画面应收起菜单")
+        XCTAssertTrue(menuItem(app, "原画").waitForNonExistence(timeout: 3), "点画面应收起菜单")
 
         // 退出
         tapControl(app, "player-close")

@@ -24,6 +24,8 @@ enum Theme {
     static let warning = Color(red: 0xFB / 255, green: 0xBF / 255, blue: 0x24 / 255)
     static let info = Color(red: 0x60 / 255, green: 0xA5 / 255, blue: 0xFA / 255)
     static let line = Color.white.opacity(0.08)
+    /// 进度条上可跳过的段（片头、广告等，docs/design/skip-intro.md §5）：琥珀色，压在已播放部分之上也看得见
+    static let skippable = Color(red: 0.96, green: 0.72, blue: 0.32)
 
     /// 页面水平边距（Web 手机端 px-4 ≈ 16pt，标题区更宽）
     static let pagePadding: CGFloat = 16
@@ -77,9 +79,7 @@ enum Formatters {
     /// 分钟 → 「1 小时 52 分」
     static func duration(minutes: Int?) -> String {
         guard let minutes, minutes > 0 else { return "" }
-        let h = minutes / 60, m = minutes % 60
-        if h == 0 { return "\(m) 分钟" }
-        return m == 0 ? "\(h) 小时" : "\(h) 小时 \(m) 分"
+        return AppFormatting.runtime(minutes: minutes)
     }
 
     private static let isoWithFraction: ISO8601DateFormatter = {
@@ -122,39 +122,42 @@ enum Formatters {
     /// 过去加「前」，将来加「内」（zh-cn 的 future 是「%s内」）。
     /// 不用系统 RelativeDateTimeFormatter：它会出「1周前」「2周前」，与网页「11 天前」对不上。
     /// 设备/令牌「最近活跃」用的是 Web 另一套分钟粒度口径（SettingsTime.deviceRelative），不走这里。
-    static func fromNow(_ date: Date, now: Date = .now) -> String {
+    static func fromNow(_ date: Date, now: Date = .now, locale: Locale = AppLanguage.locale) -> String {
+        if AppLanguage.normalize(locale.identifier) == "en" {
+            return AppFormatting.relative(date, now: now, locale: locale)
+        }
         let delta = now.timeIntervalSince(date)
         let seconds = abs(delta)
         // JS Math.round：正数 .5 进位，与 Swift 的 toNearestOrAwayFromZero 一致
         func round(_ value: Double) -> Int { Int(value.rounded()) }
         let text: String
         if round(seconds) <= 44 {
-            text = "几秒"
+            text = "几秒" // i18n-ignore: Chinese-only branch; English returns earlier
         } else if round(seconds) <= 89 {
-            text = "1 分钟"
+            text = "1 分钟" // i18n-ignore: Chinese-only branch; English returns earlier
         } else if round(seconds / 60) <= 44 {
-            text = "\(max(1, round(seconds / 60))) 分钟"
+            text = String(localized: .libraryCloudReportMinutes(max(1, round(seconds / 60))))
         } else if round(seconds / 60) <= 89 {
-            text = "1 小时"
+            text = "1 小时" // i18n-ignore: Chinese-only branch; English returns earlier
         } else if round(seconds / 3600) <= 21 {
-            text = "\(max(1, round(seconds / 3600))) 小时"
+            text = String(localized: .libraryRecycleShortHours(max(1, round(seconds / 3600))))
         } else if round(seconds / 3600) <= 35 {
-            text = "1 天"
+            text = "1 天" // i18n-ignore: Chinese-only branch; English returns earlier
         } else if round(seconds / 86400) <= 25 {
-            text = "\(max(1, round(seconds / 86400))) 天"
+            text = String(localized: .libraryShareDays(max(1, round(seconds / 86400))))
         } else if round(seconds / 86400) <= 45 {
-            text = "1 个月"
+            text = "1 个月" // i18n-ignore: Chinese-only branch; English returns earlier
         } else {
             let months = monthDiff(from: min(date, now), to: max(date, now))
             if round(months) <= 10 {
-                text = "\(max(1, round(months))) 个月"
+                text = "\(max(1, round(months))) 个月" // i18n-ignore: Chinese-only branch; English returns earlier
             } else if round(months) <= 17 {
-                text = "1 年"
+                text = "1 年" // i18n-ignore: Chinese-only branch; English returns earlier
             } else {
-                text = "\(max(1, round(months / 12))) 年"
+                text = String(localized: .mediaFiltersYearValue(String(max(1, round(months / 12)))))
             }
         }
-        return delta >= 0 ? "\(text)前" : "\(text)内"
+        return delta >= 0 ? "\(text)前" : "\(text)内" // i18n-ignore: Chinese-only branch; English returns earlier
     }
 
     /// 两个时刻相差的月数（带小数，同 dayjs monthDiff：整月数 + 余下部分占下一个整月的比例）
@@ -171,6 +174,6 @@ enum Formatters {
     /// 「2026-09-25 17:03」
     static func dateTime(_ raw: String?) -> String {
         guard let date = date(raw) else { return raw ?? "" }
-        return date.formatted(.dateTime.year().month(.twoDigits).day(.twoDigits).hour().minute().locale(Locale(identifier: "zh_CN")))
+        return AppFormatting.dateTime(date)
     }
 }

@@ -15,7 +15,6 @@ from pydantic import BaseModel, ConfigDict
 from movieclaw_kernel import (
     DURABLE_EVENTS,
     CauseChainTooLong,
-    Delivery,
     Event,
     Mode,
     State,
@@ -47,7 +46,7 @@ class Stored(BaseModel):
 NOTICE = Event("test/notice", Mode.EMIT, payload=Item)
 PIPE = Event("test/pipe", Mode.WATERFALL, payload=Batch, result=Batch, timeout=0.2)
 DECIDE = Event("test/decide", Mode.BAIL, payload=Item, result=str, timeout=0.2)
-DURABLE = Event("test/durable", Mode.EMIT, payload=Stored, delivery=Delivery.DURABLE)
+DURABLE = Event("test/durable", Mode.EMIT, payload=Stored, durable=True)
 
 
 def listener_plugin(name: str, event: Event, handler, **kw):
@@ -74,13 +73,13 @@ def test_mutable_payload_rejected() -> None:
 
 def test_durable_only_for_emit() -> None:
     with pytest.raises(TypeError, match="只有 EMIT"):
-        Event("test/bad2", Mode.BAIL, payload=Item, delivery=Delivery.DURABLE)
+        Event("test/bad2", Mode.BAIL, payload=Item, durable=True)
 
 
 def test_durable_payload_must_be_pydantic() -> None:
     # 可靠事件要落库、重启后还原：冻结 dataclass 不够，须能按 schema 校验还原
     with pytest.raises(TypeError, match="pydantic"):
-        Event("test/bad3", Mode.EMIT, payload=Item, delivery=Delivery.DURABLE)
+        Event("test/bad3", Mode.EMIT, payload=Item, durable=True)
 
 
 async def test_wrong_dispatch_mode_and_payload_rejected() -> None:
@@ -89,8 +88,6 @@ async def test_wrong_dispatch_mode_and_payload_rejected() -> None:
             h.events.emit(PIPE, Batch(()))
         with pytest.raises(TypeError, match="载荷须是"):
             h.events.emit(NOTICE, Batch(()))
-        with pytest.raises(TypeError, match="可靠事件"):
-            h.events.emit(DURABLE, Stored(value=1))
 
 
 # ---------------------------------------------------------------- EMIT
@@ -417,9 +414,42 @@ async def test_cause_chain_limit_stops_ping_pong() -> None:
 
 
 # ---------------------------------------------------------------- 可靠事件接口
+async def test_durable_capable_event_can_be_heard_live() -> None:
+    # 投递方式由订阅方选：能可靠订阅的事件也能实时订阅，不需要存储服务；
+    # 实时监听器同样经 ctx.delivery 读到信封（事件 id、发生时的发起方）
+    from movieclaw_kernel import DeliveryInfo, Origin
+
+    heard: list[tuple] = []
+
+    @plugin("live", title="live")
+    async def live(ctx) -> None:
+        def on_event(item: Stored) -> None:
+            info = ctx.delivery
+            heard.append((item.value, info.event_id if info else None, info and info.origin.id))
+
+        ctx.on(DURABLE, on_event)
+
+    async with KernelHarness() as h:
+        fiber = await h.mount(live)
+        assert fiber.state is State.ACTIVE
+        origin = Origin("member", "3")
+        info = DeliveryInfo("01EVT", "test/durable", "2026-10-12T00:00:00+00:00", origin)
+        h.events.emit(DURABLE, Stored(value=1), origin=origin, info=info)
+        h.events.emit(DURABLE, Stored(value=2))
+        await h.drain()
+    assert heard == [(1, "01EVT", "3"), (2, None, None)]
+
+
+async def test_durable_subscription_needs_durable_capable_event() -> None:
+    async with KernelHarness() as h:
+        fiber = await h.mount(listener_plugin("bad", NOTICE, lambda e: None, id="x", durable=True))
+        assert fiber.state is State.FAILED
+        assert "不能可靠订阅" in fiber.error
+
+
 async def test_durable_listener_requires_stable_id() -> None:
     async with KernelHarness() as h:
-        fiber = await h.mount(listener_plugin("no-id", DURABLE, lambda e: None))
+        fiber = await h.mount(listener_plugin("no-id", DURABLE, lambda e: None, durable=True))
         assert fiber.state is State.FAILED
         assert "稳定 id" in fiber.error
 
@@ -435,7 +465,7 @@ async def test_durable_listener_waits_for_store() -> None:
 
     @plugin("auto", title="auto", inject=(DURABLE_EVENTS,))
     async def auto(ctx) -> None:
-        ctx.on(DURABLE, lambda e: None, id="cascade")
+        ctx.on(DURABLE, lambda e: None, id="cascade", durable=True)
 
     async with KernelHarness() as h:
         fiber = await h.mount(auto)
@@ -467,7 +497,7 @@ async def test_durable_listener_reads_delivery_info() -> None:
             info = ctx.delivery
             seen.append((item.value, info.event_id, info.origin.is_plugin("reader")))
 
-        ctx.on(DURABLE, on_event, id="read")
+        ctx.on(DURABLE, on_event, id="read", durable=True)
         assert ctx.delivery is None
 
     async with KernelHarness() as h:
@@ -486,7 +516,9 @@ async def test_durable_listener_reads_delivery_info() -> None:
 
 async def test_durable_listener_without_inject_fails() -> None:
     async with KernelHarness() as h:
-        fiber = await h.mount(listener_plugin("undeclared", DURABLE, lambda e: None, id="x"))
+        fiber = await h.mount(
+            listener_plugin("undeclared", DURABLE, lambda e: None, id="x", durable=True)
+        )
         assert fiber.state is State.FAILED
         assert "inject" in fiber.error
 

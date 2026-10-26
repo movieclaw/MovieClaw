@@ -10,7 +10,6 @@ from types import SimpleNamespace
 import pytest
 import qbittorrentapi
 
-from movieclaw_downloader.clients.qbittorrent import QBittorrentDownloader
 from movieclaw_downloader.exceptions import (
     DownloaderAuthError,
     DownloaderConnectError,
@@ -19,6 +18,7 @@ from movieclaw_downloader.exceptions import (
 )
 from movieclaw_downloader.models import DownloaderConfig, DownloaderType, DownloadRequest
 from movieclaw_downloader.torrent import compute_info_hash
+from movieclaw_plugins.qbittorrent.qbittorrent_downloader.client import QBittorrentDownloader
 
 TORRENT_BYTES = (
     b"d4:infod6:lengthi1024e4:name8:test.mkv12:piece lengthi16384e6:pieces20:"
@@ -388,7 +388,7 @@ class TestSharedClient:
 
     @pytest.fixture(autouse=True)
     def _isolate_registry(self, monkeypatch):
-        from movieclaw_downloader.clients import qbittorrent as module
+        from movieclaw_plugins.qbittorrent.qbittorrent_downloader import client as module
 
         monkeypatch.setattr(module, "_shared_clients", {})
         created: list[dict] = []
@@ -416,7 +416,7 @@ class TestSharedClient:
         assert len(self.created) == 1
 
     async def test_changed_credentials_replace_stale_client(self):
-        from movieclaw_downloader.clients import qbittorrent as module
+        from movieclaw_plugins.qbittorrent.qbittorrent_downloader import client as module
 
         QBittorrentDownloader(CONFIG)._client()
         changed = DownloaderConfig(

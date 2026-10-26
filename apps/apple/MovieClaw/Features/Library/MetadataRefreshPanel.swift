@@ -19,9 +19,9 @@ struct MetadataRefreshPanel: View {
 
     private func panel(_ state: API.MetadataRefreshView) -> some View {
         let fraction = state.total > 0 ? min(1, Double(state.processed) / Double(state.total)) : 0
-        var headline = state.stopping ? "正在停止刷新" : "正在刷新元数据"
+        var headline = state.stopping ? String(localized: .libraryStatusStoppingRefresh) : String(localized: .libraryDetailRefreshing)
         if state.total > 0 { headline += " \(state.processed)/\(state.total)" }
-        if state.failed > 0 { headline += " · 失败 \(state.failed)" }
+        if state.failed > 0 { headline += String(localized: .libraryRefreshFailedCount(state.failed)) }
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 ProgressView()
@@ -33,7 +33,7 @@ struct MetadataRefreshPanel: View {
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 Button(action: stop) {
-                    Text(state.stopping ? "收尾中…" : "停止")
+                    Text(state.stopping ? String(localized: .libraryDetailFinishing) : String(localized: .commonStop))
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.white.opacity(0.7))
                         .expandedHitArea(vertical: 12)
@@ -60,7 +60,7 @@ struct MetadataRefreshPanel: View {
                     }
                 }
             }
-            Text("全量重刷：重拉 TMDB 档案、按当前尺寸重下图片、覆盖媒体目录镜像；你手动选定的图不受影响")
+            Text(String(localized: .libraryRefreshFullHint))
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.4))
         }

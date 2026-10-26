@@ -201,7 +201,7 @@ enum SubscriptionsHome {
         var readyAt: Date?
 
         var episodeLabel: String {
-            if kind == "movie" { return "电影" }
+            if kind == "movie" { return String(localized: .subscriptionFilterMovie) }
             return units.keys.sorted()
                 .map { "S\(SubsFormat.pad($0))\(TodayArrivals.episodeRanges(units[$0] ?? []))" }
                 .joined(separator: " · ")
@@ -322,46 +322,46 @@ enum SubscriptionsHome {
             subscriptionId: group.subscriptionId,
             media: media,
             stage: .today,
-            eyebrow: SubsHomeChip(text: "今天更新", tone: .today)
+            eyebrow: SubsHomeChip(text: String(localized: .subscriptionFeedUpdatesToday), tone: .today)
         )
-        switch pres.statusLabel {
-        case "下载中":
+        switch pres.stage {
+        case .downloading:
             slide.stage = .downloading
             let percent = group.progress.map { " · \(Int(($0 * 100).rounded()))%" } ?? ""
-            slide.eyebrow = SubsHomeChip(text: "下载中\(percent)", tone: .live, pulse: true)
+            slide.eyebrow = SubsHomeChip(text: String(localized: .subscriptionArrivalsStatusDownloading) + percent, tone: .live, pulse: true)
             slide.progress = group.progress
             if let eta = pres.estimatedAt {
-                slide.clockLabel = group.kind == "movie" ? "预计可看" : "\(label) · 预计可看"
+                slide.clockLabel = group.kind == "movie" ? String(localized: .subscriptionFeedExpectedReady) : String(localized: .subscriptionFeedEpisodeReady(label))
                 slide.clock = clockText(eta, now: now)
             } else {
                 // 给不出预计时间时，信息行得自己把「在下载」说出来（状态只剩一颗蓝点，不写就看不出在干什么）
-                slide.detail = group.kind == "movie" ? "正在下载" : "\(label) · 正在下载"
-                slide.footnote = "下载完成后自动整理入库"
+                slide.detail = group.kind == "movie" ? String(localized: .subscriptionFeedDownloading) : String(localized: .subscriptionFeedEpisodeDownloading(label))
+                slide.footnote = String(localized: .subscriptionFeedImportAfterDownload)
             }
-        case "整理中":
+        case .organizing:
             slide.stage = .organizing
-            slide.eyebrow = SubsHomeChip(text: "整理中", tone: .ok, pulse: true)
+            slide.eyebrow = SubsHomeChip(text: String(localized: .subscriptionArrivalsStatusOrganizing), tone: .ok, pulse: true)
             // 已下载完、正在整理入库：有历史耗时就给出预计能看的时刻，超时了只说「马上就好」
             if let ready = group.readyAt, ready > now {
-                slide.clockLabel = group.kind == "movie" ? "下载完成 · 预计可看" : "\(label) · 预计可看"
+                slide.clockLabel = group.kind == "movie" ? String(localized: .subscriptionFeedDownloadedReady) : String(localized: .subscriptionFeedEpisodeReady(label))
                 slide.clock = clockText(ready, now: now)
             } else {
-                slide.clockLabel = group.kind == "movie" ? "下载完成" : "\(label) · 下载完成"
-                slide.clock = "马上就好"
+                slide.clockLabel = group.kind == "movie" ? String(localized: .subscriptionFeedDownloadComplete) : String(localized: .subscriptionFeedEpisodeDownloaded(label))
+                slide.clock = String(localized: .subscriptionFeedAlmostReady)
             }
         default:
             if group.daysAhead > 0 {
                 slide.stage = .upcoming
-                slide.eyebrow = SubsHomeChip(text: "即将更新", tone: .calm)
+                slide.eyebrow = SubsHomeChip(text: String(localized: .subscriptionFeedUpcoming), tone: .calm)
                 slide.clockLabel = [label, TodayArrivals.formatCalendarDay(group.expectedDay)].compactMap { $0 }.joined(separator: " · ")
-                slide.clock = group.daysAhead == 1 ? "明天" : weekday(of: group.expectedDay) ?? "\(group.daysAhead) 天后"
+                slide.clock = group.daysAhead == 1 ? String(localized: .subscriptionArrivalsTomorrowBadge) : weekday(of: group.expectedDay) ?? String(localized: .subscriptionArrivalsFutureBadge(group.daysAhead))
             } else {
                 slide.stage = .today
-                if pres.statusLabel == "等待资源" {
-                    slide.eyebrow = SubsHomeChip(text: "等待资源", tone: .warn)
+                if pres.stage == .waiting {
+                    slide.eyebrow = SubsHomeChip(text: String(localized: .subscriptionArrivalsStatusWaiting), tone: .warn)
                 }
                 if let estimated = pres.estimatedAt {
-                    slide.clockLabel = "\(label) · 预计入库"
+                    slide.clockLabel = String(localized: .subscriptionFeedEpisodeExpectedImport(label))
                     slide.clock = clockText(estimated, now: now)
                 } else {
                     slide.detail = label
@@ -376,13 +376,13 @@ enum SubscriptionsHome {
         let isTV = card.media.kind == "tv"
         let imported = importedAt(card)
         let fresh = imported.map { now.timeIntervalSince($0) <= 24 * 3600 } ?? false
-        var footnote = imported.map { "\(Formatters.fromNow($0, now: now))入库" } ?? "已入库"
-        if card.units.count > 1 { footnote += " · 共 \(card.units.count) 集新内容" }
+        var footnote = imported.map { String(localized: .subscriptionFeedImportedAgo(Formatters.fromNow($0, now: now))) } ?? String(localized: .subscriptionProgressImported)
+        if card.units.count > 1 { footnote += " · " + String(localized: .subscriptionFeedNewContent(card.units.count)) }
         return SubsHomeHeroSlide(
             subscriptionId: card.subscriptionId,
             media: card.media,
             stage: .arrived,
-            eyebrow: SubsHomeChip(text: fresh ? "刚刚入库" : (isTV ? "新一集" : "新入库"), tone: .ok),
+            eyebrow: SubsHomeChip(text: fresh ? String(localized: .subscriptionSectionsRecent) : (isTV ? String(localized: .subscriptionFeedNewEpisode) : String(localized: .subscriptionFeedNewInLibrary)), tone: .ok),
             detail: recentDetail(card),
             footnote: footnote,
             play: playRequest(card),
@@ -392,19 +392,19 @@ enum SubscriptionsHome {
 
     private static func restingSlide(_ sub: API.SubscriptionView) -> SubsHomeHeroSlide {
         let eyebrow: SubsHomeChip = switch sub.status {
-        case "paused": SubsHomeChip(text: "已暂停", tone: .calm)
-        case "completed": SubsHomeChip(text: sub.media.kind == "movie" ? "已入库" : "已收齐", tone: .ok)
-        default: SubsHomeChip(text: "追踪中", tone: .calm)
+        case "paused": SubsHomeChip(text: String(localized: .subscriptionSectionsPaused), tone: .calm)
+        case "completed": SubsHomeChip(text: sub.media.kind == "movie" ? String(localized: .subscriptionProgressImported) : String(localized: .subscriptionSectionsCollected), tone: .ok)
+        default: SubsHomeChip(text: String(localized: .subscriptionStatusActive), tone: .calm)
         }
         let meta = SubscriptionSummary.collectionMeta(sub)
         let detail: String
         let footnote: String?
         if sub.media.kind == "movie" {
-            detail = [sub.media.year.map(String.init), "电影"].compactMap { $0 }.joined(separator: " · ")
-            footnote = sub.progress.imported > 0 ? "已在媒体库里" : (released(sub) ? "找到合适的资源就会自动下载" : "上映后开始找资源")
+            detail = [sub.media.year.map(String.init), String(localized: .subscriptionFilterMovie)].compactMap { $0 }.joined(separator: " · ")
+            footnote = sub.progress.imported > 0 ? String(localized: .subscriptionFeedAlreadyInLibrary) : (released(sub) ? String(localized: .subscriptionFeedAutoDownloadMatch) : String(localized: .subscriptionFeedSearchAfterRelease))
         } else {
-            detail = meta.map { "\($0.label) · \($0.value)" } ?? (sub.media.year.map(String.init) ?? "剧集")
-            footnote = sub.status == "active" ? "有新一集会自动下载入库" : nil
+            detail = meta.map { "\($0.label) · \($0.value)" } ?? (sub.media.year.map(String.init) ?? String(localized: .subscriptionFilterTv))
+            footnote = sub.status == "active" ? String(localized: .subscriptionFeedAutoNewEpisodes) : nil
         }
         return SubsHomeHeroSlide(subscriptionId: sub.id, media: sub.media, stage: .resting, eyebrow: eyebrow, detail: detail, footnote: footnote)
     }
@@ -412,7 +412,7 @@ enum SubscriptionsHome {
     /// 刚刚入库卡的说明：剧集「S04E01 · 集名」，电影「2025 · 电影」
     static func recentDetail(_ card: API.RecentArrivalView) -> String {
         guard card.media.kind == "tv" else {
-            return [card.media.year.map(String.init), "电影"].compactMap { $0 }.joined(separator: " · ")
+            return [card.media.year.map(String.init), String(localized: .subscriptionFilterMovie)].compactMap { $0 }.joined(separator: " · ")
         }
         let code = "S\(SubsFormat.pad(card.seasonNumber))E\(SubsFormat.pad(card.episodeNumber))"
         guard let name = card.episodeName, !name.isEmpty else { return code }
@@ -437,7 +437,7 @@ enum SubscriptionsHome {
         let clock = SubsFormat.clock(date)
         if calendar.isDate(date, inSameDayAs: now) { return clock }
         if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(date, inSameDayAs: tomorrow) {
-            return "明天 \(clock)"
+            return String(localized: .subscriptionFeedTomorrowClock(clock))
         }
         let parts = calendar.dateComponents([.month, .day], from: date)
         return "\(parts.month ?? 0)/\(parts.day ?? 0) \(clock)"
@@ -445,14 +445,13 @@ enum SubscriptionsHome {
 
     // MARK: 日程
 
-    private static let weekdayNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
-
     /// 站点日历日 YYYY-MM-DD →「周四」（按日历日本身算，不经时区换算）
     static func weekday(of day: String) -> String? {
         guard let date = SubsFormat.date(day) else { return nil }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
-        return weekdayNames[calendar.component(.weekday, from: date) - 1]
+        calendar.locale = AppLanguage.locale
+        return calendar.shortWeekdaySymbols[calendar.component(.weekday, from: date) - 1]
     }
 
     /// 一周的日期条：今天起连续 7 天（窗口第 8 天有安排才补上），没有安排的日子照样占位但点不了——
@@ -465,6 +464,7 @@ enum SubscriptionsHome {
         guard let anchor = groups.first, let anchorDate = SubsFormat.date(anchor.expectedDay) else { return [] }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+        calendar.locale = AppLanguage.locale
         guard let siteToday = calendar.date(byAdding: .day, value: -anchor.daysAhead, to: anchorDate) else { return [] }
         let subsById = Dictionary(subscriptions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let byDay = Dictionary(grouping: groups, by: \.daysAhead)
@@ -480,9 +480,9 @@ enum SubscriptionsHome {
                 }
             return SubsHomeScheduleDay(
                 daysAhead: offset,
-                weekday: offset == 0 ? "今天" : weekdayNames[(parts.weekday ?? 1) - 1],
+                weekday: offset == 0 ? String(localized: .subscriptionArrivalsTodayBadge) : calendar.shortWeekdaySymbols[(parts.weekday ?? 1) - 1],
                 dayNumber: "\(parts.day ?? 0)",
-                dateLabel: "\(parts.month ?? 0)月\(parts.day ?? 0)日",
+                dateLabel: String(localized: .subscriptionFeedCalendarDay(parts.month ?? 0, parts.day ?? 0)),
                 entries: entries
             )
         }
@@ -490,21 +490,21 @@ enum SubscriptionsHome {
 
     private static func entry(_ group: ArrivalGroup, media: API.MediaBrief?, now: Date) -> SubsHomeScheduleEntry {
         let pres = group.presentation
-        let tone: SubsHomeTone = switch pres.statusLabel {
-        case "下载中": .live
-        case "整理中": .ok
-        case "等待资源": .warn
-        default: .calm
+        let tone: SubsHomeTone = switch pres.stage {
+        case .downloading: .live
+        case .organizing: .ok
+        case .waiting: .warn
+        case .expected: .calm
         }
         var status = pres.statusLabel
-        if pres.statusLabel == "下载中", let progress = group.progress {
+        if pres.stage == .downloading, let progress = group.progress {
             status += " \(Int((progress * 100).rounded()))%"
         }
-        let time: String? = switch pres.statusLabel {
+        let time: String? = switch pres.stage {
         // 整理超时（过了预计时刻还没入库）不再报一个过去的时刻
-        case "整理中": group.readyAt.flatMap { $0 > now ? SubsFormat.clock($0) : nil } ?? "即将"
+        case .organizing: group.readyAt.flatMap { $0 > now ? SubsFormat.clock($0) : nil } ?? String(localized: .subscriptionFeedSoon)
         // 下载器给不出 ETA 时，已经在路上的东西说「稍后」，比「待定」更贴切
-        case "下载中": pres.estimatedAt.map(SubsFormat.clock) ?? "稍后"
+        case .downloading: pres.estimatedAt.map(SubsFormat.clock) ?? String(localized: .subscriptionFeedLater)
         default: pres.estimatedAt.map(SubsFormat.clock)
         }
         return SubsHomeScheduleEntry(
@@ -514,7 +514,7 @@ enum SubscriptionsHome {
             time: time,
             status: status,
             tone: tone,
-            progress: pres.statusLabel == "下载中" ? group.progress : nil,
+            progress: pres.stage == .downloading ? group.progress : nil,
             media: media
         )
     }
@@ -577,8 +577,8 @@ enum SubscriptionsHome {
             if left.sub.updatedAt != right.sub.updatedAt { return left.sub.updatedAt > right.sub.updatedAt }
             return left.sub.media.title < right.sub.media.title
         }
-        let doneLabel = kind == "movie" ? "已入库" : "已收齐"
-        let label = !paused.isEmpty && !done.isEmpty ? "暂停·\(doneLabel.dropFirst())" : (paused.isEmpty ? doneLabel : "已暂停")
+        let doneLabel = kind == "movie" ? String(localized: .subscriptionProgressImported) : String(localized: .subscriptionSectionsCollected)
+        let label = !paused.isEmpty && !done.isEmpty ? (kind == "movie" ? String(localized: .subscriptionFeedPausedImported) : String(localized: .subscriptionFeedPausedCollected)) : (paused.isEmpty ? doneLabel : String(localized: .subscriptionSectionsPaused))
         return SubsHomeShelf(
             active: active.sorted { left, right in
                 left.rank != right.rank ? left.rank < right.rank : recentFirst(left.item, right.item)
@@ -594,8 +594,8 @@ enum SubscriptionsHome {
     static func countSummary(_ shelf: SubsHomeShelf) -> String {
         let total = shelf.all.count
         let active = shelf.active.count
-        guard active > 0, active < total else { return "共 \(total) 部" }
-        return "\(active) 部进行中 · 共 \(total) 部"
+        guard active > 0, active < total else { return String(localized: .subscriptionFeedShelfTotal(total)) }
+        return String(localized: .subscriptionFeedShelfActiveTotal(active, total))
     }
 
     /// 一部订阅的位置与小签。剧集与电影同一套口径，进行中内部按此刻最要紧排：
@@ -615,20 +615,20 @@ enum SubscriptionsHome {
             SubsHomeStanding(phase: .active, rank: rank, chip: chip)
         }
         if sub.status == "paused" {
-            return SubsHomeStanding(phase: .paused, rank: 0, chip: SubsHomeChip(text: "已暂停", tone: .calm))
+            return SubsHomeStanding(phase: .paused, rank: 0, chip: SubsHomeChip(text: String(localized: .subscriptionSectionsPaused), tone: .calm))
         }
         let missing = isTV ? missingAired(sub) : 0
         let pending = missing > 0 || sub.progress.wanted + sub.progress.grabbed + sub.progress.downloaded > 0
         // 旧集洗版不降低新集缺口的优先级；纯洗版即使有下载预告，也留在进行中末尾。
         if sub.progress.upgrading > 0, !pending {
-            return active(8, SubsHomeChip(text: "洗版中", tone: .upgrade))
+            return active(8, SubsHomeChip(text: String(localized: .subscriptionUpgradeStateInFlight), tone: .upgrade))
         }
         // 正在下载 / 整理：有预告按预告，没有（老服务端 / 预告还没取到）按订阅进度判断
-        let pipeline = group?.presentation.statusLabel
-            ?? (sub.progress.downloaded > 0 ? "整理中" : (sub.progress.grabbed > 0 ? "下载中" : nil))
+        let pipeline = group?.presentation.stage
+            ?? (sub.progress.downloaded > 0 ? .organizing : (sub.progress.grabbed > 0 ? .downloading : nil))
         switch pipeline {
-        case "下载中": return active(0, SubsHomeChip(text: "下载中", tone: .live, pulse: true))
-        case "整理中": return active(0, SubsHomeChip(text: "整理中", tone: .ok, pulse: true))
+        case .downloading: return active(0, SubsHomeChip(text: String(localized: .subscriptionArrivalsStatusDownloading), tone: .live, pulse: true))
+        case .organizing: return active(0, SubsHomeChip(text: String(localized: .subscriptionArrivalsStatusOrganizing), tone: .ok, pulse: true))
         default: break
         }
         if !pending, SubscriptionSummary.fullyCollected(sub) || sub.status == "completed" {
@@ -636,19 +636,19 @@ enum SubscriptionsHome {
         }
         if isTV, let recent {
             let count = recent.units.count
-            return active(1, SubsHomeChip(text: count > 1 ? "新 \(count) 集" : "新一集", tone: .ok))
+            return active(1, SubsHomeChip(text: count > 1 ? String(localized: .subscriptionFeedNewEpisodes(count)) : String(localized: .subscriptionFeedNewEpisode), tone: .ok))
         }
         if let group {
-            if group.daysAhead == 0 { return active(2, SubsHomeChip(text: "今天更新", tone: .today)) }
-            let when = group.daysAhead == 1 ? "明天" : (weekday(of: group.expectedDay) ?? "\(group.daysAhead) 天后")
-            return active(3 + Double(group.daysAhead) / 100, SubsHomeChip(text: "\(when)更新", tone: .calm))
+            if group.daysAhead == 0 { return active(2, SubsHomeChip(text: String(localized: .subscriptionFeedUpdatesToday), tone: .today)) }
+            let when = group.daysAhead == 1 ? String(localized: .subscriptionArrivalsTomorrowBadge) : (weekday(of: group.expectedDay) ?? String(localized: .subscriptionArrivalsFutureBadge(group.daysAhead)))
+            return active(3 + Double(group.daysAhead) / 100, SubsHomeChip(text: String(localized: .subscriptionFeedUpdateWhen(when)), tone: .calm))
         }
         if isTV {
-            return missing > 0 ? active(5, SubsHomeChip(text: "缺 \(missing) 集", tone: .warn)) : active(6, nil)
+            return missing > 0 ? active(5, SubsHomeChip(text: String(localized: .subscriptionProgressMissing(missing)), tone: .warn)) : active(6, nil)
         }
         return released(sub)
-            ? active(5, SubsHomeChip(text: "找资源中", tone: .warn))
-            : active(7, SubsHomeChip(text: "未上映", tone: .calm))
+            ? active(5, SubsHomeChip(text: String(localized: .subscriptionFeedFindingRelease), tone: .warn))
+            : active(7, SubsHomeChip(text: String(localized: .subscriptionFeedUnreleased), tone: .calm))
     }
 
     /// 剧集订阅范围内「已经播出、库里还没有」的集数（缺集，正在找资源）。
@@ -666,11 +666,11 @@ enum SubscriptionsHome {
     static func meta(_ sub: API.SubscriptionView, phase: SubsHomeStanding.Phase) -> String {
         let year = sub.media.year.map(String.init)
         if sub.media.kind == "movie" {
-            if sub.progress.imported > 0 { return [year, "已入库"].compactMap { $0 }.joined(separator: " · ") }
-            return year ?? "电影"
+            if sub.progress.imported > 0 { return [year, String(localized: .subscriptionProgressImported)].compactMap { $0 }.joined(separator: " · ") }
+            return year ?? String(localized: .subscriptionFilterMovie)
         }
-        guard let meta = SubscriptionSummary.collectionMeta(sub) else { return year ?? "剧集" }
-        if phase == .done { return "已收齐 · \(meta.label)" }
+        guard let meta = SubscriptionSummary.collectionMeta(sub) else { return year ?? String(localized: .subscriptionFilterTv) }
+        if phase == .done { return String(localized: .subscriptionInspectorCollectedUpgrading(meta.label)) }
         return "\(meta.label) · \(meta.value)"
     }
 

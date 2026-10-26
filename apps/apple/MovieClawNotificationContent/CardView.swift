@@ -64,10 +64,10 @@ struct EpisodeCells: Equatable {
 
         var label: String? {
             switch self {
-            case .ready: "已入库"
-            case .watched: "看过"
-            case .downloading: "下载中"
-            case .missing: "没找到"
+            case .ready: String(localized: .notificationCellsReady)
+            case .watched: String(localized: .notificationCellsWatched)
+            case .downloading: String(localized: .notificationCellsDownloading)
+            case .missing: String(localized: .notificationCellsMissing)
             case .other: nil
             }
         }
@@ -131,9 +131,16 @@ struct EpisodeGrid: View {
     }
 
     private var accessibilitySummary: String {
-        cells.legend.map { state in
-            "\(state.label ?? "")\(cells.states.filter { $0 == state }.count) 集"
-        }.joined(separator: "，")
+        cells.legend.compactMap { state -> String? in
+            let count = cells.states.filter { $0 == state }.count
+            return switch state {
+            case .ready: String(localized: .notificationCellsReadyCount(count))
+            case .watched: String(localized: .notificationCellsWatchedCount(count))
+            case .downloading: String(localized: .notificationCellsDownloadingCount(count))
+            case .missing: String(localized: .notificationCellsMissingCount(count))
+            case .other: nil
+            }
+        }.joined(separator: String(localized: .notificationCellsSeparator))
     }
 }
 

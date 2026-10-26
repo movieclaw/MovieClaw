@@ -30,7 +30,7 @@ const NOW = Date.parse("2026-08-29T12:00:00Z");
 const ago = (ms) => new Date(NOW - ms).toISOString();
 
 test("权限说明说人话，不出现内部权限名", () => {
-  for (const type of ["worker", "cli", "manual", "androidtv", "什么鬼"]) {
+  for (const type of ["worker", "cli", "manual", "androidtv", "windows", "什么鬼"]) {
     for (const role of ["admin", "member"]) {
       const { title, body } = grantSummary(type, role);
       const text = `${title}${body}`;
@@ -39,6 +39,24 @@ test("权限说明说人话，不出现内部权限名", () => {
       }
     }
   }
+});
+
+test("Windows 配对按批准者身份说明电脑登录，并要求核对本机显示的码", () => {
+  assert.equal(clientTypeLabel("windows"), "Windows");
+  const admin = grantSummary("windows", "admin");
+  const member = grantSummary("windows", "member");
+  assert.ok(admin.title.includes("Windows 电脑") && admin.title.includes("超级管理员"));
+  assert.ok(member.title.includes("以你的身份登录") && !member.title.includes("超级管理员"));
+  for (const summary of [admin, member]) {
+    assert.ok(summary.body.includes("输入账号密码登录"));
+    assert.ok(summary.body.includes("只批准你面前这台 Windows 电脑上显示的配对码"));
+    assert.ok(!summary.body.includes("这台机器上的程序"));
+  }
+  assert.equal(deviceGroupKey("windows"), "app");
+  assert.equal(deviceGlyph("windows", "full"), "computer");
+  const groups = groupDevices([{ kind: "windows" }, { kind: "cli" }]);
+  assert.deepEqual(groups.find(g => g.key === "app").devices, [{ kind: "windows" }]);
+  assert.deepEqual(groups.find(g => g.key === "paired").devices, [{ kind: "cli" }]);
 });
 
 test("转码器的说明必须点明它碰不到订阅与媒体库", () => {
@@ -322,4 +340,28 @@ test("设备说明：图标说得清的不再写类型名，系统信息拆成�
     }),
     ["Infuse", "版本 8.1"],
   );
+});
+
+test("英文权限说明区分成员、超管与仅转码，并保留明确的恢复路径", () => {
+  assert.match(grantSummary("cli", "admin", "en").body, /including deleting media files/);
+  assert.doesNotMatch(grantSummary("cli", "member", "en").body, /deleting media files/);
+  assert.match(grantSummary("worker", "admin", "en").body, /cannot view or change/);
+  assert.match(manualGrantSummary("transcode", "en").body, /does not expire automatically/);
+  assert.match(grantSummary("tvos", "member", "en").body, /TV in front of you/);
+  assert.match(revokeConsequence("cli", "paired", "en"), /mclaw login again/);
+  assert.match(revokeConsequence("manual", "paired", "en"), /cannot be restored/);
+  assert.equal(clientTypeLabel("toString", "en"), "Unknown type");
+});
+
+test("英文设备时间和分组在读取时生成，设备身份与分组顺序不变", () => {
+  const now = Date.parse("2026-10-24T12:00:00Z");
+  assert.equal(relativeTime("2026-10-24T11:59:00Z", now, "en"), "1 minute ago");
+  assert.equal(relativeTime("2026-10-24T10:00:00Z", now, "en"), "2 hours ago");
+  assert.equal(relativeTime(null, now, "en"), "Never used");
+  const devices = [{ kind: "web", name: "原始名字" }, { kind: "cli", name: "raw-agent" }];
+  const english = groupDevices(devices, "en"), chinese = groupDevices(devices, "zh-Hans");
+  assert.deepEqual(english.map(g => [g.key, g.devices]), chinese.map(g => [g.key, g.devices]));
+  assert.equal(english[0].label, "Browsers");
+  assert.equal(chinese[0].label, "浏览器");
+  assert.deepEqual(identityParts({ kind: "jellyfin", kind_label: "原始客户端", platform: null, client_version: "1.2" }, "en"), ["原始客户端", "Version 1.2"]);
 });

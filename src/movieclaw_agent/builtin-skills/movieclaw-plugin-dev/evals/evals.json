@@ -26,9 +26,9 @@
     {
       "id": 4,
       "prompt": "给播放器加一个「跳过广告」的按钮吧",
-      "expected_output": "说明插件现在不能给网页 / App 加界面，直说做不到；给替代办法或指出播放器已有相关能力；不写插件。",
-      "expectations": ["明确说插件不能加界面", "没有开始写插件"],
-      "checks": {"must_mention_any": ["界面", "做不到", "不能"], "no_install": true, "no_scaffold": true}
+      "expected_output": "说明插件不能往播放器（主程序已有的页面）里加按钮，直说做不到；指出播放器已有广告 / 片头片尾识别；不写插件。",
+      "expectations": ["明确说不能往播放器里加按钮", "没有开始写插件"],
+      "checks": {"must_mention_any": ["播放器", "做不到", "不能"], "no_install": true, "no_scaffold": true}
     },
     {
       "id": 5,
@@ -103,9 +103,9 @@
     {
       "id": 15,
       "prompt": "在首页加一张卡片，显示今天新入库的片",
-      "expected_output": "说明插件不能改界面；替代：已有的首页内容或通知；不写插件。",
-      "expectations": ["明确说插件不能改界面"],
-      "checks": {"must_mention_any": ["界面", "不能", "做不到"], "no_install": true, "no_scaffold": true}
+      "expected_output": "说明插件不能往首页（已有页面）里插卡片；替代：首页自定义行（每库的「最近添加」），或做一个插件网页放进左侧栏；不擅自动手。",
+      "expectations": ["明确说不能往首页里插卡片", "给出首页自定义行或插件网页作替代"],
+      "checks": {"must_mention_any": ["最近添加", "左侧栏", "侧边栏", "插件网页"], "no_install": true, "no_scaffold": true}
     },
     {
       "id": 16,
@@ -113,6 +113,20 @@
       "expected_output": "指出是把注册表 IM_CHANNELS 写进了 inject：应在 apply 里 ctx.contribute，从 inject 删掉、只留在 [requires]；通道插件在独立进程里就能跑，不需要 inline，也不需要重启；不自己改成 inline、不重启应用。",
       "expectations": ["指出 inject 写错（注册表不该写进 inject）", "明确不需要 inline 也不需要重启", "没有执行重启"],
       "checks": {"skill_read": true, "must_mention_any": ["ctx.contribute", "注册表"], "no_install": true, "no_restart": true}
+    },
+    {
+      "id": 17,
+      "prompt": "帮我做一个页面放在左边菜单里，能看到本周新入库的 4K 片和正在下载的任务",
+      "expected_output": "触发技能；方案是插件网页（web/ 里的普通网页，manifest 定侧边栏名字与图标，同源 fetch 现有接口）；用 mclaw 查清要用的接口与字段；讲清网页会以打开它的人的身份运行、成员默认看不到，征得同意后才用 plugin dev --allow-web 安装。",
+      "expectations": ["选择插件网页而不是说做不到", "说明网页以打开它的人的身份运行", "没有在未经同意时安装"],
+      "checks": {"skill_read": true, "must_mention_any": ["身份", "左侧栏", "侧边栏"], "no_install": true}
+    },
+    {
+      "id": 18,
+      "prompt": "能不能把我的 123 网盘接进来，当媒体库的存储用？",
+      "expected_output": "触发技能；先用 drives backends list 查现在能接哪些网盘；没有就做成网盘后端插件（drive-backends 注册表，继承 DriveBackend），以插件仓库的 cloud-115 为参照；讲清登录方式（扫码、Cookie，或开放平台 Client ID / 密钥走填表登录 login_with_form）、要实现哪些能力、账号凭据与限速由主程序管；征得同意前不安装。",
+      "expectations": ["查了现有的网盘后端", "方案是网盘后端插件并提到 cloud-115 作参照", "没有在未经同意时安装"],
+      "checks": {"skill_read": true, "must_mention_any": ["cloud-115", "DriveBackend", "网盘后端"], "no_install": true}
     }
   ]
 }

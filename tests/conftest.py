@@ -7,6 +7,7 @@ git 历史。本地开发时复制 .env.example 为 .env 并填写即可，CI �
 from __future__ import annotations
 
 import asyncio
+import atexit
 import os
 import shutil
 import sqlite3
@@ -19,10 +20,52 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _ENV_FILE = _PROJECT_ROOT / ".env"
 
+#: 测试临时产物（日志目录、SQLite 模板、pytest 的 tmp_path）的根目录。
+#:
+#: 默认落在仓库内的 ``.tmp-pytest/`` 而不是系统临时目录：一套 API 用例会建几十个
+#: 各 1.5 MB 的隔离库，pytest 的 ``tmp_path`` 还保留最近几轮；全放 ``%TEMP%`` 会把
+#: 系统盘慢慢吃掉（2026-10-21 盘点：C 盘 Temp 里累积了约 1 GB 测试残留）。
+#: 可用 ``MOVIECLAW_TEST_TMP`` 显式指定（CI 或想放别的盘时），显式值优先。
+def _test_tmp_root() -> Path:
+    configured = os.environ.get("MOVIECLAW_TEST_TMP")
+    root = Path(configured) if configured else _PROJECT_ROOT / ".tmp-pytest"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+_TEST_TMP_ROOT = _test_tmp_root()
+
+# 连同 TEMP/TMP 一起改：SQLite 建临时表（迁移里的 DROP TABLE 重建）和不少
+# 第三方库都直接读环境变量，只改 tempfile 的根管不到它们。Windows 上进程
+# 环境变量优先于注册表里的用户临时目录，改完 tempfile.gettempdir() 也一起变。
+os.environ["TEMP"] = str(_TEST_TMP_ROOT)
+os.environ["TMP"] = str(_TEST_TMP_ROOT)
+os.environ["TMPDIR"] = str(_TEST_TMP_ROOT)
+tempfile.tempdir = str(_TEST_TMP_ROOT)
+
+
+def _temp_dir(prefix: str) -> str:
+    """在测试临时根下开一个目录（每次 pytest 进程一个）。"""
+    return tempfile.mkdtemp(prefix=prefix, dir=str(_TEST_TMP_ROOT))
+
+
 # 测试期间产生的运行日志统一写进临时目录：create_app 会装配按天落盘的
 # 日志 Handler（见 core/logging.py），不隔离的话测试会在仓库 data/logs
 # 下留下日志文件。先于 .env 加载设置，测试环境始终生效。
-os.environ.setdefault("LOG_DIR", tempfile.mkdtemp(prefix="movieclaw-test-logs-"))
+_LOG_DIR = _temp_dir("logs-")
+os.environ.setdefault("LOG_DIR", _LOG_DIR)
+
+# 进程退出即清：日志目录只对这一次运行有意义，留着只会越积越多。
+# 必须先关掉日志 handler——Windows 上还开着的文件删不掉（rmtree 会静默失败），
+# 那正是旧方案在 %TEMP% 里留下几百个空壳目录的原因。
+def _cleanup_log_dir() -> None:
+    import logging
+
+    logging.shutdown()
+    shutil.rmtree(_LOG_DIR, ignore_errors=True)
+
+
+atexit.register(_cleanup_log_dir)
 
 
 def _resolve_ner_model_dir() -> None:
@@ -116,7 +159,9 @@ class _SQLiteMigrationTemplate:
     def __init__(self, migration_module) -> None:  # type: ignore[no-untyped-def]
         self._module = migration_module
         self.original = migration_module.run_migrations
-        self._temp_dir = tempfile.TemporaryDirectory(prefix="movieclaw-test-db-template-")
+        self._temp_dir = tempfile.TemporaryDirectory(
+            prefix="db-template-", dir=str(_TEST_TMP_ROOT)
+        )
         self._template = Path(self._temp_dir.name) / "migrated.db"
         self._head_revision: str | None = None
         self._lock = threading.Lock()
@@ -234,10 +279,12 @@ class _AppReuse:
         from movieclaw_api.core.config import get_settings
         from movieclaw_api.core.logging import configure_logging
         from movieclaw_api.lifespan import build_lifespan
+        from movieclaw_api.spec_state import mark_baseline_app
 
         settings = get_settings()
         key = (
             settings.app_env,
+            settings.demo_mode,
             settings.api_v1_prefix,
             settings.app_name,
             settings.access_log_enabled,
@@ -257,6 +304,10 @@ class _AppReuse:
             app.user_middleware = list(middleware)
             app.middleware_stack = None
             app.state = State()
+            # 与新建的产品应用一致：规格指纹认基线。前一个用例里插件挂过路由
+            # （挂在共享的插件路由器下，顶层路由数不变、实例照常复用）时，
+            # routes_changed 已把它移出基线集合
+            mark_baseline_app(app)
         return app
 
 
@@ -422,6 +473,39 @@ def _offline_tmdb_singleton(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_strm_prefetch_by_default(request, monkeypatch):
+    """随带插件「网盘规格预探」在测试里默认停用（启动补丁层关掉它）。
+
+    它一启动就为没探过的 strm 排后台补探：读文件行、探测、写退避记录。夹具里的 strm（如
+    Jellyfin 的 pan.example.com）会让每个用例都多出这串后台查询与写入——统计 SQL 的用例被污染，
+    别的用例平白多了写锁竞争。专测它的用例标 ``@pytest.mark.strm_prefetch``。
+    """
+    if request.node.get_closest_marker("strm_prefetch"):
+        return
+    from movieclaw_api import lifespan
+    from movieclaw_kernel import Patch
+
+    original = lifespan.load_patches
+    off = Patch("strm-prefetch", disabled=True, source="test")
+    monkeypatch.setattr(lifespan, "load_patches", lambda settings: [*original(settings), off])
+
+
+@pytest.fixture(autouse=True)
+def _offline_strm_probe(request, monkeypatch):
+    """网盘（strm）条目播放前的按需探测（strm_probe）在测试里一律当作探测失败。
+
+    用例里 strm 写的都是虚构直链（pan.example.com），真去探就是一次外网请求加十几秒
+    超时；探测失败时决策退回乐观直连，与这些用例原本的预期一致。按用例清空失败记忆。
+    集成测试要真探（本地仿网盘服务），跳过打桩。
+    """
+    from movieclaw_api.services.playback import strm_probe
+
+    monkeypatch.setattr(strm_probe, "_failed_at", {})
+    if not request.node.get_closest_marker("integration"):
+        monkeypatch.setattr(strm_probe, "probe_media", lambda *_a, **_k: None)
+
+
+@pytest.fixture(autouse=True)
 def _offline_image_proxy(monkeypatch):
     """刮削管线的图片资产下载在测试环境一律快速失败（不访问外网图床）。
 
@@ -464,3 +548,16 @@ def _fresh_cover_memos(monkeypatch):
 
     monkeypatch.setattr(cover, "_memos", {})
     monkeypatch.setattr(cover, "_render_tasks", {})
+
+
+@pytest.fixture(autouse=True)
+def _acquisition_bound(monkeypatch):
+    """媒体库与获取领域之间的接口按生产形态绑好（library-boundary.md §10）。
+
+    生产环境里 ``downloads`` 系统模块总会绑定；直接调服务、不起应用的用例也要有同样的行为
+    （认领后关 / 退工单、转移后改挂订阅……）。验证「纯本地库」的用例自己绑 ``NullBridge``。
+    """
+    from movieclaw_api.services.acquisition_bridge import Acquisition
+    from movieclaw_api.services.library import acquisition
+
+    monkeypatch.setattr(acquisition, "_bound", Acquisition())

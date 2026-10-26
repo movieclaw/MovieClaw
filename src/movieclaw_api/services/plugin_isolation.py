@@ -8,6 +8,8 @@
   一次启动只复制一次）；
 - 插件代码（本地插件的模块 / 插件包的版本目录）→ ``/tmp/movieclaw-plugins/code/<条目 id>/``
   （每次拉起重拷）；
+- 插件包的第三方依赖目录 → ``/tmp/movieclaw-plugins/deps/<目录名>/``（目录名含锁文件哈希与平台，
+  内容不变，复制一次）；
 - 插件自己的临时目录 ``/tmp/movieclaw-plugins/run/<条目 id>/``（归插件用户，作 HOME 与 TMPDIR）。
 
 插件的文件读写一律经文件接口（``PLUGIN_FILES``），持久状态存插件数据，不需要直接碰数据目录。
@@ -115,6 +117,23 @@ def stage_plugin(entry_id: str, path: Path, module: str) -> Path:
         else:
             shutil.copy2(path / f"{module}.py", target / f"{module}.py")
     _readable(target)
+    return target
+
+
+def stage_dependencies(path: Path) -> Path:
+    """依赖目录的只读副本：目录名就是内容（锁文件哈希 + 平台标签），已复制过的直接用。"""
+    base = _prepare_root() / "deps"
+    base.mkdir(exist_ok=True)
+    os.chmod(base, 0o755)
+    target = base / path.name
+    if (target / ".complete").exists():
+        return target
+    tmp = base / f".{path.name}.{os.getpid()}.partial"
+    shutil.rmtree(tmp, ignore_errors=True)
+    shutil.copytree(path, tmp, symlinks=False)
+    _readable(tmp)
+    shutil.rmtree(target, ignore_errors=True)
+    os.replace(tmp, target)
     return target
 
 

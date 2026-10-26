@@ -82,7 +82,9 @@ struct TVPlayerScreen: View {
 enum TVPlayerFocus: Hashable {
     case surface
     case skip
+    case skipUndo
     case upNext
+    case watchCredits
     case qualityOffer
     case panelOption(String)
     case dialog
@@ -102,6 +104,10 @@ private struct TVPlayerContent: View {
     @State private var panel: TVPlayerPanelTab?
     @State private var scrubMs: Int?
     @State private var scrubBase = 0
+    /// 正按着的左右键：true = 右；nil = 没按
+    @State private var arrowHeld: Bool?
+    /// 按住左右键的连续快进 / 快退：当前速度（片内秒数 / 秒，带方向）；nil = 不在长按拖动
+    @State private var holdRate: Int?
     @State private var trickplay = TrickplayImages()
 
     var body: some View {
@@ -147,11 +153,21 @@ private struct TVPlayerContent: View {
         .background {
             TVSwipeScrubber(enabled: scrubEnabled, onHorizontal: handleScrub, onVertical: handleVerticalSwipe)
                 .frame(width: 0, height: 0)
+            TVArrowPresses(enabled: arrowsEnabled, onDown: arrowDown, onUp: arrowUp)
+                .frame(width: 0, height: 0)
         }
         .animation(.easeInOut(duration: 0.25), value: chromeVisible)
         .animation(.easeInOut(duration: 0.25), value: panel)
         .animation(.easeInOut(duration: 0.2), value: controller.notice)
         .onPlayPauseCommand(perform: togglePlay)
+        // 焦点移到「观看片尾」= 要看片尾：立刻停掉倒计时（移回「下一集」也不恢复，卡片只提示）
+        .onChange(of: focus) { _, now in
+            if now == .watchCredits { controller.cancelAutoNext() }
+        }
+        // 片尾放完控制器会重新倒计时：焦点还停在「观看片尾」的话挪回「下一集」，不能焦点在这边、倒计时在那边走
+        .onChange(of: controller.phase) { _, phase in
+            if phase == .ended, focus == .watchCredits { focus = .upNext }
+        }
         // 播放器在放时 App 是系统的「正在播放」应用，遥控器的播放 / 暂停键先交给系统远程命令
         // （NowPlayingBridge 直接暂停控制器），到不了上面的 onPlayPauseCommand，控制层就不出来：
         // 画面停住却没有片名和进度条（2026-10-05 模拟器走查发现）。以「用户暂停了」这个状态为准补上
@@ -168,7 +184,8 @@ private struct TVPlayerContent: View {
             // 改用系统的做法——它们声明「优先默认焦点」，这里请焦点引擎在这个范围里重新挑一次
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled else { return }
-            if contextualFocusTarget != nil || focus == nil || focus == .skip || focus == .upNext || focus == .qualityOffer {
+            if contextualFocusTarget != nil || focus == nil || focus == .skip || focus == .skipUndo || focus == .upNext || focus == .watchCredits
+                || focus == .qualityOffer {
                 resetFocus(in: focusScope)
             }
             // 兜底：重挑之后还没落上（与下面「回到画面」那一步挨得太近、主线程一忙先后就会颠倒，实测），
@@ -184,6 +201,12 @@ private struct TVPlayerContent: View {
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
             focus = isModal ? .dialog : (contextualFocusTarget ?? .surface)
+        }
+        .task(id: arrowHeld) {
+            guard let forward = arrowHeld else { return }
+            try? await Task.sleep(for: .seconds(TVHoldScrub.threshold))
+            guard !Task.isCancelled else { return }
+            await holdScrub(forward: forward)
         }
         .task(id: autoHideKey) {
             // 控制层 4 秒无操作自动收起；暂停、拖动、面板打开、出错时一直显示
@@ -228,7 +251,7 @@ private struct TVPlayerContent: View {
         .disabled(panel != nil || isModal)
         .onMoveCommand(perform: handleMove)
         .ignoresSafeArea()
-        .accessibilityLabel(controller.paused ? "播放" : "暂停")
+        .accessibilityLabel(controller.paused ? String(localized: .playerControlsPlay) : String(localized: .playerControlsPause))
         .accessibilityIdentifier("tv-player-surface")
     }
 
@@ -246,7 +269,7 @@ private struct TVPlayerContent: View {
                     }
                 }
             Spacer(minLength: 0)
-            TVTransportBar(controller: controller, trickplay: trickplay, scrubMs: scrubMs)
+            TVTransportBar(controller: controller, trickplay: trickplay, scrubMs: scrubMs, scrubRate: holdRate)
                 .padding(.horizontal, 80)
                 .padding(.bottom, 60)
                 .background(alignment: .bottom) {
@@ -254,11 +277,27 @@ private struct TVPlayerContent: View {
                         .frame(height: 360)
                 }
         }
+        .overlay(alignment: .top) {
+            // 往下能拉出面板：跟控制层一起出现、一起收起，只一个小箭头加一行小字。
+            // 留在电视的标题安全区里（距上沿 60，同暂停大标题）；暂停时左上角是大片名，不挤在一起
+            if controller.session != nil, !showPaused {
+                VStack(spacing: 6) {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 22, weight: .bold))
+                    Text(TVPlayerPanel.tabs(for: controller).map(\.title).joined(separator: " · "))
+                        .font(.caption)
+                }
+                .foregroundStyle(.white.opacity(0.7))
+                .padding(.top, 60)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("tv-player-panel-hint")
+            }
+        }
         .ignoresSafeArea()
         .allowsHitTesting(false)
     }
 
-    /// 右下角：跳过片头 / 下一集卡片 / 换画质建议（同一个角落，同时只出一个）
+    /// 右下角：跳过片头 / 自动跳过的提示 / 下一集卡片 / 换画质建议（同一个角落，同时只出一个）
     @ViewBuilder
     private var contextualCorner: some View {
         VStack {
@@ -269,21 +308,32 @@ private struct TVPlayerContent: View {
                     TVQualityOfferCard(offer: offer, accept: controller.acceptQualityOffer, dismiss: controller.dismissQualityOffer)
                         .focused($focus, equals: .qualityOffer)
                         .prefersDefaultFocus(true, in: focusScope)
+                } else if let notice = controller.skipNotice {
+                    // 提示优先于跳过按钮（撤回后回到片头里，提示收起才轮到按钮）
+                    TVSkipNotice(notice: notice, undo: controller.undoAutoSkip)
+                        .focused($focus, equals: .skipUndo)
+                        .prefersDefaultFocus(true, in: focusScope)
+                        .task(id: notice.id) {
+                            try? await Task.sleep(for: .milliseconds(notice.durationMs))
+                            controller.expireSkipNotice(notice.id)
+                        }
                 } else if let segment = controller.skipSegment {
                     TVSkipButton(segment: segment, action: controller.skipCurrentSegment)
                         .focused($focus, equals: .skip)
                         .prefersDefaultFocus(true, in: focusScope)
-                } else if controller.showsUpNext, let next = controller.nextEpisode {
+                } else if upNextCardVisible, let next = controller.nextEpisode {
                     TVUpNextCard(
                         episode: next,
                         still: controller.scope.api.image(next.stillUrl, width: ImageWidth.tvCard(TVUpNextCard.stillWidth)),
-                        countdown: controller.autoNextArmed ? controller.autoNextProgress : nil
-                    ) {
-                        controller.noteUserActivity()
-                        controller.playNext()
-                    }
-                    .focused($focus, equals: .upNext)
-                    .prefersDefaultFocus(true, in: focusScope)
+                        countdown: controller.autoNextArmed ? controller.autoNextProgress : nil,
+                        play: {
+                            controller.noteUserActivity()
+                            controller.playNext()
+                        },
+                        watchCredits: dismissUpNext,
+                        focus: $focus,
+                        focusScope: focusScope
+                    )
                     // 倒计时的钟：卡片在才走（同 iPhone 版）
                     .task {
                         while !Task.isCancelled {
@@ -309,14 +359,27 @@ private struct TVPlayerContent: View {
     private var dialogs: some View {
         if let infoError = controller.infoError {
             // 条目信息都拿不到（无权访问、已删除）：整页换成原因 +「返回」
-            TVPlayerDialog(title: infoError, message: nil, primary: ("返回", exit), secondary: nil)
+            TVPlayerDialog(title: infoError, message: nil, primary: (String(localized: .commonBack), exit), secondary: nil)
                 .focused($focus, equals: .dialog)
         } else if controller.phase == .error, let message = controller.errorMessage {
-            TVPlayerDialog(title: message, message: controller.errorSuggestion, primary: ("重试", controller.retry), secondary: ("返回", exit))
+            TVPlayerDialog(title: message, message: controller.errorSuggestion, primary: (String(localized: .commonRetry), controller.retry), secondary: (String(localized: .commonBack), exit))
                 .focused($focus, equals: .dialog)
         } else if controller.phase == .consent, let decision = controller.pendingDecision {
             TVConsentDialog(decision: decision, grant: controller.grantConsent, cancel: exit)
                 .focused($focus, equals: .dialog)
+        } else if controller.asksStillWatching, let next = controller.nextEpisode {
+            // 连播满上限后放完：停在这里问一句，不再自动接（返回键 = 不看了）
+            TVPlayerDialog(
+                title: String(localized: .playerControlsStillWatchingTitle(controller.title)),
+                message: String(localized: .playerControlsAutoNextLimit(SkipSegments.autoNextMaxStreak)),
+                primary: (String(localized: .playerControlsContinueEpisode(next.episodeNumber)), {
+                    controller.noteUserActivity()
+                    controller.playNext()
+                }),
+                secondary: (String(localized: .playerControlsStopWatching), exit),
+                icon: nil
+            )
+            .focused($focus, equals: .dialog)
         }
     }
 
@@ -324,6 +387,12 @@ private struct TVPlayerContent: View {
 
     private var isModal: Bool {
         controller.infoError != nil || controller.phase == .error || controller.phase == .consent
+            || controller.asksStillWatching
+    }
+
+    /// 右下角的「下一集」卡片在不在（「还在看吗」对话框顶替它、换画质建议占着角落时不在）
+    private var upNextCardVisible: Bool {
+        !isModal && controller.qualityOffer == nil && controller.showsUpNext && controller.nextEpisode != nil
     }
 
     /// 暂停遮罩只跟「用户意图」走：缓冲、换流时的程序性暂停不压暗（同 iPhone 版）
@@ -345,14 +414,24 @@ private struct TVPlayerContent: View {
     private var contextualFocusTarget: TVPlayerFocus? {
         guard !isModal, panel == nil else { return nil }
         if controller.qualityOffer != nil { return .qualityOffer }
+        if let notice = controller.skipNotice {
+            // 只有「已跳过 · 撤回」能按；「本剧以后自动跳过」只是告知，不抢焦点
+            if case .skipped = notice.kind { return .skipUndo }
+            return nil
+        }
         if controller.skipSegment != nil { return .skip }
-        if controller.showsUpNext, controller.nextEpisode != nil { return .upNext }
+        if upNextCardVisible { return .upNext }
         return nil
     }
 
     /// 滑动拖进度只在焦点在画面上时接管：面板、按钮拿着焦点时滑动是在挪焦点
     private var scrubEnabled: Bool {
         focus == .surface && panel == nil && !isModal && controller.session != nil
+    }
+
+    /// 左右键在焦点落在画面上时归播放器（同 `onMoveCommand` 原来的范围）；长按途中不因焦点变化半路丢掉
+    private var arrowsEnabled: Bool {
+        arrowHeld != nil || (focus == .surface && panel == nil && !isModal)
     }
 
     // MARK: 遥控器
@@ -363,8 +442,9 @@ private struct TVPlayerContent: View {
     }
 
     private func togglePlay() {
-        controller.noteUserActivity()
+        // 对话框开着时按播放键不算数：否则「还在看吗」会因为连播计数清零被悄悄换成倒计时卡片
         guard !isModal else { return }
+        controller.noteUserActivity()
         controller.togglePlay()
         showChrome()
     }
@@ -372,18 +452,59 @@ private struct TVPlayerContent: View {
     private func handleMove(_ direction: MoveCommandDirection) {
         controller.noteUserActivity()
         switch direction {
-        case .left:
-            controller.seek(by: -10, source: .remote)
-            showChrome()
-        case .right:
-            controller.seek(by: 10, source: .remote)
-            showChrome()
+        case .left, .right:
+            // 点按 / 长按要看松开的时刻，由 TVArrowPresses 处理（arrowDown / arrowUp）
+            break
         case .down:
             openPanel()
         case .up:
             showChrome()
         @unknown default:
             break
+        }
+    }
+
+    private func arrowDown(_ forward: Bool) {
+        controller.noteUserActivity()
+        arrowHeld = forward
+    }
+
+    /// 松开左右键：没按到长按门槛 = 点按，跳 10 秒；长按拖动中 = 跳到落点
+    private func arrowUp() {
+        guard let forward = arrowHeld else { return }
+        arrowHeld = nil
+        controller.noteUserActivity()
+        if holdRate != nil {
+            holdRate = nil
+            if let scrubMs { controller.seek(toFileMs: scrubMs, source: .scrub) }
+            scrubMs = nil
+        } else {
+            controller.seek(by: forward ? 10 : -10, source: .remote)
+        }
+        showChrome()
+    }
+
+    /// 按住左右键过了门槛：播放头按时间加速走（预览缩略图跟着，画面能便宜跟就跟），松手才真正跳
+    private func holdScrub(forward: Bool) async {
+        // 触控板正在滑动拖进度时不抢
+        guard scrubMs == nil, let duration = controller.timelineDurationMs else { return }
+        let start = controller.timelineStartMs
+        scrubBase = controller.positionMs
+        var target = Double(scrubBase)
+        scrubMs = scrubBase
+        let began = ContinuousClock.now
+        var last = began
+        while !Task.isCancelled, arrowHeld == forward {
+            let now = ContinuousClock.now
+            let rate = TVHoldScrub.rate(heldFor: (now - began) / .seconds(1))
+            holdRate = forward ? rate : -rate
+            target += Double(holdRate ?? 0) * 1000 * ((now - last) / .seconds(1))
+            target = min(max(Double(start), target), Double(start + duration))
+            last = now
+            scrubMs = Int(target)
+            controller.scrubFollow(toFileMs: Int(target))
+            showChrome()
+            try? await Task.sleep(for: .milliseconds(100))
         }
     }
 
@@ -402,6 +523,8 @@ private struct TVPlayerContent: View {
         guard let duration = controller.timelineDurationMs else { return }
         let start = controller.timelineStartMs
         let sweepMs = min(15 * 60_000, max(60_000, duration / 5))
+        // 正在按住左右键快进：这次滑动多半是按边缘时手指带出来的，不算
+        guard holdRate == nil else { return }
         switch phase {
         case .began:
             controller.noteUserActivity()
@@ -421,10 +544,20 @@ private struct TVPlayerContent: View {
         }
     }
 
+    /// 收起「下一集」卡片，接着放片尾（播完时卡片会再出来，见 PlaybackController.nextDismissed）
+    private func dismissUpNext() {
+        controller.noteUserActivity()
+        controller.nextDismissed = true
+        focus = .surface
+    }
+
     /// 返回键：取消拖动 → 收起面板 → 收起下一集卡片 → 退出播放
     private func back() {
         controller.noteUserActivity()
         if scrubMs != nil {
+            // 长按快进途中按返回：同样回到原处，之后松开左右键也不再跳
+            arrowHeld = nil
+            holdRate = nil
             scrubMs = nil
             controller.seek(toFileMs: scrubBase, source: .scrub)
             return
@@ -434,9 +567,9 @@ private struct TVPlayerContent: View {
             focus = .surface
             return
         }
-        if focus == .upNext {
-            controller.nextDismissed = true
-            focus = .surface
+        if upNextCardVisible {
+            // 卡片在时返回键 = 「观看片尾」，不管焦点在哪，免得一按就退出播放
+            dismissUpNext()
             return
         }
         if focus == .qualityOffer {
@@ -444,7 +577,29 @@ private struct TVPlayerContent: View {
             focus = .surface
             return
         }
+        if let notice = controller.skipNotice, case .skipped = notice.kind {
+            // 「已跳过 · 撤回」在时返回键 = 不撤回、收起提示，免得刚跳过就一按退出播放
+            controller.expireSkipNotice(notice.id)
+            focus = .surface
+            return
+        }
         exit()
+    }
+}
+
+/// 按住左右键连续快进 / 快退的节奏：按住 0.4 秒起步（短于这个算点按，跳 10 秒），
+/// 速度每 2 秒翻一倍：20× → 40× → 80× → 160×（片内秒数 / 秒）。两小时的片子按住十来秒能走完大半，
+/// 起步又不至于快到对不准
+enum TVHoldScrub {
+    static let threshold = 0.4
+
+    static func rate(heldFor seconds: Double) -> Int {
+        switch seconds {
+        case ..<2: 20
+        case ..<4: 40
+        case ..<6: 80
+        default: 160
+        }
     }
 }
 
@@ -467,7 +622,7 @@ enum TVPlayerDebug {
                 guard let value = Double(spec) else { return }
                 let relative = spec.hasPrefix("+") || spec.hasPrefix("-")
                 let target = relative ? controller.positionMs + Int(value * 1000) : Int(value * 1000)
-                log("跳转 → \(target / 1000) 秒")
+                log("跳转 → \(target / 1000) 秒") // i18n-ignore: debug log
                 controller.seek(toFileMs: target, source: .auto)
             }
         }
@@ -475,7 +630,7 @@ enum TVPlayerDebug {
         if pauseAt > 0 {
             Task {
                 try? await Task.sleep(for: .seconds(pauseAt))
-                log("暂停")
+                log(String(localized: .playerControlsPause))
                 controller.pause()
             }
         }
@@ -483,7 +638,7 @@ enum TVPlayerDebug {
         if closeAt > 0 {
             Task {
                 try? await Task.sleep(for: .seconds(closeAt))
-                log("自动退出播放器")
+                log("自动退出播放器") // i18n-ignore: debug log
                 exit()
             }
         }

@@ -82,7 +82,7 @@ struct SubscriptionsView: View {
         }
         .background { SubsHomeAmbientHost(tint: immersive ? tint : nil, scroll: scroll) }
         // 标题同其他标签根页：左上角大字（iOS 标签根页规范）；沉浸时叠在 Hero 的顶部压暗上
-        .navigationTitle("订阅")
+        .navigationTitle(String(localized: .navTabsSubscriptions))
         .toolbarTitleDisplayMode(.inlineLarge)
         .refreshable { await reload() }
         .task {
@@ -126,10 +126,10 @@ struct SubscriptionsView: View {
                 SubsHomeSchedule(days: state.days)
             }
             if !state.tv.isEmpty {
-                SubsHomeShelfRow(title: "剧集订阅", kind: "tv", shelf: state.tv)
+                SubsHomeShelfRow(title: String(localized: .subscriptionSectionsTvSubscriptions), kind: "tv", shelf: state.tv)
             }
             if !state.movie.isEmpty {
-                SubsHomeShelfRow(title: "电影订阅", kind: "movie", shelf: state.movie)
+                SubsHomeShelfRow(title: String(localized: .subscriptionSectionsMovieSubscriptions), kind: "movie", shelf: state.movie)
             }
         }
     }
@@ -137,16 +137,16 @@ struct SubscriptionsView: View {
     private var loadingSkeleton: some View {
         VStack(alignment: .leading, spacing: 28) {
             SubsHomeHeroSkeleton()
-            DiscoverRowSkeleton(title: "刚刚入库")
-            DiscoverRowSkeleton(title: "剧集订阅")
+            DiscoverRowSkeleton(title: String(localized: .subscriptionSectionsRecent))
+            DiscoverRowSkeleton(title: String(localized: .subscriptionSectionsTvSubscriptions))
         }
     }
 
     private var errorState: some View {
         // 同 Web：只有一行「订阅列表加载失败」+ 重试（已有旧快照时不进错误态，保留旧内容）
         VStack(spacing: 12) {
-            Text("订阅列表加载失败").font(.subheadline).foregroundStyle(Theme.textMuted)
-            Button("重试") { Task { await reload() } }
+            Text(String(localized: .subscriptionOverviewFailed)).font(.subheadline).foregroundStyle(Theme.textMuted)
+            Button(String(localized: .commonRetry)) { Task { await reload() } }
                 .buttonStyle(.glass)
         }
         .frame(maxWidth: .infinity)
@@ -158,11 +158,11 @@ struct SubscriptionsView: View {
     private var emptyState: some View {
         EmptyState(
             systemImage: "bookmark",
-            title: "从一部想看的作品开始",
+            title: String(localized: .subscriptionOverviewEmpty),
             message: permissions.canSubscribe
-                ? "去发现页挑选一部剧集或电影，打开详情并点击「订阅追踪」，有合适资源时会自动下载入库。"
-                : "当前账号暂未开启订阅权限，请联系管理员为你开启。",
-            actionTitle: permissions.canSubscribe ? "去发现剧集" : nil,
+                ? String(localized: .subscriptionOverviewDiscoverAllHint)
+                : String(localized: .subscriptionOverviewPermissionHint),
+            actionTitle: permissions.canSubscribe ? String(localized: .subscriptionOverviewDiscoverSeries) : nil,
             action: permissions.canSubscribe ? { router.push(.discover(kind: "tv")) } : nil
         )
         .accessibilityIdentifier("subscriptions-empty")

@@ -34,6 +34,7 @@ from movieclaw_api.exceptions import (
     ConflictException,
     NotFoundException,
 )
+from movieclaw_api.i18n.stored import reference
 from movieclaw_db.models import (
     MediaItem,
     RuleSet,
@@ -93,9 +94,11 @@ async def grab_manual(
 
     subscription = await session.get(Subscription, subscription_id)
     if subscription is None:
-        raise NotFoundException(f"订阅不存在：#{subscription_id}")
+        raise NotFoundException(
+            message_key="errors.subscription.missing", params={"id": subscription_id}
+        )
     if subscription.status == SubscriptionStatus.PAUSED:
-        raise BadRequestException("订阅已暂停，请先恢复追踪再手动选种")
+        raise BadRequestException(message_key="errors.subscription.manualGrabPaused")
     item = await session.get(MediaItem, subscription.media_item_id)
     assert item is not None  # 外键保证
 
@@ -130,7 +133,7 @@ async def grab_manual(
         from movieclaw_api.services.subscription.smart_profiles import read_policy
         spec = read_policy(subscription)
         if spec is None:
-            raise BadRequestException("智能设置快照无效，已暂停选种")
+            raise BadRequestException(message_key="errors.subscription.smartSnapshotInvalid")
     upgrade_pool: dict[tuple[int, int], WantedItem] = {}
     if spec is not None and spec.upgrade_source is not None:
         upgrade_pool = {
@@ -147,14 +150,17 @@ async def grab_manual(
             .scalars()
             .all()
         }
+    # TMDB 少录集数时手选新集也会撞到这里（issue #640）：告诉用户出路
+    floor_tip = reference("subscription.manual.episodeFloorHint") if item.kind == "tv" else ""
     if not open_wanted and not upgrade_pool:
         if spec is None or spec.upgrade_source is None:
             raise BadRequestException(
-                f"《{item.title}》当前没有缺口——所有追踪项都已投递或入库。"
-                "若想手选替换已入库的版本，请先给订阅换用配置了洗版目标的规则组"
+                message_key="errors.subscription.noGapsUpgradeHint",
+                params={"title": item.title, "hint": floor_tip},
             )
         raise BadRequestException(
-            f"《{item.title}》当前没有缺口，也没有已入库的追踪项可供替换"
+            message_key="errors.subscription.noReplaceableUnits",
+            params={"title": item.title, "hint": floor_tip},
         )
 
     # attrs 是前端原样回传的解析结果：结构不合法（陈旧客户端/字段漂移）不算
@@ -190,7 +196,7 @@ async def grab_manual(
     if subscription.selection_mode == "smart":
         from movieclaw_matcher.smart import eligible
         if not eligible(candidate, spec):
-            raise BadRequestException("所选资源不满足智能模式的最低要求")
+            raise BadRequestException(message_key="errors.subscription.belowSmartMinimum")
     identity = MediaIdentity(
         kind=item.kind,
         year=item.year,
@@ -203,10 +209,12 @@ async def grab_manual(
     match = match_identity(candidate, identity)
     if match is None:
         raise BadRequestException(
-            f"无法确认「{title[:60]}」就是《{item.title}》"
-            f"{f'（{item.year}）' if item.year else ''}——种子名里识别不出对应的"
-            "片名/年份/季集信息。请核对种子标题，若确属本条目但命名过于特殊，"
-            "可改用「一键下载」手动选择保存目录"
+            message_key="errors.subscription.identityUnconfirmed",
+            params={
+                "release": title[:60],
+                "title": item.title,
+                "year": reference("units.year.parenthesized", year=item.year) if item.year else "",
+            },
         )
 
     published = publish_calendar_date(publish_time)
@@ -214,12 +222,21 @@ async def grab_manual(
     upgrade_covered = covered_units(match, upgrade_pool, published=published)
     if not covered and not upgrade_covered:
         targets = sorted(open_wanted) + sorted(upgrade_pool)
-        target_text = "、".join(
-            "正片" if s == 0 and e == 0 else f"S{s:02d}E{e:02d}" for s, e in targets[:8]
-        )
+        target_text = {
+            "message_list": [
+                reference("media.kind.feature") if s == 0 and e == 0 else f"S{s:02d}E{e:02d}"
+                for s, e in targets[:8]
+            ],
+            "separator_key": "common.list.separator",
+        }
         raise BadRequestException(
-            f"该种子识别为{_match_text(match)}，但可投递的追踪项是 {target_text}"
-            f"{'…' if len(targets) > 8 else ''}——没有可满足的追踪项"
+            message_key="errors.subscription.unitsNotCovered",
+            params={
+                "match": _match_text(match),
+                "targets": target_text,
+                "ellipsis": "…" if len(targets) > 8 else "",
+                "hint": floor_tip,
+            },
         )
     upgrade_labels: tuple[str, str] | None = None
     if upgrade_covered:
@@ -238,6 +255,7 @@ async def grab_manual(
         wanted_rows=covered,
         candidate=candidate,
         verdict=RuleVerdict(accepted=True, score=0),
+        # i18n-ignore: audit source label for logs and activity payload
         source="手动选种",
         upgrade_rows=upgrade_covered,
         upgrade_labels=upgrade_labels,
@@ -246,16 +264,19 @@ async def grab_manual(
         actor_member_id=actor_member_id,
     )
     if not done:
-        raise ConflictException(
-            "这些追踪项刚被自动管线抢先投递或已在洗版中，无需重复操作——详见活动记录"
-        )
+        raise ConflictException(message_key="errors.subscription.alreadySubmitted")
     return covered + upgrade_covered
 
 
-def _match_text(match) -> str:  # noqa: ANN001 -- IdentityMatch
-    """身份匹配结果 → 中文描述（错误提示用）。"""
+def _match_text(match) -> dict:  # noqa: ANN001 -- IdentityMatch
     if match.is_complete_series:
-        return "全集包"
+        return reference("subscription.manual.completeSeries")
     parts = [f"S{s:02d}E{e:02d}" for s, e in sorted(match.episodes)]
-    parts.extend(f"第 {s} 季整季包" for s in sorted(match.pack_seasons))
-    return "、".join(parts) if parts else "未知单元"
+    parts.extend(
+        reference("subscription.manual.seasonPack", number=s) for s in sorted(match.pack_seasons)
+    )
+    return (
+        {"message_list": parts, "separator_key": "common.list.separator"}
+        if parts
+        else reference("subscription.manual.unknownUnits")
+    )

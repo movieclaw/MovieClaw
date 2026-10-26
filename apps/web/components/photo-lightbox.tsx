@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DownloadIcon, InfoIcon, XIcon } from "@/components/icons";
@@ -63,6 +64,8 @@ export function PhotoLightbox({
   onReachEnd: () => void;
   onClose: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const item = items[index];
   const [infoOpen, setInfoOpen] = useState(false);
   const [detail, setDetail] = useState<LibraryItemDetail | null>(null);
@@ -141,7 +144,7 @@ export function PhotoLightbox({
     if (!isIosStandalone() || !item) return;
     e.preventDefault();
     const name = detail?.files.find((f) => f.id === fileId)?.file_name ?? item.title;
-    setDownloadNote("正在准备下载…");
+    setDownloadNote(t("library.gallery.preparingDownload"));
     try {
       const response = await fetch(fullUrl);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -159,8 +162,9 @@ export function PhotoLightbox({
         setDownloadNote(null);
         return;
       }
+      // i18n-ignore: developer diagnostic, not interface copy
       console.warn("下载原图失败：", err);
-      setDownloadNote("下载失败，请在 Safari 中打开本站后下载");
+      setDownloadNote(t("library.gallery.downloadFailed"));
       window.setTimeout(() => setDownloadNote(null), 4000);
     }
   };
@@ -169,19 +173,19 @@ export function PhotoLightbox({
 
   const primaryFile = detail?.files.find((f) => f.id === item.primary_file_id) ?? detail?.files[0];
   const infoRows: [string, string][] = [
-    ["文件名", primaryFile?.file_name ?? item.title],
-    ["拍摄日期", formatDate(item.release_date)],
-    ["尺寸", primaryFile?.resolution ?? item.resolutions[0] ?? "—"],
-    ["大小", formatBytes(primaryFile?.size_bytes ?? item.total_size_bytes)],
-    ["格式", primaryFile?.container ? primaryFile.container.toUpperCase() : "—"],
-    ["路径", primaryFile?.file_path ?? "—"],
+    [t("library.gallery.filename"), primaryFile?.file_name ?? item.title],
+    [t("library.gallery.captureDate"), formatDate(item.release_date)],
+    [t("library.gallery.dimensions"), primaryFile?.resolution ?? item.resolutions[0] ?? "—"],
+    [t("library.gallery.size"), formatBytes(primaryFile?.size_bytes ?? item.total_size_bytes)],
+    [t("library.gallery.format"), primaryFile?.container ? primaryFile.container.toUpperCase() : "—"],
+    [t("library.gallery.path"), primaryFile?.file_path ?? "—"],
   ];
   // 停止冒泡：信息面板上的按下 / 滑动 / 点击都不是舞台手势
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
   return (
     <ZoomLightbox
-      label={`查看图片：${item.title}`}
+      label={t("library.gallery.viewPhotoTitle", { title: item.title })}
       slides={slides}
       index={index}
       hasMore={hasMore}
@@ -196,8 +200,8 @@ export function PhotoLightbox({
             <a
               href={downloadUrl}
               download
-              title="下载原图"
-              aria-label="下载原图"
+              title={t("library.gallery.downloadOriginal")}
+              aria-label={t("library.gallery.downloadOriginal")}
               onClick={(e) => void downloadOriginal(e)}
               className={LIGHTBOX_ACTION_CLASS}
             >
@@ -206,8 +210,8 @@ export function PhotoLightbox({
           )}
           <button
             type="button"
-            title="拍摄信息 (I)"
-            aria-label="拍摄信息"
+            title={t("library.gallery.infoShortcut")}
+            aria-label={t("library.gallery.info")}
             aria-pressed={infoOpen}
             onClick={() => setInfoOpen((open) => !open)}
             // 按下态（面板开着）走 aria-pressed 变体：属性选择器压得住共用类里的
@@ -227,7 +231,7 @@ export function PhotoLightbox({
           <div
             data-lightbox-panel
             role="region"
-            aria-label="拍摄信息"
+            aria-label={t("library.gallery.info")}
             onPointerDown={stop}
             onTouchStart={stop}
             onTouchEnd={stop}
@@ -235,17 +239,17 @@ export function PhotoLightbox({
             className="absolute left-[max(0.75rem,var(--safe-left))] top-[calc(3.75rem+var(--safe-top))] z-10 max-h-[calc(100%-12rem)] w-[300px] cursor-auto overflow-y-auto overscroll-contain rounded-[14px] bg-black/70 px-3.5 py-2.5 text-[11.5px] leading-relaxed max-md:right-[max(0.75rem,var(--safe-right))] max-md:w-auto max-md:max-h-[50%]"
           >
             <div className="mb-1.5 flex items-center justify-between">
-              <h3 className="text-[12px] font-semibold text-white/90">拍摄信息</h3>
+              <h3 className="text-[12px] font-semibold text-white/90">{t("library.gallery.info")}</h3>
               <button
                 type="button"
                 onClick={() => setInfoOpen(false)}
-                aria-label="关闭拍摄信息"
+                aria-label={t("library.gallery.closeInfo")}
                 className="-mr-1 grid size-6 place-items-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
               >
                 <XIcon className="size-3.5" />
               </button>
             </div>
-            <dl className="grid grid-cols-[56px_1fr] gap-x-2.5 gap-y-1">
+            <dl className={`grid gap-x-2.5 gap-y-1 ${locale === "zh-Hans" ? "grid-cols-[56px_1fr]" : "grid-cols-[82px_1fr]"}`}>
               {infoRows.map(([label, value]) => (
                 <div key={label} className="contents">
                   <dt className="text-white/50">{label}</dt>
@@ -253,7 +257,7 @@ export function PhotoLightbox({
                 </div>
               ))}
             </dl>
-            {detail === null && <p className="mt-1.5 text-white/50">正在读取文件信息…</p>}
+            {detail === null && <p className="mt-1.5 text-white/50">{t("library.gallery.loadingInfo")}</p>}
           </div>
         ) : null
       }

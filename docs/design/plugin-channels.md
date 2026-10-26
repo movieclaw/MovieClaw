@@ -1,6 +1,6 @@
 # IM 通道插件化：开放「IM 通道」契约，微信变成真正的插件包
 
-> 状态：设计定稿（2026-10-09），按 §9 分步实施。
+> 状态：**已实施**（#692～#697，2026-10-09）；旧的微信 / IM 绑定接口留作兼容层（`channels_legacy.py`），App 发版后删。
 > 前置：插件内核（plugin-kernel.md）、第三阶段插件包与进程外运行（plugin-phase3.md）。
 
 ## 1. 为什么做
@@ -47,11 +47,11 @@
 |---|---|---|
 | 账号存储（凭据加密、插件私有状态、白名单、当前 AI 会话） | 中枢 | 插件拿不到主密钥；凭据由中枢解密后交给插件的账号句柄 |
 | 收消息后的处理：去重、白名单、`/stop` `/reset`、同会话串行、跨会话限流、图片聚合 | 中枢 | 现 `ChannelDispatcher`，原样复用 |
-| AI 助手对接：受限工具集、会话持久化、分步回复、「思考中💭」回执、图片附件 | 中枢 | 现在微信和 IM 各写一份，合成一份 |
+| AI 助手对接：与网页同一套工具与提示词、会话持久化、分步回复、「思考中💭」回执、图片附件 | 中枢 | 现在微信和 IM 各写一份，合成一份 |
 | 发送：出站队列、长消息拆分、失败重试、图文退纯文本 | 中枢 | 现发送泵，原样复用；调用插件的 `send` / `send_photo` |
-| 主动推送：按事件开关、配图、扇出到所有账号 | 中枢 | 遍历注册表里的通道，不再写死平台 |
+| 主动推送：配图、按归属成员发到他的账号 | 中枢 | 推什么由通知决定（cloud-push.md §5.2），中枢只管送 |
 | 配对码绑定（Telegram / Discord 这类「填 token，私聊 bot 发 6 位码」） | 中枢 | 通用流程，插件只需提供 `validate` |
-| 设置页：通道列表、账号、绑定对话框、推送开关、测试推送 | 中枢 | 按插件声明的绑定方式通用渲染，插件不带界面 |
+| 设置页：通道列表、账号、绑定对话框、测试推送 | 中枢 | 按插件声明的绑定方式通用渲染，插件不带界面 |
 | 平台协议：收消息循环、发文字 / 图片、「正在输入」 | 插件 | |
 | 绑定步骤：校验 token、扫码状态机（微信） | 插件 | |
 | 平台私有状态：游标、微信 context_token、typing 票据 | 插件 | 经账号句柄的 `state` 存取，中枢只负责持久化、不解读 |
@@ -61,7 +61,7 @@
 ### 5.1 注册表 `im-channels`（实验级）
 
 插件往注册表贡献一个 `ChannelDriver`。贡献 id 即通道 id：内置的是 `weixin` / `telegram` / `discord` /
-`feishu`，第三方自动带插件 id 前缀（如 `acme.wecom:wecom`），与现有注册表规则一致。
+`feishu`，第三方自动带插件 id 前缀（如 `acme-wecom:wecom`），与现有注册表规则一致。插件包 id 不含点。
 
 SDK 类型放在 `movieclaw_sdk.channels`（插件只 import 这里）：
 
@@ -139,7 +139,8 @@ class ChannelDriver:
 | `POST /channels/bindings/{id}/input` | 交互式绑定里提交输入（微信配对数字） |
 | `DELETE /channels/{channel}/accounts/{account_id}` | 解绑（`x-cli-dangerous`） |
 
-旧接口：`/channels/im/push-config`、`/channels/im/push-test` 保留（已发布的 iOS 在用）。
+旧接口：`/channels/im/push-config`、`/channels/im/push-test` 保留（已发布的 iOS 在用）；push-config 现在读写
+管理员的通知偏好（cloud-push.md §5.2）。
 `/channels/weixin/*`、`/channels/im/{channel}/{accounts,bindings}`、`/channels/im/feishu/bindings`
 是已发布的 iPhone / Mac App「IM 推送」页在用的绑定接口：保留原路径与原形状、内部转给中枢、不进命令行
 （`api/routes/channels_legacy.py`）；App 改用通用接口（同时能显示第三方通道）并发版后删除。
@@ -202,3 +203,19 @@ class ChannelDriver:
 - **进程外长连接**：收消息循环在插件进程里常驻，宿主重启 / 插件崩溃要能恢复；沿用中枢的退避重启，
   插件进程崩溃由第三阶段的自动重启兜底。
 - **体积**：图片随协议以 base64 传输，入站 10MB 上限下可接受；以后需要再走描述符传递。
+
+### 国际化补充（SDK / `im-channels` 1.2）
+
+驱动可声明 `title_localized` / `description_localized`，`FormField` 可声明
+`label_localized` / `placeholder_localized` / `help_localized`，`Binding.form` / `Binding.flow`
+可传 `hint_localized`。`FlowState` 可带 `message_localized` / `input_label_localized`。
+这些可选映射沿用清单的语言标签格式，如 `{"en": "Code"}` 或
+`{"en": {"value": "Code", "lang": "en", "dir": "ltr"}}`。
+
+原字段仍是作者原文；宿主按每次请求的语言生成展示副本，不改驱动、绑定快照、二维码内容或凭据。
+缺少译文时显示原文，不按通道 ID 猜译。进程内与独立进程都支持；未声明映射的旧驱动继续产生
+原有线上结构。使用新字段的插件应声明 `sdk = "^1.2"` 和 `"im-channels" = "^1.2"`。
+
+绑定输入错误可使用 `ChannelInputError("原始错误", message_localized={"en": "Translated error"})`。
+它仍是 `ValueError`，既有表单错误分类不变；独立进程会保留原文与可选消息引用，API 在响应边界
+选取语言。普通 `ValueError` 与未知作者错误仍按原文回退。

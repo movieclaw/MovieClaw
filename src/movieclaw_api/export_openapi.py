@@ -47,12 +47,14 @@ def spec_hash(spec: dict[str, Any]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # i18n-ignore: developer tool output (exports the API spec at build time)
     parser = argparse.ArgumentParser(description="导出 movieclaw 的 OpenAPI spec")
     parser.add_argument(
         "-o",
         "--output",
         type=Path,
         default=None,
+        # i18n-ignore: developer tool output (exports the API spec at build time)
         help="输出文件路径；缺省打印到标准输出",
     )
     args = parser.parse_args(argv)
@@ -64,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(text + "\n", encoding="utf-8")
+        # i18n-ignore: developer tool output (exports the API spec at build time)
         print(f"已导出 OpenAPI spec：{args.output}（hash={spec_hash(spec)}）", file=sys.stderr)
     return 0
 

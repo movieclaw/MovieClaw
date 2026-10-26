@@ -1,79 +1,221 @@
-"""Webhook 事件目录：全系统可外发事件的唯一注册表（docs/design/webhook.md §1.1）。
+"""Webhook 能勾选的事件（docs/design/domain-events.md §6.2）：就是系统事件目录。
 
-目录同时服务两端：
-- 投递器按它校验事件名（未登记的事件直接拒发，防拼写错误静默丢失）；
-- 管理 API 把它下发给前端渲染「订阅事件」多选（分组 + Jellyfin 可订阅性），
-  新领域上线后前端零改动。
-
-``jellyfin_type`` 为 None 表示该事件没有 Jellyfin NotificationType 对应物，
-jellyfin 格式的 endpoint 不可订阅它（设置页禁用勾选）。
+设置页的「订阅事件」多选、保存时的校验都按它；新增系统事件不用改这里。``jellyfin_type``：
+有 Jellyfin Webhook 插件对应物的事件，Jellyfin 兼容格式的地址才能勾选。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import Any
+
+from movieclaw_api.i18n import t
+
+#: 系统事件 → Jellyfin Webhook 插件的 NotificationType；不在表里的事件 Jellyfin 格式不能勾
+JELLYFIN_TYPES: dict[str, str] = {
+    "playback.started": "PlaybackStart",
+    "playback.stopped": "PlaybackStop",
+    "playback.progress": "PlaybackProgress",
+    "playback.marked_played": "UserDataSaved",
+    "playback.marked_unplayed": "UserDataSaved",
+    "library.item.favorited": "UserDataSaved",
+    "library.item.unfavorited": "UserDataSaved",
+}
 
 
-@dataclass(frozen=True)
-class EventSpec:
-    event: str
-    """事件名：``<domain>.<action>``。"""
+def event_types() -> dict[str, Any]:
+    """能投递的事件：系统事件 + 在运行的插件登记的事件（domain-events.md §7）。"""
+    from movieclaw_api.services import plugin_events
 
-    group: str
-    """设置页多选的分组标题。"""
-
-    label: str
-    """面向用户的中文说明。"""
-
-    jellyfin_type: str | None = None
-    """对应的 Jellyfin Webhook 插件 NotificationType；None = 无对应物。"""
-
-    default_on: bool = True
-    """新建 endpoint 时是否默认勾选（高频事件如 progress 默认关闭）。"""
+    return plugin_events.all_events()
 
 
-EVENT_CATALOG: list[EventSpec] = [
-    EventSpec("playback.started", "播放", "开始播放", "PlaybackStart"),
-    EventSpec("playback.stopped", "播放", "停止播放", "PlaybackStop"),
-    EventSpec("playback.completed", "播放", "看完（达到已看阈值）", "PlaybackStop"),
-    EventSpec(
-        "playback.progress",
-        "播放",
-        "播放进度（每单元最多 30 秒一条，高频）",
-        "PlaybackProgress",
-        default_on=False,
+#: 旧版事件名 → 现在的名字（老配置里存的）
+LEGACY_NAMES = {
+    "item.favorited": "library.item.favorited",
+    "item.unfavorited": "library.item.unfavorited",
+}
+
+
+def normalize(names: list[str]) -> list[str]:
+    """老配置里的旧事件名换成现在的，认不出的（插件卸载了）去掉，去重保序。"""
+    known = event_types()
+    out = [LEGACY_NAMES.get(n, n) for n in names]
+    return [n for n in dict.fromkeys(out) if n in known]
+
+
+def is_known_event(name: str) -> bool:
+    return name in event_types()
+
+
+def is_jellyfin_mappable(name: str) -> bool:
+    return name in JELLYFIN_TYPES
+
+
+# Only first-party event identities have translations; plugin titles stay verbatim.
+_BUILTIN_TEXT = {
+    "account.device.signed_in": (
+        "settings.webhook.events.accountDeviceSignedIn",
+        "settings.webhook.groups.account",
     ),
-    EventSpec("playback.marked_played", "播放", "标记已看", "UserDataSaved"),
-    EventSpec("playback.marked_unplayed", "播放", "取消已看", "UserDataSaved"),
-    EventSpec("item.favorited", "收藏", "收藏", "UserDataSaved"),
-    EventSpec("item.unfavorited", "收藏", "取消收藏", "UserDataSaved"),
-    # 订阅域没有 Jellyfin 对应物（jellyfin_type=None），仅自有协议可订阅
-    EventSpec("subscription.download_started", "订阅", "订阅命中并开始下载", None),
-    EventSpec("subscription.fulfilled", "订阅", "订阅内容已入库", None),
-]
-
-_KNOWN_EVENTS = {spec.event for spec in EVENT_CATALOG}
-_JELLYFIN_MAPPABLE = {spec.event for spec in EVENT_CATALOG if spec.jellyfin_type}
-
-
-def is_known_event(event: str) -> bool:
-    return event in _KNOWN_EVENTS
-
-
-def is_jellyfin_mappable(event: str) -> bool:
-    """该事件是否有 Jellyfin NotificationType 对应物（jellyfin 格式可订阅）。"""
-    return event in _JELLYFIN_MAPPABLE
+    "agent.run.finished": (
+        "settings.webhook.events.agentRunFinished",
+        "settings.webhook.groups.agent",
+    ),
+    "download.completed": (
+        "settings.webhook.events.downloadCompleted",
+        "settings.webhook.groups.download",
+    ),
+    "download.imported": (
+        "settings.webhook.events.downloadImported",
+        "settings.webhook.groups.download",
+    ),
+    "library.files.added": (
+        "settings.webhook.events.libraryFilesAdded",
+        "settings.webhook.groups.library",
+    ),
+    "library.file.local-released": (
+        "settings.webhook.events.libraryFileLocalReleased",
+        "settings.webhook.groups.library",
+    ),
+    "library.item.favorited": (
+        "settings.webhook.events.libraryItemFavorited",
+        "settings.webhook.groups.favorites",
+    ),
+    "library.item.unfavorited": (
+        "settings.webhook.events.libraryItemUnfavorited",
+        "settings.webhook.groups.favorites",
+    ),
+    "library.item.viewed": (
+        "settings.webhook.events.libraryItemViewed",
+        "settings.webhook.groups.library",
+    ),
+    "library.ingest.completed": (
+        "settings.webhook.events.libraryIngestCompleted",
+        "settings.webhook.groups.library",
+    ),
+    "library.items.arrived": (
+        "settings.webhook.events.libraryItemsArrived",
+        "settings.webhook.groups.library",
+    ),
+    "library.item.deleted": (
+        "settings.webhook.events.libraryItemDeleted",
+        "settings.webhook.groups.library",
+    ),
+    "library.file.deleted": (
+        "settings.webhook.events.libraryFileDeleted",
+        "settings.webhook.groups.library",
+    ),
+    "library.file.trashed": (
+        "settings.webhook.events.libraryFileTrashed",
+        "settings.webhook.groups.trash",
+    ),
+    "library.file.restored": (
+        "settings.webhook.events.libraryFileRestored",
+        "settings.webhook.groups.trash",
+    ),
+    "library.file.purged": (
+        "settings.webhook.events.libraryFilePurged",
+        "settings.webhook.groups.trash",
+    ),
+    "library.item.moved": (
+        "settings.webhook.events.libraryItemMoved",
+        "settings.webhook.groups.library",
+    ),
+    "playback.started": (
+        "settings.webhook.events.playbackStarted",
+        "settings.webhook.groups.playback",
+    ),
+    "playback.stopped": (
+        "settings.webhook.events.playbackStopped",
+        "settings.webhook.groups.playback",
+    ),
+    "playback.completed": (
+        "settings.webhook.events.playbackCompleted",
+        "settings.webhook.groups.playback",
+    ),
+    "playback.progress": (
+        "settings.webhook.events.playbackProgress",
+        "settings.webhook.groups.playback",
+    ),
+    "playback.marked_played": (
+        "settings.webhook.events.playbackMarkedPlayed",
+        "settings.webhook.groups.playback",
+    ),
+    "playback.marked_unplayed": (
+        "settings.webhook.events.playbackMarkedUnplayed",
+        "settings.webhook.groups.playback",
+    ),
+    "subscription.created": (
+        "settings.webhook.events.subscriptionCreated",
+        "settings.webhook.groups.subscription",
+    ),
+    "subscription.deleted": (
+        "settings.webhook.events.subscriptionDeleted",
+        "settings.webhook.groups.subscription",
+    ),
+    "subscription.status_changed": (
+        "settings.webhook.events.subscriptionStatusChanged",
+        "settings.webhook.groups.subscription",
+    ),
+    "subscription.download_started": (
+        "settings.webhook.events.subscriptionDownloadStarted",
+        "settings.webhook.groups.subscription",
+    ),
+    "subscription.fulfilled": (
+        "settings.webhook.events.subscriptionFulfilled",
+        "settings.webhook.groups.subscription",
+    ),
+    "subscription.upgraded": (
+        "settings.webhook.events.subscriptionUpgraded",
+        "settings.webhook.groups.subscription",
+    ),
+    "subscription.identity_skipped": (
+        "settings.webhook.events.subscriptionIdentitySkipped",
+        "settings.webhook.groups.subscription",
+    ),
+    "subscription.awaiting_subtitles": (
+        "settings.webhook.events.subscriptionAwaitingSubtitles",
+        "settings.webhook.groups.subscription",
+    ),
+    "subscription.download_stuck": (
+        "settings.webhook.events.subscriptionDownloadStuck",
+        "settings.webhook.groups.subscription",
+    ),
+    "subscription.more_episodes": (
+        "settings.webhook.events.subscriptionMoreEpisodes",
+        "settings.webhook.groups.subscription",
+    ),
+    "system.alert.raised": (
+        "settings.webhook.events.systemAlertRaised",
+        "settings.webhook.groups.system",
+    ),
+    "system.alert.resolved": (
+        "settings.webhook.events.systemAlertResolved",
+        "settings.webhook.groups.system",
+    ),
+    "system.update.available": (
+        "settings.webhook.events.systemUpdateAvailable",
+        "settings.webhook.groups.system",
+    ),
+    "system.tip.suggested": (
+        "settings.webhook.events.systemTipSuggested",
+        "settings.webhook.groups.system",
+    ),
+}
 
 
 def catalog_view() -> list[dict]:
-    """管理 API 下发给前端的目录形态。"""
-    return [
-        {
-            "event": spec.event,
-            "group": spec.group,
-            "label": spec.label,
-            "jellyfin_supported": spec.jellyfin_type is not None,
-            "default_on": spec.default_on,
-        }
-        for spec in EVENT_CATALOG
-    ]
+    """Read-time labels; event identity, order, defaults and third-party titles stay intact."""
+    result = []
+    for event in event_types().values():
+        keys = _BUILTIN_TEXT.get(event.name)
+        result.append(
+            {
+                "event": event.name,
+                "group": t(keys[1]) if keys else event.group,
+                "label": t(keys[0]) if keys else event.title,
+                "jellyfin_supported": event.name in JELLYFIN_TYPES,
+                "default_on": not event.high_frequency,
+            }
+        )
+    return result

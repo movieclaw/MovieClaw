@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 
 import { getHealth, type HealthResponse } from "@/lib/api/health";
 import { HttpError } from "@/lib/http";
@@ -24,7 +25,8 @@ function toErrorMessage(error: unknown): string {
 }
 
 export default function HealthPage() {
-  usePageTitle("服务状态");
+  const t = useTranslations();
+  usePageTitle(t("common.healthPageTitle"));
   const [state, setState] = useState<LoadState>({
     status: "loading",
     data: null,

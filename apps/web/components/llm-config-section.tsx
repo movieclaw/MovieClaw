@@ -1,8 +1,14 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator, type AppMessageKey } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { useMessageState, type Message } from "@/lib/i18n/use-message-state";
+
 import { useCallback, useEffect, useState } from "react";
 
 import { ErrorBanner } from "@/components/cloud-push-ui";
+import { ChatGPTPlanConnect } from "@/components/chatgpt-plan-connect";
 import { useConfirm } from "@/components/feedback";
 import { PlusIcon, SparkIcon } from "@/components/icons";
 import { useLlmCapability } from "@/components/llm-gate";
@@ -17,6 +23,7 @@ import {
   SettingsSection,
 } from "@/components/settings-ui";
 import {
+  type LlmApiProtocol,
   type LlmModelInfo,
   type LlmPreset,
   type LlmProviderConfig,
@@ -25,6 +32,7 @@ import {
   type LlmProviderType,
   createLlmProvider,
   deleteLlmProvider,
+  discoverLlmModels,
   listLlmPresets,
   listLlmProviders,
   reverifyLlmProvider,
@@ -35,11 +43,11 @@ import { formatRelativeTime } from "@/lib/time";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 
 /** 连接状态 → 展示文案与颜色（与站点/下载器配置同语言） */
-const STATUS_META: Record<LlmProviderStatus, { label: string; color: string }> = {
-  active: { label: "已连接", color: "var(--ok)" },
-  verifying: { label: "测试中", color: "var(--info)" },
-  pending: { label: "待测试", color: "#c0c4cc" },
-  failed: { label: "连接失败", color: "var(--danger)" },
+const STATUS_META: Record<LlmProviderStatus, { label: AppMessageKey; color: string }> = {
+  active: { label: "settings.llm.ui.connected", color: "var(--ok)" },
+  verifying: { label: "settings.llm.ui.testing", color: "var(--info)" },
+  pending: { label: "settings.llm.ui.pending", color: "#c0c4cc" },
+  failed: { label: "settings.llm.ui.failed", color: "var(--danger)" },
 };
 
 /** 需要轮询测试进度的中间态 */
@@ -57,12 +65,14 @@ type Editing = null | "new" | LlmProviderConfig;
  * 保存后后端用目录里第一个模型发一次最小对话验证，前端对中间态轮询刷新。
  */
 export function LlmConfigSection() {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   const confirm = useConfirm();
   const { refresh: refreshLlmCapability } = useLlmCapability();
   const [providers, setProviders] = useState<LlmProviderConfig[]>([]);
   const [presets, setPresets] = useState<LlmPreset[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   const [editing, setEditing] = useState<Editing>(null);
   const [busy, setBusy] = useState(false);
 
@@ -75,7 +85,7 @@ export function LlmConfigSection() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setError]);
 
   useEffect(() => {
     void load();
@@ -83,7 +93,7 @@ export function LlmConfigSection() {
     listLlmPresets()
       .then(setPresets)
       .catch((e) => setError((e as Error).message));
-  }, [load]);
+  }, [load, locale, setError]);
 
   // 任一实例处于 pending/verifying 时轮询刷新，直到落定（页面隐藏时暂停）
   const inProgress = providers.some((p) => IN_PROGRESS.includes(p.status));
@@ -124,8 +134,8 @@ export function LlmConfigSection() {
       {editing !== null ? (
         /* 编辑态只保留表单，避免状态卡在小屏重复占据首屏 */
         <SettingsSection
-          title={editing === "new" ? "接入模型供应商" : `编辑「${editing.name}」`}
-          description="保存后系统会自动测试连接。"
+          title={editing === "new" ? t("settings.llm.ui.addTitle") : t("settings.llm.ui.editTitle", {name: editing.name})}
+          description={t("settings.llm.ui.autoTest")}
         >
           <div className="css-glass !rounded-xl p-5 max-sm:p-4">
             <LlmProviderForm
@@ -141,20 +151,20 @@ export function LlmConfigSection() {
                 setEditing(null);
                 await afterChange();
               }}
-              onCancel={() => setEditing(null)}
+              onCancel={() => { setEditing(null); void afterChange(); }}
               onError={setError}
             />
           </div>
         </SettingsSection>
       ) : (
         <SettingsSection
-          title="供应商"
+          title={t("settings.llm.ui.provider")}
           description={
             loading
-              ? "加载中…"
+              ? t("settings.llm.ui.loading")
               : providers.length === 0
-                ? "接入一个或多个大语言模型供应商，AI 能力（对话助手、字幕处理、智能识别等）将由它们驱动。"
-                : "接入后该供应商目录里的全部模型都可在对话框里选用；各场景默认用哪个模型，在「AI 设定」里配置。"
+                ? t("settings.llm.ui.emptyIntro")
+                : t("settings.llm.ui.connectedIntro")
           }
           action={
             !loading && (
@@ -164,8 +174,7 @@ export function LlmConfigSection() {
                 className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1`}
               >
                 <PlusIcon className="size-4" />
-                接入供应商
-              </button>
+                {t("settings.llm.ui.add")}</button>
             )
           }
         >
@@ -175,8 +184,8 @@ export function LlmConfigSection() {
             /* 空态：一个都没接入；入口在小节标题行右侧 */
             <SettingsEmpty
               icon={<SparkIcon className="size-5" />}
-              title="还没有接入模型供应商"
-              description="支持 OpenAI、阿里云百炼，以及任何 OpenAI 兼容端点（如自建 vLLM / Ollama）。"
+              title={t("settings.llm.ui.empty")}
+              description={t("settings.llm.ui.supported")}
             />
           ) : (
             <SettingsList>
@@ -197,17 +206,20 @@ export function LlmConfigSection() {
                     void guard(async () => {
                       if (
                         !(await confirm({
-                          title: `删除「${config.name}」？`,
+                          title: t("settings.llm.ui.deleteTitle", {name: config.name}),
                           description:
-                            "它目录里的模型将不可再选；AI 设定中指向它的默认模型会自动兜底到其它已接入的供应商。",
-                          confirmLabel: "删除",
+                            t("settings.llm.ui.deleteHint"),
+                          confirmLabel: t("settings.llm.ui.delete"),
                           tone: "danger",
                         }))
                       ) {
                         return;
                       }
-                      await deleteLlmProvider(config.id);
+                      const result = await deleteLlmProvider(config.id);
                       await afterChange();
+                      if (config.provider_type === "chatgpt" && result.remoteRevoked !== true) {
+                        await confirm({ title: t("settings.llm.ui.chatgptRemoved"), description: result.message, confirmLabel: t("settings.llm.ui.understood") });
+                      }
                     })
                   }
                 />
@@ -237,25 +249,30 @@ function ProviderRow({
   onReverify: () => void;
   onDelete: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   const summary = [
     preset?.display_name ?? config.provider_type,
+    config.chatgpt_account,
     // 自定义端点的目录是用户补录的，条数比测试模型更有信息量
-    config.extra_models.length > 0 ? `${config.extra_models.length} 个自定义模型` : null,
-    `上次检查 ${formatRelativeTime(config.last_checked_at)}`,
+    config.extra_models.length > 0 ? t("settings.llm.ui.customCount", {count: config.extra_models.length}) : null,
+    t("settings.llm.ui.lastChecked", {time: formatRelativeTime(config.last_checked_at, locale)}),
   ]
     .filter(Boolean)
     .join(" · ");
   // 端点与连接测试模型一眼可核对；UA 仅在用户覆盖过时展示——没配的用户不需要知道有这回事
   const connection = [
-    config.base_url ?? preset?.base_url ?? "官方默认",
-    `测试模型 ${config.default_model}`,
+    config.base_url ?? preset?.base_url ?? t("settings.llm.ui.officialDefault"),
+    t("settings.llm.ui.testModelSummary", {model: config.default_model}),
     config.user_agent ? `UA ${config.user_agent}` : null,
+    config.api_protocol ? t(PROTOCOL_LABELS[config.api_protocol]) : null,
   ]
     .filter(Boolean)
     .join(" · ");
 
   return (
     <SettingsRow
+      stackOnMobile={locale === "en"}
       leading={
         <span className="icon-chip size-9 !rounded-xl">
           <SparkIcon className="size-[18px]" />
@@ -285,18 +302,17 @@ function ProviderRow({
       }
     >
       <button type="button" disabled={busy} onClick={onEdit} className={SETTINGS_BUTTON_CLASS}>
-        编辑
-      </button>
+        {t("settings.llm.ui.edit")}</button>
       <SettingsMoreMenu
-        label={`「${config.name}」的更多操作`}
+        label={t("settings.llm.ui.more", {name: config.name})}
         disabled={busy}
         items={[
           {
-            label: "重新测试",
+            label: t("settings.llm.ui.retest"),
             onSelect: onReverify,
             disabled: IN_PROGRESS.includes(config.status),
           },
-          { label: "删除…", onSelect: onDelete, danger: true },
+          { label: t("settings.llm.ui.deleteMore"), onSelect: onDelete, danger: true },
         ]}
       />
     </SettingsRow>
@@ -304,6 +320,7 @@ function ProviderRow({
 }
 
 function StatusPill({ status }: { status: LlmProviderStatus }) {
+  const t = useTranslations();
   const meta = STATUS_META[status];
   return (
     <span
@@ -311,7 +328,7 @@ function StatusPill({ status }: { status: LlmProviderStatus }) {
       style={{ background: `color-mix(in oklab, ${meta.color} 12%, transparent)`, color: meta.color }}
     >
       <span className="size-1.5 rounded-full" style={{ background: meta.color }} />
-      {meta.label}
+      {t(meta.label)}
     </span>
   );
 }
@@ -326,7 +343,7 @@ interface LlmProviderFormProps {
   takenNames: string[];
   onSubmit: (payload: LlmProviderPayload) => Promise<void>;
   onCancel: () => void;
-  onError: (message: string) => void;
+  onError: (message: Message) => void;
 }
 
 /** 「添加模型」下拉框里「自定义模型」选项的哨兵值（不会与真实模型 id 冲突）。 */
@@ -360,7 +377,7 @@ interface NewModelDraft {
   thinking: boolean;
   vision: boolean;
   video: boolean;
-  /** 思考控制方言：none = 不可控（只展示思考内容，即不声明 thinking_control） */
+  /** 思考控制方言：none = 不声明 thinking_control，与输出思考内容独立 */
   thinkingKind: "none" | "effort" | "budget" | "toggle";
   /** effort 制的原生档位子集（多选） */
   thinkingLevels: string[];
@@ -387,13 +404,13 @@ const EMPTY_DRAFT: NewModelDraft = {
 /** effort 制可声明的档位（词汇表排除 off——关闭走「支持关闭」勾选）。 */
 const DECLARABLE_THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
-const THINKING_LEVEL_LABEL: Record<string, string> = {
-  minimal: "最少",
-  low: "低",
-  medium: "中",
-  high: "高",
-  xhigh: "超高",
-  max: "最高",
+const THINKING_LEVEL_LABEL: Record<string, AppMessageKey> = {
+  minimal: "settings.llm.ui.minimal",
+  low: "settings.llm.ui.low",
+  medium: "settings.llm.ui.medium",
+  high: "settings.llm.ui.high",
+  xhigh: "settings.llm.ui.xhigh",
+  max: "settings.llm.ui.max",
 };
 
 function LlmProviderForm({
@@ -404,7 +421,12 @@ function LlmProviderForm({
   onCancel,
   onError,
 }: LlmProviderFormProps) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   const [busy, setBusy] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveredModels, setDiscoveredModels] = useState<string[] | null>(null);
+  const [defaultModel, setDefaultModel] = useState(config?.default_model ?? "");
   // 实例名：留空时按所选供应商的显示名保存（多数人只接一家，不必额外起名）
   const [name, setName] = useState(config?.name ?? "");
   const [providerType, setProviderType] = useState<LlmProviderType>(
@@ -412,22 +434,36 @@ function LlmProviderForm({
   );
   const [baseUrl, setBaseUrl] = useState(config?.base_url ?? "");
   const [userAgent, setUserAgent] = useState(config?.user_agent ?? "");
-  const [advancedOpen, setAdvancedOpen] = useState(Boolean(config?.user_agent));
-  // 出于安全后端不回传 Key，编辑时需重新填写
+  // 空串 = 跟随预设默认协议（不落库，预设升级默认协议时自动跟上）
+  const [apiProtocol, setApiProtocol] = useState<LlmApiProtocol | "">(
+    config?.api_protocol ?? "",
+  );
+  const [advancedOpen, setAdvancedOpen] = useState(
+    Boolean(config?.user_agent || config?.api_protocol),
+  );
+  // 出于安全后端不回传 Key；编辑时留空沿用原 Key
   const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
-  // 自定义模型目录（随配置持久化）：无内置目录的兼容端点靠它定义可用模型
+  // 自定义模型目录：兼容端点定义可用模型，OpenAI 可补录预设外模型
   const [extraModels, setExtraModels] = useState<LlmModelInfo[]>(config?.extra_models ?? []);
   // 「自定义模型」参数子表单：只在用户选择添加自定义模型时展开
   const [addingCustom, setAddingCustom] = useState(false);
   const [draft, setDraft] = useState<NewModelDraft>(EMPTY_DRAFT);
 
   const preset = presets.find((p) => p.id === providerType);
-  // 有内置目录的供应商（官方渠道）：目录以预设为准，不开放自定义（后端同样拦）；
-  // 自定义模型只属于无目录的兼容端点类。切换供应商时不删除，切回即恢复。
-  const catalog = preset?.models ?? [];
-  const isCustomEndpoint = catalog.length === 0;
-  const extras = isCustomEndpoint ? extraModels : [];
+  const effectiveProtocol = apiProtocol || preset?.protocol;
+  const supportsProtocol = (m: LlmModelInfo) =>
+    effectiveProtocol !== "openai_chat" || !m.requires_responses_for_tools;
+  const catalog = (preset?.models ?? []).filter(supportsProtocol);
+  const isCustomEndpoint = (preset?.models.length ?? 0) === 0;
+  const canAddModels = isCustomEndpoint || providerType === "openai";
+  const extras = canAddModels ? extraModels : [];
+  const testModels = [
+    ...new Map([...catalog, ...extras.filter(supportsProtocol)].map((m) => [m.id, m])).values(),
+  ];
+  const testModel = testModels.some((m) => m.id === defaultModel)
+    ? defaultModel
+    : testModels[0]?.id ?? "";
   // 无内置目录的端点（openai_compat）：把其它预设目录的模型也纳入可添加——
   // 换端点（代理/自建网关）时模型名与参数往往一致，没必要让用户重填一遍。
   // 借用即把参数复制进本配置的自定义目录。
@@ -435,46 +471,108 @@ function LlmProviderForm({
     ? presets
         .filter((p) => p.id !== providerType && p.models.length > 0)
         .map((p) => ({
+          id: p.id,
           label: p.display_name,
-          models: p.models.filter((m) => !extras.some((e) => e.id === m.id)),
+          models: p.models.filter((m) => supportsProtocol(m) && !extras.some((e) => e.id === m.id)),
         }))
         .filter((g) => g.models.length > 0)
     : [];
-  const borrowedModels = borrowedGroups.flatMap((g) => g.models);
+  const borrowedModels = borrowedGroups.flatMap((g) => g.models.map((model) => ({
+    value: JSON.stringify([g.id, model.id]),
+    model,
+  })));
 
   const needBaseUrl = preset?.requires_base_url ?? false;
-  // 端点没有预设默认值 = 用户自定义接入点（OpenAI 可配镜像 / 通用兼容端点），
-  // 只有这类才需要端点与 User-Agent 输入；官方固定渠道两者都不展示
-  const canCustomizeEndpoint = !preset?.base_url;
-  // 新增模型的必填校验：id / 上下文 / 最大输出；开思考则思考预算也必填；
+  // 编辑时 Key 可留空沿用；但类型或端点变了必须重填（与后端同一判据），
+  // 免得旧 Key 被发往新地址
+  const apiKeyRequired =
+    !config ||
+    providerType !== config.provider_type ||
+    (baseUrl.trim().replace(/\/+$/, "") || null) !== (config.base_url ?? null);
+  // OpenAI 可配中转地址；兼容端点自填地址；其它官方固定渠道不展示输入
+  const canCustomizeEndpoint = providerType === "openai" || !preset?.base_url;
+  // 协议可切换的预设（OpenAI / 通用兼容端点）才展示协议选择
+  const protocolOptions = preset?.selectable_protocols ?? [];
+  const canChooseProtocol = protocolOptions.length > 1;
+  // 新增模型的必填校验：id / 上下文 / 最大输出；预算分段须声明预算上限；
   // 档位直传制至少声明一档（空声明 = 没有菜单，等于没声明）
   const draftValid =
     draft.id.trim().length > 0 &&
     Number(draft.contextWindow) > 0 &&
     Number(draft.maxOutput) > 0 &&
-    (!draft.thinking || Number(draft.thinkingBudget) > 0) &&
+    (draft.thinkingKind !== "budget" || Number(draft.thinkingBudget) > 0) &&
     (draft.thinkingKind !== "effort" || draft.thinkingLevels.length > 0);
   const baseUrlValid =
     baseUrl.trim() === "" ? !needBaseUrl : /^https?:\/\/.+/.test(baseUrl.trim());
   // 请求头值只能是可打印 ASCII（与后端校验同一判据），空即用 SDK 默认
   const userAgentValid = userAgent.trim() === "" || /^[\x20-\x7e]+$/.test(userAgent.trim());
-  const draftHint =
+  const draftHint: AppMessageKey =
     draft.thinkingKind === "effort" && draft.thinkingLevels.length === 0
-      ? "档位直传模式至少要勾选一个可选档位。"
-      : "请补全新模型参数中标有 * 的项目。";
-  const submitHint =
+      ? "settings.llm.ui.effortRequired"
+      : "settings.llm.ui.draftRequired";
+  const submitHint: AppMessageKey | null =
     name.includes("/")
-      ? "实例名不能包含斜杠 /。"
-      : apiKey.trim().length === 0
-      ? "请填写 API Key。"
+      ? "settings.llm.ui.nameInvalid"
+      : apiKeyRequired && apiKey.trim().length === 0
+      ? config
+        ? "settings.llm.ui.keyChanged"
+        : "settings.llm.ui.keyRequired"
       : !baseUrlValid
-        ? "请填写以 http:// 或 https:// 开头的完整 API 端点。"
-        : isCustomEndpoint && extras.length === 0
-          ? "请至少添加一个模型（接入后才有模型可用）。"
+        ? "settings.llm.ui.endpointInvalid"
+        : !testModel
+          ? "settings.llm.ui.modelRequired"
           : !userAgentValid
-            ? "User-Agent 包含不支持的字符，请检查高级设置。"
+            ? "settings.llm.ui.uaInvalid"
             : null;
   const canSubmit = submitHint == null;
+
+  async function discoverModels() {
+    onError("");
+    setDiscovering(true);
+    setDiscoveredModels(null);
+    try {
+      const models = await discoverLlmModels({
+        name: name.trim() || fallbackName(),
+        provider_id: config?.id,
+        provider_type: providerType,
+        base_url: baseUrl.trim() || null,
+        api_key: apiKey.trim() || null,
+        user_agent: (canCustomizeEndpoint && userAgent.trim()) || null,
+      });
+      setDiscoveredModels(models);
+    } catch (error) {
+      onError((error as Error).message);
+    } finally {
+      setDiscovering(false);
+    }
+  }
+
+  function addDiscoveredModel(id: string) {
+    const configured = testModels.find((m) => m.id === id);
+    if (configured) {
+      setDefaultModel(id);
+      return;
+    }
+    const candidates = presets.flatMap((p) => p.models.filter((m) => m.id === id));
+    if (candidates.length > 1 && isCustomEndpoint) {
+      onError({key: "settings.llm.ui.ambiguousModel", values: {model: id}});
+      return;
+    }
+    const known = candidates[0];
+    if (known) {
+      if (!supportsProtocol(known)) {
+        onError({key: "settings.llm.ui.responsesRequired"});
+        return;
+      }
+      if (canAddModels) {
+        setExtraModels([...extraModels.filter((m) => m.id !== id), known]);
+        setDefaultModel(id);
+      }
+    } else if (canAddModels) {
+      setDraft({ ...EMPTY_DRAFT, id });
+      setAddingCustom(true);
+    }
+  }
 
   /** 「添加模型」下拉框：借用其它目录的模型直接入列；自定义则展开参数子表单。 */
   function addFromPicker(value: string) {
@@ -483,7 +581,7 @@ function LlmProviderForm({
       setAddingCustom(true);
       return;
     }
-    const borrowed = borrowedModels.find((m) => m.id === value);
+    const borrowed = borrowedModels.find((m) => m.value === value)?.model;
     if (borrowed && !extraModels.some((m) => m.id === borrowed.id)) {
       setExtraModels([...extraModels, borrowed]);
     }
@@ -499,9 +597,9 @@ function LlmProviderForm({
         supports_tools: draft.supportsTools,
         supports_parallel_tool_calls: draft.parallel,
         supports_thinking: draft.thinking,
-        max_thinking_tokens: draft.thinking ? Number(draft.thinkingBudget) : null,
+        max_thinking_tokens: draft.thinkingBudget ? Number(draft.thinkingBudget) : null,
         thinking_control:
-          !draft.thinking || draft.thinkingKind === "none"
+          draft.thinkingKind === "none"
             ? null
             : {
                 kind: draft.thinkingKind,
@@ -537,8 +635,9 @@ function LlmProviderForm({
       // 端点固定的官方渠道不开放 UA 配置，一律回传 null，避免切换供应商后
       // 残留上一个自定义端点的 UA
       user_agent: (canCustomizeEndpoint && userAgent.trim()) || null,
-      api_key: apiKey.trim(),
-      // 连接测试模型由服务端取目录第一个；官方渠道不回传自定义目录
+      api_protocol: (canChooseProtocol && apiProtocol) || null,
+      api_key: apiKey.trim() || null,
+      default_model: testModel || null,
       extra_models: extras,
     })
       .catch((e) => onError((e as Error).message))
@@ -549,13 +648,17 @@ function LlmProviderForm({
   const inputClass = `${SETTINGS_INPUT_CLASS} w-full max-sm:text-[16px]`;
   const labelClass = "mb-1.5 block text-sub font-medium text-[var(--text-muted)]";
 
+  if (providerType === "chatgpt") {
+    return <ChatGPTPlanConnect config={config?.provider_type === "chatgpt" ? config : null}
+      presets={presets} onSelect={setProviderType} onDone={onCancel} />;
+  }
+
   return (
-    <div className="space-y-6">
+    <fieldset disabled={busy || discovering} className="min-w-0 space-y-6">
       {/* 供应商会持续增加，使用原生下拉框控制首屏长度；移动端同时获得系统选择器。 */}
       <div className="min-w-0 space-y-3">
         <label htmlFor="llm-provider" className={labelClass}>
-          供应商
-        </label>
+          {t("settings.llm.ui.provider")}</label>
         <select
           id="llm-provider"
           value={providerType}
@@ -568,12 +671,15 @@ function LlmProviderForm({
             setProviderType(nextProvider);
             setBaseUrl("");
             setUserAgent("");
+            setApiProtocol("");
             setAdvancedOpen(false);
             setAddingCustom(false);
+            setDiscoveredModels(null);
+            setDefaultModel("");
           }}
           className={`${inputClass} cursor-pointer disabled:cursor-wait disabled:opacity-50`}
         >
-          {presets.length === 0 && <option value={providerType}>正在加载供应商…</option>}
+          {presets.length === 0 && <option value={providerType}>{t("settings.llm.ui.loadingProviders")}</option>}
           {presets.map((item) => (
             <option key={item.id} value={item.id}>
               {item.display_name}
@@ -587,7 +693,7 @@ function LlmProviderForm({
           >
             <p className="text-ui font-semibold text-[var(--text)]">{preset.display_name}</p>
             <p className="mt-0.5 text-caption leading-relaxed text-[var(--text-faint)]">
-              {providerHint(preset)}
+              {providerHint(preset, locale)}
             </p>
           </div>
         )}
@@ -595,18 +701,17 @@ function LlmProviderForm({
 
       <div className="min-w-0 space-y-4 border-t border-white/[0.07] pt-6">
         <div>
-          <label className={labelClass}>实例名（可选）</label>
+          <label className={labelClass}>{t("settings.llm.ui.name")}</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder={preset?.display_name ?? "如：官方 OpenAI / 家里的 vLLM"}
+            placeholder={preset?.display_name ?? t("settings.llm.ui.namePlaceholder")}
             className={inputClass}
             {...NO_AUTOFILL}
           />
           <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
-            接入多家时用来区分：同一模型在多家都有时，对话框会以「模型（实例名）」标注。留空按供应商名保存。
-          </p>
+            {t("settings.llm.ui.nameHint")}</p>
         </div>
 
         {/* 端点固定的官方渠道（百炼/DeepSeek/Kimi/GLM）不展示端点输入；
@@ -614,34 +719,39 @@ function LlmProviderForm({
         {canCustomizeEndpoint && (
           <div>
             <label className={labelClass}>
-              API 端点{needBaseUrl ? " *" : "（可选）"}
+              {t("settings.llm.ui.endpoint")}{needBaseUrl ? " *" : t("settings.llm.ui.optional")}
             </label>
             <input
               type="text"
               value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder={needBaseUrl ? "http://192.168.1.5:8000/v1" : "官方默认端点"}
+              onChange={(e) => {
+                setBaseUrl(e.target.value);
+                setDiscoveredModels(null);
+              }}
+              placeholder={needBaseUrl ? "http://192.168.1.5:8000/v1" : "https://api.openai.com/v1"}
               className={inputClass}
               {...NO_AUTOFILL}
             />
             {!needBaseUrl && (
               <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
-                留空使用官方端点；使用代理或镜像时填写完整地址。
-              </p>
+                {t("settings.llm.ui.endpointHint")}</p>
             )}
           </div>
         )}
 
         <div>
-          <label className={labelClass}>API Key *</label>
+          <label className={labelClass}>API Key{apiKeyRequired ? " *" : ""}</label>
           {/* text + CSS 圆点遮罩：视觉等同密码框，但浏览器不识别为密码，
               不会触发「保存密码 / 自动填充」弹窗。 */}
           <div className="relative">
             <input
               type="text"
               value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={config ? "出于安全，请重新填写" : "sk-…"}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                setDiscoveredModels(null);
+              }}
+              placeholder={apiKeyRequired ? "sk-…" : t("settings.llm.ui.keepKey")}
               className={`${inputClass} pr-16 ${
                 showApiKey ? "" : "[-webkit-text-security:disc]"
               }`}
@@ -651,19 +761,21 @@ function LlmProviderForm({
               type="button"
               onClick={() => setShowApiKey((value) => !value)}
               className="absolute inset-y-1 right-1 rounded-lg px-3 text-sub font-medium text-[var(--text-muted)] transition-colors hover:bg-white/[0.06] hover:text-[var(--text)]"
-              aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+              aria-label={showApiKey ? t("settings.llm.ui.hideKey") : t("settings.llm.ui.showKey")}
             >
-              {showApiKey ? "隐藏" : "显示"}
+              {showApiKey ? t("settings.llm.ui.hide") : t("settings.llm.ui.show")}
             </button>
           </div>
           {config && (
             <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
-              已保存的密钥不会回显，修改其他配置时也需要重新填写。
+              {apiKeyRequired
+                ? t("settings.llm.ui.keyChangedHint")
+                : t("settings.llm.ui.keyPrivacy")}
             </p>
           )}
         </div>
 
-        {/* User-Agent 是排障用低频字段，默认折叠以缩短主流程。 */}
+        {/* API 协议与 User-Agent 都是低频字段，默认折叠以缩短主流程。 */}
         {canCustomizeEndpoint && (
           <details
             className="group rounded-xl border border-white/[0.07] bg-white/[0.025]"
@@ -671,47 +783,110 @@ function LlmProviderForm({
             onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
           >
             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-2 text-sub font-medium text-[var(--text-muted)] [&::-webkit-details-marker]:hidden">
-              高级设置
-              <span className="text-caption font-normal text-[var(--text-faint)] group-open:hidden">
-                User-Agent
+              {t("settings.llm.ui.advanced")}<span className="text-caption font-normal text-[var(--text-faint)] group-open:hidden">
+                {canChooseProtocol ? t("settings.llm.ui.advancedSummary") : "User-Agent"}
               </span>
               <span className="hidden text-caption font-normal text-[var(--text-faint)] group-open:inline">
-                收起
-              </span>
+                {t("settings.llm.ui.collapse")}</span>
             </summary>
-            <div className="border-t border-white/[0.06] px-3.5 pb-3.5 pt-3">
-              <label className={labelClass}>User-Agent（可选）</label>
-              <input
-                type="text"
-                value={userAgent}
-                onChange={(e) => setUserAgent(e.target.value)}
-                // 占位符直接展示留空时实际发送的 SDK 自带 UA（后端按 SDK 版本现算）。
-                placeholder={preset?.default_user_agent ?? "留空使用 SDK 默认标识"}
-                className={inputClass}
-                {...NO_AUTOFILL}
-              />
-              <p
-                className={`mt-1.5 text-caption leading-relaxed ${
-                  userAgentValid ? "text-[var(--text-faint)]" : "text-[#ff6b6b]"
-                }`}
-              >
-                {userAgentValid
-                  ? "仅当网关或 WAF 对请求标识有要求时填写，留空使用上方显示的 SDK 默认值。"
-                  : "只能包含可打印的 ASCII 字符（不能含换行或中文）。"}
-              </p>
+            <div className="space-y-4 border-t border-white/[0.06] px-3.5 pb-3.5 pt-3">
+              {canChooseProtocol && (
+                <div>
+                  <label htmlFor="llm-api-protocol" className={labelClass}>
+                    {t("settings.llm.ui.protocol")}</label>
+                  <select
+                    id="llm-api-protocol"
+                    value={apiProtocol || preset?.protocol || protocolOptions[0]}
+                    onChange={(e) => setApiProtocol(e.target.value as LlmApiProtocol)}
+                    className={`${inputClass} cursor-pointer`}
+                  >
+                    {protocolOptions.map((id) => (
+                      <option key={id} value={id}>
+                        {t(PROTOCOL_LABELS[id])}
+                        {id === preset?.protocol ? t("settings.llm.ui.defaultSuffix") : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
+                    {t("settings.llm.ui.protocolHint")}</p>
+                </div>
+              )}
+              <div>
+                <label className={labelClass}>{t("settings.llm.ui.userAgent")}</label>
+                <input
+                  type="text"
+                  value={userAgent}
+                  onChange={(e) => setUserAgent(e.target.value)}
+                  // 占位符直接展示留空时实际发送的 SDK 自带 UA（后端按 SDK 版本现算）。
+                  placeholder={preset?.default_user_agent ?? t("settings.llm.ui.uaPlaceholder")}
+                  className={inputClass}
+                  {...NO_AUTOFILL}
+                />
+                <p
+                  className={`mt-1.5 text-caption leading-relaxed ${
+                    userAgentValid ? "text-[var(--text-faint)]" : "text-[#ff6b6b]"
+                  }`}
+                >
+                  {userAgentValid
+                    ? t("settings.llm.ui.uaHint")
+                    : t("settings.llm.ui.uaAscii")}
+                </p>
+              </div>
             </div>
           </details>
         )}
       </div>
 
       <div className="min-w-0 space-y-4 border-t border-white/[0.07] pt-6">
-        {isCustomEndpoint ? (
+        <div>
+          <button
+            type="button"
+            onClick={() => void discoverModels()}
+            disabled={discovering || !baseUrlValid || !userAgentValid || (apiKeyRequired && !apiKey.trim())}
+            className={SETTINGS_BUTTON_CLASS}
+          >
+            {discovering ? t("settings.llm.ui.discovering") : t("settings.llm.ui.discover")}
+          </button>
+          <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
+            {t("settings.llm.ui.discoverHint")}</p>
+          {discoveredModels !== null && (
+            <>
+              <p role="status" className="mt-2 text-caption text-[var(--text-muted)]">
+                {t("settings.llm.ui.discovered", {count: discoveredModels.length})}
+              </p>
+              {discoveredModels.length > 0 && (
+                <select
+                  aria-label={t("settings.llm.ui.discoveredLabel")}
+                  value=""
+                  onChange={(e) => addDiscoveredModel(e.target.value)}
+                  className={`${inputClass} mt-2`}
+                >
+                  <option value="">{t("settings.llm.ui.discoveredPlaceholder")}</option>
+                  {discoveredModels.map((id) => (
+                    <option
+                      key={id}
+                      value={id}
+                      disabled={!canAddModels && !testModels.some((m) => m.id === id)}
+                    >
+                      {id}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </>
+          )}
+        </div>
+        {catalog.length > 0 && (
+          <p className="text-caption leading-relaxed text-[var(--text-faint)]">
+            {t("settings.llm.ui.catalog", {provider: preset?.display_name ?? "", count: catalog.length})}
+          </p>
+        )}
+        {canAddModels && (
           <div>
-            <label className={labelClass}>模型目录 *</label>
+            <label className={labelClass}>{t("settings.llm.ui.extraModels")}{isCustomEndpoint ? " *" : t("settings.llm.ui.optional")}</label>
             <p className="mb-2 text-caption leading-relaxed text-[var(--text-faint)]">
-              兼容端点没有内置目录，请把端点上部署的模型添加进来（含参数）。接入后这些模型
-              可在 AI 设定与对话框里选用；连接测试用第一个。
-            </p>
+              {isCustomEndpoint ? t("settings.llm.ui.customHint") : t("settings.llm.ui.extraHint")}
+              {t("settings.llm.ui.extraUsage")}</p>
             {extras.length > 0 && (
               <ul className="mb-2 divide-y divide-white/[0.06] rounded-xl border border-white/[0.08] bg-white/[0.03]">
                 {extras.map((m) => (
@@ -719,8 +894,8 @@ function LlmProviderForm({
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-ui font-medium text-[var(--text)]">{m.id}</p>
                       <p className="truncate text-caption text-[var(--text-faint)]">
-                        {[modelSpecs(m), modelHints(m)].filter(Boolean).join(" · ") ||
-                          "参数以官方文档为准"}
+                        {[modelSpecs(m, locale), modelHints(m, locale)].filter(Boolean).join(" · ") ||
+                          t("settings.llm.ui.specsFallback")}
                       </p>
                     </div>
                     <button
@@ -728,65 +903,76 @@ function LlmProviderForm({
                       onClick={() => setExtraModels(extraModels.filter((x) => x.id !== m.id))}
                       className="rounded-lg px-2 py-1 text-caption text-[var(--text-muted)] transition-colors hover:bg-white/[0.06] hover:text-[#ff7d7d]"
                     >
-                      移除
-                    </button>
+                      {t("settings.llm.ui.remove")}</button>
                   </li>
                 ))}
               </ul>
             )}
             <select
-              aria-label="添加模型"
+              aria-label={t("settings.llm.ui.addModel")}
               value=""
               onChange={(e) => addFromPicker(e.target.value)}
               className={`${inputClass} appearance-none`}
             >
-              <option value="">＋ 添加模型…</option>
+              <option value="">{t("settings.llm.ui.addModelOption")}</option>
               {/* 其它预设目录的模型：选中即入列，参数复用 */}
               {borrowedGroups.map((g) => (
-                <optgroup key={g.label} label={`${g.label} 目录（同名模型参数复用）`}>
+                <optgroup key={g.label} label={t("settings.llm.ui.borrowedCatalog", {provider: g.label})}>
                   {g.models.map((m) => (
-                    <option key={m.id} value={m.id}>
+                    <option key={m.id} value={JSON.stringify([g.id, m.id])}>
                       {m.id}
-                      {modelHints(m) ? `（${modelHints(m)}）` : ""}
+                      {modelHints(m, locale) ? t("settings.llm.ui.hintsSuffix", {hints: modelHints(m, locale)}) : ""}
                     </option>
                   ))}
                 </optgroup>
               ))}
-              <option value={NEW_MODEL}>自定义模型（填写参数）…</option>
+              <option value={NEW_MODEL}>{t("settings.llm.ui.customModelOption")}</option>
             </select>
           </div>
-        ) : (
-          preset && (
-            <p className="text-caption leading-relaxed text-[var(--text-faint)]">
-              模型目录以「{preset.display_name}」预设为准，共 {catalog.length} 个模型，接入后可在
-              AI 设定与对话框里选用；连接测试用目录里第一个。
-            </p>
-          )
+        )}
+
+        {testModels.length > 0 && (
+          <div>
+            <label htmlFor="llm-test-model" className={labelClass}>
+              {t("settings.llm.ui.testModel")}</label>
+            <select
+              id="llm-test-model"
+              value={testModel}
+              onChange={(e) => setDefaultModel(e.target.value)}
+              className={inputClass}
+            >
+              {testModels.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.id} · {modelSpecs(m, locale)}{modelHints(m, locale) ? ` · ${modelHints(m, locale)}` : ""}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
+              {t("settings.llm.ui.testModelHint")}</p>
+          </div>
         )}
 
         {/* 自定义模型的参数子表单：这些参数是 agent 做上下文/思考预算决策的依据，必填 */}
-        {isCustomEndpoint && addingCustom && (
+        {canAddModels && addingCustom && (
           <div className="space-y-3.5 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5 max-sm:p-3">
             <p className="text-sub font-medium text-[var(--text-muted)]">
-              自定义模型参数
-              <span className="mt-1 block font-normal leading-relaxed text-[var(--text-faint)]">
-                按端点实际部署的模型规格填写，添加后计入本实例的模型目录
-              </span>
+              {t("settings.llm.ui.customParameters")}<span className="mt-1 block font-normal leading-relaxed text-[var(--text-faint)]">
+                {t("settings.llm.ui.customParametersHint")}</span>
             </p>
             <div>
-              <label className={labelClass}>模型 id *</label>
+              <label className={labelClass}>{t("settings.llm.ui.modelId")}</label>
               <input
                 type="text"
                 value={draft.id}
                 onChange={(e) => setDraft({ ...draft, id: e.target.value })}
-                placeholder="如：my-vllm-model"
+                placeholder={t("settings.llm.ui.modelPlaceholder")}
                 className={inputClass}
                 {...NO_AUTOFILL}
               />
             </div>
             <div className="grid grid-cols-3 gap-3 max-md:grid-cols-1">
               <div>
-                <label className={labelClass}>上下文长度 *</label>
+                <label className={labelClass}>{t("settings.llm.ui.contextWindow")}</label>
                 <input
                   type="number"
                   min={1}
@@ -798,7 +984,7 @@ function LlmProviderForm({
                 />
               </div>
               <div>
-                <label className={labelClass}>最大输出 *</label>
+                <label className={labelClass}>{t("settings.llm.ui.maxOutput")}</label>
                 <input
                   type="number"
                   min={1}
@@ -810,13 +996,13 @@ function LlmProviderForm({
                 />
               </div>
               <div>
-                <label className={labelClass}>最大输入（可选）</label>
+                <label className={labelClass}>{t("settings.llm.ui.maxInput")}</label>
                 <input
                   type="number"
                   min={1}
                   value={draft.maxInput}
                   onChange={(e) => setDraft({ ...draft, maxInput: e.target.value })}
-                  placeholder="不单独限制可留空"
+                  placeholder={t("settings.llm.ui.inputPlaceholder")}
                   className={inputClass}
                   {...NO_AUTOFILL}
                 />
@@ -824,112 +1010,103 @@ function LlmProviderForm({
             </div>
             <div className="flex flex-wrap gap-x-5 gap-y-2">
               <CheckField
-                label="支持工具调用"
+                label={t("settings.llm.ui.tools")}
                 checked={draft.supportsTools}
                 onChange={(v) =>
                   setDraft({ ...draft, supportsTools: v, parallel: v && draft.parallel })
                 }
               />
               <CheckField
-                label="支持并发工具调用"
+                label={t("settings.llm.ui.parallelTools")}
                 checked={draft.parallel}
                 disabled={!draft.supportsTools}
                 onChange={(v) => setDraft({ ...draft, parallel: v })}
               />
               <CheckField
-                label="输出思考内容"
+                label={t("settings.llm.ui.thinkingOutput")}
                 checked={draft.thinking}
-                onChange={(v) =>
-                  setDraft({ ...draft, thinking: v, ...(v ? {} : { thinkingKind: "none" as const }) })
-                }
+                onChange={(v) => setDraft({ ...draft, thinking: v })}
               />
               <CheckField
-                label="支持图片输入"
+                label={t("settings.llm.ui.imageInput")}
                 checked={draft.vision}
                 onChange={(v) => setDraft({ ...draft, vision: v })}
               />
               <CheckField
-                label="支持视频输入"
+                label={t("settings.llm.ui.videoInput")}
                 checked={draft.video}
                 onChange={(v) => setDraft({ ...draft, video: v })}
               />
             </div>
-            {draft.thinking && (
+            {(draft.thinking || draft.thinkingKind === "budget") && (
               <div>
-                <label className={labelClass}>思考预算上限 *</label>
+                <label className={labelClass}>{t("settings.llm.ui.thinkingBudget")}{draft.thinkingKind === "budget" ? " *" : t("settings.llm.ui.optional")}</label>
                 <input
                   type="number"
                   min={1}
                   value={draft.thinkingBudget}
                   onChange={(e) => setDraft({ ...draft, thinkingBudget: e.target.value })}
-                  placeholder="如：81920"
+                  placeholder={t("settings.llm.ui.budgetPlaceholder")}
                   className={inputClass}
                   {...NO_AUTOFILL}
                 />
                 <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
-                  思维链可用的最大 token 数（thinking_budget 上限），超配供应商会直接报错。
-                </p>
+                  {t("settings.llm.ui.budgetHint")}</p>
               </div>
             )}
-            {draft.thinking && (
-              <div>
-                <label className={labelClass}>思考强度控制</label>
-                <select
-                  value={draft.thinkingKind}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      thinkingKind: e.target.value as NewModelDraft["thinkingKind"],
-                    })
-                  }
-                  className={inputClass}
-                >
-                  <option value="none">不可控（只展示思考内容）</option>
-                  <option value="effort">档位直传（reasoning_effort）</option>
-                  <option value="budget">预算分段（enable_thinking + thinking_budget）</option>
-                  <option value="toggle">仅开关（thinking.type）</option>
-                </select>
-                <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
-                  按端点方言选择；声明后会话输入框出现思考档位选择器，
-                  档位只从声明的菜单里选（不做就近换算）。
-                </p>
-                {draft.thinkingKind === "effort" && (
-                  <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
-                    {DECLARABLE_THINKING_LEVELS.map((level) => (
-                      <CheckField
-                        key={level}
-                        label={THINKING_LEVEL_LABEL[level]}
-                        checked={draft.thinkingLevels.includes(level)}
-                        onChange={(v) =>
-                          setDraft({
-                            ...draft,
-                            // 固定词汇表顺序归一，声明不是有序集合
-                            thinkingLevels: DECLARABLE_THINKING_LEVELS.filter(
-                              (l) => (l === level ? v : draft.thinkingLevels.includes(l)),
-                            ),
-                          })
-                        }
-                      />
-                    ))}
-                  </div>
-                )}
-                {(draft.thinkingKind === "effort" || draft.thinkingKind === "budget") && (
-                  <div className="mt-3">
+            <div>
+              <label className={labelClass}>{t("settings.llm.ui.thinkingControl")}</label>
+              <select
+                value={draft.thinkingKind}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    thinkingKind: e.target.value as NewModelDraft["thinkingKind"],
+                  })
+                }
+                className={inputClass}
+              >
+                <option value="none">{t("settings.llm.ui.noControl")}</option>
+                <option value="effort">{t("settings.llm.ui.effortControl")}</option>
+                <option value="budget">{t("settings.llm.ui.budgetControl")}</option>
+                <option value="toggle">{t("settings.llm.ui.toggleControl")}</option>
+              </select>
+              <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
+                {t("settings.llm.ui.controlHint")}</p>
+              {draft.thinkingKind === "effort" && (
+                <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
+                  {DECLARABLE_THINKING_LEVELS.map((level) => (
                     <CheckField
-                      label="支持关闭思考"
-                      checked={draft.supportsOff}
-                      onChange={(v) => setDraft({ ...draft, supportsOff: v })}
+                      key={level}
+                      label={t(THINKING_LEVEL_LABEL[level])}
+                      checked={draft.thinkingLevels.includes(level)}
+                      onChange={(v) =>
+                        setDraft({
+                          ...draft,
+                          // 固定词汇表顺序归一，声明不是有序集合
+                          thinkingLevels: DECLARABLE_THINKING_LEVELS.filter(
+                            (l) => (l === level ? v : draft.thinkingLevels.includes(l)),
+                          ),
+                        })
+                      }
                     />
-                    <p className="mt-1 text-caption leading-relaxed text-[var(--text-faint)]">
-                      仅当端点有真正的关闭参数时勾选（如 enable_thinking=false）；
-                      勾选后档位菜单多出「关」。
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+              {(draft.thinkingKind === "effort" || draft.thinkingKind === "budget") && (
+                <div className="mt-3">
+                  <CheckField
+                    label={t("settings.llm.ui.supportsOff")}
+                    checked={draft.supportsOff}
+                    onChange={(v) => setDraft({ ...draft, supportsOff: v })}
+                  />
+                  <p className="mt-1 text-caption leading-relaxed text-[var(--text-faint)]">
+                    {t("settings.llm.ui.offHint")}</p>
+                </div>
+              )}
+            </div>
             {!draftValid && (
-              <p className="text-caption leading-relaxed text-[var(--text-faint)]">{draftHint}</p>
+              <p className="text-caption leading-relaxed text-[var(--text-faint)]">{t(draftHint)}</p>
             )}
             <div className="flex items-center gap-2">
               <button
@@ -938,8 +1115,7 @@ function LlmProviderForm({
                 disabled={!draftValid}
                 className={SETTINGS_BUTTON_CLASS}
               >
-                添加到目录
-              </button>
+                {t("settings.llm.ui.addToCatalog")}</button>
               <button
                 type="button"
                 onClick={() => {
@@ -948,8 +1124,7 @@ function LlmProviderForm({
                 }}
                 className={SETTINGS_BUTTON_CLASS}
               >
-                取消
-              </button>
+                {t("settings.llm.ui.cancel")}</button>
             </div>
           </div>
         )}
@@ -957,7 +1132,7 @@ function LlmProviderForm({
 
       {submitHint && (
         <p role="status" className="text-caption leading-relaxed text-[var(--text-faint)]">
-          {submitHint}
+          {t(submitHint)}
         </p>
       )}
 
@@ -969,26 +1144,32 @@ function LlmProviderForm({
           onClick={onCancel}
           className={`${SETTINGS_BUTTON_CLASS} max-sm:flex-1`}
         >
-          取消
-        </button>
+          {t("settings.llm.ui.cancel")}</button>
         <button
           type="button"
           onClick={submit}
           disabled={busy || !canSubmit}
           className={`${SETTINGS_PRIMARY_BUTTON_CLASS} max-sm:flex-[1.6]`}
         >
-          {busy ? "保存中…" : "保存并测试连接"}
+          {busy ? t("settings.llm.ui.saving") : t("settings.llm.ui.save")}
         </button>
       </div>
-    </div>
+    </fieldset>
   );
 }
 
 /** 供应商卡片的副标题：固定端点显示域名，其余说明接入方式。 */
-function providerHint(preset: LlmPreset): string {
-  if (preset.id === "bailian") return "聚合 Qwen / DeepSeek / Kimi / GLM";
-  if (preset.id === "openai") return "官方端点，可配代理";
-  if (preset.requires_base_url) return "自建 vLLM / Ollama / 任意网关";
+const PROTOCOL_LABELS: Record<LlmApiProtocol, AppMessageKey> = {
+  openai_chatgpt: "settings.llm.ui.chatgptSubscription",
+  openai_chat: "settings.llm.ui.chatCompletions",
+  openai_responses: "settings.llm.ui.responsesApi",
+};
+
+function providerHint(preset: LlmPreset, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  if (preset.id === "bailian") return t("settings.llm.ui.bailianHint");
+  if (preset.id === "openai") return t("settings.llm.ui.openaiHint");
+  if (preset.requires_base_url) return t("settings.llm.ui.compatHint");
   if (preset.base_url) {
     try {
       return new URL(preset.base_url).host;
@@ -996,7 +1177,7 @@ function providerHint(preset: LlmPreset): string {
       return preset.base_url;
     }
   }
-  return "官方端点";
+  return t("settings.llm.ui.officialEndpoint");
 }
 
 /** 参数子表单里的复选项：文字标签 + 原生 checkbox。 */
@@ -1038,24 +1219,34 @@ function formatTokens(n: number): string {
 }
 
 /** 下拉选项后缀的能力短标（思考 / 视觉 / 视频 / 档位可控）。 */
-function modelHints(model: LlmModelInfo): string {
+function modelHints(model: LlmModelInfo, locale: AppLocale): string {
+  const t = appTranslator(locale);
   return [
-    model.supports_thinking ? "思考" : null,
-    (model.thinking_levels?.length ?? 0) > 0 ? "档位可控" : null,
-    model.modalities.includes("image") ? "视觉" : null,
-    model.modalities.includes("video") ? "视频" : null,
+    model.supports_thinking ? t("settings.llm.ui.thinking") : null,
+    (model.thinking_levels?.length ?? 0) > 0 ? t("settings.llm.ui.adjustable") : null,
+    model.modalities.includes("image") ? t("settings.llm.ui.vision") : null,
+    model.modalities.includes("video") ? t("settings.llm.ui.video") : null,
+    model.modalities.includes("audio") ? t("settings.llm.ui.audio") : null,
   ]
     .filter(Boolean)
     .join(" · ");
 }
 
 /** 选中模型的规格说明：上下文 / 输出上限 / 思考预算 / 并发工具，未公布的字段不显示。 */
-function modelSpecs(model: LlmModelInfo): string {
+function modelSpecs(model: LlmModelInfo, locale: AppLocale): string {
+  const t = appTranslator(locale);
   return [
-    model.context_window ? `上下文 ${formatTokens(model.context_window)}` : null,
-    model.max_output_tokens ? `最大输出 ${formatTokens(model.max_output_tokens)}` : null,
-    model.max_thinking_tokens ? `思考预算 ${formatTokens(model.max_thinking_tokens)}` : null,
-    model.supports_parallel_tool_calls ? "支持并发工具调用" : null,
+    model.context_window ? t("settings.llm.ui.contextSpec", {tokens: formatTokens(model.context_window)}) : null,
+    model.max_input_tokens ? t("settings.llm.ui.inputSpec", {tokens: formatTokens(model.max_input_tokens)}) : null,
+    model.max_input_tokens_thinking
+      ? t("settings.llm.ui.thinkingInputSpec", {tokens: formatTokens(model.max_input_tokens_thinking)}) : null,
+    model.max_output_tokens
+      ? t("settings.llm.ui.outputSpec", {tokens: formatTokens(model.max_output_tokens)})
+      : model.default_output_tokens
+        ? t("settings.llm.ui.defaultOutputSpec", {tokens: formatTokens(model.default_output_tokens)})
+        : t("settings.llm.ui.outputUnknown"),
+    model.max_thinking_tokens ? t("settings.llm.ui.budgetSpec", {tokens: formatTokens(model.max_thinking_tokens)}) : null,
+    model.supports_parallel_tool_calls ? t("settings.llm.ui.parallelTools") : null,
   ]
     .filter(Boolean)
     .join(" · ");

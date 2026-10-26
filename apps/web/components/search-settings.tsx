@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useEffect, useRef, useState } from "react";
 
 import { ErrorBanner, Toggle } from "@/components/cloud-push-ui";
@@ -15,12 +17,15 @@ import {
 } from "@/components/settings-ui";
 import { listConfiguredSites, listSiteCatalog } from "@/lib/api/sites";
 import {
-  CATEGORY_LABEL,
+  categoryLabel,
+  presetSummary,
+  tabLabel,
   CATEGORY_OPTIONS,
   type PresetTab,
   type SearchTab,
   type TorrentCategory,
 } from "@/lib/categories";
+import type { AppMessageKey } from "@/lib/i18n/translate";
 import { HttpError } from "@/lib/http";
 import { useSearchPrefs } from "@/lib/search-prefs";
 import { nanoid } from "nanoid";
@@ -56,9 +61,8 @@ interface DragState {
  * 内置分类的补充说明（展示在分类行名称下方）：只给语义不自明的分类写，
  * 电影/剧集这类一望即知的不加，避免整列说明文字变成噪音。
  */
-const CATEGORY_HINT: Partial<Record<TorrentCategory, string>> = {
-  other:
-    "兜底分类：站点上归不进以上类别的分区（软件、电子书、体育、综艺等，各站范围不同）",
+const CATEGORY_HINT: Partial<Record<TorrentCategory, AppMessageKey>> = {
+  other: "search.preferences.otherHint",
 };
 
 /** 预设编辑器的会话状态：新建（editingId=null）或编辑某个预设。 */
@@ -101,6 +105,8 @@ interface SiteOption {
  * 场景是单列定长小列表，库的能力（多容器、虚拟滚动、传感器抽象）全用不上。
  */
 export function SearchSection() {
+  const t = useTranslations();
+  const locale = useLocale();
   const confirm = useConfirm();
   const { tabs, loading, saveTabs } = useSearchPrefs();
   const [error, setError] = useState<string | null>(null);
@@ -117,7 +123,7 @@ export function SearchSection() {
       await saveTabs(next);
       return true;
     } catch (err) {
-      setError(err instanceof HttpError ? err.message : "保存失败，请检查网络后重试");
+      setError(err instanceof HttpError ? err.message : t("search.preferences.saveFailed"));
       return false;
     } finally {
       setBusy(false);
@@ -257,9 +263,9 @@ export function SearchSection() {
 
   const deletePreset = async (preset: PresetTab) => {
     const ok = await confirm({
-      title: `删除自定义分类「${preset.name}」？`,
-      description: "搜索历史不受影响。",
-      confirmLabel: "删除",
+      title: t("search.preferences.deleteTitle", { name: preset.name }),
+      description: t("search.preferences.deleteHint"),
+      confirmLabel: t("common.delete"),
       tone: "danger",
     });
     if (!ok) return;
@@ -270,7 +276,7 @@ export function SearchSection() {
   return (
     <div className="space-y-6">
       <SettingsSection
-        title="搜索分类"
+        title={t("search.preferences.title")}
         action={
           <button
             type="button"
@@ -278,13 +284,11 @@ export function SearchSection() {
             className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`}
           >
             <PlusIcon className="size-4" />
-            新建自定义分类
+            {t("search.preferences.new")}
           </button>
         }
         footnote={
-          "按住左侧手柄拖动即可调整顺序——列表顺序即搜索面板中分类标签的排列顺序，「全部」固定在首位。" +
-          "自定义分类可组合多个资源分类与指定站点，一次搜索只打勾选的站点。" +
-          "改动即时保存到服务端，所有设备与浏览器保持一致。"
+          t("search.preferences.footnote")
         }
       >
         {/* divide-y 常驻：拖动中若移除分隔线会让整列高度跳 1px×行数，按下瞬间坐标漂移 */}
@@ -307,7 +311,7 @@ export function SearchSection() {
               {/* 拖拽手柄：按住拖动排序；聚焦后 ↑/↓ 微调。touch-none 禁掉触屏滚动手势 */}
               <button
                 type="button"
-                aria-label={`拖动调整「${tabLabel(tab)}」的顺序，或按方向键上下移动`}
+                aria-label={t("search.preferences.reorder", { name: tabLabel(tab, locale) })}
                 disabled={busy || loading}
                 onPointerDown={onDragStart(index)}
                 onPointerMove={onDragMove}
@@ -329,11 +333,11 @@ export function SearchSection() {
               {tab.type === "category" ? (
                 <div className="min-w-0 flex-1">
                   <p className="text-body font-medium text-[var(--text)]">
-                    {CATEGORY_LABEL[tab.id]}
+                    {categoryLabel(tab.id, locale)}
                   </p>
                   {CATEGORY_HINT[tab.id] && (
                     <p className="mt-0.5 text-caption text-[var(--text-faint)]">
-                      {CATEGORY_HINT[tab.id]}
+                      {t(CATEGORY_HINT[tab.id]!)}
                     </p>
                   )}
                 </div>
@@ -342,22 +346,22 @@ export function SearchSection() {
                   <div className="flex items-center gap-2">
                     <p className="truncate text-body font-medium text-[var(--text)]">{tab.name}</p>
                     <span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-micro font-semibold text-[var(--accent)]">
-                      自定义
+                      {t("search.preferences.custom")}
                     </span>
                   </div>
                   <p className="mt-0.5 truncate text-caption text-[var(--text-faint)]">
-                    {presetSummary(tab)}
+                    {presetSummary(tab, locale)}
                   </p>
                 </div>
               )}
 
               {tab.type === "preset" && (
                 <SettingsMoreMenu
-                  label={`「${tab.name}」的操作`}
+                  label={t("search.preferences.actions", { name: tab.name })}
                   disabled={busy || loading}
                   items={[
-                    { label: "编辑", onSelect: () => openEditor(tab) },
-                    { label: "删除", onSelect: () => void deletePreset(tab), danger: true },
+                    { label: t("search.preferences.edit"), onSelect: () => openEditor(tab) },
+                    { label: t("common.delete"), onSelect: () => void deletePreset(tab), danger: true },
                   ]}
                 />
               )}
@@ -366,7 +370,7 @@ export function SearchSection() {
               <Toggle
                 checked={tab.visible}
                 disabled={busy || loading}
-                label={`在搜索分类中${tab.visible ? "隐藏" : "展示"}「${tabLabel(tab)}」`}
+                label={t("search.preferences.visibility", { visible: tab.visible ? "yes" : "no", name: tabLabel(tab, locale) })}
                 onChange={(checked) => toggle(index, checked)}
               />
             </div>
@@ -392,21 +396,6 @@ export function SearchSection() {
   );
 }
 
-/** 标签的展示名（内置分类取中文名，预设取用户起的名字）。 */
-function tabLabel(tab: SearchTab): string {
-  return tab.type === "category" ? CATEGORY_LABEL[tab.id] : tab.name;
-}
-
-/** 预设行的摘要：分类组合 × 站点组合（× 图览 × 无痕），空集显示「不限 / 全部」。 */
-function presetSummary(tab: PresetTab): string {
-  const cats = tab.categories.length
-    ? tab.categories.map((c) => CATEGORY_LABEL[c]).join("、")
-    : "不限分类";
-  const sites = tab.site_ids.length ? `${tab.site_ids.length} 个站点` : "全部站点";
-  const flags = `${tab.poster_mode ? " · 图览" : ""}${tab.skip_history ? " · 无痕" : ""}`;
-  return `${cats} · ${sites}${flags}`;
-}
-
 /**
  * 预设编辑器：名称 + 分类勾选 + 站点勾选。
  *
@@ -426,6 +415,8 @@ function PresetEditor({
   onSave: () => void;
   onCancel: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   // null = 加载中；[] = 没有任何已配置站点
   const [siteOptions, setSiteOptions] = useState<SiteOption[] | null>(null);
 
@@ -474,11 +465,11 @@ function PresetEditor({
 
   return (
     <SettingsCard
-      title={draft.editingId ? "编辑自定义分类" : "新建自定义分类"}
+      title={draft.editingId ? t("search.preferences.editorEdit") : t("search.preferences.new")}
       action={
         <div className="flex gap-2">
           <button type="button" onClick={onCancel} disabled={busy} className={SETTINGS_BUTTON_CLASS}>
-            取消
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -486,7 +477,7 @@ function PresetEditor({
             disabled={busy || !draft.name.trim()}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            {busy ? "保存中…" : "保存"}
+            {busy ? t("search.preferences.saving") : t("common.save")}
           </button>
         </div>
       }
@@ -494,14 +485,14 @@ function PresetEditor({
       <div className="space-y-5">
         <div>
           <label className="mb-1.5 block text-sub font-medium text-[var(--text-muted)]">
-            名称（1~16 字）
+            {t("search.preferences.name")}
           </label>
           <input
             type="text"
             value={draft.name}
             onChange={(e) => onChange({ ...draft, name: e.target.value })}
             maxLength={16}
-            placeholder="如：4K 影剧、MT 专搜"
+            placeholder={t("search.preferences.namePlaceholder")}
             autoFocus
             className={`${SETTINGS_INPUT_CLASS} w-full`}
           />
@@ -509,7 +500,7 @@ function PresetEditor({
 
         <div>
           <p className="mb-1.5 text-sub font-medium text-[var(--text-muted)]">
-            资源分类 <span className="text-[var(--text-faint)]">（不勾选 = 不限分类）</span>
+            {t("search.preferences.categories")} <span className="text-[var(--text-faint)]">{t("search.preferences.categoriesHint")}</span>
           </p>
           <div className="flex flex-wrap gap-1.5">
             {CATEGORY_OPTIONS.map((opt) => (
@@ -519,7 +510,7 @@ function PresetEditor({
                 onClick={() => toggleCategory(opt.value)}
                 className={chipCls(draft.categories.includes(opt.value))}
               >
-                {opt.label}
+                {categoryLabel(opt.value, locale)}
               </button>
             ))}
           </div>
@@ -527,13 +518,13 @@ function PresetEditor({
 
         <div>
           <p className="mb-1.5 text-sub font-medium text-[var(--text-muted)]">
-            搜索站点 <span className="text-[var(--text-faint)]">（不勾选 = 全部可用站点）</span>
+            {t("search.preferences.sites")} <span className="text-[var(--text-faint)]">{t("search.preferences.sitesHint")}</span>
           </p>
           {siteOptions === null ? (
-            <p className="text-sub text-[var(--text-faint)]">正在加载站点列表…</p>
+            <p className="text-sub text-[var(--text-faint)]">{t("search.preferences.loadingSites")}</p>
           ) : siteOptions.length === 0 ? (
             <p className="text-sub text-[var(--text-faint)]">
-              还没有接入任何站点；先切到「站点接入」标签页添加，或直接保存（默认搜全部可用站点）。
+              {t("search.preferences.noSites")}
             </p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
@@ -542,13 +533,13 @@ function PresetEditor({
                   key={site.siteId}
                   type="button"
                   onClick={() => toggleSite(site.siteId)}
-                  title={site.usable ? undefined : "站点当前不可用（未启用或验证未通过），搜索时会自动跳过"}
+                  title={site.usable ? undefined : t("search.preferences.unavailableHint")}
                   className={`${chipCls(draft.siteIds.includes(site.siteId))} ${
                     site.usable ? "" : "opacity-55"
                   }`}
                 >
                   {site.displayName}
-                  {!site.usable && <span className="ml-1 text-micro">·不可用</span>}
+                  {!site.usable && <span className="ml-1 text-micro">{t("search.preferences.unavailable")}</span>}
                 </button>
               ))}
             </div>
@@ -557,30 +548,28 @@ function PresetEditor({
 
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-sub font-medium text-[var(--text-muted)]">图览模式</p>
+            <p className="text-sub font-medium text-[var(--text-muted)]">{t("search.preferences.poster")}</p>
             <p className="mt-0.5 text-caption leading-4 text-[var(--text-faint)]">
-              用该分类搜索时，带海报的结果默认以图墙展示（仅部分站点返回海报，
-              如 M-Team）；结果页右上角可随时临时切换。
+              {t("search.preferences.posterHint")}
             </p>
           </div>
           <Toggle
             checked={draft.posterMode}
-            label={`${draft.posterMode ? "关闭" : "开启"}图览模式`}
+            label={t("search.preferences.posterToggle", { enabled: draft.posterMode ? "yes" : "no" })}
             onChange={(checked) => onChange({ ...draft, posterMode: checked })}
           />
         </div>
 
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-sub font-medium text-[var(--text-muted)]">无痕搜索</p>
+            <p className="text-sub font-medium text-[var(--text-muted)]">{t("search.preferences.private")}</p>
             <p className="mt-0.5 text-caption leading-4 text-[var(--text-faint)]">
-              用该分类搜索时不写入搜索历史，搜索面板的「最近搜索」不会出现相关记录，
-              适合隐私敏感的分类。
+              {t("search.preferences.privateHint")}
             </p>
           </div>
           <Toggle
             checked={draft.skipHistory}
-            label={`${draft.skipHistory ? "关闭" : "开启"}无痕搜索`}
+            label={t("search.preferences.privateToggle", { enabled: draft.skipHistory ? "yes" : "no" })}
             onChange={(checked) => onChange({ ...draft, skipHistory: checked })}
           />
         </div>

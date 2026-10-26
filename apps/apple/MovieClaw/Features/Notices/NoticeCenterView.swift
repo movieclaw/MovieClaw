@@ -12,6 +12,7 @@ import SwiftUI
 /// 用户看到的是一条「这个目录 movieclaw 看不到」，而不是 16 条「《某剧》无法入库」。
 /// 刷新：30 秒轮询 + 回前台立即刷新一次（`.polling` 自带）。
 struct NoticeCenterView: View {
+    @Environment(\.cardMetrics) private var cards
     @Environment(\.api) private var api
     @Environment(Router.self) private var router
     @State private var state: Loadable<[API.NoticeView]> = .loading
@@ -21,8 +22,8 @@ struct NoticeCenterView: View {
             let visible = Self.visible(notices)
             if visible.isEmpty {
                 EmptyState(
-                    systemImage: "checkmark.seal", title: "暂无待处理事项",
-                    message: "这里只列需要你处理的运行时问题，修复后会自动消失。"
+                    systemImage: "checkmark.seal", title: String(localized: .notifyNoticesNoneTitle),
+                    message: String(localized: .notifyCenterDescription)
                 )
                 .accessibilityIdentifier("notices-empty")
             } else {
@@ -31,17 +32,17 @@ struct NoticeCenterView: View {
                         ForEach(visible, id: \.id) { notice in
                             NoticeCard(notice: notice, onGoto: { goto(notice) }, onDismiss: { dismiss(notice) })
                         }
-                        Text("这里只列需要你处理的运行时问题，修复后会自动消失。")
+                        Text(String(localized: .notifyCenterDescription))
                             .font(.caption)
                             .foregroundStyle(Theme.textFaint)
                             .padding(.top, 6)
                     }
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .padding(.vertical, 12)
                 }
             }
         }
-        .navigationTitle("待处理事项")
+        .navigationTitle(String(localized: .notifyCenterTitle))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let count = state.value.map({ Self.visible($0).count }), count > 0 {
@@ -77,6 +78,7 @@ struct NoticeCenterView: View {
             if let id = notice.payload["subscription_id"]?.intValue { return "/subscriptions/\(id)" }
             return "/subscriptions"
         case "ingest": return "/settings/import-watch"
+        case "channel": return "/settings/im-push"
         case "downloader": return "/settings/downloaders"
         case "site": return "/settings/sites"
         case "cloud": return "/settings/cloud"
@@ -139,7 +141,7 @@ private struct NoticeCard: View {
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
                 Button(action: onDismiss) {
-                    Text("忽略")
+                    Text(String(localized: .notifyCenterIgnore))
                         .font(.subheadline)
                         .foregroundStyle(Theme.textFaint)
                         .expandedHitArea(vertical: 12)
@@ -150,7 +152,7 @@ private struct NoticeCard: View {
                 ActivityHandoffButton(kind: "notice", refId: String(notice.id))
                 Button(action: onGoto) {
                     HStack(spacing: 3) {
-                        Text("去处理")
+                        Text(String(localized: .notifyCenterResolve))
                         Image(systemName: "chevron.right").font(.caption.weight(.semibold))
                     }
                     .font(.subheadline.weight(.medium))

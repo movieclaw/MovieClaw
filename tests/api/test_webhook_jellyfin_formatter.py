@@ -1,15 +1,12 @@
-"""Jellyfin 变量字典与映射去重单测：ticks 换算、补零、GUID 同源、completed 吸收 stopped。"""
+"""Jellyfin 变量字典单测：ticks 换算、补零、GUID 同源、层级翻译、看完标记。"""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from movieclaw_api.services.webhook.jellyfin_formatter import (
-    jellyfin_variables,
-    merge_for_jellyfin,
-)
-from movieclaw_events import OutboundEvent
-from movieclaw_jellyfin.ids import episode_guid, item_guid
+from movieclaw_api.services.webhook.jellyfin_formatter import targets, variables
+from movieclaw_jellyfin.ids import episode_guid, item_guid, season_guid, user_guid_for
+from movieclaw_sdk.events import ClientRef, ItemFavorite, MediaRef, PlaybackStopped, UnitRef
 
 SERVER = {
     "id": "srv01",
@@ -18,41 +15,46 @@ SERVER = {
     "url": "http://mc.lan:3000",
     "username": "admin",
 }
+OCCURRED = datetime(2026, 8, 4, 12, 30, tzinfo=UTC)
+SHOW = MediaRef(id=7, kind="tv", title="绝命毒师", year=2008, tmdb_id=1396, imdb_id="tt0903747")
 
 
-def _episode_event(event: str = "playback.completed") -> OutboundEvent:
-    return OutboundEvent(
-        event=event,
-        occurred_at=datetime(2026, 8, 4, 12, 30, tzinfo=UTC),
-        data={
-            "media": {
-                "type": "episode",
-                "item_id": 7,
-                "tmdb_id": 1396,
-                "imdb_id": "tt0903747",
-                "title": "绝命毒师",
-                "year": 2008,
-                "season_number": 2,
-                "episode_number": 4,
-                "episode_title": "Down",
-            },
-            "playback": {
-                "position_ms": 3_120_000,
-                "duration_ms": 3_300_000,
-                "played": True,
-                "play_count": 1,
-            },
-            "client": {"name": "Infuse", "device_name": "Apple TV", "device_id": "d1"},
-        },
+def _stopped(completed: bool) -> dict:
+    return PlaybackStopped(
+        member_id=0,
+        media=SHOW,
+        unit=UnitRef(season=2, episode=4),
+        position_ms=3_120_000,
+        duration_ms=3_300_000,
+        played=True,
+        play_count=1,
+        client=ClientRef(name="Infuse", device_name="Apple TV", device_id="d1"),
+        completed=completed,
+    ).model_dump(mode="json")
+
+
+def _values(name: str, data: dict, **kw) -> dict:  # type: ignore[no-untyped-def]
+    [target] = targets(name, data)
+    return variables(
+        kw.pop("type", "PlaybackStop"),
+        data,
+        target,
+        occurred_at=OCCURRED,
+        server=SERVER,
+        username="admin",
+        episode_title=kw.pop("episode_title", "Down"),
+        completed=bool(data.get("completed")),
+        favorite=kw.pop("favorite", False),
     )
 
 
-def test_episode_variables():
-    values = jellyfin_variables(_episode_event(), SERVER)
+def test_episode_variables() -> None:
+    values = _values("playback.stopped", _stopped(completed=True))
     assert values["NotificationType"] == "PlaybackStop"
     assert values["PlayedToCompletion"] is True
     assert values["ServerUrl"] == "http://mc.lan:3000"
     assert values["NotificationUsername"] == "admin"
+    assert values["UserId"] == user_guid_for(0)
     # GUID 与 Jellyfin 兼容 API 同源
     assert values["ItemId"] == episode_guid(7, 2, 4)
     assert values["SeriesId"] == item_guid(7)
@@ -69,54 +71,29 @@ def test_episode_variables():
     assert values["Provider_tmdb"] == 1396
 
 
-def test_stopped_not_completed():
-    values = jellyfin_variables(_episode_event("playback.stopped"), SERVER)
-    assert values["NotificationType"] == "PlaybackStop"
+def test_stopped_without_finishing() -> None:
+    values = _values("playback.stopped", _stopped(completed=False))
     assert values["PlayedToCompletion"] is False
 
 
-def test_favorite_maps_to_userdata_saved():
-    event = OutboundEvent(
-        event="item.favorited",
-        data={
-            "media": {"type": "season", "item_id": 7, "title": "绝命毒师", "season_number": 2},
-            "favorite": True,
-            "client": None,
-        },
-    )
-    values = jellyfin_variables(event, SERVER)
+def test_favorite_on_a_season() -> None:
+    data = ItemFavorite(
+        member_id=0, media=SHOW, level="season", season=2
+    ).model_dump(mode="json")
+    values = _values("library.item.favorited", data, type="UserDataSaved", favorite=True)
     assert values["NotificationType"] == "UserDataSaved"
     assert values["Favorite"] is True
     assert values["ItemType"] == "Season"
+    assert values["ItemId"] == season_guid(7, 2)
+    assert values["Name"] == "绝命毒师"  # 不是单集：不用单集标题
     assert "SeriesName" not in values  # 非 episode 不给剧集变量
 
 
-def test_unmapped_event_returns_none():
-    event = OutboundEvent(event="subscription.download_started", data={})
-    assert jellyfin_variables(event, SERVER) is None
-
-
-def test_merge_completed_absorbs_stopped():
-    stopped = OutboundEvent(event="playback.stopped", data={})
-    completed = OutboundEvent(event="playback.completed", data={})
-    other = OutboundEvent(event="playback.started", data={})
-    merged = merge_for_jellyfin([other, stopped, completed])
-    assert [e.event for e in merged] == ["playback.started", "playback.completed"]
-    # 没有 completed 时 stopped 原样保留
-    assert merge_for_jellyfin([stopped]) == [stopped]
-
-
-def test_merge_only_absorbs_same_unit():
-    """去重按单元比对：其他条目/其他集的 stopped 不受 completed 牵连。"""
-
-    def _ev(event: str, item_id: int, episode: int) -> OutboundEvent:
-        return OutboundEvent(
-            event=event,
-            data={"media": {"item_id": item_id, "season_number": 1, "episode_number": episode}},
-        )
-
-    completed_a = _ev("playback.completed", 1, 1)
-    stopped_a = _ev("playback.stopped", 1, 1)
-    stopped_b = _ev("playback.stopped", 2, 5)
-    merged = merge_for_jellyfin([completed_a, stopped_a, stopped_b])
-    assert merged == [completed_a, stopped_b]
+def test_movie_playback_targets_the_item() -> None:
+    movie = MediaRef(id=9, kind="movie", title="奥德赛")
+    data = PlaybackStopped(member_id=0, media=movie, unit=None).model_dump(mode="json")
+    [target] = targets("playback.stopped", data)
+    assert target["level"] == "movie"
+    values = _values("playback.stopped", data)
+    assert values["ItemType"] == "Movie" and values["ItemId"] == item_guid(9)
+    assert values["Name"] == "奥德赛"

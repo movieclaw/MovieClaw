@@ -15,6 +15,7 @@ import SwiftUI
 /// 「回到上次位置」三种形态共用一条记录（都按作品计）；挂后台 30 分钟以上再回来算重新进入，重新询问。
 /// 排序偏好全站共用一个键（在哪个库选了「按评分」，换个库还是按评分），同 Web。
 struct LibraryDetailView: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     /// 进来时落在哪个视图（Web `?view=collections`）
     var initialView: WallView = .items
@@ -92,7 +93,7 @@ struct LibraryDetailView: View {
     private var timeline: Bool { library.map { !$0.capabilities.scraped } ?? false }
     private var photoWall: Bool { library.map { !$0.capabilities.playable } ?? false }
     private var probing: Bool { library?.scanning == true && library?.scanProgress?.phase == "probing" }
-    private var galleryOn: Bool { gallery.galleryMode && library?.capabilities.playable == true }
+    private var galleryOn: Bool { gallery.galleryMode(libraryId: libraryId) && library?.capabilities.playable == true }
     private var recentFirst: Bool { sort.sort == "added_at" && !probing }
 
     /// 实际请求的排序档（补探阶段强制按补探序；照片库只认「最近添加」或默认）
@@ -109,15 +110,15 @@ struct LibraryDetailView: View {
 
     private var sortOptions: [WallSortMenu.Option] {
         var options: [WallSortMenu.Option] = [
-            .init(value: "default", label: timeline ? "按时间" : "按标题", direction: WallSortDirections.of(timeline ? "release_date" : "title")),
-            .init(value: "added_at", label: "最近添加", direction: WallSortDirections.of("added_at")),
+            .init(value: "default", label: timeline ? String(localized: .librarySortContentDate) : String(localized: .librarySortTitle), direction: WallSortDirections.of(timeline ? "release_date" : "title")),
+            .init(value: "added_at", label: String(localized: .libraryRowsRecentAdded), direction: WallSortDirections.of("added_at")),
         ]
-        if !timeline { options.append(.init(value: "release_date", label: "按上映时间", direction: WallSortDirections.of("release_date"))) }
+        if !timeline { options.append(.init(value: "release_date", label: String(localized: .librarySortReleaseDate), direction: WallSortDirections.of("release_date"))) }
         options += [
-            .init(value: "rating", label: "按评分", direction: WallSortDirections.of("rating")),
-            .init(value: "runtime", label: "按片长", direction: WallSortDirections.of("runtime")),
-            .init(value: "size", label: "按体积", direction: WallSortDirections.of("size")),
-            .init(value: "last_played", label: "最近观看", direction: WallSortDirections.of("last_played")),
+            .init(value: "rating", label: String(localized: .librarySortRating), direction: WallSortDirections.of("rating")),
+            .init(value: "runtime", label: String(localized: .librarySortRuntime), direction: WallSortDirections.of("runtime")),
+            .init(value: "size", label: String(localized: .librarySortSize), direction: WallSortDirections.of("size")),
+            .init(value: "last_played", label: String(localized: .libraryRowsRecentWatched), direction: WallSortDirections.of("last_played")),
         ]
         return options
     }
@@ -143,21 +144,32 @@ struct LibraryDetailView: View {
     @ViewBuilder
     private var stateContent: some View {
         if loadFailed, libraries == nil {
-            ErrorState(title: "媒体库加载失败", message: "与后端通信失败") { await reload() }
+            ErrorState(title: String(localized: .libraryHomeLoadFailed), message: String(localized: .errorsNetworkBackendFailed)) { await reload() }
         } else if libraries == nil {
             VStack(spacing: 10) {
                 ProgressView()
-                Text("正在加载媒体库…").font(.subheadline).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .libraryHomeLoading)).font(.subheadline).foregroundStyle(Theme.textMuted)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let library {
             page(library)
         } else {
-            EmptyState(systemImage: "questionmark.folder", title: "这个媒体库不存在（可能已被删除）", actionTitle: "返回媒体库") { router.pop() }
+            EmptyState(systemImage: "questionmark.folder", title: String(localized: .libraryDetailNotFound), actionTitle: String(localized: .libraryManageBack)) { router.pop() }
         }
     }
 
+    /// 离线模式（docs/design/offline-download.md §1）：换成这个库在 iPhone 上已下载的条目
+    @State private var reachability = ServerReachability.shared
+
     var body: some View {
+        if reachability.isOffline {
+            OfflineLibraryWall(libraryId: libraryId)
+        } else {
+            onlineBody
+        }
+    }
+
+    private var onlineBody: some View {
         stateContent
         .appBackground()
         .navigationTitle(library?.name ?? "")
@@ -202,16 +214,16 @@ struct LibraryDetailView: View {
             SaveAsCollectionSheet(libraryId: libraryId, filter: filter) { _ in Task { await reloadCollections() } }
                 .sheetFeedback()
         }
-        .alert("为「\(library?.name ?? "")」生成章节？", isPresented: $askingChapters) {
-            Button("开始生成") { startChapters(force: false) }
-            Button("已有的章节也重新生成") { startChapters(force: true) }
-            Button("取消", role: .cancel) {}
+        .alert(String(localized: .libraryConfirmChaptersTitleNamed(library?.name ?? "")), isPresented: $askingChapters) {
+            Button(String(localized: .libraryConfirmStartChapters)) { startChapters(force: false) }
+            Button(String(localized: .libraryConfirmChaptersForce)) { startChapters(force: true) }
+            Button(String(localized: .commonCancel), role: .cancel) {}
         } message: {
-            Text(Self.bullets("后台低优先级执行，可在任务中心观察或取消：", [
-                "只处理章节图还缺的文件（含上次没抓完、图丢了的），已经齐的不动",
-                "每个文件按章节数定位读取若干次，网络挂载的库会有读取流量",
-                "不会移动、修改或删除你的视频文件",
-            ]) + "\n\n选「已有的章节也重新生成」会按当前章节与合成策略全部重新生成，你手动选定的图不会被覆盖。")
+            Text(Self.bullets(String(localized: .libraryConfirmChaptersIntro), [
+                String(localized: .libraryConfirmChaptersMissing),
+                String(localized: .libraryConfirmChaptersReads),
+                String(localized: .libraryConfirmVideoSafe),
+            ]) + "\n\n" + String(localized: .libraryConfirmChaptersForceExplain))
         }
     }
 
@@ -231,9 +243,9 @@ struct LibraryDetailView: View {
     private var toolbar: some ToolbarContent {
         if let library, !photoWall, !collections.isEmpty {
             ToolbarItem(placement: .principal) {
-                Picker("库内视图", selection: $view) {
-                    Text("作品").tag(WallView.items)
-                    Text("合集").tag(WallView.collections)
+                Picker(String(localized: .libraryDetailViewMode), selection: $view) {
+                    Text(String(localized: .libraryDetailTitles)).tag(WallView.items)
+                    Text(String(localized: .libraryCollectionsPageTitle)).tag(WallView.collections)
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 140)
@@ -315,19 +327,21 @@ struct LibraryDetailView: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 if library.isDefault {
-                    Text("默认").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.9))
+                    Text(String(localized: .libraryManageDefault)).font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.9))
                         .padding(.horizontal, 8).padding(.vertical, 2)
                         .background(.white.opacity(0.12), in: .capsule)
                         .overlay(Capsule().strokeBorder(.white.opacity(0.14)))
                 }
                 if !library.viewerAccess {
-                    Label("仅管理", systemImage: "lock.fill")
+                    Label(String(localized: .libraryDetailManageOnly), systemImage: "lock.fill")
                         .font(.caption.weight(.semibold)).foregroundStyle(Theme.warning)
                         .padding(.horizontal, 8).padding(.vertical, 2)
                         .background(Theme.warning.opacity(0.12), in: .capsule)
                 }
             }
-            Text("\(LibraryKindMeta.label(library.kind))库 · \(library.stats.itemCount) \(library.kind == "photo" ? "张" : "部作品") · \(library.stats.fileCount) 个文件 · \(libraryBytes(library.stats.totalSizeBytes))")
+            Text([String(localized: .libraryDetailKindLibrary(LibraryKindMeta.label(library.kind))),
+                  library.kind == "photo" ? String(localized: .libraryDetailPhotoCount(library.stats.itemCount)) : String(localized: .libraryDetailTitleCountWorks(library.stats.itemCount)),
+                  String(localized: .libraryDetailFileCount(library.stats.fileCount)), libraryBytes(library.stats.totalSizeBytes)].joined(separator: " · "))
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
                 .lineLimit(1)
@@ -344,22 +358,24 @@ struct LibraryDetailView: View {
                 MetadataRefreshPanel(state: metaRefresh) { stopMetaRefresh() }
             }
             if loadFailed {
-                banner("与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据", color: Theme.warning)
+                banner(String(localized: .libraryHomeStale), color: Theme.warning)
             }
             if let notice {
                 banner(notice, color: Theme.danger)
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 4)
     }
 
     private func lastScanText(_ scan: API.LastScanView) -> String {
-        var text = "最近扫描 \(libraryFromNow(scan.finishedAt))\(scan.cancelled ? "（手动停止，未扫完）" : "") · 新入账 \(scan.scanned)（识别 \(scan.identified) / 未识别 \(scan.unidentified)）"
-        if scan.retried > 0 { text += " · 重试识别 \(scan.retried) 个待识别文件" }
-        if scan.markedMissing > 0 { text += " · 标记丢失 \(scan.markedMissing)" }
-        if scan.clearedMissing > 0 { text += " · 清理丢失记录 \(scan.clearedMissing)" }
-        if scan.deferred > 0 { text += " · \(scan.deferred) 个写入中暂缓（稍后自动补扫）" }
+        var text = String(localized: .libraryDetailLastScan(libraryFromNow(scan.finishedAt)))
+            + (scan.cancelled ? String(localized: .libraryDetailScanStopped) : "")
+            + String(localized: .libraryDetailScanAdded(scan.scanned, scan.identified, scan.unidentified))
+        if scan.retried > 0 { text += String(localized: .libraryDetailScanRetried(scan.retried)) }
+        if scan.markedMissing > 0 { text += String(localized: .libraryDetailScanMarkedMissing(scan.markedMissing)) }
+        if scan.clearedMissing > 0 { text += String(localized: .libraryDetailScanClearedMissing(scan.clearedMissing)) }
+        if scan.deferred > 0 { text += String(localized: .libraryDetailScanDeferred(scan.deferred)) }
         if let first = scan.errors.first { text += " · \(first)" }
         return text
     }
@@ -377,29 +393,30 @@ struct LibraryDetailView: View {
                     let progress = library.scanning ? library.scanProgress : library.organizeProgress
                     chip(color: Theme.info, spinning: true, text: progress.map { p in
                         "\(ScanPhase.label(p.phase))\(p.total > 0 ? " \(p.processed)/\(p.total)" : "") · \(ScanPhase.hint(p.phase))"
-                    } ?? "正在处理…")
+                    } ?? String(localized: .libraryDetailProcessing))
                 }
                 if importing > 0 {
-                    chip(color: Theme.info, text: "已发现 \(importing) 个新文件 · 写入完成后自动入库")
+                    chip(color: Theme.info, text: String(localized: .libraryDetailImportingFiles(importing)))
                 }
                 if !libraryJobs.isEmpty {
-                    chip(color: Theme.info, text: "\(libraryJobs.count) 个后台任务正在处理库内影片")
+                    chip(color: Theme.info, text: String(localized: .libraryDetailActiveTasks(libraryJobs.count)))
                 }
                 if !missing.isEmpty {
                     Button { issueTab = IssueSheet(tab: "missing") } label: {
-                        chip(color: .white.opacity(0.6), dot: .white.opacity(0.4), text: "\(missing.count) 个条目缺失")
+                        chip(color: .white.opacity(0.6), dot: .white.opacity(0.4), text: String(localized: .libraryDetailMissingItems(missing.count)))
                     }.buttonStyle(.plain)
                 }
                 if !unidentified.isEmpty {
                     Button { issueTab = IssueSheet(tab: "unidentified") } label: {
-                        chip(color: Theme.warning, text: "\(unidentifiedFiles) 个文件待识别\(unidentified.count > 1 ? " · \(unidentified.count) 组" : "")")
+                        chip(color: Theme.warning, text: String(localized: .libraryDetailUnidentifiedFileCount(unidentifiedFiles))
+                             + (unidentified.count > 1 ? String(localized: .libraryDetailUnidentifiedGroups(unidentified.count)) : ""))
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("chip-unidentified")
                 }
                 if !review.isEmpty {
                     Button { issueTab = IssueSheet(tab: "review") } label: {
-                        chip(color: Theme.warning, text: "\(review.count) 个条目待复核身份")
+                        chip(color: Theme.warning, text: String(localized: .libraryDetailReviewItems(review.count)))
                     }.buttonStyle(.plain)
                 }
             }
@@ -437,17 +454,17 @@ struct LibraryDetailView: View {
     private var hiddenContent: some View {
         VStack(spacing: 12) {
             Image(systemName: "lock.fill").font(.largeTitle).foregroundStyle(.white.opacity(0.28))
-            Text("内容已隐藏：你不在这个库的可见范围内。\n设置、扫描与待处理仍可使用；把自己加入可见范围即可浏览。")
+            Text(String(localized: .libraryDetailHiddenContent))
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
                 .multilineTextAlignment(.center)
             if permissions.canManageLibraries {
-                Button("把我加入可见范围") { editing = true }.buttonStyle(.glass)
+                Button(String(localized: .libraryDetailIncludeMe)) { editing = true }.buttonStyle(.glass)
             }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 64)
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
     }
 
     // MARK: 墙
@@ -460,15 +477,15 @@ struct LibraryDetailView: View {
             LibraryFilterEmptyState(libraryId: libraryId, filter: $filter)
                 .padding(.top, 12)
         } else if pager.items != nil, items.isEmpty, provisional.isEmpty {
-            Text("这个库还没有内容。\n" + (permissions.canManageLibraries
-                ? "点右上角菜单里的「扫描库」把已有影片识别入库；订阅内容下载完成后也会自动进来。"
-                : "订阅内容下载并入库后会显示在这里。"))
+            Text(String(localized: .libraryDetailEmpty) + "\n" + (permissions.canManageLibraries
+                ? String(localized: .libraryDetailEmptyAdminHint)
+                : String(localized: .libraryDetailEmptyMemberHint)))
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .padding(.top, 64)
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
         } else {
             if !photoWall { filterControls }
             VStack(alignment: .leading, spacing: 0) {
@@ -493,7 +510,8 @@ struct LibraryDetailView: View {
                 }
             }
             .padding(.top, 16)
-            .padding(.trailing, effectiveSort == "title" && !galleryOn && !index.isEmpty ? 14 : 0)
+            // 给右侧 A–Z 条让位；iPad 宽窗口页边距 32 已经装得下它，不再让（让了海报就比首页横排的窄一截）
+            .padding(.trailing, !cards.isWide && effectiveSort == "title" && !galleryOn && !index.isEmpty ? 14 : 0)
         }
     }
 
@@ -510,7 +528,7 @@ struct LibraryDetailView: View {
                 onShowAllCollections: { view = .collections }
             )
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 16)
     }
 
@@ -527,9 +545,9 @@ struct LibraryDetailView: View {
             let posters = items.filter { $0.primaryAspect < 1 }
             let thumbs = items.filter { $0.primaryAspect >= 1 }
             if !posters.isEmpty, !thumbs.isEmpty {
-                sectionTitle("海报")
+                sectionTitle(String(localized: .libraryDetailPosterMode))
                 grid(posters, wide: false, showRating: showRating)
-                sectionTitle("缩略图").padding(.top, 24)
+                sectionTitle(String(localized: .libraryFormThumbnails)).padding(.top, 24)
                 grid(thumbs, wide: true, showRating: showRating)
             } else {
                 grid(items, wide: posters.isEmpty, showRating: showRating)
@@ -544,18 +562,18 @@ struct LibraryDetailView: View {
 
     private func sectionTitle(_ text: String) -> some View {
         Text(text).font(.headline).foregroundStyle(.white.opacity(0.85))
-            .padding(.horizontal, Theme.pagePadding).padding(.bottom, 12)
+            .padding(.horizontal, cards.edge).padding(.bottom, 12)
     }
 
     private func grid(_ items: [API.LibraryItemView], wide: Bool, showRating: Bool) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: wide ? 160 : 140), spacing: 12, alignment: .top)], alignment: .leading, spacing: 20) {
+        LazyVGrid(columns: cards.wallColumns(extra: wide ? 20 : 0), alignment: .leading, spacing: 20) {
             ForEach(items) { item in
                 LibraryInventoryCell(item: item, libraryId: libraryId, frameAspect: wide ? 16 / 9 : Theme.posterAspect,
                                      showRating: showRating, working: workingLabel(item))
             }
         }
         .scrollTargetLayout()
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .accessibilityIdentifier("poster-wall")
     }
 
@@ -563,25 +581,25 @@ struct LibraryDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("未识别 \(provisional.count)").font(.headline).foregroundStyle(.white.opacity(0.85))
-                    Text("按文件名展示，可以直接播放；认领身份后会并入上方的正式条目。")
+                    Text(String(localized: .libraryDetailUnidentifiedCount(provisional.count))).font(.headline).foregroundStyle(.white.opacity(0.85))
+                    Text(String(localized: .libraryDetailUnidentifiedHint))
                         .font(.caption).foregroundStyle(Theme.textMuted)
                 }
                 Spacer()
                 if permissions.canManageLibraries {
-                    Button("去待处理认领") { issueTab = IssueSheet(tab: "unidentified") }
+                    Button(String(localized: .libraryDetailAssignInIssues)) { issueTab = IssueSheet(tab: "unidentified") }
                         .font(.footnote.weight(.semibold))
                         .buttonStyle(.glass)
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12, alignment: .top)], alignment: .leading, spacing: 20) {
+            .padding(.horizontal, cards.edge)
+            LazyVGrid(columns: cards.wallColumns(extra: 20), alignment: .leading, spacing: 20) {
                 ForEach(provisional) { item in
                     LibraryInventoryCell(item: item, libraryId: libraryId, frameAspect: 16 / 9,
-                                         working: probing && item.probePendingCount > 0 ? "正在读取规格" : nil)
+                                         working: probing && item.probePendingCount > 0 ? String(localized: .libraryDetailReadingSpecs) : nil)
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
         }
         .padding(.top, 32)
     }
@@ -590,9 +608,9 @@ struct LibraryDetailView: View {
     private func workingLabel(_ item: API.LibraryItemView) -> String? {
         if let phase = metaRefresh?.active.first(where: { $0.mediaItemId == item.mediaItemId })?.phase { return phase }
         if let job = activeJobs.first(where: { $0.resources.contains { $0.resourceType == "media_item" && $0.resourceId == String(item.mediaItemId) } }) {
-            return "\(job.status == "blocked" ? "需要处理" : "后台任务") · \(job.progress.message)"
+            return (job.status == "blocked" ? String(localized: .libraryDetailNeedsAttention) : String(localized: .libraryDetailBackgroundTasks)) + " · " + job.progress.message
         }
-        return probing && item.probePendingCount > 0 ? "正在读取规格" : nil
+        return probing && item.probePendingCount > 0 ? String(localized: .libraryDetailReadingSpecs) : nil
     }
 
     // MARK: ⋯ 菜单
@@ -601,13 +619,13 @@ struct LibraryDetailView: View {
         let running = library.map { $0.scanning || $0.organizing } == true || refreshingMeta
         return Menu {
             if permissions.canManageLibraries, let library {
-                Button("待处理\(pendingCount > 0 ? " \(pendingCount)" : "")") { issueTab = IssueSheet(tab: pendingTab) }
+                Button(String(localized: .libraryDetailPendingMenu) + (pendingCount > 0 ? " \(pendingCount)" : "")) { issueTab = IssueSheet(tab: pendingTab) }
                 Divider()
                 let stoppable = library.scanning && library.scanProgress?.phase != "reidentifying"
                 Button(scanLabel(library, stoppable: stoppable)) { toggleScan(library) }
                     .disabled((busy && !library.scanning) || (library.scanning && !stoppable))
                 if library.capabilities.naming {
-                    Button(library.organizing ? "整理中…\(percent(library.organizeProgress).map { " \($0)%" } ?? "")" : "整理文件名") {
+                    Button(library.organizing ? String(localized: .libraryDetailOrganizingMenu) + (percent(library.organizeProgress).map { " \($0)%" } ?? "") : String(localized: .libraryActionsOrganize)) {
                         notice = nil
                         organizing = true
                     }
@@ -618,15 +636,15 @@ struct LibraryDetailView: View {
                     Button(chapterJobLabel(library.chapterJob)) { askingChapters = true }
                         .disabled(busy || library.chapterJob != nil)
                 }
-                Button("编辑库") { editing = true }.disabled(busy)
+                Button(String(localized: .libraryActionsEdit)) { editing = true }.disabled(busy)
                 Divider()
             }
             if library?.capabilities.playable == true, view == .items || galleryOn {
-                Button(galleryOn ? "回到海报墙" : "图床浏览") { gallery.galleryMode.toggle() }
+                Button(galleryOn ? String(localized: .libraryDetailBackToPosters) : String(localized: .libraryDetailGalleryView)) { gallery.setGalleryMode(!galleryOn, libraryId: libraryId) }
             }
             if view == .collections {
                 // 只要 ⋯ 在、处于合集视图就给（同 Web：showHiddenCollections 只看视图，不看身份）
-                Button(showHiddenCollections ? "不显示已隐藏的合集" : "显示已隐藏的合集") { showHiddenCollections.toggle() }
+                Button(showHiddenCollections ? String(localized: .libraryDetailHideHiddenCollections) : String(localized: .libraryDetailShowHiddenCollections)) { showHiddenCollections.toggle() }
             }
             if galleryOn || photoWall {
                 GalleryPrefMenuItems(showsGrouping: galleryOn)
@@ -637,7 +655,7 @@ struct LibraryDetailView: View {
                     if running { Circle().fill(Theme.info).frame(width: 6, height: 6).offset(x: 6, y: -4) }
                 }
         }
-        .accessibilityLabel("更多操作")
+        .accessibilityLabel(String(localized: .libraryDetailMoreActions))
         .accessibilityIdentifier("library-actions")
     }
 
@@ -647,25 +665,25 @@ struct LibraryDetailView: View {
     }
 
     private func scanLabel(_ library: API.LibraryView, stoppable: Bool) -> String {
-        if !library.scanning { return "扫描库" }
-        if stoppable { return "停止扫描\(percent(library.scanProgress).map { " \($0)%" } ?? "")" }
+        if !library.scanning { return String(localized: .libraryActionsScan) }
+        if stoppable { return String(localized: .libraryDetailStopScan) + (percent(library.scanProgress).map { " \($0)%" } ?? "") }
         return "\(ScanPhase.label(library.scanProgress?.phase))…"
     }
 
     private func metaLabel(_ library: API.LibraryView) -> String {
         if refreshingMeta, let meta = metaRefresh {
-            return "停止刷新\(meta.total > 0 ? " \(meta.processed)/\(meta.total)" : "")"
+            return String(localized: .libraryDetailStopRefresh) + (meta.total > 0 ? " \(meta.processed)/\(meta.total)" : "")
         }
-        return library.capabilities.scraped ? "刷新元数据" : library.capabilities.playable ? "重新读取 NFO 与封面" : "重新生成封面"
+        return library.capabilities.scraped ? String(localized: .libraryStatusRefreshing) : library.capabilities.playable ? String(localized: .libraryActionsRereadNfo) : String(localized: .libraryConfirmRegenerateCover)
     }
 
     private func chapterJobLabel(_ job: API.ChapterJobView?) -> String {
-        guard let job else { return "生成章节" }
-        if job.stopping { return "正在停止生成章节" }
+        guard let job else { return String(localized: .libraryStatusGenerateChapters) }
+        if job.stopping { return String(localized: .libraryStatusStoppingChapters) }
         // cancelling 也算运行中（同 Web chapterJobRunning）
-        if !["running", "cancelling"].contains(job.status) { return "生成章节排队中" }
-        guard job.total > 0 else { return "正在生成章节" }
-        return "正在生成章节 \(min(100, Int((Double(job.processed) / Double(job.total) * 100).rounded())))%"
+        if !["running", "cancelling"].contains(job.status) { return String(localized: .libraryStatusChaptersQueued) }
+        guard job.total > 0 else { return String(localized: .libraryStatusChaptersRunning) }
+        return String(localized: .libraryStatusChapterPercent(min(100, Int((Double(job.processed) / Double(job.total) * 100).rounded()))))
     }
 
     static func bullets(_ lead: String, _ items: [String]) -> String {
@@ -679,13 +697,13 @@ struct LibraryDetailView: View {
                 if library.scanning {
                     _ = try await api.libraryScanStop(libraryId: libraryId)
                 } else {
-                    let ok = await feedback.confirm("扫描「\(library.name)」？", message: Self.bullets("本次扫描会检查库文件夹的最新变化：", [
-                        "找出新增的影片文件，自动识别并加入媒体库",
-                        "标记已经不在硬盘上的文件（记录保留，文件回来自动恢复）",
-                        "为新入库的影片补齐简介、海报等信息",
-                        "首次扫描会读取每个文件的画质与音轨信息，文件多时较慢、可随时停止",
-                        "不会移动、修改或删除你的任何文件",
-                    ]), confirmTitle: "开始扫描")
+                    let ok = await feedback.confirm(String(localized: .libraryConfirmScanTitle(library.name)), message: Self.bullets(String(localized: .libraryConfirmScanIntro), [
+                        String(localized: .libraryConfirmScanNew),
+                        String(localized: .libraryConfirmScanMissing),
+                        String(localized: .libraryConfirmScanMetadata),
+                        String(localized: .libraryConfirmScanProbe),
+                        String(localized: .libraryConfirmScanSafe),
+                    ]), confirmTitle: String(localized: .libraryConfirmStartScan))
                     guard ok else { return }
                     _ = try await api.libraryScanStart(libraryId: libraryId)
                 }
@@ -707,20 +725,20 @@ struct LibraryDetailView: View {
                     let caps = library.capabilities
                     let ok: Bool
                     if !caps.scraped, caps.playable {
-                        ok = await feedback.confirm("重新读取「\(library.name)」的 NFO 与封面？", message: Self.bullets("本次会为库里的全部视频：", [
-                            "重新读取视频旁同名的 NFO 文件，标题、简介、系列等以 NFO 为准",
-                            "NFO 里写了系列（<set>）的，按库设置自动归进系列合集",
-                            "重新生成封面",
-                            "不联网，不会修改或删除你的文件",
-                        ]), confirmTitle: "开始读取")
+                        ok = await feedback.confirm(String(localized: .libraryConfirmReadLibraryTitle(library.name)), message: Self.bullets(String(localized: .libraryConfirmReadLibraryIntro), [
+                            String(localized: .libraryConfirmReadNfo),
+                            String(localized: .libraryConfirmNfoCollections("<set>")),
+                            String(localized: .libraryConfirmRegenerateCover),
+                            String(localized: .libraryConfirmReadSafe),
+                        ]), confirmTitle: String(localized: .libraryConfirmStartRead))
                     } else {
-                        ok = await feedback.confirm("刷新「\(library.name)」的元数据？", message: Self.bullets("本次刷新会为库里的全部影片：", [
-                            "重新获取最新的简介、评分、演职员和剧集信息",
-                            "海报或背景图有更新时重新下载（你手动锁定的不动）",
-                            "同步更新影片文件夹里的海报和 NFO 信息文件",
-                            "影片较多时需要一段时间，可随时停止",
-                            "不会移动、修改或删除你的视频文件",
-                        ]), confirmTitle: "开始刷新")
+                        ok = await feedback.confirm(String(localized: .libraryConfirmRefreshLibraryTitle(library.name)), message: Self.bullets(String(localized: .libraryConfirmRefreshLibraryIntro), [
+                            String(localized: .libraryConfirmRefreshDetails),
+                            String(localized: .libraryConfirmRefreshArtwork),
+                            String(localized: .libraryConfirmSyncSidecars),
+                            String(localized: .libraryConfirmRefreshTime),
+                            String(localized: .libraryConfirmVideoSafe),
+                        ]), confirmTitle: String(localized: .libraryConfirmStartRefresh))
                     }
                     guard ok else { return }
                     _ = try await api.libraryMetadataRefreshLibrary(libraryId: libraryId)
@@ -739,7 +757,7 @@ struct LibraryDetailView: View {
         Task {
             do {
                 _ = try await api.libraryChapterImagesGenerate(libraryId: libraryId, force: force)
-                feedback.success(force ? "已开始重新生成章节，可在任务中心查看进度" : "已开始生成章节，可在任务中心查看进度")
+                feedback.success(force ? String(localized: .libraryDetailRebuildChaptersStarted) : String(localized: .libraryDetailChaptersStarted))
                 await reload()
             } catch {
                 feedback.error(error)
@@ -970,7 +988,7 @@ private struct WallIndexBar: View {
                     // 滑选气泡：大字预览 + 该档作品数（指尖压着的字母被手指挡住，没有它等于盲选）
                     HStack(spacing: 8) {
                         Text(preview).font(.title.weight(.bold))
-                        Text(byInitial[preview].map { "\($0.count) 部" } ?? "无作品")
+                        Text(byInitial[preview].map { String(localized: .libraryStatusTitleCount($0.count)) } ?? String(localized: .libraryDetailNoTitles))
                             .font(.caption)
                             .foregroundStyle(Theme.textMuted)
                             .fixedSize()
@@ -986,7 +1004,7 @@ private struct WallIndexBar: View {
             .frame(maxHeight: .infinity)
             .padding(.trailing, 2)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("按首字母跳转")
+            .accessibilityLabel(String(localized: .libraryDetailJumpByInitial))
             .accessibilityIdentifier("wall-index-bar")
         }
         .frame(width: 22)

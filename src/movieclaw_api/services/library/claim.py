@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.exceptions import BadRequestException, NotFoundException
 from movieclaw_api.services import media_discover
+from movieclaw_api.services.library import acquisition
 from movieclaw_api.services.library.config import LibraryConfigService
 from movieclaw_api.services.library.layout import entry_dirs
 from movieclaw_api.services.library.nfo import read_entry_identity, rewrite_identity_nfo
@@ -31,10 +32,6 @@ from movieclaw_api.services.library.profile import profile_of
 from movieclaw_api.services.library.reanchor import migrate_watch_state
 from movieclaw_api.services.library.scan import RESOLVER_VERSION, entry_nfo_candidates
 from movieclaw_api.services.media_library import MediaLibraryService
-from movieclaw_api.services.subscription import (
-    close_fulfilled_wanted,
-    reopen_unfulfilled_wanted,
-)
 from movieclaw_db.models import Library, LibraryFile, MediaItem, utcnow
 from movieclaw_db.models.library_file import IdentitySource, UnidentifiedCode
 from movieclaw_db.repositories.library_file_repo import LibraryFileRepository
@@ -76,30 +73,35 @@ async def claim_files(
     if not rows:
         # 单个认领报出具体 id（便于排障），整组认领用集合措辞
         if len(file_ids) == 1:
-            raise NotFoundException(f"台账记录不存在：id={file_ids[0]}")
-        raise NotFoundException("这些台账记录都不存在（可能已被认领或忽略）")
+            raise NotFoundException(
+                message_key="errors.library.recordMissing", params={"id": file_ids[0]}
+            )
+        raise NotFoundException(message_key="errors.library.claimRecordsMissing")
     library_ids = {row.library_id for row in rows}
     if len(library_ids) > 1:
-        raise BadRequestException("一次只能认领同一个媒体库内的文件")
+        raise BadRequestException(message_key="errors.library.claimSameLibrary")
     library = await LibraryConfigService(session).get(rows[0].library_id)
     profile = profile_of(library)
     kind = profile.kind
     if not profile.scraped:
-        raise BadRequestException(f"「{library.name}」是本地内容库，其中的文件没有可认领的外部身份")
+        raise BadRequestException(
+            message_key="errors.library.localClaimUnsupported", params={"name": library.name}
+        )
     if target_kind is not None and target_kind is not kind:
         raise BadRequestException(
-            f"影视条目类型 {target_kind.value} 与媒体库类型 {kind.value} 不一致"
+            message_key="errors.library.claimKindMismatch",
+            params={"target": target_kind.value, "library": kind.value},
         )
     if explicit_unit is not None and kind is MediaKind.MOVIE and any(explicit_unit):
-        raise BadRequestException("电影文件不需要季集号")
+        raise BadRequestException(message_key="errors.library.movieEpisodeUnneeded")
     if season_override is not None and kind is MediaKind.MOVIE:
-        raise BadRequestException("电影文件不需要季号")
+        raise BadRequestException(message_key="errors.library.movieSeasonUnneeded")
     if (
         explicit_unit is None
         and season_override is None
         and any(row.unidentified_code == UnidentifiedCode.UNIT_UNRESOLVED for row in rows)
     ):
-        raise BadRequestException("这些文件解析不出季号，认领时请指定第几季")
+        raise BadRequestException(message_key="errors.library.claimSeasonRequired")
 
     # 经模块属性取 TMDB 客户端（而非 from-import 绑定名），保证测试可打桩
     tmdb = media_discover.get_tmdb_client()
@@ -116,13 +118,11 @@ async def claim_files(
         for row in rows
         if row.media_item_id is not None and row.media_item_id != item.id
     }
-    # 改挂走的文件原先是被哪个种子满足的——退回工单时要连同这份来源一起
-    # 拉黑，否则下一轮搜索会立刻再抓回同一个错种子（见 reopen 的文档）
-    lost_sources = {
-        (row.site_id, row.torrent_id)
-        for row in rows
-        if row.media_item_id in displaced and row.site_id and row.torrent_id
-    }
+    # 改挂走的文件：获取领域退回工单时据此找到原先满足它们的种子一并拉黑，
+    # 否则下一轮搜索会立刻再抓回同一个错种子
+    moved_file_ids = [
+        row.id for row in rows if row.id is not None and row.media_item_id in displaced
+    ]
     for row in rows:
         assert row.id is not None
         if explicit_unit is not None:
@@ -133,7 +133,11 @@ async def claim_files(
             if season_override is not None:
                 season_number = season_override
         # 改挂：观看状态随文件迁到新单元（临时本地身份转正、错挂纠正都适用）
-        if row.media_item_id is not None and row.media_item_id != item.id:
+        if row.media_item_id is not None and (
+            row.media_item_id,
+            row.season_number,
+            row.episode_number,
+        ) != (item.id, season_number or 0, episode_number or 0):
             await migrate_watch_state(
                 session,
                 (row.media_item_id, row.season_number, row.episode_number),
@@ -153,9 +157,9 @@ async def claim_files(
     # 库存对账（两个方向都要走）：认领让新条目的单元"在库"成立、关闭工单；
     # 被腾空的旧条目那边单元不再在库，工单必须退回——认领的语义是"这个文件
     # 不是那部片"，那部片的订阅就该继续去找，而不是抱着一个错文件当已完成
-    await close_fulfilled_wanted(session, item.id)
-    for displaced_id in displaced:
-        await reopen_unfulfilled_wanted(session, displaced_id, lost_sources=lost_sources)
+    await acquisition.current().identity_changed(
+        session, gained={item.id}, displaced=displaced, moved_file_ids=moved_file_ids
+    )
     await LibraryRepository(session).refresh_stats(library_ids)
     return item, len(rows), displaced
 
@@ -210,18 +214,18 @@ async def resolve_review(
     rows = [row for fid in file_ids if (row := await session.get(LibraryFile, fid))]
     pending = [row for row in rows if row.review_suggestion]
     if not pending:
-        raise NotFoundException("这些文件没有待拍板的复核建议（可能已被处理）")
+        raise NotFoundException(message_key="errors.library.reviewAlreadyHandled")
     accepted_items: set[int] = set()
     displaced: set[int] = set()
-    lost_sources: set[tuple[str, str]] = set()
+    moved_file_ids: list[int] = []
     title: str | None = None
     for row in pending:
         suggestion = row.review_suggestion or {}
         if accept and suggestion.get("media_item_id"):
             if row.media_item_id is not None and row.media_item_id != suggestion["media_item_id"]:
                 displaced.add(row.media_item_id)
-                if row.site_id and row.torrent_id:
-                    lost_sources.add((row.site_id, row.torrent_id))
+                if row.id is not None:
+                    moved_file_ids.append(row.id)
                 await migrate_watch_state(
                     session,
                     (row.media_item_id, row.season_number, row.episode_number),
@@ -237,9 +241,8 @@ async def resolve_review(
     await session.commit()
     # 库存对账（两个方向）：改挂让新条目的单元"在库"成立、关闭工单；
     # 被腾空的旧条目那边工单退回，原订阅继续去找（同 claim_files）
-    for item_id in accepted_items:
-        await close_fulfilled_wanted(session, item_id)
-    for displaced_id in displaced:
-        await reopen_unfulfilled_wanted(session, displaced_id, lost_sources=lost_sources)
+    await acquisition.current().identity_changed(
+        session, gained=accepted_items, displaced=displaced, moved_file_ids=moved_file_ids
+    )
     await LibraryRepository(session).refresh_stats({row.library_id for row in pending})
     return len(pending), title, displaced

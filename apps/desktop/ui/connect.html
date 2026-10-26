@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MovieClaw — 连接服务器</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #0f1923;
+    color: #e0e6ed;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+  }
+  .card {
+    background: #1a2736;
+    border: 1px solid #2a3f52;
+    border-radius: 12px;
+    padding: 40px;
+    width: 420px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .logo {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: #4fc3f7;
+  }
+  .subtitle {
+    font-size: 14px;
+    color: #7a8fa3;
+    margin-bottom: 32px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    color: #7a8fa3;
+    margin-bottom: 6px;
+  }
+  input {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #2a3f52;
+    border-radius: 6px;
+    background: #0f1923;
+    color: #e0e6ed;
+    font-size: 15px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  input:focus { border-color: #4fc3f7; }
+  .btn {
+    width: 100%;
+    padding: 12px;
+    margin-top: 20px;
+    border: none;
+    border-radius: 6px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary {
+    background: #1976d2;
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) { background: #1e88e5; }
+  .btn-secondary {
+    background: transparent;
+    color: #7a8fa3;
+    border: 1px solid #2a3f52;
+    margin-top: 10px;
+  }
+  .btn-secondary:hover:not(:disabled) { border-color: #4fc3f7; color: #4fc3f7; }
+  .status {
+    margin-top: 16px;
+    padding: 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    display: none;
+  }
+  .status.ok { display: block; background: #1b3a2a; color: #66bb6a; }
+  .status.err { display: block; background: #3a1b1b; color: #ef5350; }
+  .status.loading { display: block; background: #1a2736; color: #4fc3f7; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">MovieClaw</div>
+  <div class="subtitle">连接到您的媒体服务器</div>
+
+  <label for="server-url">服务器地址</label>
+  <input id="server-url" type="text" placeholder="http://192.168.1.100:3000" autocomplete="off">
+
+  <button class="btn btn-primary" id="btn-connect">连接</button>
+  <button class="btn btn-secondary" id="btn-probe">测试连接</button>
+  <button class="btn btn-secondary" id="btn-discover">局域网发现</button>
+
+  <div id="discovered-list" style="margin-top:12px;display:none"></div>
+  <div class="status" id="status"></div>
+</div>
+
+<script src="connect.js"></script>
+</body>
+</html>

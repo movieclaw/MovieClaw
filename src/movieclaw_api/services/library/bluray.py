@@ -110,13 +110,16 @@ def parse_mpls_playlist(data: bytes, *, path: Path = Path("unknown.mpls")) -> Mp
     失败只丢章节不丢列表——章节是可选元数据。
     """
     if len(data) < 20 or data[:4] != b"MPLS":
+        # i18n-ignore: parser diagnostic, logged only
         raise MplsParseError("文件签名不是 MPLS 或文件头过短")
     playlist_offset = int.from_bytes(data[8:12], "big")
     if playlist_offset + 10 > len(data):
+        # i18n-ignore: parser diagnostic, logged only
         raise MplsParseError("PlayList 偏移越界")
     section_length = int.from_bytes(data[playlist_offset : playlist_offset + 4], "big")
     section_end = playlist_offset + 4 + section_length
     if section_end > len(data):
+        # i18n-ignore: parser diagnostic, logged only
         raise MplsParseError("PlayList 长度越界")
     pos = playlist_offset + 4
     _require(pos, 6, section_end, "PlayList header", error=MplsParseError)
@@ -138,16 +141,20 @@ def parse_mpls_playlist(data: bytes, *, path: Path = Path("unknown.mpls")) -> Mp
             clip_id = clip_raw.decode("ascii")
             codec = codec_raw.decode("ascii")
         except UnicodeDecodeError as exc:
+            # i18n-ignore: parser diagnostic, logged only
             raise MplsParseError("PlayItem 标识不是 ASCII") from exc
         if not clip_id.isdigit() or codec != "M2TS":
+            # i18n-ignore: parser diagnostic, logged only
             raise MplsParseError("PlayItem 的 clip/codec 标识无效")
         in_time = int.from_bytes(data[item_start + 12 : item_start + 16], "big")
         out_time = int.from_bytes(data[item_start + 16 : item_start + 20], "big")
         if out_time < in_time:
+            # i18n-ignore: parser diagnostic, logged only
             raise MplsParseError("PlayItem 的 OUT_time 早于 IN_time")
         items.append(MplsPlayItem(clip_id=clip_id, in_time=in_time, out_time=out_time))
         pos = item_end
     if not items:
+        # i18n-ignore: parser diagnostic, logged only
         raise MplsParseError("播放列表没有 PlayItem")
     try:
         marks = _parse_playlist_marks(data, tuple(items))
@@ -169,10 +176,12 @@ def _parse_playlist_marks(data: bytes, items: tuple[MplsPlayItem, ...]) -> tuple
     if mark_offset == 0:
         return ()
     if mark_offset + 6 > len(data):
+        # i18n-ignore: parser diagnostic, logged only
         raise MplsParseError("PlayListMark 偏移越界")
     section_length = int.from_bytes(data[mark_offset : mark_offset + 4], "big")
     section_end = mark_offset + 4 + section_length
     if section_end > len(data):
+        # i18n-ignore: parser diagnostic, logged only
         raise MplsParseError("PlayListMark 长度越界")
     pos = mark_offset + 4
     _require(pos, 2, section_end, "PlayListMark header", error=MplsParseError)
@@ -362,17 +371,21 @@ def parse_clpi_languages(data: bytes) -> ClpiLanguages:
     宁可保持未知也不写入不确定结果。
     """
     if len(data) < 16:
+        # i18n-ignore: parser diagnostic, logged only
         raise ClpiParseError("文件头不足 16 字节")
     if data[:4] != b"HDMV":
+        # i18n-ignore: parser diagnostic, logged only
         raise ClpiParseError("文件签名不是 HDMV")
 
     program_offset = int.from_bytes(data[12:16], "big")
     if program_offset + 6 > len(data):
+        # i18n-ignore: parser diagnostic, logged only
         raise ClpiParseError("ProgramInfo 偏移越界")
 
     section_length = int.from_bytes(data[program_offset : program_offset + 4], "big")
     section_end = program_offset + 4 + section_length
     if section_end > len(data):
+        # i18n-ignore: parser diagnostic, logged only
         raise ClpiParseError("ProgramInfo 长度越界")
 
     pos = program_offset + 4
@@ -401,6 +414,7 @@ def parse_clpi_languages(data: bytes) -> ClpiLanguages:
             pos += 3
             _require(pos, coding_length, section_end, "StreamCodingInfo")
             if coding_length < 1:
+                # i18n-ignore: parser diagnostic, logged only
                 raise ClpiParseError("StreamCodingInfo 长度为 0")
 
             coding_type = data[pos]
@@ -480,19 +494,23 @@ def parse_clpi_entry_points(data: bytes) -> list[tuple[int, int]]:
     PID 最小的一路。
     """
     if len(data) < 20:
+        # i18n-ignore: parser diagnostic, logged only
         raise ClpiParseError("文件头不足 20 字节")
     if data[:4] != b"HDMV":
+        # i18n-ignore: parser diagnostic, logged only
         raise ClpiParseError("文件签名不是 HDMV")
     cpi_offset = int.from_bytes(data[16:20], "big")
     if cpi_offset == 0:
         return []
     if cpi_offset + 4 > len(data):
+        # i18n-ignore: parser diagnostic, logged only
         raise ClpiParseError("CPI 偏移越界")
     cpi_length = int.from_bytes(data[cpi_offset : cpi_offset + 4], "big")
     if cpi_length == 0:
         return []
     cpi_end = cpi_offset + 4 + cpi_length
     if cpi_end > len(data):
+        # i18n-ignore: parser diagnostic, logged only
         raise ClpiParseError("CPI 长度越界")
     # 2 字节：12 位保留 + 4 位 cpi_type；EP_map 内的相对地址以其后为基准
     ep_map_pos = cpi_offset + 4 + 2
@@ -584,11 +602,13 @@ def _require(
     pos: int, size: int, end: int, field: str, *, error: type[ValueError] = ClpiParseError
 ) -> None:
     if size < 0 or pos < 0 or pos + size > end:
+        # i18n-ignore: parser diagnostic, logged only
         raise error(f"{field} 数据越界")
 
 
 def _language_at(data: bytes, pos: int, end: int) -> str | None:
     if pos + 3 > end:
+        # i18n-ignore: parser diagnostic, logged only
         raise ClpiParseError("语言码数据越界")
     raw = data[pos : pos + 3]
     if not all(65 <= byte <= 90 or 97 <= byte <= 122 for byte in raw):

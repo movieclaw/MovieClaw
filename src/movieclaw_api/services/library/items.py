@@ -44,6 +44,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 from sqlmodel import select
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.media_labels import country_label, genre_label
 from movieclaw_api.schemas.library import (
     EpisodeView,
     FacetValueView,
@@ -58,6 +60,7 @@ from movieclaw_api.schemas.library import (
     RelaxSuggestionView,
     derive_air_status,
 )
+from movieclaw_api.services.drives import deletes as drive_deletes
 from movieclaw_api.services.library.access import ContentLimit
 from movieclaw_api.services.library.artwork import (
     ART_EXTS,
@@ -81,7 +84,7 @@ from movieclaw_api.services.library.nfo import (
     NfoActor,
 )
 from movieclaw_api.services.library.recycle import TRASH_DIR_NAME
-from movieclaw_api.services.library.sort_key import title_initial, title_sort_key
+from movieclaw_api.services.library.sort_key import prepare_titles, title_initial, title_sort_key
 from movieclaw_api.services.library.thumbs import primary_aspect
 from movieclaw_api.services.media_probe import (
     PROBE_SCHEMA_VERSION,
@@ -105,7 +108,7 @@ from movieclaw_db.models import (
     utcnow,
 )
 from movieclaw_db.repositories.library_repo import LibraryRepository
-from movieclaw_media.genres import country_label, genre_label, genre_names
+from movieclaw_media.genres import genre_names
 from movieclaw_media.models import MediaKind
 
 logger = logging.getLogger("movieclaw_api.library_items")
@@ -327,6 +330,10 @@ WallSort = Literal[
 #: 排序方向（2026-09-11 起可切换）。不给方向 = 该档的**自然方向**（见 ``_NATURAL_ASC``），
 #: 与加方向之前逐字等价——老调用方、合集的 sort、首页「最近添加」都不受影响。
 WallOrder = Literal["asc", "desc"]
+
+#: 按内容时间排序时索引条的分档粒度：month=按月（图片库/其他库的时间线）/
+#: year=按年（电视大库的年份跳转）
+IndexGranularity = Literal["month", "year"]
 
 #: 各档的自然方向是不是升序：标题 A→Z、片长短→长、上映正序档是升序；
 #: 其余都是「大的 / 新的 / 近的在前」。补探序是临时接管，方向无意义
@@ -732,6 +739,7 @@ async def _titles_sorted(
             .distinct()
         )
     ).all()
+    await prepare_titles(t for _, t in rows)
     # id 收尾：拼音串相同（同名不同条目）时顺序必须稳定，否则翻页会重复或漏项
     return sorted(
         ((i, t) for i, t in rows if i is not None), key=lambda r: (title_sort_key(r[1]), r[0])
@@ -747,6 +755,7 @@ async def build_library_index(
     member_id: int | None = None,
     content_limit: ContentLimit | None = None,
     order: WallOrder | None = None,
+    granularity: IndexGranularity = "month",
 ) -> list[tuple[str, int, int]]:
     """海报墙跳转索引：[(档, 条目数, 起始 offset)]，只回非空档。
 
@@ -754,7 +763,8 @@ async def build_library_index(
     - ``sort=rating``：评分档（9+ / 8+ / 7+ / 更低 / 未评分）；
     - ``sort=release_date``：按内容时间倒序下的月份分档（``2026-08``），缺日期的
       归到 ``未知`` 档并排在最后——图片库/其他库的时间线靠它按月分组与跳转
-      （docs/design/library-photo-kind.md 2.6）。
+      （docs/design/library-photo-kind.md 2.6）。``granularity="year"`` 时改为按年
+      分档（``2026``）：几千部的电影库按月有上百档，电视上的索引条选不过来。
 
     起始 offset 就是海报墙 ``?sort=<同一排序>&offset=`` 的取值——前端点一下
     档名即可跳到该档第一格；两种排序与分页共用同一份排序，口径天然一致。
@@ -788,8 +798,11 @@ async def build_library_index(
         ).all()
         for index, (_, measure) in enumerate(r for r in rows if r[0] is not None):
             if sort == "release_date":
-                label = measure.strftime("%Y-%m") if measure else "未知"
+                fmt = "%Y" if granularity == "year" else "%Y-%m"
+                # i18n-ignore: index bucket protocol values
+                label = measure.strftime(fmt) if measure else "未知"
             elif measure is None:
+                # i18n-ignore: index bucket protocol values
                 label = "未评分"
             elif measure >= 9:
                 label = "9+"
@@ -798,6 +811,7 @@ async def build_library_index(
             elif measure >= 7:
                 label = "7+"
             else:
+                # i18n-ignore: index bucket protocol values
                 label = "更低"
             if buckets and buckets[-1][0] == label:
                 head, count, start = buckets[-1]
@@ -821,12 +835,13 @@ async def build_library_index(
 
 
 #: 观看维度的四个候选值与展示名（前三者是一个划分，见 WatchFilter）
-_WATCH_LABELS: list[tuple[WatchFilter, str]] = [
-    ("unwatched", "未看"),
-    ("watching", "在看"),
-    ("played", "已看完"),
-    ("favorite", "我收藏的"),
-]
+def _watch_labels() -> list[tuple[WatchFilter, str]]:
+    return [
+        ("unwatched", t("library.facets.unwatched")),
+        ("watching", t("library.facets.watching")),
+        ("played", t("library.facets.played")),
+        ("favorite", t("library.facets.favorite")),
+    ]
 
 
 def _facet_scope(
@@ -981,8 +996,8 @@ async def _second_tier_facets(
         member_id,
         "stock",
         [
-            ("missing", "文件失联", LibraryFilter(stock=("missing",))),
-            ("unscraped", "没刮到档案", LibraryFilter(stock=("unscraped",))),
+            ("missing", t("library.facets.missing"), LibraryFilter(stock=("missing",))),
+            ("unscraped", t("library.facets.unscraped"), LibraryFilter(stock=("unscraped",))),
         ],
         content_limit,
     )
@@ -1115,7 +1130,7 @@ async def build_library_facets(
                 break
 
     watch_counts: list[tuple[str, str, int]] = []
-    for value, label in _WATCH_LABELS:
+    for value, label in _watch_labels():
         count = (
             await session.execute(
                 select(func.count(func.distinct(LibraryFile.media_item_id)))
@@ -1154,7 +1169,11 @@ async def build_library_facets(
         ],
         # 年代按时间倒序（_DECADE_RANGES 本就是这个顺序），空档也回
         decades=[
-            FacetValueView(value=key, label="更早" if key == "earlier" else key, count=count)
+            FacetValueView(
+                value=key,
+                label=t("library.facets.earlier") if key == "earlier" else key,
+                count=count,
+            )
             for key, count in decade_counts.items()
         ],
         watch=[FacetValueView(value=v, label=lb, count=c) for v, lb, c in watch_counts],
@@ -1163,17 +1182,17 @@ async def build_library_facets(
 
 
 #: 维度名 → 展示名（放宽建议的文案用）
-_DIM_LABELS = {
-    "genres": "类型",
-    "countries": "地区",
-    "decades": "年代",
-    "watch": "观看",
-    "rating_gte": "评分",
-    "runtimes": "片长",
-    "languages": "语言",
-    "resolutions": "画质",
-    "hdr": "动态范围",
-    "stock": "库存",
+_DIM_MESSAGE_KEYS = {
+    "genres": "library.filters.genres",
+    "countries": "library.filters.regions",
+    "decades": "library.filters.decades",
+    "watch": "library.filters.watch",
+    "rating_gte": "library.filters.rating",
+    "runtimes": "library.filters.runtime",
+    "languages": "library.filters.language",
+    "resolutions": "library.filters.quality",
+    "hdr": "library.filters.dynamicRange",
+    "stock": "library.filters.stock",
 }
 
 #: 放宽建议要逐个取值评估的「多值」维度（单值的 watch / rating_gte / hdr 另处理）
@@ -1187,15 +1206,17 @@ _RELAX_LIST_DIMS = (
     "stock",
 )
 
+
 #: 二级维度里那些取值本身不可读的档位，展示名与「更多筛选」面板保持一致
-_RELAX_VALUE_LABELS = {
-    "lte60": "≤ 60′",
-    "60to90": "60–90′",
-    "90to120": "90–120′",
-    "gt120": "> 120′",
-    "missing": "文件失联",
-    "unscraped": "没刮到档案",
-}
+def _relax_value_labels() -> dict[str, str]:
+    return {
+        "lte60": "≤ 60′",
+        "60to90": "60–90′",
+        "90to120": "90–120′",
+        "gt120": "> 120′",
+        "missing": t("library.facets.missing"),
+        "unscraped": t("library.facets.unscraped"),
+    }
 
 
 async def _count_matching(
@@ -1261,7 +1282,7 @@ async def build_library_relax(
         left = await _count_matching(session, library_id, trimmed, member_id, content_limit)
         rows.append((dim, str(current), left))
 
-    watch_labels = dict(_WATCH_LABELS)
+    watch_labels = dict(_watch_labels())
 
     def _label(dim: str, value: str) -> str:
         if dim == "genres":
@@ -1269,14 +1290,14 @@ async def build_library_relax(
         if dim == "countries":
             return country_label(value)
         if dim == "decades":
-            return "更早" if value == "earlier" else value
+            return t("library.facets.earlier") if value == "earlier" else value
         if dim == "watch":
             return watch_labels.get(value, value)  # type: ignore[arg-type]
         if dim == "rating_gte":
             return f"≥ {float(value):g}"
         if dim == "hdr":
             return "HDR" if value == "True" else "SDR"
-        return _RELAX_VALUE_LABELS.get(value, value)
+        return _relax_value_labels().get(value, value)
 
     best = sorted((r for r in rows if r[2] > 0), key=lambda r: -r[2])[:3]
     return LibraryRelaxView(
@@ -1284,7 +1305,7 @@ async def build_library_relax(
         suggestions=[
             RelaxSuggestionView(
                 dim=dim,
-                dim_label=_DIM_LABELS.get(dim, dim),
+                dim_label=t(_DIM_MESSAGE_KEYS[dim]) if dim in _DIM_MESSAGE_KEYS else dim,
                 value=value,
                 label=_label(dim, value),
                 count=count,
@@ -1432,6 +1453,7 @@ async def sort_item_ids(
                 select(MediaItem.id, MediaItem.title).where(MediaItem.id.in_(list(ids)))  # type: ignore[attr-defined]
             )
         ).all()
+        await prepare_titles(t for _, t in rows)
         ordered = [
             i
             for i, _ in sorted(
@@ -1759,14 +1781,17 @@ async def build_kind_genres(
         "genres",
         content_limit=content_limit,
     )
-    own = genre_names(kind)
-    other = genre_names("tv" if kind == "movie" else "movie")
+    other_kind = "tv" if kind == "movie" else "movie"
+    own, other = genre_names(kind), genre_names(other_kind)
     views: list[LibraryKindGenreView] = []
     for value, count in sorted(rows, key=lambda r: (-r[1], r[0])):
         if count <= 0 or not value.lstrip("-").isdigit():
             continue
-        label = own.get(int(value)) or other.get(int(value))
-        if label:
+        genre_id = int(value)
+        # 名字按读者语言（与筛选面板同一张目录）；两张表都不认的 id 丢掉
+        source = kind if genre_id in own else other_kind if genre_id in other else None
+        if source is not None:
+            label = genre_label(source, genre_id)
             views.append(LibraryKindGenreView(value=value, label=label, count=count))
     await _assign_genre_covers(session, library_ids, views, member_id, content_limit)
     return views
@@ -2427,7 +2452,7 @@ async def build_gallery_groups(
                     kind="poster",
                     url=poster_url,
                     aspect=primary_aspect(item, width, height),
-                    label="海报",
+                    label=t("library.gallery.poster"),
                 )
             )
         if backdrop_file:
@@ -2439,7 +2464,10 @@ async def build_gallery_groups(
         if backdrop_url:
             images.append(
                 LibraryGalleryImageView(
-                    kind="backdrop", url=backdrop_url, aspect=_LANDSCAPE_ASPECT, label="剧照"
+                    kind="backdrop",
+                    url=backdrop_url,
+                    aspect=_LANDSCAPE_ASPECT,
+                    label=t("library.gallery.backdrop"),
                 )
             )
         is_tv = item.kind == "tv"
@@ -2459,7 +2487,12 @@ async def build_gallery_groups(
                             kind="still",
                             url=still_url,
                             aspect=_LANDSCAPE_ASPECT,
-                            label=f"第 {episode} 集" + (f" · {name}" if name else ""),
+                            label=t(
+                                "library.gallery.episode",
+                                episode=episode,
+                                name="yes" if name else "no",
+                                title=name,
+                            ),
                             season=season,
                             episode=episode,
                         )
@@ -2479,7 +2512,8 @@ async def build_gallery_groups(
                         kind="chapter",
                         url=f"/images/assets/{rel}?v={asset_version(rel)}",
                         aspect=_LANDSCAPE_ASPECT,
-                        label=chapter.title or f"章节 {chapter.index + 1}",
+                        label=chapter.title
+                        or t("library.gallery.chapter", index=chapter.index + 1),
                         season=season if is_tv else None,
                         episode=episode if is_tv else None,
                         t_seconds=(frame_ms if frame_ms is not None else chapter.start_ms) / 1000,
@@ -2661,6 +2695,28 @@ class EpisodeInfo:
     position_ms: int = 0
     played: bool = False
     progress_percent: int | None = None  # 1~99；完成态由 played 单独表达
+    last_played_at: datetime | None = None  # 只供 season_resume_episode 定锚点，不出接口
+
+
+def season_resume_episode(infos: list[EpisodeInfo]) -> int | None:
+    """这一季「接着看」的那一集：分集区按它锁定集段、默认选中它。
+
+    与首页「接下来继续」同一条规则（``services/playback_up_next``）：锚点是本季
+    最近播放的那一集；它没看完（或看完后重看到一半）就是它，看完了就往后找第一个
+    没看完且有片源的。往后都看完了停在锚点本身——不回头去找当年跳过的某一集，
+    长剧里「第一个没看过的」可能在几百集之前。本季没播放过返回 None（客户端
+    落第一集没看过的）。
+    """
+    played = [info for info in infos if info.last_played_at is not None]
+    if not played:
+        return None
+    anchor = max(played, key=lambda info: (info.last_played_at, info.episode_number))
+    for info in infos:
+        if info.episode_number < anchor.episode_number or not info.owned:
+            continue
+        if not info.played or info.position_ms > 0:
+            return info.episode_number
+    return anchor.episode_number
 
 
 def episode_view(info: EpisodeInfo) -> EpisodeView:
@@ -2823,6 +2879,7 @@ async def build_season_episodes(
                 continue
             info.played = row.played
             info.position_ms = row.position_ms
+            info.last_played_at = row.last_played_at
             if row.position_ms > 0:
                 # 百分比的分母与首页「最近观看」同口径：在位文件实测时长优先，
                 # 其次分集刮削时长；clamp 到 1~99——完成态由 played 单独表达
@@ -3050,11 +3107,14 @@ async def backfill_streams(
         # 新增帧率/色彩空间后，历史行两列同时为空时允许整库扫描补探一次。
         # 正常视频至少能取得其中一项，避免个别元数据缺失的文件每轮重复 ffprobe。
         needs_visual_details = row.frame_rate is None and row.color_space is None
+        # 光盘镜像早先按整个镜像探，蓝光镜像多半没认出视频：改探盘内正片后重探一次
+        needs_image = row.container == "iso" and row.video_codec is None
         if (
             row.audio_streams is not None
             and not needs_clpi
             and not needs_disc
             and not needs_visual_details
+            and not needs_image
         ) or row.state != FileState.IN_PLACE:
             if not await keep_going():
                 break
@@ -3297,8 +3357,8 @@ async def delete_item_files(
 
     for row in files:
         path = Path(row.file_path)
-        if row.state == FileState.MISSING:
-            continue  # 无磁盘实体，最后统一清账
+        if row.state == FileState.MISSING or _virtual_cloud_row(row):
+            continue  # 无磁盘实体（缺失、纳管来的只在网盘上的文件），最后统一清账
         if row.state == FileState.TRASHED:
             # 待回收行按单文件清理：moved 形态的路径在 .movieclaw-trash 里，
             # 绝不能让回收站目录被当作条目目录整删（会卷走其他条目的回收文件）
@@ -3325,7 +3385,7 @@ async def delete_item_files(
             assert row.id is not None
             files_to_remove[row.id] = path
         else:
-            result.errors.append(f"「{path}」不在库根路径之内，已跳过（不删库外文件）")
+            result.errors.append(t("library.delete.outsideRoots", path=str(path)))
 
     deleted_row_ids: set[int] = set()
     by_id = {row.id: row for row in files}
@@ -3343,10 +3403,17 @@ async def delete_item_files(
             deleted_row_ids.add(row_id)
             result.freed_bytes += by_id[row_id].size_bytes
         for row in files:
-            if row.state == FileState.MISSING:
+            if row.state == FileState.MISSING or _virtual_cloud_row(row):
                 assert row.id is not None
                 deleted_row_ids.add(row.id)
         result.rows_deleted = len(deleted_row_ids)
+        return result
+
+    # 网盘上的副本先删（cloud-storage.md §10）：没删掉就整件事不做，不留网盘孤儿
+    planned = [row.id for row in files if row.id is not None]
+    cloud_error = await drive_deletes.delete_cloud_copies(planned)
+    if cloud_error is not None:
+        result.errors.append(cloud_error)
         return result
 
     for directory in dirs_to_remove:
@@ -3365,9 +3432,9 @@ async def delete_item_files(
             result.freed_bytes += row.size_bytes
 
     # 缺失行没有磁盘实体，账直接清（待回收行不在此列——它有实体，
-    # 删除失败必须保留行，否则"账没了文件还在"，扫描会重新收编）
+    # 删除失败必须保留行，否则"账没了文件还在"，扫描会重新收编）；纳管来的只在网盘上的行同理
     for row in files:
-        if row.state == FileState.MISSING:
+        if row.state == FileState.MISSING or _virtual_cloud_row(row):
             assert row.id is not None
             deleted_row_ids.add(row.id)
 
@@ -3430,10 +3497,18 @@ async def delete_single_file(
 
     result = DeleteResult()
     assert library.id is not None
-    if dry_run and row.state == FileState.MISSING:
+    no_disk_entity = row.state == FileState.MISSING or _virtual_cloud_row(row)
+    if dry_run and no_disk_entity:
         result.rows_deleted = 1
         return result
-    if row.state == FileState.MISSING:
+    if not dry_run:
+        # 网盘上的副本先删（cloud-storage.md §10）：没删掉就不动台账与本地
+        assert row.id is not None
+        cloud_error = await drive_deletes.delete_cloud_copies([row.id])
+        if cloud_error is not None:
+            result.errors.append(cloud_error)
+            return result
+    if no_disk_entity:
         await session.delete(row)
         result.rows_deleted = 1
         if before_commit is not None:
@@ -3446,7 +3521,7 @@ async def delete_single_file(
     path = Path(row.file_path)
     roots = [Path(p) for p in library.root_paths]
     if not _safe_inside_roots(path, roots):
-        result.errors.append(f"「{path}」不在库根路径之内，已跳过（不删库外文件）")
+        result.errors.append(t("library.delete.outsideRoots", path=str(path)))
         return result
 
     # 原盘目录形态整树删除前查台账：监听导入按站点原始目录结构落盘，
@@ -3454,9 +3529,7 @@ async def delete_single_file(
     if path.is_dir():
         assert row.id is not None
         if await _dir_holds_other_rows(session, library.id, path, row.id):
-            result.errors.append(
-                f"「{path}」目录内还有其他在案文件（可能是新入库的版本），已跳过整目录删除"
-            )
+            result.errors.append(t("library.delete.otherFilesInFolder", path=str(path)))
             return result
 
     if dry_run:
@@ -3484,6 +3557,13 @@ async def delete_single_file(
             "；".join(result.removed_paths),
         )
     return result
+
+
+def _virtual_cloud_row(row: LibraryFile) -> bool:
+    """纳管来的、只在网盘上的行：台账路径是主根下隐藏目录里的虚拟位置，本地没有这个文件。"""
+    from movieclaw_api.services.library.cloud import CLOUD_DIR_NAME
+
+    return not row.local_bytes and CLOUD_DIR_NAME in Path(row.file_path).parts
 
 
 def _like_prefix(prefix: str) -> str:
@@ -3570,7 +3650,9 @@ def _discard_tree(directory: Path, staging: _TrashStaging, result: DeleteResult)
     """整删条目目录（同步，放线程池）。"""
     error = _discard_one(directory, staging)
     if error is not None:
-        result.errors.append(f"删除目录失败：{directory}（{error}）")
+        result.errors.append(
+            t("library.delete.folderFailed", path=str(directory), error=str(error))
+        )
         return False
     result.removed_paths.append(str(directory))
     return True
@@ -3598,7 +3680,7 @@ def _discard_file_with_sidecars(path: Path, staging: _TrashStaging, result: Dele
     """
     error = _discard_one(path, staging)
     if error is not None:
-        result.errors.append(f"删除文件失败：{path}（{error}）")
+        result.errors.append(t("library.delete.fileFailed", path=str(path), error=str(error)))
         return False
     result.removed_paths.append(str(path))
 
@@ -3619,7 +3701,9 @@ def _discard_file_with_sidecars(path: Path, staging: _TrashStaging, result: Dele
     for sidecar in sidecars:
         error = _discard_one(sidecar, staging)
         if error is not None:
-            result.errors.append(f"删除附属文件失败：{sidecar}（{error}）")
+            result.errors.append(
+                t("library.delete.sidecarFailed", path=str(sidecar), error=str(error))
+            )
         else:
             result.removed_paths.append(str(sidecar))
     return True

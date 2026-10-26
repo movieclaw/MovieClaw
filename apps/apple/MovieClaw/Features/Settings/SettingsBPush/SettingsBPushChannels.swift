@@ -1,11 +1,14 @@
 import SwiftUI
 
-// IM 推送 →「接入通道」标签（对应 Web `ChannelsTab` + `AddChannelMenu` + `ChannelAccountRowView`）。
+// IM 推送页（对应 Web `ImPushSection` + `AddChannelMenu` + `ChannelAccountRowView`）。
+//
+// 「推什么」不在这里：IM 只是通知的一个渠道，和手机 App 一样按「设置 → 通知」的开关推
+// （docs/design/cloud-push.md §5）。这里只管接了哪些账号，外加一键测试推送。
 //
 // 通道来自通道插件（docs/design/plugin-channels.md）：列表、新增菜单、绑定弹层都按 `GET /channels`
 // 返回的通道渲染，不认识具体平台。提供某个通道的插件关掉 / 卸载了，它的账号照常列出、标「插件未启用」。
 
-/// 「接入通道」的全部 Section
+/// IM 推送页的全部 Section
 struct SettingsBPushChannelsSections: View {
     @Environment(\.api) private var api
     @Environment(Feedback.self) private var feedback
@@ -15,6 +18,7 @@ struct SettingsBPushChannelsSections: View {
     @State private var rows: [API.ChannelAccountView]?
     @State private var error: String?
     @State private var busy = false
+    @State private var pushBusy = false
     /// 正在绑定的通道（nil = 没开弹层）
     @State private var binding: API.ChannelView?
     private var probe: LLMCapabilityProbe { .shared }
@@ -34,8 +38,8 @@ struct SettingsBPushChannelsSections: View {
                         binding = nil
                         feedback.success(
                             channel.receive
-                                ? "\(channel.title) 已接入，现在就可以给它发消息试试"
-                                : "\(channel.title) 已接入，推送会发到那里"
+                                ? String(localized: .settingsImChannelsBoundChat(channel.title))
+                                : String(localized: .settingsImChannelsBoundPush(channel.title))
                         )
                         Task { await load() }
                     }
@@ -44,17 +48,21 @@ struct SettingsBPushChannelsSections: View {
             // 前置门禁：对话完全由模型驱动，未接入模型时隐藏新增入口并引导
             if probe.state == .missing {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("接入 AI 模型后即可解锁通道中的 AI 对话能力。")
+                    Text(String(localized: .settingsPushChannelsNeedModel))
                         .font(.footnote)
                         .foregroundStyle(Theme.textMuted)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
-                    Button("去接入") { router.push(.settingsSection(.llm)) }
+                    Button(String(localized: .settingsLlmConnectModel)) { router.push(.settingsSection(.llm)) }
                         .font(.footnote.weight(.medium))
                         .buttonStyle(.borderless)
                         .accessibilityIdentifier("push-llm-setup")
                 }
             }
+            NavigationLink(value: AppRoute.settingsSection(.notifications)) {
+                Label(String(localized: .settingsPushChannelsWhich), systemImage: SettingsSection.notifications.systemImage)
+            }
+            .accessibilityIdentifier("push-notifications-link")
             if let error {
                 SettingsBNotice(text: error, tone: .danger)
                     .accessibilityIdentifier("push-channels-error")
@@ -79,7 +87,7 @@ struct SettingsBPushChannelsSections: View {
             }
         } header: {
             HStack {
-                Text(rows == nil ? "加载中…" : rows!.isEmpty ? "还没有接入任何通道。" : "已接入 \(rows!.count) 个账号。")
+                Text(rows == nil ? String(localized: .commonLoadingProgress) : rows!.isEmpty ? String(localized: .settingsPushChannelsNone) : String(localized: .settingsPushChannelsAccounts(rows!.count)))
                     .accessibilityIdentifier("push-channels-count")
                 Spacer()
                 if !addable.isEmpty {
@@ -87,6 +95,24 @@ struct SettingsBPushChannelsSections: View {
                 }
             }
             .textCase(nil)
+        }
+
+        // 测试推送：验证已接入通道确实能收到消息
+        if let rows, !rows.isEmpty {
+            SettingsFormSection {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(String(localized: .settingsImChannelsTestLabel)).font(.body.weight(.medium))
+                        Text(String(localized: .settingsImChannelsTestDescription)).font(.caption).foregroundStyle(Theme.textFaint)
+                    }
+                    Spacer(minLength: 8)
+                    SettingsBAsyncButton(String(localized: .settingsWebhookUiSendTest)) { await testPush() }
+                        .font(.subheadline.weight(.medium))
+                        .buttonStyle(.glass)
+                        .disabled(pushBusy)
+                        .accessibilityIdentifier("push-test")
+                }
+            }
         }
     }
 
@@ -97,7 +123,9 @@ struct SettingsBPushChannelsSections: View {
 
     private var intro: some View {
         let code: (String) -> Text = { Text(" \($0) ").font(.caption.monospaced()).foregroundStyle(Theme.text) }
-        return Text("接入的通道都是推送目标；能对话的通道里还能直接和 AI 助手聊：发消息即可搜片、订阅、查进度。发送\(code("/reset"))重置会话，\(code("/stop"))取消正在进行的处理。通道由插件提供，可以在网页的「设置 → 插件」里安装更多通道。")
+        let lead: Text = Text(String(localized: .settingsPushChannelsIntroLead)) + code("/reset")
+        let rest: Text = Text(String(localized: .settingsPushChannelsIntroMiddle)) + code("/stop")
+        return (lead + rest + Text(String(localized: .settingsPushChannelsIntroTail)))
             .font(.footnote)
             .foregroundStyle(Theme.textMuted)
             .fixedSize(horizontal: false, vertical: true)
@@ -110,7 +138,7 @@ struct SettingsBPushChannelsSections: View {
                 Button {
                     binding = channel
                 } label: {
-                    Text("新增 \(channel.title) 通道")
+                    Text(String(localized: .settingsImChannelsAddNamed(channel.title)))
                     if !channel.description.isEmpty {
                         Text(channel.description)
                     }
@@ -118,7 +146,7 @@ struct SettingsBPushChannelsSections: View {
                 .accessibilityIdentifier("push-add-\(channel.id)")
             }
         } label: {
-            Label("新增通道", systemImage: "plus")
+            Label(String(localized: .settingsImChannelsAdd), systemImage: "plus")
                 .font(.footnote.weight(.semibold))
         }
         .buttonStyle(.glass)
@@ -133,10 +161,10 @@ struct SettingsBPushChannelsSections: View {
                 .foregroundStyle(Theme.textMuted)
                 .frame(width: 48, height: 48)
                 .background(Color.white.opacity(0.06), in: .rect(cornerRadius: 14))
-            Text("还没有接入任何通道").font(.body.weight(.medium))
+            Text(String(localized: .settingsImChannelsEmpty)).font(.body.weight(.medium))
             Text(channels.isEmpty
-                 ? "没有可用的通道：到网页的「设置 → 插件」看看通道插件是否都关掉了。"
-                 : "点击右上角「新增通道」，支持\(channels.map(\.title).joined(separator: "、"))。")
+                 ? String(localized: .settingsPushChannelsNoneAvailable)
+                 : String(localized: .settingsPushChannelsAddHint(AppFormatting.list(channels.map(\.title)))))
                 .font(.footnote)
                 .foregroundStyle(Theme.textMuted)
                 .multilineTextAlignment(.center)
@@ -153,15 +181,15 @@ struct SettingsBPushChannelsSections: View {
 
     private func accountRow(_ row: API.ChannelAccountView) -> some View {
         let badge: (text: String, tone: SettingsBTone) = !row.channelAvailable
-            ? ("插件未启用", .neutral)
+            ? (String(localized: .settingsImChannelsPluginDisabled), .neutral)
             : row.status == "stale"
-                ? ("需重新绑定", .danger)
-                : row.running ? ("运行中", .ok) : ("未运行", .neutral)
+                ? (String(localized: .settingsImChannelsStale), .danger)
+                : row.running ? (String(localized: .settingsMcpControlsRunning), .ok) : (String(localized: .settingsImChannelsStopped), .neutral)
         let detail: String = !row.channelAvailable
-            ? "提供这个通道的插件已关闭或卸载，账号保留，重新启用后自动恢复"
+            ? String(localized: .settingsImChannelsDisabledDescription)
             : row.status == "stale"
-                ? (row.lastError ?? "凭据已失效，请重新绑定")
-                : "\(row.boundUserId ?? row.displayName) · 绑定于 \(SettingsBFormat.relative(row.boundAt))"
+                ? (row.lastError ?? String(localized: .settingsImChannelsStaleDescription))
+                : String(localized: .settingsImChannelsBoundAt(row.boundUserId ?? row.displayName, SettingsBFormat.relative(row.boundAt)))
         return HStack(spacing: 12) {
             Image(systemName: "bubble.left.and.text.bubble.right")
                 .font(.body)
@@ -188,7 +216,7 @@ struct SettingsBPushChannelsSections: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: 8)
-            Button("解绑") {
+            Button(String(localized: .settingsImChannelsUnbind)) {
                 Task { await unbind(row) }
             }
             .font(.subheadline.weight(.medium))
@@ -212,7 +240,7 @@ struct SettingsBPushChannelsSections: View {
         } catch is CancellationError {
         } catch let failure as APIError where failure.status == 404 {
             // 服务器还没有通用的通道接口（插件化之前的版本）
-            error = "服务器版本较旧，升级 MovieClaw 后即可在这里管理通道。"
+            error = String(localized: .settingsPushChannelsServerOld)
             rows = []
         } catch {
             self.error = error.localizedDescription
@@ -220,11 +248,22 @@ struct SettingsBPushChannelsSections: View {
         }
     }
 
+    private func testPush() async {
+        pushBusy = true
+        defer { pushBusy = false }
+        do {
+            let result = try await api.channelsImPushTest(body: .init(text: ""))
+            feedback.success(String(localized: .settingsPushChannelsTestSent(result["sent"]?.intValue ?? 0)))
+        } catch {
+            feedback.error(error.localizedDescription)
+        }
+    }
+
     private func unbind(_ row: API.ChannelAccountView) async {
         guard await feedback.confirm(
-            "解绑该 \(title(of: row)) 账号？",
-            message: "解绑后停止收发、删除凭据，需要重新绑定才能使用；历史对话保留。",
-            confirmTitle: "解绑",
+            String(localized: .settingsImChannelsUnbindTitle(title(of: row))),
+            message: String(localized: .settingsImChannelsUnbindDescription),
+            confirmTitle: String(localized: .settingsImChannelsUnbind),
             destructive: true
         ) else { return }
         busy = true

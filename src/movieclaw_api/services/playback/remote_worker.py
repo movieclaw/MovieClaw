@@ -25,7 +25,12 @@ from typing import Any
 
 from starlette.websockets import WebSocket
 
-from movieclaw_api.services.playback.ffmpeg_args import WorkerVideoCaps
+from movieclaw_api.i18n.stored import reference, source_render
+from movieclaw_api.services.playback.ffmpeg_args import (
+    HW_BACKENDS,
+    WorkerVideoCaps,
+    effective_hw_backend,
+)
 from movieclaw_api.services.playback.remote_config import (
     RemoteTranscodeRuntimeConfig,
     remote_transcode_issues,
@@ -42,7 +47,12 @@ WORKER_IDLE_TIMEOUT_S = 45.0
 JOB_ACCEPT_TIMEOUT_S = 8.0
 LOAD_TIMEOUT_S = 15.0
 _WORKER_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$")
-_SUPPORTED_BACKENDS = frozenset({"videotoolbox"})
+#: 远程 Worker 允许申报的硬件后端，按派单优先级排：videotoolbox（Mac）在前，nvenc
+#: （Windows 的 CUDA 链）其次。hello 里申报其他名字一律丢弃。**远程后端名单只在这里**：
+#: 播放决策、会话层的起步失败切远程、离线导出、Jellyfin 兼容层都从这里取。再加一种
+#: 后端 = 在这里加名字，并给那条命令链做真片矩阵（docs/design/remote-transcode.md §7）。
+REMOTE_BACKENDS: tuple[str, ...] = ("videotoolbox", "nvenc")
+_SUPPORTED_BACKENDS = frozenset(REMOTE_BACKENDS)
 #: HLS 分片类型，取值同 ffmpeg ``-hls_segment_type``（见 ffmpeg_args.segment_type）。
 _SUPPORTED_SEGMENT_TYPES = frozenset({"fmp4", "mpegts"})
 #: 没申报 ``hw_decoders`` 的旧版 Worker 只按这两种算能硬解：所有支持的 Apple 芯片
@@ -51,19 +61,27 @@ _DEFAULT_HW_DECODERS = ("h264", "hevc")
 
 
 class RemoteWorkerUnavailable(RuntimeError):
-    """没有可接单的远程 Worker。"""
+    """没有可接单的远程 Worker。``ref`` 是原因的文案引用，``str()`` 是中文原文。"""
+
+    def __init__(self, key: str, /, **params) -> None:
+        self.ref = reference(key, **params)
+        super().__init__(source_render(self.ref))
 
 
 def describe_job_failure(message: dict[str, Any]) -> str:
     """把 Worker 上报的任务失败压成一行：原因、ffmpeg 退出码、stderr 最后三行。"""
+    # i18n-ignore: worker protocol text, logs and programming invariants
     parts = [str(message.get("error") or "未说明原因").strip()]
     exit_code = message.get("exit_code")
     # Worker 的错误文案常常本身就是「ffmpeg 退出码：N」，别再重复一遍
+    # i18n-ignore: worker protocol text, logs and programming invariants
     if isinstance(exit_code, int) and not isinstance(exit_code, bool) and "退出码" not in parts[0]:
+        # i18n-ignore: worker protocol text, logs and programming invariants
         parts.append(f"ffmpeg 退出码 {exit_code}")
     stderr_tail = message.get("stderr_tail")
     if isinstance(stderr_tail, str) and stderr_tail.strip():
         lines = [line.strip() for line in stderr_tail.strip().splitlines() if line.strip()]
+        # i18n-ignore: worker protocol text, logs and programming invariants
         parts.append(f"stderr 末尾：{' | '.join(lines[-3:])[-600:]}")
     return "；".join(parts)
 
@@ -162,6 +180,9 @@ class RemoteWorkerRegistry:
         self._progress_samples: dict[str, tuple[float, int]] = {}
         self._job_speeds: dict[str, tuple[float, int, float]] = {}
         self._paused_jobs: set[str] = set()
+        #: 可被播放挤掉的任务（离线下载的转码导出）：播放视角下它们占的名额算空闲，
+        #: 真要派播放任务时由会话层先停掉它（session.py ``_evict_export_for_remote``）
+        self._preemptible_jobs: set[str] = set()
 
     # -- Worker 生命周期 -------------------------------------------------
 
@@ -177,9 +198,11 @@ class RemoteWorkerRegistry:
         """校验 hello 并登记 Worker；同 ID 的旧连接会被替换。"""
         raw_worker_id = hello.get("worker_id")
         if not isinstance(raw_worker_id, str):
+            # i18n-ignore: worker protocol text, logs and programming invariants
             raise ValueError("worker_id 必须是字符串")
         worker_id = raw_worker_id.strip()
         if not _WORKER_ID.fullmatch(worker_id):
+            # i18n-ignore: worker protocol text, logs and programming invariants
             raise ValueError("worker_id 为空或包含不支持的字符")
         capabilities = self._parse_capabilities(hello.get("capabilities"))
         connection = WorkerConnection(
@@ -206,9 +229,10 @@ class RemoteWorkerRegistry:
             previous = self._workers.get(worker_id)
             if previous is not None:
                 logger.warning("远程 Worker %s 重复连接，关闭旧连接", worker_id)
-                self._mark_jobs_lost(previous, "远程 Worker 连接已替换")
+                self._mark_jobs_lost(previous, reference("player.worker.replaced"))
             self._workers[worker_id] = connection
         if previous is not None:
+            # i18n-ignore: worker protocol text, logs and programming invariants
             await self._close_quietly(previous.websocket, code=1012, reason="连接已替换")
         logger.info(
             "远程转码 Worker 已上线：%s（版本=%s 平台=%s ffmpeg=%s 并发=%d 后端=%s 分片=%s）",
@@ -229,7 +253,7 @@ class RemoteWorkerRegistry:
             if current is not connection:
                 return
             self._workers.pop(connection.worker_id, None)
-            lost_jobs = self._mark_jobs_lost(connection, "远程 Worker 已断开连接")
+            lost_jobs = self._mark_jobs_lost(connection, reference("player.worker.disconnected"))
         # 带上被判失败的任务 ID：Worker 崩在半路时，用户先看到的是「播放失败」，
         # 而这一行是把那次失败和这台 Worker 的掉线对上号的唯一凭据。
         logger.warning(
@@ -252,6 +276,7 @@ class RemoteWorkerRegistry:
             self._job_speeds.clear()
             self._paused_jobs.clear()
         for connection in workers:
+            # i18n-ignore: worker protocol text, logs and programming invariants
             await self._close_quietly(connection.websocket, code=1001, reason="服务端关闭")
 
     def connected_login_device_ids(self) -> set[int]:
@@ -265,7 +290,7 @@ class RemoteWorkerRegistry:
                 c.login_device_id for c in self._workers.values() if c.login_device_id is not None
             }
 
-    async def disconnect_device(self, login_device_id: int, reason: str) -> int:
+    async def disconnect_device(self, login_device_id: int, reason: dict) -> int:
         """断开用某台登录设备的凭证连上来的 Worker（注销转码器时调用），返回断开数。"""
         with self._lock:
             victims = [
@@ -276,10 +301,12 @@ class RemoteWorkerRegistry:
                 self._workers.pop(connection.worker_id, None)
         for connection in victims:
             logger.warning("远程转码 Worker %s 的凭证已被注销，断开连接", connection.worker_id)
-            await self._close_quietly(connection.websocket, code=1008, reason=reason)
+            await self._close_quietly(
+                connection.websocket, code=1008, reason=source_render(reason)
+            )
         return len(victims)
 
-    async def disconnect_all(self, reason: str) -> None:
+    async def disconnect_all(self, reason: dict) -> None:
         """配置变更时断开所有 Worker，使旧令牌不再保持有效连接。"""
         with self._lock:
             workers = list(self._workers.values())
@@ -289,17 +316,70 @@ class RemoteWorkerRegistry:
             self._job_workers.clear()
             self._job_attempts.clear()
         for connection in workers:
-            await self._close_quietly(connection.websocket, code=1012, reason=reason)
+            await self._close_quietly(
+                connection.websocket, code=1012, reason=source_render(reason)
+            )
 
     # -- 能力与状态 ------------------------------------------------------
 
     def has_capable_worker(
-        self, backend: str = "videotoolbox", segment_type: str = "fmp4", *, disc: bool = False
+        self,
+        backend: str = "videotoolbox",
+        segment_type: str = "fmp4",
+        *,
+        disc: bool = False,
+        strict: bool = False,
     ) -> bool:
-        """同步查询是否有能执行指定后端、回传指定分片类型（原盘还要能读原盘）的空闲 Worker。"""
+        """同步查询是否有能执行指定后端、回传指定分片类型（原盘还要能读原盘）的空闲 Worker。
+
+        默认是播放视角：离线导出占着的名额算空闲（播放来了它让路）。``strict`` 只认真正
+        空着的名额——离线导出自己排队时用，不能把别的导出当成可挤掉的。"""
         if not remote_worker_enabled():
             return False
-        return self._select_worker(backend, segment_type, disc=disc) is not None
+        return (
+            self._select_worker(backend, segment_type, disc=disc, yield_preemptible=not strict)
+            is not None
+        )
+
+    def workers_have_encoder(self, encoder: str, backend: str = "videotoolbox") -> bool:
+        with self._lock:
+            workers = [
+                c
+                for c in self._workers.values()
+                if backend in c.capabilities.backends and self._is_fresh(c)
+            ]
+            return bool(workers) and all(encoder in c.capabilities.encoders for c in workers)
+
+    def preemptible_job_for(
+        self, backend: str = "videotoolbox", segment_type: str = "fmp4", *, disc: bool = False
+    ) -> str | None:
+        """播放要派任务、却只剩被离线导出占着的名额：返回该让路的导出任务号。
+
+        有真正空着的名额就返回 None——不为了播放白白打断导出。"""
+        if not remote_worker_enabled():
+            return None
+        with self._lock:
+            if self._select_worker(backend, segment_type, disc=disc) is not None:
+                return None
+            connection = self._select_worker(
+                backend, segment_type, disc=disc, yield_preemptible=True
+            )
+            if connection is None:
+                return None
+            return next(iter(sorted(connection.jobs & self._preemptible_jobs)), None)
+
+    def any_worker_can_run(self, plan: PlaybackPlan, backend: str) -> bool:
+        """在线 Worker 里有没有一台按**它自己申报的能力**装得出这条计划的硬件链。
+
+        不能拿 NAS 本机的自检结论代答：同名后端在两边是两块硬件、两个 ffmpeg 构建
+        （NAS 插着 NVIDIA 卡、远程也是 Windows NVENC）。"""
+        with self._lock:
+            caps = [
+                connection.capabilities.video_caps
+                for connection in self._workers.values()
+                if backend in connection.capabilities.backends and self._is_fresh(connection)
+            ]
+        return any(effective_hw_backend(plan, backend, item) is not None for item in caps)
 
     def has_busy_worker(self, backend: str = "videotoolbox") -> bool:
         """有能执行这个后端的 Worker 在线，只是任务名额都占满了（正在排空的不算）。
@@ -312,7 +392,8 @@ class RemoteWorkerRegistry:
         with self._lock:
             return any(
                 backend in connection.capabilities.backends
-                and len(connection.jobs) >= connection.max_jobs
+                # 离线导出占着的名额播放来了就让出来，不算「满」
+                and len(connection.jobs - self._preemptible_jobs) >= connection.max_jobs
                 and not connection.draining
                 and self._is_fresh(connection)
                 for connection in self._workers.values()
@@ -402,11 +483,11 @@ class RemoteWorkerRegistry:
         with self._lock:
             queue = self._job_events.get(job_id)
         if queue is None:
-            raise RemoteWorkerUnavailable("远程任务等待器不存在")
+            raise RemoteWorkerUnavailable("player.worker.waiterMissing")
         try:
             return await asyncio.wait_for(queue.get(), timeout=timeout)
         except TimeoutError as exc:
-            raise RemoteWorkerUnavailable("远程 Worker 接单超时") from exc
+            raise RemoteWorkerUnavailable("player.worker.acceptTimeout") from exc
 
     def reserve(
         self,
@@ -419,6 +500,7 @@ class RemoteWorkerRegistry:
         plan: PlaybackPlan | None = None,
         source_id: int | None = None,
         learn_speed: bool = False,
+        preemptible: bool = False,
     ) -> WorkerConnection:
         """选一个空闲 Worker 并占住槽位，返回它的连接。
 
@@ -434,27 +516,25 @@ class RemoteWorkerRegistry:
         """
         with self._lock:
             if job_id in self._job_workers:
-                raise RemoteWorkerUnavailable("远程任务已存在")
+                raise RemoteWorkerUnavailable("player.worker.jobExists")
             connection = self._select_worker(
                 backend, segment_type, disc=disc, plan=plan, source_id=source_id
             )
             if connection is None:
                 if disc and self._select_worker(backend, segment_type) is not None:
-                    raise RemoteWorkerUnavailable(
-                        "在线的 Worker 版本过旧，不支持原盘，"
-                        "请把 MovieClaw 转码器更新到与服务端相同的版本"
-                    )
+                    raise RemoteWorkerUnavailable("player.worker.discTooOld")
                 if segment_type != "fmp4" and self._select_worker(backend) is not None:
                     raise RemoteWorkerUnavailable(
-                        f"在线的 Worker 版本过旧，不支持 {segment_type} 分片，"
-                        "请把 MovieClaw 转码器更新到与服务端相同的版本"
+                        "player.worker.segmentTooOld", type=segment_type
                     )
-                raise RemoteWorkerUnavailable("没有在线且空闲的 Apple VideoToolbox Worker")
+                raise RemoteWorkerUnavailable("player.worker.noneIdle", backend=backend)
             self._job_workers[job_id] = connection.worker_id
             self._job_attempts[job_id] = (
                 attempt_id if isinstance(attempt_id, str) and attempt_id else job_id
             )
             connection.jobs.add(job_id)
+            if preemptible:
+                self._preemptible_jobs.add(job_id)
             if plan is not None and source_id is not None and learn_speed:
                 self._job_profiles[job_id] = self._profile(plan, source_id)
         return connection
@@ -475,7 +555,7 @@ class RemoteWorkerRegistry:
         except Exception as exc:  # noqa: BLE001
             self._release_job(job_id)
             logger.warning("下发远程任务失败：worker=%s job=%s", connection.worker_id, job_id)
-            raise RemoteWorkerUnavailable("无法向远程 Worker 下发任务") from exc
+            raise RemoteWorkerUnavailable("player.worker.dispatchFailed") from exc
         return connection.worker_id
 
     async def cancel(self, job_id: str, *, force: bool = False) -> None:
@@ -655,15 +735,18 @@ class RemoteWorkerRegistry:
         disc: bool = False,
         plan: PlaybackPlan | None = None,
         source_id: int | None = None,
+        yield_preemptible: bool = False,
     ) -> WorkerConnection | None:
+        """``yield_preemptible``：把离线导出占着的名额也算空闲（播放视角）。"""
         with self._lock:
+            preemptible = self._preemptible_jobs if yield_preemptible else set()
             candidates = [
                 connection
                 for connection in self._workers.values()
                 if backend in connection.capabilities.backends
                 and segment_type in connection.capabilities.segment_types
                 and (not disc or connection.capabilities.disc_sources)
-                and len(connection.jobs) < connection.max_jobs
+                and len(connection.jobs - preemptible) < connection.max_jobs
                 and not connection.draining
                 and self._is_fresh(connection)
             ]
@@ -722,6 +805,7 @@ class RemoteWorkerRegistry:
                 except Exception:  # noqa: BLE001
                     # 服务器设置已保存；断开后握手会重新同步，不保留半同步的连接。
                     await self.unregister(c)
+                    # i18n-ignore: worker protocol text, logs and programming invariants
                     await self._close_quietly(c.websocket, code=1012, reason="配置同步失败")
 
     @staticmethod
@@ -738,6 +822,7 @@ class RemoteWorkerRegistry:
             v.codec,
             v.action,
             v.bitrate_cap_bps,
+            v.dolby_vision,
             plan.container,
             plan.audio,
         )
@@ -813,12 +898,13 @@ class RemoteWorkerRegistry:
             self._progress_samples.pop(job_id, None)
             self._job_speeds.pop(job_id, None)
             self._paused_jobs.discard(job_id)
+            self._preemptible_jobs.discard(job_id)
             if worker_id:
                 connection = self._workers.get(worker_id)
                 if connection is not None:
                     connection.jobs.discard(job_id)
 
-    def _mark_jobs_lost(self, connection: WorkerConnection, error: str) -> list[str]:
+    def _mark_jobs_lost(self, connection: WorkerConnection, error: dict) -> list[str]:
         """把某条连接上的任务统一标为失败，并释放 Worker 槽位。"""
         with self._lock:
             lost_jobs = [
@@ -836,7 +922,13 @@ class RemoteWorkerRegistry:
                 self._paused_jobs.discard(job_id)
                 self.publish_job_event(
                     job_id,
-                    {"type": "job.failed", "job_id": job_id, "error": error},
+                    # 失败原因是服务端自己的话：带上引用，会话诊断按读者语言渲染
+                    {
+                        "type": "job.failed",
+                        "job_id": job_id,
+                        "error": source_render(error),
+                        "error_ref": error,
+                    },
                 )
         return lost_jobs
 
@@ -855,8 +947,8 @@ class RemoteWorkerRegistry:
         encoders = tuple(
             item for item in raw.get("encoders", []) if isinstance(item, str)
         )
-        if "videotoolbox" in backends and "h264_videotoolbox" not in encoders:
-            backends = tuple(item for item in backends if item != "videotoolbox")
+        # 申报了后端却没有它的 H.264 编码器：这条链装不起来，当没申报
+        backends = tuple(item for item in backends if HW_BACKENDS[item].encoder in encoders)
         try:
             max_jobs = max(1, min(4, int(raw.get("max_jobs", 1))))
         except (TypeError, ValueError):
@@ -873,6 +965,7 @@ class RemoteWorkerRegistry:
                 return None
             return tuple(item for item in value if isinstance(item, str) and item)
 
+        declared_decoders = names("hw_decoders")
         return WorkerCapabilities(
             backends=backends,
             encoders=encoders,
@@ -885,7 +978,8 @@ class RemoteWorkerRegistry:
             # 没声明（旧版 Worker）按只会 fMP4 处理，见字段注释
             segment_types=segment_types or ("fmp4",),
             disc_sources=raw.get("disc_sources") is True,
-            hw_decoders=names("hw_decoders") or _DEFAULT_HW_DECODERS,
+            # 声明了空列表 = 这块显卡什么都硬解不了（NAS 整段软解）；没声明才是旧版 Worker
+            hw_decoders=_DEFAULT_HW_DECODERS if declared_decoders is None else declared_decoders,
             filters=names("filters") or (),
             progressive_segments=raw.get("progressive_segments") is True,
             read_options=names("read_options") or (),
@@ -943,10 +1037,43 @@ def effective_remote_transcode_config() -> RemoteTranscodeRuntimeConfig:
 
 
 def remote_worker_available(
-    backend: str = "videotoolbox", segment_type: str = "fmp4", *, disc: bool = False
+    backend: str = "videotoolbox",
+    segment_type: str = "fmp4",
+    *,
+    disc: bool = False,
+    strict: bool = False,
 ) -> bool:
-    """供播放决策/执行层同步查询远程硬件是否在线且有空闲槽位（``disc``：还要能读原盘）。"""
-    return _registry.has_capable_worker(backend, segment_type, disc=disc)
+    """供播放决策/执行层同步查询远程硬件是否在线且有空闲槽位（``disc``：还要能读原盘）。
+
+    离线导出占着的槽位对播放算空闲（播放来了它让路）；``strict`` 只认真正空着的。"""
+    return _registry.has_capable_worker(backend, segment_type, disc=disc, strict=strict)
+
+
+def remote_backends_available(
+    segment_type: str = "fmp4", *, disc: bool = False, strict: bool = False
+) -> tuple[str, ...]:
+    """有在线且有空闲名额的 Worker 的远程后端，按 ``REMOTE_BACKENDS`` 的优先级。参数同
+    ``remote_worker_available``。"""
+    return tuple(
+        backend
+        for backend in REMOTE_BACKENDS
+        if remote_worker_available(backend, segment_type, disc=disc, strict=strict)
+    )
+
+
+def remote_backend_can_run(plan: PlaybackPlan, backend: str) -> bool:
+    """有在线 Worker 按它申报的能力装得出这条计划的硬件链（见 ``any_worker_can_run``）。"""
+    return _registry.any_worker_can_run(plan, backend)
+
+
+def any_remote_worker_busy() -> bool:
+    """任一远程后端在线但名额全满（见 ``RemoteWorkerRegistry.has_busy_worker``）。"""
+    return any(remote_worker_busy(backend) for backend in REMOTE_BACKENDS)
+
+
+def remote_workers_have_encoder(encoder: str, backend: str = "videotoolbox") -> bool:
+    """在线、能执行这个后端的 Worker 都申报了这个编码器（任务派给谁由调度定，得人人都有）。"""
+    return _registry.workers_have_encoder(encoder, backend)
 
 
 def remote_worker_busy(backend: str = "videotoolbox") -> bool:

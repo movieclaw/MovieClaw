@@ -56,8 +56,8 @@ struct UpgradeTaskBadge: View {
 
     var body: some View {
         if TaskCenter.isUpgradeTask(task) {
-            TaskTag(text: "洗版", color: Color(red: 0x2D / 255, green: 0xD4 / 255, blue: 0xBF / 255))
-                .accessibilityHint("洗版任务：这些集库里已有旧版本，本次下载完成并校验后替换")
+            TaskTag(text: String(localized: .activityTaskCenterUpgrade), color: Color(red: 0x2D / 255, green: 0xD4 / 255, blue: 0xBF / 255))
+                .accessibilityHint(String(localized: .activityTaskCenterUpgradeHint))
         }
     }
 }
@@ -73,10 +73,10 @@ private struct DownloadTaskActionsMenu: View {
         if task.pageUrl != nil || task.downloaderId != nil {
             Menu {
                 if let page = task.pageUrl, let url = URL(string: page) {
-                    Button("打开种子页", systemImage: "safari") { openURL(url) }
+                    Button(String(localized: .activityTaskCenterTorrentPage), systemImage: "safari") { openURL(url) }
                 }
                 if task.downloaderId != nil {
-                    Button("删除任务", systemImage: "trash", role: .destructive) { onDelete(task) }
+                    Button(String(localized: .activityTaskCenterDeleteAction), systemImage: "trash", role: .destructive) { onDelete(task) }
                 }
             } label: {
                 Image(systemName: "ellipsis")
@@ -86,7 +86,7 @@ private struct DownloadTaskActionsMenu: View {
                     .contentShape(.rect)
             }
             .disabled(busy)
-            .accessibilityLabel("\(TaskCenter.nonEmpty(task.name) ?? task.infoHash)的更多操作")
+            .accessibilityLabel(String(localized: .activityJobsMoreActions(TaskCenter.nonEmpty(task.name) ?? task.infoHash)))
             .accessibilityIdentifier("download-actions-\(task.infoHash)")
         }
     }
@@ -104,7 +104,7 @@ struct EpisodeUnitsLabel: View {
         if let summary = TaskCenter.summarizeEpisodeUnits(units) {
             let upgrade = purpose == "upgrade"
             let doneKeys = Set(units.filter { upgrade ? $0.replaced : $0.status == "imported" }.map { "\($0.seasonNumber):\($0.episodeNumber)" })
-            let doneWord = upgrade ? "已替换" : "已入库"
+            let doneWord = upgrade ? String(localized: .activityTaskCenterReplaced) : String(localized: .activityTaskCenterImported)
             if summary.isMovie || summary.episodeCount <= 1 {
                 HStack(spacing: 0) {
                     Text(summary.label)
@@ -119,7 +119,8 @@ struct EpisodeUnitsLabel: View {
                         HStack(spacing: 4) {
                             Text(summary.label).lineLimit(1)
                             if !doneKeys.isEmpty {
-                                Text(upgrade ? "（已完成 \(doneKeys.count) 集替换）" : "（有 \(doneKeys.count) 集已入库）")
+                                Text(upgrade ? String(localized: .activityTaskCenterDoneReplacedEpisodes(doneKeys.count))
+                                     : String(localized: .activityTaskCenterDoneImportedEpisodes(doneKeys.count)))
                                     .foregroundStyle(Theme.success).fixedSize()
                             }
                             Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).opacity(0.45)
@@ -129,14 +130,14 @@ struct EpisodeUnitsLabel: View {
                         .expandedHitArea(vertical: 12)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("覆盖 \(summary.episodeCount) 集：\(summary.fullLabel)。展开查看全部集号")
+                    .accessibilityLabel(String(localized: .activityTaskCenterEpisodeCoverage(summary.episodeCount, summary.fullLabel)))
                     if open {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(summary.seasons, id: \.season) { season in
                                 VStack(alignment: .leading, spacing: 6) {
                                     HStack(spacing: 6) {
                                         Text("S\(TaskCenter.pad2(season.season))").fontWeight(.medium).foregroundStyle(Theme.textMuted)
-                                        Text("共 \(season.episodes.count) 集").foregroundStyle(Theme.textFaint)
+                                        Text(String(localized: .activityTaskCenterSeasonEpisodes(season.episodes.count))).foregroundStyle(Theme.textFaint)
                                     }
                                     DiscoverFlowLayout(spacing: 5, lineSpacing: 5) {
                                         ForEach(season.episodes, id: \.self) { episode in
@@ -152,7 +153,7 @@ struct EpisodeUnitsLabel: View {
                                 }
                             }
                             if summary.seasons.count > 1 {
-                                Text("合计 \(summary.episodeCount) 集").font(.caption2).foregroundStyle(Theme.textFaint)
+                                Text(String(localized: .activityTaskCenterTotalEpisodes(summary.episodeCount))).font(.caption2).foregroundStyle(Theme.textFaint)
                                     .frame(maxWidth: .infinity, alignment: .trailing)
                             }
                         }
@@ -211,7 +212,7 @@ struct DownloadLifecycleView: View {
         }
         .padding(.top, 10)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("任务完整过程")
+        .accessibilityLabel(String(localized: .activityTaskCenterLifecycleAria))
     }
 
     @ViewBuilder private func stepDot(_ tone: TaskCenter.StepTone) -> some View {
@@ -272,12 +273,12 @@ struct DownloadTaskGroupCard: View {
                         .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.white.opacity(0.1)))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(group.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text.opacity(0.9)).lineLimit(1)
-                        Text("\(group.kind == "tv" ? "剧集" : "电影") · \(group.tasks.count) 个下载资源")
+                        Text("\(String(localized: group.kind == "tv" ? .mediaKindTv : .mediaKindMovie)) · \(String(localized: .activityTaskCenterReleaseCount(group.tasks.count)))")
                             .font(.caption).foregroundStyle(Theme.textFaint)
                     }
                     Spacer(minLength: 0)
                     if let subscription {
-                        Button("查看订阅") { router.open(.subscription(id: subscription.id)) }
+                        Button(String(localized: .activityTaskCenterViewSubscription)) { router.open(.subscription(id: subscription.id)) }
                             .font(.caption.weight(.medium))
                             .buttonStyle(.glass)
                     }
@@ -339,7 +340,7 @@ struct DownloadTaskCard: View {
             }
             HStack(spacing: 12) {
                 Text(TaskCenter.sourceLabel(task))
-                Text(TaskCenter.nonEmpty(task.downloaderName) ?? "所有下载器均未找到")
+                Text(TaskCenter.nonEmpty(task.downloaderName) ?? String(localized: .activityTaskCenterMissingAllClients))
                 if let size = task.sizeBytes { Text(ActivityFormat.bytes(Double(size))) }
             }
             .font(.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
@@ -360,7 +361,7 @@ struct DownloadTaskCard: View {
     private func noteBox(torrentName: String?, note: String?, attention: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text.activityJoin([
-                attention ? Text("需要处理：").fontWeight(.semibold) : nil,
+                attention ? Text(String(localized: .activityJobsAttentionPrefix)).fontWeight(.semibold) : nil,
                 torrentName.map { Text($0) },
                 torrentName != nil && note != nil ? Text(" · ") : nil,
                 note.map { Text($0) },
@@ -370,7 +371,7 @@ struct DownloadTaskCard: View {
             .textSelection(.enabled)
             if TaskCenter.shouldOfferInlineReplacement(task) {
                 Button { onReplace(task) } label: {
-                    Text(replacing ? "正在换种…" : "立即换种")
+                    Text(replacing ? String(localized: .activityTaskCenterReplacing) : String(localized: .activityTaskCenterReplaceNow))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Color(red: 1, green: 0.89, blue: 0.89))
                         .padding(.horizontal, 12).padding(.vertical, 6)
@@ -398,14 +399,14 @@ struct DownloadTaskCard: View {
             let runtime = !ingestOwns && task.state == "downloading"
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(ingestOwns ? "入库进度" : "下载进度").fontWeight(.medium).foregroundStyle(Theme.textMuted)
+                    Text(ingestOwns ? String(localized: .activityTaskCenterImportProgress) : String(localized: .activityTaskCenterDownloadProgress)).fontWeight(.medium).foregroundStyle(Theme.textMuted)
                     if runtime, let speed = task.dlspeedBytes, speed > 0 {
                         Text("·").foregroundStyle(Theme.textFaint.opacity(0.6))
                         SpeedStat(direction: .down, bytesPerSecond: speed)
                     }
                     if runtime, let eta = task.etaSeconds {
                         Text("·").foregroundStyle(Theme.textFaint.opacity(0.6))
-                        Text("剩余约 \(ActivityFormat.duration(seconds: Double(eta)))").foregroundStyle(Theme.textFaint)
+                        Text(String(localized: .activityTaskCenterRemaining(String(ActivityFormat.duration(seconds: Double(eta)))))).foregroundStyle(Theme.textFaint)
                     }
                     Spacer()
                     Text("\(min(100, max(0, percent)))%").fontWeight(.semibold).monospacedDigit().foregroundStyle(Theme.text.opacity(0.65))
@@ -424,7 +425,7 @@ struct DownloadTaskCard: View {
                 Spacer()
                 ActivityHandoffButton(kind: "download", refId: task.infoHash)
                 if task.state == "error" || task.landingError != nil, task.downloaderId != nil {
-                    Button("删除下载任务") { onDelete(task) }
+                    Button(String(localized: .activityTaskCenterDeleteDownload)) { onDelete(task) }
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(Theme.danger)
                         .buttonStyle(.glass)
@@ -454,16 +455,16 @@ struct DownloadTaskGroupFeed: View {
                 HStack(alignment: .top, spacing: 10) {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 7) {
-                            TaskTag(text: "实时", color: Theme.info)
+                            TaskTag(text: String(localized: .activityTaskCenterLive), color: Theme.info)
                             Text(group.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text.opacity(0.9)).lineLimit(1)
                         }
-                        Text("\(group.kind == "tv" ? "剧集" : "电影") · \(group.tasks.count) 个下载资源")
+                        Text("\(String(localized: group.kind == "tv" ? .mediaKindTv : .mediaKindMovie)) · \(String(localized: .activityTaskCenterReleaseCount(group.tasks.count)))")
                             .font(.caption).foregroundStyle(Theme.textFaint)
                     }
                     Spacer(minLength: 0)
                     if let subscription {
                         Button { router.open(.subscription(id: subscription.id)) } label: {
-                            Text("查看订阅")
+                            Text(String(localized: .activityTaskCenterViewSubscription))
                                 .font(.caption.weight(.medium))
                                 .foregroundStyle(Theme.textFaint)
                                 .expandedHitArea(vertical: 14)
@@ -519,7 +520,7 @@ struct DownloadTaskFeedItem: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 8) {
                 HStack(spacing: 7) {
-                    if !grouped { TaskTag(text: "实时", color: Theme.info) }
+                    if !grouped { TaskTag(text: String(localized: .activityTaskCenterLive), color: Theme.info) }
                     if let site = task.siteName { TaskTag(text: site, color: Theme.textMuted, fill: Color.white.opacity(0.06)) }
                     Text(title).font((grouped ? Font.footnote : .subheadline).weight(.semibold))
                         .foregroundStyle(Theme.text.opacity(0.88)).lineLimit(1)
@@ -547,7 +548,7 @@ struct DownloadTaskFeedItem: View {
                 HStack(spacing: 10) {
                     SpeedStat(direction: .down, bytesPerSecond: downSpeed)
                     SpeedStat(direction: .up, bytesPerSecond: upSpeed)
-                    if let eta { Text("剩余约 \(ActivityFormat.duration(seconds: Double(eta)))") }
+                    if let eta { Text(String(localized: .activityTaskCenterRemaining(String(ActivityFormat.duration(seconds: Double(eta)))))) }
                 }
                 .font(.caption)
                 .foregroundStyle(Theme.textFaint)
@@ -555,7 +556,7 @@ struct DownloadTaskFeedItem: View {
             DownloadLifecycleView(task: task, ingestJob: ingestJob, feed: true)
             if TaskCenter.shouldOfferInlineReplacement(task) {
                 Button { onReplace(task) } label: {
-                    Text(replacing ? "正在换种…" : "立即换种")
+                    Text(replacing ? String(localized: .activityTaskCenterReplacing) : String(localized: .activityTaskCenterReplaceNow))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Color(red: 1, green: 0.89, blue: 0.89))
                         .padding(.horizontal, 10).padding(.vertical, 6)
@@ -631,7 +632,7 @@ struct ActivityBoostSites {
             } else {
                 .off
             }
-            let name = tasks.first?.siteName ?? info?.siteName ?? (siteId.isEmpty ? "未知站点" : siteId)
+            let name = tasks.first?.siteName ?? info?.siteName ?? (siteId.isEmpty ? String(localized: .activityOverviewUnknownSite) : siteId)
             return Site(id: siteId, name: name, mode: mode, tasks: tasks, pool: info)
         }
         .sorted { $0.tasks.count > $1.tasks.count }
@@ -671,7 +672,11 @@ enum ActivityBoostCleanupText {
     /// 「9月29日 14:00」
     static func deadline(_ raw: String?) -> String? {
         guard let date = Formatters.date(raw) else { return nil }
+        guard AppLanguage.identifier == "zh-Hans" else {
+            return date.formatted(.dateTime.month(.abbreviated).day().hour(.twoDigits(amPM: .omitted)).minute().locale(AppLanguage.locale))
+        }
         let c = Calendar(identifier: .gregorian).dateComponents([.month, .day, .hour, .minute], from: date)
+        // i18n-ignore: Chinese keeps its compact legacy date; other languages use the system format above.
         return String(format: "%d月%d日 %02d:%02d", c.month ?? 0, c.day ?? 0, c.hour ?? 0, c.minute ?? 0)
     }
 
@@ -679,16 +684,16 @@ enum ActivityBoostCleanupText {
     static func summary(_ result: API.BoostCleanupResult) -> String {
         var parts: [String] = []
         if result.deletedCount > 0 {
-            parts.append("已删除 \(result.deletedCount) 个刷流种子，释放 \(ActivityFormat.bytes(Double(result.deletedBytes)))")
+            parts.append(String(localized: .activityBoostCleanupDeleted(result.deletedCount, ActivityFormat.bytes(Double(result.deletedBytes)))))
         }
         if result.scheduledCount > 0 {
-            let until = deadline(result.scheduledUntil).map { "（最晚 \($0)）" } ?? ""
-            parts.append("\(result.scheduledCount) 个还在保留期内，到期后自动删除\(until)")
+            parts.append(deadline(result.scheduledUntil).map { String(localized: .activityBoostCleanupScheduledUntil(result.scheduledCount, $0)) }
+                ?? String(localized: .activityBoostCleanupScheduledOpen(result.scheduledCount)))
         }
         if result.failedCount > 0 {
-            parts.append("\(result.failedCount) 个因下载器暂时连不上没删成，稍后自动重试")
+            parts.append(String(localized: .activityBoostCleanupFailed(result.failedCount)))
         }
-        return parts.isEmpty ? "没有需要清理的刷流种子" : parts.joined(separator: "；")
+        return parts.isEmpty ? String(localized: .activityBoostNoneToClean) : parts.joined(separator: AppLanguage.identifier == "zh-Hans" ? "；" : "; ")
     }
 }
 
@@ -737,7 +742,7 @@ struct BoostTaskRow: View {
             Text(WatchFormat.metaLine([
                 task.siteName,
                 task.sizeBytes.map { ActivityFormat.bytes(Double($0)) },
-                (task.uploadedBytes ?? 0) > 0 ? "已上传 \(ActivityFormat.bytes(Double(task.uploadedBytes ?? 0)))" : nil,
+                (task.uploadedBytes ?? 0) > 0 ? String(localized: .activityBoostUploadedSize(ActivityFormat.bytes(Double(task.uploadedBytes ?? 0)))) : nil,
             ]))
             .font(.footnote)
             .monospacedDigit()

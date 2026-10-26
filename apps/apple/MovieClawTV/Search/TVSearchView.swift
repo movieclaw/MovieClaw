@@ -17,12 +17,12 @@ struct TVSearchView: View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: TVMetrics.rowSpacing) {
                 if model.searching {
-                    ProgressView("正在搜索…").padding(.horizontal, TVMetrics.edge)
+                    ProgressView(String(localized: .subscriptionPipelineSearching)).padding(.horizontal, TVMetrics.edge)
                 }
                 if !model.people.isEmpty {
-                    TVShelf(title: "人物") {
+                    TVShelf(title: String(localized: .searchPalettePerson)) {
                         ForEach(model.people, id: \.id) { person in
-                            TVPersonCard(name: person.name, role: "库内 \(person.itemCount) 部",
+                            TVPersonCard(name: person.name, role: String(localized: .mediaPersonLibraryCount(person.itemCount)),
                                          avatarURL: api.image(person.avatarUrl,
                                                               width: TVPersonCard.imageWidth(TVPersonCard.searchAvatarSize)),
                                          avatarSize: TVPersonCard.searchAvatarSize) {
@@ -35,7 +35,7 @@ struct TVSearchView: View {
                     }
                 }
                 if !model.items.isEmpty {
-                    TVShelf(title: "最相关的影片") {
+                    TVShelf(title: String(localized: .libraryTopResults)) {
                         ForEach(model.items, id: \.item.mediaItemId) { hit in
                             let item = hit.item
                             // 搜索结果与别处的海报行不同：要一眼确认「是不是我要找的那部」，
@@ -53,7 +53,7 @@ struct TVSearchView: View {
                             .focused($focusedItem, equals: item.mediaItemId)
                         }
                         if model.nextCursor != nil {
-                            Button(model.loadingMore ? "正在加载…" : "更多结果") {
+                            Button(model.loadingMore ? String(localized: .commonLoadingActive) : String(localized: .searchLibraryMore)) {
                                 Task { await model.loadMore(api: api) }
                             }
                             .disabled(model.loadingMore)
@@ -62,16 +62,16 @@ struct TVSearchView: View {
                     }
                 }
                 if let failed = model.failed {
-                    TVStateView(symbol: "wifi.exclamationmark", title: "搜索失败", message: failed,
-                                actionTitle: "重试", action: { Task { await model.search(api: api, input: input, immediately: true) } })
+                    TVStateView(symbol: "wifi.exclamationmark", title: String(localized: .librarySearchFailed), message: failed,
+                                actionTitle: String(localized: .commonRetry), action: { Task { await model.search(api: api, input: input, immediately: true) } })
                         .frame(height: 420)
                 } else if model.items.isEmpty && !model.searching && !trimmed.isEmpty {
-                    TVStateView(symbol: "magnifyingglass", title: "没有找到相关影片",
-                                message: "试试片名、别名、拼音首字母或演员、导演姓名。")
+                    TVStateView(symbol: "magnifyingglass", title: String(localized: .librarySearchNoResults),
+                                message: String(localized: .librarySearchTipsTv))
                         .frame(height: 420)
                 } else if trimmed.isEmpty && !model.searching {
-                    TVStateView(symbol: "magnifyingglass", title: "搜索你的媒体库",
-                                message: "输入 xjcy、星际cy 或诺兰，也可以使用遥控器听写。")
+                    TVStateView(symbol: "magnifyingglass", title: String(localized: .librarySearchYourLibrary),
+                                message: String(localized: .librarySearchIntroTv))
                         .frame(height: 420)
                 }
             }
@@ -79,7 +79,7 @@ struct TVSearchView: View {
         }
         .scrollClipDisabled()
         .ignoresSafeArea(edges: .horizontal)
-        .searchable(text: $query, prompt: "片名、拼音首字母、演员或导演")
+        .searchable(text: $query, prompt: String(localized: .librarySearchPromptTv))
         .searchSuggestions {
             ForEach(model.suggestions, id: \.self) { suggestion in
                 Text(suggestion.text).searchCompletion(suggestion.text)
@@ -97,9 +97,9 @@ struct TVSearchView: View {
 
     private static func kindName(_ kind: String) -> String? {
         switch kind {
-        case "movie": "电影"
-        case "tv": "剧集"
-        case "video": "视频"
+        case "movie": String(localized: .mediaKindMovie)
+        case "tv": String(localized: .mediaKindTv)
+        case "video": String(localized: .mediaKindVideo)
         default: nil
         }
     }

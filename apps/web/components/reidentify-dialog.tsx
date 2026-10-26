@@ -25,6 +25,8 @@
  *    套面板：只看名字不足以在同名双版本之间下判断。
  */
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useCallback, useEffect, useState } from "react";
 
 import {
@@ -42,25 +44,29 @@ import {
   type ReidentifyGroup,
   type ReidentifyPreview,
 } from "@/lib/api/libraries";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatList } from "@/lib/format";
 import { imageUrl, responsiveImage } from "@/lib/image-proxy";
 
 /** 身份来源 → 中文短语（结论卡上说明"凭什么这么认"）。 */
-const SOURCE_LABELS: Record<string, string> = {
-  path_tag: "目录名的 tmdbid 标记",
-  nfo: "NFO",
-  resolved: "名称解析 + TMDB 收敛",
-};
+function sourceLabels(t: ReturnType<typeof appTranslator>): Record<string, string> {
+  return {
+    path_tag: t("library.reidentify.pathTag"),
+    nfo: "NFO",
+    resolved: t("library.reidentify.resolved"),
+  };
+}
 
 /** 没命中的失败分类 → 一句人话（与待识别清单的标签同源，措辞按本场景调整）。 */
-const CODE_LABELS: Record<string, string> = {
-  tmdb_unreachable: "TMDB 不可达",
-  kind_mismatch: "类型与本库不符",
-  ambiguous: "候选之间分不出",
-  no_match: "TMDB 里没找到匹配",
-  unparsable: "从文件名认不出片名",
-  unit_unresolved: "认出了作品但定不了第几季",
-};
+function codeLabels(t: ReturnType<typeof appTranslator>): Record<string, string> {
+  return {
+    tmdb_unreachable: t("library.reidentify.unreachable"),
+    kind_mismatch: t("library.reidentify.kindMismatch"),
+    ambiguous: t("library.reidentify.ambiguous"),
+    no_match: t("library.reidentify.noMatch"),
+    unparsable: t("library.reidentify.unparsable"),
+    unit_unresolved: t("library.reidentify.noSeason"),
+  };
+}
 
 export function ReidentifyDialog({
   open,
@@ -76,6 +82,7 @@ export function ReidentifyDialog({
   /** 有任何一组落库后回调（父组件据此重拉详情；条目可能已不存在） */
   onApplied: () => void;
 }) {
+  const t = useTranslations();
   const [preview, setPreview] = useState<ReidentifyPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 已拍板的组 key → 结论文案。留在界面上而不是直接关窗：分裂成多组时
@@ -111,13 +118,11 @@ export function ReidentifyDialog({
   const pending = preview?.groups.filter((g) => !settled[g.key]) ?? [];
 
   return (
-    <Modal open={open} onClose={onClose} label="修正识别结果" width="2xl" panelClassName="flex max-h-[80vh] flex-col">
+    <Modal open={open} onClose={onClose} label={t("library.reidentify.title")} width="2xl" panelClassName="flex max-h-[80vh] flex-col">
       <div className="border-b border-white/[0.07] px-5 py-3.5">
-        <h2 className="text-body-lg font-semibold text-[var(--text)]">修正识别结果</h2>
+        <h2 className="text-body-lg font-semibold text-[var(--text)]">{t("library.reidentify.title")}</h2>
         <p className="mt-1 text-caption leading-relaxed text-[var(--text-muted)]">
-          已重走识别链。下面是机器给出的结论——
-          <span className="text-white/80">采纳、自己搜一个、或标为非独立作品都由你定</span>
-          ，关掉这个窗口则不会有任何改动。
+          {t.rich("library.reidentify.intro", { em: (chunks) => <span className="text-white/80">{chunks}</span> })}
         </p>
       </div>
 
@@ -127,7 +132,7 @@ export function ReidentifyDialog({
         {!preview && !error && (
           <div className="flex items-center justify-center gap-2.5 py-10 text-ui text-[var(--text-muted)]">
             <BrandLoader className="size-5" />
-            正在重新识别…
+            {t("library.reidentify.running")}
           </div>
         )}
 
@@ -137,23 +142,19 @@ export function ReidentifyDialog({
 
             {preview.unreachable && (
               <p className="rounded-lg border border-[var(--warn)]/30 bg-[var(--warn)]/[0.08] px-3 py-2 text-caption leading-relaxed text-[#f5d489]">
-                有文件因为 TMDB 不可达没能得出结论——那是网络问题不是识别问题。
-                建议先修好网络再来，此刻的结论不足以据此拍板。
+                {t("library.reidentify.networkHint")}
               </p>
             )}
 
             {preview.pinned_identity && (
               <p className="rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 py-2 text-caption leading-relaxed text-[var(--text-muted)]">
-                这些文件的身份被<span className="text-white/80">目录名的 tmdbid 标记或 NFO 钉死</span>
-                。在这里改挂会记为人工身份、扫描不会再翻案，条目 NFO 里矛盾的
-                tmdbid 也会被一并改正；但目录名上的标记需要你自己改，否则下次
-                整理/重扫的命名仍会带着旧 id。
+                {t.rich("library.reidentify.pinnedHint", { em: (chunks) => <span className="text-white/80">{chunks}</span> })}
               </p>
             )}
 
             {preview.groups.length === 0 && (
               <p className="py-6 text-center text-ui text-[var(--text-muted)]">
-                这个条目在本库没有可参与识别的在位文件。
+                {t("library.reidentify.noFiles")}
               </p>
             )}
 
@@ -170,8 +171,7 @@ export function ReidentifyDialog({
 
             {preview.skipped_missing > 0 && (
               <p className="text-caption text-[var(--text-faint)]">
-                另有 {preview.skipped_missing} 个文件已从磁盘消失（缺失清单里那些），
-                没有实体可供识别，保持原身份不参与。
+                {t("library.reidentify.missingFiles", { count: preview.skipped_missing })}
               </p>
             )}
           </>
@@ -181,8 +181,8 @@ export function ReidentifyDialog({
       <div className="flex items-center gap-3 border-t border-white/[0.07] px-5 py-3">
         <span className="text-caption text-[var(--text-faint)]">
           {preview && pending.length === 0 && preview.groups.length > 0
-            ? "全部处理完了"
-            : "改挂会记为人工身份，之后识别器升级不再自动翻案"}
+            ? t("library.reidentify.allSettled")
+            : t("library.reidentify.manualHint")}
         </span>
         <span className="flex-1" />
         <button
@@ -190,7 +190,7 @@ export function ReidentifyDialog({
           onClick={onClose}
           className="btn-glass px-3.5 py-1.5 text-sub font-medium"
         >
-          关闭
+          {t("common.close")}
         </button>
       </div>
     </Modal>
@@ -200,6 +200,7 @@ export function ReidentifyDialog({
 /* —— 现身份卡：拍板前先看清"现在挂的是谁" —— */
 
 function CurrentIdentity({ preview }: { preview: ReidentifyPreview }) {
+  const t = useTranslations();
   const { current } = preview;
   return (
     <div className="flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
@@ -215,7 +216,7 @@ function CurrentIdentity({ preview }: { preview: ReidentifyPreview }) {
         <div className="h-16 w-11 shrink-0 rounded-lg bg-white/[0.05]" />
       )}
       <div className="min-w-0 flex-1">
-        <p className="text-caption text-[var(--text-faint)]">当前身份</p>
+        <p className="text-caption text-[var(--text-faint)]">{t("library.reidentify.current")}</p>
         <p className="truncate text-ui font-semibold text-white/95">
           {current.title}
           {current.year ? (
@@ -254,6 +255,8 @@ function GroupRow({
   settledMessage?: string;
   onSettled: (message: string) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -280,18 +283,17 @@ function GroupRow({
   const detach = async () => {
     if (
       !(await confirm({
-        title: `把这 ${group.file_count} 个文件标为「非独立作品」？`,
+        title: t("library.reidentify.extrasTitle", { count: group.file_count }),
         description:
-          "它们会摘掉身份、不再占用库存，之后扫描也不再过问。适合花絮、预告、片段这类本就不该单独成条目的内容。" +
-          "磁盘文件一个字节都不会动，随时可以在「已忽略」清单里恢复。",
-        confirmLabel: "标为非独立作品",
+          t("library.reidentify.extrasDescription"),
+        confirmLabel: t("library.reidentify.markExtras"),
         tone: "danger",
       }))
     )
       return;
     act(
       () => markLibraryFilesAsExtras(group.file_ids),
-      `${group.file_count} 个文件已标为非独立作品`,
+      t("library.reidentify.extrasMarked", { count: group.file_count }),
     );
   };
 
@@ -308,7 +310,7 @@ function GroupRow({
       {/* 是哪些文件——分裂成多组时这行是唯一的辨认依据 */}
       <div className="flex items-baseline gap-2">
         <span className="text-ui font-medium text-white/85">
-          {group.file_count} 个文件
+          {t("library.reidentify.fileCount", { count: group.file_count })}
         </span>
         <span className="text-caption text-[var(--text-faint)]">
           {formatBytes(group.total_size_bytes)}
@@ -318,7 +320,7 @@ function GroupRow({
         className="mt-0.5 truncate font-mono text-caption text-[var(--text-faint)]"
         title={group.sample_names.join("\n")}
       >
-        {group.sample_names.join("、")}
+        {formatList(group.sample_names, locale)}
         {group.file_count > group.sample_names.length ? " …" : ""}
       </p>
 
@@ -339,7 +341,7 @@ function GroupRow({
             )}
             <div className="min-w-0 flex-1">
               <p className="text-caption text-[var(--text-faint)]">
-                {outcome.same_as_current ? "重新识别的结论：与当前一致" : "重新识别的结论"}
+                {outcome.same_as_current ? t("library.reidentify.sameResult") : t("library.reidentify.result")}
               </p>
               <p className="truncate text-ui font-semibold text-white/95">
                 {outcome.title}
@@ -351,7 +353,7 @@ function GroupRow({
               </p>
               {outcome.source && (
                 <p className="text-caption text-[var(--text-faint)]">
-                  依据：{SOURCE_LABELS[outcome.source] ?? outcome.source}
+                  {t("library.reidentify.basis", { source: sourceLabels(t)[outcome.source] ?? outcome.source })}
                 </p>
               )}
             </div>
@@ -372,15 +374,13 @@ function GroupRow({
                 }
                 className="btn-accent shrink-0 rounded-full px-3 py-1.5 text-sub font-semibold disabled:opacity-40"
               >
-                改挂到这里
+                {t("library.reidentify.apply")}
               </button>
             )}
           </div>
         ) : (
           <p className="text-sub leading-relaxed text-[var(--text-muted)]">
-            没能认出来
-            {outcome.code ? `（${CODE_LABELS[outcome.code] ?? outcome.code}）` : ""}
-            {outcome.reason ? `：${outcome.reason}` : "。"}
+            {t("library.reidentify.noResult", { coded: outcome.code ? "yes" : "no", code: outcome.code ? codeLabels(t)[outcome.code] ?? outcome.code : "", detailed: outcome.reason ? "yes" : "no", detail: outcome.reason ?? "" })}
           </p>
         )}
       </div>
@@ -433,7 +433,7 @@ function GroupRow({
             panel?.view === "search" ? "bg-white/[0.14] text-white" : "btn-glass"
           }`}
         >
-          都不对，自己搜…
+          {t("library.reidentify.searchOwn")}
         </button>
         <span className="flex-1" />
         <button
@@ -442,7 +442,7 @@ function GroupRow({
           onClick={() => void detach()}
           className="btn-glass px-3 py-1.5 text-sub font-medium text-[#ffb4b4] disabled:opacity-40"
         >
-          不是独立作品
+          {t("library.reidentify.notStandalone")}
         </button>
       </div>
 
@@ -469,7 +469,7 @@ function GroupRow({
                   group.file_ids,
                   `tmdb:${movie ? "movie" : "tv"}:${panel.seed.tmdbId}`,
                 ),
-              `${group.file_count} 个文件已改挂为《${panel.seed.title}》`,
+              t("library.reidentify.assigned", { count: group.file_count, title: panel.seed.title }),
             )
           }
           onCancel={() => setPanel(null)}

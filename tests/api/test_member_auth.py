@@ -48,7 +48,7 @@ def client(tmp_path, monkeypatch):
     from movieclaw_api.app import create_app
 
     app = create_app()
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         yield c
 
     reset_setting_store()
@@ -192,6 +192,8 @@ def test_member_session_view_carries_role_and_capabilities(client: TestClient) -
         "allow_subscribe": True,
         "allow_search": False,
         "allow_direct_download": False,
+        # 下载影片到设备：默认开（member-permissions-v2.md §3.5「家人」预设）
+        "allow_video_download": True,
     }
 
 
@@ -351,10 +353,14 @@ def test_ui_preferences_isolated_per_member(client: TestClient) -> None:
     _use(client, member_cookie)
     member_draft = dict(admin_prefs)
     member_draft["sidebar"] = {**admin_prefs.get("sidebar", {}), "transparency": 0.33}
+    member_draft["language"] = "en"
     saved = client.put("/api/v1/ui/preferences", json=member_draft)
     assert saved.status_code == 200
     member_prefs = client.get("/api/v1/ui/preferences").json()["data"]
     assert member_prefs["sidebar"]["transparency"] == 0.33
+    assert member_prefs["language"] == "en"
+    legacy = client.put("/api/v1/ui/preferences", json={"theme": "silver"})
+    assert legacy.json()["data"]["language"] == "en"
 
     # 超管的全局配置不受影响
     _use(client, admin_cookie)
@@ -486,6 +492,11 @@ _MEMBER_ALLOWLIST = {
     # 真正的闸在批准那一步：人要在网页或 App 里核对配对码；转码器只有超管批得了。
     ("POST", "/api/v1/auth/device/authorize"),
     ("POST", "/api/v1/auth/device/token"),
+    # 网页主题（docs/design/theme-plugins.md §4.6）：每个人各选各的主题，成员要能读主题目录；
+    # 样式与资源是公开区（匿名可访问，成员自然可访问）；装卸主题是插件管理，仍只有管理员
+    ("GET", "/api/v1/ui/themes"),
+    ("GET", "/api/v1/ui/themes.css"),
+    ("GET", "/api/v1/ui/themes/{theme_id}/{path}"),
     # 个人信息自助（按 Principal 分流到成员表）
     ("GET", "/api/v1/auth/me"),
     ("PUT", "/api/v1/auth/profile"),
@@ -540,6 +551,12 @@ _MEMBER_ALLOWLIST = {
     # 界面偏好（同上，P2 per-member 化）
     ("GET", "/api/v1/ui/preferences"),
     ("PUT", "/api/v1/ui/preferences"),
+    # 插件网页（docs/design/plugin-web-pages.md）：列表与托管只给管理员同意过「成员也能看到」
+    # 的页面，其余对成员一律当作不存在（404）
+    ("GET", "/api/v1/ui/apps"),
+    ("POST", "/api/v1/ui/apps/{entry_id}/errors"),
+    ("GET", "/api/v1/plugins/{entry_id}/web"),
+    ("GET", "/api/v1/plugins/{entry_id}/web/{path}"),
     # 发现页 / 详情 / 演职员 / 图片：纯浏览面
     ("GET", "/api/v1/ui/discovery/{media_type}"),
     ("GET", "/api/v1/discover/collections"),
@@ -590,6 +607,8 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/libraries/{library_id}/items/{media_item_id}"),
     ("GET", "/api/v1/libraries/{library_id}/items/{media_item_id}/artwork"),
     ("GET", "/api/v1/libraries/{library_id}/items/{media_item_id}/episodes"),
+    # 详情页相似推荐：候选按 visible_library_ids 与内容分级收窄（与跨库墙同一口径）
+    ("GET", "/api/v1/libraries/{library_id}/items/{media_item_id}/similar"),
     # 合集是成员的浏览面：列表按三层可见性收口（私有只对本人、库不可见就不下发、
     # 成员条目再过一遍），私有合集与不可见库里的合集一律按 404 拒绝而不是空列表。
     # 写操作（建/改/删）同样开放给成员——那是他自己的合集，household 的合集
@@ -616,6 +635,9 @@ _MEMBER_ALLOWLIST = {
     # 清除观看记录只作用于当前成员自己的行（超管删超管的），跨成员不提供；
     # 按条目/按库清除还要求目标在可浏览范围内（docs/design/library-access.md 2.6）
     ("DELETE", "/api/v1/playback/history"),
+    # 自动跳过偏好（skip-intro.md §5）：按 owner_id 只改自己那一行，跟账号走的个人设置
+    ("PUT", "/api/v1/playback/auto-skip"),
+    ("PUT", "/api/v1/playback/auto-skip/intro/{media_item_id}"),
     # 播放页条目信息/分集清单：按可见库解析归属，不可见与不存在同样 404
     ("GET", "/api/v1/playback/items/{media_item_id}"),
     ("GET", "/api/v1/playback/items/{media_item_id}/episodes"),
@@ -642,7 +664,12 @@ _MEMBER_ALLOWLIST = {
     # 原盘目录直推（disc-direct-play.md）：只凭签名 token，与原文件直出同属公开取流区
     ("GET", "/api/v1/playback/files/{file_id}/disc"),
     ("GET", "/api/v1/playback/files/{file_id}/disc/{relative_path}"),
+    # 蓝光剪辑清单（disc-clip-play.md）：同属公开取流区，只凭签名 token
+    ("GET", "/api/v1/playback/files/{file_id}/bluray"),
+    ("GET", "/api/v1/playback/files/{file_id}/bluray/{index}"),
     ("GET", "/api/v1/playback/files/{file_id}/subtitles"),
+    # 预切片段（reels.md §8）：同原文件直出，只凭签名 token（按文件签发）
+    ("GET", "/api/v1/reels/clips/{file_id}/{start_ms}.mp4"),
     ("GET", "/api/v1/playback/files/{file_id}/fonts"),
     ("GET", "/api/v1/playback/files/{file_id}/fonts/{name}"),
     ("GET", "/api/v1/playback/files/{file_id}/trickplay"),
@@ -693,6 +720,8 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/subscriptions/{subscription_id}/active-downloads"),
     ("PATCH", "/api/v1/subscriptions/{subscription_id}/tracking-state"),
     ("PATCH", "/api/v1/subscriptions/{subscription_id}/follow-future"),
+    # 集数提示的忽略与自动续订同口径：订阅能力 + 归属校验（路由内 assert_can_manage）
+    ("POST", "/api/v1/subscriptions/{subscription_id}/episode-hints/dismiss"),
     ("POST", "/api/v1/subscriptions/{subscription_id}/missing-resource-searches"),
     # 一轮洗版与「立即搜索」同口径：订阅能力 + 归属校验（路由内 assert_can_manage）
     ("POST", "/api/v1/subscriptions/{subscription_id}/upgrade-runs"),
@@ -701,6 +730,8 @@ _MEMBER_ALLOWLIST = {
     # App 推送（docs/design/cloud-push.md §7.3）：每个人只管自己的通知开关、设备状态、
     # 测试通知；App 登记只认这台设备自己的凭证（服务层判定，网页会话登记不了）
     ("GET", "/api/v1/app/features"),
+    # 访问地址簿（docs/design/server-addresses.md §3.2）：各端 App 登录后据此在内外网之间自动选
+    ("GET", "/api/v1/server/addresses"),
     ("GET", "/api/v1/push/me"),
     ("PUT", "/api/v1/push/me/preferences"),
     ("POST", "/api/v1/push/me/test"),
@@ -709,14 +740,42 @@ _MEMBER_ALLOWLIST = {
     ("DELETE", "/api/v1/push/me/muted-items/{item_id}"),
     ("PUT", "/api/v1/push/me/registration"),
     ("DELETE", "/api/v1/push/me/registration"),
+    # 实时通知（cloud-push.md §4.1）：只读、只确认这台设备自己的发件箱（按设备凭证定位）
+    ("GET", "/api/v1/push/me/stream"),
+    ("POST", "/api/v1/push/me/ack"),
     # 推送配图：公开区（地址自带签名），成员自然可达
     ("GET", "/api/v1/push/images/{token}"),
+    # 使用提示（docs/design/tips.md）：只读写自己的事件计数与提示记录（按 owner_id 存）
+    ("GET", "/api/v1/tips/state"),
+    ("DELETE", "/api/v1/tips/state"),
+    ("POST", "/api/v1/tips/events/{event_id}"),
+    ("POST", "/api/v1/tips/{tip_id}/displays"),
+    ("POST", "/api/v1/tips/{tip_id}/invalidate"),
+    # 离线下载（docs/design/offline-download.md）：只碰成员自己可见库里的文件；
+    # 下载类另按「下载影片到设备」开关放行（默认开）
+    ("GET", "/api/v1/offline/manifest"),
+    ("POST", "/api/v1/offline/profiles"),
+    ("GET", "/api/v1/offline/files/{file_id}/content"),
+    ("POST", "/api/v1/offline/exports"),
+    ("GET", "/api/v1/offline/exports/{export_id}"),
+    ("GET", "/api/v1/offline/exports/{export_id}/content"),
+    ("DELETE", "/api/v1/offline/exports/{export_id}"),
+    # 本机播放的观看记录：只写自己的观看状态与日志（同 /playback/progress）
+    ("POST", "/api/v1/playback/viewings"),
+    # App 自身更新的服务器兜底：只读公开的发布信息、代下公开的安装包
+    ("GET", "/api/v1/app/clients/{product}/latest"),
+    ("GET", "/api/v1/app/clients/{product}/apk"),
 }
 
 # 路径参数哑值（与 test_auth.py 的匿名守护测试保持一致）
 _PATH_DUMMIES = {
+    "{theme_id}": "nope-theme",
+    "{product}": "x",  # 客户端更新：不存在的客户端名（422，不联网）
     "{letter_id}": "1",  # 可靠事件死信
+    "{start_ms}": "0",  # 预切片段的起点
     "{task_key}": "library_reconcile",
+    "{event_id}": "x",
+    "{tip_id}": "x",
     "{site_id}": "mteam",
     "{history_id}": "1",
     "{backdrop_id}": "f" * 32,
@@ -741,6 +800,7 @@ _PATH_DUMMIES = {
     "{media_item_id}": "1",
     "{rule_id}": "1",
     "{entry_id}": "1",
+    "{plugin_id}": "1",
     "{key_id}": "1",
     "{file_id}": "1",
     "{device_id}": "no-such-device",
@@ -760,6 +820,7 @@ _PATH_DUMMIES = {
     "{channel}": "weixin",
     "{channel_id}": "weixin",
     "{binding_id}": "test-binding",
+    "{login_id}": "test-login",
     "{endpoint_id}": "test-endpoint",
     "{member_id}": "1",
     "{job_id}": "job_test",
@@ -770,6 +831,8 @@ _PATH_DUMMIES = {
     "{key}": "cache.images",
     # 播放体验记录的播放编号
     "{attempt_id}": "test-attempt",
+    # 离线下载的导出号
+    "{export_id}": "no-such-export",
     # App 推送的自建中继、推送配图的签名
     "{relay_id}": "r_test",
     "{token}": "no-such-image",

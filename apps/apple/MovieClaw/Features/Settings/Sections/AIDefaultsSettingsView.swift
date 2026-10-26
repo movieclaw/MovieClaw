@@ -5,6 +5,7 @@ import SwiftUI
 /// 与「模型接入」分开：接入回答「怎么连上」，这里回答「智能体 / 字幕处理默认用哪个模型」。
 /// 选项是所有已接入实例的模型清单（`GET /llm/models`）；服务端保证接入过供应商就一定有默认值，
 /// 所以这里显示的永远是真实存的值。一个都没接入时给空态，引导去「模型接入」。
+/// 同页底部是「网页搜索」：一行状态，接入 / 更换在弹层里验证并保存。
 /// 抽屉内选择并确认保存（`PUT /llm/defaults`），失败留在抽屉；另一项若已失效不能原样回传，
 /// 传空让服务端按推荐补齐。
 struct AIDefaultsSettingsView: View {
@@ -17,16 +18,17 @@ struct AIDefaultsSettingsView: View {
     @State private var error: String?
     @State private var saving: Purpose?
     @State private var selecting: Purpose?
+    @State private var webSearchReload = 0
 
     enum Purpose: String, CaseIterable, Identifiable {
         var id: String { rawValue }
         case agent, subtitle
 
-        var label: String { self == .agent ? "智能体默认模型" : "字幕处理默认模型" }
+        var label: String { self == .agent ? String(localized: .settingsAiUiAgentLabel) : String(localized: .settingsAiUiSubtitleLabel) }
         var desc: String {
             self == .agent
-                ? "对话框未选模型时、微信 / Telegram / Discord 对话、命令行不带 --model 时使用"
-                : "字幕翻译与生成任务使用；任务创建时固定，改动不影响已开始的任务"
+                ? String(localized: .settingsAiUiAgentHint)
+                : String(localized: .settingsAiUiSubtitleHint)
         }
 
         func value(_ d: API.LlmDefaultsView) -> String? { self == .agent ? d.agentModel : d.subtitleModel }
@@ -46,19 +48,23 @@ struct AIDefaultsSettingsView: View {
                     SettingsFormSection {
                         Button { router.push(.settingsSection(.llm)) } label: {
                             HStack {
-                                Text("模型接入").foregroundStyle(Theme.text)
+                                Text(String(localized: .settingsLlmTitle)).foregroundStyle(Theme.text)
                                 Spacer()
                                 Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                             }
                         }.accessibilityIdentifier("ai-manage-providers")
-                    } footer: { Text("可选模型来自已接入供应商的模型目录。") }
+                    } footer: { Text(String(localized: .settingsAiDefaultsModelsHint)) }
                 } else if error == nil {
                     SettingsFormSection { SettingsLoadingRow() }
                 }
             }
+            WebSearchSettingsSection(reloadID: webSearchReload)
         }
         .settingsBFormStyle()
-        .refreshable { await load() }
+        .refreshable {
+            await load()
+            webSearchReload += 1
+        }
         .sheet(item: $selecting) { purpose in
             if let defaults {
                 AIModelSelectionSheet(title: purpose.label, explanation: purpose.desc,
@@ -76,10 +82,10 @@ struct AIDefaultsSettingsView: View {
         SettingsFormSection {
             VStack(spacing: 10) {
                 Image(systemName: "sparkles").font(.title).foregroundStyle(Theme.textMuted)
-                Text("还没有可选的模型").font(.body.weight(.medium))
-                Text("先在「模型接入」接入至少一家供应商。接入后这里会自动把智能体和字幕处理的默认模型设为该供应商目录里的第一个模型，你可以随时改成别的。")
+                Text(String(localized: .settingsAiUiEmpty)).font(.body.weight(.medium))
+                Text(String(localized: .settingsAiUiEmptyHint))
                     .font(.subheadline).foregroundStyle(Theme.textMuted).multilineTextAlignment(.center)
-                Button("去接入模型供应商") { router.push(.settingsSection(.llm)) }
+                Button(String(localized: .settingsAiUiConnect)) { router.push(.settingsSection(.llm)) }
                     .settingsProminentButton()
             }
             .frame(maxWidth: .infinity)
@@ -92,13 +98,13 @@ struct AIDefaultsSettingsView: View {
         // 未设定时可由服务端自动选择；只有明确保存过、但已退出目录的引用才属于失效。
         let stale = AIModelSelection.isStale(value, in: options)
         let effective = purpose.effective(defaults)
-        let display = label(of: value == nil || stale ? effective : value) ?? "选择模型"
+        let display = label(of: value == nil || stale ? effective : value) ?? String(localized: .settingsAiDefaultsChooseModel)
         return SettingsFormSection {
             Button { selecting = purpose } label: {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(purpose == .agent ? "智能体" : "字幕处理").foregroundStyle(Theme.text)
-                        Text(value == nil && effective != nil ? "自动 · \(display)" : display)
+                        Text(purpose == .agent ? String(localized: .activityJobsOriginAgent) : String(localized: .settingsAiDefaultsSubtitles)).foregroundStyle(Theme.text)
+                        Text(value == nil && effective != nil ? String(localized: .settingsAiDefaultsAutoValue(display)) : display)
                             .font(.subheadline).foregroundStyle(Theme.textMuted)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -109,7 +115,7 @@ struct AIDefaultsSettingsView: View {
             .disabled(saving != nil)
             .accessibilityIdentifier("ai-\(purpose.rawValue)-model")
             if stale {
-                Text("原设定的模型已不可用，当前使用\(label(of: purpose.effective(defaults)) ?? "无")，请选择新模型。")
+                Text(String(localized: .settingsAiDefaultsStaleModel(label(of: purpose.effective(defaults)) ?? String(localized: .settingsAiDefaultsNone))))
                     .font(.caption).foregroundStyle(Theme.warning)
             }
         } footer: { Text(purpose.desc) }
@@ -145,7 +151,7 @@ struct AIDefaultsSettingsView: View {
                 subtitleModel: purpose == .subtitle ? value : sibling(previous.subtitleModel)
             ))
             AgentCatalog.invalidateModels()
-            feedback.success("AI 设定已保存")
+            feedback.success(String(localized: .settingsAiUiSaved))
         } catch {
             defaults = previous
             self.error = error.localizedDescription
@@ -199,7 +205,7 @@ private struct AIModelSelectionSheet: View {
     var body: some View {
         SubsSheetScaffold(title: title, onClose: {
             if dirty { discarding = true } else { dismiss() }
-        }, confirm: SubsSheetConfirm(title: "保存", enabled: dirty && AIModelSelection.validReference(selected, in: options) != nil,
+        }, confirm: SubsSheetConfirm(title: String(localized: .commonSave), enabled: dirty && AIModelSelection.validReference(selected, in: options) != nil,
                                      busy: busy, identifier: "ai-model-save") {
             guard let selected else { return }
             Task {
@@ -212,20 +218,20 @@ private struct AIModelSelectionSheet: View {
             SettingsFormSection {
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("搜索模型或供应商", text: $query)
+                    TextField(String(localized: .settingsAiDefaultsSearch), text: $query)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .accessibilityIdentifier("ai-model-search")
                 }
             } footer: { Text(explanation) }
             SettingsFormSection {
                 let visible = AIModelSelection.filtered(options, query: query)
-                if visible.isEmpty { Text("没有匹配的模型").foregroundStyle(.secondary) }
+                if visible.isEmpty { Text(String(localized: .settingsAiDefaultsNoMatch)).foregroundStyle(.secondary) }
                 ForEach(visible, id: \.ref) { option in
                     Button { selected = option.ref } label: {
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(option.label).foregroundStyle(Theme.text)
-                                Text(option.providerName + (option.thinkingLevels.isEmpty ? "" : " · 支持思考档位"))
+                                Text(option.providerName + (option.thinkingLevels.isEmpty ? "" : String(localized: .settingsAiDefaultsThinkingSuffix)))
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 4)
@@ -240,9 +246,9 @@ private struct AIModelSelectionSheet: View {
         }
         .disabled(busy)
         .interactiveDismissDisabled(busy || dirty)
-        .alert("放弃未保存的修改？", isPresented: $discarding) {
-            Button("继续编辑", role: .cancel) { }
-            Button("放弃修改", role: .destructive) { dismiss() }
+        .alert(String(localized: .settingsFormDiscardTitle), isPresented: $discarding) {
+            Button(String(localized: .settingsFormKeepEditing), role: .cancel) { }
+            Button(String(localized: .settingsScrapeDiscardChanges), role: .destructive) { dismiss() }
         }
     }
 }

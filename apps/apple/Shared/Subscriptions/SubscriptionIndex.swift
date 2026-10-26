@@ -158,9 +158,9 @@ final class SubscriptionIndex {
 enum SubscriptionStatusMeta {
     static func label(_ status: String) -> String {
         switch status {
-        case "completed": "已收齐"
-        case "paused": "已暂停"
-        default: "追踪中"
+        case "completed": String(localized: .subscriptionSectionsCollected)
+        case "paused": String(localized: .subscriptionSectionsPaused)
+        default: String(localized: .subscriptionStatusActive)
         }
     }
 
@@ -175,20 +175,20 @@ enum SubscriptionStatusMeta {
     /// 进度说明：回答「还缺多少 / 入库了多少」
     static func progressNote(_ sub: API.SubscriptionView) -> String {
         let p = sub.progress
-        if sub.status == "paused" { return "暂停追踪" }
+        if sub.status == "paused" { return String(localized: .subscriptionProgressPaused) }
         let inPipeline = p.grabbed + p.downloaded
         let isMovie = sub.media.kind == "movie"
         if p.wanted == 0 {
-            if isMovie { return p.imported > 0 ? "已入库" : inPipeline > 0 ? "下载安排中" : "已收齐" }
-            if inPipeline > 0 { return "\(inPipeline) 集下载中 · 已入库 \(p.imported)" }
-            if sub.status == "active" { return "等待新集播出" }
-            return p.imported > 0 ? "全部 \(p.total) 集已入库" : "全部 \(p.total) 集已安排"
+            if isMovie { return p.imported > 0 ? String(localized: .subscriptionProgressImported) : inPipeline > 0 ? String(localized: .subscriptionProgressArranging) : String(localized: .subscriptionSectionsCollected) }
+            if inPipeline > 0 { return String(localized: .subscriptionProgressPipelineSummary(inPipeline, String(p.imported))) }
+            if sub.status == "active" { return String(localized: .subscriptionProgressWaiting) }
+            return p.imported > 0 ? String(localized: .subscriptionProgressAllImported(p.total)) : String(localized: .subscriptionProgressAllScheduled(p.total))
         }
-        if isMovie { return "正在寻找资源" }
+        if isMovie { return String(localized: .subscriptionProgressSearching) }
         let detail = [
-            inPipeline > 0 ? "\(inPipeline) 集下载中" : nil,
-            p.imported > 0 ? "已入库 \(p.imported)" : nil,
+            inPipeline > 0 ? String(localized: .subscriptionProgressDownloading(inPipeline)) : nil,
+            p.imported > 0 ? String(localized: .subscriptionProgressImportedCount(p.imported)) : nil,
         ].compactMap { $0 }
-        return detail.isEmpty ? "缺 \(p.wanted) 集" : "缺 \(p.wanted) 集 · \(detail.joined(separator: " · "))"
+        return detail.isEmpty ? String(localized: .subscriptionProgressMissing(p.wanted)) : String(localized: .subscriptionProgressMissingDetail(p.wanted, detail.joined(separator: " · ")))
     }
 }

@@ -4,6 +4,8 @@ node_modules
 .venv
 apps/web/.next*
 apps/extension/.output
+# 随带主题插件的本机构建产物：镜像里由前端构建阶段现编（docs/design/theme-plugins.md §8）
+src/movieclaw_plugins/netflix
 **/__pycache__
 
 # 运行期数据与本地配置（.env 含密钥，绝不能进构建上下文）

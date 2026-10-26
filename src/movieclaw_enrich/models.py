@@ -65,3 +65,11 @@ class TorrentAttrs(BaseModel):
     # 空列表=未识别（三态铁律：不猜；非 WEB 资源本就不该有平台）
     platforms: list[str] = []
     release_group: str | None = None   # 压制组/发布组
+
+    # -- 站点标记 -----------------------------------------------------------
+    # 站点自己给种子打的结构化标记，原样透传，**不是从标题推导的**：M-Team 的 labelsNew
+    # （``中字`` / ``中配`` / ``4k`` / ``hdr10`` / ``hdr10+`` / ``DoVi`` …）。站点把杜比视界
+    # 与 HDR10 兼容格式分开标，是判定 Profile 5 的第二条证据（movieclaw_matcher.formats）。
+    # 随观测落库；存量重算时要由调用方带回去（enrich_backfill 做了），否则会被抹掉。
+    # 空列表 = 站点没给（NexusPHP 系列表页目前没解析标签），不代表资源没有这些特征
+    site_labels: list[str] = []

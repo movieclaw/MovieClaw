@@ -7,6 +7,8 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from alembic.script.revision import ResolutionError
+from alembic.util import CommandError
 
 logger = logging.getLogger("movieclaw_db.migrations")
 
@@ -45,9 +47,25 @@ def _build_config() -> Config:
     return cfg
 
 
+class UnknownRevisionError(RuntimeError):
+    """数据库记录的迁移位置不在本版代码的迁移链里：这版代码不认识这个库，起不来。"""
+
+
 def _upgrade_to_head() -> None:
     """同步执行 alembic upgrade head。"""
-    command.upgrade(_build_config(), "head")
+    try:
+        command.upgrade(_build_config(), "head")
+    except CommandError as exc:
+        # alembic 原话「Can't locate revision identified by 'xxx'」部署者看不懂，
+        # 也不知道该怎么办；它只在库被本版不认识的代码迁移过时出现，换成人话
+        if not isinstance(exc.__cause__, ResolutionError):
+            raise
+        raise UnknownRevisionError(
+            f"数据库的迁移位置「{exc.__cause__.argument}」不在当前代码的迁移记录里，"
+            "这版程序不认识这个数据库，无法启动。通常是数据库被更新的版本、"
+            "自行修改过的代码或非正式版本迁移过。请换回当时使用的版本，"
+            "或用 data/updates/backup 下的备份恢复数据库后再启动"
+        ) from exc
 
 
 async def run_migrations() -> None:

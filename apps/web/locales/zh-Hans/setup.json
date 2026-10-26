@@ -1,0 +1,16 @@
+{
+  "account": {
+    "pageTitle": "初始化",
+    "start": "开始使用",
+    "title": "初始化这台服务器",
+    "subtitle": "这是一台全新的服务器。将用下面的账号创建超级管理员——它是本站唯一的管理身份，此流程仅在首次部署时出现。",
+    "username": "管理员用户名",
+    "password": "密码（至少 8 位）",
+    "confirmPassword": "确认密码",
+    "shortUsername": "用户名至少 3 个字符",
+    "shortPassword": "密码至少 8 位，建议混用字母与数字",
+    "passwordMismatch": "两次输入的密码不一致",
+    "pending": "创建中…",
+    "submit": "创建账号并进入"
+  }
+}

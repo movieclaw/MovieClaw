@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -13,13 +15,11 @@ from movieclaw_agent import (
     AgentRunner,
     AgentStartParams,
     AgentTool,
-    build_skills_fragment,
-    build_system_prompt,
     compact,
+    compact_skill_blocks,
     discover_skills,
-    expand_skill_invocations,
 )
-from movieclaw_agent.tools import builtin_tools, make_mclaw_tool, make_media_ui_tool
+from movieclaw_agent.skills import prepare_skill_invocations, strip_skill_blocks
 from movieclaw_api.api.deps import require_login
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import (
@@ -27,6 +27,8 @@ from movieclaw_api.exceptions import (
     NotFoundException,
     UpstreamServiceException,
 )
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import render_value, stored_message
 from movieclaw_api.schemas.agent import (
     AttachmentUploadView,
     SessionCompactionEntryView,
@@ -43,7 +45,6 @@ from movieclaw_api.schemas.agent import (
     SkillView,
 )
 from movieclaw_api.schemas.response import ApiResponse, ok
-from movieclaw_api.services import auth as auth_service
 from movieclaw_api.services import demo as demo_service
 from movieclaw_api.services import demo_agent
 from movieclaw_api.services.agent_attachments import (
@@ -63,17 +64,30 @@ from movieclaw_api.services.agent_sessions import (
     latest_user_model,
     latest_user_thinking_level,
 )
+from movieclaw_api.services.agent_toolkit import (
+    ToolProfile,
+    agent_system_prompt,
+    get_agent_tools,
+    profile_tools,
+    speaker_member_id,
+)
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.llm_config import acquire_llm_router
-from movieclaw_api.services.mclaw_tool import render_service_map
-from movieclaw_api.settings import AppServerSetting, get_setting_store
 from movieclaw_db.engine import get_session
 from movieclaw_db.models.agent_session import AgentSession
 from movieclaw_db.repositories.agent_session_repo import (
     AgentSessionRepository,
     is_running,
 )
-from movieclaw_llm import ChatMessage, LlmError, LlmRouter, ModelSettings
+from movieclaw_llm import (
+    ChatMessage,
+    ContentPart,
+    LlmError,
+    LlmRouter,
+    ModelSettings,
+    TextPart,
+    ThinkingPart,
+)
 
 logger = logging.getLogger("movieclaw_api.agent")
 
@@ -106,137 +120,6 @@ async def list_skills() -> ApiResponse[list[SkillView]]:
     )
 
 
-def get_agent_tools(cli_env: dict[str, str], *, generative_ui: bool = False) -> list[AgentTool]:
-    """Agent 的工具集：内置基础工具 + mclaw 产品操作工具 [+ 卡片绘制工具]。
-
-    bash/read/write/edit 是纯工作区工具，**不携带**产品授权；mclaw 工具
-    单独构建，令牌只注入它的子进程（每次运行的令牌不同，因此每次运行都
-    重新构建工具集）。服务目录渲染自 CLI 内置 spec，与命令面严格同版。
-
-    ``generative_ui`` 是卡片绘制工具（show_media_cards）的开关，**默认关**：
-    它的效果完全依赖前端拦截 tool_call 后绘制卡片，只有网页会话有这层界面。
-    IM/微信通道看不到卡片，带上它只会让模型白调一次、用户收到一句「已展示
-    卡片」却什么都没有——所以由调用方按所在通道显式打开，新接入的通道不会
-    因为忘记关而误带（docs/design/agent-generative-ui.md §2）。
-    """
-    workdir = Path(get_settings().agent_workspace_dir).resolve()
-    workdir.mkdir(parents=True, exist_ok=True)
-    tools = [
-        *builtin_tools(workdir),
-        make_mclaw_tool(workdir, cli_env, render_service_map()),
-    ]
-    if generative_ui:
-        tools.append(make_media_ui_tool())
-    return tools
-
-
-# 前端页面路由表：模型拼可点击链接的唯一依据（(路径模式, 一行说明)）。
-# 与 apps/web/app/(app) 的真实页面结构由守护测试保持同步（见
-# tests/api/test_agent.py 的 test_page_routes_match_web_app_pages）——
-# 前端加页面、改路径时测试会拦下，这张表不会悄悄过期。
-_PAGE_ROUTES: list[tuple[str, str]] = [
-    ("/", "首页"),
-    ("/search", "站点资源搜索页"),
-    ("/discover/{movie|tv}", "发现页（电影/剧集的榜单与分类浏览）"),
-    (
-        "/discover/{movie|tv}/collections/{tmdb|douban}/{片单ID}",
-        "完整影视片单（片单引用来自 discover list-collections）",
-    ),
-    ("/discover/movie/top250", "豆瓣电影 Top250 榜单"),
-    ("/discover/movie/high-score", "豆瓣高分电影榜单"),
-    ("/discover/people/{TMDB 影人ID}", "发现页影人详情与完整作品列表"),
-    ("/media/{movie|tv}/{TMDB ID}", "影片/剧集详情页"),
-    ("/media/douban/{豆瓣ID}", "豆瓣词条详情页"),
-    ("/subscriptions", "订阅列表"),
-    ("/subscriptions/wall/{类型}", "订阅海报墙：tv 全部剧集订阅、movie 全部电影订阅"),
-    ("/subscriptions/{订阅ID}", "订阅详情（ID 来自 subscriptions list/get）"),
-    ("/library", "媒体库总览（浏览入口：接下来继续、我的收藏、各库最近添加；行可自定义）"),
-    ("/library/favorites", "我的收藏（当前账号收藏的全部作品，与 Jellyfin 客户端里点的心同一份）"),
-    ("/library/customize", "自定义媒体库首页（行的顺序、显隐、排序与名字；每个成员各存一份）"),
-    (
-        "/library/kind/{movie|tv|video}",
-        "按类型的跨库墙：全部电影 / 全部剧集 / 全部其他视频"
-        "（同类型的库合成一面墙，同一部片只出现一次）",
-    ),
-    ("/library/manage", "媒体库管理（建库、扫描、整理、排序、可见范围；仅管理员）"),
-    ("/library/collections", "全部合集总览（含跨库合集；合集 ID 来自 collection list）"),
-    (
-        "/library/c/{合集ID}",
-        "合集详情（不限某个库；库内合集也可从这里打开）",
-    ),
-    ("/library/{库ID}", "某个媒体库的内容（库 ID 来自 library list）"),
-    (
-        "/library/{库ID}/c/{合集ID}",
-        "库内合集详情：收录规则与成员作品（合集 ID 来自 collection list）",
-    ),
-    (
-        "/library/{库ID}/item/{条目ID}",
-        "库内条目详情（条目 ID 来自 library items list）",
-    ),
-    ("/activity", "活动页（观看：实时播放/下载；任务：后台作业与下载任务）"),
-    ("/new", "AI 新任务直达页（Netflix 顶栏「＋ 新任务」入口；与首页共用内容）"),
-    ("/sessions/{会话ID}", "AI 会话详情（ID 来自 session list/start）"),
-    ("/people/{影人ID}", "影人档案（ID 来自 people 域）"),
-    ("/my", "「我的」页（用户信息、快捷入口、AI 会话与账号操作；Netflix 移动端底栏页签）"),
-    ("/settings", "设置页"),
-]
-
-
-async def _agent_system_prompt() -> str:
-    """组装本次运行的系统提示词：通用正文 + 部署环境事实 + 技能清单。
-
-    日志目录是 API 层的配置（LOG_DIR），按 prompts.build_system_prompt 的
-    设计走 extra_environment 传入——mclaw 已对 Agent 隐藏 logs 域（见
-    services/mclaw_tool 的 _EXCLUDED_DOMAINS），排查问题靠这里给出的
-    路径用 bash 直接检索。
-
-    外部访问地址来自「设置 → 应用设置」（保存即生效），因此每次运行时
-    现读设置存储，不做缓存；未配置时整块不输出——没有前缀，路由表也
-    拼不出有效链接，避免模型给用户无效地址。
-
-    技能清单同样每次运行现扫（docs/design/agent-skills.md）：改技能无需
-    重启，下一轮生效。清单指令依赖 read 工具加载正文，因此只应出现在
-    含 read 的工具集里——本函数只服务 Web 会话（get_agent_tools 恒含
-    read）；IM/微信通道是无 read 的受限工具集且走 runner 默认提示词，
-    天然不含清单。若未来 IM 要接技能，必须同时给 read 工具。
-    """
-    log_dir = Path(get_settings().log_dir).resolve()
-    lines = [
-        f"- 运行日志目录：{log_dir}，按天一个文件（movieclaw-YYYY-MM-DD.log）。"
-        "排查问题时用 bash 的 grep/tail 直接检索日志。"
-    ]
-    external_url = (await get_setting_store().get(AppServerSetting)).external_url
-    if external_url:
-        routes = "\n".join(f"  {pattern}  {desc}" for pattern, desc in _PAGE_ROUTES)
-        lines.append(
-            f"- 本应用的外部访问地址：{external_url}。提到订阅、影片、库内条目等页面时，"
-            "尽量附上可点击的 Markdown 链接：以外部访问地址为前缀，路径按下表拼接。"
-            f"只拼表内路径，不要用容器内地址拼链接。\n{routes}"
-        )
-    prompt = build_system_prompt("\n".join(lines))
-    user_skills_dir = Path(get_settings().agent_skills_dir).resolve()
-    fragment = build_skills_fragment(discover_skills(user_skills_dir), user_skills_dir)
-    return prompt if fragment is None else f"{prompt}\n\n{fragment}"
-
-
-async def _cli_env(session_id: str) -> dict[str, str]:
-    """构造工作区里 mclaw CLI 的自动授权环境（docs/design/cli.md §6.2）。
-
-    令牌按运行签发、短时效、无状态签名（改密轮换密钥即全体失效）；
-    服务器地址走容器内回环直连。Agent 在工作区内执行 `mclaw ...` 即可
-    直接操作本产品，全程零登录零交互。
-    """
-    settings = get_settings()
-    token = await auth_service.issue_agent_token(session_id)
-    if demo_service.is_review_request():
-        # 演示站审核账号（demo-site.md §9）：工具里的 mclaw 调用同样按审核账号放行
-        demo_service.remember_review_agent_token(token, auth_service.AGENT_TOKEN_TTL_SECONDS)
-    return {
-        "MOVIECLAW_SERVER": f"http://127.0.0.1:{settings.port}",
-        "MOVIECLAW_TOKEN": token,
-    }
-
-
 def _ensure_demo_visible(session_id: str, identity: Principal) -> None:
     """演示站：会话按登录设备隔离（services/demo_agent.py），别人的会话一律当不存在。
     审核账号只看得见自己开的会话。"""
@@ -247,7 +130,7 @@ def _ensure_demo_visible(session_id: str, identity: Principal) -> None:
     else:
         visible = demo_agent.is_visible(session_id, identity)
     if not visible:
-        raise NotFoundException("Agent 会话不存在")
+        raise NotFoundException(message_key="errors.agent.sessionMissing")
 
 
 def _scripted_demo() -> bool:
@@ -259,8 +142,17 @@ async def _accept_user_message(
     payload: SessionStartPayload,
     identity: Principal,
     session: AsyncSession,
+    *,
+    owner: str | None = None,
+    tool_profile: ToolProfile = "web",
+    instructions: str | None = None,
+    max_steps: int | None = None,
 ) -> ApiResponse[SessionMessageAcceptedView]:
     """持久化一条用户消息、创建后台运行并返回消息编号。
+
+    ``owner`` / ``tool_profile`` / ``instructions`` / ``max_steps`` 给插件驱动 Agent 用
+    （services/plugin_agent.py，docs/design/plugin-agent.md）：会话归属、工具档位、
+    追加在系统提示词后的说明、步数上限。网页调用全部取默认。
 
     ``run_id`` 只服务于进程内任务调度、心跳和事件日志，不进入公开协议。
     后续消息的上下文始终从服务端转录重建，调用方无需也不能注入历史。
@@ -269,7 +161,7 @@ async def _accept_user_message(
     # 不允许再发起新的 Agent 运行——工具层已有软闸，这里是绕过工具（curl 等）
     # 也拦得住的最后防线。放在一切校验/落盘之前。
     if identity.kind == "agent":
-        raise BadRequestException("Agent 工作区内不能再发起新的 Agent 运行（禁止递归）")
+        raise BadRequestException(message_key="errors.agent.nestedRunForbidden")
 
     store = get_agent_session_store()
     repo = AgentSessionRepository(session)
@@ -287,12 +179,9 @@ async def _accept_user_message(
         _ensure_demo_visible(session_id, identity)
         row = await repo.get(session_id)
         if row is None:
-            raise NotFoundException("Agent 会话不存在")
+            raise NotFoundException(message_key="errors.agent.sessionMissing")
         if is_running(row):
-            raise BadRequestException(
-                "该会话已有正在进行的运行，请先停止或等待完成；"
-                "若服务刚重启过，运行状态最多 30 秒后会自动恢复为已结束"
-            )
+            raise BadRequestException(message_key="errors.agent.sessionBusy")
         # 接受路径兜底（三层 seal 的最后一层，见 docs/design/
         # agent-runtime-resilience.md §4.2）：启动自愈自身出异常时孤儿
         # tool_call 仍可能残留，这里再补一次配对，保证喂给供应商的历史
@@ -308,9 +197,9 @@ async def _accept_user_message(
         _, existing_entries = store.read(session_id)
         entry_count = len(existing_entries)
     else:
-        header = store.create()
+        header = store.create(owner=owner)
         session_id = header.session_id
-        await repo.create(session_id, title=None)
+        await repo.create(session_id, title=None, owner=owner)
         if demo:
             demo_agent.claim(session_id, identity)
         elif demo_service.is_demo_mode():
@@ -343,6 +232,12 @@ async def _accept_user_message(
         # 演示站只挂卡片与只读查库两个工具，不给 bash / 真命令行
         tools=demo_agent.tools() if demo else None,
         system_prompt=demo_agent.SYSTEM_PROMPT if demo else None,
+        owner=owner,
+        tool_profile=tool_profile,
+        instructions=instructions,
+        max_steps=max_steps,
+        # 插件驱动的会话没有真人在说话，不写昵称
+        speaker=None if owner else speaker_member_id(identity),
     )
 
 
@@ -366,8 +261,14 @@ async def _launch_user_message(
     llm_router: LlmRouter,
     attachment_ids: list[str] | None = None,
     thinking_level: str | None = None,
+    generated_skill_instruction: bool = False,
     tools: list[AgentTool] | None = None,
     system_prompt: str | None = None,
+    owner: str | None = None,
+    tool_profile: ToolProfile = "web",
+    instructions: str | None = None,
+    max_steps: int | None = None,
+    speaker: int | None = None,
 ) -> ApiResponse[SessionMessageAcceptedView]:
     """在已校验的会话链尾追加用户消息并启动后台处理。
 
@@ -376,28 +277,31 @@ async def _launch_user_message(
     悬空引用，落盘失败最多留下可回收的孤儿文件。
     """
     actual_tools = (
-        tools
-        if tools is not None
-        else get_agent_tools(await _cli_env(session_id), generative_ui=True)
+        tools if tools is not None else await profile_tools(tool_profile, session_id, owner)
     )
-    actual_system_prompt = system_prompt or await _agent_system_prompt()
+    # 提示词按实际挂上的工具推导（技能清单、源码与日志只给带 read 的工具集）
+    actual_system_prompt = system_prompt or await agent_system_prompt(
+        actual_tools, speaker=speaker
+    )
+    if instructions:
+        actual_system_prompt = f"{actual_system_prompt}\n\n{instructions}"
     # 显式技能调用：把 /skill:名字 占位符展开为技能正文块（docs/design/
     # agent-skills.md §9）。展开结果入转录（内容冻结在调用时刻）；已展开
     # 文本不含裸 token，retry 复用旧文本时这里天然是 no-op。
-    content = expand_skill_invocations(
+    expansion = prepare_skill_invocations(
         content, discover_skills(Path(get_settings().agent_skills_dir).resolve())
     )
-    bound = (
-        get_agent_attachment_store().bind(session_id, attachment_ids)
-        if attachment_ids
-        else []
-    )
+    content = expansion.text
+    bound = get_agent_attachment_store().bind(session_id, attachment_ids) if attachment_ids else []
     user_content = compose_user_content(content, bound)
     recorder = AgentSessionRecorder(
         get_agent_session_store(), session_id, entry_count=entry_count
     )
     message_id = await recorder.record_user_message(
-        user_content, thinking_level=thinking_level, model=model
+        user_content,
+        thinking_level=thinking_level,
+        model=model,
+        generated_skill_instruction=generated_skill_instruction or expansion.generated_instruction,
     )
 
     # 请求水合：历史 + 本轮输入统一处理（视觉门控 / 读字节 / 预算，预算从
@@ -421,6 +325,7 @@ async def _launch_user_message(
         tools=actual_tools,
         on_message=recorder.on_message,
         on_compaction=recorder.on_compaction,
+        **({"max_steps": max_steps} if max_steps is not None else {}),
     )
     params = AgentStartParams(
         input=input_for_run,
@@ -440,7 +345,7 @@ async def _launch_user_message(
     await recorder.begin(run_id)
     return ok(
         SessionMessageAcceptedView(session_id=session_id, message_id=message_id),
-        message="用户消息已提交",
+        message=t("agent.operations.messageSubmitted"),
     )
 
 
@@ -486,13 +391,15 @@ async def upload_session_attachment(
     """
     # 与「Agent 不能递归发起运行」同口径：不允许 Agent 用产品令牌向会话注入图片
     if identity.kind == "agent":
-        raise BadRequestException("Agent 工作区内不能上传会话附件")
+        raise BadRequestException(message_key="errors.agent.workspaceUploadForbidden")
     store = get_agent_attachment_store()
     # 顺手回收过期的未发送附件（staging 目录很小，扫描是廉价操作）
     await asyncio.to_thread(store.cleanup_staging)
     # 只读到限额 +1 字节就停：uvicorn 默认不限请求体，不能无脑全量读
     data = await file.read(MAX_IMAGE_BYTES + 1)
-    meta = await asyncio.to_thread(store.save_staging, data, file.filename or "图片")
+    meta = await asyncio.to_thread(
+        store.save_staging, data, file.filename or t("agent.attachments.imageName")
+    )
     return ok(
         AttachmentUploadView(
             attachment_id=meta.attachment_id,
@@ -501,7 +408,7 @@ async def upload_session_attachment(
             height=meta.height,
             bytes=meta.bytes,
         ),
-        message="图片已上传",
+        message=t("agent.operations.imageUploaded"),
     )
 
 
@@ -583,10 +490,19 @@ async def list_sessions(
 async def get_session_transcript(
     session_id: str,
     identity: Principal = Depends(require_login),
+    view: Literal["full", "chat"] = Query(
+        "full",
+        description=(
+            "full = 完整轨迹；chat = 只给聊天界面要的：去掉思考过程，工具输出只留开头，"
+            "技能正文换成「…」（技能名还在），压缩记录不带被替换的历史"
+        ),
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[SessionTranscriptView]:
     """一次返回按写入顺序排列的完整 message/compaction 轨迹。
 
+    ``view=chat`` 给不展示处理过程的聊天界面用：过程（工具输出、思考）常占长会话的大半体积，
+    条目与顺序、message_id、工具调用参数（生成式 UI 卡片要用）都不变。
     结果不分页、不截断，长会话响应可能很大。user message 的 ``message_id``
     可作为 ``session.retry`` 的定位参数；compaction 记录不会隐藏更早的原始消息。
     handoff 记录只带来源信息，继承上下文的快照不在此重复下发（见
@@ -595,14 +511,58 @@ async def get_session_transcript(
     _ensure_demo_visible(session_id, identity)
     row = await AgentSessionRepository(session).get(session_id)
     if row is None:
-        raise NotFoundException("Agent 会话不存在")
+        raise NotFoundException(message_key="errors.agent.sessionMissing")
     _, entries = get_agent_session_store().read(session_id)
     return ok(
         SessionTranscriptView(
             session=SessionSummary.from_model(row),
-            entries=[_entry_view(e, include_handoff_snapshot=False) for e in entries],
+            entries=[
+                _entry_view(_chat_view(e) if view == "chat" else e, include_handoff_snapshot=False)
+                for e in entries
+            ],
         )
     )
+
+
+#: chat 视图里工具输出保留的开头字数：失败回执的前缀（「工具执行失败：」）要留着，
+#: 客户端据此不画失败调用的卡片
+CHAT_VIEW_TOOL_OUTPUT_CHARS = 120
+
+
+def _chat_view(
+    entry: SessionMessageEntry | SessionCompactionEntry | SessionHandoffEntry,
+) -> SessionMessageEntry | SessionCompactionEntry | SessionHandoffEntry:
+    """聊天界面用的瘦身轨迹（``view=chat``）。"""
+    if isinstance(entry, SessionCompactionEntry):
+        return entry.model_copy(update={"replacement_history": []})
+    if not isinstance(entry, SessionMessageEntry):
+        return entry
+    message = entry.message
+    if message.role == "tool":
+        head = message.text()[:CHAT_VIEW_TOOL_OUTPUT_CHARS]
+        return entry.model_copy(update={"message": message.model_copy(update={"content": head})})
+
+    def user_text(text: str) -> str:
+        compacted = compact_skill_blocks(text)
+        if entry.generated_skill_instruction:
+            names, rest = strip_skill_blocks(compacted)
+            if names and rest:
+                return compacted[: -len(rest)] + t("agent.session.defaultInstruction")
+        return compacted
+
+    if isinstance(message.content, str):
+        if message.role != "user":
+            return entry
+        content: str | list[ContentPart] = user_text(message.content)
+    else:
+        content = [
+            TextPart(text=user_text(part.text))
+            if isinstance(part, TextPart) and message.role == "user"
+            else part
+            for part in message.content
+            if not isinstance(part, ThinkingPart)
+        ]
+    return entry.model_copy(update={"message": message.model_copy(update={"content": content})})
 
 
 def _entry_view(
@@ -622,7 +582,12 @@ def _entry_view(
             timestamp=entry.timestamp,
             source_session_id=entry.source_session_id,
             source_leaf_id=entry.source_leaf_uuid,
-            source_title=entry.source_title,
+            source_title=render_value(
+                {**entry.source_title_ref, "message": entry.source_title or ""}
+            ).strip()[:80]
+            if entry.source_title_ref
+            else entry.source_title,
+            source_title_ref=entry.source_title_ref,
             replacement_history=(
                 [SessionMessageView.from_model(message) for message in entry.replacement_history]
                 if include_handoff_snapshot
@@ -646,6 +611,7 @@ def _entry_view(
         parent_id=entry.parent_uuid,
         timestamp=entry.timestamp,
         message=SessionMessageView.from_model(entry.message),
+        generated_skill_instruction=entry.generated_skill_instruction,
         model=entry.model,
         usage=entry.usage,
         finish_reason=entry.finish_reason,
@@ -677,18 +643,21 @@ async def fork_session(
     因此即使踩中窗口，新会话拿到的仍是一份协议完整的上下文。
     """
     if identity.kind == "agent":
-        raise BadRequestException("Agent 工作区内不能创建新的 Agent 会话（禁止递归）")
+        raise BadRequestException(message_key="errors.agent.nestedSessionForbidden")
 
     store = get_agent_session_store()
     repo = AgentSessionRepository(session)
     source = await repo.get(session_id)
     if source is None:
-        raise NotFoundException("Agent 会话不存在")
+        raise NotFoundException(message_key="errors.agent.sessionMissing")
     if is_running(source):
-        raise BadRequestException("源会话正在运行中，请先停止或等待完成后再创建新会话")
+        raise BadRequestException(message_key="errors.agent.sourceRunning")
+
+    from movieclaw_api.services.agent_sessions import continuation_title
 
     source_title = source.title or source.last_prompt
-    header, handoff = store.fork(session_id, source_title=source_title)
+    source_ref = source.title_ref if source.title else source.last_prompt_ref
+    header, handoff = store.fork(session_id, source_title=source_title, source_title_ref=source_ref)
     # 快照里引用的图片按同 id 复制到新会话目录（目录按会话隔离，id 不冲突，
     # 引用无需改写）——handoff 的既有原则是「新会话不依赖源文件」，源会话
     # 之后被删除，新会话的图仍可水合。源附件缺失只跳过，不阻断 fork。
@@ -701,12 +670,8 @@ async def fork_session(
         get_agent_attachment_store().copy_session_attachments(
             session_id, header.session_id, referenced
         )
-    target_title = (
-        (source_title if source_title.startswith("续：") else f"续：{source_title}")[:80]
-        if source_title
-        else None
-    )
-    target = await repo.create(header.session_id, title=target_title)
+    target_title, target_ref = continuation_title(source_title, source_ref)
+    target = await repo.create(header.session_id, title=target_title, title_ref=target_ref)
     if demo_service.is_review_request():
         demo_service.remember_review_agent_session(header.session_id)
     await repo.touch_after_append(
@@ -721,7 +686,7 @@ async def fork_session(
             session=SessionSummary.from_model(target),
             entries=[_entry_view(handoff)],
         ),
-        message="已创建续接会话",
+        message=t("agent.operations.continuationCreated"),
     )
 
 
@@ -739,8 +704,8 @@ async def rename_session(
     """修改会话标题，不改变任何消息、模型上下文或完整轨迹。"""
     row = await AgentSessionRepository(session).rename(session_id, payload.title)
     if row is None:
-        raise NotFoundException("Agent 会话不存在")
-    return ok(SessionSummary.from_model(row), message="会话已重命名")
+        raise NotFoundException(message_key="errors.agent.sessionMissing")
+    return ok(SessionSummary.from_model(row), message=t("agent.operations.renamed"))
 
 
 @router.post(
@@ -764,20 +729,24 @@ async def compact_session_context(
     repo = AgentSessionRepository(session)
     row = await repo.get(session_id)
     if row is None:
-        raise NotFoundException("Agent 会话不存在")
+        raise NotFoundException(message_key="errors.agent.sessionMissing")
     if is_running(row):
-        raise BadRequestException("该会话正在运行中，请等待完成后再压缩")
+        raise BadRequestException(message_key="errors.agent.compressWhileRunning")
 
     llm_router = await acquire_llm_router(session)
     history = store.build_history(session_id)
     if not history:
-        raise BadRequestException("会话没有可压缩的内容")
+        raise BadRequestException(message_key="errors.agent.nothingToCompress")
 
     # 沿用会话当前的模型引用（最近一条 user 行的信封值；None = 默认模型）
     _, entries = store.read(session_id)
     model = latest_user_model(entries) or ""
 
-    messages = [ChatMessage(role="system", content=await _agent_system_prompt()), *history]
+    # 手动压缩不跑工具，提示词只需与网页会话同口径；空环境建工具不签发令牌
+    system_prompt = await agent_system_prompt(
+        get_agent_tools({}), speaker=speaker_member_id(identity)
+    )
+    messages = [ChatMessage(role="system", content=system_prompt), *history]
     # 手动压缩不经过 runner，历史里的图片引用必须在这里水合——否则视觉模型
     # 写摘要时只能看到协议层的降级占位，看不到图（设计 §6 的第二个调用点）。
     try:
@@ -788,7 +757,7 @@ async def compact_session_context(
         messages = await hydrate_images(messages, session_id=session_id, model_info=model_info)
     result = await compact(llm_router, model, messages, ModelSettings())
     if result is None:
-        raise UpstreamServiceException("压缩失败：模型未能生成摘要，请稍后重试")
+        raise UpstreamServiceException(message_key="errors.agent.compressionFailed")
 
     entry = store.append_compaction(session_id, result)
     await repo.touch_after_append(
@@ -803,7 +772,7 @@ async def compact_session_context(
             tokens_after=result.tokens_after,
             compaction_id=entry.uuid,
         ),
-        message="会话上下文已压缩",
+        message=t("agent.operations.compacted"),
     )
 
 
@@ -828,23 +797,23 @@ async def retry_session_message(
     与模型配置，再改写事实源。CLI 与 Web 共用此一步重试入口。
     """
     if identity.kind == "agent":
-        raise BadRequestException("Agent 工作区内不能再发起新的 Agent 运行（禁止递归）")
+        raise BadRequestException(message_key="errors.agent.nestedRunForbidden")
 
     _ensure_demo_visible(session_id, identity)
     store = get_agent_session_store()
     repo = AgentSessionRepository(session)
     row = await repo.get(session_id)
     if row is None:
-        raise NotFoundException("Agent 会话不存在")
+        raise NotFoundException(message_key="errors.agent.sessionMissing")
     if is_running(row):
-        raise BadRequestException("该会话正在运行中，请先停止运行再重试")
+        raise BadRequestException(message_key="errors.agent.retryWhileRunning")
 
     _, entries = store.read(session_id)
     target = next((entry for entry in entries if entry.uuid == payload.message_id), None)
     if target is None:
-        raise NotFoundException("会话中没有这条记录，可能已被改写")
+        raise NotFoundException(message_key="errors.agent.recordMissing")
     if not isinstance(target, SessionMessageEntry) or target.message.role != "user":
-        raise BadRequestException("只能重试用户消息")
+        raise BadRequestException(message_key="errors.agent.retryUserOnly")
     content = payload.content or target.message.text()
     # 附件三态：不传沿用原消息的图（text() 只取文本，图必须单独提取，否则
     # 原文重试会丢图）；空数组显式去图；非空数组替换。原附件已绑定本会话，
@@ -855,7 +824,7 @@ async def retry_session_message(
         else payload.attachments
     )
     if not content and not attachment_ids:
-        raise BadRequestException("消息正文与图片附件不能同时为空")
+        raise BadRequestException(message_key="errors.agent.emptyMessage")
     # 思维链档位三态：与 start 同口径，不传时沿用被重试消息的信封值
     thinking_level = (
         None
@@ -874,8 +843,8 @@ async def retry_session_message(
         tools = demo_agent.tools()
     else:
         llm_router = await acquire_llm_router(session)
-        system_prompt = await _agent_system_prompt()
-        tools = get_agent_tools(await _cli_env(session_id), generative_ui=True)
+        tools = await profile_tools("web", session_id, None)
+        system_prompt = await agent_system_prompt(tools, speaker=speaker_member_id(identity))
 
     store.discard_from_user_message(session_id, payload.message_id)
     # 重试路径同款兜底：截断后若仍残留未配对的工具调用（上次异常停机遗留），
@@ -889,6 +858,7 @@ async def retry_session_message(
         leaf_uuid=summary.leaf_uuid,
         entry_count=summary.entry_count,
         last_prompt=summary.last_prompt,
+        last_prompt_ref=summary.last_prompt_ref,
     )
 
     return await _launch_user_message(
@@ -899,6 +869,9 @@ async def retry_session_message(
         thinking_level=thinking_level,
         history=history,
         entry_count=len(remaining_entries),
+        generated_skill_instruction=bool(target.generated_skill_instruction)
+        if payload.content is None
+        else False,
         llm_router=llm_router,
         tools=tools,
         system_prompt=system_prompt,
@@ -923,13 +896,13 @@ async def delete_session(
     repo = AgentSessionRepository(session)
     row = await repo.get(session_id)
     if row is None:
-        raise NotFoundException("Agent 会话不存在")
+        raise NotFoundException(message_key="errors.agent.sessionMissing")
     if is_running(row):
-        raise BadRequestException("该会话正在运行中，请先停止运行再删除")
+        raise BadRequestException(message_key="errors.agent.deleteWhileRunning")
     get_agent_session_store().delete(session_id)
     get_agent_attachment_store().delete_session_attachments(session_id)
     await repo.delete(session_id)
-    return ok({}, message="会话已删除")
+    return ok({}, message=t("agent.operations.deleted"))
 
 
 @router.get(
@@ -971,11 +944,18 @@ async def follow_session(
             for stored in events:
                 cursor = stored.sequence
                 event = stored.event
-                yield (
-                    f"id: {stored.sequence}\n"
-                    f"event: {event.type}\n"
-                    f"data: {event.model_dump_json(exclude_none=True, exclude={'run_id'})}\n\n"
+                serialized = event.model_dump_json(
+                    exclude_none=True, exclude={"run_id", "error_ref"}
                 )
+                if event.error:
+                    payload = json.loads(serialized)
+                    payload["error"] = (
+                        render_value(event.error_ref)
+                        if event.error_ref
+                        else stored_message(event.error)
+                    )
+                    serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                yield (f"id: {stored.sequence}\nevent: {event.type}\ndata: {serialized}\n\n")
             if terminal:
                 return
             events, terminal = await registry.get_session_events(
@@ -1015,7 +995,7 @@ async def stop_session(
     承载自己的当前会话。
     """
     if identity.kind == "agent" and identity.agent_session_id == session_id:
-        raise BadRequestException("当前 Agent 不能停止承载自己的会话")
+        raise BadRequestException(message_key="errors.agent.stopOwnSession")
     _ensure_demo_visible(session_id, identity)
     await get_agent_run_registry().cancel_session(session_id)
-    return ok({}, message="已请求停止会话")
+    return ok({}, message=t("agent.operations.stopRequested"))

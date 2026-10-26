@@ -28,7 +28,7 @@ struct ActivityStatusDot: View {
             withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) { animate = true }
         }
         .accessibilityElement()
-        .accessibilityLabel(label.map { "状态：\($0)" } ?? "")
+        .accessibilityLabel(label.map { String(localized: .activityJobsStatusAria($0)) } ?? "")
     }
 }
 

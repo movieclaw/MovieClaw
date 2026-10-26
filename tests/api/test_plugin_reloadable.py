@@ -21,6 +21,9 @@ from fastapi.testclient import TestClient
 from movieclaw_api.core.config import get_settings
 from movieclaw_kernel import State
 
+# 全部内置插件都要在跑（含随带的网盘规格预探，测试默认停用它，见 tests/conftest.py）
+pytestmark = pytest.mark.strm_prefetch
+
 #: 非关键但不能运行中重载的内置插件（条目 id → 原因）。目前没有。
 NOT_RELOADABLE: dict[str, str] = {}
 
@@ -39,16 +42,16 @@ def app_client(tmp_path, monkeypatch):
     monkeypatch.setenv("SITE_CONFIGS_DIR", str(tmp_path / "site-configs"))
     monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("SCHEDULER_ENABLED", "true")
-    # Jellyfin 自动发现默认绑固定的 UDP 7359：并行跑测试时别的进程可能正占着它，
+    # 局域网自动发现默认绑固定的 UDP 7359：并行跑测试时别的进程可能正占着它，
     # 首次启用绑不上、重载时又绑上了，描述符数就「多出一个」。改绑随机端口，结果才确定
-    from movieclaw_jellyfin import udp
+    from movieclaw_api.services import lan_discovery
 
-    monkeypatch.setattr(udp, "DISCOVERY_PORT", 0)
+    monkeypatch.setattr(lan_discovery, "DISCOVERY_PORT", 0)
     get_settings.cache_clear()
     from movieclaw_api.app import create_app
 
     app = create_app()
-    yield app, TestClient(app)
+    yield app, TestClient(app, headers={"Accept-Language": "zh-Hans"})
     get_settings.cache_clear()
 
 

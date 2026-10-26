@@ -29,10 +29,10 @@ def describe(apk: Path, aapt2: str, apksigner: str) -> dict:
         libraries = {n for n in archive.namelist() if n.startswith("lib/") and n.endswith(".so")}
     if {n.split("/")[1] for n in libraries} != {"arm64-v8a"}:
         raise ValueError("正式包必须包含 arm64-v8a 原生库")
+    # 统一播放引擎（apps/android-core）的原生库：FFmpeg 音频软解与 libass 特效字幕
     required = {
-        "libmovieclaw_jni.so", "libmp2.so", "libc++_shared.so", "libavcodec.so",
-        "libavformat.so", "libavfilter.so", "libavutil.so", "libswscale.so",
-        "libswresample.so", "libavdevice.so",
+        "libffmpegJNI.so", "libavcodec.so", "libavutil.so", "libswresample.so",
+        "libass.so", "libasskt.so", "libc++_shared.so",
     }
     missing = required - {Path(n).name for n in libraries}
     if missing:
@@ -40,7 +40,11 @@ def describe(apk: Path, aapt2: str, apksigner: str) -> dict:
     signature = subprocess.check_output(
         [apksigner, "verify", "--verbose", "--print-certs", str(apk)], text=True
     )
-    certificate = re.search(r"Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]{64})", signature)
+    # 新版 apksigner 按签名方案逐行列出（「V2 Signer: certificate SHA-256 digest」），
+    # 老版本是「Signer #1 …」（同 TV 版）
+    certificate = re.search(
+        r"(?:Signer #1|V2 Signer):? certificate SHA-256 digest: ([0-9a-fA-F]{64})", signature
+    )
     if certificate is None or "CN=Android Debug" in signature:
         raise ValueError("APK 必须使用正式签名证书")
     with apk.open("rb") as stream:

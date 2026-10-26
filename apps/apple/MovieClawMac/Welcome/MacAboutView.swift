@@ -12,8 +12,8 @@ struct MacAboutView: View {
             ScrollView {
                 VStack(spacing: 28) {
                     header
-                    MacAboutSection(title: "开源组件",
-                                    note: "播放引擎 AetherEngine 与 FFmpeg 以动态框架随 App 分发，你可以按各自的许可获取源码、修改并替换。本 App 使用的 AetherEngine 修改版源码可通过下方组件链接获取，链接对应本次构建使用的提交。") {
+                    MacAboutSection(title: String(localized: .settingsAboutOpenSource),
+                                    note: String(localized: .settingsAboutLicensesHint)) {
                         VStack(spacing: 0) {
                             ForEach(Array(OpenSourceComponent.all.enumerated()), id: \.element.id) { index, component in
                                 if index > 0 { Divider().padding(.leading, 14) }
@@ -27,8 +27,8 @@ struct MacAboutView: View {
                         .background(.white.opacity(0.05), in: .rect(cornerRadius: 10))
                         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.line))
                     }
-                    MacAboutSection(title: "数据来源",
-                                    note: "影视资料与图片由你的服务器从 TMDB（themoviedb.org）等来源获取。本产品使用 TMDB API，但未经 TMDB 认可或认证。") {
+                    MacAboutSection(title: String(localized: .settingsAboutDataSources),
+                                    note: String(localized: .settingsAboutTmdbCredit)) {
                         EmptyView()
                     }
                 }
@@ -55,15 +55,16 @@ struct MacAboutView: View {
             Text("MovieClaw")
                 .font(.system(size: 22, weight: .bold))
                 .padding(.top, 4)
-            Text("智能影音服务器")
+            Text(String(localized: .authBrandTagline))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
-            Text("版本 \(Self.versionText)")
+            Text(String(localized: .settingsAboutVersion(Self.versionText)))
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .textSelection(.enabled)
                 .padding(.top, 2)
-            Text("MovieClaw 是自托管服务的客户端：你的媒体、账号与观看记录都在你自己部署的服务器上，App 不向开发者或任何第三方上传数据。")
+            MacAboutUpdateStatus()
+            Text(String(localized: .settingsAboutPrivacySummary))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -80,7 +81,7 @@ struct MacAboutView: View {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
-        return "\(version)（\(build)）"
+        return String(localized: .settingsAboutVersionBuild(version, build))
     }
 }
 
@@ -169,7 +170,34 @@ private struct MacLicenseTextView: View {
     private static func text(of file: String) -> String {
         guard let url = Bundle.main.url(forResource: file, withExtension: "txt"),
               let text = try? String(contentsOf: url, encoding: .utf8)
-        else { return "（许可全文缺失：\(file).txt）" }
+        else { return String(localized: .settingsAboutLicenseMissing(file)) }
         return text
+    }
+}
+
+/// 关于窗口里版本号下面的更新状态：用户想确认版本时自然会打开这里（MacUpdater）
+private struct MacAboutUpdateStatus: View {
+    private let updater = MacUpdater.shared
+
+    var body: some View {
+        switch updater.channel {
+        case .sparkle:
+            VStack(spacing: 6) {
+                Text(updater.statusText)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Button(updater.primaryTitle) { updater.primaryAction() }
+                    .controlSize(.small)
+                    .accessibilityIdentifier("mac-about-update")
+            }
+            .padding(.top, 6)
+        case .store:
+            Text(String(localized: .settingsMacUpdateByTestFlight))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .padding(.top, 6)
+        case .none:
+            EmptyView()
+        }
     }
 }

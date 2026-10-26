@@ -159,8 +159,8 @@ struct AccountGestureTip: View {
             let trailing = min(proxy.size.width - 12, avatarFrame.maxX - origin.x)
             let bottom = max(0, avatarFrame.minY - origin.y - 10)
             VStack(alignment: .leading, spacing: 6) {
-                Label("长按头像：切换账号", systemImage: "hand.tap")
-                Label("双击头像：切回上一个账号", systemImage: "arrow.left.arrow.right")
+                Label(String(localized: .navAccountGestureLongPress), systemImage: "hand.tap")
+                Label(String(localized: .navAccountGestureDoubleTap), systemImage: "arrow.left.arrow.right")
             }
             .font(.subheadline)
             .foregroundStyle(Theme.text)
@@ -171,7 +171,7 @@ struct AccountGestureTip: View {
             .onTapGesture(perform: dismiss)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isButton)
-            .accessibilityHint("轻点关闭")
+            .accessibilityHint(String(localized: .navAccountGestureTapToClose))
             .accessibilityIdentifier("account-gesture-tip")
             .frame(width: trailing, height: bottom, alignment: .bottomTrailing)
         }

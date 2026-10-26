@@ -3,9 +3,10 @@ import Foundation
 
 /// 局域网自动发现 MovieClaw 服务器，给欢迎页的「服务器地址」自动填值。
 ///
-/// 协议：后端实现了 Jellyfin 的局域网自动发现（`src/movieclaw_jellyfin/udp.py`）——监听 UDP 7359，
-/// 收到含「who is JellyfinServer?」的报文，就向发送方单播回一段 JSON：
-/// `{"Address": "http://192.168.1.10:3000", "Id": "…", "Name": "MovieClaw", "EndpointAddress": null}`。
+/// 协议（docs/design/lan-discovery.md）：后端监听 UDP 7359，收到「who is MovieClawServer?」就向发送方单播回
+/// `{"type": "movieclaw.discovery", "name": …, "addresses": [按可信度排好的候选地址]}`。
+/// 每个地址同时再问一句 Jellyfin 的「who is JellyfinServer?」：v0.40.0 及更早的服务器只认这一句，
+/// 回的是 `{"Address": "http://192.168.1.10:3000", "Name": "MovieClaw", …}`。同一台服务器的两条应答合并成一份候选。
 /// 服务器自己不主动广播，要客户端先问。
 ///
 /// 为什么逐个单播、不发广播：
@@ -14,30 +15,32 @@ import Foundation
 /// 2. Docker 桥接部署时广播报文进不了容器，发给宿主 IP 的单播却能经 `-p 7359:7359/udp` 端口映射转进去。
 /// 所以对手机所在网段（最多一个 /24，254 个地址）逐个发一遍询问，再收集应答。
 ///
-/// 应答里的地址不一定能直接用：桥接部署时容器里探测不到宿主的局域网 IP，后端改回「设置 → 网络」的外部访问地址
-/// （可能是公网域名，家里的网络未必能回环访问）；这项也没填，就只剩容器内网 IP（如 172.17.0.2），手机根本连不上。
-/// 这些情况下应答报文的来源 IP 才是宿主的真实地址。于是按「应答地址 → 来源 IP + 应答端口 → 来源 IP + 默认 3000」
+/// 应答里的地址不一定能直接用：桥接部署时容器里探测不到宿主的局域网 IP，后端只能报浏览器访问时记下的地址、
+/// 「设置 → 网络」的外部访问地址（可能是公网域名，家里的网络未必能回环访问），老版本甚至报容器内网 IP（如 172.17.0.2）。
+/// 这些情况下应答报文的来源 IP 才是宿主的真实地址。于是按「应答地址 → 来源 IP + 应答里出现过的端口 → 来源 IP + 默认 3000」
 /// 依次试 `/api/v1/health`，第一个确认是 MovieClaw 的才算数——这一步也顺带排除了局域网里真正的 Jellyfin。
 nonisolated enum ServerDiscovery {
     /// 发现结果
     struct Found: Equatable, Sendable {
         let address: ServerAddress
-        /// 后端「Jellyfin 兼容」设置里的服务器名（默认 MovieClaw）
+        /// 服务器名（默认 MovieClaw）
         let name: String
     }
 
-    /// 一条自动发现应答
+    /// 一条自动发现应答（或同一来源的几条合并后的结果）
     struct Reply: Equatable, Sendable {
-        /// 应答 JSON 里的 Address
-        let address: String
+        /// 自家应答的 addresses，或 Jellyfin 应答的 Address
+        let addresses: [String]
         let name: String
         /// 应答报文的来源 IP
         let source: String
+        /// 是不是自家协议的应答（合并时排在 Jellyfin 应答前面）
+        var native = false
     }
 
     static let port: UInt16 = 7359
-    /// 与 Jellyfin 客户端发的询问一字不差（后端按大小写不敏感的包含关系匹配）
-    static let query = "who is JellyfinServer?"
+    /// 自家询问在前；Jellyfin 的询问与 Jellyfin 客户端发的一字不差（后端按大小写不敏感的包含关系匹配）
+    static let queries = ["who is MovieClawServer?", "who is JellyfinServer?"]
     /// 后端对外端口的默认值（docker-compose 的 3000:3000）
     static let defaultPort = 3000
 
@@ -53,7 +56,7 @@ nonisolated enum ServerDiscovery {
             let replies = await Task.detached(priority: .utility) {
                 sweep(hosts: hosts, listen: 1.2)
             }.value
-            for reply in replies {
+            for reply in merged(replies) {
                 if let address = await firstMovieClaw(in: candidates(for: reply)) {
                     return Found(address: address, name: reply.name)
                 }
@@ -75,21 +78,65 @@ nonisolated enum ServerDiscovery {
                 list.append(address)
             }
         }
-        add(reply.address)
-        let port = URLComponents(string: reply.address)?.port ?? defaultPort
-        add("http://\(reply.source):\(port)")
-        add("http://\(reply.source):\(defaultPort)")
+        reply.addresses.forEach(add)
+        for port in reply.addresses.compactMap({ URLComponents(string: $0)?.port }) + [defaultPort] {
+            add("http://\(reply.source):\(port)")
+        }
         return list
     }
 
-    /// 解析应答报文；不是合法的发现应答（不是 JSON、没有 Address）返回 nil
+    /// 解析应答报文；不是合法的发现应答（不是 JSON、Jellyfin 应答没有 Address）返回 nil。
+    /// 自家应答的地址列表可以为空：桥接部署又没学到宿主地址时，只能靠来源 IP 拼
     static func parse(_ data: Data, source: String) -> Reply? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        func name(_ key: String) -> String {
+            (object[key] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "MovieClaw"
+        }
+        if object["type"] as? String == "movieclaw.discovery" {
+            let addresses = (object["addresses"] as? [Any] ?? []).compactMap { $0 as? String }.filter { !$0.isEmpty }
+            return Reply(addresses: addresses, name: name("name"), source: source, native: true)
+        }
+        guard let address = object["Address"] as? String, !address.isEmpty else { return nil }
+        return Reply(addresses: [address], name: name("Name"), source: source)
+    }
+
+    /// 同一来源 IP 的应答合并成一条（自家应答的地址与名字在前），按首次出现的顺序
+    static func merged(_ replies: [Reply]) -> [Reply] {
+        var sources: [String] = []
+        var groups: [String: [Reply]] = [:]
+        for reply in replies {
+            if groups[reply.source] == nil { sources.append(reply.source) }
+            groups[reply.source, default: []].append(reply)
+        }
+        return sources.map { source in
+            let group = groups[source]!.filter(\.native) + groups[source]!.filter { !$0.native }
+            var addresses: [String] = []
+            for address in group.flatMap(\.addresses) where !addresses.contains(address) {
+                addresses.append(address)
+            }
+            return Reply(addresses: addresses, name: group[0].name, source: source, native: group[0].native)
+        }
+    }
+
+    /// 手动输入的地址只写了主机（没写协议也没写端口，如 `192.168.1.10`）时，依次试 `http://主机:3000`、`http://主机`、
+    /// `https://主机` 的健康检查，用第一个确认是 MovieClaw 的；都不是就原样返回，让后面的登录步骤报出连不上的原因
+    static func settle(_ address: ServerAddress, typed raw: String) async -> ServerAddress {
+        let alternatives = manualAlternatives(address, typed: raw)
+        guard alternatives.count > 1 else { return address }
+        return await firstMovieClaw(in: alternatives) ?? address
+    }
+
+    /// `settle` 要试的地址；输入里写了协议或端口时只有它自己
+    static func manualAlternatives(_ address: ServerAddress, typed raw: String) -> [ServerAddress] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let address = object["Address"] as? String, !address.isEmpty
-        else { return nil }
-        let name = (object["Name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "MovieClaw"
-        return Reply(address: address, name: name, source: source)
+            !trimmed.contains("://"),
+            let components = URLComponents(string: "http://\(trimmed)"), components.port == nil,
+            let host = address.origin.host
+        else { return [address] }
+        let hostText = host.contains(":") ? "[\(host)]" : host
+        return ["http://\(hostText):\(defaultPort)", "http://\(hostText)", "https://\(hostText)"]
+            .compactMap { try? ServerAddress(parsing: $0) }
     }
 
     /// 某个 IPv4 地址所在网段里要问的全部主机（主机字节序）。
@@ -142,20 +189,22 @@ nonisolated enum ServerDiscovery {
         var timeout = timeval(tv_sec: 0, tv_usec: 150_000)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
 
-        let message = Array(query.utf8)
+        let messages = queries.map { Array($0.utf8) }
         for (index, host) in hosts.enumerated() {
             var target = sockaddr_in()
             target.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
             target.sin_family = sa_family_t(AF_INET)
             target.sin_port = port.bigEndian
             target.sin_addr = in_addr(s_addr: host.bigEndian)
-            _ = withUnsafePointer(to: &target) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    sendto(fd, message, message.count, 0, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            for message in messages {
+                _ = withUnsafePointer(to: &target) { pointer in
+                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        sendto(fd, message, message.count, 0, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    }
                 }
             }
-            // 每 32 个包歇 2 毫秒：一口气灌几百个包，网卡发送队列满了会丢包（ENOBUFS）
-            if index % 32 == 31 { usleep(2000) }
+            // 每 16 个地址（32 个包）歇 2 毫秒：一口气灌几百个包，网卡发送队列满了会丢包（ENOBUFS）
+            if index % 16 == 15 { usleep(2000) }
         }
 
         var replies: [Reply] = []

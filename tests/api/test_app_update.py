@@ -21,6 +21,7 @@ import pytest
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.services import app_update
 from movieclaw_api.settings.schemas import AppUpdatePrefsSetting
 
@@ -69,14 +70,26 @@ def _tar_bytes(members: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
-def _make_manifest(download_dir: Path, version: str = "0.2.0") -> dict:
-    """按 build-release-artifacts.sh 的产物布局伪造一套下载完成的文件。"""
+def _make_manifest(
+    download_dir: Path,
+    version: str = "0.2.0",
+    revisions: tuple[str, ...] = ("rev-old", "rev-live", "rev-new", "rev-abc"),
+) -> dict:
+    """按 build-release-artifacts.sh 的产物布局伪造一套下载完成的文件。
+
+    ``revisions``：产物迁移目录里声明的迁移号（安装前要核对它认不认识现库）。"""
     backend = _tar_bytes(
         {
             "src/movieclaw_api/main.py": b"# main",
             "src/movieclaw_api/data/spec.json": b"{}",
             "alembic.ini": b"[alembic]",
             "alembic/env.py": b"# env",
+            **{
+                f"alembic/versions/{i:04d}_{rev}.py": (
+                    f'revision: str = "{rev}"\ndown_revision = None\n'.encode()
+                )
+                for i, rev in enumerate(revisions)
+            },
         }
     )
     web = _tar_bytes({"apps/web/server.js": b"// server"})
@@ -261,6 +274,40 @@ def test_apply_rejects_incomplete_layout(updates_dir, tmp_path):
     with pytest.raises(RuntimeError, match="布局异常"):
         app_update._apply_downloaded(manifest, tmp_path / "dl")
     assert not (updates_dir / "current").exists()
+    assert not (updates_dir / "versions" / "v0.2.0.partial").exists()
+
+
+def test_apply_rejects_database_the_new_version_does_not_know(updates_dir, tmp_path):
+    """用户反馈：库被自改代码写进了官方没有的迁移号，装上新版后启动必挂、连好版本
+    都被连带标坏。安装前就要拦下：不切指针、不留备份，原版本照常运行。"""
+    db = Path(get_settings().database_url.split(":///", 1)[1])
+    _make_db(db, "a3f7c2d1b8e4")
+    manifest = _make_manifest(tmp_path / "dl", "0.2.0", revisions=("rev-old", "rev-live"))
+
+    with pytest.raises(RuntimeError, match="a3f7c2d1b8e4.*不在 v0.2.0 的迁移记录里"):
+        app_update._apply_downloaded(manifest, tmp_path / "dl")
+    assert not (updates_dir / "current").exists()
+    assert not (updates_dir / "versions" / "v0.2.0").exists()
+    assert not (updates_dir / "versions" / "v0.2.0.partial").exists()
+    assert not list((updates_dir / "backup").glob("*.db"))
+
+
+def test_apply_accepts_database_the_new_version_knows(updates_dir, tmp_path):
+    db = Path(get_settings().database_url.split(":///", 1)[1])
+    _make_db(db, "rev-live")
+    manifest = _make_manifest(tmp_path / "dl", "0.2.0", revisions=("rev-old", "rev-live"))
+
+    app_update._apply_downloaded(manifest, tmp_path / "dl")
+    assert Path(updates_dir / "current").resolve().name == "v0.2.0"
+
+
+def test_declared_revisions_match_alembic_on_real_migrations():
+    """安装前的核对只做语法解析（不执行新版本代码），必须与 alembic 自己读出的一致。"""
+    from alembic.script import ScriptDirectory
+
+    alembic_dir = Path(__file__).resolve().parents[2] / "alembic"
+    expected = {s.revision for s in ScriptDirectory(str(alembic_dir)).walk_revisions()}
+    assert app_update._declared_revisions(alembic_dir) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -479,9 +526,13 @@ def test_overlay_state_reason_distinguishes_runtime_direction(updates_dir, monke
     future = _write_overlay_dir(updates_dir, "9.9.9", requires=9)
     monkeypatch.setenv("MOVIECLAW_RUNTIME_VERSION", "3")
     _version, usable, reason = app_update._overlay_state(stale)
-    assert usable is False and "已停用" in reason and "需升级镜像" not in reason
+    assert (
+        usable is False
+        and "已停用" in render_value(reason)
+        and "需升级镜像" not in render_value(reason)
+    )
     _version, usable, reason = app_update._overlay_state(future)
-    assert usable is False and "需升级镜像" in reason
+    assert usable is False and "需升级镜像" in render_value(reason)
 
 
 # ---------------------------------------------------------------------------
@@ -916,6 +967,108 @@ def _mock_releases_client(monkeypatch, handler):
     app_update.reset_release_cache_for_tests()
 
 
+def _github_api(routes: dict[str, object], calls: list[str]):
+    """按路径应答的假 GitHub：值为 JSON（200），None 表示 404；没登记的路径也是 404。"""
+    import httpx
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path + (f"?{request.url.query.decode()}" if request.url.query else "")
+        calls.append(path)
+        body = routes.get(path)
+        if isinstance(body, bytes):
+            return httpx.Response(200, content=body)
+        return httpx.Response(404) if body is None else httpx.Response(200, json=body)
+
+    return handler
+
+
+def _refs(*tags: str) -> list[dict]:
+    return [{"ref": f"refs/tags/{tag}"} for tag in tags]
+
+
+@pytest.mark.asyncio
+async def test_check_update_finds_latest_stable_release_by_tag(updates_dir, monkeypatch):
+    """按 tag 找服务器版本：跳过预发布 tag 与还是草稿的 Release，不拉整页列表。
+
+    仓库里还有各客户端单独发的 Release，整页列表会越来越大，不常发的模型
+    也会被挤出第一页。"""
+    repo = "/repos/movieclaw/movieclaw"
+    manifest = _make_manifest(updates_dir / "dl", version="0.37.0")
+    calls: list[str] = []
+    routes = {
+        f"{repo}/git/matching-refs/tags/v": _refs("v0.9.0", "v0.37.0", "v0.38.0-beta.1", "v0.38.0"),
+        # v0.38.0 tag 已推送、Release 还在草稿：匿名访问 404
+        f"{repo}/releases/tags/v0.37.0": {
+            "tag_name": "v0.37.0",
+            "body": "notes",
+            "assets": [
+                {"name": "manifest.json", "browser_download_url": "https://github.test/m.json"}
+            ],
+        },
+        "/m.json": manifest["raw"],
+    }
+    _mock_releases_client(monkeypatch, _github_api(routes, calls))
+    try:
+        release, parsed = await app_update._fetch_latest_release()
+    finally:
+        app_update.reset_release_cache_for_tests()
+    assert release["tag_name"] == "v0.37.0" and parsed["version"] == "0.37.0"
+    assert calls == [
+        f"{repo}/git/matching-refs/tags/v",
+        f"{repo}/releases/tags/v0.38.0",
+        f"{repo}/releases/tags/v0.37.0",
+        "/m.json",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_model_release_found_by_tag_number(updates_dir, monkeypatch):
+    """模型 tag 按编号数值比较（v10 > v9），预发布的跳过。"""
+    repo = "/repos/movieclaw/movieclaw"
+    calls: list[str] = []
+    routes = {
+        f"{repo}/git/matching-refs/tags/torrent-ner-v": _refs(
+            "torrent-ner-v9", "torrent-ner-v10", "torrent-ner-v11", "torrent-ner-vX"
+        ),
+        f"{repo}/releases/tags/torrent-ner-v11": {
+            "tag_name": "torrent-ner-v11",
+            "prerelease": True,
+        },
+        f"{repo}/releases/tags/torrent-ner-v10": {"tag_name": "torrent-ner-v10"},
+    }
+    _mock_releases_client(monkeypatch, _github_api(routes, calls))
+    try:
+        release = await app_update._fetch_latest_model_release()
+    finally:
+        app_update.reset_release_cache_for_tests()
+    assert release["tag_name"] == "torrent-ner-v10"
+    assert not any("per_page" in call for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_falls_back_to_release_list_when_proxy_lacks_tag_lookup(updates_dir, monkeypatch):
+    """自建反代只放行 /releases 时（tag 查询 404），退回整页列表，照常找到版本。"""
+    repo = "/repos/movieclaw/movieclaw"
+    calls: list[str] = []
+    routes = {
+        f"{repo}/releases?per_page=100": [
+            {"tag_name": "android-v0.3.1"},
+            {"tag_name": "torrent-ner-v3"},
+            {"tag_name": "v0.37.0"},
+        ],
+    }
+    _mock_releases_client(monkeypatch, _github_api(routes, calls))
+    try:
+        release = await app_update._fetch_latest_model_release()
+    finally:
+        app_update.reset_release_cache_for_tests()
+    assert release["tag_name"] == "torrent-ner-v3"
+    assert calls == [
+        f"{repo}/git/matching-refs/tags/torrent-ner-v",
+        f"{repo}/releases?per_page=100",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_fetch_releases_reports_rate_limit_instead_of_unreachable(
     updates_dir, monkeypatch
@@ -1326,3 +1479,67 @@ async def test_record_model_check_requires_installable(update_state):
 
     await app_update._record_model_check(view.model_copy(update={"installable": True}))
     assert (await app_update.read_pending()).model_tag == "torrent-ner-v2"
+
+
+def test_update_progress_uses_reader_language_without_changing_facts(updates_dir):
+    from copy import deepcopy
+
+    from movieclaw_api.i18n import use_locale
+    from movieclaw_api.i18n.stored import reference
+
+    progress = app_update._Progress()
+    with use_locale("en"):
+        error = app_update._UpdateError("settings.update.checksumFailed", name="raw 原名.tar.gz")
+    assert "校验和不匹配" in str(error)
+    progress.set(
+        "failed",
+        reference("settings.update.downloading", name="raw 原名.tar.gz"),
+        percent=37.5,
+        error=app_update._error_reference(error),
+        target_version="9.9.9",
+    )
+    facts = deepcopy(
+        (progress.detail, progress.error, progress.phase, progress.percent, progress.target_version)
+    )
+    for locale in ("en", "zh-Hans", "en"):
+        with use_locale(locale):
+            view = progress.view()
+            assert view.detail == (
+                "Downloading raw 原名.tar.gz…" if locale == "en" else "正在下载 raw 原名.tar.gz……"
+            )
+            assert ("checksum" if locale == "en" else "校验和不匹配") in view.error
+            assert (
+                view.phase == "failed" and view.percent == 37.5 and view.target_version == "9.9.9"
+            )
+    assert (
+        progress.detail,
+        progress.error,
+        progress.phase,
+        progress.percent,
+        progress.target_version,
+    ) == facts
+    progress.set("failed", error="Unknown 原始错误")
+    with use_locale("en"):
+        assert progress.view().error == "Unknown 原始错误"
+
+
+def test_exit_history_is_localized_at_read_time_and_never_rewritten(updates_dir):
+    from movieclaw_api.i18n import use_locale
+
+    path = updates_dir / "state/last-exit.json"
+    path.parent.mkdir(parents=True)
+    for detail, english in [
+        ("后端进程异常退出", "The backend process exited unexpectedly"),
+        ("原始第三方原因", "原始第三方原因"),
+    ]:
+        raw = json.dumps(
+            {"ts": int(time.time()), "reason": "api_crash", "exit_code": 3, "detail": detail},
+            ensure_ascii=False,
+        ).encode()
+        path.write_bytes(raw)
+        for locale in ("en", "zh-Hans", "en"):
+            with use_locale(locale):
+                result = app_update.build_status().last_abnormal_exit
+                assert result.detail == (english if locale == "en" else detail)
+                assert result.reason == "api_crash" and result.exit_code == 3
+            assert path.read_bytes() == raw

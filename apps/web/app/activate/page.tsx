@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { DeviceApproval } from "@/components/device-approval";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import { usePageTitle } from "@/lib/use-page-title";
@@ -10,6 +12,7 @@ import { usePageTitle } from "@/lib/use-page-title";
  * 外观沿用登录页的星空与玻璃卡片：扫码 → 登录 → 批准是一条连贯的路。
  */
 export default function ActivatePage() {
-  usePageTitle("批准设备登录");
-  return <WelcomeScreen buttonLabel="批准设备" initialStage="card" card={() => <DeviceApproval />} />;
+  const t = useTranslations();
+  usePageTitle(t("settings.devices.approval.title"));
+  return <WelcomeScreen buttonLabel={t("settings.devices.approval.entry")} initialStage="card" card={() => <DeviceApproval />} />;
 }

@@ -27,6 +27,9 @@
  * 覆盖对象的语义与后端一致：**只存显式覆盖的字段**，空对象 = 全跟全局。
  */
 
+import { useLocale, useTranslations } from "next-intl";
+import { formatList } from "@/lib/format";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -41,22 +44,26 @@ import {
 import { type ScrapeConfigView, type ScrapeSetting, getScrapeConfig } from "@/lib/api/scrape";
 import { BrandLoader } from "@/components/brand-loader";
 
-const NAMING_FIELDS = [
-  { key: "naming_entry_dir", label: "条目目录", fallback: "{title} ({year})" },
-  { key: "naming_movie_file", label: "电影文件名", fallback: "{title} ({year})" },
-  { key: "naming_season_dir", label: "季目录", fallback: "Season {season:02d}" },
-  {
-    key: "naming_episode_file",
-    label: "剧集文件名",
-    fallback: "{title} ({year}) - S{season:02d}E{episode:02d}",
-  },
-] as const;
+function namingFields(t: ReturnType<typeof appTranslator>) {
+  return [
+    { key: "naming_entry_dir", label: t("settings.scrape.entryDirectory"), fallback: "{title} ({year})" },
+    { key: "naming_movie_file", label: t("settings.scrape.movieFilename"), fallback: "{title} ({year})" },
+    { key: "naming_season_dir", label: t("settings.scrape.seasonDirectory"), fallback: "Season {season:02d}" },
+    {
+      key: "naming_episode_file",
+      label: t("settings.scrape.episodeFilename"),
+      fallback: "{title} ({year}) - S{season:02d}E{episode:02d}",
+    },
+  ] as const;
+}
 
-const MIRROR_FIELDS = [
-  { key: "mirror_images", label: "写入条目图片" },
-  { key: "mirror_nfo", label: "写入 NFO 元数据" },
-  { key: "mirror_episode_thumbs", label: "写入分集剧照" },
-] as const;
+function mirrorFields(t: ReturnType<typeof appTranslator>) {
+  return [
+    { key: "mirror_images", label: t("settings.scrape.mirrorImages") },
+    { key: "mirror_nfo", label: t("settings.scrape.mirrorNfo") },
+    { key: "mirror_episode_thumbs", label: t("settings.scrape.mirrorStills") },
+  ] as const;
+}
 
 export function LibraryScrapeSettings({
   overrides,
@@ -65,6 +72,8 @@ export function LibraryScrapeSettings({
   overrides: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   // 展开的卡片标题（同时只开一张）；默认全收起——状态在折叠头上已经看得见
   const [open, setOpen] = useState<string | null>(null);
   const [config, setConfig] = useState<ScrapeConfigView | null>(null);
@@ -75,7 +84,7 @@ export function LibraryScrapeSettings({
     getScrapeConfig()
       .then(setConfig)
       .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : "全局刮削设置加载失败"),
+        setError(err instanceof Error ? err.message : appTranslator()("settings.scrape.globalLoadFailed")),
       );
   }, []);
 
@@ -129,13 +138,13 @@ export function LibraryScrapeSettings({
         customized: custom,
         status:
           custom && merged
-            ? `自定义：${describeScrapeValues(keys, merged)}`
+            ? t("settings.scrape.customStatus", { summary: describeScrapeValues(keys, merged, locale) })
             : base
-              ? `跟随全局：${describeScrapeValues(keys, base)}`
-              : "跟随全局",
+              ? t("settings.scrape.followStatus", { summary: describeScrapeValues(keys, base, locale) })
+              : t("settings.scrape.followGlobal"),
         follow: {
           custom,
-          globalSummary: base ? describeScrapeValues(keys, base) : "",
+          globalSummary: base ? describeScrapeValues(keys, base, locale) : "",
           onToggle: (next: boolean) => {
             if (!base) return;
             const patched = { ...overrides };
@@ -148,7 +157,7 @@ export function LibraryScrapeSettings({
         },
       };
     },
-    [base, merged, open, overrides, onChange, toggleOpen],
+    [base, merged, open, overrides, onChange, toggleOpen, locale, t],
   );
 
   /** 字段级三态那两张卡（命名/目录写入）的壳：没有卡片级开关，状态数覆盖项。 */
@@ -159,10 +168,10 @@ export function LibraryScrapeSettings({
         open: open === title,
         onToggleOpen: () => toggleOpen(title),
         customized: hit.length > 0,
-        status: hit.length > 0 ? `自定义：${hit.map((f) => f.label).join("、")}` : "跟随全局",
+        status: hit.length > 0 ? t("settings.scrape.customStatus", { summary: formatList(hit.map((f) => f.label), locale) }) : t("settings.scrape.followGlobal"),
       };
     },
-    [open, overrides, toggleOpen],
+    [open, overrides, toggleOpen, locale, t],
   );
 
   if (error) {
@@ -172,7 +181,7 @@ export function LibraryScrapeSettings({
     return (
       <p className="flex items-center gap-2.5 text-sub text-[var(--text-muted)]">
         <BrandLoader className="size-5" />
-        正在加载全局刮削设置…
+        {t("settings.scrape.globalLoading")}
       </p>
     );
   }
@@ -183,10 +192,10 @@ export function LibraryScrapeSettings({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="min-w-0 flex-1 text-sub leading-relaxed text-[var(--text-muted)]">
-          本库单独的刮削口味，未显式修改的项跟随「设置 → 刮削与整理」。
+          {t("settings.scrape.libraryIntro")}
           {overrideCount > 0 && (
             <span className="ml-1.5 whitespace-nowrap rounded-full bg-[var(--accent-soft)] px-2 py-px text-micro text-[var(--accent)]">
-              已覆盖 {overrideCount} 项
+              {t("settings.scrape.overrideCount", { count: overrideCount })}
             </span>
           )}
         </p>
@@ -198,12 +207,12 @@ export function LibraryScrapeSettings({
             onClick={() => onChange({})}
             className="shrink-0 rounded-full border border-white/[0.12] px-3 py-1 text-caption text-[var(--text-muted)] transition-colors hover:bg-white/[0.06] hover:text-[var(--text)]"
           >
-            全部恢复跟随
+            {t("settings.scrape.resetOverrides")}
           </button>
         )}
       </div>
 
-      <ScrapeSection label="元数据">
+      <ScrapeSection label={t("settings.scrape.metadataSection")}>
         <MetaTab
           setting={merged}
           patch={patch}
@@ -213,7 +222,7 @@ export function LibraryScrapeSettings({
         />
       </ScrapeSection>
 
-      <ScrapeSection label="图片">
+      <ScrapeSection label={t("settings.scrape.imagesSection")}>
         <ImagesTab
           setting={merged}
           patch={patch}
@@ -224,20 +233,20 @@ export function LibraryScrapeSettings({
         />
       </ScrapeSection>
 
-      <ScrapeSection label="命名与整理">
+      <ScrapeSection label={t("settings.scrape.namingSection")}>
         <Card
-          title="命名模板"
-          desc="留空即跟随全局模板。命名的产物是本库目录树里的路径，所以每个库可以各用一套。全部占位符（原名、集名、视频编码、站点等）与实时预览见「设置 → 刮削与整理 → 命名模板」。"
-          shell={fieldShellFor("命名模板", NAMING_FIELDS)}
+          title={t("settings.scrape.namingTemplates")}
+          desc={t("settings.scrape.libraryNamingHint")}
+          shell={fieldShellFor(t("settings.scrape.namingTemplates"), namingFields(t))}
         >
-          {NAMING_FIELDS.map((field) => (
+          {namingFields(t).map((field) => (
             <div key={field.key} className="mb-2.5 last:mb-0">
               <label className="mb-1 block text-caption text-[var(--text-muted)]">
                 {field.label}
               </label>
               <input
                 spellCheck={false}
-                placeholder={`跟随全局（${base[field.key] || field.fallback}）`}
+                placeholder={t("settings.scrape.followValue", { value: base[field.key] || field.fallback })}
                 value={(overrides[field.key] as string) ?? ""}
                 onChange={(e) =>
                   setField(field.key, e.target.value.trim() ? e.target.value : undefined)
@@ -249,13 +258,13 @@ export function LibraryScrapeSettings({
         </Card>
       </ScrapeSection>
 
-      <ScrapeSection label="目录写入">
+      <ScrapeSection label={t("settings.scrape.mirrorSection")}>
         <Card
-          title="媒体目录写入"
-          desc="把刮削成果写入本库的媒体目录。基本信息里的「刮削图片/NFO 写入媒体目录」是总闸，关掉则这三项全不写。"
-          shell={fieldShellFor("媒体目录写入", MIRROR_FIELDS)}
+          title={t("settings.scrape.mediaDirectoryWrites")}
+          desc={t("settings.scrape.libraryMirrorHint")}
+          shell={fieldShellFor(t("settings.scrape.mediaDirectoryWrites"), mirrorFields(t))}
         >
-          {MIRROR_FIELDS.map((field) => {
+          {mirrorFields(t).map((field) => {
             const value = overrides[field.key] as boolean | undefined;
             return (
               <div
@@ -266,9 +275,9 @@ export function LibraryScrapeSettings({
                 <div className="flex gap-1">
                   {(
                     [
-                      [undefined, `跟随全局（${base[field.key] ? "开" : "关"}）`],
-                      [true, "开"],
-                      [false, "关"],
+                      [undefined, t("settings.scrape.followValue", { value: base[field.key] ? t("settings.scrape.on") : t("settings.scrape.off") })],
+                      [true, t("settings.scrape.on")],
+                      [false, t("settings.scrape.off")],
                     ] as const
                   ).map(([option, label]) => (
                     <button
@@ -292,9 +301,7 @@ export function LibraryScrapeSettings({
       </ScrapeSection>
 
       <p className="text-caption leading-relaxed text-[var(--text-faint)]">
-        语言与选图的产物挂在条目上（一部片一份档案、一张海报），所以它们按条目的
-        <strong className="font-medium text-[var(--text-muted)]">刮削归属库</strong>
-        生效——归属本库的条目才跟这里的设置。存量条目需在本库执行「刷新元数据」后按新设置重刮。
+        {t.rich("settings.scrape.ownershipHint", { strong: (chunks) => <strong className="font-medium text-[var(--text-muted)]">{chunks}</strong> })}
       </p>
     </div>
   );

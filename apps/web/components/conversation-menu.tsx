@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -18,6 +20,7 @@ import { useAgentConversations } from "@/lib/agent-conversations";
  *   - 删除：确认后删除；``onRemoved`` 给会话页用来离开这张已不存在的页。
  */
 export function useConversationActions() {
+  const t = useTranslations();
   const router = useRouter();
   const { fork, rename, remove } = useAgentConversations();
   const prompt = usePrompt();
@@ -26,34 +29,34 @@ export function useConversationActions() {
 
   const forkConversation = async (id: string, title: string, fromHere = false) => {
     const ok = await confirm({
-      title: fromHere ? "从此处创建新会话？" : `在新会话中继续「${title}」？`,
-      description: "会带上这段对话的上下文开一个新会话接着聊，原会话保留不变。",
-      confirmLabel: "创建新会话",
+      title: fromHere ? t("agent.conversation.forkHereTitle") : t("agent.conversation.forkTitle", {name: title}),
+      description: t("agent.conversation.forkHint"),
+      confirmLabel: t("agent.conversation.forkConfirm"),
     });
     if (!ok) return;
     try {
       const targetId = await fork(id);
       router.push(`/sessions/${targetId}` as Route);
     } catch (error) {
-      toast.error(`创建新会话失败：${(error as Error).message}`);
+      toast.error(t("agent.conversation.forkFailed", {error: (error as Error).message}));
     }
   };
 
   const renameConversation = async (id: string, currentTitle: string) => {
-    const input = await prompt({ title: "重命名会话", initialValue: currentTitle, maxLength: 80 });
+    const input = await prompt({ title: t("agent.conversation.renameTitle"), initialValue: currentTitle, maxLength: 80 });
     if (input == null) return;
     const title = input.trim().slice(0, 80);
     if (!title || title === currentTitle) return;
     void rename(id, title).catch((error) => {
-      toast.error(`重命名失败：${(error as Error).message}`);
+      toast.error(t("agent.conversation.renameFailed", {error: (error as Error).message}));
     });
   };
 
   const removeConversation = async (id: string, title: string, onRemoved?: () => void) => {
     const ok = await confirm({
-      title: `彻底删除会话「${title}」？`,
-      description: "服务器上的完整对话记录将一并删除，此操作不可恢复。",
-      confirmLabel: "彻底删除",
+      title: t("agent.conversation.deleteTitle", {name: title}),
+      description: t("agent.conversation.deleteHint"),
+      confirmLabel: t("agent.conversation.deleteConfirm"),
       tone: "danger",
     });
     if (!ok) return;
@@ -61,7 +64,7 @@ export function useConversationActions() {
       await remove(id);
       onRemoved?.();
     } catch (error) {
-      toast.error(`删除失败：${(error as Error).message}`);
+      toast.error(t("agent.conversation.deleteFailed", {error: (error as Error).message}));
     }
   };
 
@@ -85,7 +88,7 @@ export function ConversationMenu({
   onFork,
   onRename,
   onDelete,
-  forkLabel = "在新会话中继续",
+  forkLabel,
   variant = "row",
   triggerClassName = "",
   iconClassName = "size-5",
@@ -101,6 +104,9 @@ export function ConversationMenu({
   triggerClassName?: string;
   iconClassName?: string;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+  const menuWidth = locale === "en" ? 244 : 176;
   // 菜单打开状态即定位坐标（打开瞬间按触发按钮位置计算一次）
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -139,7 +145,7 @@ export function ConversationMenu({
       <button
         ref={moreRef}
         type="button"
-        aria-label="会话操作"
+        aria-label={t("agent.conversation.actions")}
         aria-expanded={open}
         data-active={open}
         onClick={(e) => {
@@ -150,7 +156,7 @@ export function ConversationMenu({
           }
           const rect = e.currentTarget.getBoundingClientRect();
           // 菜单宽 176px（w-44），右缘与触发键右缘对齐；窄屏上不会越出左边
-          setMenuPos({ left: Math.max(8, rect.right - 176), top: rect.bottom + 6 });
+          setMenuPos({ left: Math.max(8, rect.right - menuWidth), top: rect.bottom + 6 });
         }}
         className={
           variant === "nav"
@@ -165,7 +171,7 @@ export function ConversationMenu({
         createPortal(
           <div
             ref={menuRef}
-            className="menu-surface w-44 overflow-hidden p-1.5"
+            className={`menu-surface ${locale === "en" ? "w-[244px] max-w-[calc(100vw-16px)]" : "w-44"} overflow-hidden p-1.5`}
             // z 取菜单档 70：Portal 到 body 后与全站浮层同层比较，须压过 60 档的
             // 全屏面板（撰写面板），否则会被盖住、点 ⋯ 毫无反应
             style={{ position: "fixed", left: menuPos.left, top: menuPos.top, zIndex: 70 }}
@@ -176,7 +182,7 @@ export function ConversationMenu({
               className="glass-row px-2.5 py-2 text-ui font-medium max-md:py-2.5"
             >
               <BranchIcon className="size-4 shrink-0 opacity-80 max-md:size-5" />
-              <span className="flex-1">{forkLabel}</span>
+              <span className="flex-1">{forkLabel ?? t("agent.conversation.fork")}</span>
             </button>
             <button
               type="button"
@@ -184,7 +190,7 @@ export function ConversationMenu({
               className="glass-row px-2.5 py-2 text-ui font-medium max-md:py-2.5"
             >
               <PencilIcon className="size-4 shrink-0 opacity-80 max-md:size-5" />
-              <span className="flex-1">重命名</span>
+              <span className="flex-1">{t("agent.conversation.rename")}</span>
             </button>
             <div role="separator" className="mx-2 my-1 h-px bg-[var(--line)]" />
             <button
@@ -193,7 +199,7 @@ export function ConversationMenu({
               className="glass-row px-2.5 py-2 text-ui font-medium !text-[var(--danger)] hover:!bg-[rgba(255,107,107,0.12)] max-md:py-2.5"
             >
               <TrashIcon className="size-4 shrink-0 opacity-80 max-md:size-5" />
-              <span className="flex-1">删除会话</span>
+              <span className="flex-1">{t("agent.conversation.delete")}</span>
             </button>
           </div>,
           document.body,

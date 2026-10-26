@@ -92,3 +92,33 @@ def test_nginx_template_keeps_forwarding_headers_on_websocket_location() -> None
             f"WebSocket location 缺少 {directive}——远程转码下发的地址会退化成"
             "容器内部主机名"
         )
+
+
+def test_nginx_template_forwards_mcp_endpoint_to_backend() -> None:
+    """MCP 协议端点挂后端根路径（POST /mcp/<slug>），前门必须放行。
+
+    后端把它 mount 在应用根命名空间（movieclaw_mcp.app.register），既不在
+    /api/v1 下也不属于 Jellyfin 兼容层，靠人肉同步同样会漏：设置页给 AI
+    客户端复制的地址就是统一前门的 origin（routes/mcp.py 用 base_url 拼
+    /mcp/<slug>），这条 location 缺失时请求落到 Next 返回 404 HTML，MCP
+    对 Docker 部署整个不可达。裸机开发不经 nginx，同一条路由由
+    next.config.ts 的 rewrites 承担，这里一并钉住。
+    """
+    text = _TEMPLATE.read_text(encoding="utf-8")
+    location = re.search(
+        r"location\s+~\*\s+\^/mcp\(/\|\$\)\s*\{(?P<body>.*?)\n\s*\}",
+        text,
+        flags=re.DOTALL,
+    )
+    assert location, (
+        "nginx 模板缺少 /mcp 的放行 location——MCP 端点请求会落到 Next"
+        "返回 404 HTML，AI 客户端完全连不上"
+    )
+    assert "proxy_pass http://movieclaw_api;" in location.group("body")
+
+    next_config = (
+        Path(__file__).resolve().parents[2] / "apps" / "web" / "next.config.ts"
+    ).read_text(encoding="utf-8")
+    assert 'source: "/mcp/:path*"' in next_config, (
+        "next.config.ts 缺少 /mcp 的 rewrite——裸机开发不经 nginx，MCP 端点同样 404"
+    )

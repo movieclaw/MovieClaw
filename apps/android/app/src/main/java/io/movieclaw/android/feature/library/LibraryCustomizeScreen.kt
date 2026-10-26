@@ -74,7 +74,6 @@ import io.movieclaw.android.core.designsystem.Danger
 import io.movieclaw.android.core.designsystem.GlassCapsule
 import io.movieclaw.android.core.designsystem.Info
 import io.movieclaw.android.core.designsystem.LineSoft
-import io.movieclaw.android.core.designsystem.McMetrics
 import io.movieclaw.android.core.designsystem.McType
 import io.movieclaw.android.core.designsystem.McTopBar
 import io.movieclaw.android.core.designsystem.McTopBarVariant
@@ -96,6 +95,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import io.movieclaw.android.core.designsystem.mcCards
 
 /**
  * 自定义首页（Web `library-customize-view.tsx` / iOS `LibraryCustomizeView`，路由 `/library/customize`）。
@@ -305,7 +305,7 @@ fun LibraryCustomizeScreen(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(listScroll)
-                .padding(horizontal = McMetrics.pagePadding),
+                .padding(horizontal = mcCards.pagePadding),
         ) {
             Spacer(Modifier.height(4.dp))
             Text(
@@ -403,7 +403,7 @@ fun LibraryCustomizeScreen(
                             Box(
                                 Modifier
                                     .fillMaxWidth()
-                                    .padding(start = McMetrics.pagePadding)
+                                    .padding(start = mcCards.pagePadding)
                                     .height(1.dp)
                                     .background(Color.White.copy(alpha = 0.07f)),
                             )

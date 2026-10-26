@@ -6,6 +6,8 @@ import SwiftUI
 ///
 /// - **放哪一段**由服务端定（`GET /reels/preview/{id}`）：首页从续播点往前倒 30 秒放到续播点（帮人回忆、不剧透），
 ///   详情页放刷片挑好的那一段（剧集固定第二集）。放法与刷片一样，用同一个 `ReelPlayer` 从原片中间起播，不写观看记录；
+/// - **开了「片段预切」**（服务端设置，docs/design/reels.md §8）：首页、详情都放精彩片段的预切小文件，用系统播放器
+///   （`TVStageClipPlayer`）放，不开自研引擎、不读原片；还没切好服务端返回 null，一直是剧照，下次划回来切好了就放；
 /// - **节奏**：大图换到一部就开始计停留，同时取片段地址、补下起点附近的字节、把播放器装载到起点停着；
 ///   停满 `dwell` 秒且装好了才开播——画面淡入 0.9 秒，声音 1.5 秒内从 0 渐入（原片中间常是一句对白或一声爆炸）；
 /// - **跟着「大图上是哪一部」走，不跟页面走**：从首页按「详情」进同一部，详情页接过同一个播放器，视频不断；
@@ -60,17 +62,31 @@ final class TVStagePreview {
     @ObservationIgnored private var surfaces: [UUID] = []
     @ObservationIgnored private var hiddenSurfaces: Set<UUID> = []
     @ObservationIgnored private var interruptions: Set<Interruption> = []
-    @ObservationIgnored private var player: ReelPlayer?
+    @ObservationIgnored private var player: TVStagePlayback?
     @ObservationIgnored private var cycle: Task<Void, Never>?
     @ObservationIgnored private var volumeRamp: Task<Void, Never>?
     @ObservationIgnored private var pendingLeave: Task<Void, Never>?
     @ObservationIgnored private var playerClosedWait: Task<Void, Never>?
+    /// 看不见 / 又看得见之后，等滚动停下再真正暂停、续播（见 `refresh`）
+    @ObservationIgnored private var settle: Task<Void, Never>?
+    /// `settle` 要把播放器对齐到「看得见 / 看不见」哪一边（同一边不重排：播放状态来回变也不把暂停一直往后推）
+    @ObservationIgnored private var settleTarget: Bool?
+    /// 看不见了、先静了音还没真停
+    @ObservationIgnored private var muted = false
+    /// 最近一次焦点移动（任意页面）：真正的暂停、续播挑用户停手的空当做（见 `refresh`）
+    @ObservationIgnored private var lastFocusMove = ContinuousClock.now
     @ObservationIgnored private var prefetches: [Task<Void, Never>] = []
     @ObservationIgnored private var dwellDone = false
     @ObservationIgnored private var loaded = false
     @ObservationIgnored private var started = false
     @ObservationIgnored private var ended = false
     @ObservationIgnored private var framed = false
+
+    private init() {
+        NotificationCenter.default.addObserver(forName: UIFocusSystem.didUpdateNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { TVStagePreview.shared.lastFocusMove = .now }
+        }
+    }
 
     /// 这一段放到哪儿了（0～1）：首页卡片行让位时露出的那条进度线读它。播放器的位置不是可观察的，读的一方自己定时刷新
     var progress: Double { player?.progress ?? 0 }
@@ -183,8 +199,9 @@ final class TVStagePreview {
         let clock = ContinuousClock()
         let shownAt = clock.now
         async let dwell: Void? = try? Task.sleep(for: Self.dwell)
+        // 声明会放预切片段：服务端开了「片段预切」就只给切好的小文件（没切好为 null），没开照旧给原片
         let fetched = try? await api.reelsPreview(mediaItemId: request.mediaItemId, source: request.source.rawValue,
-                                                  season: request.season, episode: request.episode)
+                                                  season: request.season, episode: request.episode, modes: "seek,clip")
         guard !Task.isCancelled, let item = fetched ?? nil else { return }
         // 停稳一小会儿再补字节、建播放器：一路按方向键划过去时只取了地址，不白下索引（几 MB）
         let elapsed = clock.now - shownAt
@@ -199,8 +216,11 @@ final class TVStagePreview {
     }
 
     private func startPlayer(_ item: API.ReelItemView, api: APIClient) {
-        guard let player = try? ReelPlayer(item: item, stagePreview: true) else { return }
-        player.core.volume = 0
+        let made: TVStagePlayback? = item.play.mode == "clip"
+            ? TVStageClipPlayer(item: item, api: api)
+            : try? ReelPlayer(item: item, stagePreview: true)
+        guard let player = made else { return }
+        player.volume = 0
         player.onStateChange = { [weak self] state in self?.handle(state) }
         player.onFirstFrame = { [weak self] in
             self?.framed = true
@@ -210,9 +230,9 @@ final class TVStagePreview {
             guard let self, !self.loaded else { return }
             #if DEBUG
             // 开发期：量预起耗时（装载发出 → 停在起点）与引擎各阶段，模拟器 / 真机日志里核对各种片源起播快不快
-            if let player {
+            if let player = player as? ReelPlayer {
                 let stages = player.stageMs.sorted { $0.value < $1.value }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
-                NSLog("[TVStagePreview] 预起完成 %@ disc=%@ start=%.1fs 引擎位置=%.1fs 引擎片长=%.0fs｜%@", item.title.name,
+                NSLog("[TVStagePreview] 预起完成 %@ disc=%@ start=%.1fs 引擎位置=%.1fs 引擎片长=%.0fs｜%@", item.title.name, // i18n-ignore: debug log
                       item.play.disc ?? "file", Double(item.segment.startMs) / 1000, player.core.currentTime, player.core.duration ?? -1, stages)
             }
             #endif
@@ -220,9 +240,9 @@ final class TVStagePreview {
             self.startIfReady()
         }
         self.player = player
-        engineView = player.core.view
+        engineView = player.view
         // 装载到起点停着（预起）：开播时只差「播放」
-        player.start(api: api, autoplay: false)
+        player.preroll(api: api)
     }
 
     private func handle(_ state: ReelPlayer.State) {
@@ -238,7 +258,7 @@ final class TVStagePreview {
                 self.teardown(keepEnded: true)
             }
         case let .failed(message):
-            NSLog("[TVStagePreview] 预告放不了，保持剧照：%@", message)
+            NSLog("[TVStagePreview] 预告放不了，保持剧照：%@", message) // i18n-ignore: debug log
             teardown(keepEnded: true)
         case .playing, .buffering:
             // 刚按下播放、还在起播时大图就滚走了：那一刻暂停不了（还没在放），真开播时再核对一次，别在看不见的地方出声
@@ -256,18 +276,27 @@ final class TVStagePreview {
     }
 
     /// 声音 1.5 秒内从 0 渐入到原音量
-    private func rampVolume(_ player: ReelPlayer) {
+    private func rampVolume(_ player: TVStagePlayback) {
         volumeRamp?.cancel()
         volumeRamp = Task { [weak player] in
             for step in 1 ... 15 {
                 try? await Task.sleep(for: .milliseconds(100))
                 guard !Task.isCancelled, let player else { return }
-                player.core.volume = Float(step) / 15
+                player.volume = Float(step) / 15
             }
         }
     }
 
-    /// 可见性变了：看不见就暂停，回来接着放（还没开播的，回来时停留够了就开播）
+    /// 看不见 / 又看得见之后多久才真正暂停、续播：盖过详情页整页滑动的动画（约 0.4 秒）
+    private static let settleDelay: Duration = .milliseconds(600)
+    /// 还要等焦点停了这么久：焦点动画、横排滚动都走完了，主线程堵一下看不出来
+    private static let focusIdle: Duration = .milliseconds(800)
+
+    /// 可见性变了：看不见就暂停，回来接着放（还没开播的，回来时停留够了就开播）。
+    /// 暂停、续播都要在主线程上同步等系统音频（`FigAudioQueuePause`），一下就是几十毫秒；可见性又正是在滑动途中变的
+    /// （详情页往下滑过 120 点），当场做就卡在滑动动画中间（2026-10-11 模拟器采样）。所以看不见时先静音、画面照常淡出，
+    /// 等滑动停下、用户也停手了（焦点不再动，一路往右换集时先不碰）再真正暂停；回来时还没真停的只把声音渐回来，
+    /// 已经停了的也这样等一会儿再续播
     private func refresh() {
         let shouldShow = started && framed && !ended && visible
         if showing != shouldShow { showing = shouldShow }
@@ -275,17 +304,42 @@ final class TVStagePreview {
             startIfReady()
             return
         }
-        if visible {
-            if player.state == .paused { player.play() }
-        } else if player.state == .playing || player.state == .buffering {
-            player.pause()
+        let playing = player.state == .playing || player.state == .buffering
+        if !visible, playing, !muted {
+            volumeRamp?.cancel()
+            player.volume = 0
+            muted = true
+        } else if visible, playing, muted {
+            muted = false
+            rampVolume(player)
+        }
+        guard settleTarget != visible || settle == nil else { return }
+        settle?.cancel()
+        settleTarget = visible
+        settle = Task { [weak self, weak player] in
+            try? await Task.sleep(for: Self.settleDelay)
+            while !Task.isCancelled, let self, ContinuousClock.now - self.lastFocusMove < Self.focusIdle {
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.settle = nil
+            guard let player, player === self.player, self.started, !self.ended else { return }
+            if self.visible {
+                guard player.state == .paused else { return }
+                player.play()
+                self.muted = false
+                self.rampVolume(player)
+            } else if player.state == .playing || player.state == .buffering {
+                player.pause()
+            }
         }
     }
 
     private func prefetch(_ item: API.ReelItemView, api: APIClient) {
         // 和播放器的打开、探测并行，把索引与起点的头 1 MB 先下进片源字节缓存（同刷片的冷起播补字节）；
         // 进正片播放器时同一个文件的字节也直接复用
-        guard let raw = item.play.streamUrl, let url = api.server.resolve(raw),
+        // 预切片段是十几 MB 的小文件，不用补字节
+        guard item.play.mode != "clip", let raw = item.play.streamUrl, let url = api.server.resolve(raw),
               let key = ReelPlayer.cacheKey(for: item) else { return }
         AetherPlayback.preconnect(url: url, headers: ["User-Agent": APIClient.userAgent])
         for range in item.play.prefetch where range.purpose == "index" || range.purpose == "start" {
@@ -302,6 +356,10 @@ final class TVStagePreview {
         cycle?.cancel()
         cycle = nil
         volumeRamp?.cancel()
+        settle?.cancel()
+        settle = nil
+        settleTarget = nil
+        muted = false
         prefetches.forEach { $0.cancel() }
         prefetches = []
         if let old = player {

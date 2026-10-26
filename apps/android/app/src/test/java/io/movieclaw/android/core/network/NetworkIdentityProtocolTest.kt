@@ -7,6 +7,7 @@ import io.movieclaw.android.core.session.LibraryHomeSnapshotStore
 import io.movieclaw.android.core.session.SessionCacheCleaner
 import io.movieclaw.android.core.session.SessionRepository
 import io.movieclaw.android.core.session.TokenVault
+import io.movieclaw.android.core.session.serverVersionAtLeast
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +21,7 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okio.buffer
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -162,7 +164,9 @@ class NetworkIdentityProtocolTest {
     @Test fun `explicit reverse proxy path is used for anonymous login negotiation`() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val cleaners = SessionCacheCleaner(context, ImageLoaders(context, vault, client, ShareCookieJar()), LibraryHomeSnapshotStore(context, json))
-        val repository = SessionRepository(context, json, vault, factory, client, cleaners)
+        val repository = SessionRepository(context, json, vault, factory, client, cleaners, dagger.Lazy {
+                throw UnsupportedOperationException("测试不触发选路")
+            })
         server.enqueue(MockResponse().setBody("""{"service":"movieclaw","spec_hash":"test"}"""))
         server.enqueue(envelope("""{"initialized":true}"""))
         server.enqueue(envelope("""{"token":"new-token","session":{"username":"alice"}}"""))
@@ -181,10 +185,32 @@ class NetworkIdentityProtocolTest {
         assertTrue(payload.contains("android"))
     }
 
+    @Test fun `server older than the minimum version is rejected before login`() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val cleaners = SessionCacheCleaner(context, ImageLoaders(context, vault, client, ShareCookieJar()), LibraryHomeSnapshotStore(context, json))
+        val repository = SessionRepository(context, json, vault, factory, client, cleaners, dagger.Lazy {
+                throw UnsupportedOperationException("测试不触发选路")
+            })
+        server.enqueue(MockResponse().setBody("""{"service":"movieclaw","spec_hash":"test","version":"0.32.0"}"""))
+        val error = runCatching { repository.login(server.url("/").toString(), "alice", "password") }.exceptionOrNull()
+        assertEquals("SERVER_TOO_OLD", (error as ApiException).code)
+        assertTrue(error.message.contains("v0.32.0"))
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun `server version comparison uses numeric parts`() {
+        assertTrue(serverVersionAtLeast("0.33.0", "0.33.0"))
+        assertTrue(serverVersionAtLeast("0.33.1-dev.20261008", "0.33.0"))
+        assertTrue(serverVersionAtLeast("0.100.0", "0.33.0"))
+        assertFalse(serverVersionAtLeast("0.32.9", "0.33.0"))
+    }
+
     private suspend fun staleRevalidation(response: MockResponse) {
         val context = RuntimeEnvironment.getApplication()
         val cleaners = SessionCacheCleaner(context, ImageLoaders(context, vault, client, ShareCookieJar()), LibraryHomeSnapshotStore(context, json))
-        val repository = SessionRepository(context, json, vault, factory, client, cleaners)
+        val repository = SessionRepository(context, json, vault, factory, client, cleaners, dagger.Lazy {
+                throw UnsupportedOperationException("测试不触发选路")
+            })
         vault.activate(origin(), "alice", "alice-token")
         val requested = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -243,13 +269,17 @@ class NetworkIdentityProtocolTest {
     private fun events(): EventStream {
         val context = RuntimeEnvironment.getApplication()
         val cleaners = SessionCacheCleaner(context, ImageLoaders(context, vault, client, ShareCookieJar()), LibraryHomeSnapshotStore(context, json))
-        return EventStream(client, SessionRepository(context, json, vault, factory, client, cleaners), factory)
+        return EventStream(client, SessionRepository(context, json, vault, factory, client, cleaners, dagger.Lazy {
+                throw UnsupportedOperationException("测试不触发选路")
+            }), factory)
     }
 
     @Test fun `already connected sse cannot publish old account events after switch`() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val cleaners = SessionCacheCleaner(context, ImageLoaders(context, vault, client, ShareCookieJar()), LibraryHomeSnapshotStore(context, json))
-        val repository = SessionRepository(context, json, vault, factory, client, cleaners)
+        val repository = SessionRepository(context, json, vault, factory, client, cleaners, dagger.Lazy {
+                throw UnsupportedOperationException("测试不触发选路")
+            })
         val field = SessionRepository::class.java.getDeclaredField("_ui").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
         val state = field.get(repository) as kotlinx.coroutines.flow.MutableStateFlow<io.movieclaw.android.core.session.SessionUi>
@@ -298,11 +328,30 @@ class NetworkIdentityProtocolTest {
     @Test fun `sse buffer overflow reports an error instead of silently skipping deltas`() = runBlocking {
         server.enqueue(MockResponse().addHeader("Content-Type", "text/event-stream")
             .setBody((1..200).joinToString("") { "id: $it\nevent: text_delta\ndata: {}\n\n" }))
+        // 消费者停在第一帧，直到 SSE 解析器关闭响应体，再立即排空缓冲。
+        // callEnd 只表示 HTTP 字节已读完，可能早于缓冲中的 SSE 帧被解析，不能用作屏障。
+        val disconnected = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val observedClient = identityClient(client, null).newBuilder()
+            .addInterceptor { chain ->
+                val response = chain.proceed(chain.request())
+                val body = response.body!!
+                val observed = object : okhttp3.ResponseBody() {
+                    private val source = object : okio.ForwardingSource(body.source()) {
+                        override fun close() {
+                            try { super.close() } finally { disconnected.complete(Unit) }
+                        }
+                    }.buffer()
+                    override fun contentType() = body.contentType()
+                    override fun contentLength() = body.contentLength()
+                    override fun source() = source
+                }
+                response.newBuilder().body(observed).build()
+            }.build()
         var error: Throwable? = null
         try {
             kotlinx.coroutines.withTimeout(10_000) {
-                events().streamOnce(identityClient(client, null), origin() + "/api/v1", "events", null, emptySet())
-                    .collect { kotlinx.coroutines.delay(10) }
+                events().streamOnce(observedClient, origin() + "/api/v1", "events", null, emptySet())
+                    .collect { disconnected.await() }
             }
         } catch (failure: ApiException) { error = failure }
         assertEquals("SSE_BACKPRESSURE", (error as? ApiException)?.code)
@@ -314,13 +363,16 @@ class NetworkIdentityProtocolTest {
         bus.publish(link)
         val context = RuntimeEnvironment.getApplication()
         val cleaners = SessionCacheCleaner(context, ImageLoaders(context, vault, client, ShareCookieJar()), LibraryHomeSnapshotStore(context, json))
-        val repository = SessionRepository(context, json, vault, factory, client, cleaners)
+        val repository = SessionRepository(context, json, vault, factory, client, cleaners, dagger.Lazy {
+                throw UnsupportedOperationException("测试不触发选路")
+            })
         val field = SessionRepository::class.java.getDeclaredField("_ui").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
         val state = field.get(repository) as kotlinx.coroutines.flow.MutableStateFlow<io.movieclaw.android.core.session.SessionUi>
         state.value = io.movieclaw.android.core.session.SessionUi(phase = io.movieclaw.android.core.session.SessionPhase.NEEDS_LOGIN)
         val root = io.movieclaw.android.routing.RootViewModel(repository, io.movieclaw.android.core.designsystem.FeedbackBus(),
-            bus, io.movieclaw.android.core.session.SearchAccessRepository(factory, repository))
+            bus, io.movieclaw.android.core.session.SearchAccessRepository(factory, repository),
+            io.movieclaw.android.feature.update.AppUpdateController(context, repository, factory))
         root.dismissShare(link.slug)
         assertNull(bus.pendingShare.value)
         bus.publish(link)

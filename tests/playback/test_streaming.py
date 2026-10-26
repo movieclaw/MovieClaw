@@ -195,6 +195,54 @@ async def test_disconnect_aware_file_response_stops_before_next_chunk(tmp_path: 
 
 
 @pytest.mark.asyncio
+async def test_on_disconnect_fires_once_when_the_client_leaves_mid_response(
+    tmp_path: Path,
+) -> None:
+    """分片被掐在半路：on_disconnect 调一次，转码会话靠它知道取流断了。"""
+    video = tmp_path / "seg00000.m4s"
+    video.write_bytes(b"x" * (DisconnectAwareFileResponse.chunk_size * 2))
+    disconnect = asyncio.Event()
+    calls: list[str] = []
+
+    async def receive() -> dict[str, Any]:
+        await disconnect.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: dict[str, Any]) -> None:
+        if message.get("body"):
+            disconnect.set()
+            await asyncio.sleep(0)
+
+    response = DisconnectAwareFileResponse(video, on_disconnect=lambda: calls.append("gone"))
+    await response(_scope(), receive, send)
+
+    assert calls == ["gone"]
+
+
+@pytest.mark.asyncio
+async def test_on_disconnect_stays_quiet_when_the_response_completes(tmp_path: Path) -> None:
+    """发完之后才来的 http.disconnect（服务器收尾时每个请求都有一条）不算中途断开。"""
+    video = tmp_path / "seg00000.m4s"
+    video.write_bytes(b"x" * 4096)
+    finished = asyncio.Event()
+    calls: list[str] = []
+
+    async def receive() -> dict[str, Any]:
+        await finished.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: dict[str, Any]) -> None:
+        # 与真服务器一致：发出最后一块的同时就能收到断开，但 send 本身不让出
+        if message["type"] == "http.response.body" and not message.get("more_body"):
+            finished.set()
+
+    response = DisconnectAwareFileResponse(video, on_disconnect=lambda: calls.append("gone"))
+    await response(_scope(), receive, send)
+
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_disconnect_aware_file_response_keeps_range_response(tmp_path: Path) -> None:
     video = tmp_path / "movie.mkv"
     content = b"0123456789" * 20_000

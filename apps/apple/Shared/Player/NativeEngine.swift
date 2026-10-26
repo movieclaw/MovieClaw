@@ -110,6 +110,10 @@ final class NativeEngine: NSObject, PlayerEngine {
     }
 
     var view: NativeView { core.view }
+    var displayMode: PlayerDisplayMode {
+        get { core.displayMode }
+        set { core.displayMode = newValue }
+    }
 
     /// 建自研引擎前的全局准备：接管引擎日志、读开发期开关。刷片页（Features/Reels）自己管引擎实例，
     /// 建之前也调它，与播放器页同一口径
@@ -238,7 +242,7 @@ final class NativeEngine: NSObject, PlayerEngine {
         if let tokenURL, let token = PlaybackAPI.token(in: tokenURL.absoluteString) { AetherPlayback.redact(token) }
         #if DEBUG
         loadedAt = .now
-        FileHandle.standardError.write(Data("[NativeEngine \(String(format: "%.3f", ProcessInfo.processInfo.systemUptime))] 装载 start=\(start)\n".utf8))
+        FileHandle.standardError.write(Data("[NativeEngine \(String(format: "%.3f", ProcessInfo.processInfo.systemUptime))] 装载 start=\(start)\n".utf8)) // i18n-ignore: developer diagnostics
         #endif
         // 带上 App 的 User-Agent：服务端按它把这条流登记成「MovieClaw iOS」而不是浏览器
         loadIssued = true
@@ -298,8 +302,8 @@ final class NativeEngine: NSObject, PlayerEngine {
             bandwidthMeter.push(bps: loading, at: now)
         }
         var details = readouts.details
-        details.append(playsOriginalFile ? "直出原文件" : "播放服务端 HLS")
-        if isPictureInPictureActive { details.append("画中画中") }
+        details.append(playsOriginalFile ? String(localized: .playerEngineOriginalFile) : String(localized: .playerEngineServerHls))
+        if isPictureInPictureActive { details.append(String(localized: .playerEnginePipActive)) }
         let time = currentTime
         return EngineStats(
             engine: kind.rawValue,
@@ -587,7 +591,7 @@ final class NativeEngine: NSObject, PlayerEngine {
     private func handle(_ failure: AetherPlayback.Failure) {
         // 引擎的报错是英文；用户看得懂的几种先翻成中文
         let message = failure.message.hasPrefix("Device storage is full")
-            ? "\(ClientPlatform.deviceNoun)存储空间不足，视频分片写不进缓存，请清理存储后重试"
+            ? String(localized: .playerErrorsStorageFull(ClientPlatform.deviceNoun))
             : failure.message
         lastFailureKind = failure.kind
         let cause: EngineFailureCause = switch failure.category {
@@ -596,7 +600,7 @@ final class NativeEngine: NSObject, PlayerEngine {
         case .storageFull: .storageFull
         case let .decode(final): final ? .decodeFinal : .decode
         }
-        emit(.failed(reason: "自研引擎无法播放（\(message)）", cause: cause))
+        emit(.failed(reason: String(localized: .playerEngineNativeFailed(message)), cause: cause))
     }
 
     private func tracksChanged() {
@@ -683,7 +687,7 @@ final class NativeEngine: NSObject, PlayerEngine {
             #if DEBUG
             let elapsed = Int((ContinuousClock.now - loadedAt) / .milliseconds(1))
             let stamp = String(format: "%.3f", ProcessInfo.processInfo.systemUptime)
-            FileHandle.standardError.write(Data("[NativeEngine \(stamp)] \(event) 距装载 \(elapsed) 毫秒 t=\(String(format: "%.2f", currentTime))\n".utf8))
+            FileHandle.standardError.write(Data("[NativeEngine \(stamp)] \(event) 距装载 \(elapsed) 毫秒 t=\(String(format: "%.2f", currentTime))\n".utf8)) // i18n-ignore: developer diagnostics
             #endif
             onEvent?(event)
         }
@@ -694,7 +698,7 @@ extension NativeEngine: AVPictureInPictureControllerDelegate {
     nonisolated func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
         MainActor.assumeIsolated {
             #if DEBUG
-            FileHandle.standardError.write(Data("[PiP] 进入画中画 t=\(String(format: "%.2f", currentTime))\n".utf8))
+            FileHandle.standardError.write(Data("[PiP] 进入画中画 t=\(String(format: "%.2f", currentTime))\n".utf8)) // i18n-ignore: developer diagnostics
             #endif
             isPictureInPictureActive = true
             core.setPictureInPictureActive(true)
@@ -705,7 +709,7 @@ extension NativeEngine: AVPictureInPictureControllerDelegate {
     nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
         MainActor.assumeIsolated {
             #if DEBUG
-            FileHandle.standardError.write(Data("[PiP] 退出画中画 t=\(String(format: "%.2f", currentTime))\n".utf8))
+            FileHandle.standardError.write(Data("[PiP] 退出画中画 t=\(String(format: "%.2f", currentTime))\n".utf8)) // i18n-ignore: developer diagnostics
             #endif
             isPictureInPictureActive = false
             core.setPictureInPictureActive(false)
@@ -716,7 +720,7 @@ extension NativeEngine: AVPictureInPictureControllerDelegate {
     nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, failedToStartPictureInPictureWithError error: any Error) {
         MainActor.assumeIsolated {
             #if DEBUG
-            FileHandle.standardError.write(Data("[PiP] 画中画启动失败：\(error.localizedDescription)\n".utf8))
+            FileHandle.standardError.write(Data("[PiP] 画中画启动失败：\(error.localizedDescription)\n".utf8)) // i18n-ignore: developer diagnostics
             #endif
             isPictureInPictureActive = false
             core.setPictureInPictureActive(false)

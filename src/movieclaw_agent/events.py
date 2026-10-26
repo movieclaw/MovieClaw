@@ -129,3 +129,4 @@ class AgentEvent(BaseModel):
     result: AgentDone | None = None
     #: agent_error 事件的中文错误说明
     error: str | None = None
+    error_ref: dict | None = None

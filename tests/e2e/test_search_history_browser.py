@@ -53,7 +53,11 @@ def page(stack, request):
     theme, width = getattr(request, "param", ("silver", 1280))
     with playwright.sync_playwright() as pw:
         browser = pw.chromium.launch(**history_stack._chromium_kwargs())
-        context = browser.new_context(viewport={"width": width, "height": 900})
+        context = browser.new_context(
+            viewport={"width": width, "height": 900},
+            locale="zh-CN",
+            extra_http_headers={"Accept-Language": "zh-Hans"},
+        )
         api = context.request
         prefix = stack["base"] + "/api/v1"
         response = api.post(prefix + "/auth/bootstrap", data=history_stack.ADMIN)

@@ -6,14 +6,15 @@ import SwiftUI
 /// 类型（按所属库的 kind）与来源（自建 / 自动=系列+内置收藏）。计数按 faceted 口径算
 /// （带上另一个维度的筛选），数为 0 的档压暗且点不动——「永不空货架」。
 struct AllCollectionsView: View {
+    @Environment(\.cardMetrics) private var cards
     @Environment(\.api) private var api
     @State private var rows: [API.CollectionView]?
     @State private var libraries: [API.LibraryView] = []
     @State private var kindFilter = "all"
     @State private var sourceFilter = "all"
 
-    private static let kindOptions = [("all", "全部"), ("tv", "剧集"), ("movie", "电影")]
-    private static let sourceOptions = [("all", "全部"), ("user", "自建"), ("auto", "自动")]
+    private static let kindOptions = [("all", String(localized: .mediaFiltersAll)), ("tv", String(localized: .libraryKindSeries)), ("movie", String(localized: .libraryKindMovies))]
+    private static let sourceOptions = [("all", String(localized: .mediaFiltersAll)), ("user", String(localized: .libraryCollectionsUserSource)), ("auto", String(localized: .libraryCollectionsAutoSource))]
 
     var body: some View {
         let all = rows ?? []
@@ -33,18 +34,18 @@ struct AllCollectionsView: View {
 
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text(rows == nil ? "正在读取合集…"
-                    : all.isEmpty ? "还没有合集"
-                    : filtered ? "\(shown.count) / \(all.count) 个合集 · 按库分组" : "\(all.count) 个合集 · 按库分组")
+                Text(rows == nil ? String(localized: .libraryCollectionsLoading)
+                    : all.isEmpty ? String(localized: .libraryCollectionsNone)
+                    : filtered ? String(localized: .libraryCollectionsFilteredSummary(shown.count, all.count)) : String(localized: .libraryCollectionsGroupedSummary(all.count)))
                     .font(.subheadline)
                     .foregroundStyle(Theme.textMuted)
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .accessibilityIdentifier("collections-summary")
 
                 if rows == nil {
                     ProgressView().frame(maxWidth: .infinity).padding(.top, 64)
                 } else if all.isEmpty {
-                    Text("还没有合集。在某个库里筛出一批片，点「存为合集」就能把这组条件留下来。")
+                    Text(String(localized: .libraryCollectionsEmptyAll))
                         .font(.subheadline)
                         .foregroundStyle(Theme.textMuted)
                         .multilineTextAlignment(.center)
@@ -53,29 +54,29 @@ struct AllCollectionsView: View {
                         .padding(.top, 64)
                 } else {
                     VStack(alignment: .leading, spacing: 10) {
-                        chipGroup("类型", Self.kindOptions, selection: $kindFilter) { value in
+                        chipGroup(String(localized: .libraryFiltersGenres), Self.kindOptions, selection: $kindFilter) { value in
                             all.filter { matchesSource($0, sourceFilter) && matchesKind($0, value) }.count
                         }
-                        chipGroup("来源", Self.sourceOptions, selection: $sourceFilter) { value in
+                        chipGroup(String(localized: .libraryCollectionsSource), Self.sourceOptions, selection: $sourceFilter) { value in
                             all.filter { matchesKind($0, kindFilter) && matchesSource($0, value) }.count
                         }
                     }
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .padding(.top, 14)
 
                     VStack(alignment: .leading, spacing: 28) {
                         if !cross.isEmpty {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("跨库").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
-                                Text("不属于任何一个库的手动名单").font(.footnote).foregroundStyle(Theme.textFaint)
+                                Text(String(localized: .libraryCollectionsCrossLibrary)).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
+                                Text(String(localized: .libraryCollectionsCrossLibraryHint)).font(.footnote).foregroundStyle(Theme.textFaint)
                             }
-                            .padding(.horizontal, Theme.pagePadding)
+                            .padding(.horizontal, cards.edge)
                             .padding(.bottom, -14)
                             LibraryCollectionsGrid(collections: cross, libraryId: nil)
                         }
                         ForEach(grouped, id: \.0.id) { library, items in
                             Text(library.name).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
-                                .padding(.horizontal, Theme.pagePadding)
+                                .padding(.horizontal, cards.edge)
                                 .padding(.bottom, -16)
                             LibraryCollectionsGrid(collections: items, libraryId: library.id)
                         }
@@ -86,7 +87,7 @@ struct AllCollectionsView: View {
             .padding(.bottom, 32)
         }
         .appBackground()
-        .navigationTitle("全部合集")
+        .navigationTitle(String(localized: .libraryHomeCollections))
         .task { await load() }
         .refreshable { await load() }
     }
@@ -131,9 +132,10 @@ struct AllCollectionsView: View {
 
 /// 合集卡片网格（Web `LibraryCollectionsView`）：我的合集与系列分两段；卡片是最多 3 张叠放的海报
 struct LibraryCollectionsGrid: View {
+    @Environment(\.cardMetrics) private var cards
     let collections: [API.CollectionView]
     let libraryId: Int?
-    var emptyHint = "还没有合集。筛出一批片之后，点「存为合集」就能把这组条件留下来。"
+    var emptyHint = String(localized: .libraryCollectionsEmptyLibrary)
 
     var body: some View {
         if collections.isEmpty {
@@ -143,14 +145,14 @@ struct LibraryCollectionsGrid: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 60)
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
         } else {
             let mine = collections.filter { $0.kind != "series" }
             let series = collections.filter { $0.kind == "series" }
             let grouped = !mine.isEmpty && !series.isEmpty
             VStack(alignment: .leading, spacing: 28) {
-                grid(grouped ? "我的合集" : nil, mine)
-                grid(grouped ? "系列" : nil, series)
+                grid(grouped ? String(localized: .libraryCollectionsMine) : nil, mine)
+                grid(grouped ? String(localized: .libraryCollectionsSeries) : nil, series)
             }
         }
     }
@@ -161,9 +163,9 @@ struct LibraryCollectionsGrid: View {
             VStack(alignment: .leading, spacing: 12) {
                 if let title {
                     Text(title).font(.subheadline.weight(.medium)).foregroundStyle(Theme.textFaint)
-                        .padding(.horizontal, Theme.pagePadding)
+                        .padding(.horizontal, cards.edge)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)], alignment: .leading, spacing: 20) {
+                LazyVGrid(columns: cards.wallColumns(), alignment: .leading, spacing: 20) {
                     ForEach(items, id: \.id) { collection in
                         NavigationLink(value: AppRoute.collection(libraryId: libraryId ?? collection.libraryId, collectionId: collection.id)) {
                             CollectionCell(collection: collection)
@@ -172,7 +174,7 @@ struct LibraryCollectionsGrid: View {
                         .accessibilityIdentifier("collection-card-\(collection.id)")
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
             }
         }
     }
@@ -190,10 +192,10 @@ private struct CollectionCell: View {
                 .lineLimit(1)
                 .padding(.top, 8)
             let tags = [
-                "\(collection.itemCount) 部",
-                collection.kind == "series" ? "系列" : collection.ruleDriven ? "自动收录" : nil,
-                collection.visibility == "private" ? "只有我" : nil,
-                collection.hidden ? "已隐藏" : nil,
+                String(localized: .libraryStatusTitleCount(collection.itemCount)),
+                collection.kind == "series" ? String(localized: .libraryCollectionsSeries) : collection.ruleDriven ? String(localized: .libraryCollectionsAutoAdd) : nil,
+                collection.visibility == "private" ? String(localized: .libraryCollectionsPrivateBadge) : nil,
+                collection.hidden ? String(localized: .libraryCollectionsHideDone) : nil,
             ].compactMap { $0 }
             Text(tags.joined(separator: " · "))
                 .font(.footnote)
@@ -216,7 +218,7 @@ struct LibraryCollectionCover: View {
             .aspectRatio(Theme.posterAspect, contentMode: .fit)
             .overlay {
                 if shown.isEmpty {
-                    Text("暂无封面").font(.footnote).foregroundStyle(Theme.textFaint)
+                    Text(String(localized: .libraryFormNoCover)).font(.footnote).foregroundStyle(Theme.textFaint)
                 } else {
                     GeometryReader { proxy in
                         let w = proxy.size.width, h = proxy.size.height

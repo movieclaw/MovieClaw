@@ -254,6 +254,58 @@ def test_hevc_source_transcodes_and_is_decodable(client, tmp_path):
     assert any(s["codec_name"] == "h264" for s in probe_streams(assembled))
 
 
+def test_declared_truehd_is_transcoded_not_copied_into_segments(client, tmp_path):
+    """#884：Android 申报能解 TrueHD，片子却要转码——TrueHD 原样复制进 fMP4 时 ffmpeg 写头报
+    「Experimental feature」退出、一个分片都出不来。真实链路上走一遍：分片要出来、音轨是
+    E-AC-3。"""
+    from movieclaw_api.settings import PlaybackPolicySetting
+    from movieclaw_api.settings.store import get_setting_store
+
+    async def _enable_software():
+        await get_setting_store().set(PlaybackPolicySetting(software_transcode_enabled=True))
+
+    client.portal.call(_enable_software)
+
+    root = tmp_path / "m"
+    root.mkdir(parents=True)
+    path = root / "truehd.mkv"
+    _run([
+        "ffmpeg", "-v", "error",
+        "-f", "lavfi", "-i", f"testsrc2=size=320x240:rate=25:duration={DURATION}",
+        "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=48000:duration={DURATION}",
+        "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=none",
+        "-g", "50", "-keyint_min", "50",
+        "-c:a", "truehd", "-strict", "-2", "-ac", "6", "-shortest", "-y", str(path),
+    ])
+
+    async def _seed_truehd() -> int:
+        file_id = await _seed(path, codec="hevc", container="mkv")
+        async with get_database().session() as session:
+            row = await session.get(LibraryFile, file_id)
+            row.audio_streams = [{"codec": "truehd", "channels": 6, "default": True}]
+            await session.commit()
+        return file_id
+
+    file_id = client.portal.call(_seed_truehd)
+    # 解不了 HEVC 的 Android 设备：容器 mkv 能直连，但视频要转码
+    android = {
+        "video": [{"codec": "h264"}],
+        "audio": [{"codec": c, "max_channels": 8} for c in ("aac", "ac3", "eac3", "truehd")],
+        "containers": ["mp4", "mkv", "hls-fmp4"],
+        "local_tracks": True,
+    }
+    resp = client.post(f"{_PB}/sessions", json={"file_id": file_id, "capability": android})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["decision"]["tier"] == 4, data["decision"]
+
+    wait_for_segments(client, data, count=1)
+    streams = probe_streams(fetch_whole_stream(client, data, tmp_path))
+    assert any(s["codec_name"] == "h264" for s in streams)
+    audio = [s for s in streams if s["codec_type"] == "audio"]
+    assert [(s["codec_name"], s["channels"]) for s in audio] == [("eac3", 6)]
+
+
 def test_hevc_without_consent_asks_instead_of_transcoding(client, tmp_path):
     """软件转码默认关闭：先问，不偷偷吃满 CPU（§3.6）。"""
     path = make_media(tmp_path / "m", "ask", codec="hevc", container="mkv")
@@ -271,8 +323,8 @@ def test_seek_starts_the_stream_later_in_the_file(client, tmp_path):
     （播放器想到哪就 seek 到哪），服务端只从起播点所在的分片边界起转；
     那一片拼上 init 后 ffprobe 读到的起始时间就是它的边界（不是 0）。
 
-    源片关键帧在 0/2/4 秒、分片栅格 4 秒 → 边界 [0, 4]；3 秒落在第 0 片，
-    5 秒落在第 1 片（起点 4.0）。
+    直通档在每个关键帧切一段（``COPY_HLS_TIME``，#537 起）：源片关键帧在 0/2/4 秒 →
+    边界 [0, 2, 4]；5 秒落在第 2 片（起点 4.0）。
     """
     path = make_media(tmp_path / "m", "seek", codec="h264", container="mkv")
     file_id = client.portal.call(partial(_seed, path, codec="h264", container="mkv"))
@@ -288,11 +340,11 @@ def test_seek_starts_the_stream_later_in_the_file(client, tmp_path):
         for line in playlist.splitlines()
         if line.strip().split("?", 1)[0].endswith(".m4s")
     ]
-    assert names == ["seg00000.m4s", "seg00001.m4s"]  # 列表覆盖全片
+    assert names == ["seg00000.m4s", "seg00001.m4s", "seg00002.m4s"]  # 列表覆盖全片
     init = client.get(f"{_PB}/sessions/{session_id}/init.mp4?token={token}")
-    seg = client.get(f"{_PB}/sessions/{session_id}/seg00001.m4s?token={token}")
+    seg = client.get(f"{_PB}/sessions/{session_id}/seg00002.m4s?token={token}")
     assert init.status_code == 200 and seg.status_code == 200
-    joined = tmp_path / "seg1.mp4"
+    joined = tmp_path / "seg2.mp4"
     joined.write_bytes(init.content + seg.content)
     proc = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=start_time",
@@ -301,9 +353,6 @@ def test_seek_starts_the_stream_later_in_the_file(client, tmp_path):
     )
     start_time = float(proc.stdout.decode().strip())
     assert abs(start_time - 4.0) < 0.6   # 分片时间戳是文件绝对时间
-    # 第 1 片只有 4→6 秒这两秒，必然比 0→4 秒的第 0 片小
-    first = client.get(f"{_PB}/sessions/{session_id}/seg00000.m4s?token={token}")
-    assert first.status_code == 200 and len(seg.content) < len(first.content)
 
 
 def test_stopping_a_session_keeps_a_reusable_cache(client, tmp_path):

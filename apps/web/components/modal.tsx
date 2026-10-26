@@ -27,6 +27,7 @@
  * 监听并掐断传播——一次 Esc 只关最上面那层，身下那层留在原地。
  */
 
+import { useTranslations } from "next-intl";
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -126,6 +127,7 @@ export function Modal({
   placement?: "center" | "right";
   children: ReactNode;
 }) {
+  const t = useTranslations();
   // Esc 关闭（冒泡阶段，可被上层弹窗的 capture 监听拦截，见文件头注释）。
   // topmost 弹窗压在别的浮层之上（弹窗里的二次确认、灯箱里点开的保存位置弹窗），
   // 它就该独占这一下 Esc：改在 capture 阶段监听并掐断传播，否则身下那层
@@ -176,7 +178,7 @@ export function Modal({
     >
       <button
         type="button"
-        aria-label="关闭"
+        aria-label={t("common.close")}
         onClick={onClose}
         // modal-scrim：主题钩子——Netflix 主题在 globals.css 里换成更实的纯黑
         // 遮罩并关掉模糊（毛玻璃是银玻璃语言）。

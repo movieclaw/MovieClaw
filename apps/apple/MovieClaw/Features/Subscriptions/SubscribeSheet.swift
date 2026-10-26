@@ -46,11 +46,14 @@ struct SubscribeSheet: View {
     @State private var cancelling = false
 
     @State private var selectionMode = "smart"
-    @State private var smartProfile: SmartProfile?
+    /// 智能选择里管理员做的选择（字幕回答、改过的画质与记住的范围），随创建请求提交
+    @State private var smartChoice = SmartChoice()
     @State private var pages: [Page] = []
     @State private var formHeight: CGFloat = 0
 
-    enum Page: Hashable { case smart, range, options }
+    enum Page: Hashable { case smart, quality, range, options }
+
+    private var smartPlan: API.SmartPlanView? { prepared?.smart }
 
     private var upgradeMode: Bool { request.upgrade }
     private var canManage: Bool { permissions.canManageSubscriptions }
@@ -70,7 +73,7 @@ struct SubscribeSheet: View {
 
     private var canSubmit: Bool {
         guard let media = prepared?.media, !busy, pages.isEmpty else { return false }
-        if selectionMode == "smart", smartProfile?.preferences == nil || smartProfile?.kind != media.kind { return false }
+        if selectionMode == "smart", smartPlan?.configured != true { return false }
         if upgradeMode, canManage, !selectableRules.contains(where: { $0.id == ruleSetId }) { return false }
         if media.kind == "movie" { return true }
         return !selectedSeasons.isEmpty || followFuture
@@ -86,9 +89,9 @@ struct SubscribeSheet: View {
         Group {
             if let upgradeReport {
                 SubsSheetScaffold(
-                    title: "订阅《\(displayTitle)》",
+                    title: String(localized: .subscriptionSubscribeDialogLabel(displayTitle)),
                     closable: false,
-                    confirm: SubsSheetConfirm(title: "完成", identifier: "upgrade-report-done") { dismiss() },
+                    confirm: SubsSheetConfirm(title: String(localized: .commonDone), identifier: "upgrade-report-done") { dismiss() },
                     fullHeight: true
                 ) {
                     UpgradeRunReportView(title: displayTitle, isMovie: kind == "movie", report: upgradeReport)
@@ -103,33 +106,33 @@ struct SubscribeSheet: View {
                         } action: { _, height in
                             formHeight = height
                         }
-                        .navigationTitle(upgradeMode ? "订阅并洗版" : "订阅")
+                        .navigationTitle(upgradeMode ? String(localized: .subscriptionSubscribeUpgradeTitle) : String(localized: .navTabsSubscriptions))
                         .navigationBarTitleDisplayMode(.inline)
                         .navigationDestination(for: Page.self) { page in
                             switch page {
                             case .smart:
-                                if let smartProfile {
-                                    SmartProfileEditor(kind: kind, profile: smartProfile) { self.smartProfile = $0 }
-                                }
+                                SmartDefaultsEditor { Task { await refreshSmartPlan() } }
+                            case .quality:
+                                if let smartPlan { SmartQualityPage(plan: smartPlan, choice: $smartChoice) }
                             case .range:
-                                Form { rangeFields }.subsFormStyle().navigationTitle("追踪范围")
+                                Form { rangeFields }.subsFormStyle().navigationTitle(String(localized: .subscriptionSubscribeTrackingScope))
                                     .navigationBarTitleDisplayMode(.inline)
                             case .options:
-                                Form { optionFields }.subsFormStyle().navigationTitle("更多选项")
+                                Form { optionFields }.subsFormStyle().navigationTitle(String(localized: .subscriptionSubscribeMoreOptions))
                                     .navigationBarTitleDisplayMode(.inline)
                             }
                         }
                         .toolbar {
                             if pages.isEmpty {
                                 ToolbarItem(placement: .cancellationAction) {
-                                    Button("取消", systemImage: "xmark", role: .close) { dismiss() }
+                                    Button(String(localized: .commonCancel), systemImage: "xmark", role: .close) { dismiss() }
                                         .disabled(busy).accessibilityIdentifier("sheet-close")
                                 }
                                 if showsSubmit {
                                     ToolbarItem(placement: .confirmationAction) {
                                         if busy { ProgressView() }
                                         else {
-                                            Button(upgradeMode ? "订阅并开始洗版" : "确认订阅", systemImage: "checkmark", role: .confirm) {
+                                            Button(upgradeMode ? String(localized: .subscriptionSubscribeConfirmUpgrade) : String(localized: .subscriptionSubscribeConfirm), systemImage: "checkmark", role: .confirm) {
                                                 Task { await submit() }
                                             }
                                             .discoverProminentButton().disabled(!canSubmit)
@@ -144,6 +147,10 @@ struct SubscribeSheet: View {
             }
         }
         .interactiveDismissDisabled(busy || pages.contains(.smart))
+        .onChange(of: smartPlan?.configured) { _, configured in
+            // 首次使用：管理员直接进入设置页，保存后回到订阅
+            if configured == false, smartPlan?.canEdit == true, selectionMode == "smart", pages.isEmpty { pages.append(.smart) }
+        }
         .accessibilityIdentifier("subscribe-sheet")
         .task { await runPrepare(request.titleRef) }
         // 投递路由预览随「入库库」与「预检收敛出的条目」两者变化重拉（同 Web 依赖 [prepared?.media, libraryId]）：
@@ -173,7 +180,7 @@ struct SubscribeSheet: View {
             Section {
                 header
             } footer: {
-                Text("洗版通过订阅持续追踪更好的版本：确认后建立订阅并立即体检库里已有的每一集。")
+                Text(String(localized: .subscriptionSubscribeUpgradeDescription))
             }
             .subsBareRow()
         } else {
@@ -189,7 +196,7 @@ struct SubscribeSheet: View {
             switch prepared.status {
             case "not_found":
                 Section {
-                    Text("TMDB 未收录该条目，暂时无法订阅。订阅依赖 TMDB 的别名与季集数据来匹配站点资源，可尝试在 TMDB 搜索入口确认条目后再订阅。")
+                    Text(String(localized: .subscriptionSubscribeNotFound))
                         .font(.subheadline).foregroundStyle(.secondary)
                         .accessibilityIdentifier("subscribe-not-found")
                 }
@@ -197,7 +204,7 @@ struct SubscribeSheet: View {
                 Section {
                     candidateWall(prepared.candidates)
                 } header: {
-                    Text("找到多个可能的条目，请确认你订阅的是哪一部")
+                    Text(String(localized: .subscriptionSubscribeAmbiguousSheet))
                 }
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
@@ -228,11 +235,11 @@ struct SubscribeSheet: View {
                 if prepared == nil, error == nil {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small)
-                        Text("正在获取条目信息…")
+                        Text(String(localized: .subscriptionSubscribeLoading))
                     }
                     .font(.footnote).foregroundStyle(.secondary)
                 } else if prepared?.movieOwned == true, prepared?.existingSubscriptionId == nil {
-                    Label(upgradeMode ? "媒体库已有，将体检现有版本并按需洗版" : "媒体库已有，订阅后不会重复下载", systemImage: "checkmark")
+                    Label(upgradeMode ? String(localized: .subscriptionSubscribeOwnedCheckUpgrade) : String(localized: .subscriptionSubscribeOwnedNoRedownload), systemImage: "checkmark")
                         .font(.footnote).foregroundStyle(SubsColor.ok)
                 }
             }
@@ -242,7 +249,7 @@ struct SubscribeSheet: View {
 
     /// 「2026 · 电影」；类型未收敛（豆瓣裸 ID）时只写年份
     private var headerMeta: String? {
-        let kindText = (prepared?.media?.kind ?? requestKind).map { $0 == "movie" ? "电影" : "剧集" }
+        let kindText = (prepared?.media?.kind ?? requestKind).map { $0 == "movie" ? String(localized: .subscriptionFilterMovie) : String(localized: .subscriptionFilterTv) }
         let parts = [prepared?.media?.year.map(String.init), kindText].compactMap(\.self)
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -259,7 +266,7 @@ struct SubscribeSheet: View {
                             .clipShape(.rect(cornerRadius: 10))
                             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.white.opacity(0.1)))
                         Text(candidate.title).font(.subheadline).foregroundStyle(Theme.text.opacity(0.9)).lineLimit(1)
-                        Text(candidate.year.map(String.init) ?? "年份未知").font(.caption).foregroundStyle(Theme.textFaint)
+                        Text(candidate.year.map(String.init) ?? String(localized: .subscriptionSubscribeUnknownYear)).font(.caption).foregroundStyle(Theme.textFaint)
                     }
                     .contentShape(.rect)
                 }
@@ -275,7 +282,7 @@ struct SubscribeSheet: View {
     @ViewBuilder
     private func manageState(_ existing: Int) -> some View {
         Section {
-            Label("该\(kind == "movie" ? "电影" : "剧集")已在订阅中，movieclaw 正在持续追踪资源。", systemImage: "checkmark.circle.fill")
+            Label(kind == "movie" ? String(localized: .subscriptionSubscribeExistingMovie) : String(localized: .subscriptionSubscribeExistingSeries), systemImage: "checkmark.circle.fill")
                 .font(.subheadline)
                 .foregroundStyle(Theme.text.opacity(0.85))
                 .symbolRenderingMode(.multicolor)
@@ -284,20 +291,20 @@ struct SubscribeSheet: View {
         Section {
             if upgradeMode {
                 // 洗版入口进到已有订阅：并入既有订阅，去详情触发一轮
-                Button("去洗一轮版", systemImage: "sparkles") {
+                Button(String(localized: .subscriptionSubscribeRunUpgrade), systemImage: "sparkles") {
                     dismiss()
                     router.push(.subscription(id: existing, upgradeRun: true))
                 }
                 .accessibilityIdentifier("subscribe-go-upgrade")
             }
-            Button("查看订阅详情", systemImage: "list.bullet.rectangle") {
+            Button(String(localized: .subscriptionSubscribeViewDetails), systemImage: "list.bullet.rectangle") {
                 dismiss()
                 router.push(.subscription(id: existing))
             }
             .accessibilityIdentifier("subscribe-open-detail")
         }
         Section {
-            Button("取消订阅", systemImage: "bell.slash", role: .destructive) {
+            Button(String(localized: .subscriptionCancelTitle), systemImage: "bell.slash", role: .destructive) {
                 Task { await unsubscribe(existing) }
             }
             .disabled(busy)
@@ -309,28 +316,25 @@ struct SubscribeSheet: View {
     @ViewBuilder
     private func form(_ prepared: API.PrepareView) -> some View {
         if selectionMode == "smart" {
-            SmartProfileSection(kind: kind, profile: $smartProfile) {
-                if pages.isEmpty { pages.append(.smart) }
-            }
-                .id(kind)
+            SmartPlanSection(plan: smartPlan, choice: $smartChoice).id(kind)
         } else {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text(upgradeMode ? "洗版规则" : "规则模式").font(.subheadline).foregroundStyle(.secondary)
+                        Text(upgradeMode ? String(localized: .subscriptionSubscribeUpgradeRules) : String(localized: .subscriptionSubscribeRulesMode)).font(.subheadline).foregroundStyle(.secondary)
                         Spacer()
                         if canManage {
-                            Button("修改规则") { pages.append(.options) }
+                            Button(String(localized: .subscriptionSubscribeChangeRules)) { pages.append(.options) }
                                 .font(.subheadline).buttonStyle(.borderless)
                         }
                     }
-                    Text(pickedRule?.name ?? "按系统规则选择").font(.headline)
+                    Text(pickedRule?.name ?? String(localized: .subscriptionSubscribeSystemRules)).font(.headline)
                     if let pickedRule, RuleSetText.summary(pickedRule.typedSpec).isEmpty {
-                        Text("当前规则不限品质，可能选到低画质资源。")
+                        Text(String(localized: .subscriptionSubscribeUnrestrictedRules))
                             .font(.footnote).foregroundStyle(SubsColor.warn)
                     }
                     if upgradeMode {
-                        Text(pickedRule?.upgradeTarget.map { "洗到 \($0)" } ?? "按订阅当前的规则组洗版")
+                        Text(pickedRule?.upgradeTarget.map { String(localized: .subscriptionUpgradeUpgradeTo($0)) } ?? String(localized: .subscriptionUpgradeCurrentRules))
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
@@ -340,35 +344,35 @@ struct SubscribeSheet: View {
             Section {
                 NavigationLink(value: Page.range) {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("追踪范围").font(.subheadline).foregroundStyle(.secondary)
+                        Text(String(localized: .subscriptionSubscribeTrackingScope)).font(.subheadline).foregroundStyle(.secondary)
                         Text(rangeSummary).font(.body.weight(.medium))
-                        Text(followFuture ? "自动追踪新集和新季" : "仅收录所选季")
+                        Text(followFuture ? String(localized: .subscriptionSubscribeFollowDescription) : String(localized: .subscriptionSubscribeSelectedOnly))
                             .font(.footnote).foregroundStyle(.secondary)
                     }.padding(.vertical, 4)
                 }.accessibilityIdentifier("subscribe-range")
                 if selectedSeasons.isEmpty && !followFuture {
-                    Text("请选择至少一季，或开启自动续订。").font(.footnote).foregroundStyle(SubsColor.warn)
+                    Text(String(localized: .subscriptionSubscribeChooseScope)).font(.footnote).foregroundStyle(SubsColor.warn)
                 }
             }
         }
         if !upgradeMode || canManage {
             Section {
                 NavigationLink(value: Page.options) {
-                    LabeledContent("更多选项") {
+                    LabeledContent(String(localized: .subscriptionSubscribeMoreOptions)) {
                         if let library = libraries.first(where: { $0.id == libraryId }) {
-                            Text("存入「\(library.name)」").font(.subheadline)
+                            Text(String(localized: .subscriptionSubscribeStoreIn(library.name))).font(.subheadline)
                         }
                     }
                 }.accessibilityIdentifier("subscribe-options")
             }
         }
         if let preview = dispatchPreview, !preview.ok {
-            Section { SubsNoticeRow(text: preview.warning ?? "下载与入库配置尚未就绪", tone: .warn) }
+            Section { SubsNoticeRow(text: preview.warning ?? String(localized: .subscriptionSubscribePipelineNotReady), tone: .warn) }
         }
     }
 
     @ViewBuilder private var rangeFields: some View {
-        Section("收录的季") {
+        Section(String(localized: .subscriptionSubscribeCollectedSeasons)) {
             ForEach(prepared?.seasons ?? [], id: \.seasonNumber) { season in
                 SeasonPickRow(season: season, checked: selectedSeasons.contains(season.seasonNumber)) {
                     if selectedSeasons.contains(season.seasonNumber) { selectedSeasons.remove(season.seasonNumber) }
@@ -377,26 +381,26 @@ struct SubscribeSheet: View {
             }
         }
         Section {
-            Toggle("自动续订", isOn: $followFuture)
+            Toggle(String(localized: .subscriptionRibbonFollowFuture), isOn: $followFuture)
                 .toggleStyle(SystemSwitchStyle()).accessibilityIdentifier("subscribe-follow-future")
-        } footer: { Text("自动追踪新集和新季") }
+        } footer: { Text(String(localized: .subscriptionSubscribeFollowDescription)) }
     }
 
     @ViewBuilder private var optionFields: some View {
         Section {
             if !upgradeMode {
-                Picker("选择方式", selection: $selectionMode) {
-                    Text("智能选择").tag("smart")
-                    Text("规则模式").tag("rules")
+                Picker(String(localized: .subscriptionSubscribeSelectionMode), selection: $selectionMode) {
+                    Text(String(localized: .subscriptionSmartTitle)).tag("smart")
+                    Text(String(localized: .subscriptionSubscribeRulesMode)).tag("rules")
                 }.pickerStyle(.menu).accessibilityIdentifier("subscribe-mode")
             }
             if showsRules { ruleRow }
         }
         if showsLibrary {
             Section {
-                Picker("入库到", selection: $libraryId) {
+                Picker(String(localized: .subscriptionSubscribeLibrary), selection: $libraryId) {
                     ForEach(libraries, id: \.id) { library in
-                        Text(library.name + (library.isDefault ? "（默认）" : "")).tag(Int?.some(library.id))
+                        Text(library.name + (library.isDefault ? String(localized: .settingsLlmUiDefaultSuffix) : "")).tag(Int?.some(library.id))
                     }
                 }.pickerStyle(.menu).accessibilityIdentifier("subscribe-library")
             } footer: { routingFooter.font(.footnote) }
@@ -405,34 +409,34 @@ struct SubscribeSheet: View {
 
     private var rangeSummary: String {
         let seasons = selectedSeasons.sorted()
-        if seasons.isEmpty { return followFuture ? "仅追新集" : "选择要收录的季" }
-        return seasons.count > 3 ? "已选 \(seasons.count) 季" : seasons.map(SubsFormat.seasonName).joined(separator: "、")
+        if seasons.isEmpty { return followFuture ? String(localized: .subscriptionSubscribeFutureOnly) : String(localized: .subscriptionSubscribeChooseSeasons) }
+        return seasons.count > 3 ? String(localized: .subscriptionSubscribeSelectedSeasons(seasons.count)) : seasons.map(SubsFormat.seasonName).joined(separator: "、")
     }
 
     /// 规则组行：原生菜单行，菜单里单选规则组，末尾是低频的「新建规则组…」
     @ViewBuilder
     private var ruleRow: some View {
-        let title = upgradeMode ? "洗版规则" : "资源规则"
+        let title = upgradeMode ? String(localized: .subscriptionSubscribeUpgradeRules) : String(localized: .subscriptionSubscribeResourceRules)
         if upgradeMode, selectableRules.isEmpty {
             Text(canManage
-                ? "还没有配置洗版目标的规则组——新建一个，在编辑器里选择「洗到哪一档」即可。"
-                : "还没有配置洗版目标的规则组，请联系管理员在「设置 → 订阅规则 → 规则组」中配置「洗到哪一档」。")
+                ? String(localized: .subscriptionSubscribeNoUpgradeRulesCreate)
+                : String(localized: .subscriptionSubscribeNoUpgradeRulesAskAdmin))
                 .font(.subheadline).foregroundStyle(.secondary)
             if canManage {
-                Button("新建规则组…", systemImage: "plus") { creatingRuleSet = true }
+                Button(String(localized: .subscriptionUpgradeNewRules), systemImage: "plus") { creatingRuleSet = true }
                     .accessibilityIdentifier("subscribe-new-ruleset")
             }
         } else {
             Menu {
                 Picker(title, selection: $ruleSetId) {
                     ForEach(selectableRules, id: \.id) { rule in
-                        Text(rule.name + (rule.isDefault ? "（默认）" : "") + (upgradeMode ? " · 洗到 \(rule.upgradeTarget ?? "")" : ""))
+                        Text(rule.name + (rule.isDefault ? String(localized: .settingsLlmUiDefaultSuffix) : "") + (upgradeMode ? " · " + String(localized: .subscriptionUpgradeUpgradeTo(rule.upgradeTarget ?? "")) : ""))
                             .tag(Int?.some(rule.id))
                     }
                 }
                 if canManage {
                     Divider()
-                    Button("新建规则组…", systemImage: "plus") { creatingRuleSet = true }
+                    Button(String(localized: .subscriptionUpgradeNewRules), systemImage: "plus") { creatingRuleSet = true }
                         .accessibilityIdentifier("subscribe-new-ruleset")
                 }
             } label: {
@@ -440,7 +444,7 @@ struct SubscribeSheet: View {
                     HStack(spacing: 6) {
                         Text(title).foregroundStyle(Theme.text)
                         Spacer(minLength: 8)
-                        Text(pickedRule?.name ?? "未选择").lineLimit(1)
+                        Text(pickedRule?.name ?? String(localized: .commonNotSelected)).lineLimit(1)
                         Image(systemName: "chevron.up.chevron.down").font(.footnote.weight(.medium))
                     }
                     .foregroundStyle(.secondary)
@@ -449,7 +453,7 @@ struct SubscribeSheet: View {
                         let chips = RuleSetText.summary(picked.typedSpec)
                         // 全不限是个危险默认：把风险讲在订阅之前
                         Text(chips.isEmpty
-                            ? "该规则组不限任何条件——可能抓到低画质或无人做种的资源，建议在「设置 → 订阅规则 → 规则组」里加上分辨率与做种数限制"
+                            ? String(localized: .subscriptionSubscribeNoConditionsWarning)
                             : chips.joined(separator: " · "))
                             .font(.footnote)
                             .foregroundStyle(chips.isEmpty ? SubsColor.warn : Theme.textMuted)
@@ -468,7 +472,7 @@ struct SubscribeSheet: View {
     @ViewBuilder
     private var routingFooter: some View {
         if showsRules, let ruleRouted, ruleSetId == ruleRouted.ruleSetId, pickedRule?.isDefault == false {
-            Label("按适用范围自动选择", systemImage: "sparkles").foregroundStyle(Theme.textMuted)
+            Label(String(localized: .subscriptionSubscribeAutoByScope), systemImage: "sparkles").foregroundStyle(Theme.textMuted)
         }
         if showsLibrary, let routed, let reason = routed.reason, libraryId == routed.libraryId,
            libraries.first(where: { $0.id == routed.libraryId })?.isDefault == false {
@@ -482,7 +486,7 @@ struct SubscribeSheet: View {
     /// 预检并按结果初始化表单默认值（候选确认后带新引用再次进入）
     private func runPrepare(_ ref: String) async {
         prepared = nil
-        smartProfile = nil
+        smartChoice = SmartChoice()
         selectionMode = upgradeMode ? "rules" : "smart"
         error = nil
         upgradeReport = nil
@@ -527,10 +531,12 @@ struct SubscribeSheet: View {
             }
             selectedSeasons = Set(defaultSeasons)
             followFuture = !upgradeMode && resolvedKind == "tv" && result.media?.status == "Returning Series"
+            // 服务器早于 0.42.0 的预检不带智能摘要：按规则模式订阅（同 Android），否则弹层卡在「正在读取」
+            if result.status == "ready", result.smart == nil { selectionMode = "rules" }
             prepared = result
         } catch is CancellationError {
         } catch {
-            self.error = error.localizedDescription.isEmpty ? "预检失败，请稍后重试" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .subscriptionSubscribePrepareFailed) : error.localizedDescription
         }
     }
 
@@ -556,6 +562,8 @@ struct SubscribeSheet: View {
         error = nil
         defer { busy = false }
         do {
+            let smart = selectionMode == "smart" ? smartPlan : nil
+            let choice = smart.map { smartChoice.payload(for: $0) }
             // 提交预检收敛好的 TMDB 引用；豆瓣身份靠 source_title_ref 原样带回
             let created = try await api.subscriptionsCreate(body: .init(
                 titleRef: "tmdb:\(media.kind):\(media.tmdbId)",
@@ -565,7 +573,12 @@ struct SubscribeSheet: View {
                 ruleSetId: canManage && selectionMode == "rules" ? ruleSetId : nil,
                 libraryId: canManage ? libraryId : nil,
                 selectionMode: selectionMode,
-                smartProfileRevision: selectionMode == "smart" ? smartProfile?.revision : nil
+                smartProfileRevision: smart?.profileRevision,
+                smartLanguageAnswer: choice?.language,
+                smartResolution: choice?.resolution,
+                smartSource: choice?.source,
+                smartScope: choice?.scope,
+                smartMemoryRevision: choice?.memoryRevision
             ))
             await refreshIndex()
             if upgradeMode {
@@ -573,14 +586,27 @@ struct SubscribeSheet: View {
                 do {
                     upgradeReport = try await api.subscriptionsUpgradeRun(subscriptionId: created.subscription.id, body: .init(ruleSetId: canManage ? ruleSetId : nil))
                 } catch {
-                    self.error = "订阅已创建，但触发洗版失败：\(error.localizedDescription.isEmpty ? "请稍后到订阅详情里重试" : error.localizedDescription)"
+                    self.error = error.localizedDescription.isEmpty
+                        ? String(localized: .subscriptionSubscribeCreatedUpgradeRetry)
+                        : String(localized: .subscriptionSubscribeCreatedUpgradeFailed(error.localizedDescription))
                 }
                 return
             }
             dismiss()
         } catch {
-            self.error = error.localizedDescription.isEmpty ? "订阅失败，请稍后重试" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .subscriptionSubscribeCreateFailed) : error.localizedDescription
+            // 弹层打开期间别人改了设置或记忆：重新读一遍，按最新的再确认
+            if (error as? APIError)?.status == 409 { await refreshSmartPlan() }
         }
+    }
+
+    /// 智能设置保存或记忆冲突后，只刷新智能选择摘要，不动已选的季和库。
+    private func refreshSmartPlan() async {
+        guard let media = prepared?.media,
+              let next = try? await api.uiSubscriptionsPreviewTitle(body: .init(titleRef: "tmdb:\(media.kind):\(media.tmdbId)"))
+        else { return }
+        smartChoice = SmartChoice()
+        prepared?.smart = next.smart
     }
 
     /// 管理员先叠一层问「种子与媒体库资源要不要一起删」；成员只取消自己的关注
@@ -596,7 +622,7 @@ struct SubscribeSheet: View {
             await refreshIndex()
             dismiss()
         } catch {
-            self.error = error.localizedDescription.isEmpty ? "取消订阅失败" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .subscriptionSubscribeCancelFailed) : error.localizedDescription
         }
     }
 
@@ -610,7 +636,7 @@ struct SubscribeSheet: View {
             dismiss()
         } catch {
             cancelling = false
-            self.error = error.localizedDescription.isEmpty ? "取消订阅失败" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .subscriptionSubscribeCancelFailed) : error.localizedDescription
         }
     }
 }

@@ -80,6 +80,7 @@ def derive(data: bytes, target_tier: str, *, png: bool) -> bytes:
 
     match = _TIER.match(target_tier)
     if match is None:
+        # i18n-ignore: developer error
         raise ValueError(f"无法本地缩图的档位：{target_tier}")
     axis, limit = match.group(1), int(match.group(2))
     with Image.open(io.BytesIO(data)) as image:

@@ -73,13 +73,6 @@ nonisolated struct AgentTurn: Equatable, Identifiable, Sendable {
     var interrupted = false
 
     var isRunning: Bool { status == .running }
-
-    /// 本轮全部正文（页脚「复制」用）
-    var answerText: String {
-        segments.compactMap { if case let .text(t) = $0 { t } else { nil } }
-            .joined(separator: "\n\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }
 
 // MARK: - 段的归约规则
@@ -188,7 +181,7 @@ enum AgentTimeline {
             turn.result = event.result
         case "agent_error":
             turn.status = .error
-            turn.error = event.error ?? "运行失败，原因未知"
+            turn.error = event.error ?? String(localized: .agentConversationRunUnknown)
         case "agent_cancelled":
             turn.status = .done
             turn.stopped = true
@@ -259,10 +252,10 @@ enum AgentTimeline {
 
     /// 进行中的处理块此刻在做什么：取末尾条目推导
     static func processStatus(_ items: [AgentProcessItem]) -> String {
-        guard case let .tool(tail) = items.last else { return "思考中…" }
-        if tail.argsDone == false { return "准备调用 \(tail.name)…" }
-        if tail.output == nil { return "正在执行 \(tail.name)…" }
-        return "思考中…" // 工具已返回，正在等模型的下一步
+        guard case let .tool(tail) = items.last else { return String(localized: .agentConversationThinking) }
+        if tail.argsDone == false { return String(localized: .agentConversationPreparingTool(tail.name)) }
+        if tail.output == nil { return String(localized: .agentConversationRunningTool(tail.name)) }
+        return String(localized: .agentConversationThinking) // 工具已返回，正在等模型的下一步
     }
 
     /// 已完成处理块的一句话总结，如「已思考，执行 1 次命令，调用 2 次工具」
@@ -277,19 +270,53 @@ enum AgentTimeline {
             }
         }
         var parts: [String] = []
-        if hasThinking { parts.append("思考") }
-        if commands > 0 { parts.append("执行 \(commands) 次命令") }
-        if others > 0 { parts.append("调用 \(others) 次工具") }
-        return parts.isEmpty ? "处理过程" : "已" + parts.joined(separator: "，")
+        if hasThinking { parts.append(String(localized: .settingsLlmUiThinking)) }
+        if commands > 0 { parts.append(String(localized: .agentConversationRanCommands(commands))) }
+        if others > 0 { parts.append(String(localized: .agentConversationCalledTools(others))) }
+        return parts.isEmpty ? String(localized: .agentConversationProcess) : String(localized: .agentConversationProcessDone(parts.joined(separator: AppLanguage.identifier == "zh-Hans" ? "，" : "; ")))
     }
 
-    /// 耗时文案：不足一分钟按秒（终态保留一位小数），超过则「x 分 y 秒」
-    static func duration(_ seconds: Double, precise: Bool) -> String {
-        let s = max(0, seconds)
-        if s < 60 { return precise ? String(format: "%.1fs", s) : "\(Int(s))s" }
-        let minutes = Int(s / 60)
-        return "\(minutes) 分 \(Int(s) - minutes * 60) 秒"
+    // MARK: 组时间
+
+    /// 一组对话顶部的时间：今天只要「时:分」，跨天「月日 时:分」，跨年再带上年份
+    static func groupTime(_ date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
+        let formatter: DateFormatter
+        if calendar.isDate(date, inSameDayAs: now) {
+            formatter = timeOnly
+        } else if calendar.isDate(date, equalTo: now, toGranularity: .year) {
+            formatter = monthDay
+        } else {
+            formatter = yearMonthDay
+        }
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        return formatter.string(from: date)
     }
+
+    /// 会话列表右侧的最近活动时间（仿「信息」）：今天「时:分」，昨天「昨天」，今年「月日」，更早「年/月/日」
+    static func listTime(_ date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) { return groupTime(date, now: now, calendar: calendar) }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return String(localized: .commonYesterday)
+        }
+        let formatter = calendar.isDate(date, equalTo: now, toGranularity: .year) ? monthDayOnly : yearMonthDayShort
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        return formatter.string(from: date)
+    }
+
+    private static func formatter(_ format: String, template: String) -> DateFormatter {
+        let f = DateFormatter()
+        f.locale = AppLanguage.locale
+        if AppLanguage.identifier == "zh-Hans" { f.dateFormat = format } else { f.setLocalizedDateFormatFromTemplate(template) }
+        return f
+    }
+
+    private static let timeOnly = formatter("HH:mm", template: "HHmm")
+    private static let monthDay = formatter("M月d日 HH:mm", template: "MMMdHHmm") // i18n-ignore: Chinese date pattern
+    private static let yearMonthDay = formatter("yyyy年M月d日 HH:mm", template: "yyyyMMMdHHmm") // i18n-ignore: Chinese date pattern
+    private static let monthDayOnly = formatter("M月d日", template: "MMMd") // i18n-ignore: Chinese date pattern
+    private static let yearMonthDayShort = formatter("yyyy/M/d", template: "yyyyMd")
 }
 
 // MARK: - 工具参数的展示
@@ -332,5 +359,5 @@ extension AgentToolCall {
     }
 
     /// 已失败：流式期间由回执标记，回放数据靠 runner 的失败前缀识别
-    var failed: Bool { isError || (output?.hasPrefix("工具执行失败：") ?? false) }
+    var failed: Bool { isError || (output?.hasPrefix("工具执行失败：") ?? false) } // i18n-ignore: server tool-failure prefix
 }

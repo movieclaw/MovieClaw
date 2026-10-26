@@ -181,7 +181,9 @@ async def assert_library_visible(
 ) -> None:
     """断言主体可浏览该库；不可见抛 404（与"库不存在"不可区分）。"""
     if library_id not in await visible_library_ids(session, principal):
-        raise NotFoundException(f"媒体库不存在：id={library_id}")
+        raise NotFoundException(
+            message_key="errors.library.configMissing", params={"id": library_id}
+        )
 
 
 async def assert_item_visible(
@@ -195,7 +197,7 @@ async def assert_item_visible(
     分享访客只能看分享的那一个条目，其他条目一律 404。
     """
     if principal.share is not None and not await _share_covers(session, principal, media_item_id):
-        raise NotFoundException("媒体条目不存在")
+        raise NotFoundException(message_key="errors.library.itemMissing")
     library_ids = {
         int(lid)
         for lid in (
@@ -217,7 +219,7 @@ async def assert_item_visible(
             return
         library_ids = {item.scrape_library_id}
     if library_ids.isdisjoint(await visible_library_ids(session, principal)):
-        raise NotFoundException("媒体条目不存在")
+        raise NotFoundException(message_key="errors.library.itemMissing")
     await _assert_within_content_limit(session, principal, media_item_id)
 
 
@@ -267,4 +269,4 @@ async def _assert_within_content_limit(
         )
     ).scalar_one_or_none()
     if not limit.allows(rating):
-        raise NotFoundException("媒体条目不存在")
+        raise NotFoundException(message_key="errors.library.itemMissing")

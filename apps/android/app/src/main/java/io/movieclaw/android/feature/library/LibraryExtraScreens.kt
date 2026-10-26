@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -123,6 +122,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import javax.inject.Inject
+import io.movieclaw.android.core.designsystem.mcGridCells
+import io.movieclaw.android.core.designsystem.mcCards
 
 /* ══════════ 我的收藏（iOS FavoritesView） ══════════ */
 
@@ -379,7 +380,7 @@ fun FavoritesScreen(
                 )
             }
             else -> {
-                Column(Modifier.padding(horizontal = McMetrics.pagePadding)) {
+                Column(Modifier.padding(horizontal = mcCards.pagePadding)) {
                     Text(
                         "${if (state.total > 0) state.total else state.items.size} 部作品 · 与 Jellyfin 客户端里点的心同一份",
                         fontSize = 15.sp, color = TextMuted,
@@ -394,8 +395,8 @@ fun FavoritesScreen(
                     )
                 }
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(horizontal = McMetrics.pagePadding, vertical = 8.dp),
+                    columns = mcGridCells(phoneColumns = 2),
+                    contentPadding = PaddingValues(horizontal = mcCards.pagePadding, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                     modifier = Modifier.fillMaxSize().pullToRefresh(
@@ -500,7 +501,7 @@ private fun GalleryWall(
         )
         LazyVerticalStaggeredGrid(
             columns = StaggeredGridCells.Fixed(columns),
-            contentPadding = PaddingValues(horizontal = McMetrics.pagePadding, vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = mcCards.pagePadding, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(spec.gap.dp),
             verticalItemSpacing = spec.gap.dp,
             modifier = Modifier.fillMaxSize().pullToRefresh(
@@ -544,7 +545,7 @@ private fun GalleryWall(
                             origin = origin,
                             // 瓦片按实际显示宽取图（列宽 × 屏幕倍率），缩略图条与灯箱共用同一地址
                             widthHint = ImageWidth.pixels(
-                                (widthDp - McMetrics.pagePadding.value * 2 - spec.gap * (columns - 1)) / columns,
+                                (widthDp - mcCards.pagePadding.value * 2 - spec.gap * (columns - 1)) / columns,
                                 density,
                             ),
                             contentDescription = image.label,
@@ -659,7 +660,7 @@ fun CollectionsScreen(
                 else -> "${all.size} 个合集 · 按库分组"
             },
             fontSize = 15.sp, color = TextMuted,
-            modifier = Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = mcCards.pagePadding, vertical = 8.dp),
         )
         when {
             ui.loading && all.isEmpty() ->
@@ -672,7 +673,7 @@ fun CollectionsScreen(
             )
             else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 // 两组带计数的筛选（计数按 faceted 口径：带上另一个维度当前的筛选）
-                Column(Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 6.dp)) {
+                Column(Modifier.padding(horizontal = mcCards.pagePadding, vertical = 6.dp)) {
                     CollectionChipGroup(
                         label = "类型",
                         options = collectionKindOptions,
@@ -757,7 +758,7 @@ private fun CollectionChipGroup(
 
 @Composable
 private fun CollectionGroupHeader(title: String, subtitle: String?) {
-    Column(Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 6.dp)) {
+    Column(Modifier.padding(horizontal = mcCards.pagePadding, vertical = 6.dp)) {
         Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
         if (subtitle != null) {
             Text(subtitle, fontSize = 12.sp, color = TextFaint, modifier = Modifier.padding(top = 2.dp))
@@ -775,7 +776,7 @@ private fun CollectionGrid(
     val mine = collections.filter { it.kind != "series" }
     val series = collections.filter { it.kind == "series" }
     val both = mine.isNotEmpty() && series.isNotEmpty()
-    Column(Modifier.padding(horizontal = McMetrics.pagePadding)) {
+    Column(Modifier.padding(horizontal = mcCards.pagePadding)) {
         if (mine.isNotEmpty()) {
             if (both) CollectionSegmentLabel("我的合集")
             CollectionCells(mine, origin, onOpen)
@@ -1160,7 +1161,7 @@ fun LibraryManageScreen(
         ) {
             // ── 页头：活的摘要（规模事实 + 在跑任务 / 待处理两枚胶囊）──
             item(key = "manage-head") {
-                Column(Modifier.padding(horizontal = McMetrics.pagePadding)) {
+                Column(Modifier.padding(horizontal = mcCards.pagePadding)) {
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1193,7 +1194,7 @@ fun LibraryManageScreen(
             // ── 四页签（计数为 0 时页签照常渲染，只是不带数字） ──
             item(key = "manage-tabs") {
                 Row(
-                    Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 14.dp),
+                    Modifier.padding(horizontal = mcCards.pagePadding, vertical = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     val tabs = listOf(
@@ -1233,7 +1234,7 @@ fun LibraryManageScreen(
                     }
                     item(key = "manage-error") {
                         state.error?.let { error ->
-                            Text(error, fontSize = 13.sp, color = Danger, modifier = Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 4.dp))
+                            Text(error, fontSize = 13.sp, color = Danger, modifier = Modifier.padding(horizontal = mcCards.pagePadding, vertical = 4.dp))
                         }
                     }
                     if (!state.loading && rows.isEmpty()) {
@@ -1290,7 +1291,7 @@ fun LibraryManageScreen(
                     }
                     items(state.trashed) { (name, lib, reason) ->
                         Column(
-                            Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding, vertical = 6.dp)
+                            Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding, vertical = 6.dp)
                                 .clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.05f)).padding(12.dp),
                         ) {
                             Text(name, fontSize = 14.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1300,7 +1301,7 @@ fun LibraryManageScreen(
                 }
                 2 -> {
                     item(key = "dup-head") {
-                        Row(Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.padding(horizontal = mcCards.pagePadding, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 if (state.busy) "扫描中…" else "一共 ${state.duplicates.size} 个单元有重复",
                                 fontSize = 15.sp, color = TextMuted,
@@ -1311,7 +1312,7 @@ fun LibraryManageScreen(
                     }
                     items(state.duplicates) { (title, n) ->
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding, vertical = 8.dp),
+                            Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(title, fontSize = 15.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
@@ -1424,7 +1425,7 @@ private fun ManageLibraryRow(
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = McMetrics.pagePadding, vertical = 6.dp)
+            .padding(horizontal = mcCards.pagePadding, vertical = 6.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(Color(0xFF1E212B).copy(alpha = 0.74f))
             .border(1.dp, LineSoft, RoundedCornerShape(16.dp))

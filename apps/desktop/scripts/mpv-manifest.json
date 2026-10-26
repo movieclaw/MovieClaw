@@ -1,0 +1,28 @@
+{
+  "version": "20261010-git-b2c255c13e",
+  "architecture": "x86_64",
+  "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261010/mpv-x86_64-20261010-git-b2c255c13e.7z",
+  "sha256": "70a568c046a10f0b365319c4ec5382d8fb37f509615944b7e9932b66e5ccfb25",
+  "requiredFiles": ["mpv.exe", "mpv.com", "d3dcompiler_43.dll", "vulkan-1.dll"],
+  "vulkanLoader": {
+    "version": "1.4.363.0",
+    "url": "https://sdk.lunarg.com/sdk/download/1.4.363.0/windows/VulkanRT-X64-1.4.363.0-Components.zip",
+    "sha256": "a25a927aa8b9f0371048f1861cf88ac3b9bc9b1fb332c42d897c8ab32695769a",
+    "binaryPath": "VulkanRT-X64-1.4.363.0-Components/x64/vulkan-1.dll",
+    "binarySha256": "e1fcfc9489beefa6a6d9d11d6c7517f6a2b7f16e0d3fb8f4103bee0210f314a3",
+    "licensePath": "VulkanRT-X64-1.4.363.0-Components/VulkanRT-License.txt",
+    "licenseSha256": "404deb98dabf3e54bf9070d59676b31d69a3da2f9f6e56bdf09ad315c04c718c"
+  },
+  "sources": {
+    "mpv": "https://github.com/mpv-player/mpv/tree/b2c255c13e8e37952dbac6c34da56a690560378b",
+    "buildRecipes": "https://github.com/shinchiro/mpv-winbuild-cmake/tree/b2856ee6deed6957380b32465f359e67f67fafd8",
+    "release": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20261010",
+    "vulkanLoader": "https://github.com/KhronosGroup/Vulkan-Loader/tree/fa218055ff4948b159f31d43f800c808a13d51df"
+  },
+  "licenses": [
+    {"file": "MPV-GPL.txt", "sha256": "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6"},
+    {"file": "MPV-LGPL.txt", "sha256": "72b672113d642cbb8ef5dcc76938db801983c56e50b1400ab930f1a64d6dc8d9"},
+    {"file": "MPV-Copyright.txt", "sha256": "bfe9ee4cceabcb8ecbfadf208d04156f73d801e6a57369a5606bb8341e204a23"},
+    {"file": "Vulkan-Apache-2.0.txt", "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"}
+  ]
+}

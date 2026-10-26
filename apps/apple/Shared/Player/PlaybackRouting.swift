@@ -306,6 +306,8 @@ nonisolated final class NetworkCost: @unchecked Sendable {
     private let lock = NSLock()
     private var metered = false
     private var currentInterface = "other"
+    /// 有没有可用的网络通路（飞行模式、Wi-Fi 与蜂窝都没有时为 false）：离线模式据此判定（ServerReachability）
+    private var satisfied = true
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -320,12 +322,18 @@ nonisolated final class NetworkCost: @unchecked Sendable {
             } else {
                 "other"
             }
+            let up = path.status == .satisfied
             self.lock.lock()
             let changed = now != self.metered
+            let pathChanged = up != self.satisfied
             self.metered = now
             self.currentInterface = interface
+            self.satisfied = up
             self.lock.unlock()
             if changed { NotificationCenter.default.post(name: .networkCostChanged, object: nil) }
+            if pathChanged { NotificationCenter.default.post(name: .networkPathChanged, object: nil, userInfo: ["satisfied": up]) }
+            // 每次系统报网络变化都发：换了 Wi-Fi、蜂窝 ↔ Wi-Fi、连上 VPN 时 ServerRoutes 据此看要不要换地址
+            NotificationCenter.default.post(name: .networkPathUpdated, object: nil)
         }
         monitor.start(queue: DispatchQueue(label: "movieclaw.network-cost", qos: .utility))
     }
@@ -339,6 +347,11 @@ nonisolated final class NetworkCost: @unchecked Sendable {
         return metered
     }
 
+    var isSatisfied: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return satisfied
+    }
+
     /// 当前网络接口：wifi / cellular / wired / other（播放记录的分组维度，docs/design/playback-qoe.md §3.4）
     var interface: String {
         lock.lock(); defer { lock.unlock() }
@@ -349,6 +362,10 @@ nonisolated final class NetworkCost: @unchecked Sendable {
 extension Notification.Name {
     /// `NetworkCost` 的计费状态变了（Wi-Fi ↔ 蜂窝、开关低数据模式）
     nonisolated static let networkCostChanged = Notification.Name("movieclaw.networkCostChanged")
+    /// 网络通路有无变了（`userInfo["satisfied"]`：开关飞行模式、Wi-Fi 与蜂窝都断开 / 恢复）
+    nonisolated static let networkPathChanged = Notification.Name("movieclaw.networkPathChanged")
+    /// 系统报了一次网络路径更新（任何变化，含换 Wi-Fi、连 VPN）
+    nonisolated static let networkPathUpdated = Notification.Name("movieclaw.networkPathUpdated")
 }
 
 /// 播放时的网络环境：画质按它分开记（`QualityMemory`）。
@@ -367,8 +384,8 @@ enum PlaybackNetwork: String {
     /// 提示里的环境名；分不清时不写
     var label: String? {
         switch self {
-        case .home: "家里网络"
-        case .away: "外网"
+        case .home: String(localized: .playerNetworkHome)
+        case .away: String(localized: .playerNetworkRemote)
         case .unknown: nil
         }
     }
@@ -388,11 +405,11 @@ enum PlaybackNetwork: String {
     }
 
     /// RFC 1918 私有网段（10/8、172.16/12、192.168/16）
-    static func isPrivate(_ ip: UInt32) -> Bool {
+    nonisolated static func isPrivate(_ ip: UInt32) -> Bool {
         ip >> 24 == 10 || ip >> 20 == 0xAC1 || ip >> 16 == 0xC0A8
     }
 
-    static func parseIPv4(_ text: String) -> UInt32? {
+    nonisolated static func parseIPv4(_ text: String) -> UInt32? {
         let parts = text.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4 else { return nil }
         var value: UInt32 = 0
@@ -403,8 +420,14 @@ enum PlaybackNetwork: String {
         return value
     }
 
-    /// 当前环境。IPv4 地址直接判；域名用查到的地址（还没查到就在后台发起，这次先算「分不清」）
+    /// 当前环境：选过地址就按这次走的路线（内网地址为家里，外网 / VPN 为外网，见 `ServerRoutes`）；
+    /// 旧服务器没有地址簿时照旧看地址本身：IPv4 地址直接判；域名用查到的地址（还没查到就在后台发起，这次先算「分不清」）
     static func current(server: ServerAddress) -> PlaybackNetwork {
+        switch ServerRoutes.shared.route(for: server) {
+        case .lan: return .home
+        case .vpn, .wan: return .away
+        case nil: break
+        }
         guard let host = server.origin.host else { return .unknown }
         let ip = parseIPv4(host) ?? resolvedHosts.value(for: host)
         return classify(serverIPv4: ip, interfaces: localInterfaces())
@@ -418,22 +441,7 @@ enum PlaybackNetwork: String {
 
     /// 本机开着的非回环 IPv4 网卡
     static func localInterfaces() -> [Interface] {
-        var result: [Interface] = []
-        var head: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&head) == 0, let first = head else { return [] }
-        defer { freeifaddrs(head) }
-        var cursor: UnsafeMutablePointer<ifaddrs>? = first
-        while let item = cursor?.pointee {
-            defer { cursor = item.ifa_next }
-            let flags = Int32(item.ifa_flags)
-            guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0,
-                  let address = item.ifa_addr, address.pointee.sa_family == UInt8(AF_INET),
-                  let netmask = item.ifa_netmask else { continue }
-            let ip = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
-            let mask = netmask.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
-            result.append(Interface(address: ip, netmask: mask))
-        }
-        return result
+        NetworkSnapshot.interfaces().map { Interface(address: $0.address, netmask: $0.netmask) }
     }
 
     /// 域名 → IPv4 的缓存：查询放后台线程，不卡播放器弹出。

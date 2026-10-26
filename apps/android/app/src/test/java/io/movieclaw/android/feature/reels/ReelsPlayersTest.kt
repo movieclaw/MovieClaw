@@ -35,12 +35,14 @@ class ReelsPlayersTest {
         )
     }
 
+    private fun prefs() = io.movieclaw.android.core.playback.CorePlaybackPrefs(RuntimeEnvironment.getApplication())
+
     @Test fun leavingDuringNegotiationDoesNotFallBackToAudibleDirectPlayback() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val deviceId = CompletableDeferred<String?>()
         val events = mutableListOf<String>()
         val players = ReelsPlayers(
-            RuntimeEnvironment.getApplication(), api(), backgroundScope,
+            RuntimeEnvironment.getApplication(), api(), prefs(), backgroundScope,
             { "http://127.0.0.1:1" }, { deviceId.await() },
             { _, event, _, _, _, _ -> events.add(event) },
         )
@@ -67,7 +69,7 @@ class ReelsPlayersTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val events = mutableListOf<String>()
         val players = ReelsPlayers(
-            RuntimeEnvironment.getApplication(), api(), backgroundScope,
+            RuntimeEnvironment.getApplication(), api(), prefs(), backgroundScope,
             { "http://127.0.0.1:1" },
             onEvent = { _, event, _, _, _, _ -> events.add(event) },
         )

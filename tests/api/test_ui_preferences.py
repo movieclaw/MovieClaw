@@ -40,6 +40,7 @@ def client(tmp_path, monkeypatch):
 
 # 各页面的默认样式（与 UiPreferencesSetting 各分组默认值一致）
 DEFAULT_PREFS = {
+    "language": "auto",
     # 主题 id：银玻璃为出厂主题，Netflix 主题切换后存 "netflix"
     "theme": "silver",
     # 按端主题覆盖：未单独设置（null）= 跟随 theme，前端 resolveThemeId 解析
@@ -48,7 +49,7 @@ DEFAULT_PREFS = {
     "sidebar": {"transparency": 0.49, "brightness": -0.36, "depth": 28.0},
     "scrim": {"blur": 13.0, "dark": 0.69},
     # 空顺序 = 侧栏主导航用内置默认排布
-    "nav": {"order": []},
+    "nav": {"order": [], "hidden": None},
     # 空清单 = 媒体库首页用出厂布局
     "home": {"rows": []},
 }
@@ -201,9 +202,9 @@ def test_nav_order_accepts_unknown_ids(client: TestClient) -> None:
 
 
 def test_nav_order_too_long_rejected(client: TestClient) -> None:
-    """超过 32 项整体拒绝（422）：防脏数据无限增长，正常主导航只有个位数项。"""
+    """超过 64 项整体拒绝（422）：防脏数据无限增长，正常主导航只有十来项。"""
     resp = client.put(
-        "/api/v1/ui/preferences", json={"nav": {"order": [f"item-{i}" for i in range(33)]}}
+        "/api/v1/ui/preferences", json={"nav": {"order": [f"item-{i}" for i in range(65)]}}
     )
     assert resp.status_code == 422
     assert client.get("/api/v1/ui/preferences").json()["data"] == DEFAULT_PREFS
@@ -321,3 +322,17 @@ def test_home_kind_rows_persist(client: TestClient) -> None:
     assert [r["id"] for r in saved] == ["kind:movie", "kind:video", "row:k1"]
     assert saved[0]["sort"] == "rating" and saved[0]["unwatched"] is True
     assert saved[2]["media_kind"] == "tv" and saved[2]["name"] == "今晚追哪部"
+
+
+def test_language_persists_and_old_clients_do_not_reset_it(client: TestClient) -> None:
+    saved = client.put("/api/v1/ui/preferences", json={"language": "en"})
+    assert saved.status_code == 200
+    assert saved.json()["data"]["language"] == "en"
+    assert client.get("/api/v1/ui/preferences").json()["data"]["language"] == "en"
+    legacy = client.put("/api/v1/ui/preferences", json={"theme": "silver"})
+    assert legacy.json()["data"]["language"] == "en"
+    auto = client.put("/api/v1/ui/preferences", json={"language": "auto"})
+    assert auto.json()["data"]["language"] == "auto"
+    invalid = client.put("/api/v1/ui/preferences", json={"language": "ja"})
+    assert invalid.status_code == 422
+    assert client.get("/api/v1/ui/preferences").json()["data"]["language"] == "auto"

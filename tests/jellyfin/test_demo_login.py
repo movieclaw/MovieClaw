@@ -7,8 +7,8 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-from tests.jellyfin.helpers import jf_login
 
+from jellyfin.helpers import jf_login
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services import demo as demo_service
 

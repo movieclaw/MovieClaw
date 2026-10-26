@@ -21,6 +21,7 @@ import SwiftUI
 
 /// 以 .sheet 呈现，自带 NavigationStack 与关闭按钮
 struct ReidentifySheet: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     let mediaItemId: Int
     var onApplied: () -> Void = {}
@@ -48,7 +49,8 @@ struct ReidentifySheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("已重走识别链。下面是机器给出的结论——\(Text("采纳、自己搜一个、或标为非独立作品都由你定").foregroundStyle(Theme.text.opacity(0.8)))，关掉这个窗口则不会有任何改动。")
+                    (Text(String(localized: .libraryReidentifyDecideLead)) + Text(String(localized: .libraryReidentifyDecideEmphasis)).foregroundStyle(Theme.text.opacity(0.8))
+                + Text(String(localized: .libraryReidentifyDecideTail)))
                         .font(.caption)
                         .foregroundStyle(Theme.textMuted)
 
@@ -59,7 +61,7 @@ struct ReidentifySheet: View {
                     if preview == nil, error == nil {
                         HStack(spacing: 10) {
                             ProgressView()
-                            Text("正在重新识别…")
+                            Text(String(localized: .libraryReidentifyRunning))
                         }
                         .font(.subheadline)
                         .foregroundStyle(Theme.textMuted)
@@ -71,26 +73,26 @@ struct ReidentifySheet: View {
                         previewContent(preview)
                     }
                 }
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
                 .padding(.vertical, 12)
             }
             .scrollDismissesKeyboard(.interactively)
             .safeAreaInset(edge: .bottom) {
                 Text(preview != nil && pendingCount == 0 && !(preview?.groups.isEmpty ?? true)
-                    ? "全部处理完了"
-                    : "改挂会记为人工身份，之后识别器升级不再自动翻案")
+                    ? String(localized: .libraryReidentifyAllSettled)
+                    : String(localized: .libraryReidentifyManualHint))
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .padding(.vertical, 10)
                     .background(.bar)
             }
-            .navigationTitle("修正识别结果")
+            .navigationTitle(String(localized: .libraryReidentifyTitle))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                    Button(String(localized: .commonClose)) { dismiss() }
                 }
             }
             .appBackground()
@@ -103,7 +105,7 @@ struct ReidentifySheet: View {
         ReidentifyCurrentCard(current: preview.current, movie: preview.movie)
 
         if preview.unreachable {
-            Text("有文件因为 TMDB 不可达没能得出结论——那是网络问题不是识别问题。建议先修好网络再来，此刻的结论不足以据此拍板。")
+            Text(String(localized: .libraryReidentifyNetworkProblem))
                 .font(.caption)
                 .foregroundStyle(Color(red: 0xF5 / 255, green: 0xD4 / 255, blue: 0x89 / 255))
                 .padding(.horizontal, 12)
@@ -114,7 +116,8 @@ struct ReidentifySheet: View {
         }
 
         if preview.pinnedIdentity {
-            Text("这些文件的身份被\(Text("目录名的 tmdbid 标记或 NFO 钉死").foregroundStyle(Theme.text.opacity(0.8)))。在这里改挂会记为人工身份、扫描不会再翻案，条目 NFO 里矛盾的 tmdbid 也会被一并改正；但目录名上的标记需要你自己改，否则下次整理/重扫的命名仍会带着旧 id。")
+            (Text(String(localized: .libraryReidentifyPinnedLead)) + Text(String(localized: .libraryReidentifyPinnedEmphasis)).foregroundStyle(Theme.text.opacity(0.8))
+                + Text(String(localized: .libraryReidentifyPinnedTail)))
                 .font(.caption)
                 .foregroundStyle(Theme.textMuted)
                 .padding(.horizontal, 12)
@@ -125,7 +128,7 @@ struct ReidentifySheet: View {
         }
 
         if preview.groups.isEmpty {
-            Text("这个条目在本库没有可参与识别的在位文件。")
+            Text(String(localized: .libraryReidentifyNoFiles))
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
                 .frame(maxWidth: .infinity)
@@ -145,7 +148,7 @@ struct ReidentifySheet: View {
         }
 
         if preview.skippedMissing > 0 {
-            Text("另有 \(preview.skippedMissing) 个文件已从磁盘消失（缺失清单里那些），没有实体可供识别，保持原身份不参与。")
+            Text(String(localized: .libraryReidentifyMissingSkipped(preview.skippedMissing)))
                 .font(.caption)
                 .foregroundStyle(Theme.textFaint)
         }
@@ -166,18 +169,18 @@ struct ReidentifySheet: View {
 
 /// 身份来源 → 中文短语（结论卡上说明"凭什么这么认"）
 private let reidentifySourceLabels: [String: String] = [
-    "path_tag": "目录名的 tmdbid 标记",
+    "path_tag": String(localized: .libraryReidentifyPathTag),
     "nfo": "NFO",
-    "resolved": "名称解析 + TMDB 收敛",
+    "resolved": String(localized: .libraryReidentifyResolved),
 ]
 
 /// 没命中的失败分类 → 一句人话（与待识别清单的标签同源，措辞按本场景调整）
 private let reidentifyCodeLabels: [String: String] = [
-    "tmdb_unreachable": "TMDB 不可达",
-    "kind_mismatch": "类型与本库不符",
-    "ambiguous": "候选之间分不出",
-    "no_match": "TMDB 里没找到匹配",
-    "unparsable": "从文件名认不出片名",
+    "tmdb_unreachable": String(localized: .libraryIssuesTmdbUnavailable),
+    "kind_mismatch": String(localized: .libraryReidentifyKindMismatch),
+    "ambiguous": String(localized: .libraryReidentifyAmbiguous),
+    "no_match": String(localized: .libraryReidentifyNoMatch),
+    "unparsable": String(localized: .libraryReidentifyUnparsable),
 ]
 
 /// 现身份卡：拍板前先看清"现在挂的是谁"
@@ -192,7 +195,7 @@ private struct ReidentifyCurrentCard: View {
                 .frame(width: 44, height: 64)
                 .clipShape(.rect(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 2) {
-                Text("当前身份").font(.caption).foregroundStyle(Theme.textFaint)
+                Text(String(localized: .libraryReidentifyCurrent)).font(.caption).foregroundStyle(Theme.textFaint)
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(current.title)
                         .font(.subheadline.weight(.semibold))
@@ -253,7 +256,7 @@ private struct ReidentifyGroupRow: View {
             // 是哪些文件——分裂成多组时这行是唯一的辨认依据
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("\(group.fileCount) 个文件")
+                    Text(String(localized: .libraryStatusFileCount(group.fileCount)))
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(Theme.text.opacity(0.85))
                     Text(Formatters.bytes(group.totalSizeBytes))
@@ -284,14 +287,14 @@ private struct ReidentifyGroupRow: View {
 
             // 两个常驻出口。搜索不藏在二级：机器高置信错挂时正确答案常常压根不在候选里
             HStack(spacing: 8) {
-                Button("都不对，自己搜…") { panel = panel == .search ? nil : .search }
+                Button(String(localized: .libraryReidentifySearchOwn)) { panel = panel == .search ? nil : .search }
                     .buttonStyle(.glass)
                     .tint(panel == .search ? Theme.accentStrong : nil)
                 Spacer(minLength: 0)
                 Button {
                     Task { await detach() }
                 } label: {
-                    Text("不是独立作品").foregroundStyle(Color(red: 1, green: 0xB4 / 255, blue: 0xB4 / 255))
+                    Text(String(localized: .libraryReidentifyNotStandalone)).foregroundStyle(Color(red: 1, green: 0xB4 / 255, blue: 0xB4 / 255))
                 }
                 .buttonStyle(.glass)
             }
@@ -334,7 +337,7 @@ private struct ReidentifyGroupRow: View {
                     .frame(width: 40, height: 56)
                     .clipShape(.rect(cornerRadius: 4))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(outcome.sameAsCurrent ? "重新识别的结论：与当前一致" : "重新识别的结论")
+                    Text(outcome.sameAsCurrent ? String(localized: .libraryReidentifySameResult) : String(localized: .libraryReidentifyResult))
                         .font(.caption)
                         .foregroundStyle(Theme.textFaint)
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -347,14 +350,14 @@ private struct ReidentifyGroupRow: View {
                         }
                     }
                     if let source = outcome.source {
-                        Text("依据：\(reidentifySourceLabels[source] ?? source)")
+                        Text(String(localized: .libraryReidentifyBasis(reidentifySourceLabels[source] ?? source)))
                             .font(.caption)
                             .foregroundStyle(Theme.textFaint)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if !outcome.sameAsCurrent, let tmdbId = outcome.tmdbId {
-                    Button("改挂到这里") {
+                    Button(String(localized: .libraryReidentifyApply)) {
                         panel = .confirm(IssueClaimSeed(
                             tmdbId: tmdbId, title: outcome.title ?? "", year: outcome.year, posterUrl: outcome.posterUrl
                         ))
@@ -366,9 +369,9 @@ private struct ReidentifyGroupRow: View {
                 }
             }
         } else {
-            let code = outcome.code.map { "（\(reidentifyCodeLabels[$0] ?? $0)）" } ?? ""
-            let reason = outcome.reason.map { "：\($0)" } ?? "。"
-            Text("没能认出来\(code)\(reason)")
+            let code = outcome.code.map { String(localized: .libraryReidentifyCodeSuffix(reidentifyCodeLabels[$0] ?? $0)) } ?? ""
+            let reason = outcome.reason.map { String(localized: .libraryReidentifyReasonSuffix($0)) } ?? String(localized: .libraryReidentifyPeriod)
+            Text(String(localized: .libraryReidentifyFailed(code, reason)))
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
         }
@@ -390,19 +393,19 @@ private struct ReidentifyGroupRow: View {
 
     private func assign(_ seed: IssueClaimSeed) async {
         let ref = "tmdb:\(movie ? "movie" : "tv"):\(seed.tmdbId)"
-        await act("\(group.fileCount) 个文件已改挂为《\(seed.title)》") {
+        await act(String(localized: .libraryReidentifyAssigned(group.fileCount, seed.title))) {
             _ = try await api.libraryIdentificationAssignFilesToTitle(body: .init(fileIds: group.fileIds, titleRef: ref))
         }
     }
 
     private func detach() async {
         guard await feedback.confirm(
-            "把这 \(group.fileCount) 个文件标为「非独立作品」？",
-            message: "它们会摘掉身份、不再占用库存，之后扫描也不再过问。适合花絮、预告、片段这类本就不该单独成条目的内容。磁盘文件一个字节都不会动，随时可以在「已忽略」清单里恢复。",
-            confirmTitle: "标为非独立作品",
+            String(localized: .libraryReidentifyExtrasTitle(group.fileCount)),
+            message: String(localized: .libraryReidentifyExtrasDescription),
+            confirmTitle: String(localized: .libraryReidentifyMarkExtras),
             destructive: true
         ) else { return }
-        await act("\(group.fileCount) 个文件已标为非独立作品") {
+        await act(String(localized: .libraryReidentifyExtrasMarked(group.fileCount))) {
             _ = try await api.libraryIdentificationMarkFilesAsExtras(body: .init(fileIds: group.fileIds))
         }
     }

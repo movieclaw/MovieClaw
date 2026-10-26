@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
@@ -37,6 +39,8 @@ export interface PlayerPageProps {
   episode?: number;
   /** 分享链接的 `?t=` 起播覆盖（毫秒）；不给 = 服务端接各自的续播点 */
   startMsOverride?: number;
+  /** 详情页版本选择器带过来的 `?file=`：锁定该文件起播，跳过多版本自动择优 */
+  lockedFileId?: number;
   /** 播放接口作用域（影片分享页传 sharePlaybackScope(slug)）；缺省 = 登录态 */
   api?: PlaybackApiScope;
   /** 退出播放的固定落点（影片分享页回 /s/{slug}）；缺省按登录态的优先级算 */
@@ -53,9 +57,11 @@ export function PlayerPage({
   season,
   episode,
   startMsOverride,
+  lockedFileId,
   api = DEFAULT_PLAYBACK_SCOPE,
   exitHref,
 }: PlayerPageProps) {
+  const t = useTranslations();
   const router = useRouter();
   const [info, setInfo] = useState<PlaybackItemInfo | null>(null);
   const [episodes, setEpisodes] = useState<LibraryEpisode[]>([]);
@@ -73,7 +79,7 @@ export function PlayerPage({
       .catch((error: unknown) =>
         // 条目信息拿不到几乎必然意味着会话也开不了（同一套可见性判据），
         // 这里给出人话；真正的播放错误由播放器自己的错误页负责
-        setFailed(error instanceof Error ? error.message : "读取条目信息失败"),
+        setFailed(error instanceof Error ? error.message : appTranslator()("player.errors.itemLoad")),
       );
     return () => {
       cancelled = true;
@@ -126,12 +132,12 @@ export function PlayerPage({
         candidate.name ? ` · ${candidate.name}` : ""
       }`,
       // 「即将播放」卡片分行展示：集号一行、集名一行，左边配剧照
-      code: `第 ${candidate.episode_number} 集`,
+      code: t("media.episode.number", { episode: candidate.episode_number }),
       name: candidate.name || null,
       // 「即将播放」卡左侧剧照 w-32（128 CSS px）
       stillUrl: candidate.still_url ? imageUrl(candidate.still_url, { width: screenImageWidth(128) }) : null,
     };
-  }, [episodes, current, mediaItemId]);
+  }, [episodes, current, mediaItemId, t]);
 
   /** 上一集：同样只在**本季且有在位文件**里找，规则与「下一集」对称。 */
   const prev = useMemo(() => {
@@ -192,7 +198,7 @@ export function PlayerPage({
             onClick={exit}
             className="mt-4 rounded-xl bg-white/10 px-4 py-2 text-[13px] text-white transition-colors hover:bg-white/15"
           >
-            返回
+            {t("common.back")}
           </button>
         </div>
       </div>
@@ -213,6 +219,7 @@ export function PlayerPage({
       // 海报用作系统媒体控件封面（512×512）与起播前的 <video poster>，480 CSS px × 倍率足够
       posterUrl={info?.poster_url ? imageUrl(info.poster_url, { width: screenImageWidth(480) }) : null}
       startMsOverride={startMsOverride}
+      lockedFileId={lockedFileId}
       next={next}
       prev={prev}
       onPlayNext={playNext}

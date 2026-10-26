@@ -76,10 +76,10 @@ struct ParityStateTests {
         let router = Router()
         router.selectedTab = .library
         router.open(.settingsSection(.app))
-        #expect(router.paths[.library] == [.settings, .settingsSection(.app)])
+        #expect(router.paths[.tab(.library)] == [.settings, .settingsSection(.app)])
         // 从一个分区直达另一个分区：返回同样先回设置列表
         router.open(.settingsSection(.playback))
-        let tail = Array((router.paths[.library] ?? []).suffix(2))
+        let tail = Array((router.paths[.tab(.library)] ?? []).suffix(2))
         #expect(tail == [.settings, .settingsSection(.playback)])
     }
 }

@@ -31,6 +31,7 @@ from movieclaw_media.models import MediaKind
 
 logger = logging.getLogger("movieclaw_api.library_nfo")
 
+# i18n-ignore: NFO content language
 _KIND_NAMES = {MediaKind.MOVIE: "电影", MediaKind.TV: "剧集"}
 
 

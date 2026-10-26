@@ -55,7 +55,9 @@ class SiteConfigService:
     def _assert_not_verifying(row: SiteCredential) -> None:
         """若站点正在验证中，拒绝当前操作（409）。"""
         if row.status == ConfigStatus.VERIFYING:
-            raise ConflictException(f"站点 {row.site_id} 正在验证中，请等待验证完成后再操作")
+            raise ConflictException(
+                message_key="errors.sites.verifying", params={"id": row.site_id}
+            )
 
     # -- 查询 --------------------------------------------------------------
 
@@ -67,7 +69,9 @@ class SiteConfigService:
         """获取单个已配置站点；未配置时抛 404。"""
         row = await self._credentials.get_by_site(site_id)
         if row is None:
-            raise NotFoundException(f"站点尚未配置：{site_id}")
+            raise NotFoundException(
+                message_key="errors.sites.notConfigured", params={"id": site_id}
+            )
         return row
 
     async def profile_of(self, site_id: str) -> SiteUserProfile | None:
@@ -120,7 +124,8 @@ class SiteConfigService:
         missing = missing_required_fields(auth_type, values)
         if missing:
             raise BadRequestException(
-                f"授权类型 '{auth_type.value}' 缺少必填字段：{', '.join(missing)}"
+                message_key="errors.sites.authFieldsRequired",
+                params={"type": auth_type.value, "fields": ", ".join(missing)},
             )
 
         # 3. 落库（状态在 repo 内重置为 PENDING）
@@ -166,7 +171,9 @@ class SiteConfigService:
         """
         ok = await self._credentials.set_enabled(site_id, enabled)
         if not ok:
-            raise NotFoundException(f"站点尚未配置：{site_id}")
+            raise NotFoundException(
+                message_key="errors.sites.notConfigured", params={"id": site_id}
+            )
         # 启停影响可访问性，作废共享缓存（停用后再取会被拒、启用后按新状态重建）
         await invalidate_site_access(site_id)
         return await self.get_configured(site_id)
@@ -179,7 +186,9 @@ class SiteConfigService:
         """
         ok = await self._credentials.set_protected(site_id, protected)
         if not ok:
-            raise NotFoundException(f"站点尚未配置：{site_id}")
+            raise NotFoundException(
+                message_key="errors.sites.notConfigured", params={"id": site_id}
+            )
         return await self.get_configured(site_id)
 
     async def set_ratio_boost(
@@ -200,21 +209,24 @@ class SiteConfigService:
         继续对账、汰换，不搬家。
         """
         if budget_bytes is not None and budget_bytes < 1024**3:
-            raise BadRequestException("刷流存储预算不能小于 1 GiB")
+            raise BadRequestException(message_key="errors.sites.seedingBudgetMinimum")
         if hold_days is not None and not (0 <= hold_days <= 30):
-            raise BadRequestException("刷流汰换保留期须在 0～30 天之间（0=不保护）")
+            raise BadRequestException(message_key="errors.sites.seedingRetentionRange")
         if downloader_id is not None:
             downloader = await DownloaderRepository(self._session).get(downloader_id)
             if downloader is None:
-                raise BadRequestException(f"下载器不存在（#{downloader_id}），请刷新页面后重选")
+                raise BadRequestException(
+                    message_key="errors.sites.downloaderMissing", params={"id": downloader_id}
+                )
             if not downloader.enabled:
                 raise BadRequestException(
-                    f"下载器「{downloader.name}」已停用，"
-                    "请先在「设置 → 下载器」里启用它，或选择其他下载器"
+                    message_key="errors.sites.downloaderDisabled", params={"name": downloader.name}
                 )
         row = await self._credentials.get_by_site(site_id)
         if row is None:
-            raise NotFoundException(f"站点尚未配置：{site_id}")
+            raise NotFoundException(
+                message_key="errors.sites.notConfigured", params={"id": site_id}
+            )
         was_paused = row.boost_paused
         await self._credentials.set_ratio_boost(
             site_id,
@@ -287,7 +299,9 @@ class SiteConfigService:
         """
         row = await self.get_configured(site_id)  # 未配置抛 404
         if not row.boost_enabled:
-            raise BadRequestException(f"站点 {site_id} 未开启刷流，无法暂停/恢复")
+            raise BadRequestException(
+                message_key="errors.sites.seedingDisabled", params={"id": site_id}
+            )
         from movieclaw_api.services.ratio_boost import apply_boost_pause
 
         if paused:
@@ -296,10 +310,7 @@ class SiteConfigService:
         else:
             failed = await apply_boost_pause(self._session, site_id, False)
             if failed:
-                raise UpstreamServiceException(
-                    "部分下载器不可达，做种的限速尚未解除，刷流保持暂停状态；"
-                    "请检查下载器连接后重试恢复"
-                )
+                raise UpstreamServiceException(message_key="errors.sites.seedingResumeFailed")
             await self._credentials.set_boost_paused(site_id, False)
         return await self.get_configured(site_id)
 

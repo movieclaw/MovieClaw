@@ -1,3 +1,6 @@
+import { appTranslator } from "./i18n/translate.ts";
+import type { AppLocale } from "./i18n/negotiate.ts";
+
 export interface LibraryInventorySummary {
   season_count: number;
   episode_count: number;
@@ -29,21 +32,16 @@ export function libraryInventoryAction(
  * 官方集就不写“全”。单季缺集时保留分母，帮助用户直接判断还差多少；多季
  * 缺集不展开长分母，只保留实际在位集数。
  */
-export function formatLibraryInventorySummary(summary: LibraryInventorySummary): string {
-  const episodeLabel = summary.all_episodes_owned
-    ? `全 ${summary.episode_count} 集`
-    : summary.season_number !== null && summary.total_episode_count !== null
-      ? `${summary.episode_count}/${summary.total_episode_count} 集`
-      : `${summary.episode_count} 集`;
-
-  if (summary.season_number !== null) {
-    const seasonLabel =
-      summary.season_number === 0 ? "特别篇" : `第 ${summary.season_number} 季`;
-    return `${seasonLabel} · ${episodeLabel}`;
-  }
-
-  const seasonLabel = summary.all_seasons_owned
-    ? `全 ${summary.season_count} 季`
-    : `共 ${summary.season_count} 季`;
-  return `${seasonLabel} · ${episodeLabel}`;
+export function formatLibraryInventorySummary(summary: LibraryInventorySummary, locale?: AppLocale): string {
+  return appTranslator(locale)("library.inventory.summary", {
+    seasonMode: summary.season_number !== null
+      ? summary.season_number === 0 ? "specials" : "single"
+      : summary.all_seasons_owned ? "all" : "some",
+    episodeMode: summary.all_episodes_owned ? "all"
+      : summary.season_number !== null && summary.total_episode_count !== null ? "fraction" : "count",
+    season: summary.season_number ?? 0,
+    seasons: summary.season_count,
+    episodes: summary.episode_count,
+    total: summary.total_episode_count ?? 0,
+  });
 }

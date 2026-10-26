@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.schemas.playback import (
     ActiveFileDownloadView,
     ActivePlaybackSessionView,
@@ -28,6 +30,7 @@ from movieclaw_api.services import auth as auth_service
 from movieclaw_api.services import login_devices
 from movieclaw_api.services.media_scrape import asset_version
 from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
+from movieclaw_api.services.offline.exports import get_export_manager
 from movieclaw_api.services.playback.session import get_session_manager
 
 # 与首页"最近观看"共用同一套时长回退与进度换算口径，避免两处各算各的
@@ -237,7 +240,7 @@ async def _member_names(session: AsyncSession, member_ids: set[int]) -> dict[int
         names[0] = account.username
     if -1 in member_ids:
         # docs/design/media-share.md §4.5：分享出去的影片被不登录的人播放
-        names[-1] = "分享访客"
+        names[-1] = t("activity.playbackLabels.shareGuest")
     real_ids = {i for i in member_ids if i > 0}
     if real_ids:
         for member in (
@@ -245,7 +248,7 @@ async def _member_names(session: AsyncSession, member_ids: set[int]) -> dict[int
         ).scalars():
             names[member.id] = member.username
     for member_id in member_ids:
-        names.setdefault(member_id, f"成员 #{member_id}")
+        names.setdefault(member_id, t("activity.playbackLabels.member", id=member_id))
     return names
 
 
@@ -276,11 +279,11 @@ def _delivery_view(transcode, *, streaming: bool) -> PlaybackDeliveryView | None
     if not streaming:
         return None
     if transcode is None:
-        return PlaybackDeliveryView(mode="direct", label="直连")
+        return PlaybackDeliveryView(mode="direct", label=t("player.delivery.direct"))
     from movieclaw_api.services.playback.hwprobe import BACKEND_LABELS
 
     plan = transcode.plan
-    reason = plan.reason or None
+    reason = render_value(plan.reason) or None
     if plan.video.action == "transcode":
         parts = []
         if plan.video.height:
@@ -290,29 +293,47 @@ def _delivery_view(transcode, *, streaming: bool) -> PlaybackDeliveryView | None
             parts.append(_VIDEO_CODEC_LABELS.get(codec.lower(), codec.upper()))
         if plan.video.bitrate_cap_bps:
             parts.append(f"{plan.video.bitrate_cap_bps / 1_000_000:.0f} Mbps")
-        backend = BACKEND_LABELS.get(transcode.hw_backend or "", transcode.hw_backend)
+        backend = render_value(
+            BACKEND_LABELS.get(transcode.hw_backend or "", transcode.hw_backend)
+        )
         if transcode.remote:
-            label = "远程转码"
+            execution_kind = "remote"
+            label = t("player.delivery.remote")
             worker = transcode.remote_worker_id
-            where = f"远程 Worker「{worker}」" if worker else "远程 Worker"
+            where = (
+                t("player.delivery.workerNamed", worker=worker)
+                if worker
+                else t("player.delivery.worker")
+            )
             executor = f"{where} · {backend}" if backend else where
         elif transcode.hw_backend:
-            label, executor = "硬件转码", f"NAS · {backend}"
+            execution_kind = "hardware"
+            label, executor = t("player.delivery.hardware"), f"NAS · {backend}"
         else:
-            label, executor = "软件转码", "NAS · 软件编码（CPU）"
+            execution_kind = "software"
+            label, executor = t("player.delivery.software"), t("player.delivery.cpu")
         return PlaybackDeliveryView(
-            mode="transcode", label=label, target=" · ".join(parts) or None,
+            mode="transcode", execution_kind=execution_kind, label=label,
+            target=" · ".join(parts) or None,
             executor=executor, reason=reason,
         )
     if plan.audio.action == "transcode":
         target = None
         if plan.audio.codec:
-            downmix = " · 降混立体声" if plan.audio.downmix else ""
-            target = f"音频 → {plan.audio.codec.upper()}{downmix}"
+            downmix = t("player.delivery.downmix") if plan.audio.downmix else ""
+            target = t(
+                "player.delivery.audioTarget", codec=plan.audio.codec.upper(), downmix=downmix
+            )
         return PlaybackDeliveryView(
-            mode="audio", label="音频转码", target=target, executor="NAS", reason=reason
+            mode="audio",
+            label=t("player.delivery.audio"),
+            target=target,
+            executor="NAS",
+            reason=reason,
         )
-    return PlaybackDeliveryView(mode="remux", label="重封装", executor="NAS", reason=reason)
+    return PlaybackDeliveryView(
+        mode="remux", label=t("player.delivery.remux"), executor="NAS", reason=reason
+    )
 
 
 def _transcodes_by_device() -> dict[str, list]:
@@ -402,8 +423,17 @@ async def media_activity_overview(
         # 播放方式认台账里的文件形态，不靠"是否已经看到字节"倒推——上报先于
         # 取流到达是常态，用字节推断会把刚开播的本地文件误标成网盘直链。
         # 没有在位台账行（条目刚被删/改）才退回字节证据。
+        transcode = _pick_transcode(
+            transcodes.get(play.device_id, []), ctx.file.id if ctx.file else None
+        )
         if ctx.file is not None:
-            streaming = not is_strm(ctx.file.file_path)
+            # 网盘（strm）条目直出是 302 到网盘、字节不经服务器；换封装 / 转码时由服务端会话供流，
+            # 内网直链由服务端转发时有登记的取流（device_meters）
+            streaming = (
+                not is_strm(ctx.file.file_path)
+                or (transcode is not None and transcode.file_id == ctx.file.id)
+                or bool(device_meters)
+            )
         else:
             streaming = play.local_streamed or bool(device_meters)
         session_views.append(
@@ -443,12 +473,7 @@ async def media_activity_overview(
                 ),
                 connections=len(device_meters),
                 file=_file_spec(ctx.file),
-                delivery=_delivery_view(
-                    _pick_transcode(
-                        transcodes.get(play.device_id, []), ctx.file.id if ctx.file else None
-                    ),
-                    streaming=streaming,
-                ),
+                delivery=_delivery_view(transcode, streaming=streaming),
                 started_at=play.started_at,
                 last_report_at=play.last_report_at,
             )
@@ -478,6 +503,14 @@ async def media_activity_overview(
         # 不是本接口的服务对象，不为它把读数复杂化。
         position = max(m.position_bytes for m in group)
         size = first.size_bytes
+        file_name = first.file_name
+        if first.export_id is not None:
+            # 离线下载的转码导出：文件名换成转码信息（谁在转、多快、转到哪）；边转边下时大小按
+            # 已转比例推算，按码率上限估的会把进度条压在一半
+            line = get_export_manager().activity_line(first.export_id)
+            if line is not None:
+                file_name, projected = line
+                size = max(projected or size, position)
         download_views.append(
             ActiveFileDownloadView(
                 device_id=first.device_id,
@@ -495,7 +528,7 @@ async def media_activity_overview(
                     if ctx and placement
                     else None
                 ),
-                file_name=first.file_name,
+                file_name=file_name,
                 size_bytes=size,
                 bytes_sent=sum(m.bytes_sent for m in group),
                 rate_bytes_per_second=sum(m.rate_bytes_per_second() for m in group),
@@ -554,7 +587,7 @@ async def end_playback(device_id: str) -> int:
     activity.end_device(device_id)
     stopped = stop_device_streams(device_id)
     sessions = await get_session_manager().stop_for_device(
-        device_id, reason="管理员在活动页结束播放"
+        device_id, reason="管理员在活动页结束播放"  # i18n-ignore: log
     )
     logger.info(
         "管理员已结束设备「%s」的播放：停止 %d 条取流、%d 个转码会话",

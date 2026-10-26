@@ -13,19 +13,43 @@ from movieclaw_kernel import Context, plugin
 
 @plugin("downloads", title="下载与种子同步", inject=(SITE_ACCESS,), reloadable=True)
 async def downloads(ctx: Context) -> None:
+    """定时同步各站新种并匹配订阅，盯下载进度、死种自动换源，删片时可一并删除下载任务与源文件。"""
     from movieclaw_api.services import (
         download_progress,
+        download_sources,
         media_refresh,
         torrent_matcher,
         torrent_sync,
     )
     from movieclaw_scheduler import contribute_tasks
 
-    contribute_tasks(ctx, download_progress, torrent_sync, torrent_matcher, media_refresh)
+    contribute_tasks(
+        ctx, download_progress, torrent_sync, torrent_matcher, media_refresh, download_sources
+    )
+
+    # 删片时「同时删除下载任务和源文件」：媒体库删除参与方（library-boundary.md §4）
+    from movieclaw_api.services import remove_source
+    from movieclaw_api.services.jobs import contribute_job_handlers
+    from movieclaw_api.services.library.delete_participants import LIBRARY_DELETE_PARTICIPANTS
+
+    contribute_job_handlers(ctx, remove_source)
+    # 媒体库与获取领域之间的接口（library-boundary.md §10）：媒体库经它要信息、发通知
+    from movieclaw_api.services.acquisition_bridge import Acquisition
+    from movieclaw_api.services.library import acquisition
+
+    ctx.effect(acquisition.bind(Acquisition()), label="unbind-acquisition")
+    ctx.contribute(
+        LIBRARY_DELETE_PARTICIPANTS, remove_source.PARTICIPANT_ID, remove_source.PARTICIPANT
+    )
+    # 网盘库腾空了本地：做完使命的下载任务删掉，空间才真正回来（cloud-storage.md §6.3）
+    from movieclaw_sdk.events import LIBRARY_FILE_LOCAL_RELEASED
+
+    ctx.on(LIBRARY_FILE_LOCAL_RELEASED, remove_source.after_local_released, id="local-released")
 
 
 @plugin("boost", title="自动刷分享率", inject=(SITE_ACCESS,), disableable=True, reloadable=True)
 async def boost(ctx: Context) -> None:
+    """自动刷分享率：盯住站点的免费种第一时间下载做种，在预算内自动汰换。"""
     from movieclaw_api.services import ratio_boost
     from movieclaw_scheduler import contribute_tasks
 
@@ -34,6 +58,7 @@ async def boost(ctx: Context) -> None:
 
 @plugin("subscription", title="订阅", inject=(SITE_ACCESS,), reloadable=True)
 async def subscription(ctx: Context) -> None:
+    """定时为订阅搜索缺失内容、到期择优下载，并在取消订阅时清理相应的下载任务与文件。"""
     from movieclaw_api.services.jobs import contribute_job_handlers
     from movieclaw_api.services.subscription import (
         cleanup,
@@ -47,8 +72,22 @@ async def subscription(ctx: Context) -> None:
     contribute_job_handlers(ctx, cleanup)  # 取消订阅联动清理
 
 
+@plugin("tracker.search-runs", title="站点搜索后台运行", inject=(SITE_ACCESS,), reloadable=True)
+async def search_runs(ctx: Context) -> None:
+    """站点资源搜索在后台跑完：离开搜索页、刷新再回来，进度接着看，不必重新搜。"""
+    from movieclaw_api.services.search_runs import (
+        close_search_run_registry,
+        init_search_run_registry,
+    )
+
+    # 在跑的搜索持有站点请求：停机时先于站点客户端关闭取消掉
+    init_search_run_registry()
+    ctx.effect(close_search_run_registry, label="close-search-runs")
+
+
 @plugin("library.core", title="媒体库", inject=(DB,), reloadable=True)
 async def library_core(ctx: Context) -> None:
+    """媒体库后台工作：扫描对账、整理改名、条目转移、回收站清理、章节图、片头识别、查重复文件和片段预切。"""
     from movieclaw_api.services.jobs import contribute_job_handlers
     from movieclaw_api.services.library import (
         batch_transfer,
@@ -63,6 +102,7 @@ async def library_core(ctx: Context) -> None:
         skip_segments,
         transfer,
     )
+    from movieclaw_api.services.reels import clips
     from movieclaw_scheduler import contribute_tasks
 
     contribute_tasks(ctx, ingest, nfo_backfill, recycle, scan, series_backfill)
@@ -78,11 +118,13 @@ async def library_core(ctx: Context) -> None:
         chapters,
         skip_segments,
         duplicate_scan,
+        clips,
     )
 
 
 @plugin("media.scrape", title="元数据刷新", inject=(DB,), reloadable=True)
 async def media_scrape(ctx: Context) -> None:
+    """执行元数据刷新任务（单个条目或整库），从 TMDB 重新拉取简介、演职员与图片。"""
     from movieclaw_api.services import media_scrape as module
     from movieclaw_api.services.jobs import contribute_job_handlers
 
@@ -91,6 +133,7 @@ async def media_scrape(ctx: Context) -> None:
 
 @plugin("subtitle.gen", title="AI 字幕生成", inject=(DB,), reloadable=True)
 async def subtitle_gen(ctx: Context) -> None:
+    """执行 AI 字幕生成任务：挑选源字幕，用 AI 模型翻译并检查质量，生成新的字幕文件。"""
     from movieclaw_api.services.jobs import contribute_job_handlers
     from movieclaw_api.services.subtitle_gen import tasks
 

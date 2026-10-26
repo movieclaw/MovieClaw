@@ -1,5 +1,9 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Route } from "next";
@@ -32,6 +36,7 @@ import { parseSkillTokens } from "@/lib/agent-skills";
 import { useSkillNames } from "@/lib/skill-names";
 import { sessionAttachmentUrl } from "@/lib/api/agent";
 import { saveComposerPrefs } from "@/lib/composer-prefs";
+import { resolveCompanionState } from "@/lib/agent-companion";
 import { resolveModelOption, useLlmModelOptions } from "@/lib/llm-thinking";
 import { usePageChrome } from "@/lib/page-chrome";
 import { PAGE_NAV_BUTTON_CLASS } from "@/components/page-nav";
@@ -51,6 +56,7 @@ import { usePageTitle } from "@/lib/use-page-title";
  *   一个持续推进的动画比一句会过期的文案更可信。
  */
 export function AgentConversationView({ conversationId }: { conversationId: string }) {
+  const t = useTranslations();
   const { get, open, send, stop, retry } = useAgentConversations();
   const conversation = get(conversationId);
   usePageTitle(conversation?.title);
@@ -81,7 +87,7 @@ export function AgentConversationView({ conversationId }: { conversationId: stri
     return setTopBarActions(
       <ConversationMenu
         variant="nav"
-        forkLabel="从此处创建新会话"
+        forkLabel={t("agent.conversation.forkHere")}
         onFork={() => void act().forkConversation(conversationId, title, true)}
         onRename={() => void act().renameConversation(conversationId, title)}
         onDelete={() =>
@@ -92,7 +98,7 @@ export function AgentConversationView({ conversationId }: { conversationId: stri
         iconClassName="size-[22px]"
       />,
     );
-  }, [setTopBarActions, conversationId, title]);
+  }, [setTopBarActions, conversationId, title, t]);
   const [input, setInput] = useState("");
   // 思维链档位：undefined = 用户没动过选择器（发送时不传，服务端沿用会话
   // 上一条）；null = 显式「默认」；string = 显式档位。展示值回落到会话最近
@@ -161,7 +167,7 @@ export function AgentConversationView({ conversationId }: { conversationId: stri
     return (
       <div className="immersive-theme flex h-full items-center justify-center px-6">
         <div className="max-w-sm text-center">
-          <p className="text-body font-medium text-[var(--text)]">无法打开会话</p>
+          <p className="text-body font-medium text-[var(--text)]">{t("agent.conversation.openFailed")}</p>
           <p className="mt-2 text-sub leading-5 text-[var(--text-muted)]">{loadError}</p>
         </div>
       </div>
@@ -171,7 +177,7 @@ export function AgentConversationView({ conversationId }: { conversationId: stri
   if (!conversation?.loaded) {
     return (
       <div className="immersive-theme flex h-full items-center justify-center px-6">
-        <p className="animate-pulse text-body text-[var(--text-muted)]">正在加载会话…</p>
+        <p className="animate-pulse text-body text-[var(--text-muted)]">{t("agent.conversation.loading")}</p>
       </div>
     );
   }
@@ -208,10 +214,10 @@ export function AgentConversationView({ conversationId }: { conversationId: stri
     }
     void (async () => {
       const agreed = await confirm({
-        title: "重新提交这条提问？",
+        title: t("agent.conversation.rewriteTitle"),
         description:
-          "这条提问及其之后的对话会被新问题替换，原记录无法恢复。",
-        confirmLabel: "替换并重新提问",
+          t("agent.conversation.rewriteHint"),
+        confirmLabel: t("agent.conversation.rewriteConfirm"),
         tone: "danger",
       });
       if (!agreed) return;
@@ -282,7 +288,7 @@ export function AgentConversationView({ conversationId }: { conversationId: stri
             与页面其余玻璃控件不是一套），出现 / 消失带缩放淡入淡出（同原生 App） */}
         <button
           type="button"
-          aria-label="回到最新消息"
+          aria-label={t("agent.conversation.latest")}
           aria-hidden={atBottom}
           tabIndex={atBottom ? -1 : 0}
           onClick={() => {
@@ -306,7 +312,7 @@ export function AgentConversationView({ conversationId }: { conversationId: stri
         <div className="mx-auto max-w-3xl">
           {activeRetryTarget && (
             <div className="mb-2 flex items-center justify-between px-2 text-caption text-[var(--text-muted)]">
-              <span>正在改写较早的提问，发送后将替换其后的对话</span>
+              <span>{t("agent.conversation.rewriting")}</span>
               <button
                 type="button"
                 onClick={() => {
@@ -315,8 +321,7 @@ export function AgentConversationView({ conversationId }: { conversationId: stri
                 }}
                 className="rounded-md px-2 py-1 text-[var(--text-faint)] transition-colors hover:text-[var(--text)]"
               >
-                取消改写
-              </button>
+                {t("agent.conversation.cancelRewrite")}</button>
             </div>
           )}
           <Composer
@@ -344,13 +349,14 @@ export function AgentConversationView({ conversationId }: { conversationId: stri
               saveComposerPrefs({ model: displayedModel, thinking: level });
             }}
             busy={running}
+            companion={activeRetryTarget ? undefined : resolveCompanionState(conversation.turns.at(-1), running, locked)}
             onStop={() => stop(conversationId)}
             disabled={locked || (retrying && activeRetryTarget != null)}
             placeholder={
               locked
-                ? "请先接入 AI 模型，再继续对话"
+                ? t("agent.conversation.configure")
                 : activeRetryTarget
-                  ? "修改问题后发送，将从这里重新生成回答"
+                  ? t("agent.conversation.rewritePlaceholder")
                   : undefined
             }
           />
@@ -367,21 +373,21 @@ function HandoffCard({
 }: {
   handoff: NonNullable<AgentConversation["handoff"]>;
 }) {
-  const sourceLabel = handoff.sourceTitle || `会话 ${handoff.sourceSessionId.slice(0, 8)}`;
+  const t = useTranslations();
+  const locale = useLocale();
+  const sourceLabel = handoff.sourceTitle || t("agent.conversation.sourceFallback", {id: handoff.sourceSessionId.slice(0, 8)});
   return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.025] px-4 py-3 text-ui text-[var(--text-muted)] max-md:items-start">
+    <div className={`flex items-center justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.025] px-4 py-3 text-ui text-[var(--text-muted)] max-md:items-start ${locale === "en" ? "max-md:flex-col" : ""}`}>
       <div className="min-w-0">
-        <p className="font-medium text-[var(--text)]">已从「{sourceLabel}」续接上下文</p>
+        <p className="font-medium text-[var(--text)]">{t("agent.conversation.handoff", {name: sourceLabel})}</p>
         <p className="mt-1 text-caption leading-5 text-[var(--text-faint)]">
-          这是一个独立的新会话；后续操作不会改写原会话。
-        </p>
+          {t("agent.conversation.handoffHint")}</p>
       </div>
       <Link
         href={`/sessions/${handoff.sourceSessionId}` as Route}
         className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-caption text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
       >
-        查看原会话
-        <ChevronRightIcon className="size-3.5" />
+        {t("agent.conversation.original")}<ChevronRightIcon className="size-3.5" />
       </Link>
     </div>
   );
@@ -404,11 +410,13 @@ const TurnView = memo(function TurnView({
   onEdit?: (messageId: string, input: string) => void;
 }) {
   const messageId = turn.messageId;
+  const t = useTranslations();
   return (
     <div className="group/turn space-y-3">
       {/* 用户消息：右侧玻璃气泡 */}
       <UserBubble
         text={turn.input}
+        generatedSkillInstruction={turn.generatedSkillInstruction}
         images={turn.images}
         sessionId={sessionId}
         onEdit={onEdit && messageId ? () => onEdit(messageId, turn.input) : undefined}
@@ -443,7 +451,7 @@ const TurnView = memo(function TurnView({
 
         {turn.status === "error" && (
           <div className="rounded-xl border border-[#ff6b6b]/30 bg-[#ff6b6b]/10 px-3.5 py-2.5 text-ui leading-5 break-words text-[#ff6b6b]">
-            {turn.error}
+            {turn.errorKey ? t(turn.errorKey) : turn.error}
           </div>
         )}
 
@@ -468,25 +476,29 @@ const TurnView = memo(function TurnView({
  */
 function UserBubble({
   text,
+  generatedSkillInstruction,
   images,
   sessionId,
   onEdit,
 }: {
   text: string;
+  generatedSkillInstruction?: boolean;
   images?: AgentTurnImage[];
   sessionId: string;
   onEdit?: () => void;
 }) {
+  const t = useTranslations();
   const { revealProps, toggle } = useTapReveal();
   // /skill:名字 占位符渲染成技能 chip，正文只留用户自己的话（复制与
   // 改写重问仍用完整的 token 形态原文）。只拆已知技能：拼错/不存在的
   // token 服务端不会展开，气泡保留字面文本，不冒充「已调用」的 chip；
   // 名单加载完成前（null）暂不过滤，避免 chip 闪烁成字面文本
   const knownSkills = useSkillNames();
-  const { names: skillNames, text: plainText } = parseSkillTokens(
+  const { names: skillNames, text: rawPlainText } = parseSkillTokens(
     text,
-    knownSkills ?? undefined,
+    generatedSkillInstruction ? undefined : knownSkills ?? undefined,
   );
+  const plainText = generatedSkillInstruction ? t("agent.session.defaultInstruction") : rawPlainText;
   // 图片灯箱：记录被点开的下标（null 为关闭）。一轮里带几张图就一组浏览，
   // 灯箱内 ←→ 可在同轮图片间切换。乐观渲染优先本地 objectURL；回放走附件
   // 下载接口（immutable 缓存）——灯箱大图与缩略图共用同一地址，不重复下载。
@@ -531,7 +543,7 @@ function UserBubble({
               <button
                 key={image.attachmentId}
                 type="button"
-                aria-label={`放大预览：${image.name ?? "图片"}`}
+                aria-label={t("agent.conversation.previewImage", {name: image.name ?? t("agent.conversation.image")})}
                 onClick={(event) => {
                   event.stopPropagation();
                   setLightboxIndex(i);
@@ -540,7 +552,7 @@ function UserBubble({
               >
                 <img
                   src={imageUrls[i]}
-                  alt={image.name ?? "图片"}
+                  alt={image.name ?? t("agent.conversation.image")}
                   loading="lazy"
                   className="block max-h-40 max-w-[200px] object-cover"
                 />
@@ -562,8 +574,8 @@ function UserBubble({
         {onEdit && (
           <button
             type="button"
-            aria-label="改写这条提问"
-            title="改写这条提问"
+            aria-label={t("agent.conversation.editQuestion")}
+            title={t("agent.conversation.editQuestion")}
             onClick={(event) => {
               // 不冒泡到气泡的 toggle：否则点完操作键，浮现态立刻被切回去
               event.stopPropagation();
@@ -586,11 +598,12 @@ function UserBubble({
 /* —— 轮次页脚：进度与耗时 —— */
 
 /** 耗时文案：不足一分钟按秒（终态保留一位小数），超过则「x 分 y 秒」。 */
-function formatDuration(ms: number, precise: boolean): string {
+function formatDuration(ms: number, precise: boolean, locale: AppLocale): string {
+  const t = appTranslator(locale);
   const seconds = Math.max(0, ms) / 1000;
   if (seconds < 60) return `${precise ? seconds.toFixed(1) : Math.floor(seconds)}s`;
   const minutes = Math.floor(seconds / 60);
-  return `${minutes} 分 ${Math.floor(seconds - minutes * 60)} 秒`;
+  return t("agent.conversation.minuteDuration", {minutes, seconds: Math.floor(seconds - minutes * 60)});
 }
 
 /** 进行中的实时耗时。秒级跳动即可——十分之一秒的滚动数字只会制造焦虑，
@@ -612,6 +625,8 @@ function useElapsed(startedAt: number, running: boolean): number {
  * 常驻上屏会和正文抢注意力。
  */
 function TurnFooter({ turn }: { turn: AgentTurn }) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   const running = turn.status === "running";
   const live = useElapsed(turn.startedAt, running);
 
@@ -620,7 +635,7 @@ function TurnFooter({ turn }: { turn: AgentTurn }) {
     return (
       <div className="flex items-center gap-2 text-caption text-[var(--text-faint)]">
         <ProgressRing />
-        <span className="tabular-nums">{formatDuration(live, false)}</span>
+        <span className="tabular-nums">{formatDuration(live, false, locale)}</span>
       </div>
     );
   }
@@ -629,9 +644,9 @@ function TurnFooter({ turn }: { turn: AgentTurn }) {
   // 本轮跑完时有 result（精确到 0.1s）；从转录回放的历史轮次只能按消息
   // 时间戳估算（秒级），两者都没有就不占这一行
   const duration = result
-    ? formatDuration(result.elapsed_ms, true)
+    ? formatDuration(result.elapsed_ms, true, locale)
     : turn.endedAt
-      ? formatDuration(turn.endedAt - turn.startedAt, false)
+      ? formatDuration(turn.endedAt - turn.startedAt, false, locale)
       : null;
   const answer = turn.segments
     .filter((segment) => segment.kind === "text")
@@ -642,14 +657,14 @@ function TurnFooter({ turn }: { turn: AgentTurn }) {
 
   return (
     <div className="flex items-center gap-2 text-caption text-[var(--text-faint)]">
-      {turn.stopped && <span>已停止</span>}
-      {!turn.stopped && turn.interrupted && <span title="本轮运行未正常结束（停机或异常中断），可直接继续对话">已中断</span>}
+      {turn.stopped && <span>{t("agent.conversation.stopped")}</span>}
+      {!turn.stopped && turn.interrupted && <span title={t("agent.conversation.interruptedHint")}>{t("agent.conversation.interrupted")}</span>}
       {duration && (
         <span
           className="tabular-nums"
           title={
             result
-              ? `${turn.provider ?? result.provider} · ${turn.model ?? result.model} · ${result.steps} 步 · ${result.usage.prompt_tokens}/${result.usage.completion_tokens} tokens`
+              ? t("agent.conversation.trace", {provider: turn.provider ?? result.provider, model: turn.model ?? result.model, steps: result.steps, promptTokens: result.usage.prompt_tokens, completionTokens: result.usage.completion_tokens})
               : undefined
           }
         >
@@ -659,7 +674,7 @@ function TurnFooter({ turn }: { turn: AgentTurn }) {
       {answer && (
         <CopyButton
           text={answer}
-          label="复制"
+          label={t("agent.conversation.copy")}
           className="px-1 py-0.5 opacity-0 transition-opacity hover:text-[var(--text-muted)] focus-visible:opacity-100 group-hover/turn:opacity-100 max-md:opacity-100"
         />
       )}
@@ -689,24 +704,22 @@ function ProgressRing() {
 }
 
 /** 进行中的处理块此刻在做什么：取末尾条目推导实时状态。 */
-function processStatus(items: AgentProcessItem[]): string {
+function processStatus(items: AgentProcessItem[], locale: AppLocale): string {
+  const t = appTranslator(locale);
   const tail = items[items.length - 1];
-  if (!tail || tail.kind === "thinking") return "思考中…";
-  if (tail.argsDone === false) return `准备调用 ${tail.name}…`;
-  if (tail.output === undefined) return `正在执行 ${tail.name}…`;
-  return "思考中…"; // 工具已返回，正在等模型的下一步
+  if (!tail || tail.kind === "thinking") return t("agent.conversation.thinking");
+  if (tail.argsDone === false) return t("agent.conversation.preparingTool", {tool: tail.name});
+  if (tail.output === undefined) return t("agent.conversation.runningTool", {tool: tail.name});
+  return t("agent.conversation.thinking"); // 工具已返回，正在等模型的下一步
 }
 
 /** 已完成处理块的一句话总结，如「已思考，执行 1 次命令，调用 2 次工具」。 */
-function processSummary(items: AgentProcessItem[]): string {
+function processSummary(items: AgentProcessItem[], locale: AppLocale): string {
+  const t = appTranslator(locale);
   const tools = items.filter((item) => item.kind === "tool");
   const commands = tools.filter((tool) => tool.name === "bash").length;
   const others = tools.length - commands;
-  const parts: string[] = [];
-  if (items.some((item) => item.kind === "thinking")) parts.push("思考");
-  if (commands > 0) parts.push(`执行 ${commands} 次命令`);
-  if (others > 0) parts.push(`调用 ${others} 次工具`);
-  return parts.length > 0 ? `已${parts.join("，")}` : "处理过程";
+  return t("agent.conversation.processSummary", {thinking: items.some(item => item.kind === "thinking") ? "yes" : "no", commands, tools: others});
 }
 
 /**
@@ -716,6 +729,7 @@ function processSummary(items: AgentProcessItem[]): string {
  * 该次调用的参数与输出——一轮动辄十几次调用，全量平铺等于没有排版。
  */
 const ProcessBlock = memo(function ProcessBlock({ segment, active }: { segment: AgentTurnSegment & { kind: "process" }; active: boolean }) {
+  const locale = useLocale() as AppLocale;
   const [open, setOpen] = useState(false);
   // 生成式 UI 的绘制调用不算「处理过程」：它的产出就是紧随其后的卡片本身，
   // 再列一行「调用 show_media_cards_v1」只是噪音。整块只剩它时连折叠头也不出
@@ -733,7 +747,7 @@ const ProcessBlock = memo(function ProcessBlock({ segment, active }: { segment: 
       >
         <ChevronRightIcon className={`size-3.5 transition-transform ${open ? "rotate-90" : ""}`} />
         <span className={active ? "animate-pulse" : undefined}>
-          {active ? processStatus(items) : processSummary(items)}
+          {active ? processStatus(items, locale) : processSummary(items, locale)}
         </span>
       </button>
       {open && (
@@ -804,6 +818,7 @@ function toolSummary(tool: AgentTurnToolCall): string {
  *  摘要与参数明细的 JSON.parse/stringify（大参数可达几 KB）按 tool 缓存，
  *  不再在每次渲染中内联执行。 */
 const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: AgentTurnToolCall }) {
+  const t = useTranslations();
   const [open, setOpen] = useState(false);
   const streaming = tool.argsDone === false;
   const input = useMemo(() => (streaming ? null : toolInput(tool)), [tool, streaming]);
@@ -847,7 +862,7 @@ const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: AgentTurnToolC
         <div className="mt-1 min-w-0 rounded-lg border border-white/[0.05] bg-white/[0.02] px-2.5 py-1.5">
           {input && <HighlightedCode code={input.code} lang={input.lang} />}
           {tool.output === undefined ? (
-            <p className="mt-0.5 text-caption text-[var(--text-faint)]">执行中…</p>
+            <p className="mt-0.5 text-caption text-[var(--text-faint)]">{t("agent.conversation.executing")}</p>
           ) : (
             <div
               // 行高用相对值：字号随语义 token 在移动端换档（11→13px），固定 16px 行高会挤死多行日志
@@ -873,6 +888,7 @@ const CompactionCard = memo(function CompactionCard({
 }: {
   segment: AgentTurnSegment & { kind: "compaction" };
 }) {
+  const t = useTranslations();
   const [open, setOpen] = useState(false);
   const tokens =
     segment.tokensBefore != null && segment.tokensAfter != null
@@ -887,7 +903,7 @@ const CompactionCard = memo(function CompactionCard({
       >
         <span className="h-px flex-1 bg-white/[0.08]" />
         <ChevronRightIcon className={`size-3 transition-transform ${open ? "rotate-90" : ""}`} />
-        <span>已压缩上下文{tokens ? `（${tokens}）` : ""}</span>
+        <span>{tokens ? t("agent.conversation.compactedTokens", {tokens}) : t("agent.conversation.compacted")}</span>
         <span className="h-px flex-1 bg-white/[0.08]" />
       </button>
       {open && (
@@ -896,8 +912,7 @@ const CompactionCard = memo(function CompactionCard({
             {segment.summary}
           </p>
           <p className="text-caption text-[var(--text-faint)]">
-            此前的对话已由交接摘要替代。多次压缩可能降低模型准确性，建议适时开启新会话。
-          </p>
+            {t("agent.conversation.compactionHint")}</p>
         </div>
       )}
     </div>

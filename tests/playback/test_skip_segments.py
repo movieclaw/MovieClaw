@@ -17,6 +17,67 @@ import pytest
 from movieclaw_playback import skip_segments as K
 
 SD = K.HASH_SECONDS
+CORPUS = Path(__file__).parent / "fixtures" / "skip_segments"
+
+
+@pytest.mark.parametrize(
+    "season",
+    json.loads((CORPUS / "nas-corpus-v9.json").read_text()),
+    ids=lambda s: f"{s['title']}-S{s['season']}",
+)
+@pytest.mark.parametrize("scope", ["full", "first3", "first6", "alternating", "reversed"])
+def test_real_corpus_preserves_v9_core_with_partial_seasons(season, scope) -> None:
+    """整季、追更、缺集都与 v9 核心结果一致；这是兼容性基线，不是人工准确率真值。"""
+    expected = season["expected"]["full" if scope == "reversed" else scope]
+    with np.load(CORPUS / "nas-corpus-v9.npz") as data:
+        episodes = [
+            K.Episode(
+                f["id"],
+                f["episode"],
+                f["duration"],
+                {
+                    name: K.Window(data[f"{f['id']}_{name}"], start)
+                    for name, start in f["starts"].items()
+                },
+            )
+            for f in season["files"]
+            if str(f["id"]) in expected
+        ]
+    if scope == "reversed":
+        episodes.reverse()
+    actual = {
+        str(fid): [{k: v for k, v in s.as_dict().items() if k != "lead_start_ms"} for s in segs]
+        for fid, segs in K.detect_season(episodes).items()
+    }
+    assert actual == expected
+
+
+def test_lead_and_core_share_cache_without_changing_each_other() -> None:
+    episodes = nas_outro_episodes("schooled")
+    core_first, lead_first = K._Season(episodes), K._Season(episodes)
+    for episode in episodes:
+        core = core_first.raw_segments(episode, "outro")
+        lead = core_first.raw_segments(episode, "outro", lead=True)
+        assert lead_first.raw_segments(episode, "outro", lead=True) == lead
+        assert lead_first.raw_segments(episode, "outro") == core
+
+
+@pytest.mark.xfail(strict=True, reason="王冠 S01E01：386 秒已回到剧情，音频片头终点仍为 390.7 秒")
+def test_real_intro_must_not_cover_story_after_title_sequence():
+    manifest = json.loads((CORPUS / "nas-crown-intro.json").read_text())
+    with np.load(CORPUS / "nas-crown-intro.npz") as data:
+        episodes = [
+            K.Episode(
+                f["episode"],
+                f["episode"],
+                f["duration"],
+                {"intro": K.Window(data[str(f["episode"])], 0.0)},
+            )
+            for f in manifest
+        ]
+    segments = K.detect_season(episodes)[1]
+    assert any(s.kind == "intro" for s in segments)
+    assert all(K._overlap((s.start, s.end), (386.0, 398.0)) == 0 for s in segments)
 
 
 def frames(seconds: float) -> int:
@@ -269,6 +330,30 @@ def test_outro_window_keeps_only_last_segment() -> None:
         assert seg.kind == "outro" and seg.to_end
 
 
+def test_outro_split_at_different_shifts_offers_earlier_part_as_lead() -> None:
+    """片尾在各集拼接点不同（演职员表 + 平台尾巴）：片尾仍只认最后一截，前一截作前段候选。"""
+    rng = np.random.default_rng(11)
+    names, platform = noise(rng, 60), noise(rng, 90)
+    eps = []
+    for n in range(1, 7):
+        e = episode(rng, n, n)
+        tail = e.windows["outro"].hashes
+        gap = frames(0.5 + 0.4 * n)  # 各集接缝差 0.4 秒，两截位移不同
+        a = len(tail) - len(platform) - gap - len(names)
+        tail[a : a + len(names)] = names
+        tail[len(tail) - len(platform) :] = platform
+        eps.append(e)
+    result = K.detect_season(eps)
+    for e in eps:
+        (seg,) = result[e.file_id]
+        w = e.windows["outro"]
+        platform_start = w.start + (len(w.hashes) - len(platform)) * K.HASH_SECONDS
+        assert seg.kind == "outro" and seg.to_end
+        assert abs(seg.start - platform_start) < 3
+        assert seg.lead_start is not None and abs(seg.start - seg.lead_start - 62) < 4
+        assert "lead_start_ms" in seg.as_dict()
+
+
 def test_fingerprint_file_roundtrip() -> None:
     rng = np.random.default_rng(9)
     head, tail = noise(rng, 30), noise(rng, 20)
@@ -443,6 +528,23 @@ def nas_outro_episodes(name: str) -> list[K.Episode]:
             )
             for i, n in enumerate(arrays["numbers"])
         ]
+
+
+def test_real_netflix_credits_before_dubbing_roll_are_lead() -> None:
+    """铁拳教育（2026）S01：韩文演职员表（E01 约 2973 秒起）+ Netflix 配音名单（3038 秒起）。
+
+    两截在各集的拼接点差 1～2 秒，比对成两段；片尾只认后一截（与 v9 一致），前一截作为
+    前段候选交给画面核对。E02 的演职员表配乐与伙伴集都不同，没有前段。
+    """
+    results = K.detect_season(nas_outro_episodes("schooled"))
+    (e01,) = results[1]
+    assert 3036 < e01.start < 3040 and e01.to_end
+    assert e01.lead_start is not None and 2972 < e01.lead_start < 2976
+    for n in (3, 4, 9):
+        (seg,) = results[n]
+        assert seg.lead_start is not None and 50 < seg.start - seg.lead_start < 70
+    (e02,) = results[2]
+    assert e02.lead_start is None
 
 
 def test_real_outro_does_not_fall_back_to_earlier_reused_score() -> None:

@@ -36,6 +36,7 @@ class AuthResult(BaseModel):
     state: AuthState
     cookies: dict[str, str] | None = None
     message: str | None = None
+    message_ref: dict | None = None
     captcha_image_url: str | None = None
 
 
@@ -77,6 +78,10 @@ class TorrentListItem(BaseModel):
     hit_and_run: bool | None = None
     detail_url: str | None = None
     download_url: str | None = None
+    # 站点自己给种子打的标记（M-Team 的 labelsNew：中字 / 4k / hdr10 / DoVi …）。
+    # 只给内部管线用——喂进 enrich 记成 attrs.site_labels，不进接口输出（exclude），
+    # 免得搜索结果等响应模型的契约跟着变。解析不到 / 站点不提供 = 空列表
+    labels: list[str] = Field(default_factory=list, exclude=True)
 
 
 class TorrentListPage(BaseModel):

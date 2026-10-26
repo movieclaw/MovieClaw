@@ -42,7 +42,7 @@ struct LibraryFilterBar: View {
                 }
                 if ownCollections.count > shownCollections.count, let onShowAllCollections {
                     Button(action: onShowAllCollections) {
-                        Text("全部合集 ›")
+                        Text(String(localized: .libraryHomeCollectionsLink))
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.5))
                             .frame(height: 28)
@@ -98,7 +98,7 @@ struct LibraryFilterBar: View {
                 Image(systemName: "line.3.horizontal.decrease")
                     .font(.caption)
                     .opacity(0.7)
-                Text("筛选")
+                Text(String(localized: .libraryFiltersTitle))
                     .font(.footnote.weight(.medium))
                 if filter.count > 0 {
                     Text("\(filter.count)")
@@ -188,8 +188,8 @@ private struct FilterConditionRow: View {
             // 那正是他从"在看合集"切换到"在自己筛"的时刻
             if let collectionName {
                 HStack(spacing: 4) {
-                    Text("＝ 合集").foregroundStyle(.white.opacity(0.7))
-                    Text("「\(collectionName)」").fontWeight(.semibold).foregroundStyle(.white)
+                    Text(String(localized: .libraryFiltersEqualsCollection)).foregroundStyle(.white.opacity(0.7))
+                    Text(String(localized: .libraryFiltersQuotedName(collectionName))).fontWeight(.semibold).foregroundStyle(.white)
                 }
                 .font(.caption)
                 .padding(.horizontal, 8)
@@ -200,13 +200,13 @@ private struct FilterConditionRow: View {
                 HStack(spacing: 8) {
                     // 维度之间是「且」——语义画出来，不写在脚注里
                     if index > 0 {
-                        Text("且").font(.caption).foregroundStyle(.white.opacity(0.3))
+                        Text(String(localized: .libraryCollectionsAnd)).font(.caption).foregroundStyle(.white.opacity(0.3))
                     }
                     groupChip(group)
                 }
             }
             Button { filter = LibraryFilter() } label: {
-                Text("清空")
+                Text(String(localized: .commonClear))
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.5))
                     .padding(.horizontal, 8)
@@ -217,7 +217,7 @@ private struct FilterConditionRow: View {
             // 已经等于某个合集时不再提「存为合集」——那只会存出一个重名的孪生体
             if let onSaveAsCollection, collectionName == nil {
                 Button(action: onSaveAsCollection) {
-                    Text("存为合集")
+                    Text(String(localized: .libraryCollectionsSaveAs))
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.5))
                         .padding(.horizontal, 8)
@@ -228,9 +228,9 @@ private struct FilterConditionRow: View {
             }
             if let facets {
                 HStack(spacing: 0) {
-                    Text("筛出 ")
+                    Text(String(localized: .libraryFiltersMatchedLead))
                     Text("\(facets.total)").monospacedDigit().fontWeight(.semibold).foregroundStyle(.white)
-                    Text(" 部")
+                    Text(facets.total == 1 ? String(localized: .libraryFiltersMatchedTailOne) : String(localized: .libraryFiltersMatchedTailMany))
                 }
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.6))
@@ -263,7 +263,7 @@ private struct FilterConditionRow: View {
             ForEach(Array(group.values.enumerated()), id: \.element) { index, value in
                 // 同一维度内的多个值是「或」
                 if index > 0 {
-                    Text("或").font(.caption).foregroundStyle(.white.opacity(0.3))
+                    Text(String(localized: .libraryCollectionsOr)).font(.caption).foregroundStyle(.white.opacity(0.3))
                 }
                 let label = facetLabel(group.key, value, facets: facets)
                 HStack(spacing: 2) {
@@ -278,7 +278,7 @@ private struct FilterConditionRow: View {
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("取消 \(group.label) \(label)")
+                    .accessibilityLabel(String(localized: .libraryFiltersRemoveCondition(group.label, label)))
                 }
             }
         }
@@ -334,13 +334,13 @@ private struct FilterSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 // 一级四维
-                pills("类型", hint: "可多选 · 维度内是「或」", dim: "genres")
-                pills("年代", dim: "decades")
-                pills("地区", hint: "可多选 · 维度内是「或」", dim: "countries")
-                pills("观看", hint: "单选", dim: "watch")
+                pills(String(localized: .libraryFiltersGenres), hint: String(localized: .libraryFiltersMultiSelectHint), dim: "genres")
+                pills(String(localized: .libraryFiltersDecades), dim: "decades")
+                pills(String(localized: .libraryFiltersRegions), hint: String(localized: .libraryFiltersMultiSelectHint), dim: "countries")
+                pills(String(localized: .libraryFiltersWatch), hint: String(localized: .libraryFiltersSingleSelectHint), dim: "watch")
                 if loading {
                     Divider().overlay(Theme.line)
-                    Text("正在数各档位还剩多少部…")
+                    Text(String(localized: .libraryFiltersCounting))
                         .font(.subheadline)
                         .foregroundStyle(Theme.textFaint)
                         .frame(maxWidth: .infinity)
@@ -349,16 +349,16 @@ private struct FilterSheet: View {
                     // 分栏依据是作用对象不同：「找片」问作品是什么样的，「查库」问文件是什么规格——
                     // 两种人格混在一排 chips 里会让两边都难用
                     Divider().overlay(Theme.line)
-                    sectionTitle("找片", "作品是什么样的 · 来自刮削档案")
-                    pills("评分", dim: "rating_gte")
-                    pills("片长", dim: "runtimes")
-                    pills("原始语言", dim: "languages")
+                    sectionTitle(String(localized: .libraryFiltersFindTitles), String(localized: .libraryFiltersFindTitlesHint))
+                    pills(String(localized: .libraryRowsRatingHint), dim: "rating_gte")
+                    pills(String(localized: .libraryFiltersRuntime), dim: "runtimes")
+                    pills(String(localized: .libraryFiltersOriginalLanguage), dim: "languages")
                     Divider().overlay(Theme.line)
-                    sectionTitle("查库", "文件是什么规格 · 来自库存台账")
-                    pills("分辨率", dim: "resolutions")
-                    pills("动态范围", dim: "hdr")
+                    sectionTitle(String(localized: .libraryFiltersInspectInventory), String(localized: .libraryFiltersInspectInventoryHint))
+                    pills(String(localized: .libraryFiltersResolution), dim: "resolutions")
+                    pills(String(localized: .libraryFiltersDynamicRange), dim: "hdr")
                     // 库存状态给语义色：要处理的事和不用处理的事，扫一眼就分得开
-                    pills("库存状态", hint: "要处理的事", dim: "stock",
+                    pills(String(localized: .libraryFiltersInventoryStatus), hint: String(localized: .libraryFiltersIssues), dim: "stock",
                           tone: ["missing": Theme.danger, "unscraped": Theme.warning])
                 }
             }
@@ -369,14 +369,14 @@ private struct FilterSheet: View {
         .scrollIndicators(.hidden)
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 8) {
-                Button("清空") { filter = LibraryFilter() }
+                Button(String(localized: .commonClear)) { filter = LibraryFilter() }
                     .buttonStyle(.glass)
                     .controlSize(.large)
                 // 不是「确定」：条件早就生效了，这颗只是把面板收起来看结果
                 Button {
                     dismiss()
                 } label: {
-                    Text(facets.map { "查看 \($0.total) 部" } ?? "查看结果")
+                    Text(facets.map { String(localized: .libraryFiltersViewCount($0.total)) } ?? String(localized: .libraryFiltersViewResults))
                         .fontWeight(.medium)
                         .frame(maxWidth: .infinity)
                 }
@@ -386,7 +386,7 @@ private struct FilterSheet: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
         }
-        .presentationDetents([.fraction(0.7), .large])
+        .adaptiveDetents([.fraction(0.7), .large])
         .presentationDragIndicator(.visible)
         // 不透明深色底（同 Web 筛选面板）：透明液态玻璃会让底下的海报透上来，筛选项文字看不清（R-5）
         .presentationBackground(Color(red: 0x17 / 255, green: 0x1A / 255, blue: 0x23 / 255))
@@ -463,12 +463,12 @@ struct LibraryFilterEmptyState: View {
         VStack(alignment: .leading, spacing: 0) {
             // 数的是**全部**条件，不只是一级四维：只数一级的话，用「4K + 评分≥9」筛空时
             // 标题会写「没有同时满足这 0 个条件的作品」
-            Text("没有同时满足这 \(filter.count) 个条件的作品")
+            Text(String(localized: .libraryFiltersNoMatches(filter.count)))
                 .font(.headline)
                 .foregroundStyle(.white)
             Text(suggestions.isEmpty
-                 ? "这几个条件两两之间就没有交集，去掉任意一条也救不回来。"
-                 : "放宽一条就能找回内容。")
+                 ? String(localized: .libraryFiltersNoOverlapHint)
+                 : String(localized: .libraryFiltersRelaxHint))
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
                 .padding(.top, 4)
@@ -478,9 +478,10 @@ struct LibraryFilterEmptyState: View {
                         filter.remove(row.dim, row.value)
                     } label: {
                         HStack(spacing: 12) {
-                            Text("去掉「\(Text("\(row.dimLabel) = \(row.label)").fontWeight(.semibold).foregroundStyle(.white))」")
+                            (Text(String(localized: .libraryFiltersRemoveLead)) + Text("\(row.dimLabel) = \(row.label)").fontWeight(.semibold).foregroundStyle(.white)
+                                + Text(String(localized: .libraryFiltersRemoveTail)))
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                            Text("→ \(row.count) 部")
+                            Text(String(localized: .libraryFiltersRelaxedCount(row.count)))
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(Theme.info)
                         }
@@ -496,7 +497,7 @@ struct LibraryFilterEmptyState: View {
             }
             .padding(.top, 16)
             Button { filter = LibraryFilter() } label: {
-                Text("清空全部条件")
+                Text(String(localized: .libraryFiltersClearAll))
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.5))
                     .expandedHitArea(vertical: 14)

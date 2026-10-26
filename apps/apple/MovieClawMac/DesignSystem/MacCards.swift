@@ -30,8 +30,8 @@ enum MacMetrics {
     static let cardCorner: CGFloat = 10
     /// 模糊垫底的剧照按这么宽取：模糊之后看不出清晰度
     static let blurredBackdropWidth: CGFloat = 480
-    /// 演职员圆头像
-    static let avatarSize: CGFloat = 92
+    /// 演职员竖版卡的宽（2:3，同 iPhone / Apple TV 的演职员卡）：比海报（168）小一档，人物是辅助信息
+    static let castWidth: CGFloat = 128
 }
 
 extension ImageWidth {
@@ -169,7 +169,7 @@ struct MacGenreCard: View {
             }
             .animation(scrolling ? nil : .easeOut(duration: 0.2), value: active)
             .onHover { hovering = $0 || MacCardDebug.forceHover }
-            .macCardTap("浏览\(label)，\(count) 部\(mediaKind == "tv" ? "剧集" : "电影")", action: action)
+            .macCardTap((mediaKind == "tv" ? String(localized: .libraryBrowseGenreSeries(label, count)) : String(localized: .libraryBrowseGenreMovies(label, count))), action: action)
     }
 }
 
@@ -202,7 +202,7 @@ struct MacLibraryCard: View {
                 }
                 .overlay(alignment: .bottomLeading) { nameBand }
         }
-        .macCardTap(collection ? "合集「\(name)」，\(count) 部" : "\(name)，\(count) 部", action: action)
+        .macCardTap(collection ? String(localized: .libraryCollectionTitleCount(name, count)) : String(localized: .libraryNamedTitleCount(name, count)), action: action)
     }
 
     private var nameBand: some View {
@@ -211,12 +211,12 @@ struct MacLibraryCard: View {
                 .font(.system(size: 17, weight: .semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
-            Text("\(count) 部")
+            Text(String(localized: .libraryStatusTitleCount(count)))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white.opacity(0.65))
             if collection {
                 Spacer(minLength: 0)
-                Label("合集", systemImage: "rectangle.stack")
+                Label(String(localized: .libraryCollectionsPageTitle), systemImage: "rectangle.stack")
                     .labelStyle(.titleAndIcon)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.88))
@@ -250,10 +250,10 @@ struct MacSeeAllCard: View {
         VStack(spacing: 8) {
             Image(systemName: "square.grid.2x2")
                 .font(.system(size: 26, weight: .regular))
-            Text("查看全部")
+            Text(String(localized: .libraryHomeViewAll))
                 .font(.system(size: 14, weight: .semibold))
             if let total {
-                Text("\(total) 部")
+                Text(String(localized: .libraryStatusTitleCount(total)))
                     .font(.system(size: 12))
                     .opacity(0.7)
             }
@@ -266,7 +266,7 @@ struct MacSeeAllCard: View {
                 .strokeBorder(.white.opacity(0.12), lineWidth: 1)
         }
         .modifier(MacHoverLift())
-        .macCardTap(total.map { "查看全部 \($0) 部" } ?? "查看全部", action: action)
+        .macCardTap(total.map { String(localized: .libraryHomeViewFavorites($0)) } ?? String(localized: .libraryHomeViewAll), action: action)
     }
 }
 
@@ -436,8 +436,8 @@ private struct MacCardLabel<Art: View>: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .circle)
-        .help("播放")
-        .accessibilityLabel("播放\(title)")
+        .help(String(localized: .libraryHeroPlay))
+        .accessibilityLabel(String(localized: .libraryPlayTitle(title)))
     }
 
     private var menuButton: some View {
@@ -455,7 +455,7 @@ private struct MacCardLabel<Art: View>: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .glassEffect(.regular.interactive(), in: .circle)
-        .help("更多")
+        .help(String(localized: .commonMore))
     }
 }
 
@@ -693,7 +693,7 @@ struct MacShelf<Content: View>: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .help("查看全部")
+                .help(String(localized: .libraryHomeViewAll))
             } else {
                 Text(title)
             }
@@ -726,7 +726,7 @@ struct MacShelf<Content: View>: View {
         .glassEffect(.regular.interactive(), in: .circle)
         .opacity(visible ? 1 : 0)
         .disabled(!visible)
-        .accessibilityLabel(symbol.hasSuffix("backward") ? "上一页" : "下一页")
+        .accessibilityLabel(symbol.hasSuffix("backward") ? String(localized: .libraryRecyclePrevious) : String(localized: .libraryRecycleNext))
     }
 
     /// 翻一屏：留一张卡的宽度不翻过去，人知道接上的是哪里
@@ -815,14 +815,14 @@ extension Formatters {
     static func remaining(positionMs: Int, durationMs: Int?) -> String? {
         guard let durationMs, durationMs > 0 else { return nil }
         let minutes = max(1, (durationMs - positionMs) / 60_000)
-        if minutes >= 60 { return "剩 \(minutes / 60) 小时 \(minutes % 60) 分" }
-        return "剩 \(minutes) 分钟"
+        if minutes >= 60 { return String(localized: .libraryRemainingHoursMinutes(minutes / 60, minutes % 60)) }
+        return String(localized: .libraryRemainingMinutes(minutes))
     }
 
     /// 片长：「48 分钟」「2 小时 12 分钟」
     static func runtime(_ minutes: Int) -> String {
-        if minutes < 60 { return "\(minutes) 分钟" }
+        if minutes < 60 { return String(localized: .libraryCloudReportMinutes(minutes)) }
         let h = minutes / 60, m = minutes % 60
-        return m > 0 ? "\(h) 小时 \(m) 分钟" : "\(h) 小时"
+        return m > 0 ? String(localized: .unitsDurationHoursMinutes(h, m)) : String(localized: .libraryRecycleShortHours(h))
     }
 }

@@ -16,6 +16,7 @@ RELEASE = "Spring.2019.1080p.WEB-DL.AAC.H.264-BLENDER"
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
+    monkeypatch.setenv("MOVIECLAW_DEMO_MODE", "true")
     seeds = tmp_path / "seeds"
     folder = seeds / RELEASE
     folder.mkdir(parents=True)

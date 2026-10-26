@@ -3,11 +3,20 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 扫码批准设备登录（iOS「我的」页扫码钮 / 批准页扫描二维码） -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 相机非必需：没有相机的设备（ChromeOS / 部分平板）仍可手动输入配对码 -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- 后台播放(MediaSessionService)与媒体通知 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- 实时通知（保持连接，core/push）：前台服务类型 remoteMessaging、开机自启、
+         引导用户把 App 加入电池优化白名单（系统弹窗，用户确认） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".MovieClawApp"
@@ -58,5 +67,21 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <!-- 实时通知：一直连着自己的 MovieClaw 服务器（不依赖谷歌 / 厂商推送） -->
+        <service
+            android:name=".core.push.PushStreamService"
+            android:exported="false"
+            android:foregroundServiceType="remoteMessaging" />
+
+        <receiver
+            android:name=".core.push.PushStreamBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

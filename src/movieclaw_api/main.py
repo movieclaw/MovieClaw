@@ -6,6 +6,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from movieclaw_api.app import create_app
+from movieclaw_api.core.allocator import tune_allocator
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.core.logging import configure_logging
 from movieclaw_api.services.app_config import (
@@ -58,6 +59,9 @@ def run() -> None:
             access_log=False,
         )
         return
+
+    # 先于事件循环、数据库连接线程与线程池调整分配器（见 core/allocator.py）
+    tune_allocator()
 
     # 路由与响应字段也是整个进程常驻的静态结构，先完成应用装配再冻结；
     # lifespan 尚未执行，此时没有创建事件循环、数据库连接或运行期任务。

@@ -32,23 +32,23 @@ struct ManageScrapeOverrides: View {
     /// 卡片所在分节的标题（只在该节第一张卡前出现）
     private static func groupTitle(before card: SettingsBScrapeCard) -> String? {
         switch card {
-        case .metaLanguage: "元数据"
-        case .poster: "图片"
+        case .metaLanguage: String(localized: .libraryFormMetadata)
+        case .poster: String(localized: .libraryFormImages)
         default: nil
         }
     }
 
     private static let namingFields: [(key: String, label: String, fallback: String)] = [
-        ("naming_entry_dir", "条目目录", "{title} ({year})"),
-        ("naming_movie_file", "电影文件名", "{title} ({year})"),
-        ("naming_season_dir", "季目录", "Season {season:02d}"),
-        ("naming_episode_file", "剧集文件名", "{title} ({year}) - S{season:02d}E{episode:02d}"),
+        ("naming_entry_dir", String(localized: .settingsScrapeEntryDirectory), "{title} ({year})"),
+        ("naming_movie_file", String(localized: .settingsScrapeMovieFilename), "{title} ({year})"),
+        ("naming_season_dir", String(localized: .settingsScrapeSeasonDirectory), "Season {season:02d}"),
+        ("naming_episode_file", String(localized: .settingsScrapeEpisodeFilename), "{title} ({year}) - S{season:02d}E{episode:02d}"),
     ]
 
     private static let mirrorFields: [(key: String, label: String)] = [
-        ("mirror_images", "写入条目图片"),
-        ("mirror_nfo", "写入 NFO 元数据"),
-        ("mirror_episode_thumbs", "写入分集剧照"),
+        ("mirror_images", String(localized: .settingsScrapeMirrorImages)),
+        ("mirror_nfo", String(localized: .settingsScrapeMirrorNfo)),
+        ("mirror_episode_thumbs", String(localized: .settingsScrapeMirrorStills)),
     ]
 
     /// 全局基线：与设置页同一套「编辑态用生效值起步」的口径
@@ -76,7 +76,7 @@ struct ManageScrapeOverrides: View {
         } else {
             HStack(spacing: 10) {
                 ProgressView()
-                Text("正在加载全局刮削设置…").font(.subheadline).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .settingsScrapeGlobalLoading)).font(.subheadline).foregroundStyle(Theme.textMuted)
             }
             .task { await load() }
         }
@@ -85,12 +85,12 @@ struct ManageScrapeOverrides: View {
     @ViewBuilder
     private func content(merged: API.MetadataScrapeSetting, base: API.MetadataScrapeSetting) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("本库单独的刮削口味，未显式修改的项跟随「设置 → 刮削与整理」。")
+            Text(String(localized: .settingsScrapeLibraryIntro))
                 .font(.footnote)
                 .foregroundStyle(Theme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
             if !overrides.isEmpty {
-                Text("已覆盖 \(overrides.count) 项")
+                Text(String(localized: .settingsScrapeOverrideCount(overrides.count)))
                     .font(.caption2)
                     .foregroundStyle(Theme.accent)
                     .padding(.horizontal, 7).padding(.vertical, 2)
@@ -100,7 +100,7 @@ struct ManageScrapeOverrides: View {
         }
         // 一键回到全跟随：否则想撤掉本库的全部个性化得逐张卡切「跟随全局」+ 逐个模板清空
         if !overrides.isEmpty {
-            Button("全部恢复跟随") { overrides = [:] }
+            Button(String(localized: .settingsScrapeResetOverrides)) { overrides = [:] }
                 .font(.footnote)
                 .accessibilityIdentifier("form-scrape-reset")
         }
@@ -110,12 +110,13 @@ struct ManageScrapeOverrides: View {
             if let group = Self.groupTitle(before: card) { ManageScrapeGroupTitle(text: group) }
             followCard(card, merged: merged, base: base)
         }
-        ManageScrapeGroupTitle(text: "命名与整理")
+        ManageScrapeGroupTitle(text: String(localized: .libraryFormNaming))
         namingCard(base: base)
-        ManageScrapeGroupTitle(text: "目录写入")
+        ManageScrapeGroupTitle(text: String(localized: .libraryFormFolderWrites))
         mirrorCard(base: base)
 
-        Text("语言与选图的产物挂在条目上（一部片一份档案、一张海报），所以它们按条目的\(Text("刮削归属库").foregroundStyle(Theme.textMuted).fontWeight(.medium))生效——归属本库的条目才跟这里的设置。存量条目需在本库执行「刷新元数据」后按新设置重刮。")
+        (Text(String(localized: .libraryScrapeOwnerLead)) + Text(String(localized: .libraryScrapeOwnerEmphasis)).foregroundStyle(Theme.textMuted).fontWeight(.medium)
+                + Text(String(localized: .libraryScrapeOwnerTail)))
             .font(.caption)
             .foregroundStyle(Theme.textFaint)
             .fixedSize(horizontal: false, vertical: true)
@@ -127,13 +128,13 @@ struct ManageScrapeOverrides: View {
     private func followCard(_ card: SettingsBScrapeCard, merged: API.MetadataScrapeSetting, base: API.MetadataScrapeSetting) -> some View {
         let custom = card.keys.contains { overrides[$0] != nil }
         cardHeader(id: card.rawValue, title: card.title, customized: custom,
-                   status: custom ? "自定义：\(card.summary(merged))" : "跟随全局：\(card.summary(base))")
+                   status: custom ? String(localized: .settingsScrapeCustomStatus(card.summary(merged))) : String(localized: .settingsScrapeFollowStatus(card.summary(base))))
         if open == card.rawValue {
             Text(card.desc).font(.footnote).foregroundStyle(Theme.textMuted).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
-                Text("全局：\(card.summary(base))").font(.caption).foregroundStyle(Theme.textFaint).lineLimit(2)
+                Text(String(localized: .settingsScrapeGlobalSummary(card.summary(base)))).font(.caption).foregroundStyle(Theme.textFaint).lineLimit(2)
                 Spacer(minLength: 4)
-                Picker("跟随", selection: Binding(
+                Picker(String(localized: .settingsScrapeInherit), selection: Binding(
                     get: { custom },
                     set: { next in
                         var patched = overrides
@@ -143,8 +144,8 @@ struct ManageScrapeOverrides: View {
                         overrides = patched
                     }
                 )) {
-                    Text("跟随全局").tag(false)
-                    Text("自定义").tag(true)
+                    Text(String(localized: .settingsScrapeFollowGlobal)).tag(false)
+                    Text(String(localized: .subscriptionSmartCustomWait)).tag(true)
                 }
                 .pickerStyle(.segmented)
                 .fixedSize()
@@ -157,14 +158,14 @@ struct ManageScrapeOverrides: View {
                     SettingsBScrapeOrderChips(
                         options: SettingsBScrapeCatalog.commonMetaLangs,
                         extraOptions: SettingsBScrapeCatalog.extraMetaLangs(languages),
-                        moreLabel: "语言", value: binding(card)[dynamicMember: \.languagePriority],
-                        max: 3, primaryTag: "主语言", identifier: "form-scrape-meta-lang"
+                        moreLabel: String(localized: .libraryFiltersLanguage), value: binding(card)[dynamicMember: \.languagePriority],
+                        max: 3, primaryTag: String(localized: .settingsScrapePrimaryLanguage), identifier: "form-scrape-meta-lang"
                     )
                 case .certCountry:
                     SettingsBScrapeOrderChips(
                         options: SettingsBScrapeCatalog.commonCertCountries,
                         extraOptions: SettingsBScrapeCatalog.extraCountries(countries),
-                        moreLabel: "地区", value: binding(card)[dynamicMember: \.certCountryPriority],
+                        moreLabel: String(localized: .libraryFiltersRegions), value: binding(card)[dynamicMember: \.certCountryPriority],
                         max: 6, primaryTag: "", identifier: "form-scrape-cert-country"
                     )
                 case .poster:
@@ -173,8 +174,8 @@ struct ManageScrapeOverrides: View {
                     SettingsBScrapeOrderChips(
                         options: SettingsBScrapeCatalog.commonImageLangs,
                         extraOptions: SettingsBScrapeCatalog.extraImageLangs(languages),
-                        moreLabel: "语言", value: binding(card)[dynamicMember: \.backdropLanguagePriority],
-                        max: 4, primaryTag: "首选", identifier: "form-scrape-backdrop-lang"
+                        moreLabel: String(localized: .libraryFiltersLanguage), value: binding(card)[dynamicMember: \.backdropLanguagePriority],
+                        max: 4, primaryTag: String(localized: .settingsScrapePreferred), identifier: "form-scrape-backdrop-lang"
                     )
                 case .quality:
                     SettingsBScrapeQualityRows(setting: binding(card), effective: config?.effective, estimate: estimate, inheritsGlobal: true)
@@ -205,16 +206,16 @@ struct ManageScrapeOverrides: View {
     @ViewBuilder
     private func namingCard(base: API.MetadataScrapeSetting) -> some View {
         let hit = Self.namingFields.filter { overrides[$0.key] != nil }
-        cardHeader(id: "naming", title: "命名模板", customized: !hit.isEmpty,
-                   status: hit.isEmpty ? "跟随全局" : "自定义：\(hit.map(\.label).joined(separator: "、"))")
+        cardHeader(id: "naming", title: String(localized: .settingsScrapeNamingTemplates), customized: !hit.isEmpty,
+                   status: hit.isEmpty ? String(localized: .settingsScrapeFollowGlobal) : String(localized: .settingsScrapeCustomStatus(AppFormatting.list(hit.map(\.label)))))
         if open == "naming" {
-            Text("留空即跟随全局模板。命名的产物是本库目录树里的路径，所以每个库可以各用一套。全部占位符（原名、集名、视频编码、站点等）与实时预览见「设置 → 刮削与整理 → 命名模板」。")
+            Text(String(localized: .settingsScrapeLibraryNamingHint))
                 .font(.footnote).foregroundStyle(Theme.textMuted).fixedSize(horizontal: false, vertical: true)
             ForEach(Self.namingFields, id: \.key) { field in
                 let globalValue = baseDict[field.key]?.stringValue ?? ""
                 VStack(alignment: .leading, spacing: 4) {
                     Text(field.label).font(.caption).foregroundStyle(Theme.textMuted)
-                    TextField("跟随全局（\(globalValue.isEmpty ? field.fallback : globalValue)）", text: Binding(
+                    TextField(String(localized: .libraryScrapeFollowGlobalValue(globalValue.isEmpty ? field.fallback : globalValue)), text: Binding(
                         get: { overrides[field.key]?.stringValue ?? "" },
                         set: { value in
                             if value.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -236,10 +237,10 @@ struct ManageScrapeOverrides: View {
     @ViewBuilder
     private func mirrorCard(base: API.MetadataScrapeSetting) -> some View {
         let hit = Self.mirrorFields.filter { overrides[$0.key] != nil }
-        cardHeader(id: "mirror", title: "媒体目录写入", customized: !hit.isEmpty,
-                   status: hit.isEmpty ? "跟随全局" : "自定义：\(hit.map(\.label).joined(separator: "、"))")
+        cardHeader(id: "mirror", title: String(localized: .settingsScrapeMediaDirectoryWrites), customized: !hit.isEmpty,
+                   status: hit.isEmpty ? String(localized: .settingsScrapeFollowGlobal) : String(localized: .settingsScrapeCustomStatus(AppFormatting.list(hit.map(\.label)))))
         if open == "mirror" {
-            Text("把刮削成果写入本库的媒体目录。基本信息里的「刮削图片/NFO 写入媒体目录」是总闸，关掉则这三项全不写。")
+            Text(String(localized: .settingsScrapeLibraryMirrorHint))
                 .font(.footnote).foregroundStyle(Theme.textMuted).fixedSize(horizontal: false, vertical: true)
             ForEach(Self.mirrorFields, id: \.key) { field in
                 let globalOn = baseDict[field.key]?.boolValue ?? true
@@ -258,9 +259,9 @@ struct ManageScrapeOverrides: View {
                             }
                         }
                     )) {
-                        Text("跟随全局（\(globalOn ? "开" : "关")）").tag(0)
-                        Text("开").tag(1)
-                        Text("关").tag(2)
+                        Text(String(localized: .libraryScrapeFollowGlobalValue(globalOn ? String(localized: .settingsScrapeOn) : String(localized: .libraryScrapeOff)))).tag(0)
+                        Text(String(localized: .settingsScrapeOn)).tag(1)
+                        Text(String(localized: .agentThinkingOff)).tag(2)
                     }
                     .pickerStyle(.segmented)
                     .accessibilityIdentifier("form-scrape-\(field.key)")
@@ -303,7 +304,7 @@ struct ManageScrapeOverrides: View {
             config = try await api.scrapeShow()
         } catch is CancellationError {
         } catch {
-            self.error = error.localizedDescription.isEmpty ? "全局刮削设置加载失败" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .settingsScrapeGlobalLoadFailed) : error.localizedDescription
         }
         // 语种 / 地区全量表拉不到不阻断（「更多」面板回落只显示常用项）
         languages = (try? await api.scrapeLanguages()) ?? []

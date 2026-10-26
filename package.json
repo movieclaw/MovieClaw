@@ -14,12 +14,15 @@
   },
   "scripts": {
     "web:dev": "pnpm --filter web dev",
-    "web:build": "pnpm --filter web build",
+    "web:build": "pnpm theme:build && pnpm --filter web build",
+    "theme:build": "pnpm --filter @movieclaw/theme-netflix build",
+    "theme:pack": "pnpm --filter @movieclaw/theme-netflix run pack:plugin",
     "web:lint": "pnpm --filter web lint",
     "web:typecheck": "pnpm --filter web exec tsc --noEmit",
     "ext:dev": "pnpm --filter extension dev",
     "ext:build": "pnpm --filter extension build",
     "ext:zip": "pnpm --filter extension zip",
-    "ext:publish": "pnpm ext:zip && mkdir -p apps/web/public/extension && cp \"$(ls -t apps/extension/.output/*-chrome.zip | head -1)\" apps/web/public/extension/movieclaw-extension.zip"
+    "ext:zip:firefox": "pnpm --filter extension zip:firefox",
+    "ext:publish": "pnpm ext:zip && pnpm ext:zip:firefox && mkdir -p apps/web/public/extension && cp \"$(ls -t apps/extension/.output/*-chrome.zip | head -1)\" apps/web/public/extension/movieclaw-extension.zip && cp \"$(ls -t apps/extension/.output/*-firefox.zip | head -1)\" apps/web/public/extension/movieclaw-extension-firefox.zip"
   }
 }

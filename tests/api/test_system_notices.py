@@ -53,7 +53,7 @@ def client(tmp_path, monkeypatch):
 
     app = create_app()
     app.dependency_overrides[require_login] = lambda: Principal(kind="admin", name="tester")
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         yield c, db_file
     get_settings.cache_clear()
 
@@ -81,9 +81,9 @@ def _notices(c: TestClient) -> list[dict]:
 
 
 def _rows(db_file) -> list[tuple[str, str]]:
-    return sqlite3.connect(db_file).execute(
-        "SELECT dedupe_key, status FROM system_notice"
-    ).fetchall()
+    return (
+        sqlite3.connect(db_file).execute("SELECT dedupe_key, status FROM system_notice").fetchall()
+    )
 
 
 def test_failure_lights_notice_and_recovery_resolves(client) -> None:

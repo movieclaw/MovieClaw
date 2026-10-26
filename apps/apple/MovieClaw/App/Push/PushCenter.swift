@@ -23,8 +23,12 @@ final class PushCenter: NSObject {
     private(set) var permission: PushPermission = .notDetermined
     /// 点开了、还没处理完的通知：冷启动时主界面还没出来；要先切账号时，等主界面按新账号重建后接着处理
     var pendingTap: PushTapTarget?
+    /// 正停在哪个 AI 会话页（站内路径 `/sessions/{id}`）：那个会话的「AI 回复完成」推送在前台就不弹了——回答就在眼前
+    var visibleSessionPath: String?
     /// 每登记完一轮加一：「通知」页据此刷新「我的设备」
     private(set) var registrationRound = 0
+    /// 这个安装包签名里没有推送权限（侧载包）：APNs 明说不给令牌，系统通知开着也收不到
+    private(set) var unsupportedBuild = false
 
     /// APNs 令牌：上次拿到的存在本机，这次启动拿到新的再换
     @ObservationIgnored private var apnsToken: String? = UserDefaults.standard.string(forKey: PushCenter.apnsTokenKey)
@@ -71,8 +75,9 @@ final class PushCenter: NSObject {
     /// 拿不到令牌：模拟器、没有推送权限的包从来就没有，只上报权限；以前拿到过的（这次只是一时连不上 APNs）
     /// 接着用上次的
     func didFailToRegister(_ error: any Error) {
-        Self.log.info("APNs 注册失败：\(error.localizedDescription, privacy: .public)")
+        Self.log.info("APNs 注册失败：\(error.localizedDescription, privacy: .public)") // i18n-ignore: debug log
         apnsAnswered = true
+        if Self.isMissingEntitlement(error) { unsupportedBuild = true }
         Task { await sync() }
     }
 
@@ -101,7 +106,7 @@ final class PushCenter: NSObject {
             do {
                 _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
             } catch {
-                Self.log.info("请求通知权限失败：\(error.localizedDescription, privacy: .public)")
+                Self.log.info("请求通知权限失败：\(error.localizedDescription, privacy: .public)") // i18n-ignore: debug log
             }
             await refreshPermission()
         }
@@ -157,7 +162,8 @@ final class PushCenter: NSObject {
         var jobs: [Job] = []
         for login in Self.savedLogins() {
             let body = API.PushRegistrationRequest.make(permission: permission, apnsToken: apnsToken, topic: Self.topic,
-                                                        environment: Self.environment, clientVersion: DeviceInfo.appVersion) {
+                                                        environment: Self.environment, clientVersion: DeviceInfo.appVersion,
+                                                        unsupportedBuild: unsupportedBuild) {
                 store.ensureKey(for: login.info)
             }
             var hasher = Hasher()
@@ -181,7 +187,7 @@ final class PushCenter: NSObject {
                         return (job, .loginExpired)
                     } catch {
                         // 只记日志：服务器还不支持推送（404）、连不上都不打扰用户，回到前台再试
-                        Self.log.info("推送登记失败 \(job.server.hostLabel, privacy: .public)：\(error.localizedDescription, privacy: .public)")
+                        Self.log.info("推送登记失败 \(job.server.hostLabel, privacy: .public)：\(error.localizedDescription, privacy: .public)") // i18n-ignore: debug log
                         return (job, .failed)
                     }
                 }
@@ -197,7 +203,7 @@ final class PushCenter: NSObject {
             case .loginExpired:
                 // 这个登录在服务器上已经失效（被注销、改了密码）：令牌和推送密钥一起删掉，账号快照留着，
                 // 点它时重新输密码（同 AppModel.refreshAccounts）
-                Self.log.info("推送登记：\(job.server.hostLabel, privacy: .public) 上的登录已失效，删掉本机令牌")
+                Self.log.info("推送登记：\(job.server.hostLabel, privacy: .public) 上的登录已失效，删掉本机令牌") // i18n-ignore: debug log
                 TokenVault.delete(server: job.server, username: job.username)
             case .failed:
                 break
@@ -245,6 +251,13 @@ final class PushCenter: NSObject {
         #endif
     }()
 
+    /// APNs 说签名里没有 `aps-environment`（NSCocoaErrorDomain 3000）：侧载工具重签的包都是这样。
+    /// 模拟器是 3010，不算
+    nonisolated static func isMissingEntitlement(_ error: any Error) -> Bool {
+        let error = error as NSError
+        return error.domain == NSCocoaErrorDomain && error.code == 3000
+    }
+
     /// 从描述文件（`embedded.mobileprovision`，CMS 签名包着一份 plist）里读 `aps-environment`
     nonisolated static func apsEnvironment(provisioningProfile data: Data?) -> String? {
         guard let data, let text = String(data: data, encoding: .isoLatin1),
@@ -279,10 +292,23 @@ final class PushCenter: NSObject {
 // MARK: - 前台展示与点开
 
 extension PushCenter: UNUserNotificationCenterDelegate {
-    /// 在前台也照常横幅、进通知列表、响铃；被动的（进度更新、开始下载这类）只进通知列表，和锁屏时一样不打扰
+    /// 在前台也照常横幅、进通知列表、响铃；被动的（进度更新、开始下载这类）只进通知列表，和锁屏时一样不打扰。
+    /// 例外：推送要打开的正是眼前这个 AI 会话（「AI 回复完成」）——回答已经在屏幕上，什么都不出（2026-10-12 用户要求）。
+    /// 打开哪个页面照点开时的规矩在 App 里重新解密取（PushTapTarget），不信中继填的明文键
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler(notification.request.content.interruptionLevel == .passive ? [.list] : [.banner, .list, .sound])
+        let passive = notification.request.content.interruptionLevel == .passive
+        let openPath = PushTapTarget(userInfo: notification.request.content.userInfo, store: .shared)?.openPath
+        nonisolated(unsafe) let done = completionHandler
+        Task { @MainActor in
+            done(Self.foregroundOptions(passive: passive, openPath: openPath, visibleSessionPath: PushCenter.shared.visibleSessionPath))
+        }
+    }
+
+    /// 前台怎么展示一条推送（纯函数，单元测试见 PushTests）
+    nonisolated static func foregroundOptions(passive: Bool, openPath: String?, visibleSessionPath: String?) -> UNNotificationPresentationOptions {
+        if let openPath, openPath == visibleSessionPath { return [] }
+        return passive ? [.list] : [.banner, .list, .sound]
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,

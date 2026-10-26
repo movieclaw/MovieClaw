@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from collections import Counter
+
 from fastapi import APIRouter, BackgroundTasks, Depends
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n import t
+from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.llm import (
     LlmDefaultsPayload,
     LlmDefaultsView,
+    LlmModelDiscoveryPayload,
     LlmModelOptionView,
     LlmPresetView,
     LlmProviderPayload,
@@ -14,6 +20,7 @@ from movieclaw_api.schemas.llm import (
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services import demo as demo_service
 from movieclaw_api.services import demo_agent
+from movieclaw_api.services.chatgpt_auth import complete_sign_in, start_sign_in
 from movieclaw_api.services.llm_config import LlmConfigService, verify_llm_provider
 from movieclaw_db.engine import get_session
 from movieclaw_llm.providers import list_presets
@@ -24,6 +31,74 @@ router = APIRouter(prefix="/llm", tags=["llm"])
 def _scripted() -> bool:
     """公开访客看到的是预设回复的演示模型；审核账号看到部署者配好的真实模型。"""
     return demo_service.is_demo_mode() and not demo_service.is_review_request()
+
+
+class ChatGPTAuthorizePayload(BaseModel):
+    redirect_uri: str = Field(max_length=200)
+    name: str = Field(default="ChatGPT", min_length=1, max_length=100)
+    app_name: str = Field(default="MovieClaw", min_length=1, max_length=80)
+    provider_id: int | None = None
+
+
+class ChatGPTAuthorizeView(BaseModel):
+    attempt_id: str
+    state: str
+    authorize_url: str
+
+
+class ChatGPTCompletePayload(BaseModel):
+    attempt_id: str = Field(max_length=100)
+    state: str = Field(max_length=100)
+    code: str = Field(min_length=1, max_length=4096)
+    client_id: str | None = Field(default=None, max_length=200)
+
+
+@router.post(
+    "/chatgpt/authorize",
+    response_model=ApiResponse[ChatGPTAuthorizeView],
+    operation_id="llm.chatgpt.authorize",
+    summary="开始电脑端 ChatGPT 订阅授权",
+    openapi_extra={"x-cli-hidden": True, "x-cli-covered-by": "llm chatgpt login"},
+)
+async def authorize_chatgpt(
+    payload: ChatGPTAuthorizePayload,
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[ChatGPTAuthorizeView]:
+    result = await start_sign_in(session, **payload.model_dump())
+    return ok(ChatGPTAuthorizeView(**result))
+
+
+@router.post(
+    "/chatgpt/complete",
+    response_model=ApiResponse[LlmProviderView],
+    operation_id="llm.chatgpt.complete",
+    summary="完成一次性 ChatGPT 订阅授权",
+    openapi_extra={"x-cli-hidden": True, "x-cli-covered-by": "llm chatgpt login"},
+)
+async def finish_chatgpt(
+    payload: ChatGPTCompletePayload,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[LlmProviderView]:
+    row = await complete_sign_in(session, **payload.model_dump())
+    service = LlmConfigService(session)
+    row = await service.start_verification(row.id)
+    background_tasks.add_task(verify_llm_provider, row.id)
+    return ok(LlmProviderView.from_model(row), message=t("settings.llm.chatgptConnected"))
+
+
+@router.post(
+    "/models/discover",
+    response_model=ApiResponse[list[str]],
+    summary="查询端点上报的模型 ID（不保存配置）",
+    operation_id="llm.models.discover",
+)
+async def discover_llm_models(
+    payload: LlmModelDiscoveryPayload,
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[list[str]]:
+    models = await LlmConfigService(session).discover_models(payload)
+    return ok(models)
 
 
 @router.get(
@@ -53,7 +128,24 @@ async def list_llm_models(
     is_default 标记智能体默认模型。"""
     if _scripted():
         return ok(demo_agent.model_options())
-    return ok(await LlmConfigService(session).list_model_options())
+    options = await LlmConfigService(session).list_model_options()
+    counts = Counter(option.model_id for option in options)
+    return ok(
+        [
+            option.model_copy(
+                update={
+                    "label": t(
+                        "settings.llm.modelWithProvider",
+                        model=option.model_id,
+                        provider=option.provider_name,
+                    )
+                }
+            )
+            if counts[option.model_id] > 1
+            else option
+            for option in options
+        ]
+    )
 
 
 @router.get(
@@ -86,7 +178,7 @@ async def update_llm_defaults(
     view = await LlmConfigService(session).update_defaults(
         agent_model=payload.agent_model, subtitle_model=payload.subtitle_model
     )
-    return ok(view, message="AI 设定已保存")
+    return ok(view, message=t("settings.ai.saved"))
 
 
 @router.get(
@@ -129,11 +221,12 @@ async def create_llm_provider(
         default_model=payload.default_model,
         extra_models=payload.extra_models,
         user_agent=payload.user_agent,
+        api_protocol=payload.api_protocol,
     )
     assert row.id is not None
     row = await service.start_verification(row.id)
     background_tasks.add_task(verify_llm_provider, row.id)
-    return ok(LlmProviderView.from_model(row), message="已保存，正在测试模型连接")
+    return ok(LlmProviderView.from_model(row), message=t("settings.llm.connectionSaved"))
 
 
 @router.get(
@@ -162,7 +255,7 @@ async def update_llm_provider(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[LlmProviderView]:
-    """整体覆盖接入配置（API Key 需重新填写）。"""
+    """整体覆盖接入配置（API Key 留空沿用原 Key；改了类型或端点须重填）。"""
     service = LlmConfigService(session)
     await service.update(
         provider_id,
@@ -173,10 +266,12 @@ async def update_llm_provider(
         default_model=payload.default_model,
         extra_models=payload.extra_models,
         user_agent=payload.user_agent,
+        # 请求没带该字段（老客户端）时沿用原值，不能当成「清空」
+        api_protocol=(payload.api_protocol if "api_protocol" in payload.model_fields_set else ...),
     )
     row = await service.start_verification(provider_id)
     background_tasks.add_task(verify_llm_provider, provider_id)
-    return ok(LlmProviderView.from_model(row), message="已保存，正在测试模型连接")
+    return ok(LlmProviderView.from_model(row), message=t("settings.llm.connectionSaved"))
 
 
 @router.post(
@@ -194,7 +289,7 @@ async def reverify_llm_provider(
     并在后台重新测试。"""
     row = await LlmConfigService(session).start_verification(provider_id)
     background_tasks.add_task(verify_llm_provider, provider_id)
-    return ok(LlmProviderView.from_model(row), message="已重新发起连接测试")
+    return ok(LlmProviderView.from_model(row), message=t("settings.llm.connectionRetested"))
 
 
 @router.delete(
@@ -209,5 +304,10 @@ async def delete_llm_provider(
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[dict]:
     """AI 设定里指向它的默认模型会自动改指最早剩下的实例；全部删除时清空。"""
-    await LlmConfigService(session).delete(provider_id)
-    return ok({}, message="已删除")
+    revoked = await LlmConfigService(session).delete(provider_id)
+    return ok(
+        {"remote_revoked": revoked},
+        message=t("settings.llm.connectionDeleted")
+        if revoked
+        else t("settings.llm.remoteRevocationPending"),
+    )

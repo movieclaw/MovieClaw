@@ -15,10 +15,25 @@ import kotlinx.serialization.json.JsonNamingStrategy
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.ConnectionPool
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
+/**
+ * 客户端版本信息：从构建产物读（`version.properties` → Gradle versionName/versionCode），
+ * 对齐 TV 版（`BuildConfig.VERSION_NAME`）与 iOS（`CFBundleShortVersionString`）。
+ *
+ * 以前这里是写死的 "0.1.0"/1，发行版走到 0.2.0/30000003 它也不动——页脚、UA、
+ * 设备管理里的版本、播放上报全被冻在 0.1.0，认不出用户装的是哪一次构建。
+ */
 object BuildInfo {
-    const val APP_VERSION = "0.1.0"
-    const val BUILD_NUMBER = 1
+    /** 营销版本（上报用的 clientVersion；iOS 同为 CFBundleShortVersionString，不带构建号） */
+    val APP_VERSION: String = io.movieclaw.android.BuildConfig.VERSION_NAME
+
+    /** 构建号（versionCode） */
+    val BUILD_NUMBER: Int = io.movieclaw.android.BuildConfig.VERSION_CODE
+
+    /** 显示串「0.2.0（30000003）」——iOS 关于页 versionText 同口径 */
+    val DISPLAY_VERSION: String = "$APP_VERSION（$BUILD_NUMBER）"
+
     val USER_AGENT: String =
         "MovieClaw-Android/$APP_VERSION (${Build.MODEL}; Android ${Build.VERSION.RELEASE}; build $BUILD_NUMBER)"
 }
@@ -54,12 +69,13 @@ private fun userAgentInterceptor() = Interceptor { chain ->
     )
 }
 
-/** 仅对显式绑定身份且同 origin 的请求附带 Bearer；原始探测与分享保持匿名。 */
+/** 仅对显式绑定身份且属于同一服务器的请求附带 Bearer；原始探测与分享保持匿名。 */
 internal fun authInterceptor(@Suppress("UNUSED_PARAMETER") vault: TokenVault) = Interceptor { chain ->
     val request = chain.request()
     val binding = request.tag(RequestIdentity::class.java)
     val identity = binding?.identity
-    val authorized = identity != null && sameOrigin(request.url, identity.origin) && !isShareUrl(request.url)
+    // 「同一服务器」= 登录地址 + 已验证的地址簿入口（内网/外网两个主机名都算），见 ServerTrust
+    val authorized = identity != null && ServerTrust.matches(request.url, identity.origin) && !isShareUrl(request.url)
     val builder = request.newBuilder()
     if (authorized) builder.header("Authorization", "Bearer ${identity!!.token}")
     else builder.removeHeader("Authorization")
@@ -74,8 +90,95 @@ private fun baseClient(vault: TokenVault): OkHttpClient.Builder =
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
         .addInterceptor(userAgentInterceptor())
+        .addInterceptor(routeHeaderInterceptor())
+        .addInterceptor(failoverInterceptor())
         .addInterceptor(loggingInterceptor())
         .addInterceptor(authInterceptor(vault))
+
+/** 每条服务端请求声明自己走的路线（docs/design/server-addresses.md §5.2）。 */
+private fun routeHeaderInterceptor(): Interceptor = Interceptor { chain ->
+    val route = ServerRoutes.route
+    chain.proceed(chain.request().newBuilder().header("X-MovieClaw-Route", route.header).build())
+}
+
+/** 换地址重试用过的标记，避免连环重试 */
+private const val FAILOVER_TRY = "X-MovieClaw-Retried"
+
+/**
+ * 请求级故障转移（§4.6）：当前入口出硬错误（拒绝连接 / 主机不可达 / TLS）时，
+ * 幂等请求（GET / HEAD）换到另一个**已验证**的入口重试一次；软错误（超时、DNS）不换。
+ * 无论能不能重试，都顺手触发一次重新选路（地址簿里有防抖）。
+ */
+private fun failoverInterceptor(): Interceptor = Interceptor { chain ->
+    val request = chain.request()
+    try {
+        chain.proceed(request)
+    } catch (e: java.io.IOException) {
+        val hard = isHardNetworkFailure(e)
+        if (hard) ServerRoutes.onHardError?.invoke()
+        if (!hard || (request.method != "GET" && request.method != "HEAD") ||
+            request.header(FAILOVER_TRY) != null
+        ) {
+            throw e
+        }
+        val current = ServerRoutes.baseFor(null)?.toHttpUrlOrNull() ?: throw e
+        val onCurrentEntry = current.scheme == request.url.scheme &&
+            current.host == request.url.host && current.port == request.url.port
+        if (!onCurrentEntry) throw e
+        val alternate = ServerRoutes.alternates.asSequence()
+            .mapNotNull { it.toHttpUrlOrNull() }
+            .firstOrNull {
+                it.scheme != request.url.scheme || it.host != request.url.host || it.port != request.url.port ||
+                    it.encodedPath.trimEnd('/') != current.encodedPath.trimEnd('/')
+            } ?: throw e
+        val retried = request.newBuilder()
+            .url(failoverUrl(request.url, current, alternate))
+            .header(FAILOVER_TRY, "1")
+            .build()
+        android.util.Log.w("McRoutes", "硬错误 ${request.method} ${request.url.host} → ${alternate.host}，重试一次")
+        chain.proceed(retried)
+    }
+}
+
+/**
+ * 换入口时把「当前入口路径前缀」换成「备选入口路径前缀」，查询串原样保留。
+ *
+ * 除了 scheme/host/port，子路径反代（`https://example.com/movieclaw`）也要一起换：
+ * 只改 host 会把 `/movieclaw/api/v1/...` 原样带到内网地址，或从内网切回域名时丢掉
+ * `/movieclaw` 前缀，两种都会 404。
+ */
+internal fun failoverUrl(request: okhttp3.HttpUrl, currentOrigin: okhttp3.HttpUrl, alternate: okhttp3.HttpUrl): okhttp3.HttpUrl {
+    val currentPrefix = currentOrigin.encodedPath.trimEnd('/')
+    val suffix = when {
+        currentPrefix.isEmpty() -> request.encodedPath
+        request.encodedPath == currentPrefix -> "/"
+        request.encodedPath.startsWith("$currentPrefix/") -> request.encodedPath.removePrefix(currentPrefix)
+        else -> request.encodedPath
+    }
+    val alternatePrefix = alternate.encodedPath.trimEnd('/')
+    return request.newBuilder()
+        .scheme(alternate.scheme)
+        .host(alternate.host)
+        .port(alternate.port)
+        .encodedPath((alternatePrefix + suffix).ifEmpty { "/" })
+        .build()
+}
+
+/** 硬错误 = 换地址可能有用；超时 / DNS 失败算软错误，只累计不切换 */
+internal fun isHardNetworkFailure(error: java.io.IOException): Boolean {
+    var cause: Throwable? = error
+    while (cause != null) {
+        when (cause) {
+            is java.net.SocketTimeoutException, is java.net.UnknownHostException -> return false
+            is java.net.ConnectException,
+            is java.net.NoRouteToHostException,
+            is javax.net.ssl.SSLException,
+            -> return true
+        }
+        cause = cause.cause
+    }
+    return false
+}
 
 /** 非 2xx 仅记录状态、方法和路径；查询参数、用户信息和响应体可能含凭据。 */
 private fun loggingInterceptor(): Interceptor = Interceptor { chain ->

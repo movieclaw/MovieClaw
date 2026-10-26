@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "MovieClaw HarmonyOS client"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Browse and play your MovieClaw library"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "MovieClaw"
+    }
+  ]
+}

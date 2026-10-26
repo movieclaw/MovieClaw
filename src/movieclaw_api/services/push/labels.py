@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from movieclaw_api.i18n import t
+
 Unit = tuple[int, int]
 
 #: 一季里超过这么多段就只写前两段，后面写「等 N 集」
@@ -16,7 +18,7 @@ MAX_SEGMENTS = 3
 
 
 def season_name(season: int) -> str:
-    return "特别篇" if season == 0 else f"第 {season} 季"
+    return t("media.season.specials") if season == 0 else t("media.season.title", number=season)
 
 
 def _runs(episodes: list[int]) -> list[tuple[int, int]]:
@@ -37,8 +39,16 @@ def episodes_text(episodes: list[int] | set[int]) -> str:
         return ""
     parts = [f"{a}–{b}" if b > a else f"{a}" for a, b in _runs(ordered)]
     if len(parts) > MAX_SEGMENTS:
-        return f"第 {'、'.join(parts[:2])} 集等 {len(ordered)} 集"
-    return f"第 {'、'.join(parts)} 集"
+        return t(
+            "media.episodes.truncated",
+            ranges=t("media.episodes.rangeSeparator").join(parts[:2]),
+            count=len(ordered),
+        )
+    return t(
+        "media.episodes.range",
+        ranges=t("media.episodes.rangeSeparator").join(parts),
+        count=len(ordered),
+    )
 
 
 def by_season(units: list[Unit] | set[Unit]) -> dict[int, list[int]]:
@@ -69,16 +79,20 @@ def units_text(
     for season, episodes in seasons.items():
         total = (totals or {}).get(season) or 0
         if total and len(episodes) >= total and set(range(1, total + 1)) <= set(episodes):
-            body = f"全 {len(episodes)} 集"
+            body = t("media.episodes.all", count=len(episodes))
         else:
             body = episodes_text(episodes)
-        parts.append(f"{season_name(season)}{body}" if show_season else body)
-    return "、".join(parts)
+        parts.append(
+            t("media.episodes.withSeason", season=season_name(season), episodes=body)
+            if show_season
+            else body
+        )
+    return t("media.episodes.seasonSeparator").join(parts)
 
 
 def count_text(units: list[Unit] | set[Unit]) -> str:
     """``33 集``（电影不算）。"""
-    return f"{sum(len(e) for e in by_season(units).values())} 集"
+    return t("media.episodes.count", count=sum(len(e) for e in by_season(units).values()))
 
 
 def unit_text(unit: Unit, *, with_season: bool) -> str:

@@ -24,7 +24,7 @@ from sqlmodel import select
 import movieclaw_api.services.library.ingest as ingest_mod
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException
-from movieclaw_api.services import jobs
+from movieclaw_api.services import acquisition_ingest, jobs
 from movieclaw_api.services.import_watch_config import ImportWatchConfigService
 from movieclaw_api.services.library.layout import explicit_unit
 from movieclaw_db.engine import dispose_db, get_database, init_db
@@ -42,6 +42,7 @@ from movieclaw_db.models import (
     LibraryFile,
     ManualDownloadIntent,
     MediaItem,
+    SystemNotice,
 )
 from movieclaw_db.models.base import utcnow
 from movieclaw_db.models.downloader_client import ClientType
@@ -81,7 +82,7 @@ async def db(tmp_path, monkeypatch):
     monkeypatch.setattr(ingest_mod, "_failed_retry", {})
     monkeypatch.setattr(ingest_mod, "_last_swept", {})
     monkeypatch.setattr(ingest_mod, "QUIET_SECONDS", 0)
-    monkeypatch.setattr(ingest_mod, "_briefs_cache", (float("-inf"), None))
+    monkeypatch.setattr(acquisition_ingest, "_briefs_cache", (float("-inf"), None))
     yield get_database()
     await jobs.close_job_dispatcher()
     await dispose_db()
@@ -1042,7 +1043,7 @@ async def test_downloader_signal_is_authoritative(db, tmp_path, monkeypatch):
     async def briefs():
         return [brief]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
 
     entry = watch / "Some.Movie.2020"
     entry.mkdir()
@@ -1117,8 +1118,8 @@ async def test_completed_files_are_ingested_while_same_torrent_keeps_downloading
     async def statuses(_matches):
         return [(SimpleNamespace(path_mappings=None), status)]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
-    monkeypatch.setattr(ingest_mod, "_matched_torrent_statuses", statuses)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "_matched_torrent_statuses", statuses)
     library = await _get_library(db, library_id)
     await ingest_mod._sweep_dir(
         _fixed_rule(watch, library_id=library_id), library, execute_inline=True
@@ -1214,8 +1215,8 @@ async def test_completed_file_waits_when_another_torrent_still_writes_same_path(
             (SimpleNamespace(path_mappings=None), writing_status),
         ]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
-    monkeypatch.setattr(ingest_mod, "_matched_torrent_statuses", statuses)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "_matched_torrent_statuses", statuses)
     library = await _get_library(db, library_id)
     await ingest_mod._sweep_dir(
         _fixed_rule(watch, library_id=library_id), library, execute_inline=True
@@ -1301,8 +1302,8 @@ async def test_completed_torrent_creates_file_scoped_job_while_sibling_downloads
             (SimpleNamespace(path_mappings=None), writing_status),
         ]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
-    monkeypatch.setattr(ingest_mod, "_matched_torrent_statuses", statuses)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "_matched_torrent_statuses", statuses)
     async with db.session() as session:
         rule = (await session.execute(select(ImportWatch))).scalar_one()
         library = await session.get(Library, library_id)
@@ -1392,8 +1393,8 @@ async def test_downloading_disc_never_imports_completed_stream_segments(
             )
         ]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
-    monkeypatch.setattr(ingest_mod, "_matched_torrent_statuses", statuses)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "_matched_torrent_statuses", statuses)
     async with db.session() as session:
         rule = (await session.execute(select(ImportWatch))).scalar_one()
         library = await session.get(Library, library_id)
@@ -1442,7 +1443,7 @@ async def test_downloader_outage_fails_closed_without_snapshot_ingest(db, tmp_pa
     async def unavailable():
         return None
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", unavailable)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", unavailable)
     await _sweep_twice(db, library_id, watch)
     assert not (root / "未完成电影 (2026)").exists()
     assert str(entry) in ingest_mod._deferred
@@ -1468,7 +1469,7 @@ async def test_queued_ingest_job_rechecks_downloader_outage_before_snapshot(
     async def unavailable():
         return None
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", unavailable)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", unavailable)
 
     class Context:
         async def current_progress(self):
@@ -1509,7 +1510,7 @@ async def test_legacy_queued_torrent_job_waits_when_reachable_api_returns_empty(
     async def empty():
         return []
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", empty)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", empty)
 
     class Context:
         async def current_progress(self):
@@ -1545,15 +1546,15 @@ async def test_enabled_unverified_downloader_is_unavailable_not_unconfigured(db)
         session.add(row)
         await session.commit()
 
-    ingest_mod._briefs_cache = (float("-inf"), None)
-    assert await ingest_mod._downloader_briefs() is None
+    acquisition_ingest._briefs_cache = (float("-inf"), None)
+    assert await acquisition_ingest.downloader_briefs() is None
 
     async with db.session() as session:
         row = (await session.execute(select(DownloaderClient))).scalar_one()
         row.enabled = False
         await session.commit()
-    ingest_mod._briefs_cache = (float("-inf"), None)
-    assert await ingest_mod._downloader_briefs() == []
+    acquisition_ingest._briefs_cache = (float("-inf"), None)
+    assert await acquisition_ingest.downloader_briefs() == []
 
 
 @pytest.mark.asyncio
@@ -1596,8 +1597,8 @@ async def test_one_unreachable_downloader_makes_combined_brief_incomplete(db, mo
         "movieclaw_downloader.create_downloader",
         lambda config: Adapter(config.url),
     )
-    ingest_mod._briefs_cache = (float("-inf"), None)
-    assert await ingest_mod._downloader_briefs() is None
+    acquisition_ingest._briefs_cache = (float("-inf"), None)
+    assert await acquisition_ingest.downloader_briefs() is None
 
 
 @pytest.mark.asyncio
@@ -1629,7 +1630,7 @@ async def test_persisted_download_name_blocks_transient_empty_torrent_list(
     async def empty():
         return []
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", empty)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", empty)
     await _sweep_twice(db, library_id, watch)
     assert not (root / "受管电影 (2026)").exists()
     assert str(entry) in ingest_mod._deferred
@@ -1653,15 +1654,15 @@ async def test_stale_manual_download_name_no_longer_blocks_ingest(db, tmp_path):
         intent.created_at = utcnow() - MANUAL_DOWNLOAD_INTENT_TTL - timedelta(days=1)
         session.add(intent)
         await session.commit()
-        assert await ingest_mod._has_managed_download_claim(session, entry) is False
+        assert await acquisition_ingest.has_managed_download_claim(session, entry) is False
 
 
 def test_legacy_site_title_matches_real_downloader_name_without_crossing_movie_year():
     """旧台账没有真实下载名时，站点标题允许发布属性差异，但不同年份不串。"""
     actual = "Mission.Impossible.1996.2160p.BluRay.DoVi.x265.10bit.TrueHD5.1-WiKi"
     site = "Mission: Impossible 1996 2160p BluRay DoVi x265 10bit 3Audios TrueHD 5.1-WiKi"
-    assert ingest_mod._download_name_matches(actual, site)
-    assert not ingest_mod._download_name_matches(actual, site.replace("1996", "2018"))
+    assert acquisition_ingest.download_name_matches(actual, site)
+    assert not acquisition_ingest.download_name_matches(actual, site.replace("1996", "2018"))
 
 
 def test_disc_tree_copy_is_atomic_and_idempotent(tmp_path):
@@ -1887,8 +1888,8 @@ async def test_file_scoped_blocked_job_not_woken_by_tree_fingerprint(db, tmp_pat
             (SimpleNamespace(path_mappings=None), writing_status),
         ]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
-    monkeypatch.setattr(ingest_mod, "_matched_torrent_statuses", statuses)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "_matched_torrent_statuses", statuses)
     async with db.session() as session:
         rule = (await session.execute(select(ImportWatch))).scalar_one()
         library = await session.get(Library, library_id)
@@ -2015,8 +2016,8 @@ async def test_blocked_batch_does_not_stall_remaining_episodes(db, tmp_path, mon
             (SimpleNamespace(path_mappings=None), _writing_status()),
         ]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
-    monkeypatch.setattr(ingest_mod, "_matched_torrent_statuses", statuses)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "_matched_torrent_statuses", statuses)
     async with db.session() as session:
         rule = (await session.execute(select(ImportWatch))).scalar_one()
         library = await session.get(Library, library_id)
@@ -2161,7 +2162,7 @@ async def _seed_redelivered_movie(db, tmp_path, monkeypatch, *, attempt_created_
             )
         ]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
     return watch, library_id
 
 
@@ -2278,7 +2279,7 @@ async def test_manual_download_identity_claim_via_info_hash(db, tmp_path, monkey
     async def briefs():
         return [brief]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
     entry = watch / "Cryptic.Manual.Release"
     entry.mkdir()
     (entry / "video.mkv").write_bytes(b"video")
@@ -2294,7 +2295,13 @@ async def test_manual_download_identity_claim_via_info_hash(db, tmp_path, monkey
     async with db.session() as session:
         assert (await session.execute(select(ManualDownloadIntent))).scalar_one_or_none() is None
         # 意图用完即删，来源种子落在文件行上（删片联动要靠它找下载器任务）
-        assert (await session.execute(select(LibraryFile))).scalar_one().info_hash == "manualhash"
+        row = (await session.execute(select(LibraryFile))).scalar_one()
+        assert row.info_hash == "manualhash"
+        # 种子关联归下载领域（library-boundary.md §5）：入库桥同时记一份
+        from movieclaw_db.models import DownloadFileSource
+
+        source = (await session.execute(select(DownloadFileSource))).scalar_one()
+        assert source.library_file_id == row.id and source.info_hash == "manualhash"
 
 
 @pytest.mark.asyncio
@@ -2328,7 +2335,7 @@ async def test_manual_download_import_notifies_submitter(db, tmp_path, monkeypat
     async def briefs():
         return [TorrentBrief(name="Mine", content_name="Mine", completed=True, info_hash="MINE")]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
     entry = watch / "Mine"
     entry.mkdir()
     (entry / "video.mkv").write_bytes(b"video")
@@ -2385,6 +2392,93 @@ async def test_probe_gate_applies_per_file(db, tmp_path, monkeypatch):
     assert record.status == IngestStatus.FAILED
     assert record.imported_count == 1
     assert "探测失败" in (record.message or "")
+
+
+@pytest.mark.asyncio
+async def test_unreadable_episode_goes_pending_without_hourly_retry(db, tmp_path, monkeypatch):
+    """issue #1006：季包里一集内容不可识别（容器头被抹成全零，指纹稳定不会自愈）
+    是确定性失败——其余集照常入库，条目归 pending 并如实说明，不再当环境故障
+    每小时重试、不挂全局红灯；文件变化（换源/继续下载）后自动重新处理。"""
+    root, watch = tmp_path / "tv", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.TV, root=root)
+    item = await _make_item(db, kind=MediaKind.TV, title="测试剧集", year=2024)
+    _stub_identify(monkeypatch, item)
+    monkeypatch.setattr(ingest_mod, "ffprobe_available", lambda: True)
+    broken = {"ok": False}
+    monkeypatch.setattr(
+        ingest_mod,
+        "probe_media",
+        lambda p: None if "ep2" in str(p) and not broken["ok"] else _FAKE_SPEC,
+    )
+    monkeypatch.setattr(
+        ingest_mod, "probe_found_unreadable", lambda p: "ep2" in str(p) and not broken["ok"]
+    )
+    _stub_unit(monkeypatch, lambda file: (1, int(file.stem.removeprefix("ep"))))
+
+    entry = watch / "测试剧集 S01"
+    entry.mkdir()
+    (entry / "ep1.mkv").write_bytes(b"full-episode")
+    (entry / "ep2.mkv").write_bytes(b"\0" * 7)
+
+    await _sweep_twice(db, library_id, watch)
+
+    season_dir = root / "测试剧集 (2024)" / "Season 01"
+    assert (season_dir / "测试剧集 (2024) - S01E01.mkv").exists()
+    assert not (season_dir / "测试剧集 (2024) - S01E02.mkv").exists()
+    async with db.session() as session:
+        record = (await session.execute(select(IngestEntry))).scalar_one()
+        notices = (await session.execute(select(SystemNotice))).scalars().all()
+    assert record.status == IngestStatus.PENDING
+    assert record.imported_count == 1
+    assert "ep2.mkv」内容无法识别" in (record.message or "")
+    assert "可能不完整" not in (record.message or "")
+    assert not ingest_mod._failed_retry  # 不进失败退避表
+    assert not [n for n in notices if n.resolved_at is None]  # 不挂红灯
+
+    # 一天后指纹没变：不重试（attempted_at 不动）
+    async with db.session() as session:
+        row = (await session.execute(select(IngestEntry))).scalar_one()
+        row.attempted_at = row.attempted_at - timedelta(days=1)
+        stale = row.attempted_at
+        await session.commit()
+    await _sweep_twice(db, library_id, watch)
+    async with db.session() as session:
+        row = (await session.execute(select(IngestEntry))).scalar_one()
+    assert row.attempted_at == stale
+
+    # 换源：文件变化 → 指纹变化 → 自动重新处理并补齐
+    broken["ok"] = True
+    (entry / "ep2.mkv").write_bytes(b"fixed-episode-2")
+    await _sweep_twice(db, library_id, watch)
+    assert (season_dir / "测试剧集 (2024) - S01E02.mkv").exists()
+    async with db.session() as session:
+        row = (await session.execute(select(IngestEntry))).scalar_one()
+    assert row.status == IngestStatus.IMPORTED
+
+
+@pytest.mark.asyncio
+async def test_unreadable_main_video_goes_pending(db, tmp_path, monkeypatch):
+    """主视频内容不可识别：同样归 pending 如实说明，而不是 failed 无限重试。"""
+    root, watch = tmp_path / "movies", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    monkeypatch.setattr(ingest_mod, "probe_media", lambda p: None)
+    monkeypatch.setattr(ingest_mod, "probe_found_unreadable", lambda p: True)
+    monkeypatch.setattr(ingest_mod, "ffprobe_available", lambda: True)
+
+    entry = watch / "某电影 (2020)"
+    entry.mkdir()
+    (entry / "movie.mkv").write_bytes(b"\0" * 16)
+
+    await _sweep_twice(db, library_id, watch)
+
+    assert not (root / "某电影 (2020)").exists()
+    async with db.session() as session:
+        record = (await session.execute(select(IngestEntry))).scalar_one()
+    assert record.status == IngestStatus.PENDING
+    assert "主视频「movie.mkv」内容无法识别" in (record.message or "")
+    assert not ingest_mod._failed_retry
 
 
 @pytest.mark.asyncio
@@ -2586,7 +2680,7 @@ async def test_subscription_extra_same_tier_file_not_imported_as_new_version(
     async def briefs():
         return [brief]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
 
     entry = watch / "测试剧集.S01.Pack"
     entry.mkdir()
@@ -2690,7 +2784,7 @@ async def _ingest_shared_folder(db, tmp_path, monkeypatch, *, deliveries, torren
             for info_hash in torrents
         ]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
     if statuses:
 
         async def file_statuses(matches):
@@ -2701,13 +2795,15 @@ async def _ingest_shared_folder(db, tmp_path, monkeypatch, *, deliveries, torren
                         info_hash=info_hash,
                         save_path=str(watch),
                         completed=True,
-                        files=[SimpleNamespace(path=f"{name}/{filename}", selected=True)],
+                        files=[
+                            SimpleNamespace(path=f"{name}/{filename}", selected=True, size_bytes=1)
+                        ],
                     ),
                 )
                 for info_hash, filename in torrents.items()
             ]
 
-        monkeypatch.setattr(ingest_mod, "_matched_torrent_statuses", file_statuses)
+        monkeypatch.setattr(acquisition_ingest, "_matched_torrent_statuses", file_statuses)
 
     library = await _get_library(db, library_id)
     await ingest_mod._sweep_dir(
@@ -2779,7 +2875,13 @@ async def test_ingest_records_imported_event_for_subscribed_plugins(db, tmp_path
     from movieclaw_db.models import DomainEvent, EventConsumer
 
     async with db.session() as session:
-        session.add(EventConsumer(consumer_id="test:ingest", event_name="library.ingest.imported"))
+        session.add(
+            EventConsumer(
+                consumer_id="test:ingest",
+                event_name="library.ingest.completed",
+                event_names=["library.ingest.completed"],
+            )
+        )
         await session.commit()
     durable_events.reset_subscribed()
     try:
@@ -2796,11 +2898,9 @@ async def test_ingest_records_imported_event_for_subscribed_plugins(db, tmp_path
     finally:
         durable_events.reset_subscribed()
     payload = row.payload
-    assert row.name == "library.ingest.imported"
+    assert row.name == "library.ingest.completed"
     assert payload["media"]["title"] == "测试剧集"
-    assert [(f["season"], f["episode"], f["info_hash"]) for f in payload["files"]] == [
-        (1, 9, "hash-e09")
-    ]
+    assert [(f["season"], f["episode"]) for f in payload["files"]] == [(1, 9)]
     assert payload["info_hashes"] == ["hash-e09"]
     assert payload["staging"] is False and payload["intent_owner"] is None
 
@@ -2930,7 +3030,7 @@ async def test_upgrade_delivery_follows_rule_set_ladder_not_neutral(db, tmp_path
     async def briefs():
         return [brief]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
 
     entry = watch / "测试剧集.S01E01.1080p.WEB-DL"
     entry.mkdir()
@@ -3043,7 +3143,7 @@ async def test_all_dup_skipped_still_closes_fulfilled_wanted(db, tmp_path, monke
     async def briefs():
         return [brief]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
 
     entry = watch / "测试剧集.S01E01.AltGroup"
     entry.mkdir()
@@ -3224,7 +3324,7 @@ async def test_wanted_identity_claim_via_info_hash(db, tmp_path, monkeypatch):
     async def briefs():
         return [brief]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
 
     entry = watch / "Cryptic.Release.Name"
     entry.mkdir()
@@ -3941,7 +4041,7 @@ async def test_deferred_recheck_polls_api_and_wakes_on_flip(db, tmp_path, monkey
     async def briefs():
         return [brief]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
     monkeypatch.setattr(ingest_mod, "DEFERRED_POLL_SECONDS", 0.01)
     ingest_mod._deferred[str(watch / "Some.Movie.2020")] = 0.0
 
@@ -4553,7 +4653,7 @@ async def test_upgraded_remux_redelivery_not_imported_again(db, tmp_path, monkey
     async def briefs():
         return [brief]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
     entry = watch / name
     entry.mkdir()
     (entry / f"{name}.mkv").write_bytes(b"same-remux-but-other-size")
@@ -4657,3 +4757,149 @@ async def test_staged_files_feed_the_ingest_staged_slot(db, tmp_path, monkeypatc
     assert all(Path(f["path"]).is_relative_to(staging) and Path(f["path"]).exists() for f in files)
     assert job.input_data["media"]["title"] == "上云剧集"
     assert job.input_data["rule"]["target_path"] == str(staging)
+
+
+# ---------------------------------------------------------------------------
+# strm：监听导入与视频同样识别、改名、落库；不探网盘，门禁改为内容能解析出播放源
+# ---------------------------------------------------------------------------
+
+
+def _no_probe(path):
+    raise AssertionError(f"strm 不该被 ffprobe 探测：{path}")
+
+
+@pytest.mark.asyncio
+async def test_strm_movie_imports_without_probing(db, tmp_path, monkeypatch):
+    """strm 电影：改名硬链进库、内容不变、台账容器记 strm 规格留空（首播时现探）。"""
+    root, watch = tmp_path / "movies", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    item = await _make_item(db, kind=MediaKind.MOVIE, title="某电影", year=2020)
+    _stub_identify(monkeypatch, item)
+    monkeypatch.setattr(ingest_mod, "probe_media", _no_probe)
+    monkeypatch.setattr(ingest_mod, "ffprobe_available", lambda: True)
+
+    entry = watch / "Some.Movie.2020.2160p"
+    entry.mkdir()
+    src = entry / "Some.Movie.2020.2160p.strm"
+    src.write_text("https://pan.example.com/d/Some.Movie.2020.2160p.mkv\n")
+
+    await _sweep_twice(db, library_id, watch)
+
+    target = root / "某电影 (2020)" / "某电影 (2020).strm"
+    assert target.stat().st_ino == src.stat().st_ino
+    assert target.read_text() == "https://pan.example.com/d/Some.Movie.2020.2160p.mkv\n"
+    async with db.session() as session:
+        files = list((await session.execute(select(LibraryFile))).scalars().all())
+        record = (await session.execute(select(IngestEntry))).scalar_one()
+    assert [(f.file_path, f.container, f.video_codec) for f in files] == [
+        (str(target), "strm", None)
+    ]
+    assert record.status == IngestStatus.IMPORTED
+
+
+@pytest.mark.asyncio
+async def test_strm_season_pack_imports_each_episode(db, tmp_path, monkeypatch):
+    """strm 季包（本地挂载路径写法）：逐集落 Season 目录。"""
+    root, watch, mount = tmp_path / "tv", tmp_path / "watch", tmp_path / "cd2"
+    watch.mkdir()
+    mount.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.TV, root=root)
+    item = await _make_item(db, kind=MediaKind.TV, title="测试剧集", year=2024)
+    _stub_identify(monkeypatch, item)
+    monkeypatch.setattr(ingest_mod, "probe_media", _no_probe)
+    monkeypatch.setattr(ingest_mod, "ffprobe_available", lambda: True)
+    _stub_unit(monkeypatch, lambda file: (1, int(file.stem.removeprefix("ep"))))
+
+    entry = watch / "测试剧集 S01"
+    entry.mkdir()
+    for n in (1, 2):
+        (mount / f"ep{n}.mkv").write_bytes(b"cloud")
+        (entry / f"ep{n}.strm").write_text(str(mount / f"ep{n}.mkv"))
+
+    await _sweep_twice(db, library_id, watch, strategy="copy")
+
+    season_dir = root / "测试剧集 (2024)" / "Season 01"
+    for n in (1, 2):
+        landed = season_dir / f"测试剧集 (2024) - S01E0{n}.strm"
+        assert landed.read_text() == str(mount / f"ep{n}.mkv")
+    async with db.session() as session:
+        record = (await session.execute(select(IngestEntry))).scalar_one()
+    assert record.status == IngestStatus.IMPORTED
+    assert record.imported_count == 2
+
+
+@pytest.mark.asyncio
+async def test_unusable_strm_fails_with_reason_and_stays(db, tmp_path, monkeypatch):
+    """strm 内容解析不出播放源（挂载没上线、写坏）：记 failed 带原因、不搬运，文件变化后重试。"""
+    root, watch = tmp_path / "movies", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    item = await _make_item(db, kind=MediaKind.MOVIE, title="某电影", year=2020)
+    _stub_identify(monkeypatch, item)
+    monkeypatch.setattr(ingest_mod, "probe_media", _no_probe)
+
+    entry = watch / "某电影 (2020)"
+    entry.mkdir()
+    (entry / "movie.strm").write_text("/cd2/offline/movie.mkv\n")
+
+    await _sweep_twice(db, library_id, watch)
+
+    assert not (root / "某电影 (2020)").exists()
+    async with db.session() as session:
+        record = (await session.execute(select(IngestEntry))).scalar_one()
+    assert record.status == IngestStatus.FAILED
+    assert "找不到 strm 指向的本地文件" in (record.message or "")
+
+
+def test_same_length_strm_with_different_link_is_not_same_payload(tmp_path):
+    """strm 定长地址（115 pickcode）尺寸相同不代表同一内容：不能被当作「已在库」静默跳过。"""
+    a, b, c = tmp_path / "a.strm", tmp_path / "b.strm", tmp_path / "c.strm"
+    a.write_text("http://p115:8000?pickcode=aaaaaaaa")
+    b.write_text("http://p115:8000?pickcode=bbbbbbbb")
+    c.write_text("http://p115:8000?pickcode=aaaaaaaa")
+    assert not ingest_mod._same_payload(a, b)
+    assert ingest_mod._same_payload(a, c)
+
+
+@pytest.mark.asyncio
+async def test_legacy_skipped_strm_entry_retries_once_after_upgrade(db, tmp_path, monkeypatch):
+    """旧版不认 strm，只有 strm 的条目被记成「没有视频文件，已跳过」：文件没变（指纹相同）
+    升级后也要补偿重跑一次；真没有视频的条目照旧不重跑。"""
+    root, watch = tmp_path / "movies", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    item = await _make_item(db, kind=MediaKind.MOVIE, title="某电影", year=2020)
+    _stub_identify(monkeypatch, item)
+    monkeypatch.setattr(ingest_mod, "probe_media", _no_probe)
+
+    strm_entry, empty_entry = watch / "某电影 (2020)", watch / "只有图片"
+    strm_entry.mkdir()
+    empty_entry.mkdir()
+    (strm_entry / "movie.strm").write_text("https://pan.example.com/a.mkv")
+    (empty_entry / "poster.jpg").write_bytes(b"jpg")
+    async with db.session() as session:
+        for entry in (strm_entry, empty_entry):
+            session.add(
+                IngestEntry(
+                    library_id=library_id,
+                    entry_path=str(entry),
+                    fingerprint=ingest_mod._snapshot(entry).fingerprint,
+                    status=IngestStatus.SKIPPED,
+                    message="条目中没有视频文件，已跳过",
+                    attempted_at=utcnow() - timedelta(days=1),
+                )
+            )
+        await session.commit()
+
+    await _sweep_twice(db, library_id, watch)
+
+    assert (root / "某电影 (2020)" / "某电影 (2020).strm").is_file()
+    async with db.session() as session:
+        records = {
+            Path(r.entry_path).name: r
+            for r in (await session.execute(select(IngestEntry))).scalars()
+        }
+    assert records["某电影 (2020)"].status == IngestStatus.IMPORTED
+    assert records["只有图片"].status == IngestStatus.SKIPPED
+    assert records["只有图片"].attempted_at < utcnow().replace(tzinfo=None) - timedelta(hours=1)

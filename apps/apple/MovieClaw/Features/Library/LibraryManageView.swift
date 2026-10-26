@@ -13,6 +13,7 @@ import SwiftUI
 /// 轮询节奏同 Web：任务中 3 秒（结束后再快轮询 12 秒）/ 刷新元数据 5 秒 / 入库中 10 秒 / 空闲 30 秒。
 /// 页签计数：回收站与分享在别的页签时 30 秒低频轮询，重复文件只在进页与切页签时读一次（结论只在扫描后才变）。
 struct LibraryManageView: View {
+    @Environment(\.cardMetrics) private var cards
     var openCreate: Bool = false
     var initialTab: String?
     /// 条目详情「处理重复」带来的条目（Web `?item=`）：重复文件页签只看这一个条目。
@@ -24,10 +25,10 @@ struct LibraryManageView: View {
 
         var title: String {
             switch self {
-            case .libraries: "媒体库"
-            case .recycle: "回收站"
-            case .duplicates: "重复文件"
-            case .shares: "分享"
+            case .libraries: String(localized: .libraryCustomizeLibrary)
+            case .recycle: String(localized: .libraryManageRecycle)
+            case .duplicates: String(localized: .libraryManageDuplicates)
+            case .shares: String(localized: .libraryManageShares)
             }
         }
     }
@@ -65,16 +66,16 @@ struct LibraryManageView: View {
             if !permissions.canManageLibraries {
                 EmptyState(
                     systemImage: "lock",
-                    title: "没有管理权限",
-                    message: "媒体库的创建、扫描与排序由管理员负责；你可以回到媒体库继续浏览。",
-                    actionTitle: "返回媒体库"
+                    title: String(localized: .libraryManageNoPermission),
+                    message: String(localized: .libraryManageNoPermissionHint),
+                    actionTitle: String(localized: .libraryManageBack)
                 ) { router.pop() }
             } else {
                 page
             }
         }
         .appBackground()
-        .navigationTitle("媒体库管理")
+        .navigationTitle(String(localized: .libraryManagePageTitle))
         .navigationBarTitleDisplayMode(.inline)
         .task {
             if !didApplyInitialTab {
@@ -124,13 +125,13 @@ struct LibraryManageView: View {
                     .sheetFeedback()
             }
         }
-        .alert("为「\(chaptersTarget?.name ?? "")」生成章节？", isPresented: Binding(
+        .alert(String(localized: .libraryFormChaptersTitleNamed(chaptersTarget?.name ?? "")), isPresented: Binding(
             get: { chaptersTarget != nil },
             set: { if !$0 { chaptersTarget = nil } }
         ), presenting: chaptersTarget) { library in
-            Button("开始生成") { startChapters(library, force: false) }
-            Button("已有的章节也重新生成") { startChapters(library, force: true) }
-            Button("取消", role: .cancel) {}
+            Button(String(localized: .libraryConfirmStartChapters)) { startChapters(library, force: false) }
+            Button(String(localized: .libraryConfirmChaptersForce)) { startChapters(library, force: true) }
+            Button(String(localized: .commonCancel), role: .cancel) {}
         } message: { _ in
             Text(ManageConfirmText.chapters)
         }
@@ -185,14 +186,14 @@ struct LibraryManageView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 12) {
-                Text("媒体库管理")
+                Text(String(localized: .libraryManagePageTitle))
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(.white)
                 Spacer(minLength: 8)
                 Button {
                     form = .create
                 } label: {
-                    Label("创建媒体库", systemImage: "plus")
+                    Label(String(localized: .libraryManageCreate), systemImage: "plus")
                         .font(.subheadline.weight(.semibold))
                 }
                 .discoverProminentButton()
@@ -201,30 +202,30 @@ struct LibraryManageView: View {
             ManageFlow(spacing: 8, lineSpacing: 6) {
                 if let libraries {
                     let summary = ManageLibraryRules.summary(libraries)
-                    Text(libraries.isEmpty ? "还没有媒体库" : summary.facts)
+                    Text(libraries.isEmpty ? String(localized: .libraryManageNoLibraries) : summary.facts)
                         .foregroundStyle(Theme.textMuted)
                     if summary.busy > 0 {
-                        ManageFilterChip(active: filter.focus == .busy, dot: Theme.info, title: "\(summary.busy) 个在跑任务") {
+                        ManageFilterChip(active: filter.focus == .busy, dot: Theme.info, title: String(localized: .libraryManageRunningCount(summary.busy))) {
                             toggleFocus(.busy)
                         }
                     }
                     if summary.attention > 0 {
                         ManageFilterChip(active: filter.focus == .attention, dot: summary.missing ? Theme.danger : Theme.warning,
-                                         title: "\(summary.attention) 个库有待处理文件") {
+                                         title: String(localized: .libraryManageAttentionCount(summary.attention))) {
                             toggleFocus(.attention)
                         }
                     }
                     if !libraries.isEmpty, summary.busy == 0, summary.attention == 0 {
-                        Text("一切正常").foregroundStyle(Theme.textFaint)
+                        Text(String(localized: .libraryManageHealthy)).foregroundStyle(Theme.textFaint)
                     }
                 } else {
-                    Text("正在汇总媒体库…").foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .libraryManageSummarizing)).foregroundStyle(Theme.textMuted)
                 }
             }
             .font(.footnote)
             .accessibilityIdentifier("manage-summary")
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 8)
     }
 
@@ -236,7 +237,7 @@ struct LibraryManageView: View {
                     tabButton(t)
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
         }
     }
 
@@ -274,17 +275,17 @@ struct LibraryManageView: View {
     @ViewBuilder
     private var librariesTab: some View {
         if failed, libraries != nil {
-            ManageBanner(text: "与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据")
-                .padding(.horizontal, Theme.pagePadding)
+            ManageBanner(text: String(localized: .libraryHomeStale))
+                .padding(.horizontal, cards.edge)
                 .padding(.top, 16)
         }
         if let libraries {
             if libraries.isEmpty {
                 EmptyState(
                     systemImage: "square.stack.3d.up",
-                    title: "为收藏准备一个家",
-                    message: "创建电影库或剧集库，选好根目录后，订阅完成的内容会自动整理到这里。",
-                    actionTitle: "创建第一个媒体库"
+                    title: String(localized: .libraryHomeCreateTitle),
+                    message: String(localized: .libraryHomeCreateHint),
+                    actionTitle: String(localized: .libraryHomeCreate)
                 ) { form = .create }
                     .padding(.top, 40)
             } else {
@@ -292,15 +293,15 @@ struct LibraryManageView: View {
             }
         } else if failed {
             VStack(spacing: 12) {
-                Text("媒体库加载失败").font(.subheadline).foregroundStyle(Theme.textMuted)
-                Button("重试") { Task { await reload() } }.buttonStyle(.glass)
+                Text(String(localized: .libraryHomeLoadFailed)).font(.subheadline).foregroundStyle(Theme.textMuted)
+                Button(String(localized: .commonRetry)) { Task { await reload() } }.buttonStyle(.glass)
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 60)
         } else {
             HStack(spacing: 10) {
                 ProgressView()
-                Text("正在加载媒体库…").font(.subheadline).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .libraryHomeLoading)).font(.subheadline).foregroundStyle(Theme.textMuted)
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 60)
@@ -312,9 +313,9 @@ struct LibraryManageView: View {
         let visible = filter.apply(libraries)
         // 工具栏：搜索 / 类型筛选（状态筛选在页头摘要的胶囊上）
         VStack(alignment: .leading, spacing: 10) {
-            ManageSearchField(text: $filter.query, placeholder: "按库名或根目录搜索", identifier: "manage-search")
+            ManageSearchField(text: $filter.query, placeholder: String(localized: .libraryManageFilterPlaceholder), identifier: "manage-search")
             ManageFlow(spacing: 6, lineSpacing: 6) {
-                ManageFilterChip(active: filter.kind == nil, title: "全部 \(libraries.count)") { filter.kind = nil }
+                ManageFilterChip(active: filter.kind == nil, title: String(localized: .libraryArtworkAll(libraries.count))) { filter.kind = nil }
                 ForEach(ManageLibraryRules.kindOrder, id: \.self) { kind in
                     let count = libraries.filter { $0.kind == kind }.count
                     if count > 0 {
@@ -325,21 +326,21 @@ struct LibraryManageView: View {
                 }
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 18)
 
         // 收藏范围重叠提示：只读不阻断
         ForEach(ManageLibraryRules.routingOverlapWarnings(libraries), id: \.self) { warning in
             ManageBanner(text: warning)
-                .padding(.horizontal, Theme.pagePadding)
+                .padding(.horizontal, cards.edge)
                 .padding(.top, 14)
         }
 
         VStack(spacing: 0) {
             if visible.isEmpty {
                 HStack(spacing: 8) {
-                    Text("没有符合条件的媒体库").foregroundStyle(Theme.textMuted)
-                    Button("清除筛选") { filter = ManageLibraryFilter() }
+                    Text(String(localized: .libraryManageNoMatches)).foregroundStyle(Theme.textMuted)
+                    Button(String(localized: .libraryManageClearFilters)) { filter = ManageLibraryFilter() }
                         .foregroundStyle(Theme.info)
                         .accessibilityIdentifier("manage-clear-filter")
                 }
@@ -356,13 +357,13 @@ struct LibraryManageView: View {
         }
         .background(Color.white.opacity(0.02), in: .rect(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Theme.line))
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 14)
 
-        Text("顺序即首页「我的媒体库」的展示顺序，在 ··· 菜单里「调整顺序」")
+        Text(String(localized: .libraryManageMobileOrderHint))
             .font(.caption)
             .foregroundStyle(Theme.textFaint)
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.top, 10)
     }
 
@@ -387,7 +388,7 @@ struct LibraryManageView: View {
             chapterImages: { chaptersTarget = $0 },
             edit: { form = .edit($0.id) },
             setDefault: { library in
-                run("已将「\(library.name)」设为默认库") { _ = try await api.librarySetDefault(libraryId: library.id) }
+                run(String(localized: .libraryManageDefaultSet(library.name))) { _ = try await api.librarySetDefault(libraryId: library.id) }
             },
             toggleHome: toggleHome,
             reorder: { reordering = true },
@@ -416,8 +417,8 @@ struct LibraryManageView: View {
             return
         }
         Task {
-            guard await feedback.confirm("扫描「\(library.name)」？", message: ManageConfirmText.scan, confirmTitle: "开始扫描") else { return }
-            run("已开始扫描「\(library.name)」") { _ = try await api.libraryScanStart(libraryId: library.id) }
+            guard await feedback.confirm(String(localized: .libraryConfirmScanTitle(library.name)), message: ManageConfirmText.scan, confirmTitle: String(localized: .libraryConfirmStartScan)) else { return }
+            run(String(localized: .libraryManageScanStarted(library.name))) { _ = try await api.libraryScanStart(libraryId: library.id) }
         }
     }
 
@@ -430,9 +431,9 @@ struct LibraryManageView: View {
             let caps = library.capabilities
             let ok: Bool
             if !caps.scraped, caps.playable {
-                ok = await feedback.confirm("重新读取「\(library.name)」的 NFO 与封面？", message: ManageConfirmText.rereadNfo, confirmTitle: "开始读取")
+                ok = await feedback.confirm(String(localized: .libraryConfirmReadLibraryTitle(library.name)), message: ManageConfirmText.rereadNfo, confirmTitle: String(localized: .libraryConfirmStartRead))
             } else {
-                ok = await feedback.confirm("刷新「\(library.name)」的元数据？", message: ManageConfirmText.refresh, confirmTitle: "开始刷新")
+                ok = await feedback.confirm(String(localized: .libraryConfirmRefreshLibraryTitle(library.name)), message: ManageConfirmText.refresh, confirmTitle: String(localized: .libraryConfirmStartRefresh))
             }
             guard ok else { return }
             run { _ = try await api.libraryMetadataRefreshLibrary(libraryId: library.id) }
@@ -451,7 +452,7 @@ struct LibraryManageView: View {
             excludeFromHome: !library.excludeFromHome,
             rootPaths: library.rootPaths
         )
-        run(library.excludeFromHome ? "「\(library.name)」已在首页展示" : "「\(library.name)」已从首页排除") {
+        run(library.excludeFromHome ? String(localized: .libraryManageShownHome(library.name)) : String(localized: .libraryManageHiddenHome(library.name))) {
             _ = try await api.libraryUpdate(libraryId: library.id, body: body)
         }
     }
@@ -459,12 +460,12 @@ struct LibraryManageView: View {
     private func delete(_ library: API.LibraryView) {
         Task {
             guard await feedback.confirm(
-                "删除媒体库「\(library.name)」？",
-                message: "磁盘文件不受影响，挂在它上面的订阅将回落到该类型的默认库。",
-                confirmTitle: "删除库",
+                String(localized: .libraryManageDeleteTitle(library.name)),
+                message: String(localized: .libraryManageRemoveHint),
+                confirmTitle: String(localized: .libraryActionsDelete),
                 destructive: true
             ) else { return }
-            run("已删除媒体库「\(library.name)」") { _ = try await api.libraryDelete(libraryId: library.id) }
+            run(String(localized: .libraryManageDeleted(library.name))) { _ = try await api.libraryDelete(libraryId: library.id) }
         }
     }
 
@@ -476,7 +477,7 @@ struct LibraryManageView: View {
             do {
                 _ = try await api.libraryReorder(body: API.LibraryReorderPayload(orderedIds: next.map(\.id)))
                 await reload()
-                feedback.success("顺序已更新，首页「我的媒体库」同步生效")
+                feedback.success(String(localized: .libraryManageOrderSaved))
             } catch {
                 libraries = previous
                 feedback.error(error)
@@ -580,7 +581,7 @@ struct ManageReorderSheet: View {
                             .buttonStyle(.glass)
                             .buttonBorderShape(.circle)
                             .disabled(index == 0)
-                            .accessibilityLabel("「\(library.name)」上移")
+                            .accessibilityLabel(String(localized: .libraryManageMoveUp(library.name)))
                             .accessibilityIdentifier("reorder-up-\(library.id)")
                             Button {
                                 if let next = ManageLibraryRules.move(draft, from: index, to: index + 1) { draft = next }
@@ -590,23 +591,23 @@ struct ManageReorderSheet: View {
                             .buttonStyle(.glass)
                             .buttonBorderShape(.circle)
                             .disabled(index == draft.count - 1)
-                            .accessibilityLabel("「\(library.name)」下移")
+                            .accessibilityLabel(String(localized: .libraryManageMoveDown(library.name)))
                             .accessibilityIdentifier("reorder-down-\(library.id)")
                         }
                     }
                 } footer: {
-                    Text("这也是首页「我的媒体库」的展示顺序。")
+                    Text(String(localized: .libraryManageOrderHint))
                 }
             }
             .scrollContentBackground(.hidden)
-            .navigationTitle("调整顺序")
+            .navigationTitle(String(localized: .libraryManageOrder))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }.accessibilityIdentifier("reorder-cancel")
+                    Button(String(localized: .commonCancel)) { dismiss() }.accessibilityIdentifier("reorder-cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存顺序") {
+                    Button(String(localized: .libraryManageSaveOrder)) {
                         onSubmit(draft)
                         dismiss()
                     }
@@ -615,7 +616,7 @@ struct ManageReorderSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .adaptiveDetents([.medium, .large])
         .presentationBackground(.regularMaterial)
         .onAppear { draft = libraries }
     }
@@ -688,7 +689,7 @@ struct ManageSearchField: View {
                         .contentShape(Rectangle().inset(by: -12))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("清除搜索")
+                .accessibilityLabel(String(localized: .libraryManageClearSearch))
             }
         }
         .font(.subheadline)

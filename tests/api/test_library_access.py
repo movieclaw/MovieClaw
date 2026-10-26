@@ -14,13 +14,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import sqlite3
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
-from sqlmodel import select
+from sqlalchemy.exc import OperationalError
+from sqlmodel import SQLModel, select
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services.auth import Principal, reset_auth_state
@@ -115,42 +119,67 @@ def _update_library(client: TestClient, library_id: int, **fields) -> dict:
     return resp.json()["data"]
 
 
+def _database_locked(exc: OperationalError) -> bool:
+    orig = getattr(exc, "orig", None)
+    return isinstance(orig, sqlite3.OperationalError) and "locked" in str(orig).lower()
+
+
+async def _commit_new(factory: Callable[[], SQLModel]) -> SQLModel:
+    """提交一行。
+
+    建库会立刻排队扫描。扫描收尾写库存统计时占着 SQLite 写锁，这里用独立
+    会话播种，CI 上可能超过引擎的 5 秒 busy_timeout。锁放开后重试这一次插入。
+    """
+    delay = 0.2
+    for attempt in range(4):
+        async with get_database().session() as session:
+            row = factory()
+            session.add(row)
+            try:
+                await session.commit()
+            except OperationalError as exc:
+                if not _database_locked(exc) or attempt == 3:
+                    raise
+            else:
+                return row
+        await asyncio.sleep(delay)
+        delay *= 2
+    raise AssertionError("插入未提交")
+
+
 async def _seed_item(library_id: int, title: str, tmdb_id: int) -> int:
     """直接播种一个有在位台账的电影条目，返回 media_item_id。"""
-    async with get_database().session() as session:
-        item = MediaItem(
+    item = await _commit_new(
+        lambda: MediaItem(
             kind="movie", tmdb_id=tmdb_id, title=title, original_title=title, year=2020, aliases=[]
         )
-        session.add(item)
-        await session.commit()
-        session.add(
-            LibraryFile(
-                library_id=library_id,
-                media_item_id=item.id,
-                file_path=f"/media/{library_id}/{tmdb_id}.mkv",
-                source="scanned",
-                size_bytes=1_000,
-            )
+    )
+    assert item.id is not None
+    await _commit_new(
+        lambda: LibraryFile(
+            library_id=library_id,
+            media_item_id=item.id,
+            file_path=f"/media/{library_id}/{tmdb_id}.mkv",
+            source="scanned",
+            size_bytes=1_000,
         )
-        await session.commit()
-        assert item.id is not None
-        return item.id
+    )
+    return item.id
 
 
 async def _seed_state(
     member_id: int, media_item_id: int, *, last_played_at: datetime | None = None
 ) -> None:
-    async with get_database().session() as session:
-        session.add(
-            PlaybackState(
-                member_id=member_id,
-                media_item_id=media_item_id,
-                position_ms=60_000,
-                play_count=1,
-                last_played_at=last_played_at or utcnow(),
-            )
+    played_at = last_played_at or utcnow()
+    await _commit_new(
+        lambda: PlaybackState(
+            member_id=member_id,
+            media_item_id=media_item_id,
+            position_ms=60_000,
+            play_count=1,
+            last_played_at=played_at,
         )
-        await session.commit()
+    )
 
 
 def _write_poster(media_item_id: int) -> None:

@@ -27,7 +27,7 @@ from tests.api.test_library_ingest import (
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.plugins.local import PACKAGE
-from movieclaw_api.services import durable_events
+from movieclaw_api.services import acquisition_ingest, durable_events
 from movieclaw_api.services.library import ingest as ingest_mod
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import ImportWatch, Job, JobStatus, LibraryFile
@@ -144,7 +144,7 @@ def test_staged_files_go_to_the_cloud_and_come_back_as_signed_strm(
     for table in ("_stability", "_deferred", "_failed_retry", "_last_swept"):
         monkeypatch.setattr(ingest_mod, table, {})
     monkeypatch.setattr(ingest_mod, "QUIET_SECONDS", 0)
-    monkeypatch.setattr(ingest_mod, "_briefs_cache", (float("-inf"), None))
+    monkeypatch.setattr(acquisition_ingest, "_briefs_cache", (float("-inf"), None))
     monkeypatch.setattr(ingest_mod, "probe_media", lambda _path: _FAKE_SPEC)
     _stub_unit(monkeypatch, lambda file: (1, int(file.stem.removeprefix("ep"))))
     entry = watch / "上云剧集 S01"

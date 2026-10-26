@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 import { CheckIcon, ChevronDownIcon } from "@/components/icons";
@@ -116,9 +117,10 @@ export function MultiFilterMenu({
   /** 菜单顶部的一句说明（"可多选 · 维度内是「或」"之类） */
   hint?: string;
 }) {
+  const t = useTranslations();
   const current =
     selected.length === 0
-      ? "全部"
+      ? t("common.all")
       : selected.length === 1
         ? (options.find((o) => o.value === selected[0])?.label ?? selected[0])
         : `${options.find((o) => o.value === selected[0])?.label ?? selected[0]} +${selected.length - 1}`;
@@ -148,7 +150,7 @@ export function MultiFilterMenu({
           {hint && (
             <DropdownMenu.Label className="px-3 pb-1 pt-1.5 text-caption text-[var(--text-faint)]">
               {hint}
-              {selected.length > 0 && ` · 已选 ${selected.length}`}
+              {selected.length > 0 && t("library.filters.selectedSuffix", { count: selected.length })}
             </DropdownMenu.Label>
           )}
           {options.map((option) => {

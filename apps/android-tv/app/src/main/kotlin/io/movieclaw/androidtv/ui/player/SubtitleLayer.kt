@@ -31,9 +31,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.em
 import androidx.media3.common.text.Cue
 import io.movieclaw.androidtv.ui.components.Text
-import io.movieclaw.androidtv.core.playback.SubtitleCue
-import io.movieclaw.androidtv.core.playback.SubtitleStyle
-import io.movieclaw.androidtv.core.playback.WebVtt
+import io.movieclaw.core.playback.SubtitleCue
+import io.movieclaw.core.playback.SubtitleStyle
+import io.movieclaw.core.playback.WebVtt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive

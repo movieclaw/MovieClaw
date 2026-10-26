@@ -5,13 +5,14 @@ import SwiftUI
 /// - TMDB 片单每页 20 条，滚到底自动续页（失败给「重试下一页」）；豆瓣片单一次取完（limit 500）；
 /// - 顶部可按片名搜索、按类型筛选**已加载**的条目（纯本地过滤，不触发请求；过滤期间不自动续页）。
 struct DiscoverCollectionView: View {
+    @Environment(\.cardMetrics) private var cards
     let kind: String
     let provider: String
     let collectionId: String
 
     @Environment(\.api) private var api
     @State private var items: [DiscoverPosterItem]?
-    @State private var title = "影视片单"
+    @State private var title = String(localized: .mediaDiscoveryCollectionTitle)
     @State private var nextPage = 2
     @State private var totalResults = 0
     @State private var hasMore = false
@@ -46,7 +47,7 @@ struct DiscoverCollectionView: View {
                 header
                 if let items {
                     if filtered.isEmpty {
-                        Text("没有找到匹配的影片")
+                        Text(String(localized: .libraryMediaListEmpty))
                             .foregroundStyle(Theme.textMuted)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 60)
@@ -65,7 +66,7 @@ struct DiscoverCollectionView: View {
                         HStack(spacing: 12) {
                             Text(error).font(.subheadline).foregroundStyle(Theme.textMuted)
                             if hasMore {
-                                Button("重试下一页") { Task { await loadNextPage() } }
+                                Button(String(localized: .libraryMediaListRetryNext)) { Task { await loadNextPage() } }
                                     .buttonStyle(.glass)
                             }
                         }
@@ -74,7 +75,7 @@ struct DiscoverCollectionView: View {
                         .cardStyle(radius: 12)
                     }
                     if !hasMore, !filtered.isEmpty, !filteringLoaded {
-                        Text("已加载全部 \(items.count) 部影片")
+                        Text(String(localized: .mediaDiscoveryAllLoaded(items.count)))
                             .font(.caption).foregroundStyle(Theme.textFaint)
                             .frame(maxWidth: .infinity)
                     }
@@ -83,17 +84,17 @@ struct DiscoverCollectionView: View {
                         .padding(.top, 40)
                 } else {
                     LazyVGrid(columns: DiscoverGrid.wideColumns, spacing: 28) {
-                        ForEach(0 ..< 12, id: \.self) { _ in
+                        ForEach(0 ..< cards.skeletonGridCount(phone: 12), id: \.self) { _ in
                             DiscoverSkeletonBlock(cornerRadius: Theme.posterRadius).aspectRatio(2 / 3, contentMode: .fit)
                         }
                     }
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .padding(.bottom, 32)
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic),
-                    prompt: isTMDB ? "搜索已加载片名" : "搜索片名")
+                    prompt: isTMDB ? String(localized: .libraryMediaListSearchLoaded) : String(localized: .libraryMediaListSearch))
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .appBackground()
@@ -111,17 +112,17 @@ struct DiscoverCollectionView: View {
                 .font(.title.bold())
                 .foregroundStyle(Theme.text)
             Text(items.map { items in
-                isTMDB ? "已加载 \(items.count) / \(totalResults.formatted()) 部影片" : "完整收录 \(items.count) 部影片"
-            } ?? "正在读取完整榜单…")
+                isTMDB ? String(localized: .libraryMediaListLoadedCount(items.count, totalResults)) : String(localized: .libraryMediaListFullCount(items.count))
+            } ?? String(localized: .libraryMediaListLoading))
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
             if !genres.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        Text(isTMDB ? "已加载类型" : "类型")
+                        Text(isTMDB ? String(localized: .libraryMediaListLoadedGenres) : String(localized: .mediaDiscoveryType))
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.textMuted)
-                        DiscoverChip(label: "全部", active: selectedGenres.isEmpty) { selectedGenres = [] }
+                        DiscoverChip(label: String(localized: .mediaFiltersAll), active: selectedGenres.isEmpty) { selectedGenres = [] }
                         ForEach(genres, id: \.name) { genre in
                             DiscoverChip(label: genre.name, count: genre.count, active: selectedGenres.contains(genre.name)) {
                                 if let index = selectedGenres.firstIndex(of: genre.name) {
@@ -132,7 +133,7 @@ struct DiscoverCollectionView: View {
                             }
                         }
                         if !selectedGenres.isEmpty {
-                            Button("清除筛选（\(selectedGenres.count)）") { selectedGenres = [] }
+                            Button(String(localized: .libraryMediaListClearCount(selectedGenres.count))) { selectedGenres = [] }
                                 .font(.subheadline)
                         }
                     }
@@ -154,7 +155,7 @@ struct DiscoverCollectionView: View {
             nextPage = result.page + 1
         } catch is CancellationError {
         } catch {
-            self.error = error.localizedDescription.isEmpty ? "榜单加载失败，请稍后重试" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .libraryMediaListLoadFailed) : error.localizedDescription
         }
     }
 
@@ -172,7 +173,7 @@ struct DiscoverCollectionView: View {
             nextPage = result.page + 1
         } catch is CancellationError {
         } catch {
-            self.error = error.localizedDescription.isEmpty ? "下一页加载失败，请稍后重试" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .libraryMediaListNextFailed) : error.localizedDescription
         }
     }
 }

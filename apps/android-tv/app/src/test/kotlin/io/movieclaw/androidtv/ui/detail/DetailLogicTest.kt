@@ -1,16 +1,17 @@
 package io.movieclaw.androidtv.ui.detail
 
-import io.movieclaw.androidtv.core.model.generated.ActorView
-import io.movieclaw.androidtv.core.model.generated.AudioStreamView
-import io.movieclaw.androidtv.core.model.generated.DirectorView
-import io.movieclaw.androidtv.core.model.generated.EpisodeView
-import io.movieclaw.androidtv.core.model.generated.LibraryFileView
-import io.movieclaw.androidtv.core.model.generated.LibraryItemDetailView
-import io.movieclaw.androidtv.core.model.generated.LocalMetaView
-import io.movieclaw.androidtv.core.model.generated.PersonCreditView
-import io.movieclaw.androidtv.core.model.generated.PersonView
+import io.movieclaw.core.model.generated.ActorView
+import io.movieclaw.core.model.generated.AudioStreamView
+import io.movieclaw.core.model.generated.DirectorView
+import io.movieclaw.core.model.generated.EpisodeView
+import io.movieclaw.core.model.generated.LibraryFileView
+import io.movieclaw.core.model.generated.LibraryItemDetailView
+import io.movieclaw.core.model.generated.LocalMetaView
+import io.movieclaw.core.model.generated.PersonCreditView
+import io.movieclaw.core.model.generated.PersonView
 import io.movieclaw.androidtv.ui.stage.StageBadge
 import io.movieclaw.androidtv.ui.stage.episodeLine
+import io.movieclaw.androidtv.ui.stage.episodeTitle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -156,6 +157,9 @@ class DetailLogicTest {
         assertEquals(6L, DetailLogic.chooseEpisode(list, 6)?.episodeNumber)
         assertEquals(2L, DetailLogic.chooseEpisode(list, 9)?.episodeNumber)
         assertEquals(2L, DetailLogic.chooseEpisode(list, null)?.episodeNumber)
+        // 服务端锚点优先于客户端扫描；指定的那一集仍在它前面
+        assertEquals(6L, DetailLogic.chooseEpisode(list, null, resume = 6)?.episodeNumber)
+        assertEquals(1L, DetailLogic.chooseEpisode(list, 1, resume = 6)?.episodeNumber)
     }
 
     @Test
@@ -180,6 +184,12 @@ class DetailLogicTest {
         assertEquals("第 2 季 第 6 集", episodeLine(2, 6, "episode 6"))
         assertEquals("第 2 季 第 6 集", episodeLine(2, 6, "  "))
         assertEquals("第 1 季 第 1 集", episodeLine(1, 1, null))
+        // 分集卡、全部分集、下一集卡片共用：占位名不算名字
+        assertEquals("归来", episodeTitle(" 归来 "))
+        assertNull(episodeTitle("第 1 集"))
+        assertNull(episodeTitle("第1集"))
+        assertNull(episodeTitle("Episode 12"))
+        assertNull(episodeTitle(null))
     }
 
     @Test
@@ -214,11 +224,13 @@ class DetailLogicTest {
 
     @Test
     fun lowerGeometry() {
-        assertEquals(82, DetailLogic.lowerGap(isMovie = false, hasSeries = false))
-        assertEquals(20, DetailLogic.lowerGap(isMovie = true, hasSeries = true))
-        assertEquals(164, DetailLogic.lowerGap(isMovie = true, hasSeries = false))
+        assertEquals(82, DetailLogic.lowerGap(isMovie = false))
+        // 电影露演职员一行的上沿（竖版人物卡，与原先露系列一行同样多）
+        assertEquals(20, DetailLogic.lowerGap(isMovie = true))
         assertEquals(330, DetailLogic.lowerScreenTop(true))
         assertEquals(250, DetailLogic.lowerScreenTop(false))
+        assertEquals(330, DetailLogic.lowerScreenTop(false, hasRangeTabs = true))
+        assertEquals(410, DetailLogic.lowerScreenTop(true, hasRangeTabs = true))
         assertEquals("特别篇", DetailLogic.seasonLabel(0))
         assertEquals("第 3 季", DetailLogic.seasonLabel(3))
     }

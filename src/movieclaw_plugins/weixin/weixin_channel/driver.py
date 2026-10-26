@@ -49,10 +49,21 @@ _STATUS = {
 
 class WeixinDriver(AdapterDriver):
     title = "微信"
+    title_localized = {"en": "WeChat"}
     description = "手机扫码绑定，无需自建机器人"
+    description_localized = {
+        "en": "Scan with your phone to link an account. No bot setup is needed"
+    }
     capabilities = Capabilities(receive=True, typing=True, max_text_len=WeixinAdapter.max_text_len)
     binding = Binding.flow(
-        hint="打开手机微信扫描下方二维码。扫码人即唯一可对话的用户，同时也是推送目标。"
+        hint="打开手机微信扫描下方二维码。扫码人即唯一可对话的用户，同时也是推送目标。",
+        hint_localized={
+            "en": (
+                "Scan the QR code below with WeChat on your phone. The person who "
+                "scans it becomes the only user who can chat with the bot and "
+                "receive notifications."
+            )
+        },
     )
 
     def __init__(self) -> None:
@@ -90,7 +101,12 @@ class WeixinDriver(AdapterDriver):
     async def flow_state(self, flow_id: str) -> FlowState:
         challenge = self._registry.get(flow_id)
         if challenge is None:
-            return FlowState(flow_id=flow_id, status="expired", message="绑定已过期，请重新发起")
+            return FlowState(
+                flow_id=flow_id,
+                status="expired",
+                message="绑定已过期，请重新发起",
+                message_localized={"en": "This linking request has expired. Start again"},
+            )
         return self._snapshot(challenge)
 
     async def flow_input(self, flow_id: str, value: str) -> FlowState:
@@ -112,8 +128,10 @@ class WeixinDriver(AdapterDriver):
             flow_id=challenge.challenge_id,
             status=status,  # type: ignore[arg-type]
             message=challenge.message,
+            message_localized=challenge.message_localized,
             qr=challenge.qrcode_url or None,
             input_label="输入手机微信上显示的配对数字" if status == "need_input" else None,
+            input_label_localized={"en": "WeChat pairing code"} if status == "need_input" else {},
             result=result,
         )
 

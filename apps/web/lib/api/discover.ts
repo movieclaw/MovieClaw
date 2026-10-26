@@ -146,6 +146,8 @@ interface DiscoveredTitleMetadataDto {
   network: string | null;
   aliases: string[];
   source_url: string | null;
+  /** 国际英文名；豆瓣条目没有 */
+  english_title?: string | null;
 }
 
 interface MediaImageDto {
@@ -459,6 +461,8 @@ export interface MediaDetailInfo {
   network?: string;
   aliases: string[];
   sourceUrl?: string;
+  /** 国际英文名（TMDB 译名）：「搜索资源」与中文名、原名一起搜；豆瓣条目没有 */
+  englishTitle?: string;
 }
 
 export interface MediaImage {
@@ -556,6 +560,7 @@ export async function fetchDiscoveredTitleDetails(
       network: dto.metadata.network ?? undefined,
       aliases: dto.metadata.aliases,
       sourceUrl: dto.metadata.source_url ?? undefined,
+      englishTitle: dto.metadata.english_title ?? undefined,
     },
     videos: (dto.videos ?? []).map(toVideo),
     backdropOriginalUrl: dto.backdrop_original_url

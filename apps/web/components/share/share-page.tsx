@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useCallback, useEffect, useState } from "react";
 
 import { AuthError, AuthField, AuthScreen } from "@/components/auth-screen";
@@ -20,12 +23,13 @@ type Phase =
   | { kind: "collection" };
 
 /** 探针失败 → 访客看得懂的一句话（后端 message 已是中文，直接用）。 */
-export function unavailableMessage(error: unknown): string {
+export function unavailableMessage(error: unknown, locale?: AppLocale): string {
+  const t = appTranslator(locale);
   if (error instanceof HttpError) {
-    if (error.status === 404) return error.message || "分享不存在或已取消";
-    return error.message || "暂时无法打开这条分享，请稍后再试";
+    if (error.status === 404) return error.message || t("library.share.missing");
+    return error.message || t("library.share.unavailable");
   }
-  return "无法连接到服务器，请检查网络后重试";
+  return t("library.share.networkFailed");
 }
 
 /**
@@ -36,6 +40,8 @@ export function unavailableMessage(error: unknown): string {
  *       → 可看 → 影片页
  */
 export function SharePage({ slug }: { slug: string }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
 
   // 解锁之后要知道这条链接是"一部片"还是"一个合集"——两者的落地页不一样
@@ -55,9 +61,9 @@ export function SharePage({ slug }: { slug: string }) {
         );
       })
       .catch((error: unknown) =>
-        setPhase({ kind: "unavailable", message: unavailableMessage(error) }),
+        setPhase({ kind: "unavailable", message: unavailableMessage(error, locale) }),
       );
-  }, [slug]);
+  }, [slug, locale]);
 
   useEffect(() => {
     setPhase({ kind: "loading" });
@@ -94,14 +100,15 @@ export function SharePage({ slug }: { slug: string }) {
   return (
     <div className="flex min-h-dvh items-center justify-center gap-2.5 text-ui text-white/60">
       <BrandLoader className="size-5" />
-      正在打开分享…
+      {t("library.share.opening")}
     </div>
   );
 }
 
 /** 密码卡片：与登录页同一个外壳，但没有任何站内入口。 */
 function ShareGate({ slug, onUnlocked }: { slug: string; onUnlocked: () => void }) {
-  usePageTitle("需要密码");
+  const t = useTranslations();
+  usePageTitle(t("library.share.passwordRequired"));
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -117,8 +124,8 @@ function ShareGate({ slug, onUnlocked }: { slug: string; onUnlocked: () => void 
     } catch (e) {
       setError(
         e instanceof HttpError
-          ? e.message || "密码不对，请重新输入"
-          : "无法连接到服务器，请检查网络后重试",
+          ? e.message || t("library.share.wrongPassword")
+          : t("library.share.networkFailed"),
       );
     } finally {
       setBusy(false);
@@ -126,10 +133,11 @@ function ShareGate({ slug, onUnlocked }: { slug: string; onUnlocked: () => void 
   };
 
   return (
-    <AuthScreen title="需要密码" subtitle="这是一条受密码保护的分享，输入密码后即可观看。">
+    <AuthScreen title={t("library.share.passwordRequired")} subtitle={t("library.share.passwordIntro")}>
       <form onSubmit={submit} className="space-y-4">
         <AuthField
-          label="密码"
+          label={t("library.share.password")}
+          aria-label={t("library.share.password")}
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -143,7 +151,7 @@ function ShareGate({ slug, onUnlocked }: { slug: string; onUnlocked: () => void 
           disabled={busy || !password.trim()}
           className="w-full rounded-xl bg-white px-4 py-2.5 text-ui font-semibold text-black transition hover:bg-white/90 disabled:opacity-50"
         >
-          {busy ? "正在验证…" : "打开"}
+          {busy ? t("library.share.verifying") : t("library.share.open")}
         </button>
       </form>
     </AuthScreen>
@@ -151,11 +159,12 @@ function ShareGate({ slug, onUnlocked }: { slug: string; onUnlocked: () => void 
 }
 
 function ShareUnavailable({ message }: { message: string }) {
-  usePageTitle("分享不可用");
+  const t = useTranslations();
+  usePageTitle(t("library.share.unavailableTitle"));
   return (
-    <AuthScreen title={message} subtitle="请向分享者确认链接是否仍然有效。">
+    <AuthScreen title={message} subtitle={t("library.share.confirmLink")}>
       <p className="text-caption text-[var(--text-faint)]">
-        分享链接有有效期，到期或被取消后就无法再打开。
+        {t("library.share.expiryHint")}
       </p>
     </AuthScreen>
   );

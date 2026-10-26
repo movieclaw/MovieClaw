@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { type CSSProperties, useCallback, useEffect, useState } from "react";
 
 import { BrandLoader } from "@/components/brand-loader";
@@ -15,11 +16,7 @@ import {
 import { cachedImageUrl, responsiveImage } from "@/lib/image-proxy";
 
 /** tab 顺序与文案：label 用在 tab 与锁定提示，noun 用在"没有候选"的句子里 */
-const TABS: { key: ArtworkKind; label: string; noun: string }[] = [
-  { key: "backdrop", label: "背景", noun: "背景图" },
-  { key: "poster", label: "海报", noun: "海报" },
-  { key: "logo", label: "徽标", noun: "徽标" },
-];
+
 
 /** 徽标是透明底 PNG：铺深色棋盘格衬底，透明区域一眼可见，白字徽标也看得清 */
 const CHECKERBOARD: CSSProperties = {
@@ -35,12 +32,7 @@ const CHECKERBOARD: CSSProperties = {
 type SourceFilter = "all" | "tmdb" | "fanart";
 
 /** 候选图上的语言名：常见几种写成人话，其余回落语言码 */
-const LANGUAGE_NAMES: Record<string, string> = {
-  zh: "中文",
-  en: "English",
-  ja: "日本語",
-  ko: "한국어",
-};
+
 
 /** 当前 tab 的候选、锁定状态与在用路径 */
 function tabData(data: ArtworkCandidates | null, tab: ArtworkKind) {
@@ -89,6 +81,16 @@ export function ArtworkPickerDialog({
   /** 选定/恢复后回调：调用方重拉详情呈现新图 */
   onChanged: () => void;
 }) {
+  const t = useTranslations();
+  const tabs: { key: ArtworkKind; label: string }[] = [
+    { key: "backdrop", label: t("library.artwork.backdrop") },
+    { key: "poster", label: t("library.artwork.poster") },
+    { key: "logo", label: t("library.artwork.logo") },
+  ];
+  const languageNames: Record<string, string> = {
+    zh: t("library.artwork.languageChinese"), en: t("library.artwork.languageEnglish"),
+    ja: t("library.artwork.languageJapanese"), ko: t("library.artwork.languageKorean"),
+  };
   const [tab, setTab] = useState<ArtworkKind>("backdrop");
   const [data, setData] = useState<ArtworkCandidates | null>(null);
   const [failed, setFailed] = useState(false);
@@ -126,7 +128,6 @@ export function ArtworkPickerDialog({
   // 「当前」按**实际在用的路径**比对（后端给），不能用"列表第一张"——
   // 策略升级前刮的条目、锁定的条目、TMDB 新增更高票的图都会对不上
   const { candidates, locked, current } = tabData(data, tab);
-  const tabInfo = TABS.find((t) => t.key === tab) ?? TABS[0];
   const fanartState = data?.fanart ?? "none";
   const mixed = fanartState === "ok";
   const visible = mixed
@@ -142,19 +143,19 @@ export function ArtworkPickerDialog({
     <Modal
       open={open}
       onClose={applying === null ? onClose : () => {}}
-      label="更换图片"
+      label={t("library.artwork.title")}
       width="2xl"
       panelClassName="flex max-h-[80dvh] flex-col"
     >
       <div className="flex items-center justify-between gap-4 border-b border-white/[0.08] px-6 py-4 max-md:flex-col max-md:items-stretch max-md:gap-3 max-md:px-5 max-md:py-3.5">
         <div className="min-w-0">
-          <h3 className="text-title-sm font-semibold text-[var(--text)]">更换图片</h3>
+          <h3 className="text-title-sm font-semibold text-[var(--text)]">{t("library.artwork.title")}</h3>
           <p className="mt-1 text-sub leading-5 text-[var(--text-muted)]">
-            选中即生效，并同步写入媒体目录；此后刷新元数据不会覆盖你选的图
+            {t("library.artwork.intro")}
           </p>
         </div>
         <div className="flex shrink-0 gap-1 self-start rounded-full bg-white/[0.06] p-1">
-          {TABS.map(({ key, label }) => (
+          {tabs.map(({ key, label }) => (
             <button
               key={key}
               type="button"
@@ -175,7 +176,7 @@ export function ArtworkPickerDialog({
       {locked && (
         <div className="flex items-center justify-between gap-3 border-b border-white/[0.08] bg-[var(--info)]/[0.07] px-6 py-2.5 max-md:px-5">
           <span className="text-sub text-[var(--info)]">
-            当前{tabInfo.label}由你手动选定，刷新元数据不会覆盖
+            {t("library.artwork.manualSelection", { kind: tab })}
           </span>
           <button
             type="button"
@@ -183,7 +184,7 @@ export function ArtworkPickerDialog({
             onClick={() => void apply(null)}
             className="shrink-0 text-sub font-medium text-[var(--accent-2)] hover:underline disabled:opacity-50"
           >
-            恢复自动选图
+            {t("library.artwork.restore")}
           </button>
         </div>
       )}
@@ -191,16 +192,15 @@ export function ArtworkPickerDialog({
       <div className="scroll-thin flex-1 overflow-y-auto p-6">
         {failed && (
           <p className="py-10 text-center text-ui text-[#ff9f9f]">
-            候选图加载失败（TMDB 可能不可达），
-            <button type="button" onClick={load} className="ml-1 underline">
-              重试
-            </button>
+            {t.rich("library.artwork.failedRetry", { retry: (chunks) => (
+              <button type="button" onClick={load} className="ml-1 underline">{chunks}</button>
+            ) })}
           </p>
         )}
         {!failed && data === null && (
           <div className="flex items-center justify-center gap-2 py-14 text-ui text-[var(--text-muted)]">
             <BrandLoader className="size-5" />
-            正在拉取候选图…
+            {t("library.artwork.loading")}
           </div>
         )}
         {keyForm && (
@@ -216,14 +216,14 @@ export function ArtworkPickerDialog({
         )}
         {fanartState === "error" && (
           <p className="mb-3 text-caption text-[var(--text-faint)]">
-            Fanart.tv 这次没取到候选（可能是网络问题），下面只有 TMDB 的图
+            {t("library.artwork.fanartFailed")}
           </p>
         )}
         {mixed && candidates.length > 0 && (
           <div className="mb-3 flex flex-wrap gap-1.5">
             {(
               [
-                ["all", `全部 ${candidates.length}`],
+                ["all", t("library.artwork.all", { count: candidates.length })],
                 ["tmdb", `TMDB ${countOf("tmdb")}`],
                 ["fanart", `Fanart.tv ${countOf("fanart")}`],
               ] as const
@@ -245,12 +245,12 @@ export function ArtworkPickerDialog({
         )}
         {data !== null && candidates.length === 0 && !offerFanart && (
           <p className="py-14 text-center text-ui text-[var(--text-muted)]">
-            {mixed ? "TMDB 和 Fanart.tv" : "TMDB"} 上都没有这个条目的{tabInfo.noun}
+            {t("library.artwork.empty", { mixed: mixed ? "yes" : "no", kind: tab })}
           </p>
         )}
         {tab === "logo" && candidates.length > 0 && (
           <p className="mb-3 text-sub leading-5 text-[var(--text-muted)]">
-            徽标是透明底的片名字标，会写入媒体目录为 clearlogo.png，供 Kodi / Jellyfin 等播放器读取
+            {t("library.artwork.logoHint")}
           </p>
         )}
         {(visible.length > 0 || offerFanart) && (
@@ -296,12 +296,12 @@ export function ArtworkPickerDialog({
                 {/* 标出正在用的那张，消除"我现在用的是哪张"的疑问 */}
                 {c.file_path === current && (
                   <span className="absolute left-1.5 top-1.5 rounded bg-[var(--accent-2)] px-1.5 py-0.5 text-micro font-semibold text-black/85">
-                    当前
+                    {t("library.artwork.current")}
                   </span>
                 )}
                 {tab === "backdrop" && c.language === null && !c.unlisted && (
                   <span className="absolute right-1.5 top-1.5 rounded bg-black/70 px-1.5 py-0.5 text-micro text-white/85">
-                    无文字
+                    {t("library.artwork.noText")}
                   </span>
                 )}
                 <span className="tnum absolute inset-x-0 bottom-0 flex flex-wrap items-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-4 text-left text-micro text-white/75">
@@ -317,10 +317,10 @@ export function ArtworkPickerDialog({
                   </span>
                   {c.unlisted ? (
                     // 在用但不在候选里：语言与热度未知，不猜
-                    <span>在用</span>
+                    <span>{t("library.artwork.inUse")}</span>
                   ) : (
                     <span>
-                      {c.language ? (LANGUAGE_NAMES[c.language] ?? c.language) : "无文字"}
+                      {c.language ? (languageNames[c.language] ?? c.language) : t("library.artwork.noText")}
                     </span>
                   )}
                   {/* 热度：TMDB 是评分，Fanart 是点赞数；Fanart 不给宽高，只有 TMDB 显示尺寸 */}
@@ -351,12 +351,12 @@ export function ArtworkPickerDialog({
                 }`}
               >
                 <span className="text-sub font-semibold text-[var(--src-fanart)]">
-                  ＋ 从 Fanart.tv 找更多{tabInfo.noun}
+                  {t("library.artwork.moreFanartForKind", { kind: tab })}
                 </span>
                 <span className="text-micro leading-relaxed text-[var(--text-faint)]">
                   {fanartState === "invalid"
-                    ? "已保存的 Key 失效了，重新填写后可在这里挑图"
-                    : `社区高清图库，中文${tabInfo.noun}往往更多 · 需要先填一次 API Key`}
+                    ? t("library.artwork.invalidKey")
+                    : t("library.artwork.community", { kind: tab })}
                 </span>
               </button>
             )}
@@ -371,7 +371,7 @@ export function ArtworkPickerDialog({
           disabled={applying !== null}
           className="btn-glass px-4 py-2 text-ui font-medium disabled:opacity-50"
         >
-          完成
+          {t("common.done")}
         </button>
       </div>
     </Modal>

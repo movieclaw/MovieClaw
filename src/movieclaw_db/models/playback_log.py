@@ -57,3 +57,9 @@ class PlaybackLog(MemberScopedMixin, TimestampMixin, table=True):
     end_position_ms: int = Field(default=0, description="最近上报的位置（毫秒）")
     watched_ms: int = Field(default=0, description="实际观看时长（毫秒，按进度增量累加）")
     completed: bool = Field(default=False, description="本场是否把这一集看完（翻转为已看）")
+    viewing_id: str | None = Field(
+        default=None,
+        unique=True,
+        index=True,
+        description="本机播放的观看记录编号（客户端 UUID）；离线补传按它幂等合并，流式播放为空",
+    )

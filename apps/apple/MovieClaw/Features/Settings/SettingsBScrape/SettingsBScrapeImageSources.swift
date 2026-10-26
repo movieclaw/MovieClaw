@@ -6,10 +6,10 @@ enum SettingsBScrapeImageKind: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .poster: "海报"
-        case .backdrop: "背景图"
-        case .logo: "片名 Logo"
-        case .seasonPoster: "季海报"
+        case .poster: String(localized: .settingsScrapePoster)
+        case .backdrop: String(localized: .settingsAppearanceBackdropTab)
+        case .logo: String(localized: .settingsScrapeTitleLogo)
+        case .seasonPoster: String(localized: .settingsScrapeSeasonPoster)
         }
     }
     var defaultOrder: [String] {
@@ -57,21 +57,21 @@ struct SettingsBScrapeImageSourcesView: View {
             if !overriddenBy.isEmpty {
                 SettingsFormSection {
                     Text(overriddenBy.joined(separator: "、")).foregroundStyle(Theme.textMuted)
-                } header: { Text("已单独设置的媒体库") } footer: {
-                    Text("这些媒体库使用自己的设置，不跟随这里的默认值。")
+                } header: { Text(String(localized: .settingsImageSourcesOverriddenLibraries)) } footer: {
+                    Text(String(localized: .settingsImageSourcesOverriddenHint))
                 }
             }
         }
         .settingsBFormStyle()
-        .navigationTitle("图片来源")
+        .navigationTitle(String(localized: .settingsScrapeImageSources))
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(busy)
         .toolbar {
-            if busy { ToolbarItem(placement: .topBarTrailing) { ProgressView("正在保存…") } }
+            if busy { ToolbarItem(placement: .topBarTrailing) { ProgressView(String(localized: .settingsPlaybackControlsSaving)) } }
         }
         .disabled(busy)
-        .alert("保存失败", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
-            Button("好", role: .cancel) { }
+        .alert(String(localized: .settingsScheduledTasksUiSaveFailed), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button(String(localized: .settingsImageSourcesOk), role: .cancel) { }
         } message: { Text(error ?? "") }
     }
 
@@ -82,7 +82,7 @@ struct SettingsBScrapeImageSourcesView: View {
 
     @ViewBuilder private var sections: some View {
         SettingsFormSection {
-            LabeledContent("TMDB", value: "始终开启")
+            LabeledContent("TMDB", value: String(localized: .settingsScrapeAlwaysEnabled))
             Toggle("Fanart.tv", isOn: Binding(
                 get: { setting.fanartEnabled == true },
                 set: { enabled in
@@ -93,18 +93,18 @@ struct SettingsBScrapeImageSourcesView: View {
             .accessibilityIdentifier("scrape-fanart-enabled")
             switch status {
             case .loading:
-                ProgressView("正在检查 API Key…")
+                ProgressView(String(localized: .settingsImageSourcesCheckingKey))
             case let .failed(message):
                 Text(message).font(.footnote).foregroundStyle(Theme.danger)
                     .accessibilityIdentifier("scrape-fanart-status-error")
-                Button("重新加载", systemImage: "arrow.clockwise") { Task { await load() } }
+                Button(String(localized: .librarySubtitlePreviewReload), systemImage: "arrow.clockwise") { Task { await load() } }
                     .accessibilityIdentifier("scrape-fanart-retry")
             case let .loaded(value):
                 Button { keyOpen = true } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(value.keyInvalid ? "重新验证 API Key" : value.configured ? "更换 API Key" : "配置 API Key")
-                            Text(value.keyInvalid ? "密钥已失效，Fanart 选图已暂停" : value.configured ? "已配置 · ••••\(value.keyHint)" : "验证后即可启用 Fanart")
+                            Text(value.keyInvalid ? String(localized: .settingsImageSourcesReverifyKey) : value.configured ? String(localized: .settingsImageSourcesChangeKey) : String(localized: .settingsImageSourcesConfigureKey))
+                            Text(value.keyInvalid ? String(localized: .settingsImageSourcesKeyInvalid) : value.configured ? String(localized: .settingsImageSourcesKeyConfigured(value.keyHint)) : String(localized: .settingsImageSourcesVerifyToEnable))
                                 .font(.footnote).foregroundStyle(value.keyInvalid ? Theme.danger : Theme.textMuted)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -116,8 +116,8 @@ struct SettingsBScrapeImageSourcesView: View {
                 }
                 .accessibilityIdentifier("scrape-fanart-key")
             }
-        } header: { Text("图片服务") } footer: {
-            Text("Fanart.tv 补充高清图片与片名 Logo。API Key 保存在当前服务器，所有媒体库共用。")
+        } header: { Text(String(localized: .settingsImageSourcesServices)) } footer: {
+            Text(String(localized: .settingsImageSourcesFanartHint))
         }
         SettingsFormSection {
             ForEach(SettingsBScrapeImageKind.allCases) { kind in
@@ -137,11 +137,11 @@ struct SettingsBScrapeImageSourcesView: View {
                 .accessibilityIdentifier("scrape-source-\(kind.rawValue)")
             }
             .disabled(setting.fanartEnabled != true)
-        } header: { Text("来源优先级") } footer: {
-            Text("先匹配语言，同一语言有多个来源时才按这里的顺序选择。季海报仅用于剧集，语言跟随海报设置。\(setting.fanartEnabled == true ? "" : "启用 Fanart 后可调整来源顺序。")")
+        } header: { Text(String(localized: .settingsImageSourcesPriority)) } footer: {
+            Text(String(localized: .settingsImageSourcesPriorityHint) + (setting.fanartEnabled == true ? "" : String(localized: .settingsImageSourcesEnableFanartForOrder)))
         }
         SettingsFormSection {
-            Text("更改自动保存，对新刮削生效。已有条目需执行「刷新元数据」；手动选定的图片始终优先。")
+            Text(String(localized: .settingsImageSourcesAutosaveHint))
                 .font(.footnote).foregroundStyle(Theme.textMuted)
         }
         .task { await load() }
@@ -171,7 +171,7 @@ struct SettingsBScrapeImageSourcesView: View {
         Task {
             if let message = await persist(.init(fanartEnabled: enabled)) {
                 setting.fanartEnabled = previous
-                error = "\(enabled ? "启用" : "关闭") Fanart 失败：\(message)"
+                error = enabled ? String(localized: .settingsImageSourcesEnableFailed(message)) : String(localized: .settingsImageSourcesDisableFailed(message))
             }
         }
     }
@@ -221,9 +221,9 @@ private struct SettingsBScrapeSourceOrderSheet: View {
     }
 
     var body: some View {
-        SubsSheetScaffold(title: "\(kind.title)来源", onClose: {
+        SubsSheetScaffold(title: String(localized: .settingsImageSourcesSourcesTitle(kind.title)), onClose: {
             if draft != original { discarding = true } else { dismiss() }
-        }, confirm: SubsSheetConfirm(title: "保存", busy: busy, identifier: "scrape-source-done") {
+        }, confirm: SubsSheetConfirm(title: String(localized: .commonSave), busy: busy, identifier: "scrape-source-done") {
             guard draft != original else { dismiss(); return }
             Task {
                 busy = true
@@ -234,16 +234,16 @@ private struct SettingsBScrapeSourceOrderSheet: View {
         }) {
             SettingsFormSection {
                 SettingsBScrapeImageSourceOrder(value: $draft)
-            } footer: { Text("点右上角对勾即保存并生效。") }
+            } footer: { Text(String(localized: .settingsImageSourcesCheckToSave)) }
             if let error {
                 SettingsFormSection { Text(error).foregroundStyle(Theme.danger).accessibilityIdentifier("scrape-source-save-error") }
             }
         }
         .disabled(busy)
         .interactiveDismissDisabled(busy || draft != original)
-        .alert("放弃未保存的修改？", isPresented: $discarding) {
-            Button("继续编辑", role: .cancel) { }
-            Button("放弃修改", role: .destructive) { dismiss() }
+        .alert(String(localized: .settingsFormDiscardTitle), isPresented: $discarding) {
+            Button(String(localized: .settingsFormKeepEditing), role: .cancel) { }
+            Button(String(localized: .settingsScrapeDiscardChanges), role: .destructive) { dismiss() }
         }
     }
 }
@@ -260,32 +260,32 @@ private struct SettingsBScrapeFanartKeySheet: View {
     @State private var error: String?
 
     var body: some View {
-        SubsSheetScaffold(title: status.configured ? "更换 Fanart API Key" : "Fanart API Key", onClose: {
+        SubsSheetScaffold(title: status.configured ? String(localized: .settingsImageSourcesChangeFanartKey) : "Fanart API Key", onClose: {
             if !key.isEmpty { discarding = true } else { dismiss() }
-        }, confirm: SubsSheetConfirm(title: "验证", enabled: !trimmedKey.isEmpty,
+        }, confirm: SubsSheetConfirm(title: String(localized: .settingsImageSourcesVerify), enabled: !trimmedKey.isEmpty,
             busy: busy, identifier: "scrape-fanart-verify", action: verify)) {
             if status.configured {
                 SettingsFormSection {
-                    LabeledContent("当前密钥") {
+                    LabeledContent(String(localized: .settingsImageSourcesCurrentKey)) {
                         Text("••••\(status.keyHint)")
                             .font(.body.monospaced())
                             .accessibilityIdentifier("scrape-fanart-current-key")
                     }
-                    Label(status.keyInvalid ? "密钥已失效，需要重新配置" : "已配置，保存在当前服务器",
+                    Label(status.keyInvalid ? String(localized: .settingsImageSourcesKeyInvalidRedo) : String(localized: .settingsImageSourcesKeyStored),
                           systemImage: status.keyInvalid ? "exclamationmark.triangle" : "checkmark.circle")
                         .font(.footnote)
                         .foregroundStyle(status.keyInvalid ? Theme.danger : Theme.textMuted)
                 } footer: {
-                    Text("已保存的密钥只显示末四位。不输入新密钥或取消，都会保留原有配置。")
+                    Text(String(localized: .settingsImageSourcesKeyMaskHint))
                 }
             }
             SettingsFormSection {
-                SecureField(status.configured ? "输入新的 API Key" : "输入 API Key", text: $key)
+                SecureField(status.configured ? String(localized: .settingsImageSourcesNewKey) : String(localized: .settingsImageSourcesEnterKey), text: $key)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                     .accessibilityIdentifier("scrape-fanart-key-input")
-                Link("获取免费 API Key", destination: URL(string: "https://fanart.tv/get-an-api-key/")!)
+                Link(String(localized: .settingsImageSourcesGetKey), destination: URL(string: "https://fanart.tv/get-an-api-key/")!)
             } footer: {
-                Text("验证成功后立即将密钥保存到当前服务器，并启用 Fanart 选图。验证失败不会替换原密钥。")
+                Text(String(localized: .settingsImageSourcesVerifyHint))
             }
             if let error {
                 SettingsFormSection { Text(error).foregroundStyle(Theme.danger).accessibilityIdentifier("scrape-fanart-key-error") }
@@ -294,9 +294,9 @@ private struct SettingsBScrapeFanartKeySheet: View {
         .disabled(busy)
         .onChange(of: key) { _, _ in verified = nil }
         .interactiveDismissDisabled(busy || !key.isEmpty)
-        .alert("放弃输入的密钥？", isPresented: $discarding) {
-            Button("继续编辑", role: .cancel) { }
-            Button("放弃输入", role: .destructive) { dismiss() }
+        .alert(String(localized: .settingsImageSourcesDiscardKey), isPresented: $discarding) {
+            Button(String(localized: .settingsFormKeepEditing), role: .cancel) { }
+            Button(String(localized: .settingsImageSourcesDiscard), role: .destructive) { dismiss() }
         }
     }
 
@@ -312,7 +312,7 @@ private struct SettingsBScrapeFanartKeySheet: View {
                     verified = value
                 }
                 if let message = await onVerified(value) {
-                    error = "密钥已保存，但启用 Fanart 失败：\(message)。请重试。"
+                    error = String(localized: .settingsImageSourcesSavedButEnableFailed(message))
                 } else {
                     key = ""
                     dismiss()

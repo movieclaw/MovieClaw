@@ -46,7 +46,7 @@ async def resource(session, name="a", resolution="1080p", episode=1, group="A"):
     )
 
 
-async def test_profiles_frozen_independent_and_shared_subscription_idempotent(db):
+async def test_subscriptions_follow_own_kind_profile_and_create_is_idempotent(db):
     async with db.session() as session:
         sub = await smart_sub(session)
         assert sub.rule_set_id is None
@@ -61,7 +61,12 @@ async def test_profiles_frozen_independent_and_shared_subscription_idempotent(db
         assert exc.value.status_code == 409
         sub = await session.get(Subscription, sub_id)
         again = await _service(session).create(MediaKind.TV, 200, selected_seasons=[1])
-        assert again.id == sub.id and again.smart_policy == original
+        assert again.id == sub.id
+        # 跟随剧集设置的修改（2160p → 1080p），不受电影设置影响
+        assert original["resolution"] == "2160p"
+        assert again.smart_policy["resolution"] == "1080p"
+        assert again.smart_policy["source"] == original["source"]
+        assert again.smart_policy["profile_revision"] == 2
         assert (await session.get(SmartProfile, "movie")).preferences["source"] == "remux"
 
 
@@ -183,3 +188,92 @@ async def test_pack_can_fill_gap_without_claiming_inflight_episode(db):
         )
         assert len(attempts) == 2 and attempts[-1].units == [[1, 2]]
         assert (await _wanted_map(session, sub.id))[(1, 1)].grab_title.endswith(first.title)
+
+
+async def test_same_name_pack_with_far_fewer_episodes_never_enters_smart_pool(db):
+    """智能模式同样拦：声明「全1集」而本季 2 集都已播出，不进候选池、不投递。"""
+    async with db.session() as session:
+        sub = await smart_sub(session, wait_seconds=0)
+        pack = await _insert_torrent(
+            session,
+            "pack1",
+            "Test Show S01 1080p WEB-DL-A",
+            {
+                "media_type": "tv",
+                "seasons": [1],
+                "complete": True,
+                "episodes_total": 1,
+                "resolution": "1080p",
+                "media_source": "WEB-DL",
+                "release_group": "A",
+            },
+        )
+        result = await evaluate_and_dispatch(session, [pack], source="被动匹配")
+        assert result.dispatched_units == 0
+        assert all(w.status == "wanted" for w in (await _wanted_map(session, sub.id)).values())
+        assert (
+            await session.execute(select(SubscriptionDownloadAttempt))
+        ).scalars().first() is None
+
+
+async def test_switching_profile_to_no_wait_dispatches_waiting_episode(db, monkeypatch):
+    """复现 NAS《Doctor X》E4：剧集设置 6 小时、只有 1080p 候选时在等；把剧集设置改成
+    不等待后，已有订阅立即跟随，下一轮到期扫描就投递，并留下调整动态与决策输入。"""
+    from movieclaw_db.models import ActivityType, SmartDecisionRecord, SubscriptionActivity
+
+    clock = utcnow()
+    monkeypatch.setattr("movieclaw_api.services.subscription.smart_selection.utcnow", lambda: clock)
+    async with db.session() as session:
+        sub = await smart_sub(session, wait_seconds=21600)
+        torrent = await resource(session)  # 1080p，不满足默认 2160p 目标
+        first = await evaluate_and_dispatch(session, [torrent], source="发现")
+        assert first.dispatched_units == 0
+        wanted = (await _wanted_map(session, sub.id))[(1, 1)]
+        assert wanted.selection_state["reason"] in {"observing", "waiting_series"}
+        assert wanted.next_selection_at > clock
+
+        clock += timedelta(minutes=5)
+        await save_profile(session, "tv", SmartPreferences(wait_seconds=0), 1)
+        await session.refresh(sub)
+        await session.refresh(wanted)
+        assert sub.smart_policy["wait_seconds"] == 0
+        assert wanted.next_selection_at <= utcnow()
+        activity = (
+            await session.execute(
+                select(SubscriptionActivity).where(
+                    SubscriptionActivity.subscription_id == sub.id,
+                    SubscriptionActivity.type == ActivityType.ADJUSTED,
+                )
+            )
+        ).scalar_one()
+        assert "不等待" in activity.message
+
+        result = await run_due(session, now=clock)
+        assert result is not None and result.dispatched_units == 1
+        attempt = (await session.execute(select(SubscriptionDownloadAttempt))).scalar_one()
+        assert attempt.torrent_id == "a"
+        record = (
+            (await session.execute(select(SmartDecisionRecord))).scalars().all()[-1]
+        )
+        assert record.inputs["policy"]["wait_seconds"] == 0  # 审计记录当时实际生效的设置
+
+
+async def test_manual_extension_survives_profile_switch(db, monkeypatch):
+    clock = utcnow()
+    monkeypatch.setattr("movieclaw_api.services.subscription.smart_selection.utcnow", lambda: clock)
+    async with db.session() as session:
+        sub = await smart_sub(session, wait_seconds=7200)
+        torrent = await resource(session)
+        await evaluate_and_dispatch(session, [torrent], source="发现")
+        wanted = (await _wanted_map(session, sub.id))[(1, 1)]
+        await change_wait(session, wanted.id, wanted.selection_version, extend_seconds=3600 * 3)
+        await session.refresh(wanted)
+        extended_deadline = wanted.selection_state["deadline"]
+
+        await save_profile(session, "tv", SmartPreferences(wait_seconds=0), 1)
+        clock += timedelta(minutes=1)
+        result = await run_due(session, now=clock)
+        assert result is None or result.dispatched_units == 0
+        await session.refresh(wanted)
+        assert wanted.selection_state["deadline"] == extended_deadline
+        assert not (await session.execute(select(SubscriptionDownloadAttempt))).scalars().all()

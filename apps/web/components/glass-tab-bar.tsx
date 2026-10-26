@@ -1,5 +1,9 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
@@ -64,18 +68,18 @@ import { taskActivityBadge, useTaskActivity, type TaskActivityBadge } from "@/li
  *     保持原来的纯 CSS 暗玻璃。
  */
 
-const DISCOVER_TAB = { id: "discover", label: "发现", href: "/discover/movie", Icon: SparklesIcon } as const;
-const LIBRARY_TAB = { id: "library", label: "媒体库", href: "/library", Icon: LibraryStackIcon } as const;
+const DISCOVER_TAB = { id: "discover", label: "nav.main.discover", href: "/discover/movie", Icon: SparklesIcon } as const;
+const LIBRARY_TAB = { id: "library", label: "nav.main.library", href: "/library", Icon: LibraryStackIcon } as const;
 const SUBSCRIPTION_TAB = {
   id: "subscriptions",
-  label: "订阅",
+  label: "nav.tabs.subscriptions",
   href: "/subscriptions",
   Icon: BookmarkFillIcon,
 } as const;
 /** 活动（任务中心）：高频入口，从「更多」页提到底栏（2026-09-24 用户要求）；
  *  Agent 能力，管理员专属——与侧栏 memberNavItems 同口径。iOS 标签栏上限 5 个，
  *  管理员加上头像正好 5 格；搜索挪到顶栏后胶囊铺满整宽，375pt 机型上每格约 65pt。 */
-const ACTIVITY_TAB = { id: "activity", label: "活动", href: "/activity", Icon: ActivityIcon } as const;
+const ACTIVITY_TAB = { id: "activity", label: "nav.main.activity", href: "/activity", Icon: ActivityIcon } as const;
 
 /** 「更多」页签的图标：当前用户头像（没上传过头像时是昵称首字徽标） */
 function MoreTabAvatar() {
@@ -89,7 +93,7 @@ function MoreTabAvatar() {
   );
 }
 
-const MORE_TAB = { id: "more", label: "我的", href: "/my", Icon: MoreTabAvatar } as const;
+const MORE_TAB = { id: "more", label: "nav.tabs.my", href: "/my", Icon: MoreTabAvatar } as const;
 
 /** pathname → 当前页签 id（详情等子页落在所属的顶层页签上；无归属返回空串） */
 function activeTabId(pathname: string): string {
@@ -113,9 +117,10 @@ function activeTabId(pathname: string): string {
 function pickActivityDot(
   task: TaskActivityBadge,
   liveCount: number,
+  locale: AppLocale,
 ): { tone: "alert" | "live" | "active"; hint: string } | null {
   if (task.alert && task.count > 0) return { tone: "alert", hint: task.hint };
-  if (liveCount > 0) return { tone: "live", hint: "有人正在观看" };
+  if (liveCount > 0) return { tone: "live", hint: appTranslator(locale)("nav.badges.watching") };
   if (task.count > 0) return { tone: "active", hint: task.hint };
   return null;
 }
@@ -146,6 +151,8 @@ function glowOff(event: ReactPointerEvent<HTMLElement>) {
 }
 
 export function GlassTabBar() {
+  const t = useTranslations();
+  const locale = useLocale();
   const pathname = usePathname();
   const router = useRouter();
   const { canSubscribe, isAdmin } = usePermissions();
@@ -158,11 +165,11 @@ export function GlassTabBar() {
     MORE_TAB,
   ];
   // 活动页签的任务圆点（iOS 页签红点惯例）：告警红 / 否则提示蓝；数据来自全站 Provider
-  const activityBadge = taskActivityBadge(useTaskActivity());
+  const activityBadge = taskActivityBadge(useTaskActivity(), locale);
   // 观看状态：此刻有人在播。只有管理员有活动页签，也只有管理员能读媒体活动
   // 接口，按同一个权限门控轮询，成员不会打出 403
   const liveCount = mediaLiveCount(useMediaActivity(isAdmin).snapshot);
-  const activityDot = pickActivityDot(activityBadge, liveCount);
+  const activityDot = pickActivityDot(activityBadge, liveCount, locale);
   // 头像页签的蓝点：有待安装的新版本 / 模型（原先画在顶栏左上角的头像上；成员不查更新）
   const pendingUpdate = usePendingUpdate(session.role !== "member");
   const count = tabs.length;
@@ -392,7 +399,7 @@ export function GlassTabBar() {
       {/* 滚动边缘效果：内容滚到底栏下方时渐暗渐糊，把玻璃托起来（iOS 26
           scroll edge effect）。属于内容层之上、玻璃之下，不与玻璃叠玻璃 */}
       <div className="glass-tabbar-edge" data-minimized={isMinimized} aria-hidden="true" />
-      <nav ref={navRef} aria-label="主导航" className="glass-tabbar" data-minimized={isMinimized}>
+      <nav ref={navRef} aria-label={t("nav.tabs.primary")} className="glass-tabbar" data-minimized={isMinimized}>
         <div
           ref={barRef}
           className="glass-tabbar__bar glass-capsule"
@@ -437,7 +444,7 @@ export function GlassTabBar() {
                 href={href as Route}
                 aria-current={index === activeIndex ? "page" : undefined}
                 // 纯图标页签（2026-09-25 用户要求去掉文字，参照 Instagram 底栏）：名字只给读屏
-                aria-label={label}
+                aria-label={t(label)}
                 className="glass-tabbar__tab"
                 style={{ "--i": index } as CSSProperties}
                 // 点击即起跳，不等路由真正切换完（新页面渲染可能要几百毫秒）
@@ -457,7 +464,7 @@ export function GlassTabBar() {
                   />
                 )}
                 {id === "more" && pendingUpdate && (
-                  <span className="glass-tabbar__badge" title="有可用更新" aria-label="有可用更新" />
+                  <span className="glass-tabbar__badge" title={t("nav.badges.update")} aria-label={t("nav.badges.update")} />
                 )}
               </Link>
             ))}
@@ -467,7 +474,7 @@ export function GlassTabBar() {
           <button
             type="button"
             onClick={() => setMinimized(false)}
-            aria-label="展开标签栏"
+            aria-label={t("nav.tabs.expand")}
             aria-hidden={!isMinimized}
             tabIndex={isMinimized ? 0 : -1}
             className="glass-tabbar__mini"

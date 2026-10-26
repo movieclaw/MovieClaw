@@ -7,6 +7,10 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +41,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -61,6 +66,29 @@ import io.movieclaw.android.core.designsystem.McNavButton
 import io.movieclaw.android.core.designsystem.McTabBarContentPadding
 import io.movieclaw.android.core.designsystem.McTopBar
 import io.movieclaw.android.core.designsystem.McTopBarVariant
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.Autorenew
+import androidx.compose.material.icons.rounded.Inventory2
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import io.movieclaw.android.core.designsystem.MenuAppear
+import io.movieclaw.android.core.designsystem.MenuSurface
+import io.movieclaw.android.core.designsystem.TextPrimary
 import io.movieclaw.android.core.designsystem.Ok
 import io.movieclaw.android.core.designsystem.Accent
 import io.movieclaw.android.core.designsystem.RemoteImage
@@ -69,6 +97,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import io.movieclaw.android.core.designsystem.Danger
 import io.movieclaw.android.core.designsystem.ErrorPane
 import io.movieclaw.android.core.designsystem.GlassCard
+import io.movieclaw.android.core.designsystem.LineColor
 import io.movieclaw.android.core.designsystem.Info
 import io.movieclaw.android.core.designsystem.ProgressBar
 import io.movieclaw.android.core.designsystem.Success
@@ -82,6 +111,7 @@ import io.movieclaw.android.core.model.DownloadTask
 import io.movieclaw.android.core.model.JobView
 import kotlin.math.max
 import kotlin.math.roundToInt
+import io.movieclaw.android.core.designsystem.mcCards
 
 /** 活动中心:后台任务(jobs SSE 实时)+ 下载任务 + 播放监控 */
 @Composable
@@ -89,6 +119,7 @@ fun ActivityScreen(
     onOpenAgentSession: (String) -> Unit = {},
     /** 进二级页（网页 `/activity?view=`）：active / history / plays / stats */
     onOpenActivityDetail: (String) -> Unit = {},
+    onOpenItem: (Long, Long) -> Unit = { _, _ -> },
     vm: ActivityViewModel = hiltViewModel(),
 ) {
     val state by vm.ui.collectAsStateWithLifecycle()
@@ -119,7 +150,15 @@ fun ActivityScreen(
     // 顶栏是浮层：内容要自己让开「状态栏 + 52dp」，否则首行会压在大标题下面
     val topBarTotal = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + McMetrics.topBarHeight
 
+    // 长按菜单（状态提升到页根）：Popup 挂在本根 Box 上——根 Box 不滚动、不参与
+    // 懒加载复用，锚定坐标恒定；卡片只上报「长按点（根坐标）」，偏移即所见即所得
+    var menuFor by remember { mutableStateOf<ActivePlaybackSession?>(null) }
+    var menuOriginRoot by remember { mutableStateOf(Offset.Zero) }
+    var revokePending by remember { mutableStateOf<ActivePlaybackSession?>(null) }
+
     Box(Modifier.fillMaxSize().background(Bg)) {
+        // 宽窗口限宽居中（760dp，同 iOS padReadableWidth）；手机上原样铺满
+        io.movieclaw.android.core.designsystem.McReadableWidthBox(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             when {
                 state.loading -> Box(Modifier.fillMaxSize().padding(top = topBarTotal), contentAlignment = Alignment.Center) {
@@ -171,8 +210,8 @@ fun ActivityScreen(
                             AttentionCard(
                                 // 需要处理的卡片：标题给作品名、副行给任务类型的人话名
                                 // （以前副行是 `library.skip_segments` 这种原始键）
-                                title = job.subject ?: jobTypeLabel(job.jobType),
-                                subtitle = jobTypeLabel(job.jobType),
+                                title = job.subject ?: jobTypeLabel(job),
+                                subtitle = jobTypeLabel(job),
                                 reason = job.error?.message?.takeIf { it.isNotBlank() }
                                     ?: job.progress.message.ifBlank { "任务失败" },
                                 meta = "第 ${job.attempt}/${job.maxAttempts} 次尝试",
@@ -201,7 +240,16 @@ fun ActivityScreen(
                     if (state.sessions.isNotEmpty()) {
                         item { SectionLabel("正在播放 · ${state.sessions.size}") }
                         items(state.sessions, key = { "sess-${it.deviceId}" }) { session ->
-                            PlaybackSessionCard(session) { vm.endSession(session) }
+                            PlaybackSessionCard(
+                            session = session,
+                            origin = origin,
+                            dimmed = menuFor?.deviceId == session.deviceId,
+                            onMenuRequest = { rootOffset ->
+                                menuFor = session
+                                menuOriginRoot = rootOffset
+                            },
+                            onEnd = { vm.endSession(session) },
+                        )
                         }
                     }
                     // 「正在下载」是**设备在拉整文件**（播放器离线缓存），与下载器里的种子任务是两件事
@@ -221,7 +269,7 @@ fun ActivityScreen(
                             )
                         }
                         items(activity.activeGroups.take(ACTIVE_LIMIT), key = { "act-grp-${it.key}" }) { group ->
-                            ActiveDownloadRow(group, activity.ingestJobs)
+                            ActiveDownloadRow(group, activity.ingestJobs) { onOpenActivityDetail("active") }
                         }
                         val jobBudget = (ACTIVE_LIMIT - activity.activeGroups.size).coerceAtLeast(0)
                         items(activity.activeJobs.take(jobBudget), key = { "act-job-${it.id}" }) { job ->
@@ -276,6 +324,89 @@ fun ActivityScreen(
 
         // 根页大标题「活动」（网页 `setTopBarTitle("活动", { large: true })`，28px/700；
         // 手机端点进二级页时换成带返回键的小标题）
+        // 长按菜单：Popup 挂页根 Box（锚定恒定），偏移 = 长按点（根坐标）；
+        // 水平中心对准长按点，垂直在其正下方（Popup 出窗自动钳制到屏幕内）
+        menuFor?.let { menuSession ->
+            val density = LocalDensity.current
+            val menuWidthPx = with(density) { 272.dp.toPx() }
+            val screenWpx = with(density) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
+            // 下界取 max(margin, ...)：窗口比菜单还窄时 coerceIn 的 min>max 会抛异常
+            val marginPx = with(density) { 8.dp.toPx() }
+            val x = (menuOriginRoot.x - menuWidthPx / 2f)
+                .coerceIn(marginPx, maxOf(marginPx, screenWpx - menuWidthPx - marginPx))
+            val y = menuOriginRoot.y + with(density) { 12.dp.toPx() }
+            Popup(
+                alignment = Alignment.TopStart,
+                offset = IntOffset(x.roundToInt(), y.roundToInt()),
+                onDismissRequest = { menuFor = null },
+                properties = PopupProperties(focusable = true),
+            ) {
+                MenuAppear(originX = 0.5f, originY = 0f) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MenuSurface,
+                        border = BorderStroke(1.dp, LineColor),
+                        shadowElevation = 12.dp,
+                    ) {
+                        Column(Modifier.width(272.dp)) {
+                            menuSession.delivery?.reason?.takeIf { it.isNotBlank() }?.let { reason ->
+                                Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp)) {
+                                    Text(
+                                        "为什么是「" + (menuSession.delivery?.label ?: "") + "」",
+                                        fontSize = 11.sp,
+                                        color = TextFaint,
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(reason, fontSize = 12.5.sp, color = TextMuted, lineHeight = 18.sp)
+                                }
+                                HorizontalDivider(color = LineColor)
+                            }
+                            menuSession.media.libraryId?.let { libId ->
+                                MenuRow("打开影片详情") {
+                                    menuFor = null
+                                    onOpenItem(libId, menuSession.media.mediaItemId)
+                                }
+                                HorizontalDivider(color = LineColor)
+                            }
+                            MenuRow("结束播放") {
+                                menuFor = null
+                                vm.endSession(menuSession)
+                            }
+                            if (menuSession.revocable) {
+                                MenuRow("注销此设备", tint = Danger) {
+                                    menuFor = null
+                                    revokePending = menuSession
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                        }
+                    }
+                }
+            }
+        }
+        if (revokePending != null) {
+            val pending = revokePending!!
+            AlertDialog(
+                onDismissRequest = { revokePending = null },
+                title = { Text("注销这台设备？") },
+                text = {
+                    Text(
+                        "「" + (pending.deviceName.ifEmpty { pending.client.ifEmpty { pending.deviceId } })
+                            + "」的登录凭据会立刻失效，正在进行的播放与下载一并停止，该设备下次使用需要重新登录。\n\n" +
+                            "已看进度、收藏这些观看记录按账号保存，不会因为注销设备而丢失。",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { revokePending = null; vm.revokeDevice(pending) }) {
+                        Text("注销设备", color = Danger)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { revokePending = null }) { Text("取消") }
+                },
+            )
+        }
+        }
         McTopBar(
             variant = McTopBarVariant.Root,
             title = "活动",
@@ -301,7 +432,7 @@ private fun FinishedJobRow(job: JobView, onClick: () -> Unit) {
     val stamp = job.finishedAt ?: job.createdAt
     Row(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .padding(vertical = 4.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
@@ -382,20 +513,52 @@ internal fun SectionLabel(
 }
 
 @Composable
-private fun PlaybackSessionCard(session: ActivePlaybackSession, onEnd: () -> Unit) {
-    FlatCard(Modifier.padding(horizontal = McMetrics.pagePadding).fillMaxWidth()) {
-        // FlatCard 只有底色与描边，内边距由调用方给（网页 `ActivityCard` 手机档 p-3 / pb-3.5；
-        // 本端统一 14dp，与「进行中」任务卡同款）。此前这张卡漏了内距：设备行贴着卡片左边、
-        // 顶到圆角上，进度条还压着底边——看着像被裁了一刀（实机反馈）。
-        Column(Modifier.padding(14.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "${session.client.ifEmpty { "客户端" }} · ${session.deviceName.ifEmpty { session.deviceId.take(12) }}",
-                    fontSize = 11.5.sp,
-                    color = TextFaint,
+private fun PlaybackSessionCard(
+    session: ActivePlaybackSession,
+    origin: String?,
+    dimmed: Boolean,
+    onMenuRequest: (Offset) -> Unit,
+    onEnd: () -> Unit,
+) {
+    // 长按菜单的状态在页根（Popup 挂页根 Box，锚定恒定）；卡片只上报根坐标长按点并做底效
+    var cardRoot by remember { mutableStateOf(Offset.Zero) }
+
+    // 菜单打开时卡片轻微缩小变暗——iOS contextMenu 的标志性底效
+    val cardScale by animateFloatAsState(if (dimmed) 0.97f else 1f, spring(stiffness = Spring.StiffnessMedium), label = "cardScale")
+    val cardAlpha by animateFloatAsState(if (dimmed) 0.55f else 1f, spring(stiffness = Spring.StiffnessMedium), label = "cardAlpha")
+
+    FlatCard(
+        Modifier
+            .padding(horizontal = mcCards.pagePadding)
+            .fillMaxWidth()
+            .onGloballyPositioned { cardRoot = it.positionInRoot() }
+            .graphicsLayer {
+                scaleX = cardScale
+                scaleY = cardScale
+                alpha = cardAlpha
+            }
+            // 长按 = 操作菜单（iOS contextMenu 同款交互）；上报根坐标长按点
+            .pointerInput(session.deviceId, session.media.mediaItemId) {
+                detectTapGestures(
+                    onLongPress = { local -> onMenuRequest(cardRoot + local) },
                 )
-                Spacer(Modifier.height(3.dp))
+            },
+    ) {
+        // FlatCard 只有底色与描边，内边距由调用方给。要素对齐 iOS ActivityPlaybackSessionRow：
+        // 海报 / 标题 / 成员设备 / 播放方式徽章 / 播放状态 / 速率 / 转码细节 / 进度 / 时钟行。
+        Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+            Box(
+                Modifier
+                    .width(44.dp)
+                    .height(64.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color.White.copy(alpha = 0.06f)),
+            ) {
+                session.media.posterUrl?.let { poster ->
+                    RemoteImage(poster, origin, contentDescription = session.media.title, modifier = Modifier.fillMaxSize())
+                }
+            }
+            Column(Modifier.weight(1f)) {
                 Text(
                     session.media.title,
                     fontSize = 13.5.sp,
@@ -411,26 +574,110 @@ private fun PlaybackSessionCard(session: ActivePlaybackSession, onEnd: () -> Uni
                         }
                         append(session.memberName)
                         append(" · ")
-                        append(session.playMethod.ifEmpty { "播放中" })
-                        session.rateBytesPerSecond?.takeIf { it > 0 }?.let {
-                            append(" · " + McFormat.speed(it.toDouble()))
-                        }
+                        append(session.deviceName.ifEmpty { session.client.ifEmpty { session.deviceId.take(12) } })
                     },
                     fontSize = 11.sp,
                     color = TextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.height(5.dp))
+                // 状态行：播放方式徽章 · 播放中/已暂停 · N% …… ↓速率 / 网盘直链（iOS statusLine 同构）
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    session.delivery?.let { d ->
+                        val c = deliveryColor(d)
+                        Text(
+                            d.label,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = c,
+                            modifier = Modifier
+                                .background(c.copy(alpha = 0.16f), RoundedCornerShape(50))
+                                .padding(horizontal = 6.dp, vertical = 1.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(
+                        if (session.paused) "已暂停" else "播放中",
+                        fontSize = 11.sp,
+                        color = if (session.paused) TextMuted else Success,
+                    )
+                    session.progressPercent?.let {
+                        Text(" · $it%", fontSize = 11.sp, color = TextMuted)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (session.playMethod == "remote") {
+                        Text("网盘直链", fontSize = 11.sp, color = TextFaint)
+                    } else {
+                        session.rateBytesPerSecond?.takeIf { it > 0 }?.let {
+                            Text(McFormat.rate(it.toDouble()), fontSize = 11.sp, color = Info)
+                        }
+                    }
+                }
+                // 转码细节：输出规格 · 在哪转、用什么转；直连 / 重封装没有细节（iOS deliveryDetail 同口径）
+                session.delivery?.let { d ->
+                    val detail = listOfNotNull(d.target, d.executor).joinToString(" · ")
+                    if (detail.isNotEmpty() && d.mode != "direct" && d.mode != "remux") {
+                        Spacer(Modifier.height(4.dp))
+                        Text(detail, fontSize = 10.5.sp, color = TextFaint, maxLines = 2)
+                    }
+                }
+                session.progressPercent?.let { percent ->
+                    Spacer(Modifier.height(8.dp))
+                    ProgressBar(fraction = percent.coerceIn(0, 100) / 100f, tint = if (session.paused) TextMuted else Info)
+                }
+                // 时钟行：当前时间 …… 还剩 X（iOS clockLine 同构）
+                session.positionMs?.let { position ->
+                    Spacer(Modifier.height(4.dp))
+                    Row(Modifier.fillMaxWidth()) {
+                        Text(McFormat.clock(position), fontSize = 10.5.sp, color = TextFaint)
+                        Spacer(Modifier.weight(1f))
+                        session.durationMs?.takeIf { it > position }?.let {
+                            Text("还剩 " + McFormat.clock(it - position), fontSize = 10.5.sp, color = TextFaint)
+                        }
+                    }
+                }
             }
-            TextButton(onClick = onEnd) { Text("结束", fontSize = 12.sp, color = Danger) }
-        }
-        session.progressPercent?.let { percent ->
-            Spacer(Modifier.height(8.dp))
-            ProgressBar(fraction = percent / 100f, tint = if (session.paused) Warning else Accent)
-        }
         }
     }
 }
 
+/** 播放方式徽章的着色：按对服务器的负担递进（iOS deliveryColor 同口径）。 */
+private fun deliveryColor(delivery: io.movieclaw.android.core.model.PlaybackDelivery): Color = when {
+    delivery.mode == "direct" -> Ok
+    delivery.mode == "remux" || delivery.mode == "audio" -> Info
+    delivery.label == "远程转码" -> Color(0xFFB79CFF)
+    delivery.label == "软件转码" -> Danger
+    else -> Warning
+}
+
 @Composable
+
+/** 分组卡的状态图标（iOS `symbol()` 同口径）：按状态换形，颜色仍走 meta 色。 */
+private fun downloadStateIcon(state: String, ingesting: Boolean): androidx.compose.ui.graphics.vector.ImageVector = when {
+    ingesting -> Icons.Rounded.Inventory2
+    state == "downloading" -> Icons.Rounded.ArrowDownward
+    state == "paused" || state == "stalled" -> Icons.Rounded.Pause
+    state == "checking" -> Icons.Rounded.Autorenew
+    state == "completed" -> Icons.Rounded.Inventory2
+    else -> Icons.Rounded.Schedule
+}
+
+
+/** 长按菜单的一行：玻璃面里的通用行。 */
+@Composable
+private fun MenuRow(label: String, tint: Color = TextPrimary, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = tint)
+    }
+}
+
 /**
  * 下载器里的状态文案，照网页 `DOWNLOAD_STATE_META` 逐条搬
  * （`completed` 是「等待入库」而不是「已完成」——文件下完了，库还没认领它）。
@@ -478,6 +725,7 @@ private fun ingestStateLabel(job: JobView): String = when (job.status) {
 internal fun ActiveDownloadRow(
     group: DownloadGroup,
     ingestJobs: Map<String, JobView>,
+    onClick: () -> Unit,
 ) {
     val task = group.tasks.firstOrNull() ?: return
     val ingestJob = ingestJobs[task.infoHash.lowercase()]
@@ -498,32 +746,47 @@ internal fun ActiveDownloadRow(
         if (ingesting) {
             ingestJob?.progress?.message?.takeIf { it.isNotBlank() }?.let { add(it) }
         } else {
-            task.dlspeedBytes?.takeIf { it > 0 }?.let { add("↓ " + McFormat.rate(it.toDouble()) + "/s") }
+            // rate() 自带「↓」与「/s」（以前再拼一遍，显示成「↓ ↓ 137.7 KB/s/s」）
+            task.dlspeedBytes?.takeIf { it > 0 }?.let { add(McFormat.rate(it.toDouble())) }
             if (task.state == "downloading") {
                 task.etaSeconds?.takeIf { it > 0 }?.let { add("剩 " + McFormat.durationMinutes((it / 60).toInt())) }
             }
         }
     }
-    FlatCard(Modifier.padding(horizontal = McMetrics.pagePadding).fillMaxWidth()) {
+    FlatCard(
+        Modifier
+            .padding(horizontal = mcCards.pagePadding)
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
         // 内边距由调用方给（FlatCard 只有底色与描边）：此前漏了，标题/状态贴着卡片边缘
         Column(Modifier.padding(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(7.dp).background(metaColor, CircleShape))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                group.title,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
+            Icon(
+                downloadStateIcon(task.state, ingesting),
+                contentDescription = null,
+                tint = metaColor,
+                modifier = Modifier.size(18.dp),
             )
-            if (group.tasks.size > 1) {
-                Spacer(Modifier.width(6.dp))
-                Text("${group.tasks.size} 个资源", fontSize = 10.5.sp, color = TextFaint)
+            Spacer(Modifier.width(8.dp))
+            // 标题 + 资源数占满左侧，百分比贴右：以前标题与百分比前的占位各拿一份剩余宽度，
+            // 标题短时百分比落在卡片中间
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    group.title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (group.tasks.size > 1) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("${group.tasks.size} 个资源", fontSize = 10.5.sp, color = TextFaint)
+                }
             }
             percent?.let {
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
                 Text(
                     "${it.toInt()}%",
                     fontSize = 12.sp,
@@ -534,6 +797,10 @@ internal fun ActiveDownloadRow(
         }
         Spacer(Modifier.height(4.dp))
         Text(status.joinToString(" · "), fontSize = 10.5.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        percent?.let {
+            Spacer(Modifier.height(6.dp))
+            ProgressBar(fraction = (it.coerceIn(0f, 100f)) / 100f, tint = metaColor)
+        }
         }
     }
 }
@@ -546,7 +813,7 @@ internal fun ActiveDownloadRow(
 @Composable
 private fun DeviceDownloadRow(download: ActiveFileDownload, origin: String?) {
     val media = download.media
-    FlatCard(Modifier.padding(horizontal = McMetrics.pagePadding).fillMaxWidth()) {
+    FlatCard(Modifier.padding(horizontal = mcCards.pagePadding).fillMaxWidth()) {
         // 内边距由调用方给（FlatCard 只有底色与描边）：此前漏了，海报上下贴边、被圆角切
         Column(Modifier.padding(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -577,7 +844,7 @@ private fun DeviceDownloadRow(download: ActiveFileDownload, origin: String?) {
                 Spacer(Modifier.height(3.dp))
                 Row {
                     download.rateBytesPerSecond?.takeIf { it > 0 }?.let {
-                        Text(McFormat.rate(it.toDouble()) + "/s", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Info)
+                        Text(McFormat.rate(it.toDouble()), fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Info)
                         Spacer(Modifier.width(8.dp))
                     }
                     Text(
@@ -663,14 +930,14 @@ internal fun JobCard(job: JobView, onCancel: () -> Unit, onRetry: () -> Unit, on
         "cancelled", "canceled" -> Warning
         else -> Info
     }
-    FlatCard(Modifier.padding(horizontal = McMetrics.pagePadding).fillMaxWidth()) {
+    FlatCard(Modifier.padding(horizontal = mcCards.pagePadding).fillMaxWidth()) {
         // FlatCard 只有底色与描边，内边距由调用方给（同 AttentionGroupCard 那张卡片）
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(7.dp).background(color, CircleShape))
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    job.subject ?: jobTypeLabel(job.jobType),
+                    job.subject ?: jobTypeLabel(job),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -748,7 +1015,7 @@ private fun activitySummaryParts(activity: TaskActivity, state: ActivityViewMode
 private fun ActivitySummary(activity: TaskActivity, state: ActivityViewModel.UiState) {
     Row(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .padding(top = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -772,7 +1039,7 @@ private fun ActivitySummary(activity: TaskActivity, state: ActivityViewModel.UiS
 internal fun WatchStatsCard(stats: io.movieclaw.android.core.model.PlaybackWatchStatsView) {
     Column(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .clip(RoundedCornerShape(16.dp))
             .background(Color.White.copy(alpha = 0.05f))
             .padding(14.dp),
@@ -859,7 +1126,7 @@ internal fun HistoryRow(entry: io.movieclaw.android.core.model.PlaybackLogEntry,
     val media = entry.media
     Row(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(Color.White.copy(alpha = 0.04f))
@@ -984,7 +1251,7 @@ internal fun AttentionCard(
 ) {
     Column(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(Color.White.copy(alpha = 0.05f))
@@ -1049,7 +1316,7 @@ internal fun AttentionGroupCard(
 ) {
     Column(
         Modifier
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(Color.White.copy(alpha = 0.05f))

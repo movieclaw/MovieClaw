@@ -58,7 +58,24 @@ SCENARIOS = {
     + keys("DPAD_RIGHT", 12, HOLD)
     + "sleep 1.5; "
     + keys("DPAD_LEFT", 12, HOLD),
+    # 详情页（首页「详情」进《东京夜食》，12 集）：进页在开录之前做完（DETAIL_SETUP）
+    "d-slide": "sleep 1; " + (keys("DPAD_DOWN", 1, 2.5) + keys("DPAD_UP", 1, 2.5)) * 3,
+    "d-episodes": keys("DPAD_DOWN", 1, 2)
+    + keys("DPAD_RIGHT", 10, STEP)
+    + keys("DPAD_LEFT", 10, STEP),
+    "d-episodes-hold": keys("DPAD_DOWN", 1, 2)
+    + keys("DPAD_RIGHT", 11, HOLD)
+    + "sleep 1.5; "
+    + keys("DPAD_LEFT", 11, HOLD),
+    # 滑到下半截后静置：只算最后一下按键 1.5 秒之后
+    "d-lower-idle": keys("DPAD_DOWN", 1, 1) + "sleep 7; ",
 }
+
+# 开录之前的准备（冷启动后焦点在「继续播放」上）：右移到「详情」、确认进详情页，等剧照、分集加载完
+DETAIL_SETUP = "input keyevent DPAD_RIGHT; sleep 0.6; input keyevent DPAD_CENTER; sleep 5; "
+SETUP = {name: DETAIL_SETUP for name in SCENARIOS if name.startswith("d-")}
+# 只统计最后一下按键之后的静置段
+TAIL_ONLY = {"d-lower-idle"}
 
 TRACE_CONFIG = f"""
 buffers {{ size_kb: 131072 fill_policy: RING_BUFFER }}
@@ -219,6 +236,8 @@ def analyze(path: Path, scenario: str) -> dict:
     )[0]
     if scenario == "idle" or inputs.a is None:
         start, end = bounds.a + int(0.5e9), bounds.b - int(0.5e9)
+    elif scenario in TAIL_ONLY:
+        start, end = inputs.b + int(1.5e9), bounds.b - int(0.5e9)
     else:
         # 第一下按键前 0.1 秒到最后一下之后 1.2 秒（等滚动、换图收尾）
         start, end = inputs.a - int(0.1e9), inputs.b + int(1.2e9)
@@ -411,6 +430,8 @@ def main() -> int:
                                 adb("install", "-r", apk)
                                 installed = True
                             launch(args.compile, args.settle)
+                            if scenario in SETUP:
+                                adb("shell", SETUP[scenario])
                             set_weak(args.weak)
                             try:
                                 trace = record(

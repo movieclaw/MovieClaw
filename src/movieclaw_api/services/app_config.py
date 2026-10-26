@@ -64,6 +64,7 @@ async def build_config_view() -> AppConfigView:
         web_port=port,
         web_port_source=source,
         web_port_default=DEFAULT_WEB_PORT,
+        web_port_reset_target=_parse_port(os.environ.get("MOVIECLAW_WEB_PORT")) or DEFAULT_WEB_PORT,
         web_port_rejected=rejected,
         web_port_configurable=_web_port_managed(),
     )
@@ -75,9 +76,7 @@ def _validate_payload(payload: AppConfigPayload) -> None:
     if url:
         parts = urlsplit(url)
         if parts.scheme not in ("http", "https") or not parts.netloc:
-            raise BadRequestException(
-                "外部访问地址必须是完整的 http(s) 地址，如 http://192.168.1.10:3000"
-            )
+            raise BadRequestException(message_key="errors.appConfig.externalUrlInvalid")
 
 
 async def save_config(payload: AppConfigPayload) -> AppConfigView:
@@ -158,16 +157,13 @@ async def save_web_port(port: int | None) -> AppConfigView:
     前端监听的，不重启前端就不会变。
     """
     if not _web_port_managed():
-        raise BadRequestException(
-            "当前部署形态不支持应用内修改端口：前端进程不由容器入口托管，"
-            "请直接调整启动命令或反向代理"
-        )
+        raise BadRequestException(message_key="errors.appConfig.portUnsupported")
     if port is not None and port != 0:
         if not 1 <= port <= 65535:
-            raise BadRequestException("端口需在 1~65535 之间")
+            raise BadRequestException(message_key="errors.appConfig.portRange")
         if port in _RESERVED_WEB_PORTS:
             raise BadRequestException(
-                f"{port} 是容器内后端占用的端口，换一个（前端与后端不能同口）"
+                message_key="errors.appConfig.backendPortConflict", params={"port": port}
             )
 
     path = _web_port_file()
@@ -187,7 +183,9 @@ async def save_web_port(port: int | None) -> AppConfigView:
         # 用户重新设了端口 = 上一次的失败记录已经翻篇，清掉外显
         rejected.unlink(missing_ok=True)
     except OSError as exc:
-        raise BadRequestException(f"端口设置写入失败：{exc}") from exc
+        raise BadRequestException(
+            message_key="errors.appConfig.portWriteFailed", params={"error": exc}
+        ) from exc
 
     view = await build_config_view()
     # 只有实际生效的端口变了才重启。清除设置后回落到的默认值恰好等于当前端口

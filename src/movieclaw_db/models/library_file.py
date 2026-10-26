@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import JSON, BigInteger, Column, ForeignKey, Index, Integer, Text
+from sqlalchemy import JSON, BigInteger, Column, ForeignKey, Index, Integer, Text, func
 from sqlmodel import Field
 
 from movieclaw_db.models.base import TimestampMixin
@@ -165,6 +165,11 @@ class LibraryFile(TimestampMixin, table=True):
         全站共享的唯一判别——将来再加状态，所有消费方零改动。
         """
         return cls.state == FileState.IN_PLACE
+
+    @classmethod
+    def strm_path(cls):
+        """strm 占位文件。认路径后缀而不是容器列：探过规格后容器列记的是直链的真实容器（#921）。"""
+        return func.lower(cls.file_path).like("%.strm")
 
     @classmethod
     def on_shelf(cls):
@@ -383,19 +388,33 @@ class LibraryFile(TimestampMixin, table=True):
     trashed_at: datetime | None = Field(
         default=None, description="进入待回收的时间；仅 state=trashed 时有意义"
     )
-    # NULL 且 state=trashed = 做种保护形态：文件仍在原位（file_path 未变）
+    # NULL 且 state=trashed = 原地待回收：原盘目录或移动失败，文件仍在原位（file_path 未变）
     trash_original_path: str | None = Field(
         default=None,
         sa_column=Column(Text, nullable=True),
         description="移入回收站前的原路径（恢复用）；NULL=文件未被移动（原地待回收）",
     )
     purge_after: datetime | None = Field(
-        default=None, description="预计自动删除时间；NULL=不自动删（做种保护/等联动）"
+        default=None, description="预计自动删除时间；NULL=不自动删（2026-08-17 之前的旧数据）"
     )
     trash_context: dict | None = Field(
         default=None,
         sa_column=Column(_NullableJson, nullable=True),
         description="待回收审计快照：{reason, trigger:{kind,id,label}, note}",
+    )
+
+    # -- 字节在哪（docs/design/cloud-storage.md §3.3）----------------------
+    # 「在位」的含义从「文件在本地」放宽为「我们拥有它」：字节可以只在网盘上
+    # （上传后释放了本地，或从网盘纳管、本地从来没有），这时 local_bytes 为假，
+    # 云端副本记在 library_file_replica。file_path 照旧是条目在库里的位置
+    # （旁车文件、目录结构都从它算），只是本地没有这个文件。
+    local_bytes: bool = Field(
+        default=True,
+        sa_column_kwargs={"server_default": "1"},
+        description="本地 file_path 上有没有字节；假 = 只在网盘上",
+    )
+    local_released_at: datetime | None = Field(
+        default=None, description="上传后释放本地字节的时间；纳管来的文件为 NULL"
     )
 
     def mark_missing(self, since: datetime | None = None) -> None:
@@ -428,6 +447,11 @@ class LibraryFile(TimestampMixin, table=True):
         default=None,
         sa_column=Column(Text, nullable=True),
         description="识别失败原因（给人看的整句）；NULL=已识别或未记录",
+    )
+    unidentified_message: dict | None = Field(
+        default=None,
+        sa_column=Column(_NullableJson, nullable=True),
+        description="识别失败消息键与参数；原中文原因保留供旧记录和回退读取",
     )
     # 失败分类（UnidentifiedCode）：清单据此给标签措辞/配色/可用动作，
     # 与上面那句面向用户的文案解耦——文案改写不该动摇分类

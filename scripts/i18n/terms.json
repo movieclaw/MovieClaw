@@ -1,0 +1,62 @@
+{
+  "关闭": [
+    "close"
+  ],
+  "登录": [
+    "sign in"
+  ],
+  "用户名": [
+    "username"
+  ],
+  "密码": [
+    "password"
+  ],
+  "语言": [
+    "language"
+  ],
+  "通用": [
+    "general"
+  ],
+  "初始化": [
+    "set up"
+  ],
+  "下载器": [
+    "downloader",
+    "downloaders"
+  ],
+  "转码器": [
+    "transcoder",
+    "transcoders"
+  ],
+  "媒体库": [
+    "library",
+    "libraries"
+  ],
+  "agent.thinking.disabled": [
+    "off"
+  ],
+  "common.off": [
+    "off"
+  ],
+  "common.turnOff": [
+    "turn off"
+  ],
+  "player.subtitles.off": [
+    "off"
+  ],
+  "settings.scrape.languageOptions": [
+    "languages"
+  ],
+  "subscription.inspector.off": [
+    "off"
+  ],
+  "刷流做种": [
+    "ratio boosting"
+  ],
+  "settings.webSearch.ui.disableConfirm": [
+    "disable"
+  ],
+  "settings.playback.controls.turnOff": [
+    "turn off"
+  ]
+}

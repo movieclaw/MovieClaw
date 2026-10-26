@@ -14,6 +14,7 @@ import SwiftUI
 /// 显示在首页 · 从首页移除 / 恢复显示 或 隐藏这个合集 · 删除合集；图床浏览时还有按作品分组与密度。
 /// 改名、隐藏、删除看 `manageable`，改条件、整理名单看 `editable`（后端按合集归属算好，见 §3.6）。
 struct CollectionDetailView: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int?
     let collectionId: Int
 
@@ -48,19 +49,19 @@ struct CollectionDetailView: View {
 
     private var sortStorageKey: String { "movieclaw.collection.wall-sort:\(collectionId)" }
     private static let prefLabels: [(String, String)] = [
-        ("title", "按标题"), ("added_at", "最近添加"), ("release_date", "按上映时间"), ("rating", "按评分"),
-        ("runtime", "按片长"), ("size", "按体积"), ("last_played", "最近观看"),
+        ("title", String(localized: .librarySortTitle)), ("added_at", String(localized: .libraryRowsRecentAdded)), ("release_date", String(localized: .librarySortReleaseDate)), ("rating", String(localized: .librarySortRating)),
+        ("runtime", String(localized: .librarySortRuntime)), ("size", String(localized: .librarySortSize)), ("last_played", String(localized: .libraryRowsRecentWatched)),
     ]
 
     /// 默认档：合集自己的序
     private var defaultSort: (label: String, equivalent: String?, direction: WallSortDirection) {
         guard let collection, collection.ruleDriven else {
-            return ("自定顺序", nil, WallSortDirection(naturalAsc: true, asc: "正序", desc: "倒序"))
+            return (String(localized: .libraryCollectionsCustomOrder), nil, WallSortDirection(naturalAsc: true, asc: String(localized: .libraryCollectionsForward), desc: String(localized: .libraryCollectionsReverse)))
         }
         if collection.kind == "series" || collection.sort == "release_date_asc" {
             var direction = WallSortDirections.of("release_date")!
             direction.naturalAsc = true
-            return ("按上映顺序", "release_date", direction)
+            return (String(localized: .libraryCollectionsReleaseOrder), "release_date", direction)
         }
         let key = Self.prefLabels.contains { $0.0 == collection.sort } ? collection.sort : "title"
         return (Self.prefLabels.first { $0.0 == key }!.1, key, WallSortDirections.of(key)!)
@@ -81,7 +82,8 @@ struct CollectionDetailView: View {
 
     private var sortKey: String { "\(sort.sort == "default" ? "" : sort.sort)\(sort.reversed ? ":rev" : "")" }
     private var rows: [API.LibraryItemView] { pager.items ?? [] }
-    private var galleryOn: Bool { gallery.galleryMode && !rows.isEmpty }
+    private var galleryLibraryId: Int? { libraryId ?? collection?.libraryId }
+    private var galleryOn: Bool { gallery.galleryMode(libraryId: galleryLibraryId) && !rows.isEmpty }
     private var homePrefsOwner: String { LibraryHomePrefs.ownerKey(api: api, username: model.session?.username) }
 
     private var homeRow: API.HomeRowPref? { homePrefs.rows?.first { $0.collectionId == collectionId } }
@@ -96,20 +98,10 @@ struct CollectionDetailView: View {
             }
         }
         .appBackground()
-        .navigationTitle(collection?.name ?? "合集")
+        .navigationTitle(collection?.name ?? String(localized: .libraryCollectionsPageTitle))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let collection {
-                if !rows.isEmpty {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            gallery.galleryMode.toggle()
-                        } label: {
-                            Image(systemName: galleryOn ? "square.grid.2x2" : "photo.on.rectangle.angled")
-                        }
-                        .accessibilityLabel(galleryOn ? "回到海报墙" : "图床浏览")
-                    }
-                }
                 ToolbarItem(placement: .topBarTrailing) { menu(collection) }
             }
         }
@@ -133,7 +125,7 @@ struct CollectionDetailView: View {
                 LibraryShareSheet(
                     target: .collection(id: collection.id), title: collection.name,
                     posterUrl: collection.covers.first?.url,
-                    seasonSummary: "\(collection.itemCount) 部\(collection.ruleDriven ? " · 会自动收录新片" : "")",
+                    seasonSummary: String(localized: .libraryCollectionsShareCount(collection.itemCount)) + (collection.ruleDriven ? String(localized: .libraryCollectionsAutoAddsNew) : ""),
                     initialShare: request.initial
                 )
                 .sheetFeedback()
@@ -183,8 +175,8 @@ struct CollectionDetailView: View {
                 .foregroundStyle(Theme.text)
             if let collection {
                 let count = series.map { $0.available && $0.total > 0 } == true
-                    ? "已有 \(series!.ownedCount) / 共 \(series!.total) 部" : "\(collection.itemCount) 部"
-                Text([count, collection.visibility == "private" ? "只有我可见" : nil, collection.hidden ? "已隐藏" : nil]
+                    ? String(localized: .libraryCollectionsOwnedSummary(series!.ownedCount, series!.total)) : String(localized: .libraryStatusTitleCount(collection.itemCount))
+                Text([count, collection.visibility == "private" ? String(localized: .libraryCollectionsPrivate) : nil, collection.hidden ? String(localized: .libraryCollectionsHideDone) : nil]
                     .compactMap { $0 }.joined(separator: " · "))
                     .font(.subheadline)
                     .foregroundStyle(Theme.textMuted)
@@ -200,27 +192,27 @@ struct CollectionDetailView: View {
                 }
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 4)
     }
 
     @ViewBuilder
     private func ruleRow(_ collection: API.CollectionView) -> some View {
         if collection.kind == "series" {
-            note("作品系列 · 按上映顺序排列，以后入库的续作会自动归进来")
+            note(String(localized: .libraryCollectionsSeriesRule))
         } else if !collection.ruleDriven {
-            note("固定名单 · 不会自动收录新片")
+            note(String(localized: .libraryCollectionsManualRule))
         } else {
             let groups = ruleGroups(LibraryFilter(rules: collection.rules))
             if groups.isEmpty {
-                note("自动收录 · 收录本库全部作品")
+                note(String(localized: .libraryCollectionsAllRule))
             } else {
                 Button {
                     showingRules = true
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "sparkles").foregroundStyle(Theme.accent)
-                        Text("自动收录").fontWeight(.semibold).foregroundStyle(Theme.text)
+                        Text(String(localized: .libraryCollectionsAutoAdd)).fontWeight(.semibold).foregroundStyle(Theme.text)
                         Text("·").foregroundStyle(Theme.textFaint)
                         Text(ruleSummary(groups)).foregroundStyle(Theme.textMuted).lineLimit(1)
                         Image(systemName: "chevron.right").font(.caption2.weight(.semibold)).foregroundStyle(Theme.textFaint)
@@ -232,8 +224,8 @@ struct CollectionDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: .capsule)
-                .accessibilityLabel("自动收录条件：\(ruleSummary(groups))")
-                .accessibilityHint("查看收录条件")
+                .accessibilityLabel(String(localized: .libraryCollectionsRulesAria(ruleSummary(groups))))
+                .accessibilityHint(String(localized: .libraryCollectionsViewRulesHint))
                 .accessibilityIdentifier("collection-rules")
             }
         }
@@ -254,10 +246,10 @@ struct CollectionDetailView: View {
             pool?.first { $0.value == value }?.label ?? "…"
         }
         var groups: [(String, [String])] = []
-        if !filter.genres.isEmpty { groups.append(("类型", filter.genres.map { label(facets?.genres, String($0)) })) }
-        if !filter.decades.isEmpty { groups.append(("年代", filter.decades.map { label(facets?.decades, $0) })) }
-        if !filter.countries.isEmpty { groups.append(("地区", filter.countries.map { label(facets?.countries, $0) })) }
-        if let watch = filter.watch { groups.append(("观看", [label(facets?.watch, watch)])) }
+        if !filter.genres.isEmpty { groups.append((String(localized: .libraryFiltersGenres), filter.genres.map { label(facets?.genres, String($0)) })) }
+        if !filter.decades.isEmpty { groups.append((String(localized: .libraryFiltersDecades), filter.decades.map { label(facets?.decades, $0) })) }
+        if !filter.countries.isEmpty { groups.append((String(localized: .libraryFiltersRegions), filter.countries.map { label(facets?.countries, $0) })) }
+        if let watch = filter.watch { groups.append((String(localized: .libraryFiltersWatch), [label(facets?.watch, watch)])) }
         return groups
     }
 
@@ -267,12 +259,12 @@ struct CollectionDetailView: View {
             VStack(alignment: .leading, spacing: 10) {
                 LibraryFilterBar(libraryId: libraryId, filter: Binding(mcGet: { self.editing ?? editing }, set: { self.editing = $0 }))
                 HStack(spacing: 10) {
-                    Button("保存条件") { Task { await saveRules() } }
+                    Button(String(localized: .libraryCollectionsSaveRules)) { Task { await saveRules() } }
                         .buttonStyle(.glassProminent)
                         .disabled(editing.isEmpty)
-                    Button("取消") { self.editing = nil }.buttonStyle(.glass)
+                    Button(String(localized: .commonCancel)) { self.editing = nil }.buttonStyle(.glass)
                     if editing.isEmpty {
-                        Text("至少留一个条件，否则这个合集会收录整库").font(.footnote).foregroundStyle(Theme.textFaint)
+                        Text(String(localized: .libraryCollectionsKeepCondition)).font(.footnote).foregroundStyle(Theme.textFaint)
                     }
                 }
             }
@@ -299,11 +291,11 @@ struct CollectionDetailView: View {
                 router.push(.libraryItem(libraryId: group.libraryId, itemId: group.mediaItemId))
             }
         } else if rows.isEmpty, missing.isEmpty {
-            Text("这个合集现在一部都没有。")
+            Text(String(localized: .libraryCollectionsEmpty))
                 .font(.subheadline).foregroundStyle(Theme.textMuted)
                 .frame(maxWidth: .infinity).padding(.top, 64)
         } else {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)], alignment: .leading, spacing: 20) {
+            LazyVGrid(columns: cards.wallColumns(), alignment: .leading, spacing: 20) {
                 ForEach(cells(missing: pager.hasMore ? [] : missing)) { cell in
                     switch cell {
                     case let .item(item):
@@ -314,7 +306,7 @@ struct CollectionDetailView: View {
                     }
                 }
             }
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             .accessibilityIdentifier("collection-wall")
             WallLoadMoreFooter(hasMore: pager.hasMore, start: 0, loaded: rows.count, total: collection?.itemCount) {
                 await pager.loadMore()
@@ -353,6 +345,11 @@ struct CollectionDetailView: View {
 
     private func menu(_ collection: API.CollectionView) -> some View {
         Menu {
+            if !rows.isEmpty {
+                Button(galleryOn ? String(localized: .libraryDetailBackToPosters) : String(localized: .libraryDetailGalleryView)) {
+                    gallery.setGalleryMode(!galleryOn, libraryId: galleryLibraryId)
+                }
+            }
             if galleryOn {
                 GalleryPrefMenuItems()
                 Divider()
@@ -360,24 +357,24 @@ struct CollectionDetailView: View {
             // 权限口径（member-permissions-v2 §3.6）：manageable = 能改名 / 隐藏 / 删除（超管，或成员自己建的合集；
             // 内置合集只有超管）；editable = 用户自建且 manageable，才能改条件、动名单（含整理顺序里的移除）
             if collection.manageable {
-                Button("改名") { Task { await rename(collection) } }
+                Button(String(localized: .libraryCollectionsRename)) { Task { await rename(collection) } }
             }
             if permissions.canManageLibraries {
-                Button("分享…") { Task { await openShare() } }
+                Button(String(localized: .libraryCollectionsShare)) { Task { await openShare() } }
             }
             if libraryId != nil, collection.editable, collection.ruleDriven {
-                Button("改条件…") { editing = LibraryFilter(rules: collection.rules) }
+                Button(String(localized: .libraryCollectionsEditRules)) { editing = LibraryFilter(rules: collection.rules) }
             }
             if collection.editable, !collection.ruleDriven {
-                Button("整理顺序…") { Task { await openOrdering() } }
+                Button(String(localized: .libraryCollectionsOrderMenu)) { Task { await openOrdering() } }
             }
-            Button(onHome ? "从首页移除" : "显示在首页") { Task { await toggleOnHome(collection) } }
+            Button(onHome ? String(localized: .libraryCollectionsRemoveHome) : String(localized: .libraryCollectionsShowHome)) { Task { await toggleOnHome(collection) } }
             if collection.manageable {
                 Divider()
                 if collection.hidden {
-                    Button("恢复显示") { Task { await unhide(collection) } }
+                    Button(String(localized: .libraryCollectionsRestore)) { Task { await unhide(collection) } }
                 } else {
-                    Button(collection.kind != "user" ? "隐藏这个合集" : "删除合集", role: collection.kind != "user" ? nil : .destructive) {
+                    Button(collection.kind != "user" ? String(localized: .libraryCollectionsHideMenu) : String(localized: .libraryCollectionsDeleteMenu), role: collection.kind != "user" ? nil : .destructive) {
                         Task { await remove(collection) }
                     }
                 }
@@ -385,7 +382,7 @@ struct CollectionDetailView: View {
         } label: {
             Image(systemName: "ellipsis")
         }
-        .accessibilityLabel("更多操作")
+        .accessibilityLabel(String(localized: .libraryDetailMoreActions))
         .accessibilityIdentifier("collection-actions")
     }
 
@@ -407,7 +404,7 @@ struct CollectionDetailView: View {
             }
         } catch is CancellationError {
         } catch {
-            self.error = "这个合集不存在，或者你看不到它。"
+            self.error = String(localized: .libraryCollectionsUnavailable)
         }
     }
 
@@ -429,11 +426,11 @@ struct CollectionDetailView: View {
     }
 
     private func rename(_ collection: API.CollectionView) async {
-        guard let name = await feedback.prompt("合集名", initial: collection.name)?.trimmingCharacters(in: .whitespaces),
+        guard let name = await feedback.prompt(String(localized: .libraryCollectionsNameLabel), initial: collection.name)?.trimmingCharacters(in: .whitespaces),
               !name.isEmpty, name != collection.name else { return }
         do {
             self.collection = try await api.collectionUpdate(collectionId: collection.id, body: API.CollectionPayload(name: name))
-            feedback.success("已改名")
+            feedback.success(String(localized: .libraryCollectionsRenamed))
         } catch {
             feedback.error(error)
         }
@@ -457,7 +454,7 @@ struct CollectionDetailView: View {
         do {
             ordering = try await api.collectionItemsList(collectionId: collectionId, limit: 60)
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? "取不到名单" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .libraryCollectionsMembersFailed) : error.localizedDescription)
         }
     }
 
@@ -485,38 +482,38 @@ struct CollectionDetailView: View {
                 rows = HomeRows.toPrefs(HomeRows.build(prefs: homePrefs.rows ?? [], libraries: l, collections: c) + [HomeRows.newCollectionRow(collection)])
             }
             try await homePrefs.save(rows, api: api)
-            feedback.success(wasOnHome ? "已从首页移除，媒体库卡片和播放器入口也会一并移除" : "已显示在首页，媒体库卡片和播放器入口同步显示")
+            feedback.success(wasOnHome ? String(localized: .libraryCollectionsHomeRemoved) : String(localized: .libraryCollectionsHomeAdded))
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? "保存失败" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .libraryCollectionsSaveFailed) : error.localizedDescription)
         }
     }
 
     private func remove(_ collection: API.CollectionView) async {
         let automatic = collection.kind != "user"
         let ok = await feedback.confirm(
-            automatic ? "隐藏「\(collection.name)」？" : "删除合集「\(collection.name)」？",
+            automatic ? String(localized: .libraryCollectionsHideTitle(collection.name)) : String(localized: .libraryCollectionsDeleteTitle(collection.name)),
             message: automatic
-                ? "自动生成的合集会一直重新出现，所以这里是把它藏起来：影片一部都不会少，想找回来在媒体库设置里打开「显示已隐藏的合集」。"
-                : "只删掉这层视图，里面的影片一部都不会少。",
-            confirmTitle: automatic ? "隐藏" : "删除",
+                ? String(localized: .libraryCollectionsHideExplanation)
+                : String(localized: .libraryCollectionsDeleteExplanation),
+            confirmTitle: automatic ? String(localized: .libraryCollectionsHide) : String(localized: .commonDelete),
             destructive: !automatic
         )
         guard ok else { return }
         do {
             try await api.collectionDelete(collectionId: collection.id)
-            feedback.success(automatic ? "已隐藏" : "已删除")
+            feedback.success(automatic ? String(localized: .libraryCollectionsHideDone) : String(localized: .libraryCollectionsDeleted))
             router.pop()
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? (automatic ? "隐藏失败" : "删除失败") : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? (automatic ? String(localized: .libraryCollectionsHideFailed) : String(localized: .libraryCollectionsDeleteFailed)) : error.localizedDescription)
         }
     }
 
     private func unhide(_ collection: API.CollectionView) async {
         do {
             self.collection = try await api.collectionUpdate(collectionId: collection.id, body: API.CollectionPayload(hidden: false))
-            feedback.success("已恢复显示")
+            feedback.success(String(localized: .libraryCollectionsRestored))
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? "恢复失败" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .libraryCollectionsRestoreFailed) : error.localizedDescription)
         }
     }
 
@@ -526,9 +523,9 @@ struct CollectionDetailView: View {
             self.collection = try await api.collectionUpdate(collectionId: collection.id, body: API.CollectionPayload(rules: editing.rules))
             self.editing = nil
             membersChanged()
-            feedback.success("条件已保存")
+            feedback.success(String(localized: .libraryCollectionsRulesSaved))
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? "保存失败" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .libraryCollectionsSaveFailed) : error.localizedDescription)
         }
     }
 }
@@ -551,8 +548,8 @@ private struct CollectionRulesSheet: View {
                 Section {
                 } footer: {
                     Text(groups.count > 1
-                        ? "同时满足下面每一组条件的作品会自动收进这个合集，以后入库的新片也会自动归进来。"
-                        : "满足下面条件的作品会自动收进这个合集，以后入库的新片也会自动归进来。")
+                        ? String(localized: .libraryCollectionsRulesAllGroups)
+                        : String(localized: .libraryCollectionsRulesSingleGroup))
                 }
                 ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                     Section {
@@ -562,24 +559,24 @@ private struct CollectionRulesSheet: View {
                     } header: {
                         Text(group.label)
                     } footer: {
-                        if group.values.count > 1 { Text("满足其中之一即可") }
+                        if group.values.count > 1 { Text(String(localized: .libraryCollectionsAnyOf)) }
                     }
                 }
                 if let onEdit {
                     Section {
-                        Button("编辑条件", systemImage: "slider.horizontal.3", action: onEdit)
+                        Button(String(localized: .libraryCollectionsEditRulesButton), systemImage: "slider.horizontal.3", action: onEdit)
                     }
                 }
             }
-            .navigationTitle("自动收录")
+            .navigationTitle(String(localized: .libraryCollectionsAutoAdd))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button(String(localized: .commonDone)) { dismiss() }
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .adaptiveDetents([.medium, .large])
         .accessibilityIdentifier("collection-rules-sheet")
     }
 }
@@ -588,8 +585,11 @@ private struct CollectionRulesSheet: View {
 ///
 /// 「追踪中」= 接口标了已订阅，**或**全站订阅索引里已有这部 TMDB 电影（刚在别处订上、合集数据还没刷新）；
 /// 已追踪时长按给「管理订阅」而不是再订一遍。只压暗海报图、不压暗片名（同 Web）。
-private struct MissingPartCell: View {
+/// 系列里缺的那一部（合集页的海报墙、条目详情页的系列一行共用）：压暗，点进 TMDB 详情，长按订阅
+struct MissingPartCell: View {
     let part: API.SeriesPartView
+    /// 取图宽度（点）：海报墙按格宽，横排按卡宽
+    var imageWidth: CGFloat = LibraryGridColumn.width(minimum: 140)
     @Environment(\.api) private var api
     @Environment(\.permissions) private var permissions
     @Environment(Router.self) private var router
@@ -604,8 +604,8 @@ private struct MissingPartCell: View {
             LibraryPosterCell(
                 title: part.title,
                 year: part.releaseDate.flatMap { Int($0.prefix(4)) },
-                extent: tracked ? "追踪中" : "未入库",
-                url: api.image(part.posterUrl, width: ImageWidth.points(LibraryGridColumn.width(minimum: 140))),
+                extent: tracked ? String(localized: .libraryCollectionsTracking) : String(localized: .libraryCollectionsNotOwned),
+                url: api.image(part.posterUrl, width: ImageWidth.points(imageWidth)),
                 artworkOpacity: 0.4
             )
         }
@@ -616,13 +616,13 @@ private struct MissingPartCell: View {
                     Button {
                         router.push(.subscription(id: subscription.id))
                     } label: {
-                        Label("管理订阅", systemImage: "checkmark.circle")
+                        Label(String(localized: .subscriptionInspectorManage), systemImage: "checkmark.circle")
                     }
                 } else if !part.subscribed {
                     Button {
                         router.present(.subscribe(SubscribeRequest(titleRef: "tmdb:movie:\(part.tmdbId)", title: part.title)))
                     } label: {
-                        Label("订阅影片", systemImage: "plus")
+                        Label(String(localized: .mediaDiscoverySubscribe), systemImage: "plus")
                     }
                 }
             }
@@ -653,29 +653,29 @@ private struct CollectionOrderSheet: View {
                             }
                             Spacer(minLength: 4)
                             Button { move(index, index - 1) } label: { Image(systemName: "arrow.up") }
-                                .disabled(index == 0).accessibilityLabel("上移")
+                                .disabled(index == 0).accessibilityLabel(String(localized: .libraryCollectionsUp))
                             Button { move(index, index + 1) } label: { Image(systemName: "arrow.down") }
-                                .disabled(index == items.count - 1).accessibilityLabel("下移")
+                                .disabled(index == items.count - 1).accessibilityLabel(String(localized: .libraryCollectionsDown))
                             Button { Task { await drop(row) } } label: { Image(systemName: "xmark") }
-                                .disabled(busy).accessibilityLabel("移出 \(row.title)")
+                                .disabled(busy).accessibilityLabel(String(localized: .libraryCollectionsRemoveTitle(row.title)))
                         }
                         .buttonStyle(.borderless)
                     }
                     .onMove { items.move(fromOffsets: $0, toOffset: $1) }
                     if items.isEmpty {
-                        Text("这个合集现在一部都没有。").foregroundStyle(Theme.textFaint)
+                        Text(String(localized: .libraryCollectionsEmpty)).foregroundStyle(Theme.textFaint)
                     }
                 } header: {
-                    Text("拖动调整先后；顺序在网页、播放器和分享页三处一致。移出去只是从名单里去掉，影片一部都不会少。")
+                    Text(String(localized: .libraryCollectionsReorderHint))
                         .textCase(nil)
                 }
             }
-            .navigationTitle("整理顺序")
+            .navigationTitle(String(localized: .libraryCollectionsOrderTitle))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(String(localized: .commonCancel)) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存顺序") { Task { await save() } }.disabled(busy || items.isEmpty)
+                    Button(String(localized: .libraryManageSaveOrder)) { Task { await save() } }.disabled(busy || items.isEmpty)
                 }
             }
         }
@@ -691,7 +691,7 @@ private struct CollectionOrderSheet: View {
         busy = true
         do {
             _ = try await api.collectionItemsReorder(collectionId: collectionId, body: API.CollectionItemsPayload(mediaItemIds: items.map(\.mediaItemId)))
-            feedback.success("顺序已保存")
+            feedback.success(String(localized: .libraryCollectionsOrderSaved))
             onSaved()
             dismiss()
         } catch {

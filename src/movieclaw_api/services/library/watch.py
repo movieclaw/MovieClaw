@@ -96,17 +96,46 @@ def _is_relevant_event(event, watched: frozenset[str] | set[str] | None = None) 
 
 
 def _modified_video_path(event) -> str | None:  # noqa: ANN001
-    """视频文件的 modified 事件返回其路径（内容变化重探的点名依据，
+    """视频文件的 modified / 写后关闭事件返回其路径（内容变化重探的点名依据，
     jellyfin-subtitle.md §2.4）；其余事件返回 None。
 
-    只认 modified：created/moved 走正常入账（本就会探测），deleted 走
-    丢失标记。strm 不点名——它无媒体流，重探无意义。
+    只认这两种：created/moved 走正常入账（本就会探测），deleted 走丢失
+    标记。写后关闭也算——qBittorrent 默认的 mmap 写入全程不产生 modified，
+    原地覆盖同一路径时关闭是唯一的内容变化信号。strm 不点名——它无媒体流，
+    重探无意义。
     """
     from movieclaw_api.services.library.layout import VIDEO_EXTS
 
-    if event.is_directory or event.event_type != "modified":
+    if event.is_directory or event.event_type not in ("modified", "closed"):
         return None
     path = os.fsdecode(event.src_path or "")
+    if path and Path(path).suffix.lower() in VIDEO_EXTS:
+        return path
+    return None
+
+
+def _settled_video_path(event) -> str | None:  # noqa: ANN001
+    """写入方已经收尾的视频文件（写完关闭、改名就位）返回其路径；其余返回 None。
+
+    扫描据此不必等 mtime 静默窗口（scan_library 的 settled_paths）。实测
+    （qBittorrent 5.2 / libtorrent 2.0）：默认 mmap 写入在下载全程**没有**
+    modified 事件，完成那一刻的写后关闭是唯一信号；开了未完成后缀则是
+    ``.!qB`` 改名成视频。暂停任务同样会关闭文件，所以这只是「可能写完」——
+    扫描还要确认文件里没有没下到的空洞才采信。
+
+    从库外移进来的文件（下载器的临时目录）watchdog 报成 created，与刚开始
+    下载的新文件分不开，不算收尾信号，照旧等静默窗口。
+    """
+    from movieclaw_api.services.library.layout import VIDEO_EXTS
+
+    if event.is_directory:
+        return None
+    if event.event_type == "closed":
+        path = os.fsdecode(event.src_path or "")
+    elif event.event_type == "moved":
+        path = os.fsdecode(getattr(event, "dest_path", "") or "")
+    else:
+        return None
     if path and Path(path).suffix.lower() in VIDEO_EXTS:
         return path
     return None
@@ -158,27 +187,33 @@ def watchable_roots(libraries) -> tuple[list[tuple[int, str]], list[tuple[str, s
 
 
 class _PendingScan:
-    """去抖批次里单个库累计的扫描诉求（全量标志 + 条目范围 + 重探点名）。"""
+    """去抖批次里单个库累计的扫描诉求（全量标志 + 条目范围 + 重探点名 + 写完点名）。"""
 
-    __slots__ = ("full", "reprobe", "scopes")
+    __slots__ = ("full", "reprobe", "scopes", "settled")
 
     def __init__(self) -> None:
         self.full = False
         self.scopes: set[str] = set()
         self.reprobe: set[str] = set()
+        self.settled: set[str] = set()
 
-    def add(self, scope: str | None, modified_path: str | None) -> None:
+    def add(
+        self, scope: str | None, modified_path: str | None, settled_path: str | None = None
+    ) -> None:
         if scope is None:
             self.full = True
         else:
             self.scopes.add(scope)
         if modified_path is not None:
             self.reprobe.add(modified_path)
+        if settled_path is not None:
+            self.settled.add(settled_path)
 
     def merge(self, other: _PendingScan) -> None:
         self.full = self.full or other.full
         self.scopes.update(other.scopes)
         self.reprobe.update(other.reprobe)
+        self.settled.update(other.settled)
 
     def scope_paths(self) -> set[str] | None:
         """交给 scan_library 的范围；None = 整库。"""
@@ -197,7 +232,8 @@ class LibraryWatcher:
         self._entries: dict[tuple[int, str], tuple[object, object]] = {}
         # 库 id → 该库监听的扩展名集合（handler 创建时快照进闭包）
         self._watched_exts: dict[int, frozenset[str]] = {}
-        # 队列元素 (library_id, 条目范围|None=整库, 内容被修改的视频路径|None)
+        # 队列元素 (library_id, 条目范围|None=整库, 内容被修改的视频路径|None,
+        # 写入方已收尾的视频路径|None)
         self._queue: asyncio.Queue[tuple[int, str | None, str | None]] = asyncio.Queue()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._consumer: asyncio.Task | None = None
@@ -398,9 +434,10 @@ class LibraryWatcher:
                 if not _is_relevant_event(event, watched):
                     return
                 modified = _modified_video_path(event)
+                settled = _settled_video_path(event)
                 for scope in _event_scopes(root, event):
-                    if watcher._should_enqueue((library_id, scope, modified)):
-                        watcher._enqueue_threadsafe(library_id, scope, modified)
+                    if watcher._should_enqueue((library_id, scope, modified, settled)):
+                        watcher._enqueue_threadsafe(library_id, scope, modified, settled)
 
         return _Handler()
 
@@ -423,30 +460,38 @@ class LibraryWatcher:
         return True
 
     def _enqueue_threadsafe(
-        self, library_id: int, scope: str | None, modified_path: str | None
+        self,
+        library_id: int,
+        scope: str | None,
+        modified_path: str | None,
+        settled_path: str | None = None,
     ) -> None:
         loop = self._loop
         if loop is None or loop.is_closed():
             return
-        loop.call_soon_threadsafe(self._queue.put_nowait, (library_id, scope, modified_path))
+        loop.call_soon_threadsafe(
+            self._queue.put_nowait, (library_id, scope, modified_path, settled_path)
+        )
 
     async def _consume(self) -> None:
         """去抖消费：首事件后等安静窗口，汇总本批涉及的库做范围/整库扫描。"""
         while True:
-            library_id, scope, modified_path = await self._queue.get()
+            library_id, scope, modified_path, settled_path = await self._queue.get()
             pending: dict[int, _PendingScan] = {}
-            pending.setdefault(library_id, _PendingScan()).add(scope, modified_path)
+            pending.setdefault(library_id, _PendingScan()).add(scope, modified_path, settled_path)
             deadline = asyncio.get_running_loop().time() + _MAX_WAIT_SECONDS
             while True:
                 remaining = deadline - asyncio.get_running_loop().time()
                 timeout = min(_QUIET_SECONDS, max(remaining, 0))
                 try:
-                    library_id, scope, modified_path = await asyncio.wait_for(
+                    library_id, scope, modified_path, settled_path = await asyncio.wait_for(
                         self._queue.get(), timeout
                     )
                 except TimeoutError:
                     break  # 安静窗口达成
-                pending.setdefault(library_id, _PendingScan()).add(scope, modified_path)
+                pending.setdefault(library_id, _PendingScan()).add(
+                    scope, modified_path, settled_path
+                )
                 if asyncio.get_running_loop().time() >= deadline:
                     break  # 兜底：持续有事件也要触发
             for library_id in sorted(pending):
@@ -474,6 +519,7 @@ class LibraryWatcher:
                 backfill_existing_specs=False,
                 reprobe_paths=request.reprobe or None,
                 scope_paths=request.scope_paths(),
+                settled_paths=request.settled or None,
             )
             # 手工拷进库目录的新集也要识别片头片尾，不等下一轮对账（docs/design/skip-intro.md）。
             # 只在这一轮真有新文件入账时才去看有没有待办
@@ -518,9 +564,11 @@ class LibraryWatcher:
         scope_paths = request.scope_paths()
         scopes: list[str | None] = sorted(scope_paths) if scope_paths else [None]
         for scope in scopes:
-            self._queue.put_nowait((library_id, scope, None))
+            self._queue.put_nowait((library_id, scope, None, None))
         for modified in sorted(request.reprobe):
-            self._queue.put_nowait((library_id, scopes[0], modified))
+            self._queue.put_nowait((library_id, scopes[0], modified, None))
+        for settled in sorted(request.settled):
+            self._queue.put_nowait((library_id, scopes[0], None, settled))
 
 
 _watcher: LibraryWatcher | None = None

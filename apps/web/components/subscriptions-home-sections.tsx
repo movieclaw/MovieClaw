@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import type { Route } from "next";
 import Link from "next/link";
 import { Fragment, useState } from "react";
@@ -54,12 +55,14 @@ export function SubsHomeRecentRow({
   cards: RecentSubscriptionArrival[];
   now: Date;
 }) {
+  const t = useTranslations();
+
   return (
     <section aria-labelledby="subs-recent-title">
       <SubsHomeSectionHeader
         id="subs-recent-title"
-        title="刚刚入库"
-        trailing={cards.length > 1 ? `${cards.length} 部` : null}
+        title={t("subscription.sections.recent")}
+        trailing={cards.length > 1 ? t("subscription.feed.titleCount", { count: cards.length }) : null}
       />
       <HScroller className={`mt-3 gap-3.5 pb-2 pt-1 ${SUBS_HOME_INSET}`}>
         {cards.map((card) => (
@@ -71,13 +74,16 @@ export function SubsHomeRecentRow({
 }
 
 function RecentCard({ card, now }: { card: RecentSubscriptionArrival; now: Date }) {
+  const locale = useLocale();
+  const t = useTranslations();
+
   // 横滑这一行时手指常停在卡上，没有误触判定一划就起播了（会真的开转码会话）
   const tapGuard = useTapGuard(() => {
     rememberPlayerReturnPath("/subscriptions");
     markPlayIntent();
   });
-  const detail = recentDetail(card);
-  const note = recentNote(card, now);
+  const detail = recentDetail(card, locale);
+  const note = recentNote(card, now, locale);
   const { mediaItemId, season, episode } = playRequest(card);
   // 剧集用这一集的剧照；电影和缺剧照的集用作品剧照，再没有退回海报
   const artwork = card.still_url ?? card.media.backdrop_url ?? card.media.poster_url;
@@ -86,7 +92,7 @@ function RecentCard({ card, now }: { card: RecentSubscriptionArrival; now: Date 
   return (
     <Link
       href={playHref(mediaItemId, { season, episode }) as Route}
-      aria-label={`播放《${card.media.title}》，${detail}${note ? `，${note}` : ""}`}
+      aria-label={t("subscription.feed.playRecent", { title: card.media.title, detail, hasNote: note ? "yes" : "no", note: note ?? "" })}
       {...tapGuard}
       className="group/recent block w-[264px] shrink-0 outline-none md:w-[300px]"
     >
@@ -106,7 +112,7 @@ function RecentCard({ card, now }: { card: RecentSubscriptionArrival; now: Date 
         </span>
         {card.units.length > 1 && (
           <div className="pointer-events-none absolute left-[9px] top-[9px]">
-            <SubsHomeChipView chip={{ text: `新 ${card.units.length} 集`, tone: "ok" }} />
+            <SubsHomeChipView chip={{ text: t("subscription.feed.newEpisodes", { count: card.units.length }), tone: "ok" }} />
           </div>
         )}
         {card.progress_percent != null && (
@@ -149,6 +155,8 @@ function RecentLogo({ src }: { src: string }) {
  * 中间剧照、右边片名与集号，和上下两排横滑行形状不同，页面有呼吸。
  */
 export function SubsHomeSchedule({ days }: { days: SubsHomeScheduleDay[] }) {
+  const t = useTranslations();
+
   // null = 默认选中第一个有安排的日子
   const [selected, setSelected] = useState<number | null>(null);
   const pick = selected ?? days.find((day) => day.entries.length > 0)?.daysAhead;
@@ -157,15 +165,15 @@ export function SubsHomeSchedule({ days }: { days: SubsHomeScheduleDay[] }) {
   const caption =
     current.entries.length === 0
       ? current.dateLabel
-      : `${current.dateLabel} · ${current.entries.length} 部`;
+      : t("subscription.feed.scheduleCaption", { date: current.dateLabel, count: current.entries.length });
 
   return (
     <section aria-labelledby="subs-schedule-title">
-      <SubsHomeSectionHeader id="subs-schedule-title" title="日程" trailing={caption} />
+      <SubsHomeSectionHeader id="subs-schedule-title" title={t("subscription.feed.schedule")} trailing={caption} />
       <div className={`mt-3 md:max-w-[720px] ${SUBS_HOME_INSET}`}>
         <div
           role="tablist"
-          aria-label="一周日程"
+          aria-label={t("subscription.feed.weekSchedule")}
           className="grid gap-1.5"
           style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}
         >
@@ -206,6 +214,8 @@ function ScheduleDayChip({
   on: boolean;
   onSelect: () => void;
 }) {
+  const t = useTranslations();
+
   const empty = day.entries.length === 0;
   // 日期条小圆点：当天有正在发生的（下载 / 整理）就亮状态色，否则中性白
   const glowing = day.entries.find((entry) => toneGlows(entry.tone));
@@ -221,7 +231,7 @@ function ScheduleDayChip({
       aria-selected={on}
       disabled={empty}
       onClick={onSelect}
-      aria-label={`${day.weekday}，${day.dateLabel}，${empty ? "没有更新" : `${day.entries.length} 部更新`}`}
+      aria-label={t("subscription.feed.dayAria", { weekday: day.weekday, date: day.dateLabel, empty: empty ? "yes" : "no", count: day.entries.length })}
       className={`flex flex-col items-center gap-[3px] rounded-[15px] py-[9px] transition duration-300 active:scale-[0.92] disabled:opacity-[0.36] ${
         on ? "bg-white" : "bg-white/[0.05] ring-1 ring-inset ring-white/[0.07]"
       }`}
@@ -250,11 +260,13 @@ function ScheduleDayChip({
 }
 
 function AgendaRow({ entry }: { entry: SubsHomeScheduleEntry }) {
+  const t = useTranslations();
+
   const artwork = entry.media?.backdrop_url ?? entry.media?.poster_url;
   return (
     <Link
       href={`/subscriptions/${entry.subscriptionId}` as Route}
-      aria-label={`《${entry.title}》${entry.episodeLabel}，${entry.status}，${entry.time ?? "时间待定"}`}
+      aria-label={t("subscription.feed.agendaAria", { title: entry.title, episode: entry.episodeLabel, status: entry.status, time: entry.time ?? t("subscription.feed.timePending") })}
       className="flex items-center gap-3 rounded-[18px] px-3 py-2.5 outline-none transition hover:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-white/60"
     >
       <div className="w-[62px] shrink-0">
@@ -263,7 +275,7 @@ function AgendaRow({ entry }: { entry: SubsHomeScheduleEntry }) {
             entry.time ? "font-semibold text-[var(--text)]" : "text-[var(--text-faint)]"
           }`}
         >
-          {entry.time ?? "待定"}
+          {entry.time ?? t("subscription.feed.tbd")}
         </p>
         <p
           className="tnum mt-[3px] flex items-center gap-1 whitespace-nowrap text-[11px] font-semibold"
@@ -317,6 +329,8 @@ export function SubsHomeShelfRow({
   kind: "movie" | "tv";
   shelf: SubsHomeShelf;
 }) {
+  const locale = useLocale();
+
   const wallHref = `/subscriptions/wall/${kind}` as Route;
   const active = shelf.active.slice(0, SHELF_ROW_LIMIT);
   const resting = shelfResting(shelf).slice(0, SHELF_ROW_LIMIT - active.length);
@@ -328,7 +342,7 @@ export function SubsHomeShelfRow({
       <SubsHomeSectionHeader
         id={`subs-shelf-${kind}`}
         title={title}
-        trailing={shelfCountSummary(shelf)}
+        trailing={shelfCountSummary(shelf, locale)}
         href={wallHref}
       />
       <HScroller className={`mt-3 items-start gap-3 pb-2 pt-1 ${SUBS_HOME_INSET}`}>
@@ -355,14 +369,15 @@ export function SubsHomeShelfRow({
 
 /** 在追与歇着之间的分隔：一道上下渐隐的发丝线，中间竖排小字（中文逐字竖排，不用旋转） */
 function RestingDivider({ label }: { label: string }) {
+  const locale = useLocale();
   return (
     <div
       aria-hidden="true"
       className="flex aspect-[18/189] w-[18px] shrink-0 flex-col items-center gap-2 md:aspect-[18/222]"
     >
       <span className="w-px flex-1 bg-gradient-to-b from-transparent via-white/[0.16] to-transparent" />
-      <span className="flex flex-col items-center text-[10px] font-semibold leading-[1.15] text-[var(--text-faint)]">
-        {Array.from(label).map((char, offset) => (
+      <span className={`flex flex-col items-center text-[10px] font-semibold leading-[1.15] text-[var(--text-faint)] ${locale === "en" ? "[writing-mode:vertical-rl] whitespace-nowrap" : ""}`}>
+        {locale === "en" ? label : Array.from(label).map((char, offset) => (
           <span key={offset}>{char}</span>
         ))}
       </span>

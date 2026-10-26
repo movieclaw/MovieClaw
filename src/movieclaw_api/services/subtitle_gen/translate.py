@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from movieclaw_api.i18n.stored import stored_fields
 from movieclaw_api.services.subtitle_gen.extract import SubEvent, cache_dir
 from movieclaw_api.services.subtitle_gen.validate import looks_translated, reading_speed_limit
 
@@ -61,18 +62,31 @@ _CONCURRENCY_RECOVERY_SUCCESSES = 8
 _PROGRESS_HEARTBEAT_SECONDS = 10.0
 
 _LANG_NAMES = {
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "chs": "简体中文",
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "chi": "简体中文",
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "cht": "繁体中文",
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "eng": "英语",
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "jpn": "日语",
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "kor": "韩语",
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "fre": "法语",
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "ger": "德语",
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "spa": "西班牙语",
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "ita": "意大利语",
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "por": "葡萄牙语",
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "rus": "俄语",
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "tha": "泰语",
 }
 
@@ -114,7 +128,11 @@ class TranslationProgress:
 
 
 class TranslationAborted(Exception):
-    """失败块超熔断阈值 / 用户取消（中文信息面向任务日志）。"""
+    """失败块超熔断阈值 / 用户取消，保留中文日志及消息引用。"""
+
+    def __init__(self, message: str | dict):
+        self.reference = message if isinstance(message, dict) else None
+        super().__init__(message["message"] if self.reference else message)
 
 
 class ChatRateLimited(Exception):
@@ -122,6 +140,7 @@ class ChatRateLimited(Exception):
 
     def __init__(self, retry_after: float | None = None) -> None:
         self.retry_after = retry_after
+        # i18n-ignore: model prompt body and internal retry diagnostics
         super().__init__("模型请求触发限流")
 
 
@@ -136,11 +155,13 @@ class ChatOutputTruncated(ValueError):
 def _film_intro(ctx: FilmContext) -> str:
     parts = [f"《{ctx.title}》"]
     if ctx.year:
+        # i18n-ignore: model prompt body and internal retry diagnostics
         parts.append(f"{ctx.year} 年")
     if ctx.genres:
         parts.append("/".join(ctx.genres[:3]))
     intro = "、".join(parts)
     if ctx.overview:
+        # i18n-ignore: model prompt body and internal retry diagnostics
         intro += f"。剧情简介：{ctx.overview[:200]}"
     return intro
 
@@ -150,6 +171,7 @@ def _output_description(target_language: str, secondary_language: str | None = N
     if secondary_language is None:
         return primary
     secondary = _LANG_NAMES.get(secondary_language, secondary_language)
+    # i18n-ignore: model prompt body and internal retry diagnostics
     return f"{primary}（第一行）+ {secondary}（第二行）双语"
 
 
@@ -157,11 +179,15 @@ def _formatting_rule(language: str, position: str) -> str:
     """把排版约束绑定到具体语言，避免外语误套简中标点与行长规则。"""
     name = _LANG_NAMES.get(language, language)
     if language in {"chs", "cht", "chi"}:
+        # i18n-ignore: model prompt body and internal retry diagnostics
         detail = "尽量不超过 16 字；句尾不用句号或逗号，停顿用空格或省略号"
     elif language in {"jpn", "kor"}:
+        # i18n-ignore: model prompt body and internal retry diagnostics
         detail = "尽量不超过 18 个字符，使用该语言自然的标点和口语断句"
     else:
+        # i18n-ignore: model prompt body and internal retry diagnostics
         detail = "尽量不超过 42 个字符，保留该语言自然且必要的标点"
+    # i18n-ignore: model prompt body and internal retry diagnostics
     return f"{position}{name}：{detail}；数字使用半角字符"
 
 
@@ -174,33 +200,47 @@ def system_prompt(
     """§3.4 的七条铁律（Netflix 简中 TTSG 与 FAR 模型调研蒸馏）。"""
     lang = _output_description(target_language, secondary_language)
     lines = [
+        # i18n-ignore: model prompt body and internal retry diagnostics
         f"你是资深影视字幕翻译，正在为影片翻译{lang}字幕。影片：{_film_intro(ctx)}",
         "",
+        # i18n-ignore: model prompt body and internal retry diagnostics
         "翻译铁律：",
+        # i18n-ignore: model prompt body and internal retry diagnostics
         "1. 语气忠实：语域、正式度、阶层感、年代感对齐原文；粗口保持同等强度，"
         "不消毒不审查；角色语气差异要能听出是谁在说话",
+        # i18n-ignore: model prompt body and internal retry diagnostics
         "2. 口语自然：译文必须“说得出口”，禁书面翻译腔；称谓全片一致",
+        # i18n-ignore: model prompt body and internal retry diagnostics
         "3. 浓缩优先：在不丢核心语义的前提下删冗余语气词、化长句为短句；绝不截断句意",
+        # i18n-ignore: model prompt body and internal retry diagnostics
         "4. 排版：遵守下方对应语言的行长和标点规则；禁斜体标记",
+        # i18n-ignore: model prompt body and internal retry diagnostics
         "5. 文化专有项：给观众可直接理解的对应说法，禁加括号注释或译者注",
+        # i18n-ignore: model prompt body and internal retry diagnostics
         "6. 结构：逐条对应翻译，禁合并、拆分、增删条目；[音效] 类标记按原格式保留并翻译内容",
     ]
     if secondary_language is None:
+        # i18n-ignore: model prompt body and internal retry diagnostics
         lines.append("7. 单语格式：每个 t 只输出目标语言译文，不附带原文或其他语言")
         lines.append(_formatting_rule(target_language, "8. "))
     else:
         primary = _LANG_NAMES.get(target_language, target_language)
         secondary = _LANG_NAMES.get(secondary_language, secondary_language)
         lines.append(
+            # i18n-ignore: model prompt body and internal retry diagnostics
             f"7. 双语格式：每个 t 必须恰好两行，第一行只写{primary}，第二行只写{secondary}；"
             "两行语义一致，用换行符分隔，不加语言名、序号或括号"
         )
+        # i18n-ignore: model prompt body and internal retry diagnostics
         lines.append(_formatting_rule(target_language, "8. 第一行 "))
+        # i18n-ignore: model prompt body and internal retry diagnostics
         lines.append(_formatting_rule(secondary_language, "9. 第二行 "))
     if glossary:
         pairs = "；".join(f"{k}→{v}" for k, v in list(glossary.items())[:40])
+        # i18n-ignore: model prompt body and internal retry diagnostics
         lines.append(f"术语表（人名地名译名必须全片一致）：{pairs}")
     lines.append(
+        # i18n-ignore: model prompt body and internal retry diagnostics
         '输出格式：JSON 对象 {"items": [{"i": 序号, "t": "译文"}]}，'
         "序号与输入一一对应，不输出任何其他内容"
     )
@@ -208,6 +248,7 @@ def system_prompt(
 
 
 _GLOSSARY_PROMPT = (
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "下面是影片对白抽样。找出其中反复出现的人名、地名、组织与专有名词，"
     "给出适合该影片的统一{lang}译名。只输出 JSON 对象，格式为 "
     '{{"items": [{{"src": "原文", "dst": "译名"}}]}}，最多 30 条，没有则输出 '
@@ -252,6 +293,7 @@ async def build_glossary(
     lang = _output_description(target_language, secondary_language)
     try:
         raw = await chat(
+            # i18n-ignore: model prompt body and internal retry diagnostics
             f"你是影视字幕翻译助理。影片：{_film_intro(ctx)}",
             _GLOSSARY_PROMPT.format(lang=lang) + "\n\n" + sample,
             ChatCall(
@@ -359,15 +401,18 @@ def _block_user_prompt(
     lines = []
     if context:
         ctx_lines = "\n".join(f"{src} → {dst}" for src, dst in context)
+        # i18n-ignore: model prompt body and internal retry diagnostics
         lines.append(f"上文衔接（前一段的原文与译文，保持连贯）：\n{ctx_lines}\n")
     elif previous_source:
         # 并发窗口内的上一块还没有译文可引用，但原文仍能提供人物、语气和
         # 对话场景；术语一致性由全片 glossary 兜底。明确要求不要输出上文，
         # 避免模型把重叠上下文误当成本块条目。
         lines.append(
+            # i18n-ignore: model prompt body and internal retry diagnostics
             "上文原文（仅供理解衔接，不要翻译或输出这些行）：\n" + "\n".join(previous_source) + "\n"
         )
     payload = json.dumps([{"i": i, "s": text} for i, text in block], ensure_ascii=False)
+    # i18n-ignore: model prompt body and internal retry diagnostics
     lines.append(f"翻译下列对白：\n{payload}")
     return "\n".join(lines)
 
@@ -531,23 +576,28 @@ def _validate_block(
     """结构校验（§3.2/§3.5）：条数、序号、漏翻。不符抛 ValueError 触发重试。"""
     parsed = _parse_json_block(raw)
     if not isinstance(parsed, list) or len(parsed) != len(block):
+        # i18n-ignore: model prompt body and internal retry diagnostics
         got = len(parsed) if isinstance(parsed, list) else "非数组"
+        # i18n-ignore: model prompt body and internal retry diagnostics
         raise ValueError(f"返回 {got} 条，应为 {len(block)} 条")
     by_index = {}
     for item in parsed:
         if not isinstance(item, dict) or "i" not in item or "t" not in item:
+            # i18n-ignore: model prompt body and internal retry diagnostics
             raise ValueError("元素缺少 i/t 字段")
         try:
             index = int(item["i"])
         except (TypeError, ValueError) as exc:
             # 模型偶尔把序号写成 null 或数组。这属于"输出结构不对"，必须走块
             # 重试；放任 TypeError 逃出去会让一次畸形响应直接打死整个任务。
+            # i18n-ignore: model prompt body and internal retry diagnostics
             raise ValueError(f"序号 {item['i']!r} 不是整数") from exc
         by_index[index] = str(item["t"]).strip()
     out: list[str] = []
     untranslated = 0
     for i, src in block:
         if i not in by_index:
+            # i18n-ignore: model prompt body and internal retry diagnostics
             raise ValueError(f"缺少序号 {i} 的译文")
         text = by_index[i] or src
         if secondary_language is None:
@@ -556,6 +606,7 @@ def _validate_block(
         else:
             lines = [line.strip() for line in text.splitlines() if line.strip()]
             if len(lines) != 2:
+                # i18n-ignore: model prompt body and internal retry diagnostics
                 raise ValueError(f"序号 {i} 的双语译文不是两行")
             if not looks_translated(lines[0], target_language) or not looks_translated(
                 lines[1], secondary_language
@@ -564,6 +615,7 @@ def _validate_block(
             text = "\n".join(lines)
         out.append(text)
     if untranslated > len(block) // 2:
+        # i18n-ignore: model prompt body and internal retry diagnostics
         raise ValueError(f"{untranslated}/{len(block)} 条疑似未翻译（仍是源语言）")
     return out
 
@@ -577,7 +629,7 @@ async def translate_events(
     file_id: int,
     secondary_language: str | None = None,
     progress: Callable[[TranslationProgress], None] | None = None,
-    phase: Callable[[str, str], None] | None = None,
+    phase: Callable[[str, dict], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> tuple[list[SubEvent], TranslationStats]:
     """整片翻译：术语表 → 分块翻译（带断点/重试/熔断）→ 保时间轴回填。"""
@@ -660,7 +712,7 @@ async def translate_events(
         glossary = checkpoint.glossary
     else:
         if phase is not None:
-            phase("glossary", "正在统一人名和专有名词")
+            phase("glossary", stored_fields("library.subtitleJob.glossary"))
         glossary_task = asyncio.create_task(
             build_glossary(chat, events, ctx, target_language, secondary_language),
             name="subtitle-build-glossary",
@@ -674,10 +726,13 @@ async def translate_events(
                 if done:
                     break
                 if cancelled is not None and cancelled():
-                    raise TranslationAborted("任务被用户取消（已完成块已暂存，可续传）")
+                    raise TranslationAborted(stored_fields("library.subtitleJob.cancelledSaved"))
                 if phase is not None:
                     elapsed = max(1, int(time.monotonic() - glossary_started))
-                    phase("glossary", f"正在分析人名和术语，模型已处理 {elapsed} 秒")
+                    phase(
+                        "glossary",
+                        stored_fields("library.subtitleJob.glossaryElapsed", seconds=elapsed),
+                    )
             glossary = await glossary_task
         finally:
             if not glossary_task.done():
@@ -688,7 +743,9 @@ async def translate_events(
     stats.glossary = glossary
     system = system_prompt(ctx, glossary, target_language, secondary_language)
     if phase is not None:
-        phase("translating", f"正在使用 {target_concurrency} 路并行翻译对白")
+        phase(
+            "translating", stored_fields("library.subtitleJob.parallel", count=target_concurrency)
+        )
 
     remaining = deque(bi for bi in range(stats.total_blocks) if bi not in translated)
     running: dict[asyncio.Task[tuple[int, list[str], bool, int]], int] = {}
@@ -735,13 +792,15 @@ async def translate_events(
     try:
         while running or remaining:
             if cancelled is not None and cancelled():
-                raise TranslationAborted("任务被用户取消（已完成块已暂存，可续传）")
+                raise TranslationAborted(stored_fields("library.subtitleJob.cancelledSaved"))
 
             if not running:
                 # 限流后没有在途调用时，小步等待以便及时响应用户停止。
                 while time.monotonic() < cooldown_until:
                     if cancelled is not None and cancelled():
-                        raise TranslationAborted("任务被用户取消（已完成块已暂存，可续传）")
+                        raise TranslationAborted(
+                            stored_fields("library.subtitleJob.cancelledSaved")
+                        )
                     delay = max(0.0, cooldown_until - time.monotonic())
                     if delay <= 0:
                         break
@@ -786,7 +845,7 @@ async def translate_events(
                     if attempt > _RATE_LIMIT_MAX_RETRIES:
                         if first_error is None:
                             first_error = TranslationAborted(
-                                "模型服务持续限流，任务已暂停（已完成块已保存，稍后重新发起可继续）"
+                                stored_fields("library.subtitleJob.rateLimitPaused")
                             )
                         continue
                     rate_limited.append(bi)
@@ -839,7 +898,11 @@ async def translate_events(
                 if phase is not None:
                     phase(
                         "translating",
-                        f"模型请求较忙，已降至 {target_concurrency} 路，{wait_seconds} 秒后继续",
+                        stored_fields(
+                            "library.subtitleJob.rateLimited",
+                            count=target_concurrency,
+                            seconds=wait_seconds,
+                        ),
                     )
             else:
                 stable_successes += len(results)
@@ -854,12 +917,14 @@ async def translate_events(
                     if phase is not None:
                         phase(
                             "translating",
-                            f"模型响应已恢复，正在使用 {target_concurrency} 路并行翻译",
+                            stored_fields(
+                                "library.subtitleJob.recovered", count=target_concurrency
+                            ),
                         )
                 elif phase is not None and results and time.monotonic() >= cooldown_until:
                     phase(
                         "translating",
-                        f"正在使用 {target_concurrency} 路并行翻译对白",
+                        stored_fields("library.subtitleJob.parallel", count=target_concurrency),
                     )
             notify(tuple(sorted(index + 1 for index in running.values())))
             if first_error is not None:
@@ -869,9 +934,11 @@ async def translate_events(
                 and stats.failed_blocks / stats.total_blocks > FAILED_BLOCK_ABORT_RATE
             ):
                 raise TranslationAborted(
-                    f"本次已有 {stats.failed_blocks}/{stats.total_blocks} 块翻译失败，"
-                    "超过熔断阈值，任务中止（成功块已暂存，"
-                    "换用输出预算更充裕的模型后重新发起可从断点续译失败块）"
+                    stored_fields(
+                        "library.subtitleJob.circuitBreaker",
+                        failed=stats.failed_blocks,
+                        total=stats.total_blocks,
+                    )
                 )
             schedule()
             notify(tuple(sorted(bi + 1 for bi in running.values())))
@@ -905,6 +972,7 @@ def write_srt(events: list[SubEvent], path: Path) -> None:
 
 _COMPRESS_BATCH = 30
 _COMPRESS_PROMPT = (
+    # i18n-ignore: model prompt body and internal retry diagnostics
     "下列译文在字幕显示时长内读不完，请在**不丢核心语义**的前提下压缩改写：\n"
     "每条给出目标字数上限，删冗余语气词、化长句为短句；禁增删条目、禁截断句意。\n"
     '只输出 JSON 对象，格式为 {{"items": [{{"i": 序号, "t": "压缩后译文"}}]}}：\n'

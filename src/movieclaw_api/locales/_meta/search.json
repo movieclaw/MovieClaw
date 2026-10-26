@@ -1,0 +1,62 @@
+{
+  "presets.saved": {
+    "sourceHash": "b0c3e22409ee0ebf26476d49a9e894a0cb4dbe1af9d384f025812219123c175a"
+  },
+  "presets.deleted": {
+    "sourceHash": "077a6d37719a0e21e68abe1bf3ec7b83cd05069cec86570c16de88640ffc519f"
+  },
+  "history.cleared": {
+    "sourceHash": "848807558d07a38a6a38d542e0629180d4e4f76dbfaa78365aa3ca8b78924864"
+  },
+  "categories.movie": {
+    "sourceHash": "03a3a327af684099e7e863d8080bba7c2539050a5fc066a1932d90e3bdf61b15"
+  },
+  "categories.tv": {
+    "sourceHash": "cb9a20776230420ec27c8d82fbdfa14ac7a1142b3000d55a2203b4285a0bf4d8"
+  },
+  "categories.documentary": {
+    "sourceHash": "1688e428859df8b8b34840bead18c12b61a4a3be9fe9dd95d923001559edb54c"
+  },
+  "categories.anime": {
+    "sourceHash": "dbc31bd44b061d4b28225348659a63d69991298cdc53f3ef02921957545b6d32"
+  },
+  "categories.music": {
+    "sourceHash": "db95142124934467ce25ba303416ab0a336497c498e709e2f522d789b76fb030"
+  },
+  "categories.game": {
+    "sourceHash": "847c5f681ce955a05092c2364549f11402a4512ee6f77288035cdf7f60137eea"
+  },
+  "categories.av": {
+    "sourceHash": "dd8479a6f3f743e0544ad48660400f2b75d3c1a174dfb5c78e190de2e50c518b"
+  },
+  "categories.other": {
+    "sourceHash": "d2909f1647e7c891a8282759b2eaa961e84620ff04cda7b8b5478cb540d74fa4"
+  },
+  "match.text": {
+    "sourceHash": "e3509af861af5d4f856d656887564c25d4c204fa9cdc59bf3fd729ea256ee03d"
+  },
+  "match.pinyin": {
+    "sourceHash": "b6aaf7d22690295f1d17d48904d8a70bf62500e605602c2b9925a4b6c3bf8377"
+  },
+  "match.initials": {
+    "sourceHash": "adadf154448e34585ef0d3ad9470910a46e15eca8e831b6b7c8831c2b6b23cea"
+  },
+  "match.mixed": {
+    "sourceHash": "eb23c6cbf620c94fd8056a27b6913f2884118682d4cea8edcafca0f9104c6b92"
+  },
+  "match.words": {
+    "sourceHash": "3ff0cc75b16af053dfa3ccf0a6ebf59767f5bc1a7dfce8956bd498b96643996e"
+  },
+  "match.alias": {
+    "sourceHash": "31f38c5439aca901a7deacb80851a0e122fb343f8dac6752a70dff418b1a55d4"
+  },
+  "match.aliasReason": {
+    "sourceHash": "74ef74a166f09cb365dbbbba5be46cb0d5bd9656e23c8222389dab2a5eb0ad27"
+  },
+  "match.personWorks": {
+    "sourceHash": "fc354470f9910de3d18127228f56acb218bf92ef835dec35a80a9666d257e5fb"
+  },
+  "match.person": {
+    "sourceHash": "7cfa1719da8fa9a2c04d1b9b2175618cac13581c03933075566d8f83fd8331af"
+  }
+}

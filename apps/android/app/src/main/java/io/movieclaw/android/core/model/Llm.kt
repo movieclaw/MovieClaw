@@ -16,6 +16,10 @@ data class LlmPresetView(
     val baseUrl: String? = null,
     val requiresBaseUrl: Boolean = false,
     val defaultUserAgent: String = "",
+    /** 默认 API 协议：openai_chat / openai_responses（旧服务端不返回） */
+    val protocol: String? = null,
+    /** 实例可切换的协议（含默认）；空 = 不可切换，不展示选择 */
+    val selectableProtocols: List<String> = emptyList(),
     val models: List<LlmModelInfo> = emptyList(),
 )
 
@@ -53,6 +57,8 @@ data class LlmProviderView(
     val providerType: String = "",
     val baseUrl: String? = null,
     val userAgent: String? = null,
+    /** 选用的 API 协议；null = 跟随预设默认 */
+    val apiProtocol: String? = null,
     /** 连接测试用的模型 id（目录里第一个） */
     val defaultModel: String = "",
     /** pending / verifying / active / failed */
@@ -75,7 +81,50 @@ data class LlmProviderPayload(
     val providerType: String,
     val baseUrl: String? = null,
     val userAgent: String? = null,
-    val apiKey: String,
+    /** API 协议；null 不编码（explicitNulls=false）= 新增跟随默认、编辑沿用原值 */
+    val apiProtocol: String? = null,
+    /** 新增必填；编辑时 null 沿用原 Key（改了类型或端点须重填） */
+    val apiKey: String? = null,
     val defaultModel: String? = null,
     val extraModels: List<LlmModelInfo> = emptyList(),
+)
+
+/* ---------------- 智能体网页搜索（iOS `WebSearchConfig` 同口径） ---------------- */
+
+@Serializable
+data class WebSearchProviderOption(
+    val id: String = "",
+    val label: String = "",
+    /** 供应商的注册页（申请 Key 用） */
+    @kotlinx.serialization.SerialName("signup_url") val signupUrl: String? = null,
+)
+
+@Serializable
+data class WebSearchConfig(
+    /** 当前供应商 id；未配置为 null */
+    val provider: String? = null,
+    val configured: Boolean = false,
+    /** 密钥末四位；未配置或过短时为空 */
+    @kotlinx.serialization.SerialName("key_hint") val keyHint: String = "",
+    val providers: List<WebSearchProviderOption> = emptyList(),
+)
+
+/** 验证并保存（服务端先用这把 Key 搜索一次，通过才落库）；编辑时留空沿用原密钥 */
+@Serializable
+data class WebSearchSavePayload(
+    val provider: String,
+    @kotlinx.serialization.SerialName("api_key") val apiKey: String? = null,
+)
+
+@Serializable
+data class WebSearchTestPayload(
+    val provider: String? = null,
+    @kotlinx.serialization.SerialName("api_key") val apiKey: String? = null,
+)
+
+@Serializable
+data class WebSearchTestResult(
+    val ok: Boolean = false,
+    val message: String = "",
+    @kotlinx.serialization.SerialName("sample_title") val sampleTitle: String? = null,
 )

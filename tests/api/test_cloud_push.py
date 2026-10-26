@@ -271,13 +271,13 @@ def world(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
     reset_setting_store()
     reset_secret_box()
     reset_auth_state()
-    from movieclaw_api.services.push import channels, events, me
+    from movieclaw_api.services.push import alerts, channels, engine, me
 
     channels.reset_runtime()
     me.reset_state()
-    events.reset_state()
+    engine.reset_state()
     # 推送的几个等待（攒一攒再发）在测试里缩到零点几秒
-    monkeypatch.setattr(events, "_ALERT_DELAY_S", 0.2)
+    monkeypatch.setattr(alerts, "_ALERT_DELAY_S", 0.2)
     from movieclaw_api.services.push import cards
 
     monkeypatch.setattr(cards, "STARTED_QUIET_S", 0.2)
@@ -289,7 +289,7 @@ def world(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
     monkeypatch.setattr(cloud_service, "_PAIRING_MIN_INTERVAL_S", 0.05)
     monkeypatch.setattr(cloud_service, "_FIRST_RENEW_DELAY_S", 0.05)
     yield w
-    events.reset_state()
+    engine.reset_state()
     reset_setting_store()
     reset_secret_box()
     reset_auth_state()
@@ -300,7 +300,7 @@ def world(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
 def client(world):  # type: ignore[no-untyped-def]
     from movieclaw_api.app import create_app
 
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), headers={"Accept-Language": "zh-Hans"}) as c:
         c.post(f"{_AUTH}/bootstrap", json=_ADMIN)
         c.post(f"{_AUTH}/login", json=_ADMIN)
         yield c
@@ -316,6 +316,17 @@ def _in_app(client: TestClient, trigger: Callable[[], None]) -> None:
 
     async def run() -> None:
         trigger()
+
+    assert client.portal is not None
+    client.portal.call(run)
+
+
+def _publish(client: TestClient, event: object, payload: object) -> None:
+    """在应用里发一个系统事件（和业务产生点一样走 events.publish_now）。"""
+    from movieclaw_api import events
+
+    async def run() -> None:
+        await events.publish_now(event, lambda: payload)  # type: ignore[arg-type]
 
     assert client.portal is not None
     client.portal.call(run)
@@ -345,7 +356,8 @@ def _as_app(client: TestClient, bearer: str, method: str, url: str, **kwargs) ->
     saved = dict(client.cookies)
     client.cookies.clear()
     try:
-        return client.request(method, url, headers={"Authorization": f"Bearer {bearer}"}, **kwargs)
+        headers = {"Authorization": f"Bearer {bearer}", **kwargs.pop("headers", {})}
+        return client.request(method, url, headers=headers, **kwargs)
     finally:
         for name, value in saved.items():
             client.cookies.set(name, value)
@@ -650,6 +662,45 @@ def test_registration_refreshes_app_version(client: TestClient, world: World) ->
     assert version() == "0.3.0"
 
 
+def test_sideloaded_build_says_it_cannot_receive(client: TestClient, world: World) -> None:
+    """侧载包签名里没有推送权限、拿不到令牌：设备页说清楚原因，不再说「打开 App 后会自动开启」。"""
+    _connect(client, world)
+    bearer = _app_login(client, _ADMIN, installation="inst-sideload", name="侧载 iPhone")
+
+    def push_state() -> dict[str, str]:
+        listed = _data(client.get("/api/v1/auth/devices"))
+        return next(d for d in listed if d["name"] == "侧载 iPhone")["push"]
+
+    def report(**extra: object) -> dict[str, object]:
+        resp = _as_app(
+            client,
+            bearer,
+            "PUT",
+            "/api/v1/push/me/registration",
+            json={"permission": "authorized", **extra},
+        )
+        assert resp.status_code == 200, resp.text
+        return _data(resp)
+
+    # 旧版 App 不带这个字段：照旧
+    assert report()["status"] == "not_registered"
+    view = report(unsupported_build=True)
+    assert view["registered"] is False and view["status"] == "unsupported_build"
+    assert "侧载" in view["status_text"]
+    assert push_state()["status"] == "unsupported_build"
+    attention = _data(client.get("/api/v1/push/me"))["attention"]
+    assert [a["status"] for a in attention] == ["unsupported_build"]
+    # 系统通知也关着：先说安装包的问题（开了通知也收不到）
+    assert report(permission="denied", unsupported_build=True)["status"] == "unsupported_build"
+
+    # 换装了商店版：令牌还没到时回到「还没开启」，令牌到了就能收到
+    assert report()["status"] == "not_registered"
+    view = report(unsupported_build=True)
+    assert view["status"] == "unsupported_build"
+    _register(client, bearer, token="c3" * 32)
+    assert push_state() == {"status": "ok", "status_text": "能收到"}
+
+
 @pytest.mark.parametrize("kind", ["tvos", "macos", "androidtv"])
 def test_apps_without_push_get_no_push_hint(client: TestClient, world: World, kind: str) -> None:
     """Apple TV、Mac、Android TV 本期不接推送：设备页不挂「还没有开启通知」，也不能登记。"""
@@ -724,7 +775,8 @@ def test_test_push_counts_unique_phones(
 ) -> None:
     """同一 iPhone 的多条登录登记：页面与实际测试通知都只算一台。"""
     _connect(client, world)
-    _data(client.put("/api/v1/push/me/preferences", json={"events": {"new_device": False}}))
+    prefs = {"events": {"account.device.signed_in": False}}
+    _data(client.put("/api/v1/push/me/preferences", json=prefs))
     token = "a8" * 32
     for i in range(5):
         bearer = _app_login(client, _ADMIN, installation=f"iphone-install-{i}", name="我的 iPhone")
@@ -838,7 +890,7 @@ def test_same_phone_two_accounts_gets_one_push(client: TestClient, world: World)
         return notify.AlertContent(title=f"给 {member_id}")
 
     relay = world.relays["push.test"]
-    _in_app(client, lambda: notify.notify("imported", {0, 1}, build))
+    _in_app(client, lambda: notify.notify("subscription.fulfilled", {0, 1}, build))
     _wait(lambda: len(relay.messages) >= 1)
     time.sleep(0.3)
     assert len(relay.messages) == 1
@@ -853,17 +905,19 @@ def test_preferences_and_member_view(client: TestClient, world: World) -> None:
     _register(client, member_bearer, token="ef" * 32)
     view = _data(_as_app(client, member_bearer, "GET", "/api/v1/push/me"))
     keys = {e["key"] for e in view["events"]}
-    assert "system_alert" not in keys and "imported" in keys and view["is_admin"] is False
+    assert "system.alert.raised" not in keys and "subscription.fulfilled" in keys
+    assert view["is_admin"] is False
     view = _data(
         _as_app(
             client,
             member_bearer,
             "PUT",
             "/api/v1/push/me/preferences",
-            json={"events": {"imported": False, "system_alert": True}},
+            json={"events": {"subscription.fulfilled": False, "system.alert.raised": True}},
         )
     )
-    assert next(e for e in view["events"] if e["key"] == "imported")["enabled"] is False
+    fulfilled = next(e for e in view["events"] if e["key"] == "subscription.fulfilled")
+    assert fulfilled["enabled"] is False
 
     from movieclaw_api.services.push import notify
 
@@ -871,12 +925,28 @@ def test_preferences_and_member_view(client: TestClient, world: World) -> None:
         return notify.AlertContent(title="入库")
 
     relay = world.relays["push.test"]
-    _in_app(client, lambda: notify.notify("imported", {1}, build))  # 关掉了：不发
-    _in_app(client, lambda: notify.notify("download_started", {1}, build))  # 默认关：不发
-    _in_app(client, lambda: notify.notify("new_device", {1}, build))  # 默认开：发
+    _in_app(client, lambda: notify.notify("subscription.fulfilled", {1}, build))  # 关掉了：不发
+    # 默认关：不发
+    _in_app(client, lambda: notify.notify("subscription.download_started", {1}, build))
+    _in_app(client, lambda: notify.notify("account.device.signed_in", {1}, build))  # 默认开：发
     _wait(lambda: len(relay.messages) >= 1)
     time.sleep(0.3)
     assert len(relay.messages) == 1
+
+    # 老 App 还发旧键（imported、library_new…）：按别名改到现在的键上
+    view = _data(
+        _as_app(
+            client,
+            member_bearer,
+            "PUT",
+            "/api/v1/push/me/preferences",
+            json={"events": {"imported": True, "download_started": True}},
+        )
+    )
+    enabled = {e["key"]: e["enabled"] for e in view["events"]}
+    assert enabled["subscription.fulfilled"] is True
+    assert enabled["subscription.download_started"] is True
+    assert "imported" not in enabled
 
 
 def test_unregistered_token_clears_registration(client: TestClient, world: World) -> None:
@@ -1180,7 +1250,7 @@ def test_library_new_arrivals(client: TestClient, world: World) -> None:
             member_bearer,
             "PUT",
             "/api/v1/push/me/preferences",
-            json={"events": {"library_new": True}, "library_ids": [movies_id, fresh_id]},
+            json={"events": {"library.items.arrived": True}, "library_ids": [movies_id, fresh_id]},
         )
     )
     assert view["library_ids"] == [movies_id, fresh_id]
@@ -1299,14 +1369,16 @@ def test_library_new_arrivals(client: TestClient, world: World) -> None:
 
     subscription_id, item_id = client.portal.call(subscribe_as_member, "我订阅的片")
     client.portal.call(add_files, [(movies_id, "movie", "我订阅的片", (0, 0), FileSource.IMPORTED)])
-    from movieclaw_api.services.push import events as push_events
+    from movieclaw_sdk.events import SUBSCRIPTION_FULFILLED, MediaRef, SubscriptionFulfilled
 
-    _in_app(
+    _publish(
         client,
-        lambda: push_events.imported(
+        SUBSCRIPTION_FULFILLED,
+        SubscriptionFulfilled(
             subscription_id=subscription_id,
-            item_id=item_id,
-            units=[(0, 0)],
+            media=MediaRef(id=item_id, kind="movie", title="我订阅的片"),
+            units=(),
+            requested_units=(),
         ),
     )
     _wait(lambda: len(relay.messages) >= 1)
@@ -1382,7 +1454,8 @@ def test_new_version_pushed_once(client: TestClient, world: World) -> None:
     _wait(lambda: len(relay.messages) >= 2)
 
     # 管理员关掉这一项就不推
-    _data(client.put("/api/v1/push/me/preferences", json={"events": {"new_version": False}}))
+    prefs = {"events": {"system.update.available": False}}
+    _data(client.put("/api/v1/push/me/preferences", json=prefs))
     check("0.32.0")
     time.sleep(0.5)
     assert len(relay.messages) == 2
@@ -1390,7 +1463,94 @@ def test_new_version_pushed_once(client: TestClient, world: World) -> None:
     keys = {
         e["key"] for e in _data(_as_app(client, member_bearer, "GET", "/api/v1/push/me"))["events"]
     }
-    assert "new_version" not in keys
+    assert "system.update.available" not in keys
+
+
+def test_reel_clips_suggestion_pushed_to_admin(client: TestClient, world: World) -> None:
+    from movieclaw_sdk.events import SYSTEM_TIP_SUGGESTED, TipSuggested
+
+    tip = TipSuggested(tip="reel-clips")
+
+    _connect(client, world)
+    _create_member(client)
+    admin_bearer = _app_login(client, _ADMIN, installation="tip-admin-1", name="管理员手机")
+    member_bearer = _app_login(client, _MEMBER, installation="tip-member-1", name="家人手机")
+    _, admin_key = _register(client, admin_bearer, token="a7" * 32)
+    _register(client, member_bearer, token="b7" * 32)
+    relay = world.relays["push.test"]
+    relay.messages.clear()
+
+    _publish(client, SYSTEM_TIP_SUGGESTED, tip)
+    _wait(lambda: len(relay.messages) >= 1)
+    time.sleep(0.3)
+    assert [m["token"] for m in relay.messages] == ["a7" * 32]  # 只推管理员
+    plain = _open(relay.messages[-1], admin_key)
+    assert plain["title"] == "开启片段预切，预告和刷片更流畅"
+    assert plain["open"] == "/settings/playback"
+
+    # 管理员能关掉「使用建议」，成员看不到这个开关
+    prefs = {"events": {"system.tip.suggested": False}}
+    _data(client.put("/api/v1/push/me/preferences", json=prefs))
+    _publish(client, SYSTEM_TIP_SUGGESTED, tip)
+    time.sleep(0.5)
+    assert len(relay.messages) == 1
+    keys = {
+        e["key"] for e in _data(_as_app(client, member_bearer, "GET", "/api/v1/push/me"))["events"]
+    }
+    assert "system.tip.suggested" not in keys
+
+
+def test_agent_reply_pushed_to_admin_and_opens_the_session(
+    client: TestClient, world: World
+) -> None:
+    from movieclaw_sdk.events import AGENT_RUN_FINISHED, RunFinished
+
+    def finished(source: str) -> RunFinished:
+        return RunFinished(
+            member_id=0,
+            session_id="abc123",
+            title="最近入库了哪些电影？",
+            status="done",
+            answer="查到了，你的媒体库里一共有 2 个库",
+            elapsed_ms=4200,
+            source=source,
+        )
+
+    _connect(client, world)
+    _create_member(client)
+    admin_bearer = _app_login(client, _ADMIN, installation="agent-admin-1", name="管理员手机")
+    member_bearer = _app_login(client, _MEMBER, installation="agent-member-1", name="家人手机")
+    _, admin_key = _register(client, admin_bearer, token="a8" * 32)
+    _register(client, member_bearer, token="b8" * 32)
+    relay = world.relays["push.test"]
+    relay.messages.clear()
+
+    _publish(client, AGENT_RUN_FINISHED, finished("app"))
+    _wait(lambda: len(relay.messages) >= 1)
+    time.sleep(0.3)
+    assert [m["token"] for m in relay.messages] == ["a8" * 32]  # 会话只有管理员有，只推管理员
+    plain = _open(relay.messages[-1], admin_key)
+    assert plain["title"] == "最近入库了哪些电影？"
+    assert plain["body"] == "查到了，你的媒体库里一共有 2 个库"
+    assert "subtitle" not in plain
+    # 点开直达这个会话
+    assert plain["open"] == "/sessions/abc123"
+
+    # IM 通道里聊的：回复本来就在聊天里，不推
+    _publish(client, AGENT_RUN_FINISHED, finished("channel"))
+    time.sleep(0.5)
+    assert len(relay.messages) == 1
+
+    # 管理员能关掉「AI 回复完成」，成员看不到这个开关
+    prefs = {"events": {"agent.run.finished": False}}
+    _data(client.put("/api/v1/push/me/preferences", json=prefs))
+    _publish(client, AGENT_RUN_FINISHED, finished("app"))
+    time.sleep(0.5)
+    assert len(relay.messages) == 1
+    keys = {
+        e["key"] for e in _data(_as_app(client, member_bearer, "GET", "/api/v1/push/me"))["events"]
+    }
+    assert "agent.run.finished" not in keys
 
 
 def _notify(client: TestClient, members: set[int], title: str) -> None:
@@ -1400,7 +1560,7 @@ def _notify(client: TestClient, members: set[int], title: str) -> None:
     async def build(_session, _member_id: int) -> AlertContent:  # type: ignore[no-untyped-def]
         return AlertContent(title=title)
 
-    _in_app(client, lambda: notify("imported", set(members), build))
+    _in_app(client, lambda: notify("subscription.fulfilled", set(members), build))
 
 
 def _seed_subscription(
@@ -1472,7 +1632,7 @@ def test_manual_download_landing_in_library_folder(client: TestClient, world: Wo
                 bearer,
                 "PUT",
                 "/api/v1/push/me/preferences",
-                json={"events": {"library_new": True}},
+                json={"events": {"library.items.arrived": True}},
             )
         )
     relay = world.relays["push.test"]
@@ -1790,9 +1950,155 @@ def test_system_alerts_fold_into_one(client: TestClient, world: World) -> None:
     assert relay.messages == []
 
 
+def test_pushed_alert_turns_into_resolved_in_place(client: TestClient, world: World) -> None:
+    """单独推过的问题消退了：同一条通知（同一个 collapse_id）原地改成「已恢复」，安静送达。"""
+    from movieclaw_api.services.system_notice import resolve_notices
+    from movieclaw_db.engine import get_database
+
+    _connect(client, world)
+    bearer = _app_login(client, _ADMIN, installation="resolved-install", name="iPhone")
+    _, key = _register(client, bearer, token="c7" * 32)
+    relay = world.relays["push.test"]
+    relay.messages.clear()
+
+    _raise_notice(client, "downloader:3", source="downloader", title="下载器连不上")
+    _wait(lambda: len(relay.messages) >= 1)
+    raised = relay.messages[0]
+    assert _open(raised, key)["title"] == "下载器连不上"
+
+    async def resolve(key: str) -> None:
+        async with get_database().session() as session:
+            await resolve_notices(session, dedupe_key=key)
+
+    assert client.portal is not None
+    client.portal.call(resolve, "downloader:3")
+    _wait(lambda: len(relay.messages) >= 2)
+    done = relay.messages[1]
+    plain = _open(done, key)
+    assert plain["title"] == "已恢复：下载器连不上" and "sound" not in plain
+    assert done["collapse_id"] == raised["collapse_id"]
+    assert done["aps"]["interruption-level"] == "passive"
+
+    # 关掉「问题已恢复」就只收出问题的那条
+    _data(
+        _as_app(
+            client,
+            bearer,
+            "PUT",
+            "/api/v1/push/me/preferences",
+            json={"events": {"system.alert.resolved": False}},
+        )
+    )
+    relay.messages.clear()
+    _raise_notice(client, "site:z", source="site", title="站点 Z 登录失效")
+    _wait(lambda: len(relay.messages) >= 1)
+    client.portal.call(resolve, "site:z")
+    time.sleep(0.6)
+    assert len(relay.messages) == 1
+
+
+def test_subscription_lifecycle_pushes(client: TestClient, world: World) -> None:
+    """订阅收齐了（剧才说、安静送达）、下载卡住了、可能还有更多集：都推给订阅的人。"""
+    from movieclaw_sdk.events import (
+        SUBSCRIPTION_DOWNLOAD_STUCK,
+        SUBSCRIPTION_MORE_EPISODES,
+        SUBSCRIPTION_STATUS_CHANGED,
+        MediaRef,
+        SubscriptionChanged,
+        SubscriptionDownloadStuck,
+        SubscriptionMoreEpisodes,
+        UnitRef,
+    )
+
+    _connect(client, world)
+    bearer = _app_login(client, _ADMIN, installation="life-install", name="iPhone")
+    _, key = _register(client, bearer, token="c8" * 32)
+    subscription_id, item_id = _seed_subscription(
+        client, kind="tv", title="繁城之下", creator=None, followers=[]
+    )
+    movie_id, movie_item = _seed_subscription(
+        client, kind="movie", title="奥本海默", creator=None, followers=[]
+    )
+    movie = MediaRef(id=movie_item, kind="movie", title="奥本海默")
+    relay = world.relays["push.test"]
+    relay.messages.clear()
+    show = MediaRef(id=item_id, kind="tv", title="繁城之下")
+
+    def status(sid: int, media: MediaRef, new: str, reason: str) -> None:
+        _publish(
+            client,
+            SUBSCRIPTION_STATUS_CHANGED,
+            SubscriptionChanged(
+                subscription_id=sid,
+                media=media,
+                member_id=0,
+                status=new,
+                previous_status="active",
+                reason=reason,
+            ),
+        )
+
+    # 暂停、电影收齐都不说；剧自然收齐才说
+    status(subscription_id, show, "paused", "paused")
+    status(movie_id, movie, "completed", "completed")
+    status(subscription_id, show, "completed", "completed")
+    _wait(lambda: len(relay.messages) >= 1)
+    time.sleep(0.4)
+    assert len(relay.messages) == 1
+    plain = _open(relay.messages[0], key)
+    assert plain["title"] == "《繁城之下》订阅已收齐" and "sound" not in plain
+    assert relay.messages[0]["aps"]["interruption-level"] == "passive"
+
+    relay.messages.clear()
+    _publish(
+        client,
+        SUBSCRIPTION_DOWNLOAD_STUCK,
+        SubscriptionDownloadStuck(
+            subscription_id=subscription_id,
+            media=show,
+            units=(UnitRef(season=1, episode=3),),
+            torrent_title="Fan.Cheng.Zhi.Xia.S01E03.2160p",
+            retry_hours=1,
+        ),
+    )
+    _wait(lambda: len(relay.messages) >= 1)
+    plain = _open(relay.messages[0], key)
+    assert plain["title"] == "《繁城之下》第 1 季第 3 集下载卡住了"
+    assert "约 1 小时后再找" in plain["body"]
+    assert plain["open"] == f"/subscriptions/{subscription_id}"
+
+    relay.messages.clear()
+    _publish(
+        client,
+        SUBSCRIPTION_MORE_EPISODES,
+        SubscriptionMoreEpisodes(
+            subscription_id=subscription_id,
+            media=show,
+            season=1,
+            known_count=6,
+            hinted_count=12,
+            source="douban",
+        ),
+    )
+    _wait(lambda: len(relay.messages) >= 1)
+    plain = _open(relay.messages[0], key)
+    assert plain["title"] == "《繁城之下》第 1 季可能有 12 集"
+    assert plain["body"].startswith("TMDB 只录了 6 集，但豆瓣的集数更多")
+
+
 def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, world: World) -> None:
     """一集一集入账的季包、一集一集验证的洗版，各合成一条；手动选种的人自己不收「开始下载」。"""
-    from movieclaw_api.services.push import events as push_events
+    from movieclaw_sdk.events import (
+        SUBSCRIPTION_DOWNLOAD_STARTED,
+        SUBSCRIPTION_FULFILLED,
+        SUBSCRIPTION_UPGRADED,
+        MediaRef,
+        SubscriptionDownloadStarted,
+        SubscriptionFulfilled,
+        SubscriptionUpgraded,
+        TorrentRef,
+        UnitRef,
+    )
 
     _connect(client, world)
     _create_member(client)
@@ -1807,7 +2113,9 @@ def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, worl
                 bearer,
                 "PUT",
                 "/api/v1/push/me/preferences",
-                json={"events": {"download_started": True, "upgraded": True}},
+                json={
+                    "events": {"subscription.download_started": True, "subscription.upgraded": True}
+                },
             )
         )
     subscription_id, item_id = _seed_subscription(
@@ -1816,15 +2124,20 @@ def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, worl
     relay = world.relays["push.test"]
     relay.messages.clear()
 
+    media = MediaRef(id=item_id, kind="tv", title="漫长的季节")
+
     def imported(episode: int) -> None:
-        push_events.imported(
-            subscription_id=subscription_id,
-            item_id=item_id,
-            units=[(1, episode)],
+        unit = (UnitRef(season=1, episode=episode),)
+        _publish(
+            client,
+            SUBSCRIPTION_FULFILLED,
+            SubscriptionFulfilled(
+                subscription_id=subscription_id, media=media, units=unit, requested_units=unit
+            ),
         )
 
-    _in_app(client, lambda: imported(1))
-    _in_app(client, lambda: imported(2))
+    imported(1)
+    imported(2)
     _wait(lambda: len(relay.messages) >= 1)
     time.sleep(0.6)
     mine = [m for m in relay.messages if m["token"] == "d8" * 32]
@@ -1836,16 +2149,20 @@ def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, worl
     relay.messages.clear()
 
     def upgraded(episode: int) -> None:
-        push_events.upgraded(
-            subscription_id=subscription_id,
-            item_id=item_id,
-            unit=(1, episode),
-            old_label="1080p",
-            new_label="2160p",
+        _publish(
+            client,
+            SUBSCRIPTION_UPGRADED,
+            SubscriptionUpgraded(
+                subscription_id=subscription_id,
+                media=media,
+                unit=UnitRef(season=1, episode=episode),
+                old_label="1080p",
+                new_label="2160p",
+            ),
         )
 
-    _in_app(client, lambda: upgraded(1))
-    _in_app(client, lambda: upgraded(2))
+    upgraded(1)
+    upgraded(2)
     _wait(lambda: len(relay.messages) >= 1)
     time.sleep(0.6)
     mine = [m for m in relay.messages if m["token"] == "d8" * 32]
@@ -1856,15 +2173,15 @@ def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, worl
     assert mine[0]["aps"] == {"interruption-level": "passive", "relevance-score": 0.3}
 
     relay.messages.clear()
-    _in_app(
+    _publish(
         client,
-        lambda: push_events.download_started(
+        SUBSCRIPTION_DOWNLOAD_STARTED,
+        SubscriptionDownloadStarted(
             subscription_id=subscription_id,
-            item_id=item_id,
-            units=[(1, 3)],
-            detail="2160p",
-            upgrade=False,
-            skip_member_id=0,  # 管理员自己在订阅页选的种
+            media=media,
+            units=(UnitRef(season=1, episode=3),),
+            torrent=TorrentRef(title="种子", resolution="2160p"),
+            actor_member_id=0,  # 管理员自己在订阅页选的种
         ),
     )
     _wait(lambda: len(relay.messages) >= 1)
@@ -1891,9 +2208,7 @@ def test_new_device_rules(client: TestClient, world: World) -> None:
     time.sleep(0.6)
     assert relay.messages == []
 
-    header = (
-        'MediaBrowser Client="Infuse", Device="Living Room", DeviceId="atv-1", Version="8.2"'
-    )
+    header = 'MediaBrowser Client="Infuse", Device="Living Room", DeviceId="atv-1", Version="8.2"'
     resp = client.post(
         "/Users/AuthenticateByName",
         json={"Username": _ADMIN["username"], "Pw": _ADMIN["password"]},
@@ -1945,7 +2260,7 @@ def test_library_new_kinds_and_unrecognized_files(client: TestClient, world: Wor
             bearer,
             "PUT",
             "/api/v1/push/me/preferences",
-            json={"events": {"library_new": True}},
+            json={"events": {"library.items.arrived": True}},
         )
     )
     relay = world.relays["push.test"]
@@ -2087,3 +2402,214 @@ def test_identity_skip_is_one_informational_push_without_actions(
     time.sleep(0.3)
     assert len(relay.messages) == 1
     assert _data(client.get("/api/v1/system/notices")) == []
+
+
+def test_plugin_notifications_go_where_they_were_approved(
+    client: TestClient, world: World
+) -> None:
+    """插件声明的通知（domain-events.md §7）：经同一个通知引擎、按人的开关推到手机，
+    标明来自哪个插件。"""
+    from pydantic import BaseModel, ConfigDict
+
+    from movieclaw_api.services import plugin_events
+    from movieclaw_kernel import Entry, plugin
+    from movieclaw_sdk.events import PLUGIN_EVENTS, plugin_event
+
+    class Quota(BaseModel):
+        model_config = ConfigDict(frozen=True)
+        site: str
+        remaining_gb: float
+        member_id: int
+
+    to_admins = plugin_event("acme-quota.exceeded", Quota, title="站点配额超限")
+    to_member = plugin_event("acme-quota.mine", Quota, title="你的配额")
+    events, notifications, _ = plugin_events.parse(
+        "acme-quota",
+        "配额提醒",
+        events=[
+            {"name": "acme-quota.exceeded", "title": "站点配额超限"},
+            {"name": "acme-quota.mine", "title": "你的配额"},
+        ],
+        notifications=[
+            {"event": "acme-quota.exceeded", "title": "{site} 配额只剩 {remaining_gb} GB"},
+            {
+                "event": "acme-quota.mine",
+                "title": "你在 {site} 的配额快用完了",
+                "audience": "member:member_id",
+            },
+        ],
+    )
+    plugin_events.declare(
+        plugin_events.Declared(
+            entry_id="acme-quota",
+            title="配额提醒",
+            events=events,
+            notifications=notifications,
+            members_allowed=True,
+        )
+    )
+    publisher: dict = {}
+
+    @plugin("acme-quota", title="配额提醒", inject=(PLUGIN_EVENTS,))
+    async def quota(ctx) -> None:  # type: ignore[no-untyped-def]
+        publisher["p"] = await ctx.use(PLUGIN_EVENTS).register(ctx, to_admins, to_member)
+
+    _connect(client, world)
+    _create_member(client)
+    admin_bearer = _app_login(client, _ADMIN, installation="plg-admin-1", name="管理员手机")
+    member_bearer = _app_login(client, _MEMBER, installation="plg-member-1", name="家人手机")
+    _, admin_key = _register(client, admin_bearer, token="c1" * 32)
+    _, member_key = _register(client, member_bearer, token="c2" * 32)
+    relay = world.relays["push.test"]
+    kernel = client.app.state.kernel
+    try:
+        assert client.portal is not None
+        client.portal.call(kernel.mount, Entry("acme-quota", quota))
+        relay.messages.clear()
+
+        def fire(event, member_id: int) -> None:  # type: ignore[no-untyped-def]
+            payload = Quota(site="mteam", remaining_gb=2.0, member_id=member_id)
+
+            async def run() -> None:
+                await publisher["p"].publish(event, payload)
+
+            client.portal.call(run)
+
+        fire(to_admins, 1)
+        _wait(lambda: len(relay.messages) >= 1)
+        time.sleep(0.3)
+        assert [m["token"] for m in relay.messages] == ["c1" * 32]  # 只给管理员
+        plain = _open(relay.messages[0], admin_key)
+        assert plain["title"] == "mteam 配额只剩 2 GB"
+        assert plain["subtitle"] == "来自 配额提醒"  # 插件不能冒充系统通知
+        assert plain["open"] == "/settings/plugins?module=acme-quota"
+
+        relay.messages.clear()
+        fire(to_member, 1)
+        _wait(lambda: len(relay.messages) >= 1)
+        time.sleep(0.3)
+        assert [m["token"] for m in relay.messages] == ["c2" * 32]  # 只给事件里那个成员
+        assert _open(relay.messages[0], member_key)["title"] == "你在 mteam 的配额快用完了"
+
+        # 成员在「账号 → 通知」的插件分组里关掉，就不再收
+        view = _data(_as_app(client, member_bearer, "GET", "/api/v1/push/me"))
+        keys = {e["key"]: e["group"] for e in view["events"]}
+        assert keys["acme-quota.mine"] == "插件 · 配额提醒"
+        assert "acme-quota.exceeded" not in keys  # 只发管理员的，成员看不到开关
+        _as_app(
+            client,
+            member_bearer,
+            "PUT",
+            "/api/v1/push/me/preferences",
+            json={"events": {"acme-quota.mine": False}},
+        )
+        relay.messages.clear()
+        fire(to_member, 1)
+        time.sleep(0.6)
+        assert relay.messages == []
+    finally:
+        client.portal.call(kernel.unmount, "acme-quota")
+        plugin_events.forget("acme-quota")
+
+
+def test_out_of_process_plugin_notifies_who_follows_the_media(
+    client: TestClient, world: World
+) -> None:
+    """进程外插件（Go 等）的载荷到宿主是字典：``media:<字段>`` 照样认出是哪部片，
+    推给订阅 / 关注了这部片的人。走网关 events 服务的宿主实现。"""
+    from movieclaw_api.services import plugin_events
+    from movieclaw_api.services.plugin_runtime import EXPORTS
+    from movieclaw_kernel import Entry, plugin
+    from movieclaw_sdk.events import PLUGIN_EVENTS
+
+    events, notifications, _ = plugin_events.parse(
+        "acme-hunt",
+        "版本猎手",
+        events=[{"name": "acme-hunt.found", "title": "找到更好的版本"}],
+        notifications=[
+            {
+                "event": "acme-hunt.found",
+                "title": "《{item.title}》有 {label} 版本了",
+                "audience": "media:item",
+                "open": "media",
+            }
+        ],
+    )
+    plugin_events.declare(
+        plugin_events.Declared(
+            entry_id="acme-hunt",
+            title="版本猎手",
+            events=events,
+            notifications=notifications,
+            members_allowed=True,
+        )
+    )
+    gateway: dict = {}
+
+    @plugin("acme-hunt", title="版本猎手", inject=(PLUGIN_EVENTS,))
+    async def hunt(ctx) -> None:  # type: ignore[no-untyped-def]
+        service = EXPORTS["events"](ctx, ctx.use(PLUGIN_EVENTS))
+        await service.register(
+            [
+                {
+                    "name": "acme-hunt.found",
+                    "title": "找到更好的版本",
+                    "schema": {
+                        "type": "object",
+                        "required": ["item", "label"],
+                        "properties": {
+                            "item": {
+                                "type": "object",
+                                "required": ["id", "kind", "title"],
+                                "properties": {
+                                    "id": {"type": "integer"},
+                                    "kind": {"type": "string"},
+                                    "title": {"type": "string"},
+                                },
+                            },
+                            "label": {"type": "string"},
+                        },
+                    },
+                }
+            ]
+        )
+        gateway["events"] = service
+
+    _connect(client, world)
+    _create_member(client)
+    admin_bearer = _app_login(client, _ADMIN, installation="hunt-admin-1", name="管理员手机")
+    member_bearer = _app_login(client, _MEMBER, installation="hunt-member-1", name="家人手机")
+    _register(client, admin_bearer, token="c3" * 32)
+    _, member_key = _register(client, member_bearer, token="c4" * 32)
+    # 只有家人订阅了这部
+    _, item_id = _seed_subscription(client, kind="tv", title="繁花", creator=1, followers=[])
+    relay = world.relays["push.test"]
+    kernel = client.app.state.kernel
+    try:
+        assert client.portal is not None
+        client.portal.call(kernel.mount, Entry("acme-hunt", hunt))
+        relay.messages.clear()
+
+        def fire(media_id: int) -> None:
+            data = {"item": {"id": media_id, "kind": "tv", "title": "繁花"}, "label": "2160p"}
+
+            async def run() -> None:
+                await gateway["events"].publish("acme-hunt.found", data)
+
+            client.portal.call(run)
+
+        fire(item_id)
+        _wait(lambda: len(relay.messages) >= 1)
+        time.sleep(0.3)
+        assert [m["token"] for m in relay.messages] == ["c4" * 32]  # 只给订阅这部的家人
+        plain = _open(relay.messages[0], member_key)
+        assert plain["title"] == "《繁花》有 2160p 版本了"
+        assert plain["subtitle"] == "来自 版本猎手"
+
+        relay.messages.clear()
+        fire(item_id + 1000)  # 没人订阅的片：谁也不推
+        time.sleep(0.6)
+        assert relay.messages == []
+    finally:
+        client.portal.call(kernel.unmount, "acme-hunt")
+        plugin_events.forget("acme-hunt")

@@ -1,5 +1,9 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { requestLocale, type AppLocale } from "@/lib/i18n/negotiate";
+import { appTranslator } from "@/lib/i18n/translate";
+
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import Link from "next/link";
@@ -28,18 +32,17 @@ import { formatClockTime, formatTimelineDayLabel, timelineDayKey } from "@/lib/t
  * 切片切换与筛选条件由外层工具栏持有，这里只吃 props。
  */
 
-export const STATS_PERIODS: readonly { value: number; label: string }[] = [
-  { value: 7, label: "最近 7 天" },
-  { value: 30, label: "最近 30 天" },
-  { value: 90, label: "最近 90 天" },
-] as const;
+export function statsPeriods(locale: AppLocale = requestLocale() ?? "zh-Hans") {
+  const t = appTranslator(locale);
+  return [7, 30, 90].map((value) => ({ value, label: t("activity.watchHistory.days", { days: value }) }));
+}
 
 const HISTORY_PAGE = 30;
 
 /** 毫秒 → 「2 小时 6 分钟」；不足一分钟按一分钟，零显示「—」。 */
-export function formatWatched(ms: number): string {
+export function formatWatched(ms: number, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
   if (ms <= 0) return "—";
-  return formatRuntimeMinutes(Math.max(1, Math.round(ms / 60_000)));
+  return formatRuntimeMinutes(Math.max(1, Math.round(ms / 60_000)), locale);
 }
 
 function unitLabel(media: MediaActivityTarget): string | null {
@@ -65,19 +68,20 @@ export function TitleText({
   /** 领奖台第一名用的大号标题 */
   large?: boolean;
 }) {
+  const t = useTranslations();
+
   const unit = episode ? unitLabel(media) : null;
   const href = detailHref(media);
   const text = (
     <>
-      {media.title || "（条目已删除）"}
+      {media.title || t("activity.watchHistory.deletedItem")}
       {unit && <span className="tnum ml-1.5 font-normal text-white/60">{unit}</span>}
       {episode && media.episode_title && (
         <span className="ml-1.5 font-normal text-white/45">{media.episode_title}</span>
       )}
       {!media.browsable && media.library_id != null && (
         <span className="ml-1.5 rounded-md border border-white/15 px-1.5 py-px text-[11px] font-medium text-white/50">
-          仅管理
-        </span>
+          {t("activity.watch.adminOnly")}</span>
       )}
     </>
   );
@@ -180,17 +184,19 @@ export function EmptyAction({ onClick, children }: { onClick: () => void; childr
 /** 范围外记录的折叠行：只报个数，不出片名与海报；就地可切到「全部」。 */
 export function HiddenCountRow({
   count,
-  noun,
+  kind,
   onShowAll,
 }: {
   count: number;
-  noun: string;
+  kind: "sessions" | "downloads" | "items" | "plays";
   onShowAll?: () => void;
 }) {
+  const t = useTranslations();
+
   if (count <= 0) return null;
   return (
     <p className="px-4 py-2.5 text-caption text-white/45 max-md:px-3.5">
-      另有 {count} {noun}不在你的浏览范围内
+      {t("activity.watchHistory.hiddenCount", { count, kind })}
       {onShowAll && (
         <>
           <span className="mx-1.5 text-white/20">·</span>
@@ -199,8 +205,7 @@ export function HiddenCountRow({
             onClick={onShowAll}
             className="font-medium text-[var(--info)] transition hover:text-white"
           >
-            显示全部
-          </button>
+            {t("activity.watchHistory.showAll")}</button>
         </>
       )}
     </p>
@@ -213,8 +218,10 @@ export function HiddenCountRow({
 
 /** 读取中的骨架：一个日期组头 + 四行，与真实行同高。 */
 function HistorySkeleton() {
+  const t = useTranslations();
+
   return (
-    <div aria-busy="true" aria-label="正在读取播放记录">
+    <div aria-busy="true" aria-label={t("activity.watchHistory.readingHistory")}>
       <Skeleton className="mb-2 h-4 w-24" />
       <div className="divide-y divide-white/[0.06] rounded-2xl border border-white/[0.08] bg-white/[0.02]">
         {Array.from({ length: 4 }, (_, i) => (
@@ -234,12 +241,15 @@ function HistorySkeleton() {
 }
 
 function HistoryRow({ entry }: { entry: PlaybackLogEntry }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const live = entry.ended_at === null;
-  const device = deviceLabel(entry.client, entry.device_name);
+  const device = deviceLabel(entry.client, entry.device_name, locale);
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 max-md:px-3.5">
       <span className="tnum w-11 shrink-0 text-caption text-white/40">
-        {formatClockTime(entry.started_at)}
+        {formatClockTime(entry.started_at, locale)}
       </span>
       {/* 28×42 的小图按显示宽取派生图（srcset，1x/2x/3x 都落在 160 档）：一页 30 行若取 w780 原图（设置里选了
           original 就是 MB 级），冷缓存那次要下几 MB 并在主线程同步解码，
@@ -264,19 +274,18 @@ function HistoryRow({ entry }: { entry: PlaybackLogEntry }) {
       </div>
       <div className="shrink-0 text-right text-caption leading-5">
         {live ? (
-          <span className="text-[var(--ok)]">播放中</span>
+          <span className="text-[var(--ok)]">{t("activity.watch.playing")}</span>
         ) : entry.completed ? (
           <span className="inline-flex items-center gap-1 text-[var(--ok)]">
             <CheckIcon className="size-3" />
-            看完
-          </span>
+            {t("activity.watchHistory.completed")}</span>
         ) : (
           <span className="tnum text-white/60">
-            {entry.progress_percent != null ? `看到 ${entry.progress_percent}%` : "播放过"}
+            {entry.progress_percent != null ? t("activity.watchHistory.progress", { percent: entry.progress_percent }) : t("activity.watchHistory.played")}
           </span>
         )}
         {entry.watched_ms > 0 && (
-          <p className="tnum text-white/35">{formatWatched(entry.watched_ms)}</p>
+          <p className="tnum text-white/35">{formatWatched(entry.watched_ms, locale)}</p>
         )}
       </div>
     </div>
@@ -303,6 +312,9 @@ export function PlaybackHistoryList({
   onClearMember: () => void;
   onShowAll: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+
   const [entries, setEntries] = useState<PlaybackLogEntry[]>([]);
   const [hiddenCount, setHiddenCount] = useState(0);
   const [cursor, setCursor] = useState<number | null>(null);
@@ -331,14 +343,14 @@ export function PlaybackHistoryList({
         setError(null);
       } catch (caught) {
         if (gen === generation.current) {
-          setError((caught as Error).message || "播放记录加载失败");
+          setError((caught as Error).message || t("activity.watchHistory.loadHistoryFailed"));
         }
       } finally {
         pending.current = false;
         if (gen === generation.current) setLoading(false);
       }
     },
-    [scope, memberId],
+    [scope, memberId, t],
   );
 
   useEffect(() => {
@@ -394,15 +406,15 @@ export function PlaybackHistoryList({
     return memberId != null ? (
       <EmptyState
         icon={<HistoryIcon className="size-5" />}
-        title={`${memberLabel ?? "这位成员"}还没有播放记录`}
-        description="从这位成员下一次播放起，谁、什么时候、用什么设备、看了多久都会记在这里。"
-        actions={<EmptyAction onClick={onClearMember}>查看全部成员</EmptyAction>}
+        title={t("activity.watchHistory.noMemberHistory", { name: memberLabel ?? t("activity.watchHistory.fallbackMember") })}
+        description={t("activity.watchHistory.noMemberHistoryHint")}
+        actions={<EmptyAction onClick={onClearMember}>{t("activity.watchHistory.allMembers")}</EmptyAction>}
       />
     ) : (
       <EmptyState
         icon={<HistoryIcon className="size-5" />}
-        title="还没有播放记录"
-        description="从现在起每一场播放都会记在这里：谁、什么时候、用什么设备、看到哪、看了多久。网页播放器和 Jellyfin 客户端都算。"
+        title={t("activity.watchHistory.noHistory")}
+        description={t("activity.watchHistory.noHistoryHint")}
       />
     );
   }
@@ -410,9 +422,9 @@ export function PlaybackHistoryList({
     return (
       <EmptyState
         icon={<LockIcon className="size-5" />}
-        title="这些播放都在你的浏览范围外"
-        description={`另有 ${hiddenCount} 场播放来自你设为不可见的库；切到「全部」即可看到片名。`}
-        actions={<EmptyAction onClick={onShowAll}>显示全部</EmptyAction>}
+        title={t("activity.watchHistory.outsideScope")}
+        description={t("activity.watchHistory.outsideHint", { count: hiddenCount })}
+        actions={<EmptyAction onClick={onShowAll}>{t("activity.watchHistory.showAll")}</EmptyAction>}
       />
     );
   }
@@ -421,8 +433,8 @@ export function PlaybackHistoryList({
       {groups.map(([day, items]) => (
         <section key={day} aria-label={day}>
           <h3 className="mb-2 text-caption font-semibold text-white/45">
-            {formatTimelineDayLabel(items[0].started_at)}
-            <span className="tnum ml-1.5 font-normal text-white/30">{items.length} 场</span>
+            {formatTimelineDayLabel(items[0].started_at, locale)}
+            <span className="tnum ml-1.5 font-normal text-white/30">{t("activity.watchHistory.playCount", { count: items.length })}</span>
           </h3>
           <div className="divide-y divide-white/[0.06] rounded-2xl border border-white/[0.08] bg-white/[0.02]">
             {items.map((entry) => (
@@ -433,7 +445,7 @@ export function PlaybackHistoryList({
       ))}
       {hiddenCount > 0 && (
         <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02]">
-          <HiddenCountRow count={hiddenCount} noun="场播放" onShowAll={onShowAll} />
+          <HiddenCountRow count={hiddenCount} kind="plays" onShowAll={onShowAll} />
         </div>
       )}
       {hasMore && (
@@ -444,12 +456,12 @@ export function PlaybackHistoryList({
             onClick={loadMore}
             className="glass-row w-full rounded-xl py-2.5 text-center text-sub text-white/70 disabled:opacity-40"
           >
-            {loading ? "正在加载更早的记录…" : "加载更多"}
+            {loading ? t("activity.watchHistory.loadingEarlier") : t("activity.watchHistory.loadMore")}
           </button>
         </div>
       )}
       {!hasMore && entries.length >= HISTORY_PAGE && (
-        <p className="py-2 text-center text-caption text-white/30">已经到最早的记录了</p>
+        <p className="py-2 text-center text-caption text-white/30">{t("activity.watchHistory.earliest")}</p>
       )}
     </div>
   );

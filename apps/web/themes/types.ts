@@ -17,8 +17,9 @@ import type { SearchSubmitOptions } from "@/components/search-command";
  */
 
 /**
- * 主题能力声明：主题向框架声明自己用什么机制，框架据此配置底层。
- * 当前只有液态玻璃开关——vendor 不允许自己判断主题名（边界反转）。
+ * 主题能力：框架据此配置底层（vendor 不允许自己判断主题名）。事实源是主题元信息
+ * （lib/themes.ts 的 ThemeMeta.glass——静态事实不放代码里，docs/design/theme-plugins.md §0），
+ * 解析时从元信息派生。
  */
 export interface ThemeCapabilities {
   /** 是否启用液态玻璃（WebGL 画布）。纯色平铺主题 = false */
@@ -88,10 +89,12 @@ export interface ThemePages {
   subscriptions?: ComponentType;
 }
 
-/** 一个主题的完整定义：主题目录的唯一出口（themes/<id>/theme.ts default export） */
+/**
+ * 一个主题的完整定义：主题目录的唯一出口（themes/<id>/theme.ts default export）。
+ * 只放组件；名称、版式、玻璃这类静态事实在主题元信息里（lib/themes.ts，插件化后是清单），
+ * 注册表按 id 补上（docs/design/theme-plugins.md §0 第 2 条）。
+ */
 export interface ThemeDefinition {
-  meta: ThemeMeta;
-  capabilities: ThemeCapabilities;
   slots: ThemeSlots;
   pages: ThemePages;
 }

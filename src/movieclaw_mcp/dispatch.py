@@ -13,13 +13,16 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
-from mcp.types import CallToolResult, TextContent
 
 from movieclaw_api.services import auth as auth_service
 from movieclaw_mcp.catalog import Operation
+from movieclaw_sdk import ops
+
+if TYPE_CHECKING:
+    from mcp.types import CallToolResult
 
 logger = logging.getLogger("movieclaw_mcp.dispatch")
 
@@ -31,49 +34,9 @@ MAX_RESULT_BYTES = 24_000
 _BASE_URL = "http://mcp.internal"
 
 
-def build_request(
-    op: Operation, arguments: dict[str, Any]
-) -> tuple[str, dict[str, Any], Any]:
+def build_request(op: Operation, arguments: dict[str, Any]) -> tuple[str, dict[str, Any], Any]:
     """扁平参数 → (路径, query, body)。缺必填路径参数直接报错，不发出去试。"""
-    path = op.path
-    query: dict[str, Any] = {}
-    body: dict[str, Any] = {}
-
-    unknown = set(arguments) - set(op.arg_locations)
-    if unknown:
-        raise ValueError(
-            f"这些参数不属于 {op.tool_name}：{', '.join(sorted(unknown))}；"
-            f"可用参数：{', '.join(op.arg_locations) or '（无）'}"
-        )
-
-    for name, location in op.arg_locations.items():
-        if name not in arguments:
-            if name in op.required and location == "path":
-                raise ValueError(f"缺少必填参数 {name}")
-            continue
-        value = arguments[name]
-        if location == "path":
-            path = path.replace("{" + name + "}", str(value))
-        elif location == "query":
-            # 布尔要转成 FastAPI 认的字面量；None 一律不发（等价于「不传」）
-            if value is None:
-                continue
-            query[name] = str(value).lower() if isinstance(value, bool) else value
-        else:
-            body[name] = value
-
-    if "{" in path:
-        missing = [
-            n for n, loc in op.arg_locations.items()
-            if loc == "path" and n not in arguments
-        ]
-        raise ValueError(f"缺少必填的路径参数：{', '.join(missing)}")
-
-    # 非对象请求体（catalog 里记成单个 body 参数）原样发出
-    body_slots = list(op.arg_locations.values()).count("body")
-    if body_slots == 1 and "body" in op.arg_locations:
-        return path, query, arguments.get("body")
-    return path, query, (body or None)
+    return ops.build_request(op.path, op.arg_locations, op.required, arguments, label=op.tool_name)
 
 
 def _truncate(text: str) -> tuple[str, bool]:
@@ -83,8 +46,7 @@ def _truncate(text: str) -> tuple[str, bool]:
         return text, False
     clipped = encoded[:MAX_RESULT_BYTES].decode("utf-8", errors="ignore")
     return (
-        clipped
-        + "\n\n…（结果过长已截断。这不是全部数据：用 limit / offset 参数分页，"
+        clipped + "\n\n…（结果过长已截断。这不是全部数据：用 limit / offset 参数分页，"
         "或加上更精确的过滤条件后重试）",
         True,
     )
@@ -103,6 +65,9 @@ async def call_operation(
     错误一律以 ``is_error=True`` 的**结果**返回而不是抛异常：模型看得到原因才能
     自己纠正（少传了参数、id 不存在、权限不足），而抛异常只会变成一句协议层错误。
     """
+    # SDK 只在真有 MCP 调用时才加载（整包约 25MB）：build_request 还被插件宿主调用复用
+    from mcp.types import CallToolResult, TextContent
+
     path, query, body = build_request(op, arguments)
     token = await auth_service.issue_mcp_token(endpoint_id)
 
@@ -125,7 +90,11 @@ async def call_operation(
 
     logger.info(
         "MCP 工具调用 endpoint=%s tool=%s %s %s → %s",
-        endpoint_id, op.tool_name, op.method.upper(), path, response.status_code,
+        endpoint_id,
+        op.tool_name,
+        op.method.upper(),
+        path,
+        response.status_code,
     )
 
     if response.status_code >= 400:

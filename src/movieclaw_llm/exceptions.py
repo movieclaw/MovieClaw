@@ -15,10 +15,38 @@ class LlmError(Exception):
     #: 该类错误是否值得重试（由子类覆盖）
     retryable: bool = False
 
-    def __init__(self, message: str, *, provider: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: str | None = None,
+        message_key: str | None = None,
+        params: dict | None = None,
+    ) -> None:
         self.provider = provider
+        self.raw_message = message
+        self.message_key = message_key
+        self.params = params or {}
         prefix = f"[{provider}] " if provider else ""
         super().__init__(f"{prefix}{message}")
+
+    @property
+    def message_ref(self) -> dict | None:
+        """Language-neutral display metadata; retry decisions use the exception type."""
+        if not self.message_key:
+            return None
+        result = {
+            "message": self.raw_message,
+            "message_key": self.message_key,
+            "params": self.params,
+        }
+        if self.provider:
+            result = {
+                "message": str(self),
+                "message_key": "errors.llm.connection.providerError",
+                "params": {"provider": self.provider, "error": result},
+            }
+        return result
 
 
 class LlmAuthError(LlmError):
@@ -31,10 +59,16 @@ class LlmRateLimitError(LlmError):
     retryable = True
 
     def __init__(
-        self, message: str, *, provider: str | None = None, retry_after: float | None = None
+        self,
+        message: str,
+        *,
+        provider: str | None = None,
+        retry_after: float | None = None,
+        message_key: str | None = None,
+        params: dict | None = None,
     ) -> None:
         self.retry_after = retry_after
-        super().__init__(message, provider=provider)
+        super().__init__(message, provider=provider, message_key=message_key, params=params)
 
 
 class LlmConnectError(LlmError):

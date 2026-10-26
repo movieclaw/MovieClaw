@@ -26,6 +26,8 @@ export interface AppConfigView extends AppConfigPayload {
   web_port_source: "setting" | "env" | "default" | string;
   /** 内置默认端口 */
   web_port_default: number;
+  /** 清除端口设置后的实际目标；旧服务端没有此字段 */
+  web_port_reset_target?: number | null;
   /** 上次启动时因无法绑定而被容器入口自动废弃的端口；null = 无 */
   web_port_rejected: number | null;
   /** 当前部署形态是否支持应用内改端口（仅容器入口托管进程的 Docker 部署） */
@@ -285,5 +287,56 @@ export function checkModelUpdate(): Promise<ModelUpdateCheckView> {
 export function applyModelUpdate(): Promise<UpdateProgressView> {
   return unwrap(
     request<ApiEnvelope<UpdateProgressView>>("/app/update/model/apply", { method: "POST" }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 访问地址（设置 → 网络，见 routes/server_addresses；docs/design/server-addresses.md）
+// ---------------------------------------------------------------------------
+
+export type ServerAddressKind = "lan" | "wan";
+
+/** 一个访问地址：内网（在家用）/ 外网（出门用），各端 App 自动选。 */
+export interface ServerAddressItem {
+  /** 协议 + 主机 + 端口，如 http://192.168.1.10:3300 */
+  url: string;
+  kind: ServerAddressKind;
+  /** learned = 有人用过自动记下；configured = 外部访问地址等配置项；manual = 手动加的 */
+  source: "learned" | "configured" | "manual";
+  /** 最近一次有人经它访问（ISO，带时区）；没有记录为 null */
+  last_seen: string | null;
+}
+
+export interface ServerAddressesView {
+  instance_id: string;
+  host_key: string;
+  addresses: ServerAddressItem[];
+  lan_subnets: string[];
+}
+
+export function getServerAddresses(): Promise<ServerAddressesView> {
+  return unwrap(request<ApiEnvelope<ServerAddressesView>>("/server/addresses"));
+}
+
+/** 手动加一个地址；kind 不填按地址自动判断。 */
+export function addServerAddress(
+  url: string,
+  kind: ServerAddressKind | null,
+): Promise<ServerAddressesView> {
+  return unwrap(
+    request<ApiEnvelope<ServerAddressesView>>("/server/addresses", {
+      method: "POST",
+      body: JSON.stringify({ url, kind }),
+    }),
+  );
+}
+
+/** 删掉一个地址（学到的之后再有人用会重新出现）。 */
+export function removeServerAddress(url: string): Promise<ServerAddressesView> {
+  return unwrap(
+    request<ApiEnvelope<ServerAddressesView>>("/server/addresses/remove", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
   );
 }

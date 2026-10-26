@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 
+from movieclaw_api.i18n.stored import reference
 from movieclaw_api.plugins.keys import DB, SETTING_STORE
 from movieclaw_kernel import PLUGIN_STATE, Context, PluginStateChanged, plugin
 
@@ -22,6 +23,7 @@ NOTICE_PREFIX = "plugin:"
 
 @plugin("kernel.notices", title="插件故障提醒", inject=(DB, SETTING_STORE), reloadable=True)
 async def plugin_notices(ctx: Context) -> None:
+    """插件启动失败时生成待处理事项并推送给管理员，恢复后自动消除；进入安全模式时也会提醒。"""
     from sqlmodel import select
 
     from movieclaw_api.plugins.manifest import builtin_group
@@ -47,7 +49,6 @@ async def plugin_notices(ctx: Context) -> None:
             # 内置插件定位到插件页里它那一行（系统模块平时折叠，带 module 参数会展开并定位，
             # docs/design/plugin-page-tiers.md §4.1）；本地 / 第三方插件在同一页的列表里
             builtin = builtin_group(change.entry_id) is not None
-            where = "设置 → 插件"
             href = f"/settings/plugins?module={change.entry_id}" if builtin else "/settings/plugins"
             async with get_database().session() as session:
                 await upsert_notice(
@@ -55,11 +56,12 @@ async def plugin_notices(ctx: Context) -> None:
                     dedupe_key=key,
                     severity=NoticeSeverity.WARNING,
                     source="plugin",
-                    title=f"「{change.title or change.entry_id}」启动失败",
-                    message=(
-                        f"{change.error or '未知原因'}。其余功能不受影响；"
-                        f"修复后重启应用即可恢复，详情见「{where}」。"
-                    ),
+                    title_key="notify.pluginStartup.title",
+                    message_key="notify.pluginStartup.body",
+                    message_params={
+                        "title": change.title or change.entry_id,
+                        "reason": change.error or {"message_key": "notify.pluginStartup.unknown"},
+                    },
                     payload={
                         "entry_id": change.entry_id,
                         "action_href": href,
@@ -89,16 +91,18 @@ async def publish_safe_mode(mode) -> None:
         if not mode.active:
             await resolve_notices(session, dedupe_key=safe_mode.NOTICE_KEY)
             return
-        skipped = "、".join(mode.skipped) or "无"
+        skipped = (
+            {"message_list": mode.skipped, "separator_key": "common.list.separator"}
+            if mode.skipped
+            else reference("plugins.safeMode.none")
+        )
         await upsert_notice(
             session,
             dedupe_key=safe_mode.NOTICE_KEY,
             severity=NoticeSeverity.WARNING,
             source="plugin",
-            title="已进入插件安全模式",
-            message=(
-                f"{mode.reason}。本次跳过的插件：{skipped}。排查后到「设置 → 插件」"
-                "退出安全模式，被跳过的插件会当场重新加载。"
-            ),
+            title_key="notify.safeMode.title",
+            message_key="notify.safeMode.body",
+            message_params={"reason": mode.reason, "plugins": skipped},
             payload={"skipped": mode.skipped, "forced": mode.forced},
         )

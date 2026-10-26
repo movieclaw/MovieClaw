@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
-from movieclaw_api.plugins.packages import MANIFEST, Manifest
+from movieclaw_api.plugins.packages import MANIFEST, Manifest, web_only
 from movieclaw_kernel import Entry, Plugin
 
 logger = logging.getLogger("movieclaw_api.plugins.bundled")
@@ -80,17 +80,41 @@ def replaceable_ids() -> set[str]:
 
 
 def entry(package: Bundled) -> Entry:
+    from movieclaw_api.services import plugin_events
+
+    # 随带插件包是受信的：声明照登记（批准页、插件详情页给人看），订阅敏感事件不另外要求
+    events, notifications, sensitive = package.manifest.declarations()
+    plugin_events.declare(
+        plugin_events.Declared(
+            entry_id=package.id,
+            title=package.manifest.plugin.title,
+            events=events,
+            notifications=notifications,
+            sensitive=sensitive,
+            members_allowed=True,
+            trusted=True,
+        )
+    )
+    if not package.manifest.plugin.entry:
+        # 只带网页 / 主题的随带包（如 Netflix 主题）：没有后端代码，挂空插件占位，
+        # 停用、卸载、重新安装与别的随带包一样（docs/design/theme-plugins.md §8）
+        return Entry(package.id, web_only(package.id, package.manifest.plugin.title))
     module = importlib.import_module(package.module)
     for value in vars(module).values():
         if isinstance(value, Plugin) and value.name == package.id:
             return Entry(package.id, value)
+    # i18n-ignore: developer error
     raise LookupError(f"随带插件包 {package.id} 的入口 {package.module} 里没有这个插件")
 
 
-def load_bundled_entries(replaced: set[str]) -> list[Entry]:
-    """随带插件包的内置条目；``replaced`` 里的（已被同 id 插件包替换的）跳过。"""
-    entries = [entry(p) for p in bundled().values() if p.id not in replaced]
+def load_bundled_entries(replaced: set[str], removed: set[str] = frozenset()) -> list[Entry]:
+    """随带插件包的内置条目；``replaced`` 里的（已被同 id 插件包替换的）与 ``removed`` 里的
+    （在插件页卸载了的）跳过。"""
+    entries = [entry(p) for p in bundled().values() if p.id not in replaced | removed]
     skipped = sorted(bundled_ids() & replaced)
     if skipped:
         logger.info("随带插件包已被同 id 插件包替换：%s", "、".join(skipped))
+    gone = sorted((bundled_ids() & removed) - replaced)
+    if gone:
+        logger.info("随带插件包已卸载：%s", "、".join(gone))
     return entries

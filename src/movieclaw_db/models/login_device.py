@@ -45,6 +45,8 @@ class LoginDevice(MemberScopedMixin, TimestampMixin, table=True):
     client_version: str | None = Field(default=None, description="客户端版本")
     platform: str | None = Field(default=None, description="系统与机型，如 iOS 26.0 · iPhone18,4")
     user_agent: str | None = Field(default=None, description="最近一次请求的 User-Agent")
+    locale: str | None = Field(default=None)
+    timezone: str | None = Field(default=None)
     last_seen_at: datetime | None = Field(default=None, description="最近活跃时间（分钟粒度）")
     last_seen_ip: str | None = Field(default=None, description="最近活跃的来源地址")
     # 只有网页会话有过期时间（沿用 7 天 / 记住我 30 天）；App、命令行、转码器
@@ -71,6 +73,14 @@ class LoginDevice(MemberScopedMixin, TimestampMixin, table=True):
         default=None, description="系统通知权限：authorized / provisional / denied ……"
     )
     push_problem: str | None = Field(
-        default=None, description="推送暴露的问题：bad_token（令牌和环境对不上等）"
+        default=None,
+        description="推送暴露的问题：bad_token（令牌和环境对不上等）、unsupported_build（安装包没有推送权限）",
     )
     push_registered_at: datetime | None = Field(default=None, description="最近一次登记时间")
+    # 自托管实时通知（cloud-push.md §4.1）：Android App 开了「实时通知（保持连接）」，
+    # 推送不走中继，写进这台设备的发件箱（push_outbox），由它连着的 /push/me/stream 送出
+    push_stream: bool = Field(
+        default=False,
+        sa_column_kwargs={"server_default": "0"},
+        description="走自托管实时连接收通知",
+    )

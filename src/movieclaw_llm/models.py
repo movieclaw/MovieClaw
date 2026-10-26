@@ -77,6 +77,20 @@ class ToolCall(BaseModel):
     parse_error: str | None = None
 
 
+class NativeOutput(BaseModel):
+    """供应商原生输出条目的不透明快照（目前只有 Responses 协议产出）。
+
+    Responses API 的推理模型在多步工具调用之间需要拿回上一步的推理条目
+    （store=false 时是 encrypted_content 密文）才能接着想，否则每步都从头
+    推理、效果与 token 都吃亏。这些条目只对**产出它的同一实例、同一模型**
+    有意义（密文绑定账号与模型），换了任何一个就按普通历史重建、不回放。
+    """
+
+    provider: str  # 产出它的供应商实例名
+    model: str  # 产出它的模型 id
+    items: list[dict] = Field(default_factory=list)  # response.output 原样条目
+
+
 class ChatMessage(BaseModel):
     """对话消息。四种角色覆盖完整的 agent loop 往返：
 
@@ -91,6 +105,8 @@ class ChatMessage(BaseModel):
     tool_calls: list[ToolCall] | None = None  # 仅 assistant
     tool_call_id: str | None = None  # 仅 tool
     name: str | None = None  # 仅 tool：工具名
+    #: 仅 assistant：供应商原生输出快照，同实例同模型时原样回放（见 NativeOutput）
+    native_output: NativeOutput | None = None
 
     def text(self) -> str:
         """提取纯文本正文（忽略图片与思考块），便于日志与降级场景。"""
@@ -168,7 +184,9 @@ class ChatResponse(BaseModel):
     usage: TokenUsage = Field(default_factory=TokenUsage)
     model: str = ""  # 实际执行的模型 id
     provider: str = ""  # 实际执行的供应商实例名
-    error: str | None = None  # finish_reason=error 时的中文错误说明
+    error: str | None = None  # finish_reason=error 时的原始错误说明
+    error_ref: dict | None = None  # 在展示边界渲染，不参与重试/状态判断
+    native_output: NativeOutput | None = None  # 原生输出快照，随 to_message 进历史
 
     def to_message(self) -> ChatMessage:
         """转成 assistant 历史消息，直接追加回对话上下文（agent loop 用）。"""
@@ -178,7 +196,12 @@ class ChatResponse(BaseModel):
         if self.content:
             parts.append(TextPart(text=self.content))
         content: str | list[ContentPart] = parts if self.thinking else (self.content or "")
-        return ChatMessage(role="assistant", content=content, tool_calls=self.tool_calls)
+        return ChatMessage(
+            role="assistant",
+            content=content,
+            tool_calls=self.tool_calls,
+            native_output=self.native_output,
+        )
 
 
 StreamEventType = Literal[
@@ -229,7 +252,8 @@ class ThinkingControl(BaseModel):
 
     三种 kind 覆盖已知端点：
     - ``effort``：档位原词直传（请求体 reasoning_effort），levels 声明该模型
-      的原生档位子集 = 用户菜单；off 编码为 reasoning_effort="none"；
+      的原生档位子集 = 用户菜单；off 默认编码 reasoning_effort="none"，
+      关闭开关走另一字段时由 off_body 声明；
     - ``budget``：enable_thinking + thinking_budget，档位按模型
       max_thinking_tokens 比例分段（低 25% / 中 50% / 高 100%）；未声明
       预算上限的模型退化为仅开关；
@@ -243,6 +267,8 @@ class ThinkingControl(BaseModel):
     levels: list[str] = Field(default_factory=list)
     #: 是否存在真正的关闭线协议；true 时菜单多出「关」
     supports_off: bool = False
+    #: effort 与关闭开关走不同字段时的关闭请求体（如 DeepSeek thinking.type）
+    off_body: dict | None = None
 
     @field_validator("levels")
     @classmethod
@@ -261,17 +287,32 @@ class ThinkingControl(BaseModel):
 class ModelInfo(BaseModel):
     """模型目录条目：agent 做上下文预算 / 能力判断的依据。
 
-    token 三元组的语义（None 一律表示官方未单独公布）：
+    token 规格的语义（None 一律表示官方未单独公布）：
     - context_window     输入+输出共享的总上下文；
     - max_input_tokens   单独的输入上限（百炼公布，OpenAI 不单独公布）；
     - max_output_tokens  单次响应的输出上限，agent 设 max_tokens 的依据。
+    - default_output_tokens 默认输出长度，不冒充最大输出上限。
     """
 
     id: str
-    context_window: int | None = None
-    max_input_tokens: int | None = None
-    max_output_tokens: int | None = None
+    context_window: int | None = Field(default=None, gt=0)
+    max_input_tokens: int | None = Field(default=None, gt=0)
+    #: 思考模式下单独公布的输入上限；不与总上下文或非思考输入上限混用
+    max_input_tokens_thinking: int | None = Field(default=None, gt=0)
+    max_output_tokens: int | None = Field(default=None, gt=0)
+    #: 官方默认输出长度，独立于最大输出上限（上限未公布时仍保持 None）
+    default_output_tokens: int | None = Field(default=None, gt=0)
     supports_tools: bool = True
+    #: 函数工具只能通过 Responses 调用（文本对话仍可能支持 Chat Completions）
+    requires_responses_for_tools: bool = False
+    #: Chat Completions 带函数工具时必须显式关闭推理
+    chat_tools_require_no_reasoning: bool = False
+    #: Chat Completions 的输出上限字段（不同兼容端点使用不同名称）
+    max_tokens_parameter: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+    #: 有推理时不接受 temperature / top_p
+    sampling_requires_no_reasoning: bool = False
+    #: 上游固定采样参数，省略 temperature/top_p 由模型按模式使用规定值
+    fixed_sampling: bool = False
     #: 是否支持一次响应发起多个工具调用（parallel tool calls）
     supports_parallel_tool_calls: bool = False
     #: 是否会输出思考内容（reasoning_content 或同等字段）
@@ -311,6 +352,8 @@ class ProviderCompat(BaseModel):
 
     #: 响应/流里承载思考内容的字段名（如 reasoning_content），None 表示无
     thinking_field: str | None = None
+    #: 多步工具调用需要原样回传 assistant 推理内容（DeepSeek / Kimi）
+    preserve_thinking: bool = False
     #: 流式请求是否支持 stream_options.include_usage 返回用量
     supports_stream_usage: bool = True
 
@@ -320,7 +363,10 @@ class ProviderPreset(BaseModel):
 
     id: str
     display_name: str
-    protocol: str  # 协议实现 id，当前仅 openai_chat
+    protocol: str  # 默认协议实现 id：openai_chat / openai_responses
+    #: 实例可切换的协议（含默认）；空 = 固定用 protocol。可自填端点的预设
+    #: 才开放切换——中转站对 /v1/responses 的支持参差不齐
+    selectable_protocols: list[str] = Field(default_factory=list)
     base_url: str | None = None  # None 表示用 SDK 默认或必须由用户配置
     #: base_url 是否必须由用户提供（通用兼容端点没有可用的默认值）
     requires_base_url: bool = False
@@ -336,6 +382,7 @@ class LlmProviderConfig(BaseModel):
     """
 
     name: str  # 实例名，路由用，全局唯一
+    provider_id: int | None = None  # 持久化身份，不随实例改名改变
     provider_type: str  # 预设 id：openai / bailian / openai_compat
     api_key: str
     base_url: str | None = None  # 覆盖预设端点
@@ -348,6 +395,8 @@ class LlmProviderConfig(BaseModel):
     #: 自定义 User-Agent 请求头。None = 用 openai SDK 自带的 UA；
     #: 自建网关 / 反代前置 WAF 常按 UA 放行或限流，这里给用户一个覆盖口子。
     user_agent: str | None = None
+    #: 实例选用的协议；None = 跟随预设默认（预设升级默认协议时自动跟上）
+    api_protocol: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -364,3 +413,4 @@ class ProviderInfo(BaseModel):
     """test_connection 的返回：连通性验证结果与端点上报的可用模型。"""
 
     models: list[str] = Field(default_factory=list)
+    model_catalog: list[ModelInfo] | None = None

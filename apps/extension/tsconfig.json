@@ -1,3 +1,7 @@
 {
-  "extends": "./.wxt/tsconfig.json"
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    // 测试用 `node --test` 直接跑 .ts，导入路径须带 .ts 后缀
+    "allowImportingTsExtensions": true
+  }
 }

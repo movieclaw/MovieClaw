@@ -31,6 +31,9 @@ class WatchNextImageProvider : ContentProvider() {
 
     companion object {
         const val DIR = "watchnext"
+
+        /** 海报屏保的状态文件名（同目录；androidtv-mc-screensaver.md） */
+        const val DREAM_STATE = "dream.json"
         fun uri(context: Context, name: String): Uri = Uri.parse("content://${context.packageName}.watchnext/$name")
     }
 }

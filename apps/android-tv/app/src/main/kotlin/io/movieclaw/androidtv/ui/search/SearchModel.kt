@@ -5,10 +5,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.movieclaw.androidtv.core.model.generated.LibrarySearchHit
-import io.movieclaw.androidtv.core.model.generated.LibrarySearchPerson
-import io.movieclaw.androidtv.core.model.generated.LibrarySearchSuggestion
-import io.movieclaw.androidtv.core.network.generated.McApi
+import io.movieclaw.core.model.generated.LibrarySearchHit
+import io.movieclaw.core.model.generated.LibrarySearchPerson
+import io.movieclaw.core.model.generated.LibrarySearchSuggestion
+import io.movieclaw.core.network.generated.McApi
 import io.movieclaw.androidtv.core.session.SearchResults
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job

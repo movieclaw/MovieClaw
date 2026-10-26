@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from movieclaw_api.plugins.keys import AGENT_RUNS, DB
+from movieclaw_api.plugins.keys import AGENT, AGENT_RUNS, DB, HOST_OPS
 from movieclaw_kernel import Context, plugin
 
 
@@ -10,6 +10,7 @@ from movieclaw_kernel import Context, plugin
     "agent.runs", title="Agent 运行注册表", inject=(DB,), provides=(AGENT_RUNS,), reloadable=True
 )
 async def agent_runs(ctx: Context) -> None:
+    """管理 AI 助手正在进行的对话，支持在后台运行，断线重连后还能接着看进度。"""
     from movieclaw_api.services.agent_runs import (
         close_agent_run_registry,
         init_agent_run_registry,
@@ -24,6 +25,7 @@ async def agent_runs(ctx: Context) -> None:
 
 @plugin("agent.session-index", title="Agent 会话索引校准", inject=(DB,), reloadable=True)
 async def agent_session_index(ctx: Context) -> None:
+    """启动时按对话记录文件校准 AI 助手的会话列表，上次异常退出也能对齐。"""
     from movieclaw_api.services.agent_session_recorder import rebuild_agent_session_index
 
     # JSONL 转录是事实源，把 SQLite 索引校准到与文件一致（上次崩溃在两步写入之间也能恢复）
@@ -32,7 +34,24 @@ async def agent_session_index(ctx: Context) -> None:
 
 @plugin("agent.attachments", title="Agent 附件暂存清理", reloadable=True)
 async def agent_attachments(ctx: Context) -> None:
+    """启动时清理上传后超过 24 小时仍未发送的 AI 助手图片附件。"""
     from movieclaw_api.services.agent_attachments import get_agent_attachment_store
 
     # 回收上传后从未发送的过期图片附件（staging 区，24h TTL），兜住「长期没人上传」的场景
     get_agent_attachment_store().cleanup_staging()
+
+
+@plugin(
+    "agent.invoke",
+    title="插件调用 AI 助手",
+    inject=(AGENT_RUNS, HOST_OPS),
+    provides=(AGENT,),
+    disableable=True,
+    reloadable=True,
+)
+async def agent_invoke(ctx: Context) -> None:
+    """让插件在用户批准的权限内驱动 AI 助手：同步等结果或逐事件流式消费（如协议适配插件）。"""
+    from movieclaw_api.services.plugin_agent import AgentService
+
+    # 授权与代表谁沿用宿主操作那份用户批准（plugins.yaml 的 grants、插件包安装时的批准）
+    ctx.provide(AGENT, AgentService(ctx.use(HOST_OPS)))

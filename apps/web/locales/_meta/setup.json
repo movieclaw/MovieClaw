@@ -1,0 +1,38 @@
+{
+  "account.pageTitle": {
+    "sourceHash": "65622e8ee9fb116bb6babe770e1bf1d3c09fee9df2f0f2e5ddaabc6921bd488e"
+  },
+  "account.start": {
+    "sourceHash": "715ee9dc842f34e48f267f0bf3261d7980e544b26eb3d2f0ff20e19b121c4a99"
+  },
+  "account.title": {
+    "sourceHash": "048b0509cd7c7224c9e13ebced2882a8f61bbc54445cd155431f8c9c785e0f43"
+  },
+  "account.subtitle": {
+    "sourceHash": "e9f6ba039bda48472e1f22f8e842434f044a9cb9ef412f0d6cf63ef7129c47a4"
+  },
+  "account.username": {
+    "sourceHash": "ef3ad87738fc25e3b74d765b49fc3f2b94806ce002576b12591b5fd812f00adb"
+  },
+  "account.password": {
+    "sourceHash": "72790ad4ca39ea1b9c2ce4295f32e43211734dfa1039088d70e412b47ef557d7"
+  },
+  "account.confirmPassword": {
+    "sourceHash": "81b17bc0c362dfe532d6220185462a79ae7781e3774849c0b15bfbf0de542820"
+  },
+  "account.shortUsername": {
+    "sourceHash": "e0463233a81f40c6eef0c272946cb6d09674034e78f1706533dd36884bd0ebda"
+  },
+  "account.shortPassword": {
+    "sourceHash": "f325186965b343edd28f96b040ad87df0e82d02f03af3aeb247829e062ce212b"
+  },
+  "account.passwordMismatch": {
+    "sourceHash": "58807745708ed72626de9ae0dda2ae646ca4f7cfefc98302f2043ba3ee0cbc2f"
+  },
+  "account.pending": {
+    "sourceHash": "56b63def0e294882dd6b1b57dd3e269ca8bb8596400267e838fae74a33f2f059"
+  },
+  "account.submit": {
+    "sourceHash": "61afa0f01464e9f74bb270b7979806c688325339821821f0676d5d910eaf74de"
+  }
+}

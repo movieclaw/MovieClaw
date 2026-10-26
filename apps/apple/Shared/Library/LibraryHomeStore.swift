@@ -208,7 +208,7 @@ final class LibraryHomeStore {
                 for item in (upNext ?? []).prefix(3) {
                     // 同 UpNextCard.artwork：剧集用分集剧照、电影用背景图；电影缺背景图退回海报
                     let isEpisode = item.kind == "tv"
-                    let width = ImageWidth.points(PhoneCardWidth.upNext)
+                    let width = ImageWidth.points(CardMetrics.current.upNext)
                     if let still = isEpisode ? item.episodeStillUrl : item.backdropUrl {
                         urls.append(api.image(still, width: width))
                     } else if !isEpisode {
@@ -216,18 +216,18 @@ final class LibraryHomeStore {
                     }
                 }
             case .favorites:
-                urls += (favorites?.items ?? []).prefix(4).map { api.image($0.posterUrl, width: ImageWidth.points(PhoneCardWidth.homePoster)) }
+                urls += (favorites?.items ?? []).prefix(4).map { api.image($0.posterUrl, width: ImageWidth.points(CardMetrics.current.homePoster)) }
             case .libraries:
                 for library in libraries.filter(\.viewerAccess).prefix(2)
                 where library.customCover || !(itemsByKey[Self.coverKey(library.id)] ?? []).isEmpty {
-                    urls.append(api.image("/libraries/\(library.id)/cover", width: ImageWidth.points(PhoneCardWidth.libraryCover)))
+                    urls.append(api.image("/libraries/\(library.id)/cover", width: ImageWidth.points(CardMetrics.current.libraryCover)))
                 }
             case .genres:
                 // 色块是本地画的渐变，没有图
                 break
             case .library, .mediaKind, .collection:
                 urls += (itemsByKey[Self.fetchKey(row)] ?? []).prefix(4).map {
-                    api.image($0.posterUrl, width: ImageWidth.points(PhoneCardWidth.homePoster))
+                    api.image($0.posterUrl, width: ImageWidth.points(CardMetrics.current.homePoster))
                 }
             }
         }

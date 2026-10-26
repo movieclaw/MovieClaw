@@ -7,7 +7,7 @@ import type { MediaImage } from "@/lib/api/discover";
 
 const ROTATE_INTERVAL_MS = 8000;
 const FADE_MS = 1600;
-// 与 themes/netflix/tokens.css 的 .detail-slideshow img 起步延迟（700ms）同源：
+// 与 plugins/netflix/src/theme.css 的 .detail-slideshow img 起步延迟（700ms）同源：
 // 每张图挂载后先静止这么久才开始推镜，改两处必须一起改。
 const KB_START_DELAY_MS = 700;
 // 换底接续延迟的兜底换算值：仅在顶层动画读不到时使用（正常路径直接读顶层
@@ -53,7 +53,7 @@ function load(url: string): Promise<boolean> {
 
 /**
  * Netflix 详情页的背景轮换：剧照 original 原图按序做「叠变」——交叉溶解
- * （1.6s 双向淡入淡出）+ Ken Burns 缓推（globals.css 的 nf-kenburns：每张图
+ * （1.6s 双向淡入淡出）+ Ken Burns 缓推（globals.css 的 backdrop-kenburns：每张图
  * 在显示期间缓慢放大，溶解时两层各自在动，观感是「融接」而非「切换」）。
  * portal 到 body、z-2——**必须 portal**：放在详情树里会画在滚动容器的
  * 渐变板之上，横幅以下的本该全黑的区域会漏出图片。构图与覆盖层保持一致
@@ -179,7 +179,7 @@ export function DetailBackdropSlideshow({
             // BOTTOM_CARRY_DELAY_S 兜底换算。
             const topAnim = topImgRef.current
               ?.getAnimations()
-              .find((a) => (a as CSSAnimation).animationName === "nf-kenburns");
+              .find((a) => (a as CSSAnimation).animationName === "backdrop-kenburns");
             let progressMs = BOTTOM_CARRY_DELAY_S * 1000;
             const cur = topAnim?.currentTime;
             if (typeof cur === "number") progressMs = cur - KB_START_DELAY_MS;

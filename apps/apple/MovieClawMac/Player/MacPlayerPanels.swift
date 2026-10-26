@@ -1,11 +1,9 @@
 import SwiftUI
 
-/// 胶囊上方弹出的两种玻璃面板
+/// 胶囊上方弹出的玻璃面板（画质、倍速在 ⋯ 系统菜单里）
 enum MacPlayerPanelKind: Hashable {
     /// 字幕与音轨（左右两栏，同 Apple TV App 的「音频与字幕」）
     case tracks
-    /// 画质
-    case quality
 }
 
 /// 字幕与音轨面板：左栏字幕（关闭 → 中文 → 英语 → 其他语言 → 放不了的），右栏音轨（只有一条以上才有这一栏）。
@@ -16,17 +14,19 @@ enum MacPlayerPanelKind: Hashable {
 /// 每行还能放一行小字（格式、外挂 / 内封、AI 翻译）
 struct MacTracksPanel: View {
     let controller: PlaybackController
+    /// 小窗口里两栏一起收窄，面板不超出窗口
+    let maxWidth: CGFloat
     let maxHeight: CGFloat
     let close: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            column(title: "字幕", count: controller.subtitles.options.count + controller.subtitles.unavailable.count) {
+            column(title: String(localized: .playerControlsSubtitles), count: controller.subtitles.options.count + controller.subtitles.unavailable.count) {
                 subtitleRows
             }
             if !controller.audioOptions.isEmpty {
                 Divider().overlay(.white.opacity(0.12)).padding(.vertical, 14)
-                column(title: "音轨", count: controller.audioOptions.count) {
+                column(title: String(localized: .playerControlsAudio), count: controller.audioOptions.count) {
                     audioRows
                 }
             }
@@ -54,12 +54,17 @@ struct MacTracksPanel: View {
             .frame(maxHeight: maxHeight)
             .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 286)
+        .frame(width: columnWidth)
+    }
+
+    private var columnWidth: CGFloat {
+        let columns: CGFloat = controller.audioOptions.isEmpty ? 1 : 2
+        return max(140, min(286, (maxWidth - (columns - 1)) / columns))
     }
 
     @ViewBuilder
     private var subtitleRows: some View {
-        MacPanelRow(id: "mac-panel-subtitle-off", title: "关闭", detail: nil, active: controller.selectedSubtitle == nil) {
+        MacPanelRow(id: "mac-panel-subtitle-off", title: String(localized: .commonOff), detail: nil, active: controller.selectedSubtitle == nil) {
             controller.selectSubtitle(nil)
             close()
         }
@@ -74,7 +79,7 @@ struct MacTracksPanel: View {
             }
         }
         if !controller.subtitles.unavailable.isEmpty {
-            MacPanelHeader(title: "暂时放不了")
+            MacPanelHeader(title: String(localized: .playerTracksUnavailable))
             ForEach(controller.subtitles.unavailable) { item in
                 MacPanelRow(id: "mac-panel-subtitle-\(item.ref)", title: item.label,
                             detail: item.reason, active: false, disabled: true) {}
@@ -88,42 +93,13 @@ struct MacTracksPanel: View {
             let active = item.ref == controller.currentAudio || (controller.currentAudio == nil && item.isDefault)
             let parts = MacTrackText.split(item.label)
             MacPanelRow(id: "mac-panel-audio-\(item.ref)", title: parts.title,
-                        detail: [parts.detail, item.isDefault ? "默认" : nil, item.unavailableReason].compactMap { $0 }
+                        detail: [parts.detail, item.isDefault ? String(localized: .playerSubtitlesDefault) : nil, item.unavailableReason].compactMap { $0 }
                             .joined(separator: " · "),
                         active: active, disabled: item.unavailableReason != nil) {
                 controller.selectAudio(item.ref)
                 close()
             }
         }
-    }
-}
-
-/// 画质面板：自动 / 1080p / 720p / 480p，每档一行说明。访客分享不出这个面板（服务端按分享的设定给流）
-struct MacQualityPanel: View {
-    let controller: PlaybackController
-    let close: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("画质")
-                .font(.system(size: 13, weight: .bold))
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
-            VStack(alignment: .leading, spacing: 1) {
-                ForEach(QualityOption.all) { item in
-                    MacPanelRow(id: "mac-panel-quality-\(item.label)", title: item.label, detail: item.hint,
-                                active: controller.quality == item.maxHeight) {
-                        controller.selectQuality(item.maxHeight)
-                        close()
-                    }
-                }
-            }
-            .padding(.horizontal, 6)
-            .padding(.bottom, 8)
-        }
-        .frame(width: 250)
-        .macPlayerPanel()
-        .accessibilityIdentifier("mac-player-quality-panel")
     }
 }
 
@@ -196,7 +172,7 @@ struct MacPanelRow: View {
         .opacity(disabled ? 0.4 : 1)
         .onHover { hovering = $0 }
         .accessibilityIdentifier(id)
-        .accessibilityValue(active ? "已选中" : "")
+        .accessibilityValue(active ? String(localized: .playerTracksSelected) : "")
     }
 }
 
@@ -217,8 +193,8 @@ enum MacSubtitleGroups {
             case .other: others.append(option)
             }
         }
-        return [Group(id: "zh", title: "中文", options: chinese), Group(id: "en", title: "英语", options: english),
-                Group(id: "other", title: "其他语言", options: others)].filter { !$0.options.isEmpty }
+        return [Group(id: "zh", title: String(localized: .mediaLanguagesChinese), options: chinese), Group(id: "en", title: String(localized: .mediaLanguagesEnglish), options: english),
+                Group(id: "other", title: String(localized: .playerTracksOtherLanguages), options: others)].filter { !$0.options.isEmpty }
     }
 
     private enum Kind { case chinese, english, other }

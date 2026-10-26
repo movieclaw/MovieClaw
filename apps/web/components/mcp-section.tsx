@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Banner, ErrorBanner, Toggle } from "@/components/cloud-push-ui";
@@ -45,6 +47,8 @@ const TABS: Tab[] = ["overview", "tools", "settings"];
  * 也不往历史里塞「切标签」这种无意义的返回点。
  */
 export function McpSection() {
+  const t = useTranslations();
+  const locale = useLocale();
   const confirm = useConfirm();
   const [status, setStatus] = useState<McpStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -132,7 +136,7 @@ export function McpSection() {
   if (issued) {
     const url = issued.endpoint.url.startsWith("http")
       ? issued.endpoint.url
-      : `${status.base_url || "http://<你的地址>"}${issued.endpoint.url}`;
+      : `${status.base_url || t("settings.mcp.controls.addressPlaceholder")}${issued.endpoint.url}`;
     return (
       <TokenIssued
         name={issued.endpoint.name}
@@ -162,7 +166,7 @@ export function McpSection() {
           busy={busy}
           slugEditable
           takenSlugs={status.endpoints.map((e) => e.slug)}
-          submitLabel="创建端点"
+          submitLabel={t("settings.mcp.controls.create")}
           onCancel={() => navigate({ slug: null })}
           onSubmit={async (payload) => {
             const created = await run(() => createMcpEndpoint(payload));
@@ -199,10 +203,10 @@ export function McpSection() {
           }
           onRotate={async () => {
             const ok = await confirm({
-              title: "轮换令牌？",
+              title: t("settings.mcp.controls.rotateTitle"),
               description:
-                "会生成一枚新令牌，旧令牌立即失效。已接入的客户端都要更新配置，否则会开始报 401。",
-              confirmLabel: "生成新令牌",
+                t("settings.mcp.controls.rotateDescription"),
+              confirmLabel: t("settings.mcp.controls.generateToken"),
             });
             if (!ok) return;
             const rotated = await run(() => rotateMcpToken(current.id));
@@ -223,19 +227,19 @@ export function McpSection() {
       {banner}
 
       {/* 总开关：行组里一行，左边写清地址形态、右边全站统一的开关 */}
-      <SettingsSection title="服务">
+      <SettingsSection title={t("settings.mcp.controls.services")}>
         <SettingsList>
           <SettingsRow
-            label="启用 MCP 服务"
+            label={t("settings.mcp.controls.enableService")}
             description={
               <span className="block truncate font-mono">
-                {status.base_url || "（未配置外部地址）"}/mcp/&lt;端点&gt;
+                {status.base_url || t("settings.mcp.controls.noExternal")}{t("settings.mcp.controls.endpointPath")}
               </span>
             }
           >
             <Toggle
               checked={status.enabled}
-              label="启用 MCP 服务"
+              label={t("settings.mcp.controls.enableService")}
               onChange={(enabled) => void run(() => setMcpEnabled(enabled))}
             />
           </SettingsRow>
@@ -243,11 +247,11 @@ export function McpSection() {
       </SettingsSection>
 
       <SettingsSection
-        title="端点"
+        title={t("settings.mcp.controls.endpoints")}
         description={
           status.endpoints.length === 0
-            ? "端点是给 AI 客户端用的入口，每个端点的工具目录相互独立。"
-            : `已配置 ${status.endpoints.length} 个端点`
+            ? t("settings.mcp.controls.endpointHint")
+            : t("settings.mcp.controls.configuredCount", { count: status.endpoints.length })
         }
         action={
           <button
@@ -257,22 +261,21 @@ export function McpSection() {
             className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1`}
           >
             <PlusIcon className="size-4" />
-            新建端点
+            {t("settings.mcp.controls.new")}
           </button>
         }
       >
         {!status.enabled && status.endpoints.length > 0 && (
           <div className="mb-3">
             <Banner tone="warn">
-              服务已关闭，下面所有端点一律返回 404。配置与令牌都保留着，打开开关即恢复。
-            </Banner>
+              {t("settings.mcp.controls.disabledHint")}</Banner>
           </div>
         )}
 
         {status.endpoints.length === 0 ? (
           <SettingsEmpty
-            title="还没有 MCP 端点"
-            description="建一个、勾选要开放的服务，Claude Code 或 Cursor 填上地址和令牌，就能直接查库存、搜资源、管订阅。"
+            title={t("settings.mcp.controls.emptyTitle")}
+            description={t("settings.mcp.controls.emptyHint")}
           />
         ) : (
           /* 宽屏用表格而不是卡片墙：端点是一组同构对象，纵向对齐才扫得快。
@@ -293,7 +296,7 @@ export function McpSection() {
                       <div className="flex items-center gap-2">
                         <StatusDot
                           on={endpoint.enabled}
-                          title={endpoint.enabled ? "运行中" : "已停用"}
+                          title={endpoint.enabled ? t("settings.mcp.controls.running") : t("settings.mcp.controls.disabled")}
                         />
                         <span className="min-w-0 truncate font-medium">{endpoint.name}</span>
                       </div>
@@ -302,9 +305,9 @@ export function McpSection() {
                       </p>
                       <ServiceChips services={endpoint.services} max={3} />
                       <p className="text-caption text-[var(--text-faint)]">
-                        {endpoint.tool_count} 个工具 ·{" "}
-                        {endpoint.expand_tools ? "一命令一工具" : "一服务一工具"} ·{" "}
-                        {endpoint.last_used_at ? relativeTime(endpoint.last_used_at) : "从未调用"}
+                        {t("settings.mcp.controls.toolsCount", { count: endpoint.tool_count })} ·{" "}
+                        {endpoint.expand_tools ? t("settings.mcp.controls.commandMode") : t("settings.mcp.controls.serviceMode")} ·{" "}
+                        {endpoint.last_used_at ? relativeTime(endpoint.last_used_at, undefined, locale) : t("settings.mcp.controls.neverCalled")}
                       </p>
                     </div>
                     <span className="shrink-0 pt-0.5 text-[var(--text-faint)]">›</span>
@@ -316,11 +319,11 @@ export function McpSection() {
             <table className="hidden w-full text-left text-sub md:table">
               <thead className="bg-white/[0.03] text-caption text-[var(--text-faint)]">
                 <tr>
-                  <th className="px-4 py-2 font-normal">端点</th>
-                  <th className="px-3 py-2 font-normal">开放的服务</th>
+                  <th className="px-4 py-2 font-normal">{t("settings.mcp.controls.endpoints")}</th>
+                  <th className="px-3 py-2 font-normal">{t("settings.mcp.controls.exposedServices")}</th>
                   {/* 数字列右对齐 + tabular-nums：一列数字上下对得齐才扫得快 */}
-                  <th className="px-3 py-2 text-right font-normal">工具</th>
-                  <th className="px-3 py-2 font-normal">最近调用</th>
+                  <th className="px-3 py-2 text-right font-normal">{t("settings.mcp.controls.tools")}</th>
+                  <th className="px-3 py-2 font-normal">{t("settings.mcp.controls.lastCalled")}</th>
                   <th className="w-8 px-3 py-2 font-normal"></th>
                 </tr>
               </thead>
@@ -332,7 +335,7 @@ export function McpSection() {
                     // 只用鼠标的人能进详情、用键盘的人进不去
                     tabIndex={0}
                     role="link"
-                    aria-label={`打开端点 ${endpoint.name}`}
+                    aria-label={t("settings.mcp.controls.openNamed", { name: endpoint.name })}
                     onClick={() => navigate({ slug: endpoint.slug, tab: "overview" })}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
@@ -346,9 +349,9 @@ export function McpSection() {
                   >
                     <td className="px-4 py-2.5 align-top">
                       <div className="flex items-center gap-2">
-                        <StatusDot on={endpoint.enabled} title={endpoint.enabled ? "运行中" : "已停用"} />
+                        <StatusDot on={endpoint.enabled} title={endpoint.enabled ? t("settings.mcp.controls.running") : t("settings.mcp.controls.disabled")} />
                         <span className="font-medium">{endpoint.name}</span>
-                        <Badge>{endpoint.expand_tools ? "一命令一工具" : "一服务一工具"}</Badge>
+                        <Badge>{endpoint.expand_tools ? t("settings.mcp.controls.commandMode") : t("settings.mcp.controls.serviceMode")}</Badge>
                       </div>
                       <p className="mt-0.5 pl-3.5 font-mono text-caption text-[var(--text-muted)]">
                         /mcp/{endpoint.slug}
@@ -361,7 +364,7 @@ export function McpSection() {
                       {endpoint.tool_count}
                     </td>
                     <td className="px-3 py-2.5 align-top text-caption text-[var(--text-muted)]">
-                      {endpoint.last_used_at ? relativeTime(endpoint.last_used_at) : "从未"}
+                      {endpoint.last_used_at ? relativeTime(endpoint.last_used_at, undefined, locale) : t("settings.mcp.controls.never")}
                     </td>
                     {/* 箭头静默待命，hover/聚焦时才亮起并右移——「这行可以点」的暗示，
                         不用一个常驻的「详情」文字去抢注意力 */}
@@ -398,25 +401,25 @@ function TokenIssued({
   token: string;
   onDone: () => void;
 }) {
+  const t = useTranslations();
   return (
     <div className="mx-auto max-w-xl space-y-5 py-4">
       <div>
-        <h2 className="text-xl font-medium tracking-tight">保存「{name}」的令牌</h2>
+        <h2 className="text-xl font-medium tracking-tight">{t("settings.mcp.controls.saveTokenTitle", { name })}</h2>
         <p className="mt-1.5 text-sub leading-relaxed text-[var(--danger)]">
-          令牌只显示这一次。离开这一屏就再也看不到明文——服务端只保存哈希。
-          丢了不要紧，随时可以轮换出一枚新的（旧的立即失效）。
+          {t("settings.mcp.controls.saveTokenHint")}
         </p>
       </div>
 
       <div className="space-y-2">
-        <p className="text-caption text-[var(--text-muted)]">端点地址</p>
-        <CopyField value={url} label="复制地址" />
-        <p className="pt-1 text-caption text-[var(--text-muted)]">访问令牌</p>
-        <CopyField value={token} label="复制令牌" />
+        <p className="text-caption text-[var(--text-muted)]">{t("settings.mcp.controls.address")}</p>
+        <CopyField value={url} label={t("settings.mcp.controls.copyAddress")} />
+        <p className="pt-1 text-caption text-[var(--text-muted)]">{t("settings.mcp.controls.accessToken")}</p>
+        <CopyField value={token} label={t("settings.mcp.controls.copyToken")} />
       </div>
 
       <div>
-        <p className="mb-2 text-caption text-[var(--text-muted)]">在客户端加上它</p>
+        <p className="mb-2 text-caption text-[var(--text-muted)]">{t("settings.mcp.controls.addToClient")}</p>
         <CodeBlock
           lang="bash"
           code={`claude mcp add --transport http movieclaw \\\n  ${url} \\\n  --header "Authorization: Bearer ${token}"`}
@@ -425,7 +428,7 @@ function TokenIssued({
 
       <div className="flex justify-end">
         <button type="button" onClick={onDone} className={SETTINGS_PRIMARY_BUTTON_CLASS}>
-          我已保存，去看端点
+          {t("settings.mcp.controls.tokenSaved")}
         </button>
       </div>
     </div>

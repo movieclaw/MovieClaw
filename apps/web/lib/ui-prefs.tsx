@@ -1,22 +1,53 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 
+import { useLanguage } from "@/lib/i18n/provider";
+
+import { useToast } from "@/components/feedback";
 import {
   fetchUiPreferences,
   normalizeUiPreferences,
   updateUiPreferences,
   type UiPreferences,
 } from "@/lib/api/ui";
-import { DEFAULT_THEME_ID, normalizeThemeId, themeMeta, type ThemeMeta } from "@/lib/themes";
-import { useIsMobile } from "@/lib/use-media-query";
+import {
+  catalogTheme,
+  subscribeThemeCatalog,
+  themeCatalogFresh,
+  themeCatalogVersion,
+} from "@/lib/theme-catalog";
+import { refreshThemeCatalog } from "@/lib/theme-catalog-sync";
+import {
+  ensureThemeStylesheet,
+  loadedDefinition,
+  loadTheme,
+  subscribeThemeRuntime,
+  themeLoadStatus,
+  themeRuntimeVersion,
+  themeSlotErrors,
+} from "@/lib/theme-runtime";
+import {
+  DEFAULT_THEME_ID,
+  PHONE_THEME_QUERY,
+  isKnownTheme,
+  normalizeThemeId,
+  themeMeta,
+  type ThemeLayout,
+  type ThemeMeta,
+} from "@/lib/themes";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { readUiPrefsCache, writeUiPrefsCache } from "@/lib/ui-prefs-cache";
 
 /**
@@ -48,32 +79,67 @@ interface UiPrefsContextValue {
    * 传 null 撤销草稿、回到已保存值。仅设置页在调节期间使用。
    */
   setPreview: (draft: UiPreferences | null) => void;
+  /**
+   * 生效主题 id（docs/design/theme-plugins.md §4.3）：偏好里存的主题认得、外框组件没加载失败
+   * 才是它，否则是默认主题——偏好本身原样保留，主题回来（重装、恢复启用）即自动生效。
+   */
+  themeId: string;
+  /** 主题还没就绪（等主题目录、或外框组件还在加载）：外壳先显示启动画面 */
+  themePending: boolean;
 }
 
 const UiPrefsContext = createContext<UiPrefsContextValue | null>(null);
 
 /**
- * 浏览器 UI 框（移动端地址栏 / PWA 状态栏）随主题取的画布色：与 <meta
- * name="theme-color"> 同步写入。manifest 的静态 theme_color 保持银玻璃
- * （只影响安装过渡帧，动态化需 cookie 路由，不值得）。
+ * 当前是不是「手机」设备类（含横过来拿）：主题按设备类分开存时取哪一份。
+ * 判据见 lib/themes.ts 的 PHONE_THEME_QUERY——不能只看页面宽度，手机横屏会越过
+ * 768 被当成电脑。外壳结构的分叉仍用 useIsMobile()（只看宽度），两者不是一回事。
  */
-const THEME_BROWSER_CHROME: Record<string, string> = {
-  netflix: "#000000",
-  [DEFAULT_THEME_ID]: "#000000",
-};
+export function useIsPhone(): boolean {
+  return useMediaQuery(PHONE_THEME_QUERY);
+}
 
 /**
- * 按版式解析生效主题（2026-09-24 起桌面 / 移动端可分别选主题）：
- * 当前版式有覆盖字段（theme_desktop / theme_mobile）就用它，没有（老账号、
+ * 按设备类解析生效主题（2026-09-24 起手机 / 电脑可分别选主题）：
+ * 当前设备类有覆盖字段（theme_mobile / theme_desktop）就用它，没有（老账号、
  * 未单独设置）回落通用 theme——老数据唯一来源，行为与升级前完全一致。
  * 覆盖值可能是老后端 / 坏缓存里的垃圾，最终由 normalizeThemeId 兜底。
  */
-function resolveThemeId(prefs: UiPreferences, isMobile: boolean): string {
-  const override = isMobile ? prefs.theme_mobile : prefs.theme_desktop;
+function resolveThemeId(prefs: UiPreferences, phone: boolean): string {
+  const override = phone ? prefs.theme_mobile : prefs.theme_desktop;
   return normalizeThemeId(override ?? prefs.theme);
 }
 
+/**
+ * 请求的主题能不能用：认得（内置或已装且契约兼容），且外框组件没加载失败。
+ * 外框组件只按服务端目录给的地址加载：本地快照只当首帧提示，服务端目录拉不到时，
+ * 带外框组件的主题按不可用处理（不执行快照里的地址）。
+ */
+function effectiveThemeId(requested: string, catalogSettled: boolean): string {
+  if (!isKnownTheme(requested)) return DEFAULT_THEME_ID;
+  const entry = catalogTheme(requested);
+  if (entry?.script) {
+    if (!themeCatalogFresh()) return catalogSettled ? DEFAULT_THEME_ID : requested;
+    if (themeLoadStatus(requested) === "failed") return DEFAULT_THEME_ID;
+  }
+  return requested;
+}
+
+/** 请求的主题还在路上：主题目录没拉到（不知道装没装），或外框组件还在加载。 */
+function themeIsPending(requested: string, catalogSettled: boolean): boolean {
+  if (requested === DEFAULT_THEME_ID) return false;
+  if (!isKnownTheme(requested)) return !catalogSettled;
+  const entry = catalogTheme(requested);
+  if (!entry?.script || loadedDefinition(requested)) return false;
+  if (!themeCatalogFresh()) return !catalogSettled;
+  const status = themeLoadStatus(requested);
+  return status === "idle" || status === "loading";
+}
+
 export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
+  const locale = useLocale();
+  const t = useTranslations();
+  const { setLanguage } = useLanguage();
   // 惰性初始化读缓存：本 Provider 只在 AuthGate 确认登录后于客户端渲染
   // （见 components/app-shell.tsx），不参与 SSR，故可直接读 localStorage。
   // 缓存内容不可信，统一过一遍 normalizeUiPreferences 补齐缺项（无缓存时
@@ -103,6 +169,25 @@ export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!loading) setLanguage(prefs.language);
+  }, [loading, prefs.language, setLanguage]);
+
+  // 主题目录（docs/design/theme-plugins.md §4.3）：首帧先用上次的快照，这里拉服务端的
+  // 整表替换。拉取失败也算「落定」：认不出的主题按默认渲染，不让外壳一直等。
+  const catalogVersion = useSyncExternalStore(subscribeThemeCatalog, themeCatalogVersion, () => 0);
+  const runtimeVersion = useSyncExternalStore(subscribeThemeRuntime, themeRuntimeVersion, () => 0);
+  const [catalogSettled, setCatalogSettled] = useState(themeCatalogFresh);
+  useEffect(() => {
+    let cancelled = false;
+    refreshThemeCatalog(locale)
+      .catch((err) => console.warn("读取主题目录失败，暂用上次的：", err))
+      .finally(() => !cancelled && setCatalogSettled(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [locale]);
+
   // 蒙版是全局 CSS（.page-scrim 的底色 + backdrop-filter），不像侧栏玻璃那样
   // 逐组件传参，因此这里把生效值（含预览草稿）写到 <html> 的 --scrim-blur /
   // --scrim-dark 变量上，全站蒙版即时跟随；调节滑杆时也走预览草稿，拖动即预览。
@@ -116,31 +201,61 @@ export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
   // 主题同步：把生效主题（含设置页的预览草稿——点主题卡实时预览就靠它）写到
   // <html> 的 data-theme 属性上。token 层与圆角换档都挂在这个作用域，属性一改
   // 全站换肤；结构层（外壳分支）由 useTheme() 的消费方跟随同一份值渲染。
-  // 默认主题移除属性而不是写 data-theme="silver"，与防闪烁脚本（只认 netflix）
-  // 的落点保持一致，SSR 首屏也无需任何属性。
-  // 同一个 effect 里顺带把外壳让位契约（ThemeMeta.chrome 声明的几何）写到
-  // <html> 上（--mobile-topbar-h / --mobile-tabbar-h / --mobile-tabbar-offset /
-  // data-tabbar-mode）：首帧值由 layout.tsx 的防闪烁脚本按 localStorage 缓存
-  // 写入，这里负责设置页切主题（含实时预览）后的即时跟随。两处是同一份逻辑
-  // 的两个副本，改一处要看另一处。
-  const isMobile = useIsMobile();
-  const effectiveTheme = resolveThemeId(preview ?? prefs, isMobile);
+  // 默认主题移除属性而不是写 data-theme="silver"，与防闪烁脚本（只认非默认
+  // 主题）的落点保持一致，SSR 首屏也无需任何属性。外壳几何由主题 CSS 在
+  // data-theme 作用域里声明，属性一改就跟着换，这里不必另写。
+  const phone = useIsPhone();
+  const requestedTheme = resolveThemeId(preview ?? prefs, phone);
+  // catalogVersion / runtimeVersion 只为在目录、加载状态变化时重算这两个值
+  void catalogVersion;
+  void runtimeVersion;
+  const effectiveTheme = effectiveThemeId(requestedTheme, catalogSettled);
+  const themePending = themeIsPending(requestedTheme, catalogSettled);
+
+  // 外框组件按需加载：只按服务端目录给的地址取（同一地址只取一次）
+  const fresh = themeCatalogFresh();
+  const requestedScript = catalogTheme(requestedTheme)?.script ?? null;
+  useEffect(() => {
+    if (fresh && requestedScript) void loadTheme(requestedTheme, requestedScript);
+  }, [fresh, requestedTheme, requestedScript]);
+
+  // 生效主题的样式表：本页加载后才装 / 升级的主题不在聚合样式表里，补挂一份
+  const effectiveCss = catalogTheme(effectiveTheme)?.css ?? null;
+  useEffect(() => {
+    if (effectiveCss) void ensureThemeStylesheet(effectiveCss);
+  }, [effectiveCss]);
+
+  // 加载失败：外壳已整体回落默认主题，这里告诉用户一声（每个主题提示一次）
+  const toast = useToast();
+  const warned = useRef(new Set<string>());
+  const requestedFailed = requestedScript !== null && themeLoadStatus(requestedTheme) === "failed";
+  useEffect(() => {
+    if (!requestedFailed || warned.current.has(requestedTheme)) return;
+    warned.current.add(requestedTheme);
+    const label = catalogTheme(requestedTheme)?.label ?? requestedTheme;
+    toast.error(t("settings.appearance.loadFallback", { theme: label }));
+  }, [requestedFailed, requestedTheme, toast, t]);
+
+  // 某个坑位渲染出错：那一处已回落基础实现（components/theme-slot-boundary.tsx），提示一次
+  const slotErrorCount = themeSlotErrors(effectiveTheme).length;
+  useEffect(() => {
+    const key = `${effectiveTheme}:slots`;
+    if (slotErrorCount === 0 || warned.current.has(key)) return;
+    warned.current.add(key);
+    toast.error(t("settings.appearance.slotFallback", { theme: themeMeta(effectiveTheme, locale).label }));
+  }, [effectiveTheme, slotErrorCount, toast, t, locale]);
+
   useEffect(() => {
     const root = document.documentElement;
     if (effectiveTheme === DEFAULT_THEME_ID) root.removeAttribute("data-theme");
     else root.setAttribute("data-theme", effectiveTheme);
-    const chrome = themeMeta(effectiveTheme).chrome;
-    root.style.setProperty("--mobile-topbar-h", `${chrome.mobileTopBarHeight}px`);
-    root.style.setProperty("--mobile-tabbar-h", `${chrome.mobileTabBar.height}px`);
-    root.style.setProperty("--mobile-tabbar-offset", chrome.mobileTabBar.bottomOffset);
-    if (chrome.mobileTabBar.mode === "docked") root.setAttribute("data-tabbar-mode", "docked");
-    else root.removeAttribute("data-tabbar-mode");
+    if (themeMeta(effectiveTheme).glass) root.removeAttribute("data-glass");
+    else root.setAttribute("data-glass", "off");
     // 浏览器 UI 框颜色与画布同源跟随（含设置页实时预览切主题的瞬间）。
     // Next 的路由元数据机制可能在客户端导航时把 viewport 导出的静态
     // themeColor（银玻璃值）写回 meta——用观察器持续断言当前主题的画布色，
     // 无论被谁改写都拉回，避免主题与浏览器框颜色脱节。
-    const desired =
-      THEME_BROWSER_CHROME[effectiveTheme] ?? THEME_BROWSER_CHROME[DEFAULT_THEME_ID];
+    const desired = themeMeta(effectiveTheme).themeColor;
     const apply = () => {
       const meta = document.querySelector('meta[name="theme-color"]');
       if (meta && meta.getAttribute("content") !== desired) {
@@ -174,8 +289,16 @@ export function UiPrefsProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo<UiPrefsContextValue>(
-    () => ({ prefs: preview ?? prefs, savedPrefs: prefs, loading, savePrefs, setPreview }),
-    [prefs, preview, loading, savePrefs],
+    () => ({
+      prefs: preview ?? prefs,
+      savedPrefs: prefs,
+      loading,
+      savePrefs,
+      setPreview,
+      themeId: effectiveTheme,
+      themePending,
+    }),
+    [prefs, preview, loading, savePrefs, effectiveTheme, themePending],
   );
 
   return <UiPrefsContext.Provider value={value}>{children}</UiPrefsContext.Provider>;
@@ -200,11 +323,10 @@ export function useUiPrefs(): UiPrefsContextValue {
  * 消费方必须改用 useThemeState()，原因见该函数说明。
  */
 export function useTheme(): ThemeMeta {
+  const locale = useLocale();
   const ctx = useContext(UiPrefsContext);
-  // hooks 必须无条件调用：先取版式，再解析（桌面 / 移动端可分别选主题，
-  // 见 resolveThemeId）。Provider 外（登录页等）没有偏好可依，按默认主题渲染
-  const isMobile = useIsMobile();
-  return themeMeta(ctx ? resolveThemeId(ctx.prefs, isMobile) : DEFAULT_THEME_ID);
+  // Provider 外（登录页等）没有偏好可依，按默认主题渲染
+  return themeMeta(ctx ? ctx.themeId : DEFAULT_THEME_ID, locale);
 }
 
 /**
@@ -219,11 +341,16 @@ export function useTheme(): ThemeMeta {
  * 换路由的分支不会自愈：路由已经跳了。
  */
 export function useThemeState(): { theme: ThemeMeta; loading: boolean } {
+  const locale = useLocale();
   const ctx = useContext(UiPrefsContext);
-  const isMobile = useIsMobile();
   return {
-    theme: themeMeta(ctx ? resolveThemeId(ctx.prefs, isMobile) : DEFAULT_THEME_ID),
-    // Provider 外（登录页等）没有偏好可等，直接按「已落定」处理
-    loading: ctx ? ctx.loading : false,
+    theme: themeMeta(ctx ? ctx.themeId : DEFAULT_THEME_ID, locale),
+    // Provider 外（登录页等）没有偏好可等，直接按「已落定」处理；主题还在加载也算没落定
+    loading: ctx ? ctx.loading || ctx.themePending : false,
   };
+}
+
+/** 当前生效主题的版式（docs/design/theme-plugins.md §4.2）：内核组件按它分叉排布，不认识具体主题。 */
+export function useLayout(): ThemeLayout {
+  return useTheme().layout;
 }

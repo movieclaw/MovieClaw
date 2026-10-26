@@ -39,6 +39,9 @@ class TaskDefinition:
     default_cron: str | None = None
     default_enabled: bool = True
     description: str = ""
+    #: Read-time display references; source text stays available to logs and old consumers.
+    title_key: str | None = None
+    description_key: str | None = None
 
 
 # 声明目录：task_key -> TaskDefinition。模块导入时由 @register_task 填充。
@@ -53,6 +56,7 @@ _REGISTRY: dict[str, TaskDefinition] = {}
 SCHEDULED_TASKS: RegistryKey[TaskDefinition] = RegistryKey(
     "scheduled-tasks",
     schema=TaskDefinition,
+    version="1.1",
     stability=Stability.EXPERIMENTAL,
     doc="可调度的定时任务（领域插件贡献；第三方插件可用 override 整段替换内置任务）",
 )
@@ -82,6 +86,8 @@ def register_task(
     cron: str | None = None,
     enabled: bool = True,
     description: str = "",
+    title_key: str | None = None,
+    description_key: str | None = None,
 ) -> Callable[[TaskHandler], TaskHandler]:
     """把一个无参协程注册为可调度任务的装饰器。
 
@@ -117,6 +123,8 @@ def register_task(
             default_cron=cron,
             default_enabled=enabled,
             description=description,
+            title_key=title_key,
+            description_key=description_key,
         )
         _REGISTRY[key] = definition
         # 标记在函数上：插件据此把「本模块声明的任务」贡献进内核注册表
@@ -128,9 +136,16 @@ def register_task(
 
 
 def get_task(key: str) -> TaskDefinition | None:
-    """按 key 取当前生效的任务定义；未注册返回 None。"""
+    """按任务 key 取当前生效的任务定义；未注册返回 None。
+
+    注册表按贡献 id 存，第三方插件的贡献 id 带插件前缀（``acme:sync``），与任务 key（``acme.sync``）
+    不同——所以按定义里的 key 找，不能拿 key 当贡献 id。
+    """
     if _bound is not None:
-        return _bound.get(key)
+        definition = _bound.get(key)
+        if definition is not None and definition.key == key:
+            return definition
+        return next((d for _, d in _bound.items() if d.key == key), None)
     return _REGISTRY.get(key)
 
 

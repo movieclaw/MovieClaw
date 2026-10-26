@@ -5,11 +5,11 @@ enum MemberEditSection: String, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .profile: "基本信息"
-        case .permissions: "功能权限"
-        case .content: "内容分级"
-        case .libraries: "媒体库范围"
-        case .sites: "可搜索站点"
+        case .profile: String(localized: .settingsMembersUiBasic)
+        case .permissions: String(localized: .settingsMembersUiPermissions)
+        case .content: String(localized: .settingsMembersAccessContentRating)
+        case .libraries: String(localized: .settingsMembersUiLibraries)
+        case .sites: String(localized: .settingsMembersAccessSearchableSites)
         }
     }
 
@@ -77,32 +77,32 @@ struct MemberEditSheet: View {
             Group {
                 if section == .libraries || section == .sites {
                     form.searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always),
-                                    prompt: section == .libraries ? "搜索媒体库" : "搜索站点")
+                                    prompt: section == .libraries ? String(localized: .libraryManageSearch) : String(localized: .searchPreferencesSites))
                 } else { form }
             }
             .navigationTitle(section.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
+                    Button(String(localized: .commonCancel)) {
                         if draft != member { discarding = true } else { dismiss() }
                     }.disabled(busy).accessibilityIdentifier("sheet-cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if busy { ProgressView() }
                     else {
-                        Button("保存") { Task { await save() } }
+                        Button(String(localized: .commonSave)) { Task { await save() } }
                             .disabled(loading || loadError != nil || draft == member)
                             .accessibilityIdentifier("member-edit-save")
                     }
                 }
             }
-            .alert("放弃未保存的修改？", isPresented: $discarding) {
-                Button("继续编辑", role: .cancel) { }
-                Button("放弃修改", role: .destructive) { dismiss() }
+            .alert(String(localized: .settingsFormDiscardTitle), isPresented: $discarding) {
+                Button(String(localized: .settingsFormKeepEditing), role: .cancel) { }
+                Button(String(localized: .settingsScrapeDiscardChanges), role: .destructive) { dismiss() }
             }
         }
-        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [section.compactHeight, .large])
+        .adaptiveDetents(typeSize.isAccessibilitySize ? [.large] : [section.compactHeight, .large])
         .presentationDragIndicator(.visible)
         .presentationContentInteraction(.resizes)
         .interactiveDismissDisabled(busy || draft != member)
@@ -116,16 +116,16 @@ struct MemberEditSheet: View {
             else if let loadError {
                 SettingsFormSection {
                     Text(loadError).foregroundStyle(.secondary)
-                    Button("重试") { Task { await loadOptions() } }
+                    Button(String(localized: .commonRetry)) { Task { await loadOptions() } }
                 }
             } else {
                 switch section {
                 case .profile:
                     SettingsFormSection {
-                        LabeledContent("用户名", value: member.username)
-                        TextField("昵称", text: $draft.nickname)
+                        LabeledContent(String(localized: .settingsMembersCredentialsUsername), value: member.username)
+                        TextField(String(localized: .settingsProfileNickname), text: $draft.nickname)
                             .accessibilityIdentifier("member-edit-nickname")
-                    } footer: { Text("用户名用于登录，创建后不能修改。昵称是其他页面显示的名称。") }
+                    } footer: { Text(String(localized: .settingsMemberEditNameHint)) }
                 case .permissions: permissionFields
                 case .content: contentFields
                 case .libraries: libraryFields
@@ -141,16 +141,16 @@ struct MemberEditSheet: View {
     private var permissionFields: some View {
         Group {
             SettingsFormSection {
-                Toggle("订阅追踪", isOn: $draft.allowSubscribe).accessibilityIdentifier("member-allow-subscribe")
-            } footer: { Text("可以发起订阅并管理自己的订阅。") }
+                Toggle(String(localized: .settingsMembersAccessSubscribe), isOn: $draft.allowSubscribe).accessibilityIdentifier("member-allow-subscribe")
+            } footer: { Text(String(localized: .settingsMemberEditSubscribeHint)) }
             SettingsFormSection {
-                Toggle("资源搜索", isOn: $draft.allowSearch)
+                Toggle(String(localized: .settingsMembersUiSearch), isOn: $draft.allowSearch)
                     .onChange(of: draft.allowSearch) { _, enabled in if !enabled { draft.allowDirectDownload = false } }
                     .accessibilityIdentifier("member-allow-search")
-                Toggle("一键下载", isOn: $draft.allowDirectDownload)
+                Toggle(String(localized: .settingsMembersAccessDirectDownload), isOn: $draft.allowDirectDownload)
                     .disabled(!draft.allowSearch).accessibilityIdentifier("member-allow-download")
             } footer: {
-                Text("资源搜索用于查找已授权站点的种子，不影响影视和媒体库搜索。一键下载需要开启资源搜索。")
+                Text(String(localized: .settingsMemberEditSearchHint))
             }
         }
     }
@@ -158,16 +158,16 @@ struct MemberEditSheet: View {
     private var contentFields: some View {
         Group {
             SettingsFormSection {
-                Picker("年龄上限", selection: $draft.contentAgeLimit) {
-                    Text("不限").tag(Int?.none)
-                    ForEach([6, 12, 16, 18], id: \.self) { Text("\($0) 岁以下").tag(Optional($0)) }
+                Picker(String(localized: .settingsMemberEditAgeLimit), selection: $draft.contentAgeLimit) {
+                    Text(String(localized: .settingsMembersAccessUnlimited)).tag(Int?.none)
+                    ForEach([6, 12, 16, 18], id: \.self) { Text(String(localized: .settingsMembersAccessUnderAge($0))).tag(Optional($0)) }
                 }.pickerStyle(.menu).accessibilityIdentifier("member-age-limit")
-            } footer: { Text("超过所选年龄分级的作品将从浏览、搜索和播放中隐藏。") }
+            } footer: { Text(String(localized: .settingsMemberEditAgeHint)) }
             if draft.contentAgeLimit != nil {
                 SettingsFormSection {
-                    Toggle("允许未分级作品", isOn: $draft.allowUnrated)
+                    Toggle(String(localized: .settingsMemberEditAllowUnrated), isOn: $draft.allowUnrated)
                         .accessibilityIdentifier("member-allow-unrated")
-                } footer: { Text("部分作品没有年龄分级。关闭时，这些作品也会隐藏。") }
+                } footer: { Text(String(localized: .settingsMemberEditUnratedHint)) }
             }
         }
     }
@@ -175,21 +175,21 @@ struct MemberEditSheet: View {
     private var libraryFields: some View {
         Group {
             SettingsFormSection {
-                Picker("访问范围", selection: $draft.allLibraries) {
-                    Text("全部共享库").tag(true)
-                    Text("指定媒体库").tag(false)
+                Picker(String(localized: .settingsMemberEditScope), selection: $draft.allLibraries) {
+                    Text(String(localized: .settingsMembersAccessShared)).tag(true)
+                    Text(String(localized: .settingsMembersAccessSelectedLibraries)).tag(false)
                 }.pickerStyle(.menu).accessibilityIdentifier("member-library-mode")
-            } footer: { Text("全部共享库包含以后新增的共享库。仅对指定成员开放的库，始终需要单独授权。") }
+            } footer: { Text(String(localized: .settingsMemberEditLibrariesHint)) }
             let available = libraries.filter { !draft.allLibraries || $0.accessMode == "selected" }
             let matches = available.filter { matchesSearch($0.name) }
-            SettingsFormSection(draft.allLibraries ? "单独授权" : "选择媒体库") {
+            SettingsFormSection(draft.allLibraries ? String(localized: .settingsMemberEditIndividual) : String(localized: .settingsMemberEditChooseLibraries)) {
                 ForEach(matches, id: \.id) { library in
                     selectionRow(library.name, selected: draft.libraryIds.contains(library.id)) {
                         if draft.libraryIds.contains(library.id) { draft.libraryIds.removeAll { $0 == library.id } }
                         else { draft.libraryIds.append(library.id) }
                     }.accessibilityIdentifier("member-library-\(library.id)")
                 }
-                if matches.isEmpty { emptyOptions(available.isEmpty ? "暂无可选媒体库" : "没有匹配的媒体库") }
+                if matches.isEmpty { emptyOptions(available.isEmpty ? String(localized: .settingsMemberEditNoLibraries) : String(localized: .settingsMemberEditNoLibraryMatches)) }
             }
         }
     }
@@ -197,21 +197,21 @@ struct MemberEditSheet: View {
     private var siteFields: some View {
         Group {
             SettingsFormSection {
-                Picker("访问范围", selection: $draft.allSites) {
-                    Text("全部启用站点").tag(true)
-                    Text("指定站点").tag(false)
+                Picker(String(localized: .settingsMemberEditScope), selection: $draft.allSites) {
+                    Text(String(localized: .settingsMembersAccessAllSites)).tag(true)
+                    Text(String(localized: .settingsMembersAccessSelectedSites)).tag(false)
                 }.pickerStyle(.menu).accessibilityIdentifier("member-site-mode")
-            } footer: { Text("成员只能搜索允许访问的站点。一键下载仍由功能权限控制。") }
+            } footer: { Text(String(localized: .settingsMemberEditSitesHint)) }
             if !draft.allSites {
                 let matches = sites.filter { matchesSearch($0.displayName) }
-                SettingsFormSection("选择站点") {
+                SettingsFormSection(String(localized: .settingsMemberEditChooseSites)) {
                     ForEach(matches, id: \.siteId) { site in
                         selectionRow(site.displayName, selected: draft.siteIds.contains(site.siteId)) {
                             if draft.siteIds.contains(site.siteId) { draft.siteIds.removeAll { $0 == site.siteId } }
                             else { draft.siteIds.append(site.siteId) }
                         }.accessibilityIdentifier("member-site-\(site.siteId)")
                     }
-                    if matches.isEmpty { emptyOptions(sites.isEmpty ? "暂无可选站点" : "没有匹配的站点") }
+                    if matches.isEmpty { emptyOptions(sites.isEmpty ? String(localized: .settingsMemberEditNoSites) : String(localized: .settingsMemberEditNoSiteMatches)) }
                 }
             }
         }
@@ -235,7 +235,7 @@ struct MemberEditSheet: View {
                     .foregroundStyle(selected ? Theme.accent : Theme.textMuted)
             }
         }
-        .accessibilityValue(selected ? "已选择" : "未选择")
+        .accessibilityValue(selected ? String(localized: .settingsMemberEditSelected) : String(localized: .commonNotSelected))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 

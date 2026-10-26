@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from movieclaw_api import __version__
+from movieclaw_api.i18n.stored import reference, stored_fields
 from movieclaw_api.settings.cloud import RelayInfo
 from movieclaw_db.models import utcnow
 from movieclaw_net.egress import EgressScope, egress_transport
@@ -39,13 +40,33 @@ class RelayError(Exception):
     """
 
     def __init__(
-        self, message: str, *, retryable: bool, code: str = "", network: bool = False
+        self,
+        message: str = "",
+        *,
+        retryable: bool,
+        code: str = "",
+        network: bool = False,
+        message_key: str | None = None,
+        params: dict | None = None,
     ) -> None:
+        self.message_key = message_key
+        self.params = params or {}
+        self.message_ref = reference(message_key, **self.params) if message_key else None
+        if message_key:
+            message = stored_fields(message_key, **self.params)["message"]
         super().__init__(message)
         self.message = message
         self.retryable = retryable
         self.code = code
         self.network = network
+
+
+class RelayValidationError(ValueError):
+    def __init__(self, message_key: str) -> None:
+        self.message_key = message_key
+        self.params = {}
+        self.message_ref = reference(message_key)
+        super().__init__(stored_fields(message_key)["message"])
 
 
 @dataclass
@@ -61,9 +82,9 @@ def normalize_url(url: str) -> str:
     value = url.strip().rstrip("/")
     parts = urlsplit(value)
     if parts.scheme not in ("http", "https") or not parts.netloc:
-        raise ValueError("中继地址要以 http:// 或 https:// 开头")
+        raise RelayValidationError("push.relay.scheme")
     if parts.query or parts.fragment:
-        raise ValueError("中继地址不能带 ? 或 # 后面的部分")
+        raise RelayValidationError("push.relay.query")
     return value
 
 
@@ -96,15 +117,15 @@ def _client(url: str, *, lan_direct: bool, timeout: httpx.Timeout = _TIMEOUT) ->
     )
 
 
-def describe_network_error(exc: httpx.HTTPError) -> str:
-    """把网络异常说成人话（给设置页看，不露异常类名）。"""
+def network_error_ref(exc: httpx.HTTPError) -> dict:
+    """Keep the network category available to each reader without translating exceptions."""
     if isinstance(exc, httpx.TimeoutException):
-        return "连接超时"
+        return reference("cloud.network.timeout")
     if isinstance(exc, httpx.ConnectError):
-        return "连不上，检查地址、端口和网络"
+        return reference("cloud.network.connect")
     if isinstance(exc, httpx.ProxyError):
-        return "代理连不上，检查「设置 → 网络」里的代理"
-    return "网络出错"
+        return reference("cloud.network.proxy")
+    return reference("cloud.network.unknown")
 
 
 def _error_message(response: httpx.Response) -> str:
@@ -120,7 +141,7 @@ def _error_message(response: httpx.Response) -> str:
 def parse_info(body: object) -> RelayInfo:
     """把 ``/v1/info`` 的响应收成快照；结构不对抛 ValueError。"""
     if not isinstance(body, dict) or not isinstance(body.get("protocol"), int):
-        raise ValueError("不是 MovieClaw 推送中继（/v1/info 的格式不对）")
+        raise RelayValidationError("push.relay.invalidInfo")
     auth = body.get("auth") if isinstance(body.get("auth"), dict) else {}
     types = body.get("types") if isinstance(body.get("types"), dict) else {}
     limits = body.get("limits") if isinstance(body.get("limits"), dict) else {}
@@ -158,18 +179,24 @@ async def check_info(
             response = await client.get(f"{url}/v1/info", headers=headers)
     except httpx.HTTPError as exc:
         raise RelayError(
-            f"中继{describe_network_error(exc)}", retryable=True, network=True
+            message_key="push.relay.network",
+            params={"reason": network_error_ref(exc)},
+            retryable=True,
+            network=True,
         ) from exc
     if response.status_code != 200:
         raise RelayError(
-            f"中继返回 {_error_message(response)}",
+            message_key="push.relay.response",
+            params={"reason": _error_message(response)},
             retryable=response.status_code >= 500,
         )
     try:
         body = response.json()
         info = parse_info(body)
     except ValueError as exc:
-        raise RelayError(str(exc), retryable=False) from exc
+        raise RelayError(
+            str(exc), retryable=False, message_key=getattr(exc, "message_key", None)
+        ) from exc
     quota = body.get("quota") if isinstance(body.get("quota"), dict) else None
     return info, quota
 
@@ -186,26 +213,41 @@ async def push(
             )
     except httpx.HTTPError as exc:
         raise RelayError(
-            f"中继{describe_network_error(exc)}", retryable=True, network=True
+            message_key="push.relay.network",
+            params={"reason": network_error_ref(exc)},
+            retryable=True,
+            network=True,
         ) from exc
     status = response.status_code
     if status == 200:
         try:
             body = response.json()
         except ValueError as exc:
-            raise RelayError("中继的响应不是 JSON", retryable=True) from exc
+            raise RelayError(message_key="push.relay.notJson", retryable=True) from exc
         results = body.get("results") if isinstance(body, dict) else None
         if not isinstance(results, list) or len(results) != len(messages):
-            raise RelayError("中继的响应和请求对不上", retryable=True)
+            raise RelayError(message_key="push.relay.mismatch", retryable=True)
         quota = body.get("quota") if isinstance(body.get("quota"), dict) else None
         return PushResponse(
             results=[r if isinstance(r, dict) else {} for r in results], quota=quota
         )
     message = _error_message(response)
     if status == 401:
-        raise RelayError(f"中继拒绝了凭证：{message}", retryable=True, code="unauthorized")
+        raise RelayError(
+            message_key="push.relay.unauthorized",
+            params={"reason": message},
+            retryable=True,
+            code="unauthorized",
+        )
     if status == 403:
-        raise RelayError(f"中继拒绝推送：{message}", retryable=True, code="forbidden")
+        raise RelayError(
+            message_key="push.relay.forbidden",
+            params={"reason": message},
+            retryable=True,
+            code="forbidden",
+        )
     if status >= 500 or status == 429:
-        raise RelayError(f"中继暂时不可用：{message}", retryable=True)
-    raise RelayError(f"中继拒绝了请求：{message}", retryable=False)
+        raise RelayError(
+            message_key="push.relay.unavailable", params={"reason": message}, retryable=True
+        )
+    raise RelayError(message_key="push.relay.rejected", params={"reason": message}, retryable=False)

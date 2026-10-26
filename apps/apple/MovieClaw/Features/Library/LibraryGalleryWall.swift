@@ -18,9 +18,9 @@ enum GalleryDensity: String, CaseIterable, Identifiable {
     /// 菜单文案（照搬 Web）
     var label: String {
         switch self {
-        case .compact: "紧凑"
-        case .standard: "标准"
-        case .loose: "宽松"
+        case .compact: String(localized: .libraryGalleryCompact)
+        case .standard: String(localized: .libraryGalleryStandard)
+        case .loose: String(localized: .libraryGalleryLoose)
         }
     }
 
@@ -67,29 +67,46 @@ final class GalleryPrefs {
     static let shared = GalleryPrefs()
 
     private static let modeKey = "movieclaw.library.gallery-mode"
+    private static let libraryModesKey = "movieclaw.library.gallery-modes"
     private static let groupedKey = "movieclaw.library.gallery-grouped"
     private static let densityKey = "movieclaw.photo-wall.density"
+    private let defaults: UserDefaults
+    private var libraryModes: [String: Bool] {
+        didSet { defaults.set(libraryModes, forKey: Self.libraryModesKey) }
+    }
 
     /// 是否处于图床浏览模式（⋯ 菜单「图床浏览 / 回到海报墙」）：进详情再退回来还在图廊
     var galleryMode: Bool {
-        didSet { UserDefaults.standard.set(galleryMode, forKey: Self.modeKey) }
+        didSet { defaults.set(galleryMode, forKey: Self.modeKey) }
     }
 
     /// 图床浏览是否按作品分组：默认分组，关掉就是整库一条瀑布流（用户决策 2026-09-07）
     var grouped: Bool {
-        didSet { UserDefaults.standard.set(grouped, forKey: Self.groupedKey) }
+        didSet { defaults.set(grouped, forKey: Self.groupedKey) }
     }
 
     /// 瀑布流密度：图床浏览与照片墙共用，默认标准
     var density: GalleryDensity {
-        didSet { UserDefaults.standard.set(density.rawValue, forKey: Self.densityKey) }
+        didSet { defaults.set(density.rawValue, forKey: Self.densityKey) }
     }
 
-    private init() {
-        let defaults = UserDefaults.standard
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        libraryModes = defaults.dictionary(forKey: Self.libraryModesKey) as? [String: Bool] ?? [:]
         galleryMode = defaults.object(forKey: Self.modeKey) as? Bool ?? false
         grouped = defaults.object(forKey: Self.groupedKey) as? Bool ?? true
         density = defaults.string(forKey: Self.densityKey).flatMap(GalleryDensity.init(rawValue:)) ?? .standard
+    }
+
+    /// 单库与库内合集共用模式，未设置的库默认海报墙；跨库页面保留原来的偏好。
+    func galleryMode(libraryId: Int?) -> Bool {
+        guard let libraryId else { return galleryMode }
+        return libraryModes[String(libraryId)] ?? false
+    }
+
+    func setGalleryMode(_ enabled: Bool, libraryId: Int?) {
+        if let libraryId { libraryModes[String(libraryId)] = enabled }
+        else { galleryMode = enabled }
     }
 }
 
@@ -104,10 +121,10 @@ struct GalleryPrefMenuItems: View {
 
     var body: some View {
         if showsGrouping {
-            Toggle("按作品分组", isOn: $prefs.grouped)
+            Toggle(String(localized: .libraryGalleryGroupByTitle), isOn: $prefs.grouped)
         }
-        Section("瀑布流密度") {
-            Picker("瀑布流密度", selection: $prefs.density) {
+        Section(String(localized: .libraryGalleryDensity)) {
+            Picker(String(localized: .libraryGalleryDensity), selection: $prefs.density) {
                 ForEach(GalleryDensity.allCases) { density in
                     Text(density.label).tag(density)
                 }
@@ -308,7 +325,7 @@ struct LibraryGalleryWall: View {
                 .frame(minHeight: 280)
         case .loaded:
             if feed.entries.isEmpty {
-                EmptyState(systemImage: "photo.on.rectangle", title: "暂无图片")
+                EmptyState(systemImage: "photo.on.rectangle", title: String(localized: .libraryGalleryEmpty))
                     .frame(minHeight: 280)
             } else {
                 wall
@@ -355,7 +372,7 @@ struct LibraryGalleryWall: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.85))
                         .lineLimit(1)
-                    Text("\(group.images.count) 张")
+                    Text(String(localized: .libraryStatusPhotoCount(group.images.count)))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(Theme.textFaint)
                         .fixedSize()
@@ -399,7 +416,7 @@ struct LibraryGalleryWall: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.07)))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("查看 \(group.title) · \(image.label)\(group.isFavorite ? "（已收藏）" : "")")
+            .accessibilityLabel(String(localized: .libraryGalleryViewImageAria(group.title, image.label)) + (group.isFavorite ? String(localized: .libraryGalleryFavoriteSuffix) : ""))
         }
     }
 
@@ -612,7 +629,7 @@ private struct GalleryLightbox: View {
         ) {
             if let current {
                 let (group, image) = current
-                let playLabel = image.tSeconds != nil ? "从此处播放" : "播放"
+                let playLabel = image.tSeconds != nil ? String(localized: .libraryGalleryPlayHere) : String(localized: .libraryHeroPlay)
                 LibraryZoomableImage.ActionButton(systemImage: "play.fill", label: playLabel) {
                     // 章节图从那一帧起播，分集剧照播那一集，海报 / 剧照从头（或续播）
                     leave {
@@ -622,12 +639,12 @@ private struct GalleryLightbox: View {
                 // 收藏的是整部作品（与详情页那颗心同一落点），不是这张图或这一集
                 LibraryZoomableImage.ActionButton(
                     systemImage: group.isFavorite ? "heart.fill" : "heart",
-                    label: group.isFavorite ? "取消收藏" : "收藏",
+                    label: group.isFavorite ? String(localized: .libraryGalleryUnfavorite) : String(localized: .libraryGalleryFavorite),
                     tint: group.isFavorite ? Theme.danger : .white.opacity(0.85)
                 ) {
                     toggleFavorite(group)
                 }
-                LibraryZoomableImage.ActionButton(systemImage: "arrow.up.forward.square", label: "前往影片详情") {
+                LibraryZoomableImage.ActionButton(systemImage: "arrow.up.forward.square", label: String(localized: .libraryGalleryGoToTitle)) {
                     // 分集剧照 / 剧集章节图带季集号，详情页直接落到那一集；落点库取分组自带的
                     let unit = image.season != nil && image.episode != nil
                     leave {
@@ -678,7 +695,7 @@ private struct GalleryLightbox: View {
             } catch is CancellationError {
             } catch {
                 // 灯箱挂了自己的提示宿主（sheetFeedback），与全 App 同一种顶部提示
-                feedback.error(error.localizedDescription.isEmpty ? "收藏失败，请稍后重试" : error.localizedDescription)
+                feedback.error(error.localizedDescription.isEmpty ? String(localized: .libraryCollectionsFavoriteFailed) : error.localizedDescription)
             }
         }
     }

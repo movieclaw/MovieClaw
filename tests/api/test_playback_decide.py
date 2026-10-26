@@ -273,3 +273,46 @@ def test_best_prefers_higher_resolution_at_equal_tier():
     )
     picked = _best([(transcode_4k, 2160), (plan(6), 1080)])
     assert picked.file_id == 6
+
+
+async def test_browser_decode_failures_on_copy_tiers_reach_hardware_transcode(db, monkeypatch):
+    """真机复现：4K HEVC MKV，浏览器申报能解 HEVC，hls.js 却 bufferAddCodecError。
+
+    网页按「档 1 失败 → 档 2 失败 → 连败两次跳过剩下的直通档」上报 failed_tiers；
+    NAS 有 VAAPI 时最后一轮必须是档 3 硬件转码，而不是档 4 软件转码同意框。
+    """
+    monkeypatch.setattr(playback_plan, "hardware_available", lambda: True)
+    hevc_browser = ClientCapability(
+        video=(VideoSupport("h264"), VideoSupport("hevc")),
+        audio=(AudioSupport("aac"),),
+        containers=frozenset({"mp4", "hls-fmp4"}),
+    )
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="动漫", kind="tv", root_paths=["/comic"]
+        )
+        item = MediaItem(kind="tv", tmdb_id=3, title="牧神记", original_title="Tales")
+        session.add(item)
+        await session.flush()
+        row = _file(library.id, item.id, codec="hevc", resolution="2160p")
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+
+        async def decide(*failed: PlaybackTier):
+            return await playback_plan.decide_for_file(
+                session, row.id, hevc_browser, can_self_enable=True,
+                failed_tiers=frozenset(failed),
+            )
+
+        first = await decide()
+        assert isinstance(first, PlaybackPlan) and first.tier is PlaybackTier.REMUX
+        second = await decide(PlaybackTier.REMUX)
+        assert isinstance(second, PlaybackPlan)
+        assert second.tier is PlaybackTier.AUDIO_TRANSCODE
+        third = await decide(
+            PlaybackTier.DIRECT_PLAY, PlaybackTier.REMUX, PlaybackTier.AUDIO_TRANSCODE
+        )
+        assert isinstance(third, PlaybackPlan)
+        assert third.tier is PlaybackTier.HARDWARE_TRANSCODE
+        assert third.video.action == "transcode"

@@ -28,6 +28,9 @@ from movieclaw_api.exceptions import (
     NotFoundException,
     ServiceUnavailableException,
 )
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.metadata import localized_text
+from movieclaw_api.i18n.stored import render_value, stored_message
 from movieclaw_api.schemas.channels import (
     ChannelAccountView,
     ChannelBindingInputPayload,
@@ -43,7 +46,6 @@ from movieclaw_api.schemas.channels import (
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.channel_hub import ChannelHub, ChannelUnavailable, get_hub
 from movieclaw_api.services.channel_push import push_to_all_channels
-from movieclaw_api.settings import ChannelPushSetting, get_setting_store
 from movieclaw_db.engine import get_session
 from movieclaw_db.models.channel_account import ChannelAccount
 from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
@@ -64,7 +66,7 @@ def _qrcode_data_url(content: str) -> str:
 def _hub() -> ChannelHub:
     hub = get_hub()
     if hub is None:
-        raise ServiceUnavailableException("IM 通道中枢没有运行，请到「设置 → 插件 → 内置」查看原因")
+        raise ServiceUnavailableException(message_key="errors.channels.hubStopped")
     return hub
 
 
@@ -78,7 +80,7 @@ def _account_view(row: ChannelAccount, hub: ChannelHub | None) -> ChannelAccount
         status=row.status,
         running=bool(hub and hub.is_running(row.channel_id, row.account_id)),
         channel_available=available,
-        last_error=row.last_error,
+        last_error=stored_message(row.last_error) if row.last_error else None,
         bound_at=row.created_at,
     )
 
@@ -98,8 +100,8 @@ async def list_channels(session: AsyncSession = Depends(get_session)) -> ApiResp
             channels.append(
                 ChannelView(
                     id=channel_id,
-                    title=driver.title or channel_id,
-                    description=driver.description,
+                    title=localized_text(driver.title or channel_id, driver.title_localized),
+                    description=localized_text(driver.description, driver.description_localized),
                     entry_id=hub.contributor(channel_id),
                     receive=driver.capabilities.receive,
                     webhook=driver.capabilities.webhook,
@@ -109,16 +111,16 @@ async def list_channels(session: AsyncSession = Depends(get_session)) -> ApiResp
                         fields=[
                             ChannelFieldView(
                                 key=f.key,
-                                label=f.label,
+                                label=localized_text(f.label, f.label_localized),
                                 secret=f.secret,
-                                placeholder=f.placeholder,
-                                help=f.help,
+                                placeholder=localized_text(f.placeholder, f.placeholder_localized),
+                                help=localized_text(f.help, f.help_localized),
                                 required=f.required,
                             )
                             for f in spec.fields
                         ],
                         pairing=spec.pairing,
-                        hint=spec.hint,
+                        hint=localized_text(spec.hint, spec.hint_localized),
                     ),
                 )
             )
@@ -129,7 +131,7 @@ async def list_channels(session: AsyncSession = Depends(get_session)) -> ApiResp
 async def _binding_view(hub: ChannelHub, binding_id: str) -> ChannelBindingView:
     binding = hub.binding(binding_id)
     if binding is None:
-        raise NotFoundException("绑定不存在或已过期，请重新发起")
+        raise NotFoundException(message_key="errors.channels.bindingExpired")
     account = None
     if binding.status == "confirmed" and binding.account_id:
         from movieclaw_db.engine import get_database
@@ -145,14 +147,20 @@ async def _binding_view(hub: ChannelHub, binding_id: str) -> ChannelBindingView:
         channel_id=binding.channel_id,
         kind=binding.kind,
         status=binding.status,
-        message=binding.message,
+        message=render_value(binding.message_ref) if binding.message_ref else binding.message,
         pair_code=binding.pair_code,
         qr_image=_qrcode_data_url(binding.qr or ""),
         qr=binding.qr or "",
-        input_label=binding.input_label,
+        input_label=(
+            localized_text(binding.input_label, binding.input_label_localized)
+            if binding.input_label is not None
+            else None
+        ),
         account=account,
         callback_url=binding.callback_url,
-        callback_note=binding.callback_note,
+        callback_note=render_value(binding.callback_note_ref)
+        if binding.callback_note_ref
+        else binding.callback_note,
     )
 
 
@@ -172,21 +180,29 @@ async def start_binding(
     try:
         driver = hub.driver(channel_id)
     except ChannelUnavailable as exc:
-        raise ConflictException(str(exc)) from exc
+        raise ConflictException(
+            message_key="channels.binding.disabled", params={"channel": channel_id}
+        ) from exc
     # 能对话的通道完全由 AI 模型驱动：没配模型时绑定了也用不了，在入口拦下并引导去设置
     if driver.capabilities.receive and not await LlmProviderRepository(session).has_any():
-        raise BadRequestException(
-            "绑定需要先完成 AI 模型配置：请先在「设置 → 模型接入」接入模型供应商，再进行绑定"
-        )
+        raise BadRequestException(message_key="errors.channels.modelRequired")
     try:
         binding = await hub.begin_binding(channel_id, payload.fields)
     except ValueError as exc:
-        raise BadRequestException(str(exc)) from exc
+        raise BadRequestException(
+            render_value(getattr(exc, "message_ref", None)) or str(exc)
+        ) from exc
     except ChannelUnavailable as exc:
-        raise ConflictException(str(exc)) from exc
+        raise ConflictException(
+            message_key="channels.binding.disabled", params={"channel": channel_id}
+        ) from exc
     except Exception as exc:  # noqa: BLE001 -- 网关不可达等，转成中文业务错误
-        raise BadRequestException(f"发起绑定失败：{exc}") from exc
-    return ok(await _binding_view(hub, binding.binding_id), message="绑定已发起")
+        raise BadRequestException(
+            message_key="errors.channels.pairingFailed", params={"error": exc}
+        ) from exc
+    return ok(
+        await _binding_view(hub, binding.binding_id), message=t("settings.imPush.bindingStarted")
+    )
 
 
 @router.get(
@@ -212,7 +228,9 @@ async def submit_binding_input(
     try:
         await hub.binding_input(binding_id, payload.value.strip())
     except LookupError as exc:
-        raise NotFoundException(str(exc)) from exc
+        raise NotFoundException(
+            render_value(getattr(exc, "message_ref", None)) or str(exc)
+        ) from exc
     return ok(await _binding_view(hub, binding_id))
 
 
@@ -226,8 +244,8 @@ async def submit_binding_input(
 )
 async def unbind_account(channel_id: str, account_id: str) -> ApiResponse[dict]:
     if not await _hub().unbind(channel_id, account_id):
-        raise NotFoundException("账号不存在")
-    return ok({}, message="已解绑")
+        raise NotFoundException(message_key="errors.channels.accountMissing")
+    return ok({}, message=t("settings.imPush.unbound"))
 
 
 # ---------------------------------------------------------------------- 推送（路径不变）
@@ -240,11 +258,26 @@ async def unbind_account(channel_id: str, account_id: str) -> ApiResponse[dict]:
     operation_id="channels.im.push.test",
 )
 async def send_test_push(payload: PushTestPayload) -> ApiResponse[dict]:
-    text = payload.text.strip() or "📣 这是一条来自 MovieClaw 的测试推送。收到说明通道工作正常！"
+    text = payload.text.strip() or t("channels.binding.testMessage")
     sent = await push_to_all_channels(text)
     if sent == 0:
-        raise BadRequestException("没有可推送的通道账号：请先完成绑定且确保通道在运行")
-    return ok({"sent": sent}, message=f"已推送到 {sent} 个账号")
+        raise BadRequestException(message_key="errors.channels.noPushAccount")
+    return ok({"sent": sent}, message=t("notify.channels.testSent", count=sent))
+
+
+# IM 推什么已并入「账号 → 通知」（cloud-push.md §5）：IM 账号都归管理员，这两个开关就是
+# 管理员的「开始下载」「入库完成」。新网页、新 App 不再调用，留给已发布的 App。
+_LEGACY_EVENTS = {
+    "push_dispatch": "subscription.download_started",
+    "push_imported": "subscription.fulfilled",
+}
+
+
+async def _legacy_push_config(session: AsyncSession) -> ChannelPushConfigView:
+    from movieclaw_api.services.push import preferences
+
+    effective = await preferences.effective(session, 0)
+    return ChannelPushConfigView(**{k: effective[e] for k, e in _LEGACY_EVENTS.items()})
 
 
 @router.get(
@@ -253,13 +286,10 @@ async def send_test_push(payload: PushTestPayload) -> ApiResponse[dict]:
     summary="读取推送内容开关",
     operation_id="channels.im.push.config.get",
 )
-async def get_push_config() -> ApiResponse[ChannelPushConfigView]:
-    setting = await get_setting_store().get(ChannelPushSetting)
-    return ok(
-        ChannelPushConfigView(
-            push_dispatch=setting.push_dispatch, push_imported=setting.push_imported
-        )
-    )
+async def get_push_config(
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[ChannelPushConfigView]:
+    return ok(await _legacy_push_config(session))
 
 
 @router.put(
@@ -268,8 +298,15 @@ async def get_push_config() -> ApiResponse[ChannelPushConfigView]:
     summary="保存推送内容开关",
     operation_id="channels.im.push.config.update",
 )
-async def update_push_config(payload: ChannelPushConfigView) -> ApiResponse[ChannelPushConfigView]:
-    await get_setting_store().set(
-        ChannelPushSetting(push_dispatch=payload.push_dispatch, push_imported=payload.push_imported)
+async def update_push_config(
+    payload: ChannelPushConfigView, session: AsyncSession = Depends(get_session)
+) -> ApiResponse[ChannelPushConfigView]:
+    from movieclaw_api.services.push import preferences
+
+    await preferences.update(
+        session,
+        0,
+        {e: getattr(payload, k) for k, e in _LEGACY_EVENTS.items()},
+        is_admin=True,
     )
-    return ok(payload, message="推送设置已保存")
+    return ok(await _legacy_push_config(session), message=t("settings.appPush.saved"))

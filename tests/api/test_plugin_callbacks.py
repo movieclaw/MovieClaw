@@ -80,6 +80,10 @@ def app_env(tmp_path, monkeypatch, request):
     monkeypatch.setattr(spec_state, "routes_changed", lambda app: None)
     get_settings.cache_clear()
     durable_events.reset_state()
+    # 配置存储是进程级单例：同一 worker 里先跑的用例配过外部访问地址的话会串进来
+    from movieclaw_api.settings.store import reset_setting_store
+
+    reset_setting_store()
     (tmp_path / "plugins").mkdir()
     (tmp_path / "plugins" / "acme_hooks.py").write_text(PLUGIN, encoding="utf-8")
     (tmp_path / "plugins.yaml").write_text(

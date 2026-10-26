@@ -132,7 +132,7 @@ data class LibraryFileView(
     val state: String = "in_place",
     /** 文件当前不在磁盘（missing 标记）：台账还在、文件没了 */
     val missing: Boolean = false,
-    /** 待回收：预计自动清理时间；null = 做种保护中（不自动清理） */
+    /** 待回收：预计自动清理时间；null = 不自动清理（2026-08-17 之前的旧数据） */
     val purgeAfter: String? = null,
     val trashNote: String? = null,
     /** 来源快照：这个文件是怎么进库的 */
@@ -153,6 +153,47 @@ data class ItemDeleteResultView(
     val rowsDeleted: Int = 0,
     val freedBytes: Long = 0,
     val errors: List<String> = emptyList(),
+    /** 勾选的附加选项建的后续任务（旧服务端没有这个字段） */
+    val followUps: List<DeleteFollowUpView>? = null,
+)
+
+/** 勾选的附加选项在后台跑的任务（服务端 `DeleteFollowUpView`） */
+@Serializable
+data class DeleteFollowUpView(
+    val option: String = "",
+    val label: String = "",
+    val jobId: String,
+)
+
+/** 附加选项预览里的一行说明；tone = info / warn / danger */
+@Serializable
+data class DeletePreviewLineView(
+    val text: String,
+    val tone: String = "info",
+)
+
+/**
+ * 删除弹窗的附加选项（服务端 `DeleteOptionView`，docs/design/library-boundary.md §3）：
+ * 来自别的模块登记的删除参与方（如下载模块的「同时删除下载任务和源文件」），媒体库不认识它们
+ */
+@Serializable
+data class DeleteOptionView(
+    val key: String,
+    val label: String,
+    val help: String = "",
+    val available: Boolean = true,
+    /** 不可勾时的原因 */
+    val reason: String? = null,
+    val lines: List<DeletePreviewLineView> = emptyList(),
+)
+
+/** 删除前预览（服务端 `ItemDeletePreviewView`）：附加选项与硬链接字节 */
+@Serializable
+data class ItemDeletePreviewView(
+    val wholeItem: Boolean = false,
+    /** 与别处是同一份数据（硬链接）的字节：只删媒体库文件不会释放这部分空间 */
+    val linkedBytes: Long = 0,
+    val options: List<DeleteOptionView> = emptyList(),
 )
 
 @Serializable
@@ -174,6 +215,20 @@ data class LibraryItemDetailView(
     val totalSizeBytes: Long = 0,
     val seasons: List<Int> = emptyList(),
     val seriesName: String? = null,
+    /** 电影所属系列合集：只在这个库真的生成了那个合集时给（详情页「系列」一行据此拉 `collections/{id}/series`） */
+    val seriesCollectionId: Long? = null,
+    /** 外部词条（详情页底部「相关链接」）：没有就不出那一个 */
+    val tmdbId: Long? = null,
+    val imdbId: String? = null,
+    val doubanId: String? = null,
+    /** 该条目正在后台刮削元数据（⋯ 菜单据此点蓝点、禁掉「刷新元数据」） */
+    val scraping: Boolean = false,
+    /** 刮削当前阶段（只透传，文案由服务端给） */
+    val scrapingPhase: String? = null,
+    /** 章节场景图正在后台生成（禁掉「重新生成章节」） */
+    val chaptersPending: Boolean = false,
+    /** 整条目占的目录（删除整条时列这些；老服务端为空，退回文件路径列表） */
+    val entryDirs: List<String> = emptyList(),
 )
 
 @Serializable
@@ -194,6 +249,8 @@ data class EpisodeView(
 data class SeasonEpisodesView(
     val seasonNumber: Int = 0,
     val episodes: List<EpisodeView> = emptyList(),
+    /** 本季「接着看」的那一集（服务端 `season_resume_episode`）；没播放过 / 老服务端 / 分享页为 null */
+    val resumeEpisode: Int? = null,
 )
 
 /* ---------------- 筛选面板与跳转索引(P2) ---------------- */

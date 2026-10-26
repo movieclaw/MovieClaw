@@ -39,6 +39,7 @@ async def issue_remote_grant(
 ) -> str:
     """签发一个只属于当前播放会话的源文件/产物凭据。"""
     if kind not in {"source", "artifact"}:
+        # i18n-ignore: programming invariant
         raise ValueError(f"不支持的远程凭据用途：{kind}")
     serializer = URLSafeSerializer(await get_signing_secret(), salt=_REMOTE_SALT)
     return serializer.dumps(

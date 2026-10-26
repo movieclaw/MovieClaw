@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
+from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
 
 from movieclaw_db.models.base import TimestampMixin, utcnow
@@ -101,3 +102,5 @@ class TaskRun(SQLModel, table=True):
     duration_ms: int | None = Field(default=None, description="执行耗时（毫秒）")
     # 失败原因（已归类为可读文本）；成功时为 None
     error: str | None = Field(default=None, description="失败原因")
+    error_key: str | None = Field(default=None)
+    error_params: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))

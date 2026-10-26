@@ -1,3 +1,6 @@
+import { appTranslator } from "../i18n/translate.ts";
+import { requestLocale, type AppLocale } from "../i18n/negotiate.ts";
+
 /**
  * 会话时间轴 ↔ 文件时间轴的换算（docs/design/web-player.md §4.3）。
  *
@@ -183,22 +186,6 @@ export function formatClock(ms: number): string {
 }
 
 /**
- * 片尾倒计时该不该出现：距结尾不足 `windowSeconds` 且片长已知。
- *
- * 门槛用「剩余秒数」而不是百分比：45 分钟的剧集和 3 小时的电影，片尾长度
- * 是同一个量级，按百分比算会让长片的倒计时早出现十几分钟。
- */
-export function isInEndCredits(
-  positionMs: number,
-  durationMs: number | null,
-  windowSeconds = 40,
-): boolean {
-  if (!durationMs || durationMs <= 0) return false;
-  const remaining = (durationMs - positionMs) / 1000;
-  return remaining > 0 && remaining <= windowSeconds;
-}
-
-/**
  * 片头片尾（docs/design/skip-intro.md）：服务端下发的一段。与 `lib/api/playback.ts`
  * 的 `PlaybackSegment` 同形，这里只声明用到的字段，保持本模块不依赖接口层。
  */
@@ -228,7 +215,7 @@ export function activeSkipSegment(
   return null;
 }
 
-/** 已经进了一直放到结尾的片尾：「即将播放下一集」不必等到最后 40 秒 */
+/** 已经进了一直放到结尾的片尾：提前出「即将播放下一集」 */
 export function isInOutro(
   segments: readonly SkipSegment[] | undefined,
   positionMs: number,
@@ -246,38 +233,78 @@ export const AUTO_NEXT_MAX_STREAK = 3;
 /**
  * 「即将播放」卡片要不要倒计时自动播下一集。
  *
- * 只在服务端**认出了**一直放到结尾的片尾时才倒计时：早期版本按「最后 40 秒」猜片尾并 10 秒自动换集，
- * 字幕还没放完画面就被抢走，被拿掉了（2026-08）。服务端下发的是片尾识别结果；
- * 只靠 40 秒兜底出来的卡片照旧不自动播。`streak` 是连续自动播了几集（中间有任何操作就清零）。
+ * 两种时候倒计时：服务端**认出了**一直放到结尾的片尾（进了片尾就开始），或者已经播完。
+ * 没认出片尾就不提前打扰：早期版本按「最后 40 秒」猜片尾并自动换集，字幕还没放完画面就被抢走（2026-08）；
+ * 放完了再接下一集。`streak` 是连续自动播了几集（中间有任何操作就清零）。
  */
 export function autoNextArmed(
   segments: readonly SkipSegment[] | undefined,
   positionMs: number,
   streak: number,
+  ended = false,
 ): boolean {
-  return streak < AUTO_NEXT_MAX_STREAK && isInOutro(segments, positionMs);
+  return streak < AUTO_NEXT_MAX_STREAK && (ended || isInOutro(segments, positionMs));
 }
 
 /** 按服务端确认的类型显示文案；其他或未来类型不猜成片头或广告。 */
-export function skipLabel(seg: SkipSegment): string {
+export function skipLabel(seg: SkipSegment, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   switch (seg.type) {
-    case "intro": return "跳过片头";
-    case "outro": return "跳过片尾";
-    case "ad": return "跳过广告";
-    case "preview": return "跳过预告";
-    default: return "跳过此段";
+    case "intro": return t("player.skip.intro");
+    case "outro": return t("player.skip.outro");
+    case "ad": return t("player.skip.ad");
+    case "preview": return t("player.skip.preview");
+    default: return t("player.skip.other");
   }
 }
 
-/** 下一集卡片的时机；是否有下一集、是否已关闭，由播放器判断。 */
+/**
+ * 自动跳过（docs/design/skip-intro.md §5，与 iOS `SkipSegments.autoSkips` 同一组规则）：自然播进这一段时
+ * 直接跳过、还是只给按钮（`activeSkipSegment` 已保证离段尾超过 `SKIP_TAIL_MS`）。
+ * 总开关关了一律只给按钮；广告、预告直接跳；片头要这部剧学过（手动跳过过一次）才跳；
+ * 其他类型（含非结尾片尾、未来类型）不猜，只给按钮。
+ */
+export function autoSkips(seg: SkipSegment, enabled: boolean, introLearned: boolean): boolean {
+  if (!enabled) return false;
+  switch (seg.type) {
+    case "ad":
+    case "preview":
+      return true;
+    case "intro":
+      return introLearned;
+    default:
+      return false;
+  }
+}
+
+/** 跳过后的提示里怎么称呼这一段：「已跳过片头」 */
+export function skipName(seg: SkipSegment, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
+  switch (seg.type) {
+    case "intro": return t("player.segment.intro");
+    case "outro": return t("player.segment.outro");
+    case "ad": return t("player.segment.ad");
+    case "preview": return t("player.segment.preview");
+    default: return t("player.segment.other");
+  }
+}
+
+/** 「已跳过片头 · 撤回」停留多久；「本剧以后自动跳过片头 · 不用」同样长，给人时间反悔 */
+export const SKIP_NOTICE_MS = 5000;
+/** 不带按钮的提示（「本剧不再自动跳过片头」）停留多久 */
+export const SKIP_INFO_NOTICE_MS = 3000;
+
+/**
+ * 下一集卡片的时机：认出了放到结尾的片尾就从片尾起点给，否则播完才给（没有「最后 40 秒」兜底）。
+ * 是否有下一集、是否已关闭，由播放器判断。
+ */
 export function shouldShowUpNext(
   segments: readonly SkipSegment[] | undefined,
   positionMs: number,
-  durationMs: number | null,
   ended = false,
 ): boolean {
   if (ended) return true;
-  // 明确的手动跳过段优先，避免最后 40 秒的兜底卡片抢走「跳过预告」。
+  // 明确的手动跳过段优先，不能让「下一集」盖住「跳过预告」。
   if (activeSkipSegment(segments, positionMs)) return false;
-  return isInOutro(segments, positionMs) || isInEndCredits(positionMs, durationMs);
+  return isInOutro(segments, positionMs);
 }

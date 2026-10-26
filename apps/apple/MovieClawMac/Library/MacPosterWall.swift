@@ -14,7 +14,7 @@ struct MacPosterWall<Accessory: View>: View {
     let wall: MacWallLoader
     /// 条目里没带库 id 时的详情落点
     var fallbackLibrary: Int?
-    var emptyTitle = "这里还没有内容"
+    var emptyTitle = String(localized: .libraryNothingHere)
     var emptyMessage: String?
     let retry: () async -> Void
     /// 页头右侧的控件（媒体库的排序与筛选）
@@ -77,7 +77,7 @@ struct MacPosterWall<Accessory: View>: View {
         if wall.items == nil {
             ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
         } else if let error = wall.failed, wall.items?.isEmpty != false {
-            MacStateView(symbol: "wifi.exclamationmark", title: "加载失败", message: error, actionTitle: "重试") {
+            MacStateView(symbol: "wifi.exclamationmark", title: String(localized: .libraryDeletionLoadFailed), message: error, actionTitle: String(localized: .commonRetry)) {
                 Task { await retry() }
             }
             .frame(height: 420)
@@ -90,7 +90,7 @@ struct MacPosterWall<Accessory: View>: View {
 
 extension MacPosterWall where Accessory == EmptyView {
     init(title: String, subtitle: String? = nil, wall: MacWallLoader, fallbackLibrary: Int? = nil,
-         emptyTitle: String = "这里还没有内容", emptyMessage: String? = nil, retry: @escaping () async -> Void) {
+         emptyTitle: String = String(localized: .libraryNothingHere), emptyMessage: String? = nil, retry: @escaping () async -> Void) {
         self.init(title: title, subtitle: subtitle, wall: wall, fallbackLibrary: fallbackLibrary, emptyTitle: emptyTitle,
                   emptyMessage: emptyMessage, retry: retry, accessory: { EmptyView() })
     }
@@ -134,7 +134,7 @@ private struct MacWallCell: View {
         if let year = item.year { parts.append(String(year)) }
         if item.kind == "tv" {
             let seasons = item.seasons.filter { $0 > 0 }.count
-            if seasons > 1 { parts.append("\(seasons) 季") }
+            if seasons > 1 { parts.append(String(localized: .subscriptionCollectionSeasons(seasons))) }
         }
         return parts.joined(separator: " · ")
     }
@@ -143,11 +143,11 @@ private struct MacWallCell: View {
 /// 一部片的右键菜单 / 悬停「⋯」：播放、查看详情、收藏 / 取消收藏
 enum MacItemMenu {
     static func actions(item: API.LibraryItemView, libraryId: Int?, router: MacRouter) -> [MacCardAction] {
-        var actions = [MacCardAction(title: "播放", symbol: "play.fill") {
+        var actions = [MacCardAction(title: String(localized: .libraryHeroPlay), symbol: "play.fill") {
             router.play(PlayRequest(mediaItemId: item.mediaItemId))
         }]
         if let libraryId {
-            actions.append(MacCardAction(title: "查看详情", symbol: "info.circle") {
+            actions.append(MacCardAction(title: String(localized: .searchTorrentViewDetails), symbol: "info.circle") {
                 router.push(.item(libraryId: libraryId, itemId: item.mediaItemId))
             })
         }
@@ -219,10 +219,10 @@ struct MacLibraryView: View {
     private var sortKey: String { "movieclaw.mac.wall-sort.\(libraryId)" }
 
     var body: some View {
-        MacPosterWall(title: library?.name ?? "媒体库", subtitle: library.map { "\($0.stats.itemCount) 部" },
+        MacPosterWall(title: library?.name ?? String(localized: .libraryCustomizeLibrary), subtitle: library.map { String(localized: .libraryStatusTitleCount($0.stats.itemCount)) },
                       wall: wall, fallbackLibrary: libraryId,
-                      emptyTitle: unwatched ? "没有没看过的了" : "这个库里还没有内容",
-                      emptyMessage: unwatched ? nil : "在网页上扫描媒体库后，影片会出现在这里。",
+                      emptyTitle: unwatched ? String(localized: .libraryAllWatched) : String(localized: .libraryLibraryEmpty),
+                      emptyMessage: unwatched ? nil : String(localized: .libraryScanOnWebHint),
                       retry: { await reload() }) {
             sortMenu
         }
@@ -243,21 +243,21 @@ struct MacLibraryView: View {
     /// 排序与「只看没看过的」：一枚玻璃下拉，标题行最右（同 Apple Music 资料库右上的排序）
     private var sortMenu: some View {
         Menu {
-            Picker("排序", selection: $sort.sort) {
+            Picker(String(localized: .mediaFiltersSort), selection: $sort.sort) {
                 ForEach(Self.sorts, id: \.self) { key in
                     Text(HomeRows.preset(key).short(false)).tag(key)
                 }
             }
             .pickerStyle(.inline)
             if let direction = WallSortDirections.of(sort.sort) {
-                Picker("方向", selection: $sort.reversed) {
+                Picker(String(localized: .libraryDirection), selection: $sort.reversed) {
                     Text(direction.label(reversed: false)).tag(false)
                     Text(direction.label(reversed: true)).tag(true)
                 }
                 .pickerStyle(.inline)
             }
             Divider()
-            Toggle("只看没看过的", isOn: $unwatched)
+            Toggle(String(localized: .libraryRowsOnlyUnwatched), isOn: $unwatched)
         } label: {
             Label(sortLabel, systemImage: "line.3.horizontal.decrease")
         }
@@ -268,7 +268,7 @@ struct MacLibraryView: View {
     }
 
     private var sortLabel: String {
-        HomeRows.preset(sort.sort).short(sort.reversed) + (unwatched ? " · 未看" : "")
+        HomeRows.preset(sort.sort).short(sort.reversed) + (unwatched ? " · " + String(localized: .libraryUnwatched) : "")
     }
 
     private func reload() async {
@@ -291,7 +291,7 @@ struct MacCollectionView: View {
     @State private var wall = MacWallLoader()
 
     var body: some View {
-        MacPosterWall(title: name, wall: wall, emptyTitle: "合集里还没有内容", retry: { await reload() })
+        MacPosterWall(title: name, wall: wall, emptyTitle: String(localized: .libraryCollectionEmpty), retry: { await reload() })
             .task(id: collectionId) { await reload() }
     }
 
@@ -341,9 +341,9 @@ struct MacRowWallView: View {
     @State private var wall = MacWallLoader()
 
     var body: some View {
-        MacPosterWall(title: title, subtitle: total.map { "\($0) 部" }, wall: wall, fallbackLibrary: fallbackLibrary,
-                      emptyTitle: isFavorites ? "还没有收藏" : "这里还没有内容",
-                      emptyMessage: isFavorites ? "在条目详情里点 ♡ 收藏，想看的片都会聚到这里。" : nil,
+        MacPosterWall(title: title, subtitle: total.map { String(localized: .libraryStatusTitleCount($0)) }, wall: wall, fallbackLibrary: fallbackLibrary,
+                      emptyTitle: isFavorites ? String(localized: .libraryNoFavorites) : String(localized: .libraryNothingHere),
+                      emptyMessage: isFavorites ? String(localized: .libraryFavoritesHint) : nil,
                       retry: { await reload() })
             .task(id: source) { await reload() }
             .accessibilityIdentifier(isFavorites ? "mac-favorites" : "mac-row-wall")

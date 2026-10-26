@@ -11,10 +11,14 @@
 - 独立进程里运行：向宿主询问代理地址（约每 30 秒复查一次）。代理地址可能带账号密码，宿主只
   回答插件「自己的」服务名——条目 id 本身（``wecom-channel``；旧格式带点的 id 用最后一段，
   ``channel.telegram`` → ``telegram``），问别的服务一律直连。
+
+网盘插件必须经这里发请求：宿主调网盘后端期间，出口每发一个请求先向宿主领一个限速名额
+（cloud-storage.md §8）。网盘按请求计频率，一次调用里翻几十页也逐页排队、逐页计入每日预算。
 """
 
 from __future__ import annotations
 
+import contextvars
 import time
 from collections.abc import Awaitable, Callable
 
@@ -25,6 +29,19 @@ _resolver: Callable[[str], Awaitable[str | None]] | None = None
 
 #: 进程外复查代理设置的间隔（秒）
 REFRESH_S = 30.0
+
+#: 当前这次网盘调用的限速：出口每发一个请求先等它放行。宿主调网盘后端时装上，别的时候是 None；
+#: 账号被限流、后台额度用完时它直接抛 ``DriveError``，请求不发出去
+pacer: contextvars.ContextVar[Callable[[], Awaitable[None]] | None] = contextvars.ContextVar(
+    "movieclaw_net_pacer", default=None
+)
+
+
+async def pace() -> None:
+    """发请求前领一个限速名额（不在网盘调用里就直接放行）。"""
+    current = pacer.get()
+    if current is not None:
+        await current()
 
 
 async def proxy_url(service: str) -> str | None:
@@ -40,8 +57,22 @@ def http_transport(service: str) -> httpx.AsyncBaseTransport:
     if _resolver is None:
         from movieclaw_net import egress_transport
 
-        return egress_transport(service)
-    return _RemoteTransport(service)
+        return _Paced(egress_transport(service))
+    return _Paced(_RemoteTransport(service))
+
+
+class _Paced(httpx.AsyncBaseTransport):
+    """每个请求先领限速名额再发。"""
+
+    def __init__(self, inner: httpx.AsyncBaseTransport) -> None:
+        self._inner = inner
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        await pace()
+        return await self._inner.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        await self._inner.aclose()
 
 
 class _RemoteTransport(httpx.AsyncBaseTransport):

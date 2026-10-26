@@ -10,6 +10,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -37,7 +43,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,12 +53,14 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.alpha
+import io.movieclaw.android.core.designsystem.mcCards
 
 /** 简单加载态包装:Loading / Ready / Failed(对齐 iOS Loadable<Value>) */
 sealed interface Loadable<out T> {
@@ -122,7 +132,7 @@ fun SectionHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = McMetrics.pagePadding),
+            .padding(horizontal = LocalCardMetrics.current.pagePadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, style = McType.headline, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -170,7 +180,7 @@ fun SectionHeaderLarge(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = McMetrics.pagePadding),
+            .padding(horizontal = LocalCardMetrics.current.pagePadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, style = McType.title3, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -190,7 +200,7 @@ fun SectionHeaderLarge(
 
 /** 分组小标签：实测 11/650、36% 白（「常用」「账号」「账号 / 资源与下载」…） */
 @Composable
-fun GroupLabel(text: String, modifier: Modifier = Modifier, inset: Dp = McMetrics.pagePadding) {
+fun GroupLabel(text: String, modifier: Modifier = Modifier, inset: Dp = mcCards.pagePadding) {
     Text(
         text,
         style = McType.groupLabel,
@@ -395,12 +405,13 @@ fun PosterCard(
     }
 }
 
-/** 横滑行容器:统一 16 内边距 + 12 间距(横滑行的黄金数字) */
+/** 横滑行容器：内边距与卡间距都随窗口宽度走（手机 16/12，宽窗口 32/18） */
 @Composable
 fun McRow(content: LazyListScope.() -> Unit) {
+    val cards = LocalCardMetrics.current
     LazyRow(
-        contentPadding = PaddingValues(horizontal = McMetrics.pagePadding),
-        horizontalArrangement = Arrangement.spacedBy(McMetrics.rowSpacing),
+        contentPadding = PaddingValues(horizontal = cards.pagePadding),
+        horizontalArrangement = Arrangement.spacedBy(cards.rowSpacing),
         content = content,
     )
 }
@@ -435,7 +446,7 @@ fun ContinueWatchingCard(
     onClose: (() -> Unit)? = null,
 ) {
     Column(
-        modifier = modifier.width(200.dp).then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        modifier = modifier.width(mcCards.wideThumbWidth).then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         Box(
             Modifier
@@ -650,22 +661,26 @@ fun SkeletonBlock(modifier: Modifier = Modifier, radius: Dp = 12.dp) {
     Box(modifier.clip(RoundedCornerShape(radius)).background(Color.White.copy(alpha = alpha)))
 }
 
-/** 海报行骨架:保留真实标题 + 4 个 126×189 块(布局不跳) */
+/** 海报行骨架：保留真实标题 + 铺满一行的 126×189 块（宽窗口按内容区算张数，布局不跳） */
 @Composable
 fun PosterRowSkeleton(title: String) {
+    val cards = LocalCardMetrics.current
     Column {
         SectionHeader(title)
         Spacer(Modifier.height(11.dp))
-        Row(
-            modifier = Modifier.padding(horizontal = McMetrics.pagePadding),
-            horizontalArrangement = Arrangement.spacedBy(McMetrics.rowSpacing),
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = cards.pagePadding),
+            horizontalArrangement = Arrangement.spacedBy(cards.rowSpacing),
+            userScrollEnabled = false,
         ) {
-            repeat(4) {
-                SkeletonBlock(
-                    Modifier
-                        .width(McMetrics.rowCardWidth)
-                        .aspectRatio(McMetrics.posterAspect),
-                )
+            repeat(cards.skeletonCount) {
+                item {
+                    SkeletonBlock(
+                        Modifier
+                            .width(cards.posterWidth)
+                            .aspectRatio(McMetrics.posterAspect),
+                    )
+                }
             }
         }
     }
@@ -879,3 +894,83 @@ fun LibraryItemCard(
         }
     }
 }
+
+/** 收起动画时长：与出现用的弹簧收尾接近，不留“啪”一下消失的空档 */
+private const val MENU_EXIT_MS = 150
+
+/**
+ * 把「显示中 → 收起」的这几帧留住：调用方可以一直组合菜单、只切 [visible]，
+ * 收起时内容还能再活 [exitMs] 把缩回动画播完。
+ */
+@Composable
+fun rememberMenuRetained(visible: Boolean, exitMs: Long = MENU_EXIT_MS.toLong()): Boolean {
+    var retained by remember { mutableStateOf(visible) }
+    LaunchedEffect(visible) {
+        if (visible) {
+            retained = true
+        } else if (retained) {
+            kotlinx.coroutines.delay(exitMs)
+            retained = false
+        }
+    }
+    return retained
+}
+
+/**
+ * 菜单弹出动画：从触发按钮的原点（默认右上）弹簧缩放长出 + 淡入。
+ * 用法：把菜单面板包进 MenuAppear(visible = open) { ... }，并把调用处的 if(open) 去掉——
+ * 面板本身照旧定位，动画管「出现」也管「缩回」（visible 变 false 时缩回原点并淡出）。
+ * 与活动页正在播放卡长按菜单（Popup 原点弹出）同一套弹簧参数，观感一致。
+ */
+@Composable
+fun MenuAppear(
+    modifier: Modifier = Modifier,
+    visible: Boolean = true,
+    originX: Float = 0.85f,
+    originY: Float = 0.1f,
+    content: @Composable () -> Unit,
+) {
+    if (!rememberMenuRetained(visible)) return
+    val appear = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(visible) {
+        if (visible) {
+            appear.animateTo(
+                1f,
+                androidx.compose.animation.core.spring(
+                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                ),
+            )
+        } else {
+            appear.animateTo(
+                0f,
+                androidx.compose.animation.core.tween(
+                    durationMillis = MENU_EXIT_MS,
+                    easing = androidx.compose.animation.core.FastOutLinearInEasing,
+                ),
+            )
+        }
+    }
+    androidx.compose.foundation.layout.Box(
+        modifier.graphicsLayer {
+            val t = 0.82f + 0.18f * appear.value
+            scaleX = t
+            scaleY = t
+            alpha = appear.value.coerceIn(0f, 1f)
+            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(originX.coerceIn(0f, 1f), originY.coerceIn(0f, 1f))
+        },
+    ) { content() }
+}
+
+/**
+ * 表单面板里的滚动层：内容滚到边界后**不要再把剩余手势交给 ModalBottomSheet**。
+ * 交给面板会在「拉到全屏、滑到底再滑回顶部」时形成高度/滚动位置互相修正的回弹
+ * （用户反馈的上下不停跳动）。拦截后内容自己滚，面板仍可用顶部的短条拖动收起/展开。
+ */
+fun Modifier.formSheetScroll(): Modifier = this.nestedScroll(object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+    override fun onPostScroll(
+        consumed: androidx.compose.ui.geometry.Offset,
+        available: androidx.compose.ui.geometry.Offset,
+        source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
+    ): androidx.compose.ui.geometry.Offset = available
+})

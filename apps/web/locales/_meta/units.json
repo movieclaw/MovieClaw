@@ -1,0 +1,22 @@
+{
+  "duration.seconds": {
+    "sourceHash": "3ff9d9620a85bdd7d4a17c376d6ee9db966a193e71f0165ab1816b1e77cebeb6",
+    "comment": "Duration in seconds; count is a number, not a date."
+  },
+  "duration.minutes": {
+    "sourceHash": "8d2f9af2212aaea98845f8b8e6474fc256d7ebcfb4448f1545070fdb8844a9e2",
+    "comment": "Rounded duration in minutes."
+  },
+  "duration.hours": {
+    "sourceHash": "1789166f275b1c176756938a060b6ea13c7d84a552945ec4e925519d66a01c49",
+    "comment": "Whole hours in a duration."
+  },
+  "duration.fractionalHours": {
+    "sourceHash": "60320b2d46a7f416499bd26a63ba2ca45b071f98487aadbfbf5ce3343f9e5fcd",
+    "comment": "Hours with exactly one decimal; oneDecimal is a named number format."
+  },
+  "duration.hoursMinutes": {
+    "sourceHash": "22f0a0daabfe45840033cb72b5a2ca9c5d6487f537abc27a3b3c320eaa1ce91b",
+    "comment": "Movie runtime; hours and minutes are integers. English must match Apple."
+  }
+}

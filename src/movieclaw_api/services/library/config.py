@@ -38,6 +38,7 @@ def sanitize_folder_name(name: str) -> str:
     """把标题清洗成安全的目录名：替换保留字符、折叠空白、去首尾点与空格。"""
     cleaned = _FORBIDDEN_CHARS.sub(" ", name)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
+    # i18n-ignore: file-system name fallback
     return cleaned or "未命名"
 
 
@@ -110,17 +111,20 @@ class LibraryConfigService:
         """按 id 获取；不存在抛 404。"""
         row = await self._repo.get(library_id)
         if row is None:
-            raise NotFoundException(f"媒体库不存在：id={library_id}")
+            raise NotFoundException(
+                message_key="errors.library.configMissing", params={"id": library_id}
+            )
         return row
 
     async def resolve_for_subscription(
-        self, library_id: int | None, kind: str, *, item=None
+        self, library_id: int | None, kind: str, *, item=None, remote_facts: bool = True
     ) -> Library | None:
         """解析订阅/投递实际使用的库：显式指定 → 收藏范围路由 → 该类型默认库。
 
         ``library_id`` 为 NULL（老订阅/定格库已被删除）且给了 ``item`` 时按
         收藏范围路由（route 内含默认库兜底）；不给 item 维持默认库语义。
         类型没有任何库时返回 None——调用方回落到下载器默认目录，不阻断投递。
+        ``remote_facts=False`` 时路由只读本地刮削档案、不打 TMDB（见 gather_facts）。
         """
         if library_id is not None:
             row = await self._repo.get(library_id)
@@ -129,7 +133,9 @@ class LibraryConfigService:
         if item is not None:
             from movieclaw_api.services.library.routing import route_for_item
 
-            return (await route_for_item(self._session, kind, item)).library
+            return (
+                await route_for_item(self._session, kind, item, remote=remote_facts)
+            ).library
         return await self._repo.get_default(kind)
 
     # -- 写入 --------------------------------------------------------------
@@ -137,15 +143,17 @@ class LibraryConfigService:
     def _validate(self, *, name: str, root_paths: list[str]) -> list[str]:
         """公共校验：名称非空、根路径非空且均为绝对路径。返回清洗后的根列表。"""
         if not name.strip():
-            raise BadRequestException("库名称不能为空")
+            raise BadRequestException(message_key="errors.library.nameRequired")
         cleaned = [p.strip() for p in root_paths if p.strip()]
         if not cleaned:
-            raise BadRequestException("至少需要一个根路径（第一个为主根，新入库落在这里）")
+            raise BadRequestException(message_key="errors.library.rootsRequired")
         for path in cleaned:
             if not path.startswith("/"):
-                raise BadRequestException(f"根路径必须是绝对路径：{path}")
+                raise BadRequestException(
+                    message_key="errors.library.absoluteRootRequired", params={"path": path}
+                )
         if len(set(cleaned)) != len(cleaned):
-            raise BadRequestException("根路径存在重复项")
+            raise BadRequestException(message_key="errors.library.rootsDuplicate")
         return cleaned
 
     @staticmethod
@@ -166,7 +174,10 @@ class LibraryConfigService:
         unknown = sorted(set(raw) - LIBRARY_OVERRIDABLE)
         if unknown:
             raise BadRequestException(
-                f"这些设置不支持按库覆盖：{'、'.join(unknown)}（不是刮削设置里的字段）"
+                message_key="errors.library.overrideUnsupported",
+                params={
+                    "fields": {"message_list": unknown, "separator_key": "common.list.separator"}
+                },
             )
         overrides = sanitize_overrides(raw)
         if not overrides:
@@ -177,7 +188,9 @@ class LibraryConfigService:
             )
         except Exception as exc:  # noqa: BLE001 -- 转成用户可读的 400
             detail = str(exc).split("\n")[-2].strip() if "\n" in str(exc) else str(exc)
-            raise BadRequestException(f"库级刮削设置不合法：{detail}") from exc
+            raise BadRequestException(
+                message_key="errors.library.scrapeOverridesInvalid", params={"detail": detail}
+            ) from exc
         return overrides
 
     @staticmethod
@@ -189,7 +202,7 @@ class LibraryConfigService:
 
         if raw not in ACCESS_MODES:
             raise BadRequestException(
-                f"可见范围只能是 everyone（所有成员）或 selected（指定成员），收到：{raw}"
+                message_key="errors.library.visibilityInvalid", params={"value": raw}
             )
         return raw
 
@@ -204,7 +217,9 @@ class LibraryConfigService:
         existing = {m.id for m in await repo.list_all()}
         unknown = [i for i in ids if i not in existing]
         if unknown:
-            raise BadRequestException(f"可见成员里有不存在的成员：{unknown}")
+            raise BadRequestException(
+                message_key="errors.library.visibleMembersMissing", params={"members": unknown}
+            )
         return ids
 
     async def _assert_roots_clear_of_import_watch(self, roots: list[str]) -> None:
@@ -227,14 +242,14 @@ class LibraryConfigService:
                 s = rule.source_path.rstrip("/")
                 if r == s or r.startswith(s + "/") or s.startswith(r + "/"):
                     raise BadRequestException(
-                        f"根路径与监听导入的源目录重叠：{root} ↔ {rule.source_path}；"
-                        "请先调整「监听导入」配置"
+                        message_key="errors.library.rootOverlapsWatch",
+                        params={"root": root, "source": rule.source_path},
                     )
                 t = (rule.target_path or "").rstrip("/")
                 if t and (r == t or r.startswith(t + "/") or t.startswith(r + "/")):
                     raise BadRequestException(
-                        f"根路径与监听导入的自定义目录重叠：{root} ↔ {rule.target_path}；"
-                        "请先调整「监听导入」配置"
+                        message_key="errors.library.rootOverlapsTarget",
+                        params={"root": root, "target": rule.target_path},
                     )
 
     async def _assert_roots_clear_of_other_libraries(
@@ -265,19 +280,19 @@ class LibraryConfigService:
                     s = other_root.rstrip("/")
                     if r == s or r.startswith(s + "/") or s.startswith(r + "/"):
                         raise BadRequestException(
-                            f"根路径与媒体库「{other.name}」重叠：{root} ↔ {other_root}；"
-                            "一个目录只能归属一个库，请调整其中一方的根路径。"
-                            f"如果你是想把「{other.name}」合并进来，不要先删库——"
-                            "先用「批量转移」把它的条目转到目标库（mclaw library "
-                            "items transfer <源库> --all --to <目标库>），源库空了"
-                            "再删，最后用「归并根路径」把目标库的根收成一个"
-                            "（mclaw library consolidate-roots <目标库> --into <父目录>）"
+                            message_key="errors.library.rootOverlapsLibrary",
+                            params={
+                                "name": other.name,
+                                "root": root,
+                                "other": other_root,
+                                "sourceName": other.name,
+                            },
                         )
 
     async def _assert_name_available(self, name: str, *, exclude_id: int | None = None) -> None:
         existing = await self._repo.get_by_name(name)
         if existing is not None and existing.id != exclude_id:
-            raise ConflictException(f"名称「{name}」已被使用，请换一个")
+            raise ConflictException(message_key="errors.library.nameInUse", params={"name": name})
 
     @staticmethod
     def _refresh_watcher() -> None:
@@ -325,6 +340,7 @@ class LibraryConfigService:
         access_mode: str | None = None,
         admin_visible: bool | None = None,
         member_ids: list[int] | None = None,
+        keep_local: bool | None = None,
     ) -> Library:
         """新增一个库。该类型尚无默认库时自动成为默认。
 
@@ -370,6 +386,7 @@ class LibraryConfigService:
             ),
             access_mode=mode or "everyone",
             admin_visible=True if admin_visible is None else bool(admin_visible),
+            keep_local=bool(keep_local),
         )
         if members is not None:
             assert row.id is not None
@@ -402,6 +419,7 @@ class LibraryConfigService:
         access_mode: str | None = None,
         admin_visible: bool | None = None,
         member_ids: list[int] | None = None,
+        keep_local: bool | None = None,
     ) -> Library:
         """更新名称/根路径/收藏范围/可见范围。kind 创建后不可改（订阅按类型挂库）。
 
@@ -439,6 +457,7 @@ class LibraryConfigService:
             auto_series_collections=auto_series_collections,
             access_mode=mode,
             admin_visible=admin_visible,
+            keep_local=keep_local,
         )
         assert updated is not None  # get() 已确认存在
         # 开关切换也走同一次后台差量重建：关掉的库拆监听、打开的库建监听
@@ -451,11 +470,9 @@ class LibraryConfigService:
         部分排序没有明确语义（漏掉的库排哪里说不清），宁可让前端重拉列表。"""
         existing = {row.id for row in await self._repo.list_all()}
         if len(ordered_ids) != len(set(ordered_ids)):
-            raise BadRequestException("排序列表存在重复的库 id")
+            raise BadRequestException(message_key="errors.library.sortDuplicate")
         if set(ordered_ids) != existing:
-            raise BadRequestException(
-                "排序列表必须包含且仅包含全部媒体库的 id（库列表可能已变化，请刷新后重试）"
-            )
+            raise BadRequestException(message_key="errors.library.sortListChanged")
         await self._repo.reorder(ordered_ids)
         return await self._repo.list_all()
 
@@ -463,7 +480,9 @@ class LibraryConfigService:
         """设为该类型的默认库（订阅/手动下载不选库时用它）。"""
         ok = await self._repo.set_default(library_id)
         if not ok:
-            raise NotFoundException(f"媒体库不存在：id={library_id}")
+            raise NotFoundException(
+                message_key="errors.library.configMissing", params={"id": library_id}
+            )
         return await self.get(library_id)
 
     async def delete(self, library_id: int) -> None:

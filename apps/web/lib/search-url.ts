@@ -1,9 +1,10 @@
 import type { SearchQuery } from "@/components/search-results";
 import {
   CATEGORY_LABEL,
+  type SearchCategoryLabelKey,
   type SearchVertical,
   type TorrentCategory,
-} from "@/lib/categories";
+} from "./categories.ts";
 
 /**
  * 搜索页的 URL 序列化：一次搜索的全部输入（关键词 + 范围 + 快照）都编码进
@@ -11,6 +12,8 @@ import {
  *
  * 参数表：
  *   q        关键词（缺失时必须有 browse=1，否则视为无效搜索）
+ *   also     同搜词（可重复）：与 q 一起搜、结果按站点合并（详情页「搜索资源」带上
+ *            英文名/原名）；去重与数量上限由后端定
  *   browse   "1" = 浏览模式：不带关键词，按分类逛各站种子列表页
  *            （关键词非空时不出现——有词就是搜索）
  *   tab      垂直类别："media" = 影视条目（豆瓣）/ "library" = 媒体库；
@@ -21,6 +24,8 @@ import {
  *   poster   "1" = 结果页默认图览模式
  *   private  "1" = 无痕搜索（不写入服务端搜索历史）
  *   snapshot 历史快照 id：非空时结果页回放快照而非实时搜索
+ *   fresh    "1" = 一次性指令：本次实时搜索不复用服务端刚跑完的同一个搜索
+ *            （快照条「重新搜索」）；结果页取走即抹掉，不属于搜索身份
  *
  * tab 只决定落地时展示哪个垂直，不属于「一次种子搜索」的身份——结果页
  * 切换选项卡只改 tab、其余参数原样保留，所以 parseSearchQuery 不解析它
@@ -32,15 +37,28 @@ export function buildSearchPath(query: SearchQuery, vertical?: SearchVertical): 
   // 后者会让「手改地址删掉 q」这种误操作静默变成一次跨站浏览。
   if (query.keyword) params.set("q", query.keyword);
   else params.set("browse", "1");
+  if (query.keyword) for (const word of query.also ?? []) params.append("also", word);
   if (vertical === "media" || vertical === "library") params.set("tab", vertical);
   const { scope } = query;
   if (scope.label) params.set("label", scope.label);
+  if (scope.labelKey) params.set("label_key", scope.labelKey);
   if (scope.categories.length > 0) params.set("cats", scope.categories.join(","));
   if (scope.siteIds.length > 0) params.set("sites", scope.siteIds.join(","));
   if (scope.posterMode) params.set("poster", "1");
   if (scope.skipHistory) params.set("private", "1");
   if (query.snapshotId != null) params.set("snapshot", String(query.snapshotId));
   return `/search?${params.toString()}`;
+}
+
+/**
+ * 详情页「搜索资源」的同搜词：英文名 + 原名（主词是中文名），与订阅的召回词同一套
+ * （services/subscription/wanted_search.recall_keywords）。空值丢掉，重复的由后端去重。
+ */
+export function titleSearchAlso(
+  englishTitle: string | null | undefined,
+  originalTitle: string | null | undefined,
+): string[] {
+  return [englishTitle, originalTitle].filter((w): w is string => !!w?.trim());
 }
 
 /**
@@ -57,14 +75,18 @@ export function parseSearchQuery(params: URLSearchParams): SearchQuery | null {
     .filter((c): c is TorrentCategory => c in CATEGORY_LABEL);
   const siteIds = (params.get("sites") ?? "").split(",").filter(Boolean);
 
+  const also = params.getAll("also").map((w) => w.trim()).filter(Boolean);
   const snapshotRaw = params.get("snapshot");
   const snapshotId =
     snapshotRaw != null && /^\d+$/.test(snapshotRaw) ? Number(snapshotRaw) : undefined;
 
   return {
     keyword,
+    also: keyword && also.length > 0 ? also : undefined,
     scope: {
       label: params.get("label"),
+      ...(params.get("label_key") && /^search\.categories\.(movie|tv|documentary|anime|music|game|av|other)$/.test(params.get("label_key")!)
+        ? { labelKey: params.get("label_key") as SearchCategoryLabelKey } : {}),
       categories,
       siteIds,
       posterMode: params.get("poster") === "1",

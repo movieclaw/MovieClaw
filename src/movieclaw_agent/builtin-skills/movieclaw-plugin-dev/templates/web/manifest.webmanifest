@@ -1,0 +1,6 @@
+{
+  "name": "__PLUGIN_TITLE__",
+  "short_name": "__PLUGIN_TITLE__",
+  "start_url": ".",
+  "icons": [{ "src": "icon.svg", "type": "image/svg+xml", "purpose": "monochrome" }]
+}

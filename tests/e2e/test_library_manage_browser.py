@@ -215,6 +215,7 @@ def test_library_manage_full_flow(stack) -> None:  # noqa: PLR0915
         page.goto(f"{base}/")
         page.wait_for_url(lambda u: "/setup" in u or "/login" in u)
         if "/setup" in page.url:
+            page.get_by_role("button", name="开始使用", exact=True).click()
             page.locator("input[type=text]").fill(ADMIN["username"])
             page.locator("input[type=password]").nth(0).fill(ADMIN["password"])
             page.locator("input[type=password]").nth(1).fill(ADMIN["password"])
@@ -404,8 +405,11 @@ def test_library_manage_full_flow(stack) -> None:  # noqa: PLR0915
         mobile.goto(f"{base}/library/manage")
         expect(mobile.locator("[data-library-row]")).to_have_count(2)
         expect(mobile.get_by_role("button", name=re.compile("拖动调整"))).to_have_count(0)
-        # 可见范围并进卡片第二行
-        expect(mobile.locator("[data-library-row]").first).to_contain_text("全部成员")
+        # 默认开放范围不再占胶囊；与 accessRestricted 的既有单元约定一致。
+        assert lib_by_name(page, "港片")["access_mode"] == "everyone"
+        expect(
+            mobile.locator("[data-library-row]").first.get_by_text("全部成员", exact=True)
+        ).to_have_count(0)
         mobile.get_by_role("button", name="「港片」的操作").click()
         mobile.get_by_role("menuitem", name="调整顺序").click()
         order = mobile.get_by_role("dialog")

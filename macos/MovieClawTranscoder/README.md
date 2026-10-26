@@ -18,7 +18,7 @@ App Support 仍会保存 ffmpeg 包、版本信息和普通配置，日志也会
 
 ## 1. 安装
 
-推荐直接下载：每个 MovieClaw Release 都附带
+推荐直接到[官网下载页](https://movieclaw.io/download)下载：转码器单独发版（tag `transcoder-vX.Y.Z`），附带
 `MovieClawTranscoder-macos-arm64.zip`，解压后把「MovieClaw 转码器.app」拖到
 「应用程序」即可，不需要装 Xcode，也不需要 clone 仓库。
 
@@ -61,7 +61,7 @@ MOVIECLAW_NOTARY_PROFILE=movieclaw-notary \
 ```
 
 发版流水线用 API 密钥文件（`MOVIECLAW_NOTARY_KEY_PATH` / `_KEY_ID` / `_ISSUER`），
-所需的仓库密钥见 `.github/workflows/release.yml` 的 worker-macos 作业。这些变量只用于
+所需的仓库密钥见 `.github/workflows/apple-release.yml` 的 transcoder 作业。这些变量只用于
 App 打包签名，不是远程转码运行配置。
 
 ad-hoc 签名有个实际影响：每次重新构建后第一次读令牌会弹窗要钥匙串密码，

@@ -1,0 +1,31 @@
+{
+  "channel": {
+    "thinking": "Thinking💭"
+  },
+  "operations": {
+    "messageSubmitted": "User message submitted",
+    "imageUploaded": "Image uploaded",
+    "continuationCreated": "Continuation session created",
+    "renamed": "Session renamed",
+    "compacted": "Session context compacted",
+    "deleted": "Session deleted",
+    "stopRequested": "Session stop requested"
+  },
+  "session": {
+    "continued": "Continued: {title}",
+    "skill": "[Skill] {text}",
+    "skillOnly": "[Skill]",
+    "image": "[Image]",
+    "images": "[Images ×{count}]",
+    "defaultInstruction": "No extra instructions; follow the selected skill."
+  },
+  "attachments": {
+    "imageName": "Image",
+    "defaultName": "Image"
+  },
+  "im": {
+    "visionUnsupported": "The current model “{model}” can’t read images, so I can’t see this one (the text is handled as usual). Switch the default model to a vision model in Settings (such as qwen3-vl-plus). If it does support images, turn on Vision for it under Additional models in the provider settings and send the image again.",
+    "tooManyImages": "Up to {max} images are handled at a time; only the first {max} are used this time.",
+    "imageFailed": "One image couldn’t be processed ({error})."
+  }
+}

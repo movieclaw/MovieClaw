@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.app_config import (
     AppConfigPayload,
     AppConfigView,
@@ -54,7 +55,7 @@ async def save_app_config(payload: AppConfigPayload) -> ApiResponse[AppConfigVie
 )
 async def save_web_port(payload: WebPortPayload) -> ApiResponse[AppConfigView]:
     view = await app_config.save_web_port(payload.port)
-    return ok(view, message=f"对外端口已保存为 {view.web_port}，应用正在重启使其生效")
+    return ok(view, message=t("settings.network.portSaved", port=view.web_port))
 
 
 @router.post(
@@ -65,4 +66,4 @@ async def save_web_port(payload: WebPortPayload) -> ApiResponse[AppConfigView]:
 )
 async def restart_app() -> ApiResponse[None]:
     app_config.schedule_restart()
-    return ok(None, message="应用正在重启，稍候将自动恢复")
+    return ok(None, message=t("settings.app.restarting"))

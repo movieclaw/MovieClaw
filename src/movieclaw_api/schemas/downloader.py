@@ -5,8 +5,10 @@ from typing import Literal
 
 from pydantic import Field, field_serializer, field_validator, model_validator
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import localize_fields, render_value
 from movieclaw_api.schemas.base import BaseModel
-from movieclaw_db.models.downloader_client import ClientType, DownloaderClient
+from movieclaw_db.models.downloader_client import DownloaderClient
 from movieclaw_db.models.site_credential import ConfigStatus
 
 
@@ -26,7 +28,7 @@ class PathMapping(BaseModel):
     def _validate_abs(cls, value: str) -> str:
         value = value.strip().rstrip("/")
         if not value.startswith("/"):
-            raise ValueError("路径映射两端都必须是以 / 开头的绝对路径")
+            raise ValueError(t("errors.downloaderInput.mappingAbsolute"))
         return value
 
 
@@ -44,7 +46,7 @@ class DownloaderView(BaseModel):
 
     id: int
     name: str
-    client_type: ClientType
+    client_type: str
     url: str
     username: str | None = None
     save_path: str | None = Field(default=None, description="提交下载时的默认保存目录")
@@ -94,9 +96,9 @@ class DownloaderView(BaseModel):
             status=row.status,
             usable=row.enabled and row.status == ConfigStatus.ACTIVE,
             version=row.version,
-            last_error=row.last_error,
+            last_error=render_value(row.last_error_ref) if row.last_error_ref else row.last_error,
             last_checked_at=row.last_checked_at,
-            path_health=row.path_health,  # type: ignore[arg-type]  # 落库形态即 PathProbe.as_dict
+            path_health=localize_fields(row.path_health),  # type: ignore[arg-type]  # 落库形态即 PathProbe.as_dict
             paths_healthy=all(p.get("state") == "ok" for p in (row.path_health or [])),
             created_at=row.created_at,
             updated_at=row.updated_at,
@@ -189,7 +191,7 @@ class DownloadTaskPlanView(BaseModel):
         default=True,
         description=(
             "整理后是否进入媒体库。自定义目录规则为 false——文件落规则目录后"
-            "不写库台账，需外部流转后由库根扫描收尾"
+            "不写库台账，需外部流转后由库根扫描收尾；downloader_default 同样为 false"
         ),
     )
 
@@ -206,7 +208,7 @@ class DownloadTaskView(BaseModel):
     name: str | None
     downloader_id: int | None
     downloader_name: str | None
-    downloader_type: ClientType | None
+    downloader_type: str | None
     progress: float | None = Field(default=None, ge=0, le=1)
     size_bytes: int | None = None
     dlspeed_bytes: int | None = None
@@ -269,7 +271,7 @@ class DownloadTaskSourceView(BaseModel):
 
     id: int
     name: str
-    client_type: ClientType
+    client_type: str
     status: Literal["active", "disabled", "unavailable", "error"]
     message: str | None = None
     task_count: int = 0
@@ -354,7 +356,9 @@ class DownloaderPayload(BaseModel):
     """
 
     name: str = Field(min_length=1, max_length=50, description="下载器名称（全局唯一）")
-    client_type: ClientType = Field(description="下载器类型：qbittorrent / transmission")
+    client_type: str = Field(
+        description="下载器类型：qbittorrent / transmission / 插件登记的类型（见 dl.types.list）"
+    )
     url: str = Field(description="下载器地址，如 http://192.168.1.10:8080")
     username: str | None = Field(default=None, description="登录用户名（未开鉴权可留空）")
     password: str | None = Field(default=None, description="登录密码（未开鉴权可留空）")
@@ -378,7 +382,7 @@ class DownloaderPayload(BaseModel):
     @classmethod
     def _validate_url(cls, value: str) -> str:
         if not value.startswith(("http://", "https://")):
-            raise ValueError("下载器地址必须以 http:// 或 https:// 开头")
+            raise ValueError(t("errors.downloaderInput.urlScheme"))
         return value.rstrip("/")
 
     @field_validator("path_mappings")
@@ -394,10 +398,10 @@ class DownloaderPayload(BaseModel):
             return None
         locals_ = [m.local for m in value]
         if len(set(locals_)) != len(locals_):
-            raise ValueError("路径映射中 movieclaw 路径不能重复")
+            raise ValueError(t("errors.downloaderInput.mappingLocalDuplicate"))
         remotes = [m.remote for m in value]
         if len(set(remotes)) != len(remotes):
-            raise ValueError("路径映射中下载器路径不能重复")
+            raise ValueError(t("errors.downloaderInput.mappingRemoteDuplicate"))
         return value
 
 
@@ -456,7 +460,7 @@ class DownloadSubmitPayload(BaseModel):
             return None
         value = value.strip().rstrip("/")
         if not value.startswith("/"):
-            raise ValueError("保存目录必须是以 / 开头的绝对路径")
+            raise ValueError(t("errors.downloaderInput.savePathAbsolute"))
         return value
 
     @model_validator(mode="after")
@@ -465,9 +469,9 @@ class DownloadSubmitPayload(BaseModel):
         if not self.auto_route:
             return self
         if self.media_kind is None or self.tmdb_id is None or not self.title:
-            raise ValueError("智能入库必须提供媒体类型、TMDB ID 和标题")
+            raise ValueError(t("errors.downloaderInput.autoRouteIdentity"))
         if self.library_id is not None or self.save_path is not None:
-            raise ValueError("智能入库不能同时指定媒体库或保存目录")
+            raise ValueError(t("errors.downloaderInput.autoRouteExclusive"))
         return self
 
 
@@ -524,9 +528,9 @@ class ManualDownloadTargetPayload(BaseModel):
     @model_validator(mode="after")
     def _validate_clues(self) -> ManualDownloadTargetPayload:
         if not self.has_identity and self.hint is None:
-            raise ValueError("缺少识别线索：请提供类型 + 标题 + 年份，或搜索关键词")
+            raise ValueError(t("errors.downloaderInput.clueMissing"))
         if self.selected_tmdb_id is not None and (self.selected_kind or self.kind) is None:
-            raise ValueError("确认候选时必须同时提供该候选的媒体类型")
+            raise ValueError(t("errors.downloaderInput.candidateKind"))
         return self
 
 
@@ -566,8 +570,12 @@ class ManualDownloadTargetView(BaseModel):
     )
     staging_path: str | None = Field(default=None, description="自定义目录规则的整理落点")
     route_matched: bool | None = Field(default=None, description="是否命中媒体库收藏范围")
+    route_reason_key: str | None = None
+    route_reason_params: dict | None = None
     route_reason: str | None = Field(default=None, description="媒体库路由理由")
     ok: bool = Field(default=False, description="当前选择的下载器和投递配置能否自动入库")
+    warning_key: str | None = None
+    warning_params: dict | None = None
     warning: str | None = Field(default=None, description="不可自动入库时的中文指引")
 
 

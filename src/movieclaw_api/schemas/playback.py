@@ -9,6 +9,7 @@ from pydantic import Field
 
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.library import LibraryItemView
+from movieclaw_api.schemas.reels import ReelClipProgressView
 from movieclaw_media.models import MediaKind
 
 
@@ -133,6 +134,10 @@ class PlaybackDeliveryView(BaseModel):
             "direct=直连原文件；remux=重封装（音视频都不重编码）；"
             "audio=只转音频（视频直通）；transcode=视频转码"
         )
+    )
+    execution_kind: str | None = Field(
+        default=None,
+        description="Video transcode executor: hardware, software or remote; null otherwise",
     )
     label: str = Field(
         description="简短中文标识：直连 / 重封装 / 音频转码 / 硬件转码 / 软件转码 / 远程转码"
@@ -374,6 +379,10 @@ class ClientCapabilityIn(BaseModel):
     #: 能经目录取流接口读原盘目录：多剪辑原盘给档 0 目录直推（会话的 ``stream_url``
     #: 是目录清单地址，决策带主播放列表名），NAS 不起 ffmpeg
     disc_folder: bool = False
+    #: 能按剪辑清单播放蓝光主片（Android 的统一引擎）：蓝光原盘与蓝光镜像给档 0、交付方式
+    #: ``clips``，播放器经 ``/playback/files/{id}/bluray`` 取清单，服务端不起 ffmpeg
+    #: （disc-clip-play.md）
+    bluray_clips: bool = False
     #: 能在本机切换内封音轨（Android TV 的 ExoPlayer）：直出原文件时自己选中计划里的那条，
     #: 服务端不再为「选中的不是默认轨」重封装。浏览器只放默认轨，不申报
     local_tracks: bool = False
@@ -383,6 +392,17 @@ class ClientCapabilityIn(BaseModel):
     #: 解不了杜比视界时能退回基础层播放的 profile（Android TV 的 ExoPlayer 对 P8 改用 HEVC
     #: 解码器）：基础层兼容且屏幕能直出 HDR 时直通
     dolby_vision_base_layer_profiles: list[int] = []
+    #: 直出原文件时自己核对杜比视界记录与码流（App 的自研引擎，引擎补丁 P62）。记录写 P5、
+    #: 码流却标着 BT.2020 YCbCr HDR 的片（发布组把 P5 元数据注进 HDR10 画面），不申报的
+    #: 客户端改走换封装、只拿 HDR10 基础层；老客户端不带 = 不核对
+    dolby_vision_record_audit: bool = False
+    #: 直出 MP4 / MOV 原文件时能在内存里建下的样本表上限（各轨样本数合计，Android 的 ExoPlayer
+    #: 按自己的堆算）：估算超出的片给换封装。老客户端不带 = 不受限
+    mp4_sample_limit: int | None = None
+    #: 硬件转码时能接 HEVC 输出（fMP4、hvc1、8-bit Main），且 HEVC 放不了时会不带本字段重来、
+    #: 不把硬件档记成失败（#1008）。服务端还要 ``video`` 里有 HEVC、高度够、显卡能编，才出 HEVC
+    #: （决策的 ``video.codec`` 写 ``hevc``）。老客户端不带 = 一律 H.264
+    hevc_transcode: bool = False
 
 
 class PlaybackDecideRequest(BaseModel):
@@ -482,7 +502,8 @@ class PlaybackDecisionView(BaseModel):
     subtitles: list[SubtitlePlanView] = []
     degraded_from: int | None = None
     #: 光盘直推的形态（disc-direct-play.md）："image" = ISO 原字节（``stream_url`` 即原文件）、
-    #: "folder" = 原盘目录按文件直推（``stream_url`` 是目录清单）；普通文件为 None
+    #: "folder" = 原盘目录按文件直推（``stream_url`` 是目录清单）、"clips" = 按服务端的剪辑清单
+    #: 直推蓝光主片（disc-clip-play.md）；普通文件为 None
     disc: str | None = None
     #: 目录直推时服务端选中的主播放列表文件名（如 ``00800.mpls``），播放器按名字选主片
     disc_playlist: str | None = None
@@ -514,6 +535,10 @@ class PlaybackSourceView(BaseModel):
     bit_rate: int | None = None
     frame_rate: float | None = None
     size_bytes: int | None = None
+    #: 本地没有字节、只在网盘上（docs/design/cloud-storage.md §7.5）：取原文件可能被 302 到
+    #: 网盘直链，App 据此才带 ``fallback=1``、直连失败才带 ``relay=1`` 重来。
+    #: 可空：老服务器没有这个字段
+    on_drive: bool | None = None
 
 
 class PlaybackStateView(BaseModel):
@@ -623,6 +648,25 @@ class PlaybackSegmentView(BaseModel):
     to_end: bool = False
 
 
+class PlaybackAutoSkipView(BaseModel):
+    """这个人的自动跳过设定（docs/design/skip-intro.md §5），跟账号走。
+
+    客户端按它决定进了区间是直接跳还是只给按钮：广告、预告在 ``enabled`` 时直接跳；
+    片头还要 ``intro``（用户在这部剧里手动跳过过一次片头）；其他类型永远只给按钮。
+    """
+
+    #: 自动跳过总开关，默认开
+    enabled: bool = True
+    #: 这部剧的片头自动跳
+    intro: bool = False
+
+
+class PlaybackAutoSkipRequest(BaseModel):
+    """改自动跳过：总开关，或某部剧的片头。"""
+
+    enabled: bool
+
+
 class PlaybackDiscFileView(BaseModel):
     """原盘目录里可直推的一个文件（disc-direct-play.md §2.3）。"""
 
@@ -639,6 +683,44 @@ class PlaybackDiscListingView(BaseModel):
     files: list[PlaybackDiscFileView]
     #: 服务端选中的主播放列表文件名（诱饵判定与台账时长同一口径）；读不出时为 None
     playlist: str | None = None
+
+
+class PlaybackBlurayStreamView(BaseModel):
+    """蓝光主片里的一路音轨 / 字幕（disc-clip-play.md §3）。"""
+
+    #: 会话里引用这条轨的编号（``embedded:N``），与决策的 ``audio_tracks`` / ``subtitles`` 同一口径
+    ref: str
+    #: 剪辑里的 PID；老台账没探到时为 None，播放器只能按读到的顺序对应
+    pid: int | None = None
+    codec: str | None = None
+    language: str | None = None
+    #: 音轨的声道数（字幕为 None）
+    channels: int | None = None
+
+
+class PlaybackBlurayClipView(BaseModel):
+    """主播放列表的一段剪辑：取流地址、在剪辑里播哪一截、入口点表。"""
+
+    #: 按 Range 取这段剪辑（m2ts，192 字节一包）的地址，已带签名 token。镜像里的剪辑由服务端
+    #: 把镜像上的几截字节拼成一个独立文件供出
+    url: str
+    #: 剪辑内的 IN / OUT（45 kHz 的 PTS，与 MPLS 同一单位）
+    in_time: int
+    out_time: int
+    #: CLPI 的 EP_map：主视频每个入口点（关键帧）的 PTS（45 kHz）与源包号（SPN，× 192 是字节位置），
+    #: 两表等长、按 PTS 升序。播放器据此一次按字节定位，不在几十 GB 的剪辑里按时间二分
+    entry_pts: list[int]
+    entry_spn: list[int]
+
+
+class PlaybackBlurayView(BaseModel):
+    """蓝光主片的剪辑清单（disc-clip-play.md）：服务端选主片、解析结构，播放器只解复用与拼接。"""
+
+    #: 服务端选中的主播放列表文件名
+    playlist: str
+    clips: list[PlaybackBlurayClipView]
+    audio: list[PlaybackBlurayStreamView] = []
+    subtitles: list[PlaybackBlurayStreamView] = []
 
 
 class MatroskaCuesView(BaseModel):
@@ -705,6 +787,8 @@ class PlaybackSessionView(BaseModel):
     #: 对旧服务端宽容——旧服务端没有这个字段，非可选的字段缺失会让新 App 的整个会话解码失败、
     #: 连带起不了播
     segments: list[PlaybackSegmentView] | None = Field(default_factory=list)
+    #: 自动跳过设定；分享访客、没有条目的文件不给（客户端按默认：广告直接跳、片头只给按钮）
+    auto_skip: PlaybackAutoSkipView | None = None
     #: 档 0 直出的 MKV：服务端缓存里有精简索引时随会话下发（没有就在后台生成，给下次用）
     matroska_cues: MatroskaCuesView | None = None
 
@@ -827,6 +911,15 @@ class PlaybackPolicyView(BaseModel):
     trickplay_enabled: bool = True
     #: 转码产物是否保留供续播、重看复用（§B）。关闭即会话结束即删。
     transcode_cache_enabled: bool = True
+    #: 片段预切（docs/design/reels.md §8）：预告与刷片放预先切好的 1080p 小文件。
+    #: 声明成可空：生成的 Swift / Kotlin 模型把非空字段当必有，新 App 连老服务器（没有这一项）
+    #: 时整个策略解码失败，连软件转码的同意弹窗都会坏
+    reel_clips_enabled: bool | None = False
+    #: 片段预切进度（开关开着才有）：电影与剧集一共几部、切好了几部、队列状态
+    reel_clips_progress: ReelClipProgressView | None = None
+    #: 在外面播放网盘上的片子：auto / relay / direct（docs/design/cloud-storage.md §7.2）。
+    #: 可空：老服务器没有这一项，生成的 App 模型把非空字段当必有
+    cloud_stream_mode: Literal["auto", "relay", "direct"] | None = "auto"
     #: 实测结果而非配置项——用户改不了自己有没有显卡。前端据此说明
     #: 「无可用硬件加速，HDR 片源需要软件转码」这类结论。
     hardware_available: bool = False
@@ -841,6 +934,8 @@ class PlaybackPolicyPayload(BaseModel):
     software_transcode_enabled: bool | None = None
     trickplay_enabled: bool | None = None
     transcode_cache_enabled: bool | None = None
+    reel_clips_enabled: bool | None = None
+    cloud_stream_mode: Literal["auto", "relay", "direct"] | None = None
 
 
 class PlaybackFontsView(BaseModel):
@@ -856,6 +951,8 @@ class HwBackendStatusView(BaseModel):
     label: str
     available: bool
     detail: str
+    #: 远程 Worker 的能力（不是 NAS 本机探测的）；同名后端两边可以各有一条
+    remote: bool = False
 
 
 class HwProbeView(BaseModel):

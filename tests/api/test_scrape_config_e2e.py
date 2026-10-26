@@ -19,6 +19,7 @@ import pytest_asyncio
 from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n.stored import source_render
 from movieclaw_api.services.library.organize import organize_library
 from movieclaw_api.services.scrape_config import reset_scrape_config
 from movieclaw_api.settings import MetadataScrapeSetting
@@ -1131,7 +1132,7 @@ async def test_asset_tally_counts_each_image_outcome(db, tmp_path, monkeypatch):
     second = AssetTally()
     await download_item_assets(item_id, tally=second)
     assert (second.planned, second.downloaded, second.failed, second.reused) == (2, 1, 0, 1)
-    assert second.summary().startswith("新下载 1 张")
+    assert source_render(second.summary()).startswith("新下载 1 张")
 
 
 @pytest.mark.asyncio

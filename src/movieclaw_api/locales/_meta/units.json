@@ -1,0 +1,17 @@
+{
+  "date.monthDayPattern": {
+    "sourceHash": "fcb26f3c49e0e1cb73af8ce56bc3d9f356a63b7738e6d28e6981b219cfb4bb3b"
+  },
+  "date.absolutePattern": {
+    "sourceHash": "75efa029c685ef8e9cf7999bc1ac31bd2dae19aac50928bb734b54babac2555e"
+  },
+  "year.parenthesized": {
+    "sourceHash": "844edf4d19939e13d14f2fbb81e901d6681f6c88bb38bdc85244daeede155747"
+  },
+  "duration.days": {
+    "sourceHash": "1a009fb8a3326156397c522a14787371c0f69beec5cae72ce013860025070dff"
+  },
+  "duration.minutes": {
+    "sourceHash": "8d2f9af2212aaea98845f8b8e6474fc256d7ebcfb4448f1545070fdb8844a9e2"
+  }
+}

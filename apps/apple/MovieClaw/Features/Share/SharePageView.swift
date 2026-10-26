@@ -35,7 +35,7 @@ struct SharePageView: View {
             case .loading:
                 HStack(spacing: 10) {
                     ProgressView()
-                    Text("正在打开分享…").font(.subheadline).foregroundStyle(.white.opacity(0.6))
+                    Text(String(localized: .libraryShareOpening)).font(.subheadline).foregroundStyle(.white.opacity(0.6))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .locked:
@@ -74,10 +74,10 @@ struct SharePageView: View {
     static func unavailableMessage(_ error: Error) -> String {
         if let error = error as? APIError, let status = error.status {
             let message = error.localizedDescription
-            if status == 404 { return message.isEmpty ? "分享不存在或已取消" : message }
-            return message.isEmpty ? "暂时无法打开这条分享，请稍后再试" : message
+            if status == 404 { return message.isEmpty ? String(localized: .libraryShareMissing) : message }
+            return message.isEmpty ? String(localized: .libraryShareUnavailable) : message
         }
-        return "无法连接到服务器，请检查网络后重试"
+        return String(localized: .libraryShareNetworkFailed)
     }
 }
 
@@ -96,10 +96,10 @@ private struct ShareGateView: View {
     private var empty: Bool { password.trimmingCharacters(in: .whitespaces).isEmpty }
 
     var body: some View {
-        ShareCardShell(title: "需要密码", subtitle: "这是一条受密码保护的分享，输入密码后即可观看。") {
+        ShareCardShell(title: String(localized: .librarySharePasswordRequired), subtitle: String(localized: .librarySharePasswordIntro)) {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("密码").font(.subheadline.weight(.medium)).foregroundStyle(.white.opacity(0.7))
+                    Text(String(localized: .authLoginPassword)).font(.subheadline.weight(.medium)).foregroundStyle(.white.opacity(0.7))
                     SecureField("", text: $password)
                         .submitLabel(.go)
                         .onSubmit { Task { await submit() } }
@@ -121,7 +121,7 @@ private struct ShareGateView: View {
                 Button {
                     Task { await submit() }
                 } label: {
-                    Text(busy ? "正在验证…" : "打开")
+                    Text(busy ? String(localized: .libraryShareVerifying) : String(localized: .libraryShareOpen))
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
@@ -148,9 +148,9 @@ private struct ShareGateView: View {
             onUnlocked()
         } catch let apiError as APIError where apiError.status != nil {
             let message = apiError.localizedDescription
-            error = message.isEmpty ? "密码不对，请重新输入" : message
+            error = message.isEmpty ? String(localized: .libraryShareWrongPassword) : message
         } catch {
-            self.error = "无法连接到服务器，请检查网络后重试"
+            self.error = String(localized: .libraryShareNetworkFailed)
         }
     }
 }
@@ -159,8 +159,8 @@ private struct ShareUnavailableView: View {
     let message: String
 
     var body: some View {
-        ShareCardShell(title: message, subtitle: "请向分享者确认链接是否仍然有效。") {
-            Text("分享链接有有效期，到期或被取消后就无法再打开。")
+        ShareCardShell(title: message, subtitle: String(localized: .libraryShareConfirmLink)) {
+            Text(String(localized: .libraryShareExpiryHint))
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.4))
         }
@@ -204,6 +204,7 @@ private struct ShareCardShell<Content: View>: View {
 /// 合集分享的名单（Web `SharedCollectionView`）。成员由服务端每次现算：规则驱动的合集会自己长。
 /// 与站内合集网格刻意不复用——访客看到的只该是「这几部片」，没有隐藏、系列分组这些登录用户才有的概念
 private struct ShareCollectionView: View {
+    @Environment(\.cardMetrics) private var cards
     let slug: String
     let onOpen: (Int) -> Void
 
@@ -216,16 +217,16 @@ private struct ShareCollectionView: View {
     var body: some View {
         Group {
             if failed {
-                Text("这条分享暂时打不开，请稍后再试。")
+                Text(String(localized: .libraryShareCollectionUnavailable))
                     .font(.subheadline).foregroundStyle(.white.opacity(0.6))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let data {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(data.name).font(.title2.weight(.semibold)).foregroundStyle(.white)
-                        Text("\(data.itemCount) 部").font(.subheadline).foregroundStyle(.white.opacity(0.5))
+                        Text(String(localized: .libraryStatusTitleCount(data.itemCount))).font(.subheadline).foregroundStyle(.white.opacity(0.5))
                         if data.items.isEmpty {
-                            Text("这个合集现在一部都没有。")
+                            Text(String(localized: .libraryCollectionsEmpty))
                                 .font(.subheadline).foregroundStyle(.white.opacity(0.5))
                                 .frame(maxWidth: .infinity)
                                 .padding(.top, 60)
@@ -238,11 +239,11 @@ private struct ShareCollectionView: View {
                             .padding(.top, 16)
                         }
                     }
-                    .padding(.horizontal, Theme.pagePadding)
+                    .padding(.horizontal, cards.edge)
                     .padding(.vertical, 16)
                 }
             } else {
-                Text("正在打开分享…")
+                Text(String(localized: .libraryShareOpening))
                     .font(.subheadline).foregroundStyle(.white.opacity(0.5))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -268,7 +269,7 @@ private struct ShareCollectionView: View {
                     if item.posterUrl != nil {
                         MeasuredRemoteImage(raw: item.posterUrl)
                     } else {
-                        Text("暂无海报").font(.caption).foregroundStyle(.white.opacity(0.3))
+                        Text(String(localized: .libraryShareNoPoster)).font(.caption).foregroundStyle(.white.opacity(0.3))
                     }
                 }
                 .aspectRatio(2 / 3, contentMode: .fit)

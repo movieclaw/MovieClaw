@@ -30,7 +30,8 @@ def client(tmp_path, monkeypatch):
     app.dependency_overrides[require_login] = lambda: Principal(kind="admin", name="tester")
     # 豆瓣搜索换成假实现：固定返回两条候选
     monkeypatch.setattr(media_discover, "get_douban_media_service", lambda: _StubDouban())
-    with TestClient(app) as c:  # with 块内触发 lifespan：建库、迁移
+    # with 块内触发 lifespan：建库、迁移
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         yield c
     get_settings.cache_clear()
 

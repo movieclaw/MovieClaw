@@ -64,7 +64,7 @@
 | 自动刷分享率 | `boost`、`boost.sentinel` | `/settings/sites` | 暂不 |
 | 新片到达通知 | `push.arrivals` | `/settings/notifications` | ✅ |
 | MovieClaw Cloud | `cloud`、`push.channels-refresh` | `/settings/cloud` | 暂不 |
-| Jellyfin 局域网发现 | `jellyfin.discovery` | — | ✅ |
+| 局域网发现 | `jellyfin.discovery` | — | ✅ |
 
 AI 助手（`agent.runs`、`agent.session-index`、`agent.attachments`）是核心，归系统模块。
 

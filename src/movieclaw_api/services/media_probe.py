@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import json
 import logging
@@ -21,6 +22,7 @@ import re
 import shutil
 import subprocess
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -96,18 +98,36 @@ class MediaSpec:
     # 元素 {"start_ms", "end_ms", "title"}，结构见 ``_chapter_info``；有效章节
     # （内嵌不足两个时按时长合成）由 library/chapters.py 决定，这里只记事实
     chapters: list[dict] = field(default_factory=list)
+    #: ffprobe 认出的封装格式（``format_name``，如 ``matroska,webm``）。本地文件的容器
+    #: 按扩展名记，用不上它；网盘直链的地址常常看不出扩展名，靠它定容器
+    format_name: str | None = None
 
 
-def probe_media(path: str | Path) -> MediaSpec | None:
+def probe_media(path: str | Path, *, input_args: Sequence[str] = ()) -> MediaSpec | None:
     """探测单个媒体文件；ffprobe 缺失或探测失败返回 None（调用方规格置 NULL）。
 
     图片文件（扩展名在 ``IMAGE_EXTS``）分派给 ``probe_image``：不起 ffprobe
     子进程，用 Pillow 只读文件头。两者返回**同一个** ``MediaSpec``，下游的
     入账、内容时间回落、预取、失败记忆、退避补探全部不用区分。
+
+    ``input_args`` 放在输入前（探测网盘直链时的协议白名单与断线续读，见
+    ``streaming.strm_input_args``）。
     """
-    global _missing_warned
     if Path(path).suffix.lower() in IMAGE_EXTS:
         return probe_image(path)
+    if Path(path).suffix.lower() == ".iso":
+        return _probe_disc_image(path)
+    payload = _ffprobe(path, input_args)
+    if payload is None:
+        return None
+    return _parse_probe(payload, include_mpegts_pids=Path(path).suffix.lower() == ".m2ts")
+
+
+def _ffprobe(target: str | Path, input_args: Sequence[str] = ()) -> dict | None:
+    """跑一次 ffprobe（流、容器、章节），返回它的 JSON；缺失 / 超时 / 失败返回 None。"""
+    global _missing_warned
+    # 只记最近一次的失败性质：先清掉旧结论，超时/缺失/成功都不该沿用上一次的判断
+    _unreadable.discard(str(target))
     try:
         proc = subprocess.run(
             [
@@ -121,7 +141,8 @@ def probe_media(path: str | Path) -> MediaSpec | None:
                 # 章节顺带一起读（docs/design/video-chapters.md §4.5）：章节在
                 # 容器头里，与流信息同一次读取，零额外 IO
                 "-show_chapters",
-                str(path),
+                *input_args,
+                str(target),
             ],
             capture_output=True,
             timeout=_PROBE_TIMEOUT,
@@ -135,37 +156,92 @@ def probe_media(path: str | Path) -> MediaSpec | None:
             )
         return None
     except subprocess.TimeoutExpired:
-        logger.warning("ffprobe 探测超时（%s 秒）：%s", _PROBE_TIMEOUT, path)
+        logger.warning("ffprobe 探测超时（%s 秒）：%s", _PROBE_TIMEOUT, target)
         return None
     if proc.returncode != 0:
-        logger.warning(
-            "ffprobe 探测失败：%s（%s）", path, proc.stderr.decode(errors="replace")[:200]
-        )
+        stderr = proc.stderr.decode(errors="replace")
+        logger.warning("ffprobe 探测失败：%s（%s）", target, stderr[:200])
+        if _INVALID_DATA_MARKER in stderr:
+            _note_unreadable(target)
         return None
     try:
         payload = json.loads(proc.stdout)
     except json.JSONDecodeError:
         return None
-    spec = _parse_probe(payload, include_mpegts_pids=Path(path).suffix.lower() == ".m2ts")
-    if Path(path).suffix.lower() == ".iso":
-        spec = _with_disc_image_duration(spec, path)
-    return spec
+    return payload
 
 
-def _with_disc_image_duration(spec: MediaSpec, path: str | Path) -> MediaSpec:
-    """光盘镜像的片长换成盘内正片的时长（蓝光主播放列表 / DVD 正片节目链）。
+# --- 内容不可识别（确定性失败）记忆 -------------------------------------------
+#
+# ``probe_media`` 失败只回 None，上层分不清「挂载抖动 / 超时」与「ffprobe 读到
+# 了字节，但这些字节根本不是一个可识别的媒体文件」（容器头被抹掉、头部全零、
+# 截断的 mp4 缺 moov）。后者在文件不变时每探一次都是同一个结论——监听导入
+# 若仍把它当环境故障按小时重试，就会无限重试、告警永不消退（issue #1006）。
+#
+# ffprobe 打开输入失败时把 libavformat 的 AVERROR_INVALIDDATA 打成这句固定
+# 文案；超时、I/O 错误、文件不存在走的是别的错误码，不会命中。进程内小表，
+# 键是探测目标路径，探测成功即清除；只记最近一次失败的性质，不做持久化。
+_INVALID_DATA_MARKER = "Invalid data found when processing input"
+_UNREADABLE_MAX = 4096
+_unreadable: set[str] = set()
 
-    ffprobe 对整个镜像估的片长常常离谱（NAS 实测一集 DVD 记成 4 秒、一部蓝光多出一小时），
-    「继续观看」的进度、片长显示都按台账算。读不出盘内结构就保留 ffprobe 的值。
+
+def _note_unreadable(target: str | Path) -> None:
+    if len(_unreadable) >= _UNREADABLE_MAX:
+        _unreadable.clear()  # 几千个坏文件几乎不可能；宁可遗忘也不无限膨胀
+    _unreadable.add(str(target))
+
+
+def probe_found_unreadable(path: str | Path) -> bool:
+    """最近一次探测失败是否因为「内容不可识别」（而非超时、I/O 等环境故障）。
+
+    只在 ``probe_media`` 刚返回 None 后有意义：调用方据此判断失败是否确定性的——
+    同一份字节再探多少次都一样，等的是文件变化（继续下载、换源），不是时间。
     """
-    # 延迟导入：播放源模块依赖面大，探测模块保持轻量
+    return str(path) in _unreadable
+
+
+def _probe_disc_image(path: str | Path) -> MediaSpec | None:
+    """光盘镜像的规格取盘内正片，不取整个镜像。
+
+    ffprobe 读整个镜像只是碰巧嗅探到盘内字节：蓝光镜像多半一路流都认不出（NAS 上 46 个蓝光镜像
+    视频编码全空，播放决策没法判断能不能直推）。蓝光镜像改探主片第一段剪辑在镜像里的字节
+    （``subfile`` 协议），带上 PID 与 CLPI 里的语言——按剪辑直推的播放器靠它们对轨
+    （disc-clip-play.md）。片长换成盘内正片的时长（蓝光主播放列表 / DVD 正片节目链）：ffprobe 对
+    整个镜像估的片长常常离谱，NAS 实测一集 DVD 记成 4 秒、一部蓝光多出一小时。
+    剪辑探不出（或不是蓝光镜像）才退回探整个镜像。
+    """
+    # 延迟导入：播放源模块依赖面大，探测模块保持轻量；bluray 模块反过来依赖本模块
+    from movieclaw_api.services.library.bluray import (
+        ClpiParseError,
+        enrich_spec_with_clpi,
+        parse_clpi_languages,
+    )
     from movieclaw_api.services.playback.iso_source import iso_disc_source
 
+    spec = None
     source = iso_disc_source(path)
-    if source is None or source.duration_s <= 0:
+    first = source.clips[0] if source is not None and source.clips else None
+    if source is not None and source.image == "bluray" and first is not None and first.byte_ranges:
+        start, end = first.byte_ranges[0]
+        inner = _ffprobe(
+            f"subfile,,start,{start},end,{end},,:{path}",
+            ("-protocol_whitelist", "file,subfile"),
+        )
+        if inner is not None:
+            clip_spec = _parse_probe(inner, include_mpegts_pids=True)
+            clpi = (source.clpi or {}).get(first.clip_id)
+            if clpi:
+                with contextlib.suppress(ClpiParseError):
+                    clip_spec = enrich_spec_with_clpi(clip_spec, parse_clpi_languages(clpi))
+            if clip_spec.video_codec:
+                spec = clip_spec
+    if spec is None:
+        payload = _ffprobe(path)
+        spec = _parse_probe(payload) if payload is not None else None
+    if spec is None or source is None or source.duration_s <= 0:
         return spec
     return replace(spec, duration_seconds=round(source.duration_s))
-
 
 
 @dataclass(frozen=True)
@@ -185,6 +261,16 @@ class VideoColor:
     dv_backward_compatible: bool = False
 
     @property
+    def dv_ignored(self) -> bool:
+        """带着杜比视界记录、却认定为普通 HDR 的片（记录与码流矛盾，见
+        ``_dv_record_contradicted``）。
+
+        为真时 RPU 元数据不能用：``tonemapx`` 默认 ``apply_dovi`` 会拿 P5 的 IPT 还原去算 YCbCr，
+        整片发绿（《驯龙高手》HDR10 段注入 P5 RPU 实测），抓帧必须显式关掉。
+        """
+        return dolby_vision_ignored(self.hdr, self.dv_profile)
+
+    @property
     def needs_tonemap(self) -> bool:
         """抓帧要不要做色调映射。
 
@@ -202,7 +288,20 @@ class VideoColor:
         为真时**没有 tonemapx 就抓不出能看的图**——退回不映射的链子只会稳定
         产出一张绿图。调用方据此选择宁可不出图。
         """
-        return self.dv_profile is not None and not self.dv_backward_compatible
+        return (
+            self.dv_profile is not None
+            and not self.dv_backward_compatible
+            and not self.dv_ignored
+        )
+
+
+def dolby_vision_ignored(hdr: str | None, dv_profile: int | None) -> bool:
+    """有杜比视界记录、``hdr`` 却已定为别的 HDR 格式：记录不可信，一律按基础层处理。
+
+    只有探测认定「记录与码流矛盾」时才会出现这种组合（``_hdr_label``）。``hdr`` 为空的
+    是更早版本探测的行、杜比视界状态未知，不算——别把真杜比视界错当基础层。
+    """
+    return dv_profile is not None and hdr is not None and hdr != "Dolby Vision"
 
 
 def probe_video_color(path: str | Path) -> VideoColor | None:
@@ -450,7 +549,9 @@ def probe_keyframe_interval(path: str | Path, duration_seconds: int | None) -> f
     if cached is not None:
         return cached
     value = _index_keyframe_interval(path, duration_seconds)
-    if value is None:
+    if value is None and path.suffix.lower() != ".strm":
+        # 网盘直链不做码流采样：三段各 30 秒的码流要从网盘现拉，4K 片是几百 MB、
+        # 起播前白等十几秒。读不出索引（Matroska Cues）就按未知处理——不换封装、改转码
         value = _probe_keyframe_interval(str(path), duration_seconds)
     if value is not None:
         if len(_keyframe_cache) >= _KEYFRAME_CACHE_MAX:
@@ -472,7 +573,7 @@ def _index_keyframe_interval(path: Path, duration_seconds: int | None) -> float 
     （残缺的 Cues 说明不了全片），平均间隔要在直通门槛以内——Cues 只可能比
     实际关键帧稀（有的封装器每隔几秒才记一个），稀了就老老实实采样核实。
     """
-    if path.suffix.lower() not in {".mkv", ".webm", ".mp4", ".m4v", ".mov"}:
+    if path.suffix.lower() not in {".mkv", ".webm", ".mp4", ".m4v", ".mov", ".strm"}:
         return None
     index = read_keyframe_index(path, allow_ffprobe=False)
     if index is None or len(index.times_s) < 2:
@@ -699,6 +800,7 @@ def _parse_probe(payload: dict, *, include_mpegts_pids: bool = False) -> MediaSp
         tag_date=_first_tag(fmt_tags, "date", "originaldate", "date_released"),
         creation_time=_first_tag(fmt_tags, "creation_time", "com.apple.quicktime.creationdate"),
         chapters=parse_chapters(payload.get("chapters")),
+        format_name=fmt.get("format_name") or None,
     )
 
 
@@ -859,9 +961,10 @@ def _hdr_label(video: dict) -> str | None:
         if isinstance(item, dict)
     }
     codec_tag = str(video.get("codec_tag_string") or "").lower()
-    if codec_tag in {"dvh1", "dvhe"} or any(
-        "dovi" in value or "dolby vision" in value for value in side_data_types
-    ):
+    if (
+        codec_tag in {"dvh1", "dvhe"}
+        or any("dovi" in value or "dolby vision" in value for value in side_data_types)
+    ) and not _dv_record_contradicted(video):
         return "Dolby Vision"
     if any(
         "hdr10+" in value or "smpte2094-40" in value or "smpte 2094-40" in value
@@ -874,6 +977,23 @@ def _hdr_label(video: dict) -> str | None:
     if transfer == "arib-std-b67":
         return "HLG"
     return None
+
+
+def _dv_record_contradicted(video: dict) -> bool:
+    """杜比视界记录说基础层是 IPT（兼容 ID 0：P5、AV1 P10.0），码流 VUI 却声明了 YCbCr HDR 基础层。
+
+    IPT-PQ-c2 没有 VUI 码点，真 P5 的矩阵与传输特性一律不写（NAS 375 个 P5 全是空）。写了
+    BT.2020 YCbCr + PQ/HLG 的，实测是发布组把流媒体版的 P5 RPU 原样注进另一版 HDR10 / HDR10+
+    基础层、没转成 8.1（「DV HDR10+ Hybrid」）：照记录按 P5 还原，YCbCr 被当 IPT 算，整片偏绿
+    或偏紫。基础层本身是对的，所以这类片认定为它的基础层格式（HDR10 / HDR10+ / HLG），各条
+    播放路径都只放基础层。App 的自研引擎在本机做同样的核对（引擎补丁 P62）。
+    """
+    profile, compatible = _dv_info(video)
+    if profile is None or compatible:
+        return False
+    matrix = str(video.get("color_space") or "").lower()
+    transfer = str(video.get("color_transfer") or "").lower()
+    return matrix in {"bt2020nc", "bt2020c"} and transfer in {"smpte2084", "arib-std-b67"}
 
 
 def _dv_info(video: dict) -> tuple[int | None, bool]:

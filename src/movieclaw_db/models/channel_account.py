@@ -6,6 +6,7 @@ from sqlalchemy import Column, Index, Text
 from sqlmodel import Field
 
 from movieclaw_db.models.base import TimestampMixin
+from movieclaw_db.models.member_scoped import MemberScopedMixin, register_member_scoped
 
 
 class ChannelAccountStatus(StrEnum):
@@ -20,7 +21,8 @@ class ChannelAccountStatus(StrEnum):
     STALE = "stale"
 
 
-class ChannelAccount(TimestampMixin, table=True):
+@register_member_scoped
+class ChannelAccount(MemberScopedMixin, TimestampMixin, table=True):
     """IM 通道账号表:一行 = 一个已绑定的通道账号(docs/design/plugin-channels.md §6)。
 
     通道插件化之后，凭据与插件私有状态是通用形态：``token`` 存加密的凭据 JSON（各通道字段不同，
@@ -45,6 +47,9 @@ class ChannelAccount(TimestampMixin, table=True):
     不需要本字段。
     """
 
+    # member_id（MemberScopedMixin）：IM 是这个人的一个通知渠道，推什么按他在「账号 → 通知」
+    # 的偏好来（docs/design/cloud-push.md §5.2）。绑定目前只有管理员能做，所以都是 0；
+    # 登记为成员级数据，删除成员时他的 IM 账号一并清掉
     __tablename__ = "channel_account"
     __table_args__ = (
         Index("uq_channel_account_channel_account", "channel_id", "account_id", unique=True),

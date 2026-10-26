@@ -1,5 +1,6 @@
 import type { CloudState } from "@/lib/api/cloud";
 import { request } from "@/lib/http";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
 interface ApiEnvelope<T> {
@@ -85,8 +86,10 @@ export interface RelayProbeView {
   warnings: string[];
 }
 
-export function getPushChannels(): Promise<PushChannelsView> {
-  return unwrap(request<ApiEnvelope<PushChannelsView>>("/push/channels"));
+export function getPushChannels(locale?: AppLocale): Promise<PushChannelsView> {
+  return unwrap(request<ApiEnvelope<PushChannelsView>>("/push/channels", locale ? {
+    headers: { "Accept-Language": locale },
+  } : undefined));
 }
 
 export function setOfficialChannelEnabled(enabled: boolean): Promise<PushChannelsView> {
@@ -156,6 +159,7 @@ export function refreshRelay(relayId: string): Promise<PushChannelsView> {
 
 export type MyDeviceStatus =
   | "ok"
+  | "unsupported_build"
   | "no_channel"
   | "permission_denied"
   | "bad_token"
@@ -167,6 +171,7 @@ export interface MyPushEvent {
   description: string;
   /** 分组标题（我的订阅、账号安全、管理员通知……），按出现顺序分组 */
   group: string;
+  group_id?: string | null;
   enabled: boolean;
   default: boolean;
 }
@@ -215,6 +220,8 @@ export interface MyPushView {
   library_ids: number[] | null;
   /** 静音了的片，最近静音的在前；旧服务器没有这个字段 */
   muted_items?: MyPushMutedItem[] | null;
+  /** 我绑定的 IM 账号数（IM 也按这里的开关推送）；旧服务器没有这个字段 */
+  im_accounts?: number | null;
 }
 
 export interface PushTestResult {
@@ -222,8 +229,10 @@ export interface PushTestResult {
   results: { device_id: string; device_name: string; result: string; message: string | null }[];
 }
 
-export function getMyPush(): Promise<MyPushView> {
-  return unwrap(request<ApiEnvelope<MyPushView>>("/push/me"));
+export function getMyPush(locale?: AppLocale): Promise<MyPushView> {
+  return unwrap(request<ApiEnvelope<MyPushView>>("/push/me", locale ? {
+    headers: { "Accept-Language": locale },
+  } : undefined));
 }
 
 /**

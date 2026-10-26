@@ -43,18 +43,18 @@ def b64url(data: bytes) -> str:
 def b64url_decode(text: str) -> bytes:
     """解码不带填充的 base64url；格式不对抛 ValueError。"""
     if not re.fullmatch(r"[A-Za-z0-9_-]*", text):
-        raise ValueError("不是 base64url")
+        raise ValueError("不是 base64url")  # i18n-ignore: internal
     try:
         return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
     except binascii.Error as exc:
-        raise ValueError("不是 base64url") from exc
+        raise ValueError("不是 base64url") from exc  # i18n-ignore: internal
 
 
 def decode_key(text: str) -> bytes:
     """App 交上来的密钥：32 字节的 base64url。"""
     key = b64url_decode(text)
     if len(key) != KEY_BYTES:
-        raise ValueError("密钥必须是 32 字节")
+        raise ValueError("密钥必须是 32 字节")  # i18n-ignore: internal
     return key
 
 
@@ -68,10 +68,10 @@ def seal(plaintext: bytes, *, key: bytes, key_id: str, nonce: bytes | None = Non
     ``nonce`` 只给测试向量用；正常调用每条推送都取新的随机数，同一把密钥下绝不重复。
     """
     if not KEY_ID_PATTERN.fullmatch(key_id):
-        raise ValueError("key_id 格式不对")
+        raise ValueError("key_id 格式不对")  # i18n-ignore: internal
     nonce = nonce if nonce is not None else os.urandom(NONCE_BYTES)
     if len(nonce) != NONCE_BYTES:
-        raise ValueError("nonce 必须是 12 字节")
+        raise ValueError("nonce 必须是 12 字节")  # i18n-ignore: internal
     sealed = AESGCM(key).encrypt(nonce, plaintext, _aad(key_id))
     return f"{FORMAT_VERSION}.{key_id}.{b64url(nonce)}.{b64url(sealed)}"
 
@@ -80,7 +80,7 @@ def open_sealed(payload: str, *, key: bytes) -> bytes:
     """解密（实例自己用不到，测试和排查用）。认证失败抛 ``cryptography`` 的异常。"""
     version, key_id, nonce, sealed = payload.split(".")
     if version != FORMAT_VERSION:
-        raise ValueError(f"不认识的格式版本：{version}")
+        raise ValueError(f"不认识的格式版本：{version}")  # i18n-ignore: internal
     return AESGCM(key).decrypt(b64url_decode(nonce), b64url_decode(sealed), _aad(key_id))
 
 

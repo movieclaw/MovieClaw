@@ -27,7 +27,8 @@ Cookie（含 httpOnly 会话 Cookie），用于主程序的站点模拟访问。
 pnpm ext:dev      # 启动开发模式，自动打开带扩展的 Chrome
 pnpm ext:build    # 生产构建，产物在 apps/extension/.output/chrome-mv3
 pnpm ext:zip      # 打包成可上传应用商店的 zip
-pnpm ext:publish  # 打 zip 并发布到 apps/web/public/extension/（Web 后台的下载按钮指向这里）
+pnpm ext:zip:firefox  # Firefox 专用包（MV3 + gecko.id + background.scripts）
+pnpm ext:publish  # Chrome / Firefox 两份 zip 都发布到 apps/web/public/extension/（Web 后台的下载按钮指向这里）
 ```
 
 改动扩展代码后记得跑 `pnpm ext:publish` 并提交生成的 zip——它随前端一起构建 /
@@ -38,6 +39,18 @@ pnpm ext:publish  # 打 zip 并发布到 apps/web/public/extension/（Web 后台
 1. 运行 `pnpm ext:build` 得到 `apps/extension/.output/chrome-mv3` 目录。
 2. Chrome 打开 `chrome://extensions`，右上角开启「开发者模式」。
 3. 点「加载已解压的扩展程序」，选择上述 `chrome-mv3` 目录。
+
+## Firefox
+
+Chrome 包不能装进 Firefox（会提示「附加组件已损坏」）：它没有 Firefox MV3 必需的
+`browser_specific_settings.gecko.id`，后台也是 Firefox 不支持的 `service_worker`。
+请使用 `pnpm ext:zip:firefox` 产出的 `*-firefox.zip`（后台下载名 `movieclaw-extension-firefox.zip`）：
+
+- 正式版 Firefox：`about:debugging` →「此 Firefox」→「临时载入附加组件」选择该 zip；重启后失效。
+- 开发者版 / Nightly / ESR：`about:config` 设 `xpinstall.signatures.required=false`，
+  再在附加组件管理器「从文件安装附加组件」，可长期使用。
+- 正式版长期安装需要 Mozilla 签名（AMO 自分发 / unlisted 签名，如 `web-ext sign --channel=unlisted`），
+  未签名包会提示「无法验证」。
 
 ## 交互设计（单弹窗，两视图）
 
@@ -71,7 +84,21 @@ pnpm ext:publish  # 打 zip 并发布到 apps/web/public/extension/（Web 后台
 - **定时兜底**：`alarms` 每 30 分钟全量推一次，防止漏掉的事件累积成陈旧。
 
 后台读取 Cookie 依赖站点 host 权限、推送依赖后端源 host 权限，二者都在授权/保存配置时已获得。
-同步结果记入本地，弹窗会显示「上次同步：x 分钟前」。出错时扩展图标上会出现红色角标。
+同步结果记入本地，弹窗会显示上次成功同步的时间，失败时显示具体原因；出错时扩展图标上会出现红色角标。
+
+### 授权后的首次同步（Firefox 弹窗会被权限提示关掉）
+
+Firefox 里点「允许读取本站 Cookie」弹出权限提示时弹窗会被关闭，授权之后的代码不会执行。因此：
+
+- 弹窗在展示授权按钮时就把「授权意图」（站点、页面 URL、容器 `cookieStoreId`）写入 storage；
+- 后台监听 `permissions.onAdded`，读到意图就替弹窗完成首次同步，结果用图标角标提示（绿色 ✓ / 红色 !）；
+- 弹窗重开时，若该站点已授权但本扩展从未推送成功过，会自动补同步一次；
+- 按钮只有在本扩展真的推送成功过之后才显示「重新同步」，与后端是否已有站点记录无关。
+
+Firefox 容器标签页（Multi-Account Containers）的 Cookie 在独立 cookie store 里：弹窗按当前标签页的
+`cookieStoreId` 读取，并记入被管理站点，后台自动同步沿用同一个 store。
+
+决策逻辑在 `lib/sync-logic.ts`，测试：`pnpm --filter extension test`（Node ≥ 22.18）。
 
 ## 路线图
 

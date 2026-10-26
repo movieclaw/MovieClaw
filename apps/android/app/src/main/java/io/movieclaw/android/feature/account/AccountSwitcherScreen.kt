@@ -113,6 +113,7 @@ class AccountSwitcherViewModel @Inject constructor(
 fun AccountSwitcherScreen(
     onBack: () -> Unit,
     onAddAccount: () -> Unit,
+    onReauth: (String, String) -> Unit = { _, _ -> },
     vm: AccountSwitcherViewModel = hiltViewModel(),
 ) {
     val servers by vm.servers.collectAsStateWithLifecycle()
@@ -165,6 +166,7 @@ fun AccountSwitcherScreen(
                         busy = busy,
                         onSwitch = { vm.switchTo(server.origin, account.username) },
                         onRemove = { vm.remove(server.origin, account.username) },
+                        onReauth = onReauth,
                     )
                     Spacer(Modifier.height(8.dp))
                 }
@@ -240,6 +242,7 @@ private fun AccountRow(
     busy: Boolean,
     onSwitch: () -> Unit,
     onRemove: () -> Unit,
+    onReauth: (String, String) -> Unit,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -248,7 +251,9 @@ private fun AccountRow(
             .clip(RoundedCornerShape(12.dp))
             .background(if (isCurrent) AccentSoft else SurfaceRaised)
             .border(1.dp, if (isCurrent) Accent.copy(alpha = 0.35f) else LineColor, RoundedCornerShape(12.dp))
-            .clickable(enabled = !isCurrent && !busy && !account.expired, onClick = onSwitch)
+            .clickable(enabled = !isCurrent && !busy, onClick = {
+                if (account.expired) onReauth(server.origin, account.username) else onSwitch()
+            })
             .padding(14.dp),
     ) {
         Box(
@@ -285,7 +290,7 @@ private fun AccountRow(
                 color = TextMuted,
             )
             if (account.expired) {
-                Text("登录已失效,点「添加账号」重新输入密码", style = McType.caption2, color = Warning)
+                Text("登录已失效，点一下重新输入密码", style = McType.caption2, color = Warning)
             }
         }
         if (!isCurrent) {

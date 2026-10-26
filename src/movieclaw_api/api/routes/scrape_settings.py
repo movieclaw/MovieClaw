@@ -23,11 +23,13 @@ from __future__ import annotations
 
 import logging
 
+from babel import Locale
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.exceptions import BadRequestException, UpstreamUnreachableException
+from movieclaw_api.i18n import current_locale, t
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.media_discover import get_tmdb_client, reset_media_service
 from movieclaw_api.services.scrape_config import (
@@ -75,7 +77,17 @@ class LanguageOption(BaseModel):
 
 class CountryOption(BaseModel):
     code: str = Field(description="ISO 3166-1 地区码（CN / US …）")
-    name: str = Field(description="地区中文名（TMDB native_name，缺失回落英文名）")
+    name: str = Field(description="按请求语言显示的地区名；中文保留 TMDB native_name")
+
+
+def _country_labels(options: list[CountryOption]) -> list[CountryOption]:
+    if current_locale.get() != "en":
+        return options
+    territories = Locale.parse("en").territories
+    return [
+        option.model_copy(update={"name": territories.get(option.code, option.code)})
+        for option in options
+    ]
 
 
 def _config_view() -> ScrapeConfigView:
@@ -218,19 +230,16 @@ async def save_fanart_key(payload: FanartKeyPayload) -> ApiResponse[FanartStatus
     try:
         await verify_and_save_key(payload.api_key)
     except FanartAuthError as exc:
-        raise BadRequestException(
-            "Key 无效：Fanart.tv 返回「401 未授权」。请检查是否复制完整，"
-            "或到 fanart.tv 个人页重新生成"
-        ) from exc
+        raise BadRequestException(message_key="errors.scrape.fanartKeyInvalid") from exc
     except FanartNetworkError as exc:
         raise UpstreamUnreachableException(
             str(exc),
             service="fanart",
-            hint="到「设置 → 网络与代理」为「Fanart.tv」开启代理后再试",
+            hint=t("errors.upstream.fanartHint"),
         ) from exc
     except FanartError as exc:
         raise BadRequestException(str(exc)) from exc
-    return ok(FanartStatusView(**fanart_status()), message="Fanart.tv API Key 已验证并保存")
+    return ok(FanartStatusView(**fanart_status()), message=t("settings.scrape.fanartSaved"))
 
 
 # ---------------------------------------------------------------------------
@@ -239,8 +248,10 @@ async def save_fanart_key(payload: FanartKeyPayload) -> ApiResponse[FanartStatus
 
 # 内置常用表：TMDB 不可用（未配 Key / 断网）时设置页仍能工作的最小集合
 _BUILTIN_LANGUAGES = [
+    # i18n-ignore: endonym and builtin fallback data; English via Babel
     {"code": "zh", "name": "中文", "english_name": "Chinese"},
     {"code": "en", "name": "English", "english_name": "English"},
+    # i18n-ignore: endonym and builtin fallback data; English via Babel
     {"code": "ja", "name": "日本語", "english_name": "Japanese"},
     {"code": "ko", "name": "한국어", "english_name": "Korean"},
     {"code": "fr", "name": "Français", "english_name": "French"},
@@ -253,15 +264,25 @@ _BUILTIN_LANGUAGES = [
     {"code": "hi", "name": "हिन्दी", "english_name": "Hindi"},
 ]
 _BUILTIN_COUNTRIES = [
+    # i18n-ignore: endonym and builtin fallback data; English via Babel
     {"code": "CN", "name": "中国"},
+    # i18n-ignore: endonym and builtin fallback data; English via Babel
     {"code": "US", "name": "美国"},
+    # i18n-ignore: endonym and builtin fallback data; English via Babel
     {"code": "JP", "name": "日本"},
+    # i18n-ignore: endonym and builtin fallback data; English via Babel
     {"code": "KR", "name": "韩国"},
+    # i18n-ignore: endonym and builtin fallback data; English via Babel
     {"code": "GB", "name": "英国"},
+    # i18n-ignore: endonym and builtin fallback data; English via Babel
     {"code": "FR", "name": "法国"},
+    # i18n-ignore: endonym and builtin fallback data; English via Babel
     {"code": "DE", "name": "德国"},
+    # i18n-ignore: endonym and builtin fallback data; English via Babel
     {"code": "HK", "name": "香港"},
+    # i18n-ignore: endonym and builtin fallback data; English via Babel
     {"code": "TW", "name": "台湾"},
+    # i18n-ignore: endonym and builtin fallback data; English via Babel
     {"code": "IN", "name": "印度"},
 ]
 
@@ -323,5 +344,5 @@ async def list_country_options() -> ApiResponse[list[CountryOption]]:
             _country_cache = sorted(options, key=lambda o: o.code)
         except Exception as exc:  # noqa: BLE001 -- 同语种表：回落内置常用表
             logger.warning("TMDB 地区表拉取失败，回落内置常用表：%s", exc)
-            return ok([CountryOption(**entry) for entry in _BUILTIN_COUNTRIES])
-    return ok(_country_cache)
+            return ok(_country_labels([CountryOption(**entry) for entry in _BUILTIN_COUNTRIES]))
+    return ok(_country_labels(_country_cache))

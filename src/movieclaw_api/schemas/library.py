@@ -8,12 +8,28 @@ from typing import Literal
 
 from pydantic import Field, field_serializer, field_validator
 
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.services.library.preflight import (
     MAX_SELECTION as BATCH_TRANSFER_MAX_SELECTION,
 )
 from movieclaw_db.models.library import Library
 from movieclaw_media.models import MediaKind
+
+
+class CloudFolderPayload(BaseModel):
+    """库的一个网盘根目录（docs/design/cloud-storage.md §3.2）。"""
+
+    account_id: int = Field(description="网盘账号 id")
+    remote_dir_id: str = Field(description="网盘目录 id（目录选择器给的）")
+    display_path: str = Field(description="网盘上的路径，如「影视/电影」（展示用）")
+    is_primary: bool = Field(
+        default=False,
+        description=(
+            "主根在这个网盘目录：新内容落在这里（上传后本地腾空），此时 root_paths 的第一项是"
+            "本地暂存目录。每库至多一个"
+        ),
+    )
 
 
 class LibraryPayload(BaseModel):
@@ -123,6 +139,20 @@ class LibraryPayload(BaseModel):
             "是否启用实时文件监控（关闭后该库不建 watchdog 监听，"
             "靠定期对账与手动扫描发现新文件——SMB/NFS 网络挂载建议关闭）；"
             "不传表示不改动，新建时默认开启"
+        ),
+    )
+    keep_local: bool | None = Field(
+        default=None,
+        description=(
+            "主根在网盘时本地也保留一份（两边都留、当备份，上传后不腾空本地）；"
+            "不传表示不改动，新建时默认关闭"
+        ),
+    )
+    cloud_folders: list[CloudFolderPayload] | None = Field(
+        default=None,
+        description=(
+            "网盘根目录（整体覆盖式）：挂上即纳管——目录里已有的视频按文件名识别入库，不下载、"
+            "不改动网盘上的文件；拿掉只删台账，不动网盘。不传表示不改动"
         ),
     )
 
@@ -288,6 +318,48 @@ class LibraryCapabilitiesView(BaseModel):
     )
 
 
+class CloudFolderReportView(BaseModel):
+    """最近一次纳管 / 复查这个网盘目录的结果。"""
+
+    finished_at: datetime
+    seconds: float = Field(description="用时（秒）")
+    calls: int = Field(description="调用网盘接口的次数")
+    videos: int = Field(description="视频文件数")
+    identified: int = Field(description="已识别")
+    pending: int = Field(description="待认领（没认出来的）")
+    skipped: dict[str, int] = Field(
+        description="跳过的：disc=原盘目录、iso=光盘镜像、extra=样片与花絮（一期不纳管）"
+    )
+    cancelled: bool = Field(default=False, description="扫描中途停止了（数字不完整）")
+
+
+class CloudFolderView(BaseModel):
+    id: int
+    account_id: int
+    account_name: str
+    backend: str = Field(description="网盘类型")
+    backend_title: str = Field(description="网盘名；插件不在时就是类型值")
+    remote_dir_id: str
+    display_path: str
+    is_primary: bool
+    file_count: int = Field(description="台账里在位的纳管文件数")
+    listed_at: datetime | None = Field(description="上次纳管或复查的时间；没列过为 null")
+    report: CloudFolderReportView | None = None
+
+
+class CloudUploadView(BaseModel):
+    """主根在网盘的库正在往网盘传的进度（docs/design/cloud-storage.md §5）。"""
+
+    job_id: str
+    status: str = Field(description="任务状态：queued / running / retry_wait / blocked …")
+    processed: int = Field(description="已传完的文件数")
+    total: int = Field(description="这一轮要传的文件数（含已传完的）")
+    rapid: int = Field(default=0, description="其中秒传的个数")
+    failed: int = Field(default=0, description="没传成的个数")
+    percent: float | None = Field(default=None, description="当前文件的进度（%）")
+    message: str = Field(default="", description="当前在做什么（一句话）")
+
+
 class LibraryView(BaseModel):
     id: int
     name: str
@@ -329,6 +401,10 @@ class LibraryView(BaseModel):
         default=False, description="扫描后自动清理已确认丢失的库存记录"
     )
     realtime_watch: bool = Field(default=True, description="是否启用实时文件监控")
+    # 可空：老服务器没有这个字段，客户端生成器会把带默认值的字段当成必有
+    keep_local: bool | None = Field(
+        default=None, description="主根在网盘时本地也保留一份（上传后不腾空本地）"
+    )
     network_mount: bool = Field(
         default=False,
         description=(
@@ -361,6 +437,16 @@ class LibraryView(BaseModel):
     chapter_job: ChapterJobView | None = Field(
         default=None, description="整库生成章节的作业状态（排队/进行中）；没在生成为 null"
     )
+    cloud_upload: CloudUploadView | None = Field(
+        default=None, description="正在上传到网盘的进度；没在传为 null"
+    )
+    cloud_folders: list[CloudFolderView] | None = Field(
+        default=None,
+        description=(
+            "网盘根目录（管理员端恒为数组，成员端为 null）；有主根在网盘的，"
+            "root_paths 第一项是本地暂存目录"
+        ),
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -387,6 +473,8 @@ class LibraryView(BaseModel):
         chapter_job: ChapterJobView | None = None,
         member_ids: list[int] | None = None,
         viewer_access: bool = True,
+        cloud_folders: list[CloudFolderView] | None = None,
+        cloud_upload: CloudUploadView | None = None,
     ) -> LibraryView:
         from movieclaw_api.services.library.cover import has_custom_cover
         from movieclaw_api.services.library.mounts import library_on_network_mount
@@ -413,6 +501,7 @@ class LibraryView(BaseModel):
             match_rules=list(row.match_rules),
             auto_clear_missing=row.auto_clear_missing,
             realtime_watch=row.realtime_watch,
+            keep_local=row.keep_local,
             network_mount=library_on_network_mount(list(row.root_paths)),
             custom_cover=has_custom_cover(row.id),  # type: ignore[arg-type]  # 落库后必有主键
             scrape_overrides=dict(row.scrape_overrides or {}),
@@ -432,6 +521,8 @@ class LibraryView(BaseModel):
             last_organize=last_organize,
             metadata_refresh=metadata_refresh,
             chapter_job=chapter_job,
+            cloud_folders=list(cloud_folders) if cloud_folders is not None else None,
+            cloud_upload=cloud_upload,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -925,6 +1016,18 @@ class TrackDefaultsView(BaseModel):
     subtitle_note: str = Field(description="字幕原因的一句中文，界面直接展示")
 
 
+class FileCloudView(BaseModel):
+    """文件在网盘上的副本（cloud-storage.md §3.5）：文件区据此标「本地」「本地 + 115」「115」。"""
+
+    backend_title: str = Field(description="网盘名")
+    account_name: str
+    remote_path: str | None = Field(description="网盘上的路径（展示用；成员端为 null）")
+    local: bool = Field(description="本地也有字节")
+    origin: str = Field(description="imported（纳管来的）/ uploaded（我们传的）")
+    state: str = Field(description="uploading / verified / lost / deleting / failed")
+    error: str | None = Field(default=None, description="上次上传没成的原因")
+
+
 class LibraryFileView(BaseModel):
     """条目详情页的一个物理文件（一个版本 / 一集）。"""
 
@@ -957,7 +1060,7 @@ class LibraryFileView(BaseModel):
     )
     purge_after: datetime | None = Field(
         default=None,
-        description="待回收的预计自动清理时间；null 且 trashed = 做种保护，不自动删",
+        description="待回收的预计自动清理时间；null = 不自动删（2026-08-17 之前的旧数据）",
     )
     trash_note: str | None = Field(
         default=None,
@@ -984,6 +1087,9 @@ class LibraryFileView(BaseModel):
     chapters: list[ChapterView] | None = Field(
         default=None,
         description="有效章节列表（内嵌或按时长合成）；null=所在库未开启「生成章节」或尚未探测",
+    )
+    cloud: FileCloudView | None = Field(
+        default=None, description="网盘上的副本；null = 只在本地（没有网盘副本）"
     )
     added_at: datetime
 
@@ -1086,6 +1192,9 @@ class LibraryItemDetailView(BaseModel):
     douban_id: str | None
     title: str
     original_title: str
+    english_title: str | None = Field(
+        default=None, description="国际英文名；「搜索资源」与中文名、原名一起搜"
+    )
     year: int | None
     poster_url: str | None
     backdrop_url: str | None
@@ -1170,6 +1279,13 @@ class SeasonEpisodesView(BaseModel):
 
     season_number: int
     episodes: list[EpisodeView]
+    resume_episode: int | None = Field(
+        default=None,
+        description=(
+            "本季接着看的那一集（与首页「接下来继续」同规则：最近播放的一集，看完了取往后"
+            "第一个没看完且有片源的）；分集区按它锁定集段、默认选中。本季没播放过为 null"
+        ),
+    )
 
 
 class ArtworkCandidateView(BaseModel):
@@ -1244,7 +1360,7 @@ class ArtworkSelectPayload(BaseModel):
 
         if value is None or value.startswith("/") or is_fanart_asset(value):
             return value
-        raise ValueError("图片路径不合法：只接受 TMDB 图片路径或 Fanart.tv 图床地址")
+        raise ValueError(t("errors.libraryInput.imagePath"))
 
 
 class ReidentifyResultView(BaseModel):
@@ -1486,6 +1602,14 @@ class TransferStatusView(BaseModel):
         return value.isoformat()
 
 
+class DeleteFollowUpView(BaseModel):
+    """一个勾选的删除选项建出的后续任务（docs/design/library-boundary.md §3.4）。"""
+
+    option: str = Field(description="删除选项的键，如 downloads:remove-source")
+    label: str
+    job_id: str
+
+
 class ItemDeleteResultView(BaseModel):
     """条目真实删除的结论。"""
 
@@ -1494,34 +1618,54 @@ class ItemDeleteResultView(BaseModel):
     freed_bytes: int
     errors: list[str] = Field(default_factory=list)
     dry_run: bool = Field(default=False, description="是否只是演练（什么都没删）")
-
-
-class TorrentRelationView(BaseModel):
-    """条目背后的一个下载器任务（docs/design/plugin-phase2a.md §5.3）。"""
-
-    info_hash: str
-    downloader_id: int | None = Field(description="承载它的下载器；下载器配置已删除时为空")
-    downloader_name: str | None = None
-    title: str | None = None
-    source: str = Field(
-        description="从哪里知道的：subscription（订阅投递）/ manual（手动下载）/ file（文件来源）"
+    # 标成可空：客户端按「可能没有」生成，新版 App 连旧服务端（返回里没有这个字段）照常解码
+    follow_ups: list[DeleteFollowUpView] | None = Field(
+        default_factory=list,
+        description="勾选的删除选项各建了一个后续任务，删除提交后执行；按 job_id 跟进结果",
     )
-    site_id: str | None = None
-    torrent_id: str | None = None
-    owned_by_movieclaw: bool | None = Field(default=None, description="是否由 MovieClaw 投递")
-    hit_and_run: bool | None = Field(default=None, description="投递时观测到的 H&R 状态")
-    status: str | None = Field(default=None, description="订阅下载记录的状态")
-    units: list[list[int]] = Field(default_factory=list, description="覆盖的季集 [[季, 集]]")
-    file_ids: list[int] = Field(default_factory=list, description="库里记着来自这个种子的文件")
 
 
-class ItemRelationsView(BaseModel):
-    """条目关联的订阅与下载器任务。"""
+class DeletePreviewLineView(BaseModel):
+    text: str
+    tone: Literal["info", "warn", "danger"] = "info"
 
-    media_item_id: int
-    subscription_id: int | None = None
-    subscription_status: str | None = None
-    torrents: list[TorrentRelationView] = Field(default_factory=list)
+
+class DeleteOptionView(BaseModel):
+    """删除弹窗里的一个附加选项（别的模块登记的删除参与方）；默认一律不勾。"""
+
+    key: str = Field(description="勾选时传给删除接口 options 的键")
+    label: str
+    help: str = Field(description="后果说明")
+    available: bool = Field(description="这次能不能勾")
+    reason: str | None = Field(default=None, description="不能勾的原因")
+    lines: list[DeletePreviewLineView] = Field(
+        default_factory=list, description="勾上会发生什么（按这次要删的文件算）"
+    )
+
+
+class DeleteCloudView(BaseModel):
+    """这次删除会删掉的网盘文件（cloud-storage.md §10）。"""
+
+    backend_title: str = Field(description="网盘名（多个网盘时用顿号连起来）")
+    files: int = Field(description="要删的网盘文件数")
+    bytes: int = Field(description="这些文件的大小")
+    recycle_bin: bool = Field(description="网盘有回收站：删的是进网盘回收站，还能在网盘里还原")
+
+
+class ItemDeletePreviewView(BaseModel):
+    """删除前的完整预览：媒体库自己的计划 + 各删除选项。"""
+
+    whole_item: bool = Field(description="是否整部删除（删单文件但它是最后一个文件时也是）")
+    plan: ItemDeleteResultView = Field(description="媒体库将删除的路径与台账行（演练）")
+    linked_bytes: int = Field(
+        description=(
+            "要删的文件里与别处是同一份数据（硬链接）的字节数：只删库文件不会释放这部分空间"
+        )
+    )
+    options: list[DeleteOptionView] = Field(default_factory=list)
+    cloud: DeleteCloudView | None = Field(
+        default=None, description="也会删掉网盘上的文件；只在本地的为 null"
+    )
 
 
 class UnidentifiedCandidateView(BaseModel):
@@ -1961,6 +2105,8 @@ class TrashedQualityView(BaseModel):
     """组内品质汇总：``tiers`` 按「分辨率 片源」计数，其余字段去重列表。"""
 
     tiers: dict[str, int] = Field(default_factory=dict)
+    # Keep the original grouping keys; project only their display labels.
+    tier_labels: dict[str, str] = Field(default_factory=dict)
     hdr: list[str] = Field(default_factory=list)
     video_codecs: list[str] = Field(default_factory=list)
     audio_labels: list[str] = Field(default_factory=list)
@@ -2068,7 +2214,15 @@ class DuplicateFileView(BaseModel):
     id: int
     file_name: str
     file_path: str = Field(description="绝对路径（悬停显示；成员视图不返回本接口）")
-    quality_label: str = Field(description="版本签名的质量部分：「分辨率 片源[ HDR]」")
+    quality_key: str | None = Field(
+        default=None, description="Original quality label for comparisons"
+    )
+    origin_key: str | None = Field(
+        default=None, description="Original origin label for comparisons"
+    )
+    quality_label: str = Field(
+        description="Quality label in the reader language; compare quality_key"
+    )
     size_bytes: int
     bit_rate: int | None
     resolution: str | None
@@ -2098,6 +2252,12 @@ class DuplicateVersionView(BaseModel):
     """同构季的一个版本行：这版本覆盖哪些集、多大、从哪来。"""
 
     key: str
+    quality_key: str | None = Field(
+        default=None, description="Original quality label for comparisons"
+    )
+    origin_key: str | None = Field(
+        default=None, description="Original origin label for comparisons"
+    )
     quality_label: str
     origin_label: str
     episodes: list[int]

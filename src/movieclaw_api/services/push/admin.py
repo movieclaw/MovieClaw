@@ -7,7 +7,9 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
-from movieclaw_api.exceptions import BadRequestException, NotFoundException
+from movieclaw_api.exceptions import BadRequestException, NotFoundException, exception_fields
+from movieclaw_api.i18n import current_locale, t
+from movieclaw_api.i18n.stored import reference, render_value
 from movieclaw_api.schemas.cloud import (
     PushChannelsView,
     PushChannelView,
@@ -24,6 +26,7 @@ from movieclaw_api.settings.cloud import PushRelay, RelayInfo
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import utcnow
 
+# i18n-ignore: not referenced anywhere
 _AUTH_LABELS = {"issuer": "签发方令牌", "static": "令牌", "none": "无鉴权"}
 
 
@@ -85,7 +88,7 @@ async def build_channels_view() -> PushChannelsView:
             PushChannelView(
                 id=channel.id,
                 kind=channel.kind,
-                name=channel.name,
+                name=t("push.channels.official") if channel.kind == "official" else channel.name,
                 enabled=channel.enabled,
                 state=state,
                 status_text=text,
@@ -96,7 +99,7 @@ async def build_channels_view() -> PushChannelsView:
                 topics=channel.topics,
                 quota=_quota_view(channel, cloud.limits),
                 last_success_at=rt.last_success_at,
-                last_error=rt.last_error,
+                last_error=render_value(rt.last_error_ref or rt.last_error),
                 device_count=device_count.get(channel.id, 0),
             )
         )
@@ -109,18 +112,24 @@ def _channel_state(
     """通道的状态灯和一句话说明。"""
     rt = channel_registry.runtime(channel.id)
     if not channel.enabled:
-        return "inactive", "已停用"
+        return "inactive", t("push.channels.disabled")
     if channel.kind == "official" and cloud_state != "connected":
-        return "inactive", channel.problem or "未连接 MovieClaw Cloud"
+        return "inactive", render_value(channel.problem_ref or channel.problem) or t(
+            "push.channels.disconnected"
+        )
     if channel.problem:
-        return "error", channel.problem
+        return "error", render_value(channel.problem_ref or channel.problem)
     if rt.blocked():
-        return "warning", rt.blocked_message or "今天的推送额度已经用完"
+        return "warning", render_value(rt.blocked_message_ref or rt.blocked_message) or t(
+            "push.channels.quotaExhausted"
+        )
     if rt.consecutive_failures:
-        return "error", f"最近一次推送失败：{rt.last_error}"
+        return "error", t(
+            "push.channels.lastFailure", reason=render_value(rt.last_error_ref or rt.last_error)
+        )
     if channel.kind == "official" and health == "unreachable":
-        return "warning", health_message or "暂时连不上 MovieClaw Cloud"
-    return "ok", "正常"
+        return "warning", health_message or t("push.channels.unreachable")
+    return "ok", t("push.channels.ok")
 
 
 # ----------------------------------------------------------------------
@@ -146,21 +155,23 @@ def _warnings(url: str, info: RelayInfo, matched: int) -> list[str]:
     lan = relay.is_lan_url(url)
     notes = []
     if urlsplit(url).scheme == "http" and not lan:
-        notes.append("地址是 http:// 而且不在局域网：令牌会明文经过公网，建议在中继前面加 HTTPS")
+        notes.append(t("push.warnings.publicHttp"))
     if info.auth_mode == "none" and not lan:
-        notes.append("这个中继不要令牌、又在公网上：知道地址的人都能用它往你的 App 推送")
+        notes.append(t("push.warnings.publicNoAuth"))
     if matched == 0:
-        apps = "、".join(info.topics) or "（没有声明）"
-        notes.append(f"目前没有设备会用到这个中继，它能推送的 App：{apps}")
+        apps = ("、" if current_locale.get() == "zh-Hans" else ", ").join(info.topics) or t(
+            "push.warnings.undeclared"
+        )
+        notes.append(t("push.warnings.noDevices", apps=apps))
     return notes
 
 
-def _incompatibility(info: RelayInfo) -> str | None:
+def _incompatibility(info: RelayInfo) -> dict | None:
     if info.protocol != channel_registry.SUPPORTED_PROTOCOL:
         supported = channel_registry.SUPPORTED_PROTOCOL
-        return f"中继的协议版本是 {info.protocol}，这个版本只支持 {supported}"
+        return reference("push.relay.protocol", version=info.protocol, supported=supported)
     if info.auth_mode == "issuer":
-        return "这个中继要签发方的令牌，这里还不能添加"
+        return reference("push.relay.issuerAdd")
     return None
 
 
@@ -178,7 +189,7 @@ async def probe(url: str) -> RelayProbeView:
         return RelayProbeView(
             url=url.strip(),
             reachable=False,
-            error=str(exc),
+            error=render_value(getattr(exc, "message_ref", None) or str(exc)),
             software=None,
             protocol=None,
             auth_mode=None,
@@ -193,7 +204,7 @@ async def probe(url: str) -> RelayProbeView:
         return RelayProbeView(
             url=normalized,
             reachable=False,
-            error=exc.message,
+            error=render_value(exc.message_ref or exc.message),
             software=None,
             protocol=None,
             auth_mode=None,
@@ -206,7 +217,7 @@ async def probe(url: str) -> RelayProbeView:
     return RelayProbeView(
         url=normalized,
         reachable=True,
-        error=_incompatibility(info),
+        error=render_value(_incompatibility(info)),
         software=info.software or None,
         protocol=info.protocol,
         auth_mode=info.auth_mode or None,
@@ -222,16 +233,14 @@ async def _checked_info(url: str, token: str) -> RelayInfo:
     try:
         info = await relay.fetch_info(url)
     except RelayError as exc:
-        raise BadRequestException(exc.message) from exc
+        raise BadRequestException(**exception_fields(exc)) from exc
     if problem := _incompatibility(info):
-        raise BadRequestException(problem)
+        raise BadRequestException(message_key=problem["message_key"], params=problem["params"])
     if channel_registry.needs_token(info.auth_mode):
         if not token:
-            raise BadRequestException(
-                "这个中继需要令牌：在中继上运行 movieclaw-push token create --name 名称 创建"
-            )
+            raise BadRequestException(message_key="errors.push.relayTokenRequired")
         if not await _token_accepted(url, token):
-            raise BadRequestException("中继不认这个令牌，请检查是否复制完整、是否已被吊销")
+            raise BadRequestException(message_key="errors.push.relayTokenRejected")
     return info
 
 
@@ -248,11 +257,11 @@ async def create_relay(*, name: str, url: str, token: str | None) -> None:
     try:
         normalized = relay.normalize_url(url)
     except ValueError as exc:
-        raise BadRequestException(str(exc)) from exc
+        raise BadRequestException(**exception_fields(exc)) from exc
     store = get_setting_store()
     config = (await store.get(PushChannelsSetting)).model_copy(deep=True)
     if any(r.url == normalized for r in config.relays):
-        raise BadRequestException("这个中继已经添加过了")
+        raise BadRequestException(message_key="errors.push.relayAlreadyAdded")
     token = (token or "").strip()
     info = await _checked_info(normalized, token)
     config.relays.append(
@@ -281,16 +290,16 @@ async def update_relay(
     config = (await store.get(PushChannelsSetting)).model_copy(deep=True)
     target = next((r for r in config.relays if r.id == relay_id), None)
     if target is None:
-        raise NotFoundException("中继不存在")
+        raise NotFoundException(message_key="errors.push.relayMissing")
     new_token = (token or "").strip() or target.token
     new_url = target.url
     if url is not None and url.strip():
         try:
             new_url = relay.normalize_url(url)
         except ValueError as exc:
-            raise BadRequestException(str(exc)) from exc
+            raise BadRequestException(**exception_fields(exc)) from exc
         if any(r.url == new_url and r.id != relay_id for r in config.relays):
-            raise BadRequestException("这个地址已经被另一个中继用了")
+            raise BadRequestException(message_key="errors.push.relayAddressInUse")
     if new_url != target.url or (token or "").strip():
         info = await _checked_info(new_url, new_token)
         target.info = info
@@ -309,7 +318,7 @@ async def delete_relay(relay_id: str) -> None:
     config = (await store.get(PushChannelsSetting)).model_copy(deep=True)
     remaining = [r for r in config.relays if r.id != relay_id]
     if len(remaining) == len(config.relays):
-        raise NotFoundException("中继不存在")
+        raise NotFoundException(message_key="errors.push.relayMissing")
     config.relays = remaining
     await store.set(config)
 
@@ -321,7 +330,7 @@ async def refresh_relay(relay_id: str) -> None:
     try:
         await channel_registry.refresh_relay_info(relay_id)
     except KeyError as exc:
-        raise NotFoundException("中继不存在") from exc
+        raise NotFoundException(message_key="errors.push.relayMissing") from exc
     except RelayError as exc:
-        raise BadRequestException(exc.message) from exc
+        raise BadRequestException(**exception_fields(exc)) from exc
     channel_registry.runtime(relay_id).consecutive_failures = 0

@@ -26,6 +26,7 @@ from dataclasses import asdict, dataclass, field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n import current_locale, t
 from movieclaw_db.models import ImportWatch, Library
 from movieclaw_db.models.downloader_client import DownloaderClient
 from movieclaw_db.models.site_credential import ConfigStatus
@@ -42,7 +43,7 @@ class HealthCheck:
     key: str  # downloader / mapping / transfer_disk / watch_active / ingest
     label: str  # 段落名（前端左列）
     status: str  # ok / warn / error
-    detail: str  # 中文事实陈述（前端右列，直接展示）
+    detail: str  # 当前读者语言的事实陈述（前端右列，直接展示）
     fix_section: str | None = None  # 修复去处：settings 分区 id 或 "libraries"
 
 
@@ -133,20 +134,20 @@ async def _site_check(session: AsyncSession) -> tuple[HealthCheck, bool]:
         return (
             HealthCheck(
                 key="sites",
-                label="资源搜索",
+                label=t("subscription.health.search"),
                 status="ok",
-                detail=f"已接入 {len(active)} 个可用站点",
+                detail=t("subscription.health.activeSites", count=len(active)),
             ),
             True,
         )
-    detail = (
-        "没有可用的资源站点——订阅搜不到任何资源"
-        if not rows
-        else "已配置的站点当前都不可用（验证失败或已停用）——订阅搜不到任何资源"
-    )
+    detail = t("subscription.health.noSites") if not rows else t("subscription.health.brokenSites")
     return (
         HealthCheck(
-            key="sites", label="资源搜索", status="error", detail=detail, fix_section="sites"
+            key="sites",
+            label=t("subscription.health.search"),
+            status="error",
+            detail=detail,
+            fix_section="sites",
         ),
         bool(rows),
     )
@@ -171,7 +172,11 @@ def _check_transfer(
     checks: list[HealthCheck] = []
     # 硬链同盘的锚点 = 整理落点：自定义目录规则为 target_path，否则库主根
     anchor = rule.target_path or library.primary_root
-    anchor_label = "整理目标目录" if rule.target_path else "库主根"
+    anchor_label = (
+        t("subscription.health.outputAnchor")
+        if rule.target_path
+        else t("subscription.health.rootAnchor")
+    )
     if rule.strategy == "hardlink" and anchor:
         try:
             same = os.stat(rule.source_path).st_dev == os.stat(anchor).st_dev
@@ -179,11 +184,12 @@ def _check_transfer(
             checks.append(
                 HealthCheck(
                     key="transfer_disk",
-                    label="硬链接同盘",
+                    label=t("subscription.health.hardlinkDisk"),
                     status="warn",
-                    detail=(
-                        f"目录暂不可达（{rule.source_path} 或{anchor_label}未挂载），无法检测；"
-                        "挂载就绪后重新体检"
+                    detail=t(
+                        "subscription.health.diskUnavailable",
+                        source=rule.source_path,
+                        anchor=anchor_label,
                     ),
                     fix_section="import-watch",
                 )
@@ -193,27 +199,23 @@ def _check_transfer(
                 checks.append(
                     HealthCheck(
                         key="transfer_disk",
-                        label="硬链接同盘",
+                        label=t("subscription.health.hardlinkDisk"),
                         status="ok",
-                        detail=f"源目录与{anchor_label}在同一文件系统，硬链接零占用可用",
+                        detail=t("subscription.health.sameDisk", anchor=anchor_label),
                     )
                 )
             else:
                 target_text = (
-                    f"整理目标目录 {rule.target_path}"
+                    t("subscription.health.targetPath", target=rule.target_path)
                     if rule.target_path
-                    else f"「{library.name}」的主根"
+                    else t("subscription.health.libraryRoot", library=library.name)
                 )
                 checks.append(
                     HealthCheck(
                         key="transfer_disk",
-                        label="硬链接同盘",
+                        label=t("subscription.health.hardlinkDisk"),
                         status="error",
-                        detail=(
-                            f"源目录与{target_text}不在同一文件系统，"
-                            "硬链接会失败——请把监听导入规则的策略改为「复制」，"
-                            "或调整存储布局"
-                        ),
+                        detail=t("subscription.health.differentDisk", target=target_text),
                         fix_section="import-watch",
                     )
                 )
@@ -221,21 +223,18 @@ def _check_transfer(
         checks.append(
             HealthCheck(
                 key="watch_active",
-                label="目录监听",
+                label=t("subscription.health.watch"),
                 status="ok",
-                detail="源目录正在实时监听，下载完成即处理",
+                detail=t("subscription.health.watchActive"),
             )
         )
     else:
         checks.append(
             HealthCheck(
                 key="watch_active",
-                label="目录监听",
+                label=t("subscription.health.watch"),
                 status="warn",
-                detail=(
-                    "源目录未在实时监听（watchdog 缺失或目录未就绪），"
-                    "由每小时的兜底巡检接手——能入库，但不及时"
-                ),
+                detail=t("subscription.health.watchInactive"),
                 fix_section="import-watch",
             )
         )
@@ -250,40 +249,29 @@ def _narrative(mode: str, base: str | None, library: Library, rule: ImportWatch 
     """
     root = library.primary_root
     if mode == "watch" and rule is not None and rule.target_path:
-        verb = "硬链接" if rule.strategy == "hardlink" else "复制"
-        tail = (
-            f"；文件后续出现在 {root} 时自动扫描入账" if root else "；库没有根路径，回流后无法入账"
-        )
-        return (
-            f"订阅命中本库的影片会投递到 {base}，下载完成后自动识别改名并{verb}到 "
-            f"{rule.target_path}（不直接入库，外部流转由你的工具完成）{tail}。"
+        return t(
+            "subscription.health.stagingNarrative",
+            base=base,
+            target=rule.target_path,
+            strategy=rule.strategy,
+            root=root,
+            hasRoot="yes" if root else "no",
         )
     if mode == "watch" and rule is not None:
         if not root:
-            return f"投递到监听导入目录 {base}，但库没有根路径，下载完成后无法入库。"
-        if rule.strategy == "hardlink":
-            return (
-                f"订阅命中本库的影片会投递到 {base}，下载完成后自动识别并硬链接进 "
-                f"{root} 的「片名 (年份)」目录——源文件留在下载目录继续做种，删种不删片。"
-            )
-        return (
-            f"订阅命中本库的影片会投递到 {base}，下载完成后自动识别并复制进 "
-            f"{root} 的「片名 (年份)」目录——源文件保留在下载目录。"
-        )
+            return t("subscription.health.watchNoRootNarrative", base=base)
+        return t("subscription.health.watchNarrative", base=base, root=root, strategy=rule.strategy)
     if mode == "inplace":
-        return (
-            f"订阅命中本库的影片会以「片名 (年份)」目录直接下载进 {base}，"
-            "下载完成即在库内，扫描自动入账。"
-        )
-    return "库没有根路径：下载会落到下载器默认目录，不会自动入库。"
+        return t("subscription.health.directNarrative", base=base)
+    return t("subscription.health.noRootNarrative")
 
 
-# 修复去处 → 默认跳转按钮文案（与前端 fixTarget 的词表一致）
+# 修复去处 → 默认跳转按钮文案键（与前端 fixTarget 的词表一致）
 _FIX_LABELS = {
-    "sites": "去接入站点",
-    "downloaders": "去下载器设置",
-    "import-watch": "去监听导入",
-    "libraries": "去媒体库",
+    "sites": "subscription.health.goSites",
+    "downloaders": "subscription.health.goDownloaders",
+    "import-watch": "subscription.health.goWatch",
+    "libraries": "subscription.health.goLibraries",
 }
 
 
@@ -306,15 +294,15 @@ def _aggregate_issues(
             HealthIssue(
                 key="sites",
                 status=site_check.status,
-                title="资源站点不可用",
+                title=t("subscription.health.sitesIssue"),
                 detail=site_check.detail,
                 options=[
                     FixOption(
-                        title="接入或修复资源站点",
-                        why="订阅的一切从站点搜索开始，没有可用站点就搜不到任何资源。",
-                        steps="到「资源站点」接入站点，或修复失效的登录态（如更新 Cookie）。",
+                        title=t("subscription.health.sitesFix"),
+                        why=t("subscription.health.sitesWhy"),
+                        steps=t("subscription.health.sitesSteps"),
                         fix_section="sites",
-                        fix_label=_FIX_LABELS["sites"],
+                        fix_label=t(_FIX_LABELS["sites"]),
                     )
                 ],
             )
@@ -325,15 +313,15 @@ def _aggregate_issues(
             HealthIssue(
                 key="downloader",
                 status="error",
-                title="没有可用的默认下载器",
-                detail="订阅只能记录想要的内容，无法真实下载。",
+                title=t("subscription.health.downloaderIssue"),
+                detail=t("subscription.health.downloaderDetail"),
                 options=[
                     FixOption(
-                        title="接入下载器并设为默认",
-                        why="找到的资源要交给 qBittorrent / Transmission 完成下载。",
-                        steps="到「下载器」添加实例，确保连接测试通过并设为默认。",
+                        title=t("subscription.health.downloaderFix"),
+                        why=t("subscription.health.downloaderWhy"),
+                        steps=t("subscription.health.downloaderSteps"),
                         fix_section="downloaders",
-                        fix_label=_FIX_LABELS["downloaders"],
+                        fix_label=t(_FIX_LABELS["downloaders"]),
                     )
                 ],
             )
@@ -347,48 +335,33 @@ def _aggregate_issues(
         names = [p.library_name for p, _ in mapping_hits]
         # 受影响的类型（去重保序）：监听导入选项据此建议建几条 auto 规则
         kinds = list(dict.fromkeys(p.kind for p, _ in mapping_hits))
-        kind_labels = "、".join("电影" if k == "movie" else "剧集" for k in kinds)
+        kind_labels = ("、" if current_locale.get() == "zh-Hans" else ", ").join(
+            t("subscription.health.movie") if k == "movie" else t("subscription.health.tv")
+            for k in kinds
+        )
         anchor = common_root or mapping_hits[0][0].path or ""
         issues.append(
             HealthIssue(
                 key="mapping",
                 status="error",
-                title=f"下载器「{downloader.name}」的路径映射没有覆盖媒体库目录",
-                detail=(
-                    f"{len(names)} 个库的投递目录都不在映射覆盖范围内——这是同一个"
-                    "原因，修一处即可，不需要逐库配置。修复前投递会被拒绝"
-                    "（工单不会丢，修好后自动重试）。"
-                ),
+                title=t("subscription.health.mappingIssue", name=downloader.name),
+                detail=t("subscription.health.mappingDetail", count=len(names)),
                 affected_libraries=names,
                 options=[
                     FixOption(
-                        title="补一条公共父目录映射（改动最小）",
-                        why=(
-                            "映射按目录前缀覆盖：一条公共父目录的映射即可覆盖其下"
-                            "所有库。适合下载器能直接访问媒体库目录、愿意让下载"
-                            "文件直接落在库内的部署。"
-                        ),
-                        steps=(
-                            f"添加映射：本机 {anchor} → 下载器视角的对应路径"
-                            "（下载器可直达同名路径时，两边填相同的即可）。"
-                        ),
+                        title=t("subscription.health.mappingFix"),
+                        why=(t("subscription.health.mappingWhy")),
+                        steps=(t("subscription.health.mappingSteps", anchor=anchor)),
                         fix_section="downloaders",
-                        fix_label="去补映射",
+                        fix_label=t("subscription.health.goMapping"),
                         fix_params={"suggest_mapping": anchor} if anchor else None,
                     ),
                     FixOption(
-                        title="改用监听导入（下载区与库分离）",
-                        why=(
-                            "投递改走独立的下载目录，映射只需覆盖下载目录，媒体库"
-                            "分得再细也不影响下载器配置；下载完成后硬链接/复制进库，"
-                            "源文件继续做种、删种不删片——PT 保种推荐。"
-                        ),
-                        steps=(
-                            f"为{kind_labels}各建一条「自动路由」规则，源目录选"
-                            "下载器的下载目录（不能在媒体库根路径之下）。"
-                        ),
+                        title=t("subscription.health.watchFix"),
+                        why=(t("subscription.health.watchWhy")),
+                        steps=(t("subscription.health.watchSteps", kinds=kind_labels)),
                         fix_section="import-watch",
-                        fix_label="去建规则",
+                        fix_label=t("subscription.health.goRule"),
                         fix_params={"suggest": "auto", "kinds": ",".join(kinds)},
                     ),
                 ],
@@ -398,10 +371,10 @@ def _aggregate_issues(
     # —— 其余红黄项：detail 相同即同一根因，受影响库合并成一张单选项卡。
     # 标题按 (key, status) 给人话版本，兜底退回检查项的段落名
     titles = {
-        ("dispatch_dir", "error"): "媒体库没有根路径，无法自动入库",
-        ("transfer_disk", "error"): "硬链接无法跨文件系统工作",
-        ("transfer_disk", "warn"): "硬链接同盘暂时无法检测",
-        ("watch_active", "warn"): "目录监听未生效，入库会不及时",
+        ("dispatch_dir", "error"): t("subscription.health.rootIssue"),
+        ("transfer_disk", "error"): t("subscription.health.diskIssue"),
+        ("transfer_disk", "warn"): t("subscription.health.diskPending"),
+        ("watch_active", "warn"): t("subscription.health.watchIssue"),
     }
     grouped: dict[tuple[str, str], list[tuple[LibraryPipeline, HealthCheck]]] = {}
     for pipeline in pipelines:
@@ -421,11 +394,11 @@ def _aggregate_issues(
                 affected_libraries=[p.library_name for p, _ in hits],
                 options=[
                     FixOption(
-                        title=f"处理「{check.label}」",
+                        title=t("subscription.health.handleCheck", label=check.label),
                         why="",
                         steps=detail,
                         fix_section=section,
-                        fix_label=_FIX_LABELS.get(section, "去处理"),
+                        fix_label=t(_FIX_LABELS.get(section, "subscription.health.goFix")),
                     )
                 ],
             )
@@ -477,9 +450,9 @@ async def pipeline_health(session: AsyncSession) -> dict:
             checks.append(
                 HealthCheck(
                     key="downloader",
-                    label="下载器",
+                    label=t("subscription.health.downloader"),
                     status="error",
-                    detail="没有可用的默认下载器——订阅只能记录意愿，无法真实下载",
+                    detail=t("subscription.health.noDownloader"),
                     fix_section="downloaders",
                 )
             )
@@ -487,9 +460,9 @@ async def pipeline_health(session: AsyncSession) -> dict:
             checks.append(
                 HealthCheck(
                     key="downloader",
-                    label="下载器",
+                    label=t("subscription.health.downloader"),
                     status="ok",
-                    detail=f"默认下载器「{downloader.name}」已就绪",
+                    detail=t("subscription.health.downloaderReady", name=downloader.name),
                 )
             )
 
@@ -503,23 +476,23 @@ async def pipeline_health(session: AsyncSession) -> dict:
             checks.append(
                 HealthCheck(
                     key="dispatch_dir",
-                    label="投递目录",
+                    label=t("subscription.health.dispatch"),
                     status="error",
-                    detail="库没有根路径，下载会落到下载器默认目录且不会自动入库",
+                    detail=t("subscription.health.noRoot"),
                     fix_section="libraries",
                 )
             )
         elif mode == "watch":
             staging = getattr(rule, "target_path", None)
             detail = (
-                f"投递到监听导入目录 {base}，下载完成后整理到 {staging}（外部流转后回库根入账）"
+                t("subscription.health.watchStaging", base=base, staging=staging)
                 if staging
-                else f"投递到监听导入目录 {base}，下载完成后自动整理入库"
+                else t("subscription.health.watchImport", base=base)
             )
             checks.append(
                 HealthCheck(
                     key="dispatch_dir",
-                    label="投递目录",
+                    label=t("subscription.health.dispatch"),
                     status="ok",
                     detail=detail,
                 )
@@ -528,9 +501,9 @@ async def pipeline_health(session: AsyncSession) -> dict:
             checks.append(
                 HealthCheck(
                     key="dispatch_dir",
-                    label="投递目录",
+                    label=t("subscription.health.dispatch"),
                     status="ok",
-                    detail=f"直接下载进库根 {base}，完成后库扫描自动入账",
+                    detail=t("subscription.health.directImport", base=base),
                 )
             )
 
@@ -539,26 +512,22 @@ async def pipeline_health(session: AsyncSession) -> dict:
                 checks.append(
                     HealthCheck(
                         key="mapping",
-                        label="路径映射",
+                        label=t("subscription.health.mapping"),
                         status="ok",
-                        detail=f"投递目录已被「{downloader.name}」的路径映射覆盖",
+                        detail=t("subscription.health.mappingReady", name=downloader.name),
                     )
                 )
             else:
                 checks.append(
                     HealthCheck(
                         key="mapping",
-                        label="路径映射",
+                        label=t("subscription.health.mapping"),
                         status="error",
-                        detail=(
-                            f"目录 {base} 不在下载器「{downloader.name}」的路径映射"
-                            "覆盖范围内，投递会被拒绝。修复二选一：① 补一条路径"
-                            "映射——映射按目录前缀覆盖，映射公共父目录（本机 "
-                            f"{common_root or base} → 下载器视角的对应路径，下载器"
-                            "可直达同名路径时两边填相同的）即可一条覆盖其下所有库，"
-                            "无需逐库配置；② 为库配置监听导入规则（自动路由）——"
-                            "投递会改走独立的下载目录，路径映射只需覆盖那个下载"
-                            "目录，媒体库分得再细也不影响下载器配置"
+                        detail=t(
+                            "subscription.health.mappingMissing",
+                            base=base,
+                            name=downloader.name,
+                            anchor=common_root or base,
                         ),
                         fix_section="downloaders",
                     )

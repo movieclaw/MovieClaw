@@ -5,6 +5,7 @@ import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
@@ -12,6 +13,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.intl.LocaleList
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,6 +57,29 @@ fun Text(
         softWrap,
         maxLines,
         minLines,
+    )
+}
+
+/**
+ * 颜色在绘制时才取（[color] 里读动画值）：行标题这种随焦点变色的字，变色的每一帧只重画、不重组。
+ * 样式里的颜色不再起作用
+ */
+@Composable
+fun Text(
+    text: String,
+    color: ColorProducer,
+    modifier: Modifier = Modifier,
+    overflow: TextOverflow = TextOverflow.Clip,
+    maxLines: Int = Int.MAX_VALUE,
+    style: TextStyle = LocalTextStyle.current,
+) {
+    BasicText(
+        text,
+        modifier,
+        merged(style, Color.Unspecified, TextUnit.Unspecified, null, null, null, TextUnit.Unspecified, null, null, TextUnit.Unspecified),
+        overflow = overflow,
+        maxLines = maxLines,
+        color = color,
     )
 }
 
@@ -114,4 +139,19 @@ private fun merged(
     textDecoration = textDecoration,
     fontStyle = fontStyle,
     letterSpacing = letterSpacing,
-)
+).let { it.copy(fontWeight = tvWeight(it.fontWeight), localeList = it.localeList ?: ZhHans) }
+
+/*
+ * 字形与字重（同手机端用系统字体，不打包中文字体）：
+ * - 语言固定简体中文：系统语言是繁体 / 英文 / 日文的盒子上，汉字与标点也按简体中文排（标点在左下、字形是大陆规范）；
+ * - 字重只用常规与粗两档：电视盒子常见的 Android 9–11 系统中文字体只有常规一个字重。500 时西文数字是 Roboto Medium、
+ *   汉字还是常规，「第 1 季第 60 集」数字比汉字粗一截；600 时汉字被系统加粗、西文却是 Medium / Bold 之间——一行里粗细不齐。
+ *   按 500 及以下 → 常规、600 及以上 → 粗归档，中西文粗细一致（带完整字重的系统上看着也只是半粗 → 粗）
+ */
+private val ZhHans = LocaleList("zh-CN")
+
+internal fun tvWeight(weight: FontWeight?): FontWeight? = when {
+    weight == null -> null
+    weight.weight >= 600 -> FontWeight.Bold
+    else -> FontWeight.Normal
+}

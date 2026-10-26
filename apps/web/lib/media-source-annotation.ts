@@ -1,3 +1,6 @@
+import { appTranslator } from "./i18n/translate.ts";
+import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
+
 /**
  * 片源人工标注的纯逻辑（docs/design/media-source-annotation.md）。
  *
@@ -34,45 +37,49 @@ export interface MediaSourceOption {
   destructive?: boolean;
 }
 
-export const MEDIA_SOURCE_OPTIONS: MediaSourceOption[] = [
-  {
-    value: "Remux",
-    label: "Remux",
-    consequence: "原盘无损重封装，可标注的最高档；达到任何洗版目标，停止洗版",
-  },
-  {
-    value: "Blu-ray",
-    label: "蓝光重编码",
-    consequence: "蓝光碟压制；高于 WEB-DL 目标，仅低于 Remux 目标",
-  },
-  {
-    value: "WEB-DL",
-    label: "WEB-DL",
-    consequence: "流媒体原流；洗版目标为 WEB-DL 时即达标停洗",
-  },
-  {
-    value: "WEBRip",
-    label: "WEBRip",
-    consequence: "流媒体二压；低于 WEB-DL 及以上目标，会自动洗版替换",
-  },
-  {
-    value: "HDTV",
-    label: "TV 录制",
-    consequence: "电视录制；低于洗版目标，会自动洗版替换",
-  },
-  {
-    value: USER_LOWEST_SOURCE,
-    label: "不确定（按最低档）",
-    consequence: "按最差处理：整季会重新下载，替换为可证明达标的版本",
-    destructive: true,
-  },
-];
+export function mediaSourceOptions(locale: AppLocale = requestLocale() ?? "zh-Hans"): MediaSourceOption[] {
+  const t = appTranslator(locale);
+  return [
+    {
+      value: "Remux",
+      label: "Remux",
+      consequence: t("library.sourceAnnotation.remuxHint"),
+    },
+    {
+      value: "Blu-ray",
+      label: t("library.sourceAnnotation.blurayLabel"),
+      consequence: t("library.sourceAnnotation.blurayHint"),
+    },
+    {
+      value: "WEB-DL",
+      label: "WEB-DL",
+      consequence: t("library.sourceAnnotation.webDlHint"),
+    },
+    {
+      value: "WEBRip",
+      label: "WEBRip",
+      consequence: t("library.sourceAnnotation.webRipHint"),
+    },
+    {
+      value: "HDTV",
+      label: t("library.sourceAnnotation.hdtvLabel"),
+      consequence: t("library.sourceAnnotation.hdtvHint"),
+    },
+    {
+      value: USER_LOWEST_SOURCE,
+      label: t("library.sourceAnnotation.lowestLabel"),
+      consequence: t("library.sourceAnnotation.lowestHint"),
+      destructive: true,
+    },
+  ];
+}
 
 /** 片源值 → 展示名：哨兵值与内部档位值不能直接亮给用户。 */
-export function mediaSourceDisplayLabel(value: string | null | undefined): string | null {
+export function mediaSourceDisplayLabel(value: string | null | undefined, locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
+  const t = appTranslator(locale);
   if (!value) return null;
-  if (value === USER_LOWEST_SOURCE) return "最低档（人工标注）";
-  if (value === DISC_SOURCE) return "原盘";
+  if (value === USER_LOWEST_SOURCE) return t("media.sources.lowestManual");
+  if (value === DISC_SOURCE) return t("media.sources.disc");
   return value;
 }
 

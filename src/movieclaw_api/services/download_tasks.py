@@ -26,15 +26,18 @@ from movieclaw_api.exceptions import (
     ConflictException,
     NotFoundException,
     UpstreamServiceException,
+    exception_fields,
 )
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import reference, render_value, stored_message
 from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
+from movieclaw_api.services.subscription import render_note, set_note
 from movieclaw_db.models import (
     BoostTaskState,
     ConfigStatus,
     DownloadAttemptStatus,
     DownloaderClient,
     FileState,
-    Library,
     LibraryFile,
     ManualDownloadIntent,
     MediaItem,
@@ -121,27 +124,38 @@ def _delivery_plan_resolver(session: AsyncSession):
     在这里另抄一份迟早出现"卡片说好、投递却挂"的口径漂移（见
     SavePathDecision 的文档）。折中办法是按 (库, 类型, 片名, 年份) 记忆化：
     同一部作品的多条任务只算一次，组合数被在途作品数封顶。
+
+    选库同理：订阅没定格库（library_id 为 NULL）时，真实投递经
+    ``resolve_for_subscription`` 按条目收藏范围路由（兜底默认库），这里必须
+    走同一个入口，否则会把"未手动指定库"误报成"未配置媒体库、不会自动入库"
+    （#994）。轮询视图只读本地刮削档案做路由事实，不打 TMDB。
     """
+    from movieclaw_api.services.library.config import LibraryConfigService
     from movieclaw_api.services.library.routing import resolve_save_path
 
-    libraries: dict[int, Library] = {}
-    cache: dict[tuple[int | None, str, str | None, int | None], dict[str, Any] | None] = {}
+    libraries = LibraryConfigService(session)
+    PlanKey = tuple[int | None, int | None, str, str | None, int | None]
+    cache: dict[PlanKey, dict[str, Any] | None] = {}
 
     async def resolve(
-        library_id: int | None, kind: str | None, title: str | None, year: int | None
+        library_id: int | None,
+        kind: str | None,
+        title: str | None,
+        year: int | None,
+        item: MediaItem | None = None,
     ) -> dict[str, Any] | None:
         if not kind:
             return None
-        key = (library_id, kind, title, year)
+        # 库未定格时选库取决于条目本身（收藏范围），缓存键要带上条目
+        routed_item_id = item.id if library_id is None and item is not None else None
+        key = (library_id, routed_item_id, kind, title, year)
         if key in cache:
             return cache[key]
-        if library_id is not None and library_id not in libraries:
-            row = await session.get(Library, library_id)
-            if row is not None:
-                libraries[library_id] = row
-        library = libraries.get(library_id) if library_id is not None else None
+        library = await libraries.resolve_for_subscription(
+            library_id, kind, item=item, remote_facts=False
+        )
         decision = await resolve_save_path(
-            session, library, kind=kind, title=title, year=year
+            session, library, kind=kind, title=title, year=year, item=item
         )
         rule = decision.rule
         # 自定义目录规则：整理改名后落规则目录、**不进任何库**，后续由库根
@@ -160,7 +174,8 @@ def _delivery_plan_resolver(session: AsyncSession):
             "strategy": rule.strategy if rule is not None else None,
             "library_name": None if custom_dir else (library.name if library else None),
             "dest_path": dest_path,
-            "enters_library": not custom_dir,
+            # 落下载器默认目录时谁也搬不动它，不能同时宣称"会入库"
+            "enters_library": not custom_dir and decision.mode != "downloader_default",
         }
         cache[key] = plan
         return plan
@@ -206,6 +221,7 @@ async def _relations(
             "_library_id": subscription.library_id,
             "_kind": subscription.kind,
             "_year": media.year,
+            "_media": media,
         }
         subscription_meta[key] = meta
         base_meta_by_subscription[subscription.id] = meta
@@ -325,6 +341,7 @@ async def _relations(
             "_library_id": subscription.library_id,
             "_kind": subscription.kind,
             "_year": media.year,
+            "_media": media,
         }
         subscription_meta[key] = {
             **base_meta,
@@ -340,7 +357,7 @@ async def _relations(
             "_attempt_downloader_id": attempt.downloader_id,
             "_last_progress_at": attempt.last_progress_at,
             "_next_search_at": attempt.next_search_at,
-            "_cleanup_note": attempt.cleanup_note,
+            "_cleanup_note": render_note(attempt.cleanup_note, attempt.cleanup_note_ref),
             # 内容核验证明本种子不含的集：下载完成 ≠ 这一集会到手，卡片必须
             # 说"内容不符"而不是继续挂"等待下载完成"
             "_content_missing": content_missing_units,
@@ -382,6 +399,7 @@ async def _relations(
                     meta.get("_kind") or meta.get("media_kind"),
                     meta.get("media_title"),
                     meta.get("_year"),
+                    meta.get("_media"),
                 ),
                 "units": [
                     {
@@ -425,7 +443,7 @@ async def _relations(
             "media_kind": media.kind,
             "poster_url": _poster_url(media),
             "_plan": await resolve_plan(
-                intent.library_id, media.kind, media.title, media.year
+                intent.library_id, media.kind, media.title, media.year, media
             ),
         }
         for intent, media in manual_rows
@@ -640,9 +658,9 @@ def _task_dict(
         or (manual or {}).get("site_id")
         or (boost or {}).get("site_id")
     )
-    quality = next(
-        (entry["_quality"] for entry in subscriptions if entry.get("_quality")), None
-    ) or {}
+    quality = (
+        next((entry["_quality"] for entry in subscriptions if entry.get("_quality")), None) or {}
+    )
     no_progress_seconds = None
     if rescue is not None and rescue.get("_last_progress_at") is not None:
         last_progress = rescue["_last_progress_at"]
@@ -742,25 +760,25 @@ def _rescue_message(
     next_search_at,
     cleanup_note: str | None,
 ) -> str | None:
-    """把换源状态渲染成任务中心可直接显示的中文解释。"""
+    """把换源状态渲染成任务中心可直接显示的解释（按请求语言）。"""
     if state == DownloadAttemptStatus.TRIAL:
-        return "正在验证同品质替代源；新源产生至少 1 MiB 真实进度后才会切换旧源"
+        return t("download.rescue.trial")
     if state == DownloadAttemptStatus.REPLACEMENT_PENDING:
         if next_search_at is None:
-            return "已投递同品质替代源，正在等待真实下载进度"
+            return t("download.rescue.submitted")
         if next_search_at <= datetime.now(UTC).replace(tzinfo=None):
-            return "旧源仍保留，正在跨站寻找同品质替代源"
-        return "暂未找到同品质替代源，旧源继续保留；系统会按退避计划重新跨站搜索"
+            return t("download.rescue.searching")
+        return t("download.rescue.backoff")
     if state == DownloadAttemptStatus.RETAINED:
-        return cleanup_note or "换源已完成；旧任务因安全条件不足而保留"
+        return cleanup_note or t("download.rescue.retained")
     if state == DownloadAttemptStatus.CLEANUP_PENDING:
-        return cleanup_note or "替代源已接管，正在安全清理旧任务"
+        return cleanup_note or t("download.rescue.cleanupPending")
     if (
         state == DownloadAttemptStatus.ACTIVE
         and no_progress_seconds is not None
         and no_progress_seconds >= 15 * 60
     ):
-        return "已连续 15 分钟没有下载进度；可立即换种，30 分钟时系统会自动处理"
+        return t("download.rescue.noProgress")
     return None
 
 
@@ -769,10 +787,12 @@ async def _open_downloader_adapter(session: AsyncSession, downloader_id: int):
     repository = DownloaderRepository(session)
     row = await repository.get(downloader_id)
     if row is None:
-        raise NotFoundException(f"下载器不存在：id={downloader_id}")
+        raise NotFoundException(
+            message_key="errors.download.downloaderMissing", params={"id": downloader_id}
+        )
     adapter = create_downloader(
         DownloaderConfig(
-            type=row.client_type.value,
+            type=row.client_type,
             url=row.url,
             username=row.username,
             password=repository.decrypted_password(row),
@@ -791,7 +811,7 @@ async def get_downloader_limits(session: AsyncSession, downloader_id: int) -> Do
     try:
         return await adapter.get_limits()
     except DownloaderException as exc:
-        raise UpstreamServiceException(exc.message) from exc
+        raise UpstreamServiceException(**exception_fields(exc)) from exc
     finally:
         try:
             await adapter.close()
@@ -808,7 +828,7 @@ async def set_downloader_limits(
         await adapter.set_limits(limits)
         return await adapter.get_limits()
     except DownloaderException as exc:
-        raise UpstreamServiceException(exc.message) from exc
+        raise UpstreamServiceException(**exception_fields(exc)) from exc
     finally:
         try:
             await adapter.close()
@@ -835,7 +855,7 @@ class DeletePlan:
 def _adapter_for(repository: DownloaderRepository, row: Any) -> Any:
     return create_downloader(
         DownloaderConfig(
-            type=row.client_type.value,
+            type=row.client_type,
             url=row.url,
             username=row.username,
             password=repository.decrypted_password(row),
@@ -932,7 +952,9 @@ async def plan_delete_download_task(
     repository = DownloaderRepository(session)
     row = await repository.get(downloader_id)
     if row is None:
-        raise NotFoundException(f"下载器不存在：id={downloader_id}")
+        raise NotFoundException(
+            message_key="errors.download.downloaderMissing", params={"id": downloader_id}
+        )
     normalized_hash = info_hash.lower()
     exists: bool | None
     title: str | None = None
@@ -966,23 +988,57 @@ async def plan_delete_download_task(
     )
 
 
+async def download_task_finished(
+    session: AsyncSession, *, downloader_id: int, info_hash: str
+) -> bool:
+    """这个任务的活儿是不是都干完了：下载器确认已下完，且名下没有还在途（未入库）的订阅单元。
+
+    多文件种子（季包、合集）里的文件先后入库，一集先腾空不代表整包下完（issue #943）。
+    下载器连不上、任务不在了都答「没干完」——拿不准就别删。
+    """
+    normalized_hash = info_hash.lower()
+    _, affected = await _affected(session, normalized_hash)
+    if any(target_rows for _, target_rows in affected):
+        return False
+    repository = DownloaderRepository(session)
+    row = await repository.get(downloader_id)
+    if row is None:
+        return False
+    adapter = _adapter_for(repository, row)
+    try:
+        status = await adapter.get_torrent(normalized_hash, include_files=False)
+    except DownloaderException:
+        return False
+    finally:
+        try:
+            await adapter.close()
+        except Exception:  # noqa: BLE001
+            logger.warning("关闭下载器「%s」连接失败", row.name, exc_info=True)
+    return status is not None and status.completed
+
+
 async def delete_download_task(
     session: AsyncSession,
     *,
     downloader_id: int,
     info_hash: str,
     delete_files: bool = False,
+    by_user: bool = True,
 ) -> None:
     """从指定下载器删除一个种子任务。
 
     下载器 ID 与 infohash 共同定位，避免多下载器场景误删同名任务。默认只
     移除任务；用户显式选择时才同时删除数据文件。底层删除保持幂等，因此
     用户确认期间任务恰好自行消失也返回成功。
+
+    ``by_user=False``：系统自动清理（网盘库腾空本地后），不把订阅动态说成用户的操作。
     """
     repository = DownloaderRepository(session)
     row = await repository.get(downloader_id)
     if row is None:
-        raise NotFoundException(f"下载器不存在：id={downloader_id}")
+        raise NotFoundException(
+            message_key="errors.download.downloaderMissing", params={"id": downloader_id}
+        )
 
     normalized_hash = info_hash.lower()
     if hooks.active(hooks.TORRENT_BEFORE_DELETE):
@@ -995,7 +1051,9 @@ async def delete_download_task(
         )
         if veto is not None:
             logger.info("插件否决了删除下载任务 hash=%s：%s", normalized_hash, veto.reason)
-            raise ConflictException(f"插件不允许删除这个下载任务：{veto.reason}")
+            raise ConflictException(
+                message_key="errors.download.pluginDeleteVeto", params={"reason": veto.reason}
+            )
     adapter = _adapter_for(repository, row)
     try:
         await adapter.delete_torrent(normalized_hash, delete_files=delete_files)
@@ -1006,7 +1064,7 @@ async def delete_download_task(
             normalized_hash,
             exc.message,
         )
-        raise UpstreamServiceException(exc.message) from exc
+        raise UpstreamServiceException(**exception_fields(exc)) from exc
     finally:
         try:
             await adapter.close()
@@ -1030,6 +1088,10 @@ async def delete_download_task(
         logger.info("已清理被删除手动任务的身份锚：hash=%s", normalized_hash)
 
     for attempt, target_rows in affected:
+        if target_rows and not by_user:
+            # 系统清理只在没有在途单元时才删（download_task_finished）；真撞上竞态就交给巡检，
+            # 它会按「任务消失」如实退回，而不是说成用户删的
+            continue
         if target_rows:
             # 工单仍在域内：用户亲手删掉了它的主源。"消失"在这里是确定事实，
             # 不必等巡检连续三次确认（约 15 分钟）——那段时间里任务中心会先冒出
@@ -1046,7 +1108,12 @@ async def delete_download_task(
             continue
         attempt.status = DownloadAttemptStatus.CANCELLED
         attempt.next_search_at = None
-        attempt.cleanup_note = "关联单元不在当前订阅范围；用户删除下载器任务后停止观察"
+        set_note(
+            attempt,
+            reference("subscription.attempt.userDeletedOutOfScope")
+            if by_user
+            else reference("subscription.attempt.cloudVacated"),
+        )
         attempt.updated_at = utcnow()
         session.add(attempt)
         changed = True
@@ -1120,7 +1187,9 @@ async def _landing_errors(session: AsyncSession) -> dict[tuple[int, str], str]:
         subscription_id = payload.get("subscription_id")
         info_hash = payload.get("info_hash")
         if isinstance(subscription_id, int) and isinstance(info_hash, str):
-            result[(subscription_id, info_hash.lower())] = notice.message
+            result[(subscription_id, info_hash.lower())] = stored_message(
+                notice.message, notice.message_key, notice.message_params
+            )
     return result
 
 
@@ -1147,9 +1216,17 @@ async def download_task_snapshot(session: AsyncSession) -> dict[str, list[dict[s
             "task_count": 0,
         }
         if not row.enabled:
-            return {**base, "status": "disabled", "message": "下载器已停用"}, [], {}
+            return (
+                {**base, "status": "disabled", "message": t("download.rescue.downloaderDisabled")},
+                [],
+                {},
+            )
         if row.status != ConfigStatus.ACTIVE:
-            message = row.last_error or "下载器尚未通过连接验证"
+            message = (
+                render_value(row.last_error_ref)
+                if row.last_error_ref
+                else row.last_error or t("download.rescue.downloaderUnverified")
+            )
             return {**base, "status": "unavailable", "message": message}, [], {}
 
         adapter = None
@@ -1159,7 +1236,7 @@ async def download_task_snapshot(session: AsyncSession) -> dict[str, list[dict[s
             # 来源区给出可读错误，而不是让其它下载器的健康任务一起消失。
             adapter = create_downloader(
                 DownloaderConfig(
-                    type=row.client_type.value,
+                    type=row.client_type,
                     url=row.url,
                     username=row.username,
                     password=repository.decrypted_password(row),
@@ -1188,11 +1265,15 @@ async def download_task_snapshot(session: AsyncSession) -> dict[str, list[dict[s
                     completed_manual[info_hash] = (row, detail)
         except Exception:  # noqa: BLE001 -- 单台失败必须降级，不能拖垮任务中心
             logger.exception("读取下载器「%s」的任务列表失败", row.name)
-            return {
-                **base,
-                "status": "error",
-                "message": "读取任务失败，请检查下载器连接",
-            }, [], {}
+            return (
+                {
+                    **base,
+                    "status": "error",
+                    "message": t("download.rescue.listFailed"),
+                },
+                [],
+                {},
+            )
         finally:
             if adapter is not None:
                 try:

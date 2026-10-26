@@ -22,12 +22,16 @@ func shortHelp(op Operation) string {
 	return op.Summary
 }
 
-// longHelp 拼出 summary + description + 示例 + 危险标注。
+// longHelp 拼出 summary + description + 接口 + 示例 + 危险标注。
+//
+// 接口一行（方法 + 路径）给写插件网页的人用：网页里 fetch 的就是这个地址，
+// 字段与命令的输出一致（docs/design/plugin-web-pages.md §2）。
 func longHelp(op Operation) string {
 	text := op.Summary
 	if op.Description != "" {
 		text = op.Summary + "\n\n" + op.Description
 	}
+	text += fmt.Sprintf("\n\n接口：%s %s", strings.ToUpper(op.Method), op.Path)
 	text += "\n\n示例：\n\n  " + exampleLine(op)
 	if op.Dangerous != "" {
 		label := "需确认"
@@ -62,14 +66,14 @@ func exampleLine(op Operation) string {
 	}
 	for _, p := range op.QueryParams() {
 		if p.Required {
-			parts = append(parts, fmt.Sprintf("--%s %s",
-				strings.ReplaceAll(p.Name, "_", "-"), exampleValue(p.Name, p.Schema, false)))
+			parts = append(parts, flagExample("--"+strings.ReplaceAll(p.Name, "_", "-"),
+				p.Schema, exampleValue(p.Name, p.Schema, false), false))
 		}
 	}
 	for _, f := range op.BodyFields {
 		if f.Required {
-			parts = append(parts, fmt.Sprintf("%s %s",
-				f.FlagName(), exampleValue(f.Name, f.Schema, f.Kind == "json")))
+			json := f.Kind == "json"
+			parts = append(parts, flagExample(f.FlagName(), f.Schema, exampleValue(f.Name, f.Schema, json), json))
 		}
 	}
 	if op.IsUpload {
@@ -82,6 +86,15 @@ func exampleLine(op Operation) string {
 		parts = append(parts, "--yes")
 	}
 	return strings.Join(parts, " ")
+}
+
+// flagExample 拼一个参数的示例。布尔参数必须写成 --flag=true：cobra 的布尔参数不接空格分隔的值，
+// 写成 --flag true 时 true 会被当成多出来的位置参数（「accepts 1 arg(s), received 2」）。
+func flagExample(flag string, schema Schema, value string, jsonValue bool) string {
+	if schema.Type == "boolean" && !jsonValue {
+		return flag + "=" + value
+	}
+	return flag + " " + value
 }
 
 // semanticExamples 给常见参数配可直接理解的值，避免对人和模型都无信息量的 <值>。

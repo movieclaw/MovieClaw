@@ -1,13 +1,20 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { type AppMessageKey } from "@/lib/i18n/translate";
+import { type AppLocale } from "@/lib/i18n/negotiate";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Toggle } from "@/components/cloud-push-ui";
 import { ExternalAccessSection } from "@/components/external-access-section";
+import { ServerAddressesSection } from "@/components/server-addresses-section";
 import { ChevronDownIcon } from "@/components/icons";
 import {
   SETTINGS_BUTTON_CLASS,
   SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
   SettingsList,
   SettingsRow,
   SettingsSaveStatus,
@@ -44,60 +51,69 @@ type TestState = { state: "pending" } | { state: "done"; result: NetworkTestResu
 
 const PROXY_URL_PATTERN = /^(http|https|socks5|socks5h):\/\//i;
 
-const PROXY_MODES: readonly { id: ProxyMode; label: string }[] = [
-  { id: "off", label: "不使用" },
-  { id: "env", label: "环境变量" },
-  { id: "manual", label: "手动" },
+const PROXY_MODES: readonly { id: ProxyMode; label: AppMessageKey }[] = [
+  { id: "off", label: "settings.network.proxy.off" },
+  { id: "env", label: "settings.network.proxy.env" },
+  { id: "manual", label: "settings.network.proxy.manual" },
 ];
 
 /** 代理方式的行内说明：随当前选中的方式换一句 */
-const PROXY_MODE_HINT: Record<ProxyMode, string> = {
-  off: "全部服务直连",
-  env: "代理地址取自 HTTPS_PROXY / ALL_PROXY 等环境变量",
-  manual: "直接填写代理地址，支持 http 与 socks5",
+const PROXY_MODE_HINT: Record<ProxyMode, AppMessageKey> = {
+  off: "settings.network.proxy.offHint",
+  env: "settings.network.proxy.envHint",
+  manual: "settings.network.proxy.manualHint",
 };
 
 /** 地址类输入框：等宽字体，窄屏收窄 */
 const URL_INPUT_CLASS = `${SETTINGS_INPUT_CLASS} w-64 font-mono max-sm:w-40`;
 
 export function NetworkConfigSection() {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
+
   const [view, setView] = useState<NetworkConfigView | null>(null);
   const [failed, setFailed] = useState(false);
   const [form, setForm] = useState<NetworkConfigPayload | null>(null);
   // 保存状态：idle 不占视觉；saving/saved/error 在页面右上角以一行小字反馈
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [proxyUrlError, setProxyUrlError] = useState<string | null>(null);
-  const [mirrorErrors, setMirrorErrors] = useState<Record<string, string>>({});
+  const [proxyUrlError, setProxyUrlError] = useMessageState();
+  const [mirrorErrors, setMirrorErrors] = useState<Record<string, boolean>>({});
   const [tests, setTests] = useState<Record<string, TestState>>({});
   const [advancedOpen, setAdvancedOpen] = useState(false);
   // 保存请求串行化：快速连点开关时按顺序落库，避免旧请求覆盖新配置
   const saveChain = useRef<Promise<unknown>>(Promise.resolve());
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const readGeneration = useRef(0);
   const reload = useCallback(() => {
+    const id = ++readGeneration.current;
     setFailed(false);
     getNetworkConfig()
       .then((v) => {
+        if (id !== readGeneration.current) return;
         setView(v);
-        setForm({
+        setForm((current) => current ?? ({
           proxy_mode: v.proxy_mode,
           proxy_url: v.proxy_url,
           proxy_services: v.proxy_services,
           tmdb_api_base_url: v.tmdb_api_base_url,
           tmdb_image_base_url: v.tmdb_image_base_url,
           douban_api_base_url: v.douban_api_base_url,
-        });
+          pypi_index_url: v.pypi_index_url,
+        }));
       })
-      .catch(() => setFailed(true));
+      .catch(() => { if (id === readGeneration.current) setFailed(true); });
   }, []);
 
   useEffect(() => {
     reload();
-    return () => {
-      if (savedTimer.current) clearTimeout(savedTimer.current);
-    };
-  }, [reload]);
+    return () => { readGeneration.current += 1; };
+  }, [reload, locale]);
+
+  useEffect(() => () => {
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+  }, []);
 
   /** 落库一份完整配置（串行）。手动模式地址为空/非法时只改表单不落库。 */
   const commit = useCallback((next: NetworkConfigPayload) => {
@@ -110,7 +126,7 @@ export function NetworkConfigSection() {
         return;
       }
       if (!PROXY_URL_PATTERN.test(url)) {
-        setProxyUrlError("地址需以 http:// 、socks5:// 或 socks5h:// 开头");
+        setProxyUrlError({ key: "settings.network.proxy.invalid" });
         return;
       }
     }
@@ -120,7 +136,7 @@ export function NetworkConfigSection() {
     saveChain.current = saveChain.current.then(() =>
       saveNetworkConfig(next)
         .then((v) => {
-          setView(v);
+          setView((current) => current ? { ...v, services: current.services, pypi_index_presets: current.pypi_index_presets } : v);
           // 后端会把镜像地址规范化（补 /3、/t/p，去末尾斜杠），回填让用户
           // 看到实际生效的地址；值没变就不会触发输入框重挂载
           setForm((prev) =>
@@ -143,7 +159,7 @@ export function NetworkConfigSection() {
           setSaveError((e as Error).message);
         }),
     );
-  }, []);
+  }, [setProxyUrlError]);
 
   const runTest = useCallback(
     (service: string) => {
@@ -174,15 +190,15 @@ export function NetworkConfigSection() {
   if (failed) {
     return (
       <div className="flex items-center gap-3">
-        <p className="text-ui text-[var(--text-muted)]">网络配置加载失败</p>
+        <p className="text-ui text-[var(--text-muted)]">{t("settings.network.proxy.loadFailed")}</p>
         <button type="button" onClick={reload} className="btn-glass px-3 py-1.5 text-sub font-medium">
-          重试
+          {t("settings.network.ui.retry")}
         </button>
       </div>
     );
   }
   if (!view || !form) {
-    return <p className="text-ui text-[var(--text-muted)]">正在加载网络配置…</p>;
+    return <p className="text-ui text-[var(--text-muted)]">{t("settings.network.proxy.loading")}</p>;
   }
 
   const proxyActive =
@@ -216,46 +232,42 @@ export function NetworkConfigSection() {
     <div className="space-y-10">
       {/* —— 代理 —— */}
       <SettingsSection
-        title="代理"
-        description="改动立即生效，无需重启。"
+        title={t("settings.network.proxy.title")}
+        description={t("settings.network.proxy.immediate")}
         // 保存状态挂在首个小节标题行右侧：不单占一行
-        action={<SettingsSaveStatus state={saveState} error={saveError} savedLabel="已保存，立即生效" />}
+        action={<SettingsSaveStatus state={saveState} error={saveError} savedLabel={t("settings.network.proxy.saved")} />}
       >
         <SettingsList>
-          <SettingsRow label="代理方式" description={PROXY_MODE_HINT[form.proxy_mode]}>
+          <SettingsRow stackOnMobile={locale === "en"} label={t("settings.network.proxy.mode")} description={t(PROXY_MODE_HINT[form.proxy_mode])}>
             <SettingsTabs
-              tabs={PROXY_MODES}
+              tabs={PROXY_MODES.map((option) => ({ ...option, label: t(option.label) }))}
               value={form.proxy_mode}
               onChange={(mode) => commit({ ...form, proxy_mode: mode })}
             />
           </SettingsRow>
 
           {form.proxy_mode === "env" && (
-            <SettingsRow
-              label="环境变量探测"
+            <SettingsRow stackOnMobile={locale === "en"}
+              label={t("settings.network.proxy.detection")}
               description={
                 view.env_proxy_detected
                   ? undefined
-                  : "未检测到 HTTPS_PROXY / HTTP_PROXY / ALL_PROXY。Docker 部署可通过 -e HTTPS_PROXY=… 传入；或改用「手动」直接填写。"
+                  : t("settings.network.proxy.noEnvHint")
               }
             >
               {view.env_proxy_detected ? (
                 <span className="font-mono text-sub text-[var(--text)]">{view.env_proxy_detected}</span>
               ) : (
-                <span className="text-sub text-[var(--warn)]">未发现代理地址</span>
+                <span className="text-sub text-[var(--warn)]">{t("settings.network.proxy.noEnv")}</span>
               )}
             </SettingsRow>
           )}
 
           {form.proxy_mode === "manual" && (
-            <SettingsRow
-              label="代理地址"
+            <SettingsRow stackOnMobile={locale === "en"}
+              label={t("settings.network.proxy.address")}
               description={
-                <>
-                  Clash / sing-box 等的 HTTP 或 SOCKS5 入站地址；要由代理端解析域名（对抗 DNS
-                  污染）用 <code>socks5h://</code>。
-                  {!form.proxy_url.trim() && " 填写后自动保存生效。"}
-                </>
+                t.rich("settings.network.proxy.addressHint", { empty: !form.proxy_url.trim() ? "yes" : "no", code: (chunks) => <code>{chunks}</code> })
               }
               error={proxyUrlError}
             >
@@ -265,7 +277,7 @@ export function NetworkConfigSection() {
                 onBlur={(e) => commit({ ...form, proxy_url: e.target.value.trim() })}
                 onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
                 placeholder="socks5://192.168.1.2:7891"
-                aria-label="代理地址"
+                aria-label={t("settings.network.proxy.address")}
                 className={URL_INPUT_CLASS}
               />
             </SettingsRow>
@@ -275,18 +287,17 @@ export function NetworkConfigSection() {
 
       {/* —— 走代理的服务 —— */}
       <SettingsSection
-        title="走代理的服务"
+        title={t("settings.network.proxy.services")}
         description={
           <>
-            按服务选择流量是否经过上面的代理；内网的下载器、媒体服务器永远直连，不在此列。
-            {!proxyActive && (
+            {t("settings.network.proxy.servicesHint")}{!proxyActive && (
               <span className="block text-[var(--text-faint)]">
-                当前无可用代理，开关已禁用（测试仍可用，测的是直连/镜像的连通性）
+                {t("settings.network.proxy.unavailable")}
               </span>
             )}
           </>
         }
-        footnote="经验默认：TMDB、图片回源与 Fanart.tv 走代理（国内被墙）；豆瓣与 PT 站直连通常更快，且部分 PT 站风控在意出口 IP，按需开启。「测试」按当前配置发一次真实请求，熔断中的服务测通后立即恢复。"
+        footnote={t("settings.network.proxy.defaults")}
       >
         <SettingsList>{serviceRows(builtinServices)}</SettingsList>
       </SettingsSection>
@@ -294,18 +305,74 @@ export function NetworkConfigSection() {
       {/* —— PT 站点（有已配置站点才出现）—— */}
       {siteServices.length > 0 && (
         <SettingsSection
-          title="PT 站点"
-          description="每个已配置的站点独立控制。国内 PT 站直连通常更快，且部分站点风控在意出口 IP——只给确实需要翻墙的站点开代理。"
+          title={t("settings.network.proxy.sites")}
+          description={t("settings.network.proxy.sitesHint")}
         >
           <SettingsList>{serviceRows(siteServices)}</SettingsList>
         </SettingsSection>
       )}
 
+      {/* —— 插件依赖的包索引（旧服务端没有这一项就不显示）—— */}
+      {view.pypi_index_presets && (
+        <SettingsSection title={t("settings.network.proxy.dependencies")}>
+          <SettingsList>
+            <SettingsRow stackOnMobile={locale === "en"}
+              label={t("settings.network.proxy.index")}
+              description={t("settings.network.proxy.indexHint")}
+              error={mirrorErrors.pypi_index_url ? t("settings.network.proxy.invalidHttp") : null}
+            >
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {Object.entries(view.pypi_index_presets).map(([name, url]) => {
+                  const current = form.pypi_index_url || view.mirror_defaults.pypi_index_url;
+                  const active = current === url;
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        setMirrorErrors((prev) => ({ ...prev, pypi_index_url: false }));
+                        const isDefault = url === view.mirror_defaults.pypi_index_url;
+                        commit({ ...form, pypi_index_url: isDefault ? "" : url });
+                      }}
+                      className={active ? SETTINGS_PRIMARY_BUTTON_CLASS : SETTINGS_BUTTON_CLASS}
+                    >
+                      {name}
+                    </button>
+                  );
+                })}
+                <input
+                  key={`pypi:${form.pypi_index_url ?? ""}`}
+                  type="text"
+                  defaultValue={form.pypi_index_url ?? ""}
+                  onBlur={(e) => {
+                    const value = e.target.value.trim();
+                    if (value && !/^https?:\/\//.test(value)) {
+                      setMirrorErrors((prev) => ({ ...prev, pypi_index_url: true }));
+                      return;
+                    }
+                    setMirrorErrors((prev) => ({ ...prev, pypi_index_url: false }));
+                    if (value !== (form.pypi_index_url ?? "")) commit({ ...form, pypi_index_url: value });
+                  }}
+                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  placeholder={view.mirror_defaults.pypi_index_url ?? ""}
+                  aria-label={t("settings.network.proxy.indexAria")}
+                  className={URL_INPUT_CLASS}
+                />
+              </div>
+            </SettingsRow>
+          </SettingsList>
+        </SettingsSection>
+      )}
+
+      {/* —— 访问地址：各端 App 在内网 / 外网之间自动选（独立组件，走访问地址接口）—— */}
+      <ServerAddressesSection />
+
       {/* —— 外部访问：外部访问地址 / 对外端口（独立组件，走应用配置接口）—— */}
       <ExternalAccessSection />
 
       {/* —— 高级：TMDB 镜像地址（默认折叠，行组里的折叠行）—— */}
-      <SettingsSection title="高级">
+      <SettingsSection title={t("settings.network.proxy.advanced")}>
         <SettingsList>
           <div>
             <button
@@ -315,9 +382,9 @@ export function NetworkConfigSection() {
               className="flex min-h-[56px] w-full items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
             >
               <span className="min-w-0 flex-1">
-                <span className="block text-body font-medium text-[var(--text)]">TMDB 镜像地址</span>
+                <span className="block text-body font-medium text-[var(--text)]">{t("settings.network.proxy.mirrors")}</span>
                 <span className="mt-0.5 block truncate text-caption text-[var(--text-faint)]">
-                  不走代理的替代方案
+                  {t("settings.network.proxy.mirrorsAlternative")}
                 </span>
               </span>
               <ChevronDownIcon
@@ -333,31 +400,27 @@ export function NetworkConfigSection() {
               }`}
             >
               <div className="overflow-hidden" inert={!advancedOpen}>
-                <p className="px-4 pb-3 text-caption leading-5 text-[var(--text-muted)]">
-                  解决「TMDB 不可达」有两条独立的路：代理让流量绕行（访问地址不变）；镜像把官方地址换成一个可直连的反代地址。
-                  有代理就不用配镜像，二选一即可；两者都设置时，请求会经代理去访问镜像地址。
-                  镜像可以是自建反代（nginx / Cloudflare Workers）或公共镜像，注意公共镜像会经手你的 API Key。
-                </p>
+                <p className="px-4 pb-3 text-caption leading-5 text-[var(--text-muted)]">{t("settings.network.proxy.mirrorExplanation")}</p>
                 <div className="divide-y divide-[var(--line)] border-t border-[var(--line)]">
                   {(
                     [
                       [
                         "tmdb_api_base_url",
-                        "接口地址",
-                        "替换 api.themoviedb.org（发现页/搜索/订阅建档用）。只填域名会自动补 /3；留空使用默认值",
+                        t("settings.network.proxy.apiAddress"),
+                        t("settings.network.proxy.apiHint"),
                       ],
                       [
                         "tmdb_image_base_url",
-                        "图床地址",
-                        "替换 image.tmdb.org（海报/背景图回源用）。只填域名会自动补 /t/p；留空使用默认值",
+                        t("settings.network.proxy.imageAddress"),
+                        t("settings.network.proxy.imageHint"),
                       ],
                     ] as const
                   ).map(([field, label, help]) => (
-                    <SettingsRow
+                    <SettingsRow stackOnMobile={locale === "en"}
                       key={field}
                       label={label}
                       description={help}
-                      error={mirrorErrors[field] || null}
+                      error={mirrorErrors[field] ? t("settings.network.proxy.invalidHttp") : null}
                     >
                       <input
                         // key 绑已落库的值：后端补全后回填时重挂载显示新值，
@@ -368,15 +431,15 @@ export function NetworkConfigSection() {
                         onBlur={(e) => {
                           const value = e.target.value.trim();
                           if (value && !/^https?:\/\//.test(value)) {
-                            setMirrorErrors((prev) => ({ ...prev, [field]: "需以 http(s):// 开头" }));
+                            setMirrorErrors((prev) => ({ ...prev, [field]: true }));
                             return;
                           }
-                          setMirrorErrors((prev) => ({ ...prev, [field]: "" }));
+                          setMirrorErrors((prev) => ({ ...prev, [field]: false }));
                           commit({ ...form, [field]: value });
                         }}
                         onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
                         placeholder={view.mirror_defaults[field] ?? ""}
-                        aria-label={`TMDB ${label}`}
+                        aria-label={t("settings.network.proxy.mirrorAria", { label })}
                         className={URL_INPUT_CLASS}
                       />
                     </SettingsRow>
@@ -410,13 +473,18 @@ function ServiceRow({
   onTest: () => void;
   onToggle: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale() as AppLocale;
+
   const pending = test?.state === "pending";
   const result = test?.state === "done" ? test.result : null;
+  const key = result?.message_key as AppMessageKey | undefined;
+  const message = key && t.has(key) ? t(key, result?.message_params ?? undefined) : result?.message;
   return (
-    <SettingsRow label={label} description={description}>
-      {pending && <span className="text-sub text-[var(--text-faint)]">测试中…</span>}
+    <SettingsRow stackOnMobile={locale === "en"} label={label} description={description}>
+      {pending && <span className="text-sub text-[var(--text-faint)]">{t("settings.network.proxy.testing")}</span>}
       {result && (
-        <Tooltip content={result.message} placement="top">
+        <Tooltip content={message} placement="top">
           <span
             className={`flex items-center gap-1.5 text-sub ${
               result.ok ? "text-[var(--ok)]" : "text-[var(--danger)]"
@@ -425,18 +493,18 @@ function ServiceRow({
             <span
               className={`size-1.5 rounded-full ${result.ok ? "bg-[var(--ok)]" : "bg-[var(--danger)]"}`}
             />
-            {result.ok ? (result.latency_ms !== null ? `连通 · ${result.latency_ms} ms` : "连通") : "不通"}
+            {result.ok ? (result.latency_ms !== null ? t("settings.network.proxy.latency", { latency: result.latency_ms }) : t("settings.network.proxy.connected")) : t("settings.network.proxy.unreachable")}
           </span>
         </Tooltip>
       )}
       <button type="button" onClick={onTest} disabled={pending} className={SETTINGS_BUTTON_CLASS}>
-        测试
+        {t("settings.network.proxy.test")}
       </button>
       <span className={toggleDisabled ? "opacity-40" : undefined}>
         <Toggle
           checked={enabled}
           disabled={toggleDisabled}
-          label={`${label} 走代理`}
+          label={t("settings.network.proxy.routeAria", { label })}
           onChange={onToggle}
         />
       </span>

@@ -53,6 +53,9 @@ val AccentStrong = Color(0xFFEEF2F8)
 /** --accent-2：实测 rgb(159,176,201)，用于类型文字/集数行/章节徽标 */
 val Accent2 = Color(0xFF9FB0C1)
 
+/** 进度条上可跳过的段（片头、广告等，docs/design/skip-intro.md §5）：琥珀色，同 Apple 端 Theme.skippable */
+val Skippable = Color(245, 184, 82)
+
 /** 语义色：实测值（此前用的 iOS 值 60A5FA / FBBF24 都不对） */
 val Info = Color(0xFF7FB0FF)
 val Warn = Color(0xFFF5C451)
@@ -147,8 +150,23 @@ val McTypeCaption2 = McType.micro
 object McMetrics {
     val pagePadding = 16.dp
     /** 顶栏动作钮 36×36 */
-    val navButton = 36.dp
+    /** 顶栏图标钮：**触屏档 44dp**（网页 `.nf-icon-btn` 的 `@media (pointer: coarse)` 值；
+     *  36px 是鼠标档，手机上一直用 36dp 偏小——2026-10-13 用户反馈返回键太小） */
+    val navButton = 44.dp
     /** 页签根页标题 16/600 在 x=12；子页标题 20/600 在 x=48，返回钮在 x=8 */
+    /**
+     * 顶栏动作区（胶囊 / 圆钮那一组）的垂直补偿：大标题用 display 号字时，行盒里包含
+     * ascent/descent，中文字形整体偏下——按行盒居中会让按钮看着比标题高一截
+     * （实机量到约 35px ≈ 12dp）。根页顶栏（发现页 / 媒体库）都套这一个值，保证两页一致。
+     * 用法是 `Modifier.offset(y = McMetrics.topBarActionsOffset)`：**不能用 padding**，
+     * padding 在 height 之内会把胶囊挤矮（44→32dp，实机反馈过"变小了"）。
+     *
+     * **只适用于「单个居中大标题」的根页**（媒体库 / 我的 / 活动）。发现页的标题组
+     * （「电影 + TMDB ▾」）是底对齐的，视觉中心本来就低——给它也套补偿会把整组推到
+     * 标题下面去（实机反馈过"改出问题了"），所以发现页**不要**用这个值。
+     */
+    val topBarActionsOffset = 12.dp
+
     val topBarHeight = 52.dp
     val topBarInsetRoot = 12.dp
     val topBarInsetSub = 8.dp

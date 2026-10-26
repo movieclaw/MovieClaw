@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import delete
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -36,6 +37,40 @@ class CacheRepository:
         else:
             row.payload = payload
             row.fetched_at = utcnow()
+        await self._session.commit()
+
+    async def get_many(self, namespace: str, keys: list[str]) -> dict[str, str]:
+        """批量读取：key → payload，不存在的 key 不出现在结果里。"""
+        found: dict[str, str] = {}
+        # 分块：SQLite 单条语句的参数上限是 999（老版本）
+        for start in range(0, len(keys), 900):
+            result = await self._session.execute(
+                select(CacheEntry.cache_key, CacheEntry.payload).where(
+                    CacheEntry.namespace == namespace,
+                    CacheEntry.cache_key.in_(keys[start : start + 900]),  # type: ignore[attr-defined]
+                )
+            )
+            found.update(result.tuples().all())
+        return found
+
+    async def put_many(self, namespace: str, items: dict[str, str]) -> None:
+        """批量新增或覆盖，一次提交。"""
+        if not items:
+            return
+        now = utcnow()
+        statement = sqlite_insert(CacheEntry)
+        rows = [
+            {"namespace": namespace, "cache_key": key, "payload": payload, "fetched_at": now}
+            for key, payload in items.items()
+        ]
+        for start in range(0, len(rows), 200):
+            await self._session.execute(
+                statement.on_conflict_do_update(
+                    index_elements=["namespace", "cache_key"],
+                    set_={"payload": statement.excluded.payload, "fetched_at": now},
+                ),
+                rows[start : start + 200],
+            )
         await self._session.commit()
 
     async def purge_older_than(self, cutoff: datetime) -> int:

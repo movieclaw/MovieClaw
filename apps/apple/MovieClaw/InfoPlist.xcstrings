@@ -1,0 +1,81 @@
+{
+  "sourceLanguage": "zh-Hans",
+  "strings": {
+    "NSLocalNetworkUsageDescription": {
+      "extractionState": "manual",
+      "generatesSymbol": false,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MovieClaw 需要访问局域网，用于自动发现并连接你自己部署的 MovieClaw 服务器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MovieClaw 需要访问局域网，用于自动发现并连接你自己部署的 MovieClaw 服务器。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MovieClaw uses your local network to discover and connect to your self-hosted MovieClaw server."
+          }
+        }
+      },
+      "comment": "System permission explanation; MovieClaw is an untranslated product name."
+    },
+    "NSPhotoLibraryUsageDescription": {
+      "extractionState": "manual",
+      "generatesSymbol": false,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择图片作为头像、媒体库封面或 AI 会话附件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择图片作为头像、媒体库封面或 AI 会话附件。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose photos for your avatar, library artwork or AI conversation attachments."
+          }
+        }
+      },
+      "comment": "System permission explanation; MovieClaw is an untranslated product name."
+    },
+    "NSCameraUsageDescription": {
+      "extractionState": "manual",
+      "generatesSymbol": false,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扫描电视、终端上的登录二维码，以及拍照作为 AI 会话的图片附件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扫描电视、终端上的登录二维码，以及拍照作为 AI 会话的图片附件。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan sign-in QR codes on TVs and terminals, or take photos for AI conversation attachments."
+          }
+        }
+      },
+      "comment": "System permission explanation; MovieClaw is an untranslated product name."
+    }
+  },
+  "version": "1.0"
+}

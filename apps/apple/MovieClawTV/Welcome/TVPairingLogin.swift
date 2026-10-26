@@ -27,9 +27,9 @@ struct TVPairingLogin: View {
     var body: some View {
         HStack(alignment: .center, spacing: 80) {
             VStack(alignment: .leading, spacing: 30) {
-                Text("用手机扫码登录")
+                Text(String(localized: .authPairingScan))
                     .font(.welcomeSerif(size: 52))
-                Text("用手机相机，或 iPhone 上 MovieClaw「我的」页右上角的扫码，扫右边的二维码后批准。不方便扫码的话，在任何已登录的电脑或手机浏览器里打开下面的地址，输入配对码。谁批准，这台 Apple TV 就登录成谁。")
+                Text(String(localized: .authPairingTvHint))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -46,10 +46,10 @@ struct TVPairingLogin: View {
                 statusLine
                 HStack(spacing: 24) {
                     if case .failed = status {
-                        Button("换一个码") { attempt += 1 }
+                        Button(String(localized: .authPairingNewCode)) { attempt += 1 }
                             .accessibilityIdentifier("tv-pairing-retry")
                     }
-                    Button("改用账号密码登录", action: onUsePassword)
+                    Button(String(localized: .authPairingUsePassword), action: onUsePassword)
                         .accessibilityIdentifier("tv-pairing-use-password")
                 }
                 .padding(.top, 10)
@@ -69,11 +69,11 @@ struct TVPairingLogin: View {
     private var statusLine: some View {
         switch status {
         case .requesting:
-            HStack(spacing: 16) { ProgressView(); Text("正在向服务器申请配对码…").foregroundStyle(.secondary) }
+            HStack(spacing: 16) { ProgressView(); Text(String(localized: .authPairingRequesting)).foregroundStyle(.secondary) }
         case .waiting:
-            HStack(spacing: 16) { ProgressView(); Text("等待批准…（配对码 5 分钟内有效）").foregroundStyle(.secondary) }
+            HStack(spacing: 16) { ProgressView(); Text(String(localized: .authPairingWaitingTV)).foregroundStyle(.secondary) }
         case .signingIn:
-            HStack(spacing: 16) { ProgressView(); Text("已批准，正在登录…").foregroundStyle(.secondary) }
+            HStack(spacing: 16) { ProgressView(); Text(String(localized: .authPairingApproved)).foregroundStyle(.secondary) }
         case let .failed(message):
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(Theme.danger)
@@ -110,7 +110,7 @@ struct TVPairingLogin: View {
             ))
         } catch let error as APIError where error.status == 400 || error.status == 404 || error.status == 405 {
             // 老服务器不认 tvos 这种配对（或没有配对接口）：只能用账号密码
-            status = .failed("这台服务器还不支持扫码登录，请先把服务器升级到最新版，或改用账号密码登录")
+            status = .failed(String(localized: .authPairingUnsupportedTV))
             return
         } catch {
             status = .failed(error.localizedDescription)
@@ -124,7 +124,7 @@ struct TVPairingLogin: View {
             try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled else { return }
             if Date.now > deadline {
-                status = .failed("配对码已过期，请换一个码重新扫")
+                status = .failed(String(localized: .authPairingExpiredTV))
                 return
             }
             do {
@@ -136,10 +136,10 @@ struct TVPairingLogin: View {
                 // 轮询过快：退避，不重置配对
                 interval += 2
             } catch let error as APIError where error.status == 400 {
-                if case let .http(_, _, code) = error, code == "AUTHORIZATION_DENIED" {
-                    status = .failed("在手机上点了拒绝。要登录的话请换一个码重新扫")
+                if case let .http(_, _, code, _) = error, code == "AUTHORIZATION_DENIED" {
+                    status = .failed(String(localized: .authPairingRejectedTV))
                 } else {
-                    status = .failed("配对码已过期，请换一个码重新扫")
+                    status = .failed(String(localized: .authPairingExpiredTV))
                 }
                 return
             } catch {

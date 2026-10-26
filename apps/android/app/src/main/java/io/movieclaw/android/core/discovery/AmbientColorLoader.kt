@@ -26,33 +26,65 @@ import okhttp3.Request
 private val cache = java.util.concurrent.ConcurrentHashMap<String, Color>()
 
 @Composable
-fun rememberAmbientColor(url: String?, origin: String?, bottomBand: Boolean = false): Color? {
+fun rememberAmbientColor(
+    url: String?,
+    origin: String?,
+    bottomBand: Boolean = false,
+    /**
+     * 取样失败（404 / 解码不出来）时再试的地址。
+     * 库里很多条目**没有 fanart**：`/libraries/{id}/items/{id}/artwork?kind=fanart` 服务端直接 404，
+     * 那一条链上每次都落兜底灰 →「每个条目的底色都一样」（2026-10-13 用户反馈）。
+     * 传海报地址进来，fanart 缺了就按海报取色。
+     */
+    fallbackUrl: String? = null,
+): Color? {
     val context = LocalContext.current
     val client = (context.applicationContext as MovieClawApp).imageLoaders.http
-    val resolved = if (url.isNullOrEmpty()) null else if (url.startsWith("http")) url else origin?.let { it.trimEnd('/') + url }
     // 取色只需要 ~50px：TMDB 图按尺寸变体取一张最小的（原来下 w1280 原图，
     // 那一次下载就是肉眼可见的等待来源）
-    val sampleUrl = resolved?.let { u ->
-        if (u.contains("image.tmdb.org/t/p/")) {
-            u.replace(Regex("/t/p/(w|original)[0-9]*/"), "/t/p/w92/")
-        } else u
+    fun sample(u: String?): String? = u?.let { raw ->
+        if (raw.startsWith("http")) raw else origin?.let { o ->
+            // 服务端相对路径要**补 `/api/v1` 前缀**再按站内出图路由取（与 RemoteImage
+            // resolveImageUrl 同一口径）：`/libraries/5/items/1420/artwork?...` 直接拼
+            // origin 是 404 —— 「每个条目底色都一样」的真正根因
+            val base = o.trimEnd('/')
+            val clean = raw.replace("\\", "/")
+            when {
+                clean.startsWith("/api/") -> base + clean
+                clean.startsWith("/") -> "$base/api/v1$clean"
+                else -> "$base/$clean"
+            }
+        }
+    }?.let { r ->
+        val small = if (r.contains("image.tmdb.org/t/p/")) r.replace(Regex("/t/p/(w|original)[0-9]*/"), "/t/p/w92/") else r
+        // 站内出图路由都认 w=：取色只要 ~200px（配 inSampleSize=8 → ~25px）
+        if (small.contains("/api/v1/")) small.substringBefore('?') + "?" + (small.substringAfter('?', "").split('&')
+            .filter { it.isNotEmpty() && !it.startsWith("w=") } + "w=200").joinToString("&") else small
     }
-    val state = produceState<Color?>(initialValue = null, sampleUrl, bottomBand) {
+    val candidates = listOfNotNull(sample(url), sample(fallbackUrl)).distinct()
+    val state = produceState<Color?>(initialValue = null, candidates, bottomBand) {
         // 键用采样地址：同一张图不同尺寸变体共享缓存
-        val cacheKey = sampleUrl + "#" + bottomBand
+        val cacheKey = candidates.joinToString("|") + "#" + bottomBand
         cache[cacheKey]?.let { value = it; return@produceState }
-        if (sampleUrl == null) {
+        if (candidates.isEmpty()) {
             value = AmbientColor.FALLBACK.toColor()
             return@produceState
         }
         value = try {
             val bitmap = withContext(Dispatchers.IO) {
-                client.newCall(Request.Builder().url(sampleUrl ?: resolved).build()).execute().use { response ->
-                    val body = response.body
-                    if (!response.isSuccessful || body == null) return@use null
-                    val options = BitmapFactory.Options().apply { inSampleSize = 8 }
-                    BitmapFactory.decodeStream(body.byteStream(), null, options)
+                for (candidate in candidates) {
+                    val bmp = client.newCall(Request.Builder().url(candidate).build()).execute().use { response ->
+                        val body = response.body
+                        if (!response.isSuccessful || body == null) {
+                            android.util.Log.w("MovieClaw", "ambient: $candidate -> HTTP ${response.code}")
+                            return@use null
+                        }
+                        val options = BitmapFactory.Options().apply { inSampleSize = 8 }
+                        BitmapFactory.decodeStream(body.byteStream(), null, options)
+                    }
+                    if (bmp != null) return@withContext bmp
                 }
+                null
             }
             // iOS ImmersiveHero 用的是「整图主色 + 亮度钉 0.44」（底部色带那套只用于详情页底色；
             // 图底边本身已压暗，取底部会得到近黑，实机验证过）
@@ -66,7 +98,7 @@ fun rememberAmbientColor(url: String?, origin: String?, bottomBand: Boolean = fa
             cache[cacheKey] = c
             c
         } catch (e: Throwable) {
-            android.util.Log.w("MovieClaw", "ambient: failed for $resolved -> ${e.message}")
+            android.util.Log.w("MovieClaw", "ambient: failed for ${candidates.firstOrNull()} -> ${e.message}")
             AmbientColor.FALLBACK.toColor()
         }
     }

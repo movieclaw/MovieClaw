@@ -47,27 +47,27 @@ struct PlaybackHistoryList: View {
         } else if loading, entries.isEmpty {
             HStack(spacing: 10) {
                 ProgressView()
-                Text("正在读取播放记录…").font(.subheadline).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .activityWatchHistoryLoading)).font(.subheadline).foregroundStyle(Theme.textMuted)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 50)
         } else if entries.isEmpty, hiddenCount == 0 {
             if memberId != nil {
                 ActivityEmptyCard(
-                    systemImage: "clock.arrow.circlepath", title: "\(memberLabel ?? "这位成员")还没有播放记录",
-                    message: "从这位成员下一次播放起，谁、什么时候、用什么设备、看了多久都会记在这里。"
-                ) { ActivityPillButton(title: "查看全部成员", action: onClearMember) }
+                    systemImage: "clock.arrow.circlepath", title: String(localized: .activityWatchHistoryNoMemberHistory(memberLabel ?? String(localized: .activityWatchHistoryFallbackMember))),
+                    message: String(localized: .activityWatchHistoryNoMemberHistoryHint)
+                ) { ActivityPillButton(title: String(localized: .activityWatchHistoryAllMembers), action: onClearMember) }
             } else {
                 ActivityEmptyCard(
-                    systemImage: "clock.arrow.circlepath", title: "还没有播放记录",
-                    message: "从现在起每一场播放都会记在这里：谁、什么时候、用什么设备、看到哪、看了多久。网页播放器和 Jellyfin 客户端都算。"
+                    systemImage: "clock.arrow.circlepath", title: String(localized: .activityWatchHistoryNoHistory),
+                    message: String(localized: .activityWatchHistoryNoHistoryHint)
                 )
             }
         } else if entries.isEmpty {
             ActivityEmptyCard(
-                systemImage: "lock", title: "这些播放都在你的浏览范围外",
-                message: "另有 \(hiddenCount) 场播放来自你设为不可见的库；切到「全部」即可看到片名。"
-            ) { ActivityPillButton(title: "显示全部", action: onShowAll) }
+                systemImage: "lock", title: String(localized: .activityWatchHistoryOutsideScope),
+                message: String(localized: .activityWatchHistoryOutsideHint(hiddenCount))
+            ) { ActivityPillButton(title: String(localized: .activityOverviewShowAll), action: onShowAll) }
         } else {
             list
         }
@@ -92,7 +92,7 @@ struct PlaybackHistoryList: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
                         Text(ActivityFormat.dayLabel(group.items[0].startedAt)).fontWeight(.semibold)
-                        Text("\(group.items.count) 场").monospacedDigit().foregroundStyle(Theme.textFaint.opacity(0.7))
+                        Text(String(localized: .activityWatchHistoryPlayCount(group.items.count))).monospacedDigit().foregroundStyle(Theme.textFaint.opacity(0.7))
                     }
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
@@ -107,13 +107,13 @@ struct PlaybackHistoryList: View {
                 }
             }
             if hiddenCount > 0 {
-                HiddenCountRow(count: hiddenCount, noun: "场播放", onShowAll: onShowAll).activityHiddenRowCard()
+                HiddenCountRow(count: hiddenCount, text: { String(localized: .activityWatchHistoryHiddenPlays($0)) }, onShowAll: onShowAll).activityHiddenRowCard()
             }
             if hasMore {
                 Button {
                     Task { await loadMore() }
                 } label: {
-                    Text(loading ? "正在加载更早的记录…" : "加载更多")
+                    Text(loading ? String(localized: .activityWatchHistoryLoadingEarlier) : String(localized: .activityWatchHistoryLoadMore))
                         .font(.subheadline)
                         .foregroundStyle(Theme.textMuted)
                         .frame(maxWidth: .infinity)
@@ -127,7 +127,7 @@ struct PlaybackHistoryList: View {
                 }
                 .accessibilityIdentifier("history-load-more")
             } else if entries.count >= Self.pageSize {
-                Text("已经到最早的记录了")
+                Text(String(localized: .activityWatchHistoryEarliest))
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
                     .frame(maxWidth: .infinity)
@@ -158,7 +158,7 @@ struct PlaybackHistoryList: View {
             error = nil
         } catch is CancellationError {
         } catch {
-            if current == generation { self.error = error.localizedDescription.isEmpty ? "播放记录加载失败" : error.localizedDescription }
+            if current == generation { self.error = error.localizedDescription.isEmpty ? String(localized: .activityWatchHistoryLoadHistoryFailed) : error.localizedDescription }
         }
     }
 }
@@ -181,11 +181,11 @@ struct PlaybackHistoryRow: View {
             }
             VStack(alignment: .trailing, spacing: 2) {
                 if entry.endedAt == nil {
-                    Text("播放中").foregroundStyle(Theme.success)
+                    Text(String(localized: .activityOverviewPlayingState)).foregroundStyle(Theme.success)
                 } else if entry.completed {
-                    Label("看完", systemImage: "checkmark").labelStyle(.titleAndIcon).foregroundStyle(Theme.success)
+                    Label(String(localized: .activityOverviewWatched), systemImage: "checkmark").labelStyle(.titleAndIcon).foregroundStyle(Theme.success)
                 } else {
-                    Text(entry.progressPercent.map { "看到 \($0)%" } ?? "播放过").foregroundStyle(Theme.textMuted)
+                    Text(entry.progressPercent.map { String(localized: .activityOverviewWatchProgress($0)) } ?? String(localized: .activityWatchHistoryPlayed)).foregroundStyle(Theme.textMuted)
                 }
                 if entry.watchedMs > 0 {
                     Text(ActivityFormat.watched(entry.watchedMs)).foregroundStyle(Theme.textFaint)

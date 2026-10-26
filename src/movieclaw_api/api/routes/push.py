@@ -3,7 +3,8 @@
 三个路由组，分别挂在三个鉴权分区：
 
 - ``admin_router``（管理区）：推送通道、设备覆盖、自建中继；
-- ``member_router``（成员区）：每个人自己的通知开关、设备状态、测试通知、App 登记；
+- ``member_router``（成员区）：每个人自己的通知开关、设备状态、测试通知、App 登记，
+  以及 Android 实时通知的长连接与确认（§4.1）；
 - ``public_router``（公开区）：推送配图。通知扩展拿不到登录令牌，配图地址自带签名
   （services/push/images.py），签名不对一律 404。
 
@@ -12,15 +13,18 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.api.deps import require_login
 from movieclaw_api.exceptions import NotFoundException
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.cloud import (
     MyPushView,
     OfficialChannelRequest,
+    PushAckRequest,
+    PushAckView,
     PushChannelsView,
     PushPreferencesRequest,
     PushRegistrationRequest,
@@ -33,9 +37,9 @@ from movieclaw_api.schemas.cloud import (
 )
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.auth import Principal
-from movieclaw_api.services.push import admin, me, preferences
+from movieclaw_api.services.push import admin, me, outbox, preferences, status
 from movieclaw_api.services.push.images import resolve_image
-from movieclaw_db.engine import get_session
+from movieclaw_db.engine import get_database, get_session
 
 _HIDDEN = {"x-cli-hidden": True}
 
@@ -92,7 +96,7 @@ async def probe_relay(payload: RelayProbeRequest) -> ApiResponse[RelayProbeView]
 )
 async def create_relay(payload: RelayCreateRequest) -> ApiResponse[PushChannelsView]:
     await admin.create_relay(name=payload.name, url=payload.url, token=payload.token)
-    return ok(await admin.build_channels_view(), message="已添加自建中继")
+    return ok(await admin.build_channels_view(), message=t("settings.appPush.relayAdded"))
 
 
 @admin_router.patch(
@@ -122,7 +126,7 @@ async def update_relay(relay_id: str, payload: RelayUpdateRequest) -> ApiRespons
 )
 async def delete_relay(relay_id: str) -> ApiResponse[PushChannelsView]:
     await admin.delete_relay(relay_id)
-    return ok(await admin.build_channels_view(), message="已删除自建中继")
+    return ok(await admin.build_channels_view(), message=t("settings.appPush.relayDeleted"))
 
 
 @admin_router.post(
@@ -195,7 +199,7 @@ async def mute_item(
     from movieclaw_db.models import MediaItem
 
     if await session.get(MediaItem, item_id) is None:
-        raise NotFoundException("没有这部片")
+        raise NotFoundException(message_key="errors.push.mediaMissing")
     await preferences.set_muted(session, principal.owner_id, item_id, True)
     return ok(await me.build_view(session, principal))
 
@@ -251,6 +255,8 @@ async def register(
             key=payload.key,
             permission=payload.permission,
             client_version=payload.client_version,
+            unsupported_build=payload.unsupported_build,
+            stream=payload.stream,
         )
     )
 
@@ -268,6 +274,62 @@ async def unregister(
 ) -> ApiResponse[None]:
     await me.unregister(session, principal)
     return ok(None)
+
+
+@member_router.get(
+    "/stream",
+    summary="实时通知（SSE 长连接，开了「实时通知」的 Android 设备）",
+    operation_id="push.me.stream",
+    openapi_extra=_HIDDEN,
+)
+async def stream(
+    request: Request,
+    since: int = Query(default=0, ge=0, description="App 已收到的最后一条 id"),
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    principal: Principal = Depends(require_login),
+) -> StreamingResponse:
+    """先补发 ``since`` 之后还没确认的，再实时送新的（``event: notification``，``id`` 是
+    发件箱 id）；空闲时每 25 秒一行心跳注释。连接最长一小时，到点正常结束，App 带游标重连。
+
+    同一条连接上另发 ``event: status``（不带 id）：连上先发一帧，有变化再发，字段见
+    services/push/status.py。
+
+    不挂 ``get_session``：连接要保持很久，不能一直占着数据库会话。
+    """
+    async with get_database().session() as session:
+        device = await me.stream_device(session, principal)
+        viewer = await status.viewer_for(session, principal)
+    cursor = since
+    if last_event_id and last_event_id.isdigit():
+        cursor = max(cursor, int(last_event_id))
+    return StreamingResponse(
+        outbox.stream(
+            device.id or 0, since=cursor, is_disconnected=request.is_disconnected, viewer=viewer
+        ),
+        media_type="text/event-stream",
+        # SSE 反缓冲三件套（原理见 routes/search.py 的流式端点）
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@member_router.post(
+    "/ack",
+    response_model=ApiResponse[PushAckView],
+    summary="确认实时通知已显示（之后重连不再补发）",
+    operation_id="push.me.ack",
+    openapi_extra=_HIDDEN,
+)
+async def ack(
+    payload: PushAckRequest,
+    principal: Principal = Depends(require_login),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[PushAckView]:
+    device = await me.stream_device(session, principal)
+    return ok(PushAckView(acked=await outbox.ack(session, device.id or 0, payload.up_to)))
 
 
 # ----------------------------------------------------------------------
@@ -289,7 +351,7 @@ async def push_image(token: str) -> FileResponse:
 
     url = await resolve_image(token)
     if url is None:
-        raise NotFoundException("图片不存在")
+        raise NotFoundException(message_key="errors.push.imageMissing")
     # 条目图已落本地就用本地母版缩到推送宽度（图床被墙也带得出图），否则回源
     local = await local_push_image(url)
     if local is not None:
@@ -302,7 +364,7 @@ async def push_image(token: str) -> FileResponse:
     try:
         cached = await get_image_cache().get_or_fetch(url)
     except Exception as exc:  # noqa: BLE001 -- 取不到图对通知扩展来说就是「不带图」
-        raise NotFoundException("图片不存在") from exc
+        raise NotFoundException(message_key="errors.push.imageMissing") from exc
     return FileResponse(
         cached.path,
         media_type=cached.content_type,

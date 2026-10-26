@@ -1,5 +1,9 @@
+import type { AppLocale, LanguagePreference } from "@/lib/i18n/negotiate";
+
 import { request } from "@/lib/http";
 import type { HomeUiPrefs } from "@/lib/home-rows";
+import type { PluginApp } from "@/lib/plugin-apps";
+import type { CatalogTheme } from "@/lib/theme-catalog";
 import { isValidThemeId, normalizeThemeId } from "@/lib/themes";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
@@ -43,9 +47,15 @@ export interface ScrimUiPrefs {
 export interface NavUiPrefs {
   /** 导航项 id 的展示顺序；空数组 = 用内置默认顺序 */
   order: string[];
+  /**
+   * 从侧栏移出的插件网页项（`app:<插件 id>:<序号>`，docs/design/plugin-web-pages.md §4.2）；
+   * 内置项不能移出。旧服务端没有这个字段，读成 null。
+   */
+  hidden?: string[] | null;
 }
 
 export interface UiPreferences {
+  language: LanguagePreference;
   /** 主题 id，取值来自 lib/themes.ts 的注册表；未知值由 normalizeThemeId 兜底为 silver */
   theme: string;
   /**
@@ -66,6 +76,7 @@ export interface UiPreferences {
  *  设置页「恢复默认」也回到这一组值。改动时须同步后端
  *  SidebarUiPrefs / ScrimUiPrefs 与 globals.css 里 .page-scrim 的变量兜底值。 */
 export const DEFAULT_UI_PREFS: UiPreferences = {
+  language: "auto",
   // 默认主题 = 银玻璃（现有观感）。主题列表见 lib/themes.ts 的 THEMES。
   theme: "silver",
   // 按端覆盖未设置（null = 跟随 theme）；见 lib/ui-prefs.tsx 的 resolveThemeId
@@ -94,6 +105,7 @@ export function normalizeUiPreferences(
 ): UiPreferences {
   return {
     // 老后端不认识 theme 字段时返回 undefined，兜底为默认主题（天然向前兼容）
+    language: data?.language === "en" || data?.language === "zh-Hans" ? data.language : "auto",
     theme: normalizeThemeId(data?.theme),
     theme_desktop: normalizeThemeOverride(data?.theme_desktop),
     theme_mobile: normalizeThemeOverride(data?.theme_mobile),
@@ -101,7 +113,10 @@ export function normalizeUiPreferences(
     scrim: { ...DEFAULT_UI_PREFS.scrim, ...data?.scrim },
     // order 必须兜住非数组：老后端不认识这个分组时返回的是 undefined，
     // 消费者（applyNavOrder）拿到的必须永远是可迭代的数组
-    nav: { order: Array.isArray(data?.nav?.order) ? data.nav.order : [] },
+    nav: {
+      order: Array.isArray(data?.nav?.order) ? data.nav.order : [],
+      hidden: Array.isArray(data?.nav?.hidden) ? data.nav.hidden : null,
+    },
     home: { rows: Array.isArray(data?.home?.rows) ? data.home.rows : [] },
   };
 }
@@ -123,4 +138,30 @@ export async function updateUiPreferences(prefs: UiPreferences): Promise<UiPrefe
       }),
     ),
   );
+}
+
+// ---------------------------------------------------------------------------
+// 插件网页（docs/design/plugin-web-pages.md）
+// ---------------------------------------------------------------------------
+
+/** 当前用户可见的插件网页与它们的侧边栏入口。失败时抛错，由调用方决定沿用上一份还是当作没有。 */
+/** 已安装的网页主题（docs/design/theme-plugins.md §4.6）：设置页选择卡与加载器都认它。 */
+export async function fetchThemes(locale?: AppLocale): Promise<CatalogTheme[]> {
+  return unwrap(request<ApiEnvelope<CatalogTheme[]>>("/ui/themes", locale ? { headers: { "Accept-Language": locale } } : undefined));
+}
+
+export async function fetchPluginApps(): Promise<PluginApp[]> {
+  return unwrap(request<ApiEnvelope<PluginApp[]>>("/ui/apps"));
+}
+
+/** 插件页面里没接住的报错：交给服务端写进系统日志（按插件 id 可查），失败不再管。 */
+export async function reportPluginAppError(appId: string, message: string, detail: string): Promise<void> {
+  try {
+    await request(`/ui/apps/${encodeURIComponent(appId)}/errors`, {
+      method: "POST",
+      body: JSON.stringify({ message, detail }),
+    });
+  } catch {
+    // 上报失败不影响页面
+  }
 }

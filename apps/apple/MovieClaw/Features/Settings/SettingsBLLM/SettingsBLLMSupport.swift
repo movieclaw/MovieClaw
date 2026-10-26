@@ -10,10 +10,10 @@ import SwiftUI
 enum SettingsBLLMStatus {
     static func label(_ status: String) -> String {
         switch status {
-        case "active": "已连接"
-        case "verifying": "测试中"
-        case "pending": "待测试"
-        case "failed": "连接失败"
+        case "active": String(localized: .settingsDevicesLabelsConnected)
+        case "verifying": String(localized: .settingsLlmUiTesting)
+        case "pending": String(localized: .settingsLlmUiPending)
+        case "failed": String(localized: .settingsLlmUiFailed)
         default: status
         }
     }
@@ -51,32 +51,41 @@ enum SettingsBLLMFormat {
     ///（预算分段模式没设预算上限时没有档位菜单，只看是否声明了 thinking_control 会误标）。
     static func hints(_ m: API.ModelInfo) -> String {
         [
-            m.supportsThinking ? "思考" : nil,
-            !m.thinkingLevels.isEmpty ? "档位可控" : nil,
-            m.modalities.contains("image") ? "视觉" : nil,
-            m.modalities.contains("video") ? "视频" : nil,
+            m.supportsThinking ? String(localized: .settingsLlmUiThinking) : nil,
+            !m.thinkingLevels.isEmpty ? String(localized: .settingsLlmUiAdjustable) : nil,
+            m.modalities.contains("image") ? String(localized: .settingsLlmUiVision) : nil,
+            m.modalities.contains("video") ? String(localized: .settingsLlmUiVideo) : nil,
         ].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// 规格说明：上下文 / 最大输出 / 思考预算 / 并发工具，未公布的字段不显示
     static func specs(_ m: API.ModelInfo) -> String {
         [
-            m.contextWindow.map { "上下文 \(tokens($0))" },
-            m.maxOutputTokens.map { "最大输出 \(tokens($0))" },
-            m.maxThinkingTokens.map { "思考预算 \(tokens($0))" },
-            m.supportsParallelToolCalls ? "支持并发工具调用" : nil,
+            m.contextWindow.map { String(localized: .settingsLlmUiContextSpec(tokens($0))) },
+            m.maxOutputTokens.map { String(localized: .settingsLlmUiOutputSpec(tokens($0))) },
+            m.maxThinkingTokens.map { String(localized: .settingsLlmUiBudgetSpec(tokens($0))) },
+            m.supportsParallelToolCalls ? String(localized: .settingsLlmUiParallelTools) : nil,
         ].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// 供应商提示：固定端点显示域名，其余说明接入方式（Web providerHint）
+    /// API 协议的展示名（与 Web PROTOCOL_LABELS 一致）
+    static func protocolLabel(_ id: String) -> String {
+        switch id {
+        case "openai_chat": return "Chat Completions"
+        case "openai_responses": return "Responses API"
+        default: return id
+        }
+    }
+
     static func providerHint(_ preset: API.LlmPresetView) -> String {
-        if preset.id == "bailian" { return "聚合 Qwen / DeepSeek / Kimi / GLM" }
-        if preset.id == "openai" { return "官方端点，可配代理" }
-        if preset.requiresBaseUrl { return "自建 vLLM / Ollama / 任意网关" }
+        if preset.id == "bailian" { return String(localized: .settingsLlmUiBailianHint) }
+        if preset.id == "openai" { return String(localized: .settingsLlmSupportOfficial) }
+        if preset.requiresBaseUrl { return String(localized: .settingsLlmUiCompatHint) }
         if let base = preset.baseUrl {
             return URL(string: base)?.host() ?? base
         }
-        return "官方端点"
+        return String(localized: .settingsLlmUiOfficialEndpoint)
     }
 }
 
@@ -90,17 +99,17 @@ struct SettingsBLLMModelDraft: Equatable {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .none: "不可控（只展示思考内容）"
-            case .effort: "档位直传（reasoning_effort）"
-            case .budget: "预算分段（enable_thinking + thinking_budget）"
-            case .toggle: "仅开关（thinking.type）"
+            case .none: String(localized: .settingsLlmSupportUncontrolled)
+            case .effort: String(localized: .settingsLlmUiEffortControl)
+            case .budget: String(localized: .settingsLlmUiBudgetControl)
+            case .toggle: String(localized: .settingsLlmUiToggleControl)
             }
         }
     }
 
     /// effort 制可声明的档位（词汇表排除 off——关闭走「支持关闭思考」开关）
     static let declarableLevels = ["minimal", "low", "medium", "high", "xhigh", "max"]
-    static let levelLabels = ["minimal": "最少", "low": "低", "medium": "中", "high": "高", "xhigh": "超高", "max": "最高"]
+    static let levelLabels = ["minimal": String(localized: .settingsLlmUiMinimal), "low": String(localized: .settingsLlmUiLow), "medium": String(localized: .settingsLlmUiMedium), "high": String(localized: .settingsLlmUiHigh), "xhigh": String(localized: .settingsLlmUiXhigh), "max": String(localized: .settingsLlmUiMax)]
 
     var id = ""
     var contextWindow = ""
@@ -132,8 +141,8 @@ struct SettingsBLLMModelDraft: Equatable {
 
     var hint: String {
         thinkingKind == .effort && thinkingLevels.isEmpty
-            ? "档位直传模式至少要勾选一个可选档位。"
-            : "请补全新模型参数中标有 * 的项目。"
+            ? String(localized: .settingsLlmUiEffortRequired)
+            : String(localized: .settingsLlmUiDraftRequired)
     }
 
     /// 切换一个档位（按固定词汇表顺序归一，声明不是有序集合）
@@ -176,6 +185,11 @@ extension API.ModelInfo {
             maxInputTokens: maxInputTokens,
             maxOutputTokens: maxOutputTokens,
             supportsTools: supportsTools,
+            requiresResponsesForTools: requiresResponsesForTools,
+            chatToolsRequireNoReasoning: chatToolsRequireNoReasoning,
+            maxTokensParameter: maxTokensParameter,
+            samplingRequiresNoReasoning: samplingRequiresNoReasoning,
+            fixedSampling: fixedSampling,
             supportsParallelToolCalls: supportsParallelToolCalls,
             supportsThinking: supportsThinking,
             maxThinkingTokens: maxThinkingTokens,

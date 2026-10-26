@@ -20,6 +20,7 @@ import io.movieclaw.android.core.model.SearchStreamDone
 import io.movieclaw.android.core.model.SearchStreamStart
 import io.movieclaw.android.core.model.SiteStreamError
 import io.movieclaw.android.core.model.SiteStreamResult
+import io.movieclaw.android.core.model.SearchTabView
 import io.movieclaw.android.core.model.TorrentCategory
 import io.movieclaw.android.core.model.TorrentHit
 import io.movieclaw.android.core.model.TitleSearchRequest
@@ -100,6 +101,12 @@ class SearchViewModel @Inject constructor(
         val mode: SearchMode = SearchMode.TORRENTS,
         val query: String = "",
         val category: TorrentCategory? = null,
+        /** 自定义分类预设（null = 用内置分类/全部） */
+        val activeTab: SearchTabView? = null,
+        /** 搜索分类栏（服务端 /search/presets 的可见项；失败时回退到内置分类） */
+        val searchTabs: List<SearchTabView> = TorrentCategory.entries.map {
+            SearchTabView(type = "category", id = it.id, visible = true)
+        },
         val searching: Boolean = false,
         val error: String? = null,
         val notice: McNotice? = null,
@@ -141,12 +148,39 @@ class SearchViewModel @Inject constructor(
 
     init {
         loadHistory()
+        loadSearchTabs()
         modeMemory.ensureLoaded()
+    }
+
+    private fun loadSearchTabs() {
+        viewModelScope.launch {
+            val api = origin?.let { apiFactory.forOrigin(it) } ?: return@launch
+            runCatching { api.searchPresets().dataOrThrow().presets }
+                .onSuccess { tabs ->
+                    val visible = tabs.filter { it.visible }
+                    if (visible.isNotEmpty()) _ui.update { it.copy(searchTabs = visible) }
+                }
+        }
     }
 
     fun onMode(mode: SearchMode) = _ui.update { it.copy(mode = mode, error = null) }
     fun onQuery(value: String) = _ui.update { it.copy(query = value) }
-    fun onCategory(category: TorrentCategory?) = _ui.update { it.copy(category = category) }
+    fun onCategory(category: TorrentCategory?) = _ui.update { it.copy(category = category, activeTab = null) }
+
+    /** 选中分类栏的一项；null = 全部。内置分类走 category，自定义预设走 activeTab */
+    fun onTab(tab: SearchTabView?) {
+        _ui.update {
+            when {
+                tab == null -> it.copy(category = null, activeTab = null)
+                tab.type == "category" -> it.copy(
+                    category = TorrentCategory.of(tab.id),
+                    activeTab = null,
+                )
+                else -> it.copy(category = null, activeTab = tab)
+            }
+        }
+    }
+
     fun consumeNotice() = _ui.update { it.copy(notice = null) }
 
     /**
@@ -162,6 +196,7 @@ class SearchViewModel @Inject constructor(
                 mode = mode ?: it.mode,
                 query = keyword.ifBlank { it.query },
                 category = category ?: it.category,
+                activeTab = if (category != null) null else it.activeTab,
             )
         }
     }
@@ -178,7 +213,9 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch {
             val origin = origin ?: return@launch
             runCatching { apiFactory.forOrigin(origin).searchHistory().dataOrThrow() }
-                .onSuccess { list -> _ui.update { it.copy(history = list) } }
+                // 同一关键词可能有多条历史行（不同分区/分类各存一条），底部胶囊按关键词去重、
+                // 保留服务端排序里的第一条（最近一次）——真机上「婢女」曾并排出现两枚
+                .onSuccess { list -> _ui.update { it.copy(history = list.distinctBy { it.keyword }) } }
         }
     }
 
@@ -214,7 +251,7 @@ class SearchViewModel @Inject constructor(
             )
         }
         when (state.mode) {
-            SearchMode.TORRENTS -> searchTorrents(keyword, state.category)
+            SearchMode.TORRENTS -> searchTorrents(keyword, state.category, state.activeTab)
             SearchMode.TITLES -> searchTitles(keyword)
             SearchMode.LIBRARY -> searchLibrary(keyword)
         }
@@ -289,10 +326,19 @@ class SearchViewModel @Inject constructor(
     }
 
     /** 站点搜索:SSE 逐站点渲染(快的先出,单站失败不影响整体) */
-    private fun searchTorrents(keyword: String, category: TorrentCategory?) {
+    private fun searchTorrents(keyword: String, category: TorrentCategory?, tab: SearchTabView?) {
         val params = buildList {
             add("keyword=" + java.net.URLEncoder.encode(keyword, "UTF-8"))
-            category?.let { add("categories=${it.id}") }
+            val categories = if (tab?.type == "preset") tab.categories else listOfNotNull(category?.id)
+            categories.forEach { add("categories=" + java.net.URLEncoder.encode(it, "UTF-8")) }
+            tab?.siteIds.orEmpty().forEach { add("sites=" + java.net.URLEncoder.encode(it, "UTF-8")) }
+            val label = tab?.takeIf { it.type == "preset" }?.name
+                ?: category?.let { TorrentCategory.of(it.id)?.label }
+            label?.takeIf { it.isNotBlank() }?.let {
+                add("label=" + java.net.URLEncoder.encode(it, "UTF-8"))
+            }
+            if (tab?.skipHistory == true) add("no_history=true")
+            if (tab?.posterMode == true) add("poster_mode=true")
         }.joinToString("&")
         searchJob = viewModelScope.launch {
             runCatching {

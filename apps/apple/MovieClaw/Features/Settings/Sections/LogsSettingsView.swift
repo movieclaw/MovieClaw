@@ -10,6 +10,7 @@ import SwiftUI
 /// - tail -f 式跟随：停在底部时新日志自动滚入；向上翻阅则暂停跟随，浮出「N 条新日志」一键回底；
 /// - 全屏查看：同一份工具栏与日志窗口铺满屏幕。
 struct LogsSettingsView: View {
+    @Environment(\.cardMetrics) private var cards
     @Environment(\.api) private var api
     @State private var model = SettingsLogModel()
     @State private var fullscreen = false
@@ -20,14 +21,14 @@ struct LogsSettingsView: View {
             if let error = model.error { SettingsNotice(text: error) }
             LogWindow(model: model, fullscreen: $fullscreen)
             HStack(alignment: .top) {
-                Text("日志按天存档在服务端 data/logs 目录（Docker 部署挂载 data 卷即可持久化），超过保留天数的旧日志会自动清理；保留天数与目录位置可通过 LOG_RETENTION_DAYS、LOG_DIR 环境变量调整。")
+                Text(String(localized: .settingsLogsUiStorageHint))
                     .font(.caption).foregroundStyle(Theme.textFaint)
                 if !model.isLatestDay, model.activeDay != nil, model.refreshMs > 0 {
-                    Text("正在查看历史日志，自动刷新已暂停").font(.caption).foregroundStyle(Theme.textFaint)
+                    Text(String(localized: .settingsLogsViewerHistorical)).font(.caption).foregroundStyle(Theme.textFaint)
                 }
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 8)
         .appBackground()
         .task {
@@ -62,9 +63,9 @@ struct SettingsLogEntry: Identifiable {
 @Observable
 final class SettingsLogModel {
     static let refreshKey = "movieclaw.log-refresh-interval"
-    static let refreshOptions: [(label: String, value: Int)] = [("关闭", 0), ("3s", 3000), ("10s", 10000), ("30s", 30000)]
+    static let refreshOptions: [(label: String, value: Int)] = [(String(localized: .commonOff), 0), ("3s", 3000), ("10s", 10000), ("30s", 30000)]
     static let levelFilters: [(id: SettingsLogEntry.Level?, label: String)] = [
-        (nil, "全部"), (.error, "错误"), (.warning, "警告"), (.info, "信息"), (.debug, "调试"),
+        (nil, String(localized: .settingsMcpControlsAll)), (.error, String(localized: .settingsLogsViewerErrors)), (.warning, String(localized: .settingsLogsViewerWarnings)), (.info, String(localized: .settingsLogsViewerInfo)), (.debug, String(localized: .settingsLogsViewerDebug)),
     ]
 
     var api: APIClient?
@@ -226,22 +227,22 @@ private struct LogToolbar: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "calendar")
-                        Text(model.activeDay ?? "暂无日志").monospacedDigit().lineLimit(1).fixedSize()
+                        Text(model.activeDay ?? String(localized: .settingsLogsViewerNoLogs)).monospacedDigit().lineLimit(1).fixedSize()
                         Image(systemName: "chevron.up.chevron.down").font(.caption2)
                     }
                     .font(.subheadline)
                 }
                 .buttonStyle(.glass)
                 .disabled(model.loading || model.days.isEmpty)
-                .accessibilityLabel("选择日志日期")
+                .accessibilityLabel(String(localized: .settingsLogsViewerDay))
                 .accessibilityIdentifier("logs-day")
                 if let meta = model.days.first(where: { $0.day == model.activeDay }) {
-                    Text(Formatters.bytes(meta.sizeBytes) + (model.content.map { " · 共 \($0.totalLines) 行" } ?? ""))
+                    Text(Formatters.bytes(meta.sizeBytes) + (model.content.map { String(localized: .settingsLogsViewerLines($0.totalLines)) } ?? ""))
                         .font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted)
                         .accessibilityIdentifier("logs-meta")
                 }
                 Spacer(minLength: 0)
-                Button(model.loading ? "加载中…" : "刷新") { Task { await model.refresh(prefer: model.activeDay) } }
+                Button(model.loading ? String(localized: .commonLoadingProgress) : String(localized: .commonRefresh)) { Task { await model.refresh(prefer: model.activeDay) } }
                     .buttonStyle(.glass)
                     .font(.subheadline)
                     .disabled(model.loading)
@@ -252,9 +253,9 @@ private struct LogToolbar: View {
                     if model.refreshMs > 0, model.isLatestDay {
                         SettingsStatusDot(color: Theme.success, size: 6, glow: true)
                     }
-                    Text("自动刷新").font(.subheadline).foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .settingsLogsViewerAutoRefresh)).font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
-                Picker("自动刷新频率", selection: $model.refreshMs) {
+                Picker(String(localized: .settingsLogsViewerFrequency), selection: $model.refreshMs) {
                     ForEach(SettingsLogModel.refreshOptions, id: \.value) { option in
                         Text(option.label).tag(option.value)
                     }
@@ -303,7 +304,7 @@ private struct LogWindow: View {
                 HStack(spacing: 8) {
                     HStack(spacing: 6) {
                         Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(Theme.textFaint)
-                        TextField("搜索日志…", text: $model.query)
+                        TextField(String(localized: .settingsLogsViewerSearchPlaceholder), text: $model.query)
                             .font(.subheadline)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -323,7 +324,7 @@ private struct LogWindow: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.textMuted)
-                    .accessibilityLabel(fullscreen ? "退出全屏" : "全屏查看")
+                    .accessibilityLabel(fullscreen ? String(localized: .settingsLogsViewerExitFullscreen) : String(localized: .settingsLogsViewerFullscreen))
                     .accessibilityIdentifier("logs-fullscreen")
                 }
             }
@@ -332,10 +333,10 @@ private struct LogWindow: View {
 
             if let content = model.content, content.truncated {
                 HStack {
-                    Text("日志较长，仅加载末尾 \(content.lines.count) 行（全天共 \(content.totalLines) 行）")
+                    Text(String(localized: .settingsLogsUiTruncated(content.lines.count, content.totalLines)))
                         .font(.caption).foregroundStyle(Theme.textFaint)
                     Spacer()
-                    Button("加载全部") {
+                    Button(String(localized: .settingsLogsViewerLoadAll)) {
                         if let day = model.activeDay { Task { await model.loadDay(day, tail: 0) } }
                     }
                     .font(.caption.weight(.medium))
@@ -386,7 +387,7 @@ private struct LogWindow: View {
                             model.pendingNew = 0
                             withAnimation { proxy.scrollTo("logs-bottom", anchor: .bottom) }
                         } label: {
-                            Label("\(model.pendingNew) 条新日志", systemImage: "arrow.down")
+                            Label(String(localized: .settingsLogsViewerNewLogs(model.pendingNew)), systemImage: "arrow.down")
                                 .font(.subheadline.weight(.medium))
                         }
                         .buttonStyle(.glass)
@@ -403,10 +404,10 @@ private struct LogWindow: View {
     }
 
     private var emptyText: String {
-        if model.loading { return "日志加载中…" }
-        if model.days.isEmpty { return "还没有任何日志文件。日志随后端运行按天写入服务端 data/logs 目录，稍后再来看看。" }
-        if model.entries.isEmpty { return "这一天的日志是空的。" }
-        return "没有匹配的日志，换个级别或关键字试试。"
+        if model.loading { return String(localized: .settingsLogsViewerLoadingLogs) }
+        if model.days.isEmpty { return String(localized: .settingsLogsViewerNoFiles) }
+        if model.entries.isEmpty { return String(localized: .settingsLogsViewerEmptyDay) }
+        return String(localized: .settingsLogsViewerNoMatch)
     }
 }
 
@@ -480,22 +481,23 @@ private struct LogRow: View {
 // MARK: - 全屏
 
 private struct LogFullscreen: View {
+    @Environment(\.cardMetrics) private var cards
     @Bindable var model: SettingsLogModel
     @Binding var fullscreen: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("系统日志").font(.headline)
+                Text(String(localized: .settingsLogsTitle)).font(.headline)
                 Spacer()
-                Button("完成") { fullscreen = false }.buttonStyle(.glass)
+                Button(String(localized: .commonDone)) { fullscreen = false }.buttonStyle(.glass)
                     .accessibilityIdentifier("logs-fullscreen-done")
             }
             LogToolbar(model: model)
             if let error = model.error { SettingsNotice(text: error) }
             LogWindow(model: model, fullscreen: $fullscreen)
         }
-        .padding(Theme.pagePadding)
+        .padding(cards.edge)
         .background(Theme.background.ignoresSafeArea())
         .polling(every: model.refreshMs > 0 ? Double(model.refreshMs) / 1000 : 3) {
             if model.refreshMs > 0, model.isLatestDay, let day = model.activeDay {

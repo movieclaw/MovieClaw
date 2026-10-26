@@ -4,6 +4,10 @@
 「不知道」保守转码，等于没上线。不能让用户整库重扫（网络盘上是小时级的活），这里在启动后于后台
 只补这一类：台账标着杜比视界、profile 还空着的行，逐个用 ffprobe 读一次文件头（NAS 实测每个约
 0.16 秒，526 个约一分半）。补完之后只剩确实读不出 DOVI 配置记录的个别文件，下次启动再试也就几个。
+
+第二轮改正「记录与码流矛盾」的旧行（media_probe._dv_record_contradicted）：记录写 P5、码流却标着
+BT.2020，入库时按杜比视界记了账。候选只有「不兼容基础层却有色彩标注」的行——真 P5 的色彩标注
+一律为空（NAS 375 个全是），所以这一轮通常一个都不用读。
 """
 
 from __future__ import annotations
@@ -53,7 +57,38 @@ async def backfill_dolby_vision_profiles() -> int:
         await session.commit()
     if rows:
         logger.info("杜比视界 profile 补记：%d 个里补上 %d 个", len(rows), filled)
-    return filled
+    return filled + await reclassify_contradicted_dolby_vision()
+
+
+async def reclassify_contradicted_dolby_vision() -> int:
+    """把记录与码流矛盾、按杜比视界记了账的旧行改成它的基础层格式，返回改了几行。"""
+    async with get_database().session() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(LibraryFile).where(
+                        LibraryFile.hdr == "Dolby Vision",
+                        LibraryFile.dv_bl_compatible.is_(False),  # type: ignore[union-attr]
+                        LibraryFile.color_space.is_not(None),  # type: ignore[union-attr]
+                        LibraryFile.in_place(),
+                    )
+                    .order_by(LibraryFile.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        fixed = 0
+        for row in rows:
+            color = await asyncio.to_thread(video_color_for, row.file_path, fallback_hdr=row.hdr)
+            if not color.dv_ignored:
+                continue
+            row.hdr = color.hdr
+            fixed += 1
+        await session.commit()
+    if fixed:
+        logger.info("杜比视界记录与码流矛盾、改按基础层记账：%d 个里改了 %d 个", len(rows), fixed)
+    return fixed
 
 
 def start_dolby_vision_backfill() -> None:

@@ -1,6 +1,6 @@
 # 插件体系第二阶段 A：能力底座
 
-> 状态：实施中（2026-10-09）。总体模型见 `plugin-extension-model.md`（§1 八种扩展形态、§3 宿主操作、§4 可靠事件、
+> 状态：**已实施**（2026-10-09 起，已合并主干）。总体模型见 `plugin-extension-model.md`（§1 八种扩展形态、§3 宿主操作、§4 可靠事件、
 > §5 阶段落位），内核见 `plugin-kernel.md`。本文是二 A 的详细设计与实施拆分。
 >
 > 二 A 的目标：插件能**以受控的身份做事**（宿主操作），能**可靠地对已发生的事做出反应**（可靠事件），领域侧补齐
@@ -135,7 +135,7 @@
 - **显式开启**：只加载 `data/plugins.yaml` 里写了 `local: true` 的条目；目录里多出来的文件不会被执行。
 
   ```yaml
-  - id: acme.delete-cascade        # 条目 id = 插件名
+  - id: delete-cascade            # 条目 id = 插件名（新插件不用带点的 id；本地插件不强制校验，示例跟插件包同一套）
     local: true
     module: delete_cascade         # 可选，缺省为 id 里最后一段把 - 换成 _
     config: { enabled: true }

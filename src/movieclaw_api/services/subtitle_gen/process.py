@@ -98,6 +98,7 @@ async def run(argv: list[str], *, timeout: float) -> Completed:
     except TimeoutError:
         await _terminate(proc, communicate)
         name = os.path.basename(argv[0])
+        # i18n-ignore: internal timeout signal, never shown
         raise ProcessTimeout(f"{name} 超过 {timeout:.0f} 秒没有结束，已停止") from None
     returncode = proc.returncode if proc.returncode is not None else -1
     return Completed(returncode=returncode, stdout=stdout, stderr=stderr)

@@ -5,6 +5,12 @@
  * 避免各站点原始文本（"1.5 TB" / "1536GB"）格式不一。
  */
 
+import { appTranslator } from "./i18n/translate.ts";
+import { formatNumber } from "./i18n/format.ts";
+import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
+
+export { formatNumber, formatList } from "./i18n/format.ts";
+
 /**
  * 字节数 → 可读体积，如「1.50 TB」「800 GB」。0 也是有效值（显示 0 B）。
  * 百位起省掉小数，保证数字部分最多 5 个字符（"99.99"），调用方的定宽数字列
@@ -34,25 +40,31 @@ export function formatRatio(ratio: number | null): string {
 }
 
 /** 秒数 → 可读时长，如「15 分钟」「1.5 小时」。用于同步间隔这类节奏展示。 */
-export function formatDuration(seconds: number): string {
+export function formatDuration(seconds: number, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return "—";
-  if (seconds < 60) return `${seconds} 秒`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)} 分钟`;
+  const t = appTranslator(locale);
+  if (seconds < 60) return t("units.duration.seconds", { count: seconds });
+  if (seconds < 3600) return t("units.duration.minutes", { count: Math.round(seconds / 60) });
   const hours = seconds / 3600;
-  return `${Number.isInteger(hours) ? hours : hours.toFixed(1)} 小时`;
+  return Number.isInteger(hours)
+    ? t("units.duration.hours", { count: hours })
+    : t("units.duration.fractionalHours", { count: hours });
 }
 
 /**
  * 影片分钟数 → 小时 + 分钟。电影详情需要保留精确分钟，不能复用上面的
  * 小数小时格式，否则「2.1 小时」不如「2 小时 6 分钟」直观。
  */
-export function formatRuntimeMinutes(minutes: number): string {
+export function formatRuntimeMinutes(minutes: number, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
   if (!Number.isFinite(minutes) || minutes <= 0) return "—";
   const rounded = Math.round(minutes);
-  if (rounded < 60) return `${rounded} 分钟`;
+  const t = appTranslator(locale);
+  if (rounded < 60) return t("units.duration.minutes", { count: rounded });
   const hours = Math.floor(rounded / 60);
   const remainder = rounded % 60;
-  return remainder > 0 ? `${hours} 小时 ${remainder} 分钟` : `${hours} 小时`;
+  return remainder > 0
+    ? t("units.duration.hoursMinutes", { hours, minutes: remainder })
+    : t("units.duration.hours", { count: hours });
 }
 
 /**
@@ -75,9 +87,6 @@ export function formatVideoResolution(resolution: string): string {
 }
 
 /** 大数 → 中文紧凑格式，如 12345.6 →「1.2万」。用于魔力值这类可能到百万级的数。 */
-export function formatCompact(value: number): string {
-  return new Intl.NumberFormat("zh-CN", {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(value);
+export function formatCompact(value: number, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  return formatNumber(value, { notation: "compact", maximumFractionDigits: 1 }, locale);
 }

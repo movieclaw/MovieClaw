@@ -28,7 +28,7 @@ private struct CloudSettingsContent: View {
             case let .failed(message):
                 SettingsFormSection {
                     SettingsBNotice(text: message, tone: .danger)
-                    SettingsBAsyncButton("重试") { await connection.load() }
+                    SettingsBAsyncButton(String(localized: .commonRetry)) { await connection.load() }
                 }
             case let .loaded(status):
                 if status.state == "connected" {
@@ -50,11 +50,11 @@ private struct CloudSettingsContent: View {
             if connection.isConnected {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("立即同步", systemImage: "arrow.triangle.2.circlepath") {
+                        Button(String(localized: .settingsCloudConnectSyncNow), systemImage: "arrow.triangle.2.circlepath") {
                             Task { await renew() }
                         }
                         .accessibilityIdentifier("cloud-renew")
-                        Button("断开连接", systemImage: "icloud.slash", role: .destructive) {
+                        Button(String(localized: .settingsCloudConnectDisconnectAction), systemImage: "icloud.slash", role: .destructive) {
                             Task {
                                 busy = true
                                 defer { busy = false }
@@ -66,7 +66,7 @@ private struct CloudSettingsContent: View {
                         Image(systemName: "ellipsis")
                     }
                     .disabled(busy)
-                    .accessibilityLabel("连接操作")
+                    .accessibilityLabel(String(localized: .settingsCloudConnectionActions))
                     .accessibilityIdentifier("cloud-actions")
                 }
             }
@@ -76,20 +76,20 @@ private struct CloudSettingsContent: View {
                 .sheetFeedback()
         }
         .sheet(isPresented: $showingDetails) {
-            SubsSheetScaffold(title: "连接详情", closeTitle: "关闭") {
+            SubsSheetScaffold(title: String(localized: .settingsCloudConnectionDetails), closeTitle: String(localized: .commonClose)) {
                 if let status = connection.value {
                     SettingsFormSection {
-                        SettingsBValueRow(label: "服务器", value: status.connection?.instanceName ?? status.serverName)
+                        SettingsBValueRow(label: String(localized: .settingsCloudServerLabel), value: status.connection?.instanceName ?? status.serverName)
                         if let account = status.connection?.accountDisplay {
-                            SettingsBValueRow(label: "账号", value: account)
+                            SettingsBValueRow(label: String(localized: .settingsMembersCredentialsAccount), value: account)
                         }
                         if let date = status.connection?.connectedAt {
-                            SettingsBValueRow(label: "连接时间", value: Formatters.dateTime(date))
+                            SettingsBValueRow(label: String(localized: .settingsCloudConnectedAt), value: Formatters.dateTime(date))
                         }
-                        SettingsBValueRow(label: "云端地址", value: status.cloudUrl, mono: true)
+                        SettingsBValueRow(label: String(localized: .settingsCloudCloudUrl), value: status.cloudUrl, mono: true)
                     }
                     if let link = status.connection {
-                        SettingsFormSection("已授予权限") {
+                        SettingsFormSection(String(localized: .settingsCloudGrantedPermissions)) {
                             ForEach(link.scopes, id: \.self) { scope in
                                 Label(scopeTitle(scope), systemImage: "checkmark.circle.fill")
                                     .foregroundStyle(Theme.success)
@@ -102,7 +102,7 @@ private struct CloudSettingsContent: View {
         }
         .cloudApprovalPage(connection)
         .onChange(of: connection.value?.state) { old, new in
-            if old != nil, old != "connected", new == "connected" { feedback.success("已连接到 MovieClaw 账号") }
+            if old != nil, old != "connected", new == "connected" { feedback.success(String(localized: .settingsCloudConnectedToast)) }
         }
     }
 
@@ -117,14 +117,14 @@ private struct CloudSettingsContent: View {
                     .foregroundStyle(Theme.accent)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("连接 MovieClaw 账号").font(.headline)
-                    Text("让家人的手机收到服务器通知")
+                    Text(String(localized: .settingsCloudConnectAccount)).font(.headline)
+                    Text(String(localized: .settingsCloudConnectPitch))
                         .font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
             }
             .padding(.vertical, 8)
             if let last = status.lastDisconnect {
-                SettingsBNotice(text: last.message.isEmpty ? "这台服务器已和 MovieClaw Cloud 断开" : last.message, tone: .warn)
+                SettingsBNotice(text: last.message.isEmpty ? String(localized: .settingsCloudDisconnectedNotice) : last.message, tone: .warn)
             }
         }
 
@@ -132,44 +132,44 @@ private struct CloudSettingsContent: View {
             SettingsFormSection {
                 CloudPairingRows(connection: connection)
             } header: {
-                Text("等待官网批准")
+                Text(String(localized: .settingsCloudAwaitingWebsite))
             } footer: {
-                Text("申请权限：官方推送。关闭网页不会取消配对，批准后会自动完成连接。")
+                Text(String(localized: .settingsCloudPendingHint))
             }
         } else {
             SettingsFormSection {
                 Button { connecting = true } label: {
-                    Text("连接账号")
+                    Text(String(localized: .settingsCloudConnectButton))
                         .font(.body.weight(.semibold))
                         .frame(maxWidth: .infinity)
                 }
                 .settingsProminentButton()
                 .accessibilityIdentifier("cloud-connect")
             } footer: {
-                Text("只需管理员连接账号，家人无需注册。")
+                Text(String(localized: .settingsCloudAdminOnlyHint))
             }
         }
 
         SettingsFormSection {
             if let url = Self.reportsInfoURL(cloudURL: status.cloudUrl) {
                 Link(destination: url) {
-                    Label("隐私与上报信息", systemImage: "hand.raised")
+                    Label(String(localized: .settingsCloudPrivacyLink), systemImage: "hand.raised")
                 }
             }
             if let url = Self.accountSettingsURL(cloudURL: status.cloudUrl) {
                 Link(destination: url) {
-                    Label("管理或删除 MovieClaw 账号", systemImage: "person.crop.circle")
+                    Label(String(localized: .settingsCloudManageAccount), systemImage: "person.crop.circle")
                 }
                 .accessibilityIdentifier("cloud-account-settings")
             }
             if status.customCloudUrl {
-                SettingsBValueRow(label: "云端地址", value: status.cloudUrl, mono: true)
+                SettingsBValueRow(label: String(localized: .settingsCloudCloudUrl), value: status.cloudUrl, mono: true)
             }
             NavigationLink(value: AppRoute.settingsSection(.imPush)) {
                 Label(SettingsSection.imPush.title, systemImage: SettingsSection.imPush.systemImage)
             }
         } footer: {
-            Text("微信、Telegram 等 IM 推送无需连接 Cloud。自建 App 的推送中继可在网页端配置。")
+            Text(String(localized: .settingsCloudImHint))
         }
     }
 
@@ -187,9 +187,9 @@ private struct CloudSettingsContent: View {
                         .foregroundStyle(healthy ? Theme.success : Theme.warning)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(account.isEmpty ? "MovieClaw 账号" : account)
+                        Text(account.isEmpty ? String(localized: .settingsCloudAccountFallback) : account)
                             .font(.headline).foregroundStyle(Theme.text)
-                        Label(healthy ? "已连接" : healthLabel(status.health), systemImage: healthy ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                        Label(healthy ? String(localized: .settingsDevicesLabelsConnected) : healthLabel(status.health), systemImage: healthy ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                             .font(.subheadline)
                             .foregroundStyle(healthy ? Theme.success : Theme.warning)
                     }
@@ -208,7 +208,7 @@ private struct CloudSettingsContent: View {
                 SettingsBAsyncButton {
                     await renew()
                 } label: {
-                    Label("立即同步", systemImage: "arrow.triangle.2.circlepath")
+                    Label(String(localized: .settingsCloudConnectSyncNow), systemImage: "arrow.triangle.2.circlepath")
                 }
                 .disabled(busy)
                 .accessibilityIdentifier("cloud-health-renew")
@@ -216,7 +216,7 @@ private struct CloudSettingsContent: View {
         }
 
         if !status.notices.isEmpty {
-            SettingsFormSection("来自 MovieClaw 的通知") {
+            SettingsFormSection(String(localized: .settingsCloudConnectNoticeTitle)) {
                 ForEach(status.notices, id: \.id) { notice in
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: notice.level == "info" ? "info.circle.fill" : "exclamationmark.triangle.fill")
@@ -233,7 +233,7 @@ private struct CloudSettingsContent: View {
                         }
                         .buttonStyle(.borderless)
                         .disabled(busy)
-                        .accessibilityLabel("关闭这条通知")
+                        .accessibilityLabel(String(localized: .settingsCloudConnectDismissNotice))
                     }
                 }
             }
@@ -243,18 +243,18 @@ private struct CloudSettingsContent: View {
             SettingsFormSection {
                 ForEach(link.scopes, id: \.self) { scope in
                     LabeledContent(scopeTitle(scope)) {
-                        Label("已开启", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.success)
+                        Label(String(localized: .settingsControlsEnabled), systemImage: "checkmark.circle.fill").foregroundStyle(Theme.success)
                     }
                 }
             } header: {
-                Text("云端服务")
+                Text(String(localized: .settingsCloudServices))
             } footer: {
                 if link.scopes.contains("push") { Text(limitsText(link.limits)) }
             }
         }
 
         SettingsFormSection {
-            Toggle("上报统计信息", isOn: Binding(get: { status.reportStats }, set: { value in
+            Toggle(String(localized: .settingsCloudConnectReportStats), isOn: Binding(get: { status.reportStats }, set: { value in
                 busy = true
                 Task {
                     defer { busy = false }
@@ -264,16 +264,16 @@ private struct CloudSettingsContent: View {
             .disabled(busy)
             .accessibilityIdentifier("cloud-report-stats")
             if let url = Self.reportsInfoURL(cloudURL: status.cloudUrl) {
-                Link("隐私与上报信息", destination: url)
+                Link(String(localized: .settingsCloudPrivacyLink), destination: url)
             }
             if let url = Self.accountSettingsURL(cloudURL: status.cloudUrl) {
-                Link("管理或删除 MovieClaw 账号", destination: url)
+                Link(String(localized: .settingsCloudManageAccount), destination: url)
                     .accessibilityIdentifier("cloud-account-settings")
             }
         } header: {
-            Text("隐私")
+            Text(String(localized: .settingsCloudPrivacy))
         } footer: {
-            Text("关闭统计后仅上报版本信息，官方推送不受影响。")
+            Text(String(localized: .settingsCloudStatsOffHint))
         }
     }
 
@@ -282,24 +282,24 @@ private struct CloudSettingsContent: View {
         defer { busy = false }
         do {
             try await connection.renew()
-            if connection.value?.health == "ok" { feedback.success("已和 MovieClaw Cloud 同步") }
+            if connection.value?.health == "ok" { feedback.success(String(localized: .settingsCloudConnectSynced)) }
         } catch { feedback.error(error) }
     }
 
     /// 断开要二次确认；云端连不上时再问一次，确认后只删这台服务器上的凭证
     private func disconnect() async {
-        guard await feedback.confirm("断开 MovieClaw Cloud？", message: "家人手机上的官方推送会立即停止。自建推送中继不受影响。",
-                                     confirmTitle: "断开", destructive: true) else { return }
+        guard await feedback.confirm(String(localized: .settingsCloudDisconnectTitle), message: String(localized: .settingsCloudDisconnectHint),
+                                     confirmTitle: String(localized: .settingsCloudConnectDisconnect), destructive: true) else { return }
         do {
             try await connection.disconnect(force: false)
-            feedback.success("已断开 MovieClaw Cloud")
+            feedback.success(String(localized: .settingsCloudDisconnectedToast))
         } catch let error as APIError where error.isCloudUnreachable {
-            guard await feedback.confirm("连不上 MovieClaw Cloud，仍要断开吗？",
-                                         message: "只会删掉这台服务器上的连接凭证。断开后请到 movieclaw.io 把这台服务器也删掉。",
-                                         confirmTitle: "仍要断开", destructive: true) else { return }
+            guard await feedback.confirm(String(localized: .settingsCloudForceTitle),
+                                         message: String(localized: .settingsCloudForceHint),
+                                         confirmTitle: String(localized: .settingsCloudConnectForceDisconnect), destructive: true) else { return }
             do {
                 try await connection.disconnect(force: true)
-                feedback.success("已断开。记得到 movieclaw.io 把这台服务器也删掉")
+                feedback.success(String(localized: .settingsCloudForceToast))
             } catch {
                 feedback.error(error)
             }
@@ -310,11 +310,11 @@ private struct CloudSettingsContent: View {
 
     private func healthLabel(_ health: String?) -> String {
         switch health {
-        case nil, "ok": "正常"
-        case "unreachable": "连不上云端"
-        case "expired": "凭证已过期"
-        case "unsupported": "版本不受支持"
-        default: "异常"
+        case nil, "ok": String(localized: .settingsDrivesHealthy)
+        case "unreachable": String(localized: .settingsCloudHealthUnreachable)
+        case "expired": String(localized: .settingsCloudHealthExpired)
+        case "unsupported": String(localized: .settingsCloudHealthUnsupported)
+        default: String(localized: .settingsCloudHealthError)
         }
     }
 
@@ -327,13 +327,13 @@ private struct CloudSettingsContent: View {
     }
 
     private func scopeTitle(_ scope: String) -> String {
-        scope == "push" ? "官方推送" : scope
+        scope == "push" ? String(localized: .settingsCloudConnectCapabilityPush) : scope
     }
 
     private func limitsText(_ limits: [String: Int]) -> String {
         // 负数是不限（云端协议），不写「每天最多 -1 条」
-        guard let day = limits["day"], day > 0 else { return "给登录了这台服务器的手机发通知" }
-        return "给登录了这台服务器的手机发通知，每天最多 \(day) 条"
+        guard let day = limits["day"], day > 0 else { return String(localized: .settingsCloudPushScope) }
+        return String(localized: .settingsCloudPushScopeDaily(day))
     }
 
     /// 官网隐私政策里「你的服务器会发给我们什么」那一节
@@ -373,9 +373,9 @@ private struct CloudConnectSheet: View {
     @State private var discarding = false
 
     var body: some View {
-        SubsSheetScaffold(title: "连接账号", onClose: {
+        SubsSheetScaffold(title: String(localized: .settingsCloudConnectButton), onClose: {
             if name.isEmpty { dismiss() } else { discarding = true }
-        }, confirm: .init(title: "继续", busy: busy, identifier: "cloud-connect-continue") {
+        }, confirm: .init(title: String(localized: .commonContinue), busy: busy, identifier: "cloud-connect-continue") {
             Task {
                 busy = true
                 error = nil
@@ -387,25 +387,25 @@ private struct CloudConnectSheet: View {
             }
         }) {
             SettingsFormSection {
-                SettingsBTextField(label: "服务器名称", text: $name, placeholder: serverName,
+                SettingsBTextField(label: String(localized: .settingsCloudConnectServerName), text: $name, placeholder: serverName,
                                    identifier: "cloud-instance-name")
             } footer: {
-                Text("这个名称会显示在官网，方便辨认服务器。")
+                Text(String(localized: .settingsCloudNameHint))
             }
             SettingsFormSection {
-                Label("官方推送", systemImage: "bell.badge")
+                Label(String(localized: .settingsCloudConnectCapabilityPush), systemImage: "bell.badge")
             } header: {
-                Text("申请权限")
+                Text(String(localized: .settingsCloudRequestedPermissions))
             } footer: {
-                Text("继续后前往官网，用 Apple、Google 或邮箱登录并批准连接。服务器只能使用授予的权限。")
+                Text(String(localized: .settingsCloudContinueHint))
             }
             if let error { SettingsFormSection { SettingsBNotice(text: error, tone: .danger) } }
         }
         .disabled(busy)
         .interactiveDismissDisabled(busy || !name.isEmpty)
-        .alert("放弃填写的名称？", isPresented: $discarding) {
-            Button("继续编辑", role: .cancel) { }
-            Button("放弃", role: .destructive) { dismiss() }
+        .alert(String(localized: .settingsCloudDiscardTitle), isPresented: $discarding) {
+            Button(String(localized: .settingsFormKeepEditing), role: .cancel) { }
+            Button(String(localized: .settingsPluginPackagesDiscard), role: .destructive) { dismiss() }
         }
     }
 }
@@ -419,7 +419,7 @@ struct CloudPairingRows: View {
     var body: some View {
         if let pairing = connection.pendingPairing {
             VStack(spacing: 4) {
-                Text("配对码").font(.caption).foregroundStyle(Theme.textMuted)
+                Text(String(localized: .settingsDevicesApprovalCode)).font(.caption).foregroundStyle(Theme.textMuted)
                 Text(pairing.userCode)
                     .font(.system(.title, design: .monospaced).weight(.semibold))
                     .textSelection(.enabled)
@@ -432,7 +432,7 @@ struct CloudPairingRows: View {
                 Button {
                     connection.openApprovalPage()
                 } label: {
-                    Label("打开 movieclaw.io 批准", systemImage: "safari").font(.body.weight(.semibold))
+                    Label(String(localized: .settingsCloudOpenWebsite), systemImage: "safari").font(.body.weight(.semibold))
                 }
                 .settingsProminentButton()
                 .accessibilityIdentifier("cloud-open-approval")
@@ -440,7 +440,7 @@ struct CloudPairingRows: View {
             }
             HStack(spacing: 10) {
                 ProgressView()
-                Text("等待批准…").foregroundStyle(Theme.textMuted)
+                Text(String(localized: .settingsCloudWaitingEllipsis)).foregroundStyle(Theme.textMuted)
                 Spacer(minLength: 8)
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text(Self.expiry(pairing.expiresAt, now: context.date))
@@ -448,7 +448,7 @@ struct CloudPairingRows: View {
                         .foregroundStyle(Theme.textFaint)
                 }
             }
-            SettingsBAsyncButton("取消配对", role: .destructive) {
+            SettingsBAsyncButton(String(localized: .settingsCloudCancelPairing), role: .destructive) {
                 do { try await connection.cancelPairing() } catch { feedback.error(error) }
             }
             .accessibilityIdentifier("cloud-cancel-pairing")
@@ -457,7 +457,7 @@ struct CloudPairingRows: View {
             SettingsBAsyncButton {
                 do { try await connection.connect(instanceName: pairing.instanceName) } catch { feedback.error(error) }
             } label: {
-                Label("重新获取配对码", systemImage: "arrow.clockwise")
+                Label(String(localized: .settingsCloudConnectGetNewCode), systemImage: "arrow.clockwise")
             }
             .accessibilityIdentifier("cloud-retry-pairing")
         }
@@ -465,9 +465,9 @@ struct CloudPairingRows: View {
 
     static func endedText(_ status: String) -> String {
         switch status {
-        case "denied": "在官网上拒绝了这次连接。"
-        case "expired": "配对码已过期。"
-        default: "连接没有完成，请重试。"
+        case "denied": String(localized: .settingsCloudEndedDenied)
+        case "expired": String(localized: .settingsCloudConnectFailureExpired)
+        default: String(localized: .settingsCloudEndedOther)
         }
     }
 
@@ -475,8 +475,8 @@ struct CloudPairingRows: View {
     static func expiry(_ raw: String, now: Date) -> String {
         guard let date = Formatters.date(raw) else { return "" }
         let seconds = Int(date.timeIntervalSince(now).rounded(.down))
-        guard seconds > 0 else { return "配对码已过期" }
-        return String(format: "配对码 %d:%02d 后失效", seconds / 60, seconds % 60)
+        guard seconds > 0 else { return String(localized: .settingsCloudCodeExpired) }
+        return String(localized: .settingsCloudCodeExpiresIn(String(format: "%d:%02d", seconds / 60, seconds % 60)))
     }
 }
 

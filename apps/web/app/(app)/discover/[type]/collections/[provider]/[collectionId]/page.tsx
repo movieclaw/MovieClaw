@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 
 import { CollectionGridView } from "@/components/collection-grid-view";
 
-export const metadata: Metadata = { title: "影视片单" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations();
+  return { title: t("media.discovery.collectionTitle") };
+}
 
 /** 通用片单落地页：路由参数只负责恢复服务端签发的稳定片单引用。 */
 export default async function DiscoveryCollectionPage({

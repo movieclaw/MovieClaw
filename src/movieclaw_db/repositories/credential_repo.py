@@ -100,6 +100,7 @@ class CredentialRepository:
             # 凭据已变更，作废旧的验证结论
             row.status = ConfigStatus.PENDING
             row.last_error = None
+            row.last_error_ref = None
             row.updated_at = utcnow()
         await self._session.commit()
         await self._session.refresh(row)
@@ -158,6 +159,7 @@ class CredentialRepository:
         status: ConfigStatus,
         *,
         last_error: str | None = None,
+        last_error_ref: dict | None = None,
         last_verified_at: datetime | None = None,
     ) -> bool:
         """更新站点的验证状态，供异步验证流程回写结论。返回是否命中记录。
@@ -173,12 +175,14 @@ class CredentialRepository:
         row.status = status
         if status == ConfigStatus.ACTIVE:
             row.last_error = None
+            row.last_error_ref = None
             row.last_verified_at = last_verified_at or now
             row.last_checked_at = now
         elif status == ConfigStatus.FAILED:
             # 失败原因归类后的中文文本；同时记录本次检查时间
             if last_error is not None:
                 row.last_error = last_error
+                row.last_error_ref = last_error_ref
             row.last_checked_at = now
         row.updated_at = now
         await self._session.commit()

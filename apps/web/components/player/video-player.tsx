@@ -1,6 +1,10 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { displayModes, currentDisplaySelection, type DisplayMode, type DisplaySelection } from "@/lib/player/display-mode";
 import { MediaController } from "media-chrome/react";
 
 import { ChevronLeftIcon, LockIcon, PlayIcon, XIcon } from "@/components/icons";
@@ -23,6 +27,7 @@ import {
   reportPlaybackProgress,
   reportPlaybackProgressOnUnload,
   resolveStreamUrl,
+  setAutoSkipIntro,
   startPlaybackSession,
   fetchTrickplay,
   reportPlaybackRecord,
@@ -109,7 +114,7 @@ import {
 import { createSessionReleaser } from "@/lib/player/session-release";
 import { reportedTracks } from "@/lib/player/track-memory";
 import { type QoeEvent, initialQoe, liveStats, reduceQoe, summarize } from "@/lib/player/qoe";
-import { consumePlayIntent } from "@/lib/player/play-links";
+import { consumePlayIntent, lockedFileForUnit } from "@/lib/player/play-links";
 import { StartupTrace } from "@/lib/player/startup-trace";
 import { type TrickplayIndex, tileAt } from "@/lib/player/trickplay";
 import { FALLBACK_FRAME_RATE, isEditableTarget, resolveShortcut } from "@/lib/player/shortcuts";
@@ -149,15 +154,21 @@ import {
 import { nextSeekTarget, seekBatchWindowMs } from "@/lib/player/seek-batch";
 import { resolveTap } from "@/lib/player/tap";
 import {
+  AUTO_NEXT_MAX_STREAK,
   AUTO_NEXT_MS,
+  SKIP_INFO_NOTICE_MS,
+  SKIP_NOTICE_MS,
+  type SkipSegment,
   activeSkipSegment,
   autoNextArmed,
+  autoSkips,
   clampSeekTarget,
   formatClock,
   isWithinRanges,
   planSeek,
   shouldShowUpNext,
   skipLabel,
+  skipName,
   toFileMs,
   toSessionSeconds,
 } from "@/lib/player/timeline";
@@ -188,6 +199,11 @@ export interface VideoPlayerProps {
    * undefined = 不覆盖：start_ms 不发，服务端接续播点（看完的从头播）。
    */
   startMsOverride?: number;
+  /**
+   * 详情页版本选择器带来的 `?file=`（锁定的源文件）。只对进入播放页的那一集生效：
+   * 切到别的集回到「服务端多版本自动择优」。undefined = 没锁。
+   */
+  lockedFileId?: number;
   /**
    * 下一集；没有（电影 / 本季最后一集）为 null。`label` 是一行的「S01E02 · 集名」（系统媒体控制用），
    * 「即将播放」卡片用分开的 `code`（第 2 集）/ `name` / `stillUrl`（剧照，没有为 null）
@@ -301,23 +317,23 @@ function recordContext(): Record<string, unknown> {
   };
 }
 
-const SOURCE_MISSING_MESSAGE = "服务器上找不到这个文件";
-const SOURCE_MISSING_SUGGESTION =
-  "文件可能被移动或删除了。可以回到条目页重新扫描媒体库，或换一个版本播放。";
 
 /**
- * 探片源：取 1 个字节（Range: bytes=0-0），5 秒超时。返回 HTTP 状态；请求本身没成功（断网、
- * 超时）返回 null。结论由 failure-policy.ts 的 sourceProbeVerdict 判。
+ * 探片源：取 1 个字节（Range: bytes=0-0），5 秒超时。返回 HTTP 状态；服务端跳转到网盘直链
+ * （strm 条目）返回 "redirect"，不跟过去；请求本身没成功（断网、超时）返回 null。结论由
+ * failure-policy.ts 的 sourceProbeVerdict 判。
  */
-async function probeSourceStatus(url: string): Promise<number | null> {
+async function probeSourceStatus(url: string): Promise<number | "redirect" | null> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), 5_000);
   try {
     const response = await fetch(url, {
       headers: { Range: "bytes=0-0" },
       cache: "no-store",
+      redirect: "manual",
       signal: controller.signal,
     });
+    if (response.type === "opaqueredirect") return "redirect";
     void response.body?.cancel().catch(() => undefined);
     return response.status;
   } catch {
@@ -393,12 +409,15 @@ function unitKeyOf(unit: PlaybackUnit): string {
 }
 
 export function VideoPlayer(props: VideoPlayerProps) {
+  const t = useTranslations();
+  const locale = useLocale();
   const {
     unit,
     title,
     episodeLabel,
     posterUrl,
     startMsOverride,
+    lockedFileId,
     next,
     prev,
     onPlayNext,
@@ -407,11 +426,20 @@ export function VideoPlayer(props: VideoPlayerProps) {
     api = DEFAULT_PLAYBACK_SCOPE,
   } = props;
   const unitKey = unitKeyOf(unit);
+  // `?file=` 的锁定只对进入播放页的那一集生效（切集只是换 unit、不重新导航，见 lockedFileForUnit）
+  const entryUnitKeyRef = useRef(unitKey);
+  const lockFile = lockedFileForUnit(unitKey, entryUnitKeyRef.current, lockedFileId);
   // 接口作用域放 ref：各回调 / effect 的依赖数组一律不变，作用域在组件生命周期内是常量
   const apiRef = useRef(api);
   apiRef.current = api;
 
   const [state, dispatch] = useReducer(playerReducer, initialPlayerState);
+  const [displaySelection, setDisplaySelection] = useState<DisplaySelection | null>(null);
+  const currentDisplay = currentDisplaySelection(displaySelection, unit.media_item_id);
+  // 同一部剧的连播/选集/换版本保留选择；切换到其他影片才恢复默认。
+  if (currentDisplay !== displaySelection) setDisplaySelection(currentDisplay);
+  const displayMode = currentDisplay?.mode ?? "fit";
+
   const [resume, setResume] = useState<PlaybackWatchState | null>(null);
   const [positionMs, setPositionMs] = useState(0);
   const [bufferedEndMs, setBufferedEndMs] = useState<number | null>(null);
@@ -473,6 +501,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
   const failureInFlightRef = useRef(false);
   /** 探片源循环的代号：换集、卸载、开始新的一轮时递增，旧循环醒来发现对不上就退出 */
   const reconnectSeqRef = useRef(0);
+  /** 最近一次探片源看到的是跳转（直出的是网盘直链）：重开用完就降档走服务端中转 */
+  const remoteSourceRef = useRef(false);
   /** 重开会话失败后的退避计时器 */
   const sessionRetryTimerRef = useRef<number | null>(null);
   /**
@@ -525,7 +555,10 @@ export function VideoPlayer(props: VideoPlayerProps) {
     lastActivityBumpRef.current = now;
     setChromeActivity((n) => n + 1);
   }, []);
-  /** 用户明确关掉过本集的「下一集」提示：关掉后不能因为还在片尾窗口里又弹回来 */
+  /**
+   * 用户明确关掉过本集的「下一集」提示：关掉后不能因为还在片尾里又弹回来。
+   * 播完时清掉——关掉是「想看片尾」，片尾看完了照样给卡片接下一集
+   */
   const [nextDismissed, setNextDismissed] = useState(false);
   /**
    * 连续自动播了几集。组件跨集不重建（换集只换 unit），所以计数自然跨集保留；
@@ -1043,7 +1076,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
   // 矩形后用 CSS 变量双管齐下——位置抬到画面下沿再留 8% 安全边距（Apple/
   // Netflix caption safe area），字号按画面高 5.2% 显式指定（与自绘层同一
   // 标准；PiP/全屏由系统基于小窗渲染，本来就对，页面 CSS 也够不着）。
-  const contentBox = useVideoContentBox(systemSubtitles ? video : null);
+  const contentBox = useVideoContentBox(video, displayMode);
   const cueFontPx = systemSubtitles ? Math.max(16, contentBox.height * 0.052) : 0;
   // 服务端已给 cue 加 line:84%（系统层用它定位），内联的 WebKit 同样会把
   // cue 顶放在**元素高**的 84% 处——竖屏时那还在黑边里。目标：cue 顶落在
@@ -1088,20 +1121,32 @@ export function VideoPlayer(props: VideoPlayerProps) {
    * 随会话下发，这里只管按播放位置用——不做任何计算。旧服务端没有这个字段，当空表。
    */
   const segments = useMemo(() => state.session?.segments ?? [], [state.session]);
+  const segmentsRef = useRef(segments);
+  segmentsRef.current = segments;
+  /**
+   * 自动跳过（docs/design/skip-intro.md §5）：本集已经决定过的段（按起点记）。自然播进去自动跳一次；
+   * 用户拖进去、±10 秒跳进去、撤回回去的只给按钮。换集清空
+   */
+  const skipHandledRef = useRef(new Set<number>());
+  /** 落点所在的段算「用户自己去的」：不自动跳，只给按钮 */
+  const markSkipHandled = useCallback((fileMs: number) => {
+    const seg = segmentsRef.current.find((s) => fileMs >= s.start_ms && fileMs < s.end_ms);
+    if (seg) skipHandledRef.current.add(seg.start_ms);
+  }, []);
 
   const subtitles = useMemo(() => {
     const session = state.session;
     if (!session) return { options: [], unavailable: [] };
-    return planSubtitleTracks(session.decision.subtitles, session.subtitle_urls);
-  }, [state.session]);
+    return planSubtitleTracks(session.decision.subtitles, session.subtitle_urls, locale);
+  }, [state.session, locale]);
 
   /** 服务端正在烧录进画面的字幕轨（Emby 语义「字幕压制」）；null = 没烧。 */
   const burnedSubtitle = state.session?.decision.video?.burn_subtitle ?? null;
 
   /** 音轨菜单项。少于两条时为空数组，控制条据此把整个按钮藏掉。 */
   const audioOptions = useMemo(
-    () => planAudioOptions(state.session?.decision.audio_tracks),
-    [state.session],
+    () => planAudioOptions(state.session?.decision.audio_tracks, locale),
+    [state.session, locale],
   );
 
   const activeSubtitle = useMemo(
@@ -1279,7 +1324,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     // 指纹必须覆盖**全部**会影响请求参数的依赖（quality 也在内）：漏一项的
     // 后果是该项单独变化时 effect 重跑却撞上相同指纹被去重跳过，而上一次
     // 在途请求已被 cancelled——响应回来没人认领，起播就永远停在转圈里。
-    const key = `${unitKey}|${phase}|${state.startMs}|${failedKey}|${state.failureCount}|${state.attempt}|${requestedAudio ?? ""}|${requestedSubtitle ?? ""}|${quality ?? ""}`;
+    const key = `${unitKey}|${phase}|${state.startMs}|${failedKey}|${state.failureCount}|${state.hevcRefused}|${state.attempt}|${requestedAudio ?? ""}|${requestedSubtitle ?? ""}|${quality ?? ""}|${lockFile ?? ""}`;
     if (startedKeyRef.current === key) return;
     startedKeyRef.current = key;
 
@@ -1295,7 +1340,11 @@ export function VideoPlayer(props: VideoPlayerProps) {
         const session = await startPlaybackSession(
           {
             ...unit,
-            capability: capabilityRef.current,
+            // 详情页版本选择器带来的 `?file=`：锁定这个文件起播，服务端跳过
+            // 多版本自动择优（undefined = 没锁 / 已切到别的集，照旧择优）
+            file_id: lockFile,
+            // HEVC 输出（#1008）按本轮状态现填：HEVC 放不了过就不再要
+            capability: { ...capabilityRef.current, hevc_transcode: !state.hevcRefused },
             failed_tiers: state.failedTiers,
             // null = 服务端接续播点；显式值（seek 重开 / 换轨 / ?t=）原样发
             start_ms: state.startMs ?? undefined,
@@ -1336,9 +1385,9 @@ export function VideoPlayer(props: VideoPlayerProps) {
           if (consentGrantedRef.current) {
             dispatch({
               type: "fatal",
-              message: "软件转码开关已保存，但服务端仍在请求开启确认",
+              message: appTranslator()("player.errors.consentRepeated"),
               suggestion:
-                "开关可能没有生效（例如服务端刚重启）。请刷新页面重试；若反复出现，请查看服务端日志排查。",
+                appTranslator()("player.errors.consentRepeatedHint"),
             });
             return;
           }
@@ -1362,7 +1411,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
         if (reconnectingRef.current && isTransientStatus(status)) {
           const delay = sessionBackoffRef.current.nextDelay();
           if (delay !== null) {
-            recordRef.current?.event("reconnect_retry", `开会话失败，${delay} 秒后再试`);
+            recordRef.current?.event("reconnect_retry", appTranslator()("player.errors.sessionRetry", { seconds: delay }));
             sessionRetryTimerRef.current = window.setTimeout(() => {
               sessionRetryTimerRef.current = null;
               dispatch({ type: "restart", startMs: pendingFileMsRef.current });
@@ -1370,13 +1419,13 @@ export function VideoPlayer(props: VideoPlayerProps) {
             return;
           }
           failPlayback(
-            `连接中断，重连了几次都没成功（${error instanceof Error ? error.message : "网络错误"}）`,
-            "检查网络后点「重试」，会从刚才的位置接着放。",
+            appTranslator()("player.errors.connectionLost", { reason: error instanceof Error ? error.message : appTranslator()("player.errors.network") }),
+            appTranslator()("player.errors.retryHint"),
             "network",
           );
           return;
         }
-        failPlayback(error instanceof Error ? error.message : "播放启动失败", null, "session");
+        failPlayback(error instanceof Error ? error.message : appTranslator()("player.errors.startup"), null, "session");
       }
     })();
 
@@ -1389,6 +1438,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     state.startMs,
     failedKey,
     state.failureCount,
+    state.hevcRefused,
     state.attempt,
     unitKey,
     requestedAudio,
@@ -1441,8 +1491,10 @@ export function VideoPlayer(props: VideoPlayerProps) {
       const url = resolveStreamUrl(streamUrl);
       void (async () => {
         for (;;) {
-          const verdict = sourceProbeVerdict(await probeSourceStatus(url));
+          const status = await probeSourceStatus(url);
           if (reconnectSeqRef.current !== seq) return;
+          remoteSourceRef.current = status === "redirect";
+          const verdict = sourceProbeVerdict(status);
           if (verdict === "reachable") {
             failureInFlightRef.current = false;
             dispatch({ type: "restart", startMs: positionMs });
@@ -1450,20 +1502,20 @@ export function VideoPlayer(props: VideoPlayerProps) {
           }
           if (verdict === "missing") {
             failureInFlightRef.current = false;
-            failPlayback(SOURCE_MISSING_MESSAGE, SOURCE_MISSING_SUGGESTION, "source_missing");
+            failPlayback(appTranslator()("player.errors.sourceMissing"), appTranslator()("player.errors.sourceMissingHint"), "source_missing");
             return;
           }
           const delay = backoff.nextDelay();
           if (delay === null) {
             failureInFlightRef.current = false;
             failPlayback(
-              "连接中断，重连了几次都没成功（一直取不到片源）",
-              "检查网络后点「重试」，会从刚才的位置接着放。",
+              appTranslator()("player.errors.sourceUnavailable"),
+              appTranslator()("player.errors.retryHint"),
               "network",
             );
             return;
           }
-          recordRef.current?.event("source_probe", `取不到片源，${delay} 秒后再试`);
+          recordRef.current?.event("source_probe", appTranslator()("player.errors.sourceRetry", { seconds: delay }));
           await new Promise((resolve) => window.setTimeout(resolve, delay * 1000));
           if (reconnectSeqRef.current !== seq) return;
         }
@@ -1514,6 +1566,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
       const response = decideFailure({
         cause,
         playsOriginalFile,
+        remoteSource: playsOriginalFile && remoteSourceRef.current,
         copyVideo,
         // 额度只在真要用时才扣
         restartAllowed: cause === "network" && networkBudgetRef.current.allowRestart(),
@@ -1536,7 +1589,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
           video.pause();
           pendingFileMsRef.current = positionMs;
           if (playsOriginalFile && session.stream_url) {
-            flashNotice("连接中断，正在重连…");
+            flashNotice(appTranslator()("player.errors.reconnecting"));
             awaitSourceThenReconnect(session.stream_url, positionMs);
           } else {
             dispatch({ type: "restart", startMs: positionMs });
@@ -1544,7 +1597,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
           return;
         case "retry":
           record?.event("retry", `原位重开：${reason}`);
-          flashNotice("播放出了点问题，正在原位重开");
+          flashNotice(appTranslator()("player.errors.restarting"));
           freezeFrame();
           video.pause();
           wantsPlayRef.current = true;
@@ -1553,13 +1606,13 @@ export function VideoPlayer(props: VideoPlayerProps) {
           return;
         case "fail-network":
           failPlayback(
-            `连接中断，重连了几次都没成功（${reason}）`,
-            "检查网络后点「重试」，会从刚才的位置接着放。",
+            appTranslator()("player.errors.connectionLost", { reason }),
+            appTranslator()("player.errors.retryHint"),
             "network",
           );
           return;
         case "fail-source-missing":
-          failPlayback(SOURCE_MISSING_MESSAGE, SOURCE_MISSING_SUGGESTION, "source_missing");
+          failPlayback(appTranslator()("player.errors.sourceMissing"), appTranslator()("player.errors.sourceMissingHint"), "source_missing");
           return;
         case "step-down":
           record?.noteFallback(reason);
@@ -1638,7 +1691,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
       if (disposed) return;
       dispatch({
         type: "fatal",
-        message: error instanceof Error ? error.message : "播放引擎启动失败",
+        message: error instanceof Error ? error.message : appTranslator()("player.errors.engineStartup"),
       });
     });
 
@@ -1869,8 +1922,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
       networkBudgetRef.current.reachedPlaying();
       sessionBackoffRef.current.reset();
       reconnectingRef.current = false;
-      if (startupRef.current && !startupRef.current.has("播放")) {
-        startupRef.current.mark("播放");
+      if (startupRef.current && !startupRef.current.has(appTranslator()("player.controls.play"))) {
+        startupRef.current.mark(appTranslator()("player.controls.play"));
         reportStartup();
         // 首帧信号迟迟不来（少数浏览器没有 requestVideoFrameCallback）：开播 3 秒后照样报
         window.setTimeout(() => reportStartup(true), 3000);
@@ -2022,8 +2075,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
     endedByAdminRef.current = true;
     dispatch({
       type: "fatal",
-      message: "管理员已结束本次播放",
-      suggestion: "稍后可以重新开始播放；观看进度已经保存。",
+      message: appTranslator()("player.errors.endedByAdmin"),
+      suggestion: appTranslator()("player.errors.endedByAdminHint"),
     });
   }, []);
 
@@ -2262,7 +2315,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
         ? shortTrackLabel(option.label, subtitles.options.map((o) => o.label))
         : selectedSubtitle
           ? null
-          : "关闭";
+          : appTranslator()("player.subtitles.off");
     }
     const text = rememberedChoicesNotice({ quality: qualityPart, audio, subtitle });
     if (!text) return;
@@ -2354,7 +2407,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
         // 与其它解码问题同一条路：直通档先原位重开一次，3 分钟内再掉才降档（failure-policy.ts）
         tracker.reset();
         handleFailureRef.current(
-          `直通播放持续掉帧（${Math.round((verdict.ratio ?? 0) * 100)}%）`,
+          appTranslator()("player.errors.frameDrops", { percent: Math.round((verdict.ratio ?? 0) * 100) }),
           "decode",
         );
       }
@@ -2457,6 +2510,14 @@ export function VideoPlayer(props: VideoPlayerProps) {
       probing = true;
       try {
         const alive = await pingPlaybackSession(sessionId, apiRef.current);
+        if (alive === "failed") {
+          // 服务端已判本机转码起不来（issue #763）：这一档放不了，按「确定解不了」降档。
+          // 记成网络问题会先同档重开两次，每次都是同一条起不来的命令
+          if (sessionIdRef.current === sessionId) {
+            handleFailureRef.current(appTranslator()("player.errors.transcodeStartup"), "decode-final");
+          }
+          return;
+        }
         // null = 这次请求本身失败（断网/5xx），不能据此判定会话没了
         if (alive !== false) return;
         // 探活途中会话已经换了（换字幕烧录/换音轨/换画质重开）：这个 404
@@ -2483,7 +2544,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
         pendingFileMsRef.current = positionRef.current;
         // 会话被回收也是一种断线：重开请求要是撞上服务端还没好，按退避再试而不是直接落错误页
         reconnectingRef.current = true;
-        recordRef.current?.beginReconnect("会话已被服务端回收");
+        recordRef.current?.beginReconnect(appTranslator()("player.errors.sessionReclaimed"));
         dispatch({ type: "restart", startMs: positionRef.current });
       } finally {
         probing = false;
@@ -2555,7 +2616,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     const offer = qualityOfferRef.current;
     if (!offer) return;
     dismissQualityOffer();
-    recordRef.current?.event("quality_offer_accepted", `改用 ${offer.maxHeight}p`);
+    recordRef.current?.event("quality_offer_accepted", appTranslator()("player.controls.useQuality", { height: offer.maxHeight }));
     reportPlaybackClientLog(
       "quality-suggestion-accepted",
       { suggested_height: offer.maxHeight },
@@ -2844,6 +2905,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
       // 先夹进片长之内：越过片尾的落点会让换会话那条路开出一个转不出任何
       // 东西的会话（理由见 timeline.ts 的 clampSeekTarget）。
       const fileMs = clampSeekTarget(rawFileMs, durationMs);
+      // 自动跳过自己的跳转不算「用户去的」，其余落点所在的段都只给按钮
+      if (source !== "auto") markSkipHandled(fileMs);
       // 播放记录的跳转（playback-qoe.md §3.1）：从用户动作算到落点出画；换会话 / 落在缓冲里分开记
       const noteSeek = (restart: boolean, buffered: boolean) => {
         recordRef.current?.beginSeek({
@@ -2962,7 +3025,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
       setPositionMs(plan.startMs);
       dispatch({ type: "restart", startMs: plan.startMs });
     },
-    [video, sessionId, mode, durationMs, state.session, state.phase, state.startMs, freezeFrame, qoe, clearPendingCommit],
+    [video, sessionId, mode, durationMs, state.session, state.phase, state.startMs, freezeFrame, qoe, clearPendingCommit, markSkipHandled],
   );
 
   /**
@@ -3232,6 +3295,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
       // 控制条会**在拖动过程中**淡出——指针捕获让拖动照旧生效，用户却是
       // 对着一条看不见的进度条在拖，松手才知道跳到了哪儿。
       bumpChromeActivity();
+      // 拖动途中画面跟到哪段里，哪段就是用户自己去的：别在手指还没松开时自动跳走
+      markSkipHandled(fileMs);
       if (!video) return;
       // 连续拖动的跳转耗时以第一次拖动为起点（playback-qoe.md §1.3）
       recordRef.current?.noteScrubActivity();
@@ -3260,7 +3325,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
         if (target !== null) applyScrubFollowRef.current(target);
       }, plan.delayMs);
     },
-    [video, mode, isCheapSeek, bumpChromeActivity, cancelScrubFollow, applyScrubFollow],
+    [video, mode, isCheapSeek, bumpChromeActivity, markSkipHandled, cancelScrubFollow, applyScrubFollow],
   );
 
   /**
@@ -3366,8 +3431,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
               (navigator as { standalone?: boolean }).standalone === true;
             flashNotice(
               standalone
-                ? "iOS 桌面应用暂不支持画中画，请在 Safari 中打开本站使用"
-                : "系统未开启画中画（低电量模式或当前环境可能不支持）",
+                ? appTranslator()("player.errors.pipStandalone")
+                : appTranslator()("player.errors.pipDisabled"),
             );
           }
         }, 500);
@@ -3383,8 +3448,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
       const name = typeof error === "object" && error && "name" in error ? String((error as { name: unknown }).name) : "";
       flashNotice(
         name === "NotAllowedError"
-          ? "浏览器拒绝了画中画（需要页面处于可交互状态）"
-          : "画中画启动失败（此视频源或环境不支持）",
+          ? appTranslator()("player.errors.pipInteraction")
+          : appTranslator()("player.errors.pipUnsupported"),
       );
       console.warn("画中画请求被拒绝：", error);
     });
@@ -3551,7 +3616,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     if (!mediaSession) return;
     // 片名与起播并行加载（§6.10），晚到的那几百毫秒先用占位——锁屏卡片
     // 会在下一次 effect 里拿到真名
-    const shownTitle = title ?? "正在播放";
+    const shownTitle = title ?? appTranslator()("player.controls.playing");
     mediaSession.metadata = new MediaMetadata({
       title: episodeLabel ? `${shownTitle} · ${episodeLabel}` : shownTitle,
       artist: episodeLabel ? shownTitle : undefined,
@@ -3820,7 +3885,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
         setHoldSpeed(false);
         // 松手后浏览器还会补一次 click，吞掉它，否则每次长按都顺带切控制层
         if (event === "release") suppressClickRef.current = true;
-        if (event === "starve") flashNotice("缓冲跟不上，已退出 2 倍速");
+        if (event === "starve") flashNotice(appTranslator()("player.errors.speedBuffering"));
       }
       hold.state = next;
     };
@@ -4069,11 +4134,12 @@ export function VideoPlayer(props: VideoPlayerProps) {
     // chromeActivity：用户的每次操作都重排这个倒计时（声明见 state 注释）
   }, [locked, paused, menuOpen, awaitingUser, scrubbing, chromeVisible, chromeActivity]);
 
-  // 当前手动跳过段优先于最后 40 秒的下一集提示；用户关闭卡片后，本集不再显示。
-  const showNextCard =
-    next !== null &&
-    !nextDismissed &&
-    shouldShowUpNext(segments, positionMs, durationMs, state.phase === "ended");
+  // 认出了片尾就从片尾起点给，否则播完才给；当前手动跳过段优先。用户关闭卡片后，播完前不再显示。
+  const ended = state.phase === "ended";
+  useEffect(() => {
+    if (ended) setNextDismissed(false);
+  }, [ended]);
+  const showNextCard = next !== null && !nextDismissed && shouldShowUpNext(segments, positionMs, ended);
 
   /**
    * 「跳过片头」一类的按钮：位置在片头 / 广告 / 预告 / 其他段 / 非结尾片尾里才出现。
@@ -4084,18 +4150,89 @@ export function VideoPlayer(props: VideoPlayerProps) {
     !locked &&
     state.phase !== "error" &&
     state.phase !== "consent" &&
-    state.phase !== "ended"
+    !ended
       ? activeSkipSegment(segments, positionMs)
       : null;
 
   /**
-   * 自动播下一集（Netflix 同款）：认出了片尾、卡片在显示、没到连播上限时倒计时 AUTO_NEXT_MS，
+   * 自动跳过（docs/design/skip-intro.md §5，与 iOS `PlaybackController` 同一套）：广告、预告自然播进去就跳，
+   * 给「已跳过广告 · 撤回」；片头按剧学——手动跳过一次就记到账号里，以后自动跳。设定随会话下发
+   * （`auto_skip`）；旧服务端、分享访客没有：广告照跳，片头只给按钮、也不学（记不住，不能承诺）
+   */
+  const autoSkipView = state.session?.auto_skip ?? null;
+  const autoSkipEnabled = autoSkipView?.enabled ?? true;
+  const isShare = api.base !== DEFAULT_PLAYBACK_SCOPE.base;
+  const canLearnIntro = autoSkipView !== null && !isShare;
+  /** 本次播放里改过的片头选择（按剧）：保存请求还没落库时下一集的会话可能带回旧值，以这里为准 */
+  const [introOverrides, setIntroOverrides] = useState<Record<number, boolean>>({});
+  const introLearned = introOverrides[unit.media_item_id] ?? autoSkipView?.intro ?? false;
+  const [skipNotice, setSkipNotice] = useState<{
+    id: number;
+    kind: "skipped" | "learned" | "forgot";
+    segment?: SkipSegment;
+  } | null>(null);
+  const skipNoticeIdRef = useRef(0);
+  const showSkipNotice = useCallback((kind: "skipped" | "learned" | "forgot", segment?: SkipSegment) => {
+    skipNoticeIdRef.current += 1;
+    setSkipNotice({ id: skipNoticeIdRef.current, kind, segment });
+  }, []);
+  const setIntroAutoSkip = useCallback((mediaItemId: number, enabled: boolean) => {
+    setIntroOverrides((prev) => ({ ...prev, [mediaItemId]: enabled }));
+    void setAutoSkipIntro(mediaItemId, enabled).catch(() => {});
+  }, []);
+  useEffect(() => {
+    skipHandledRef.current.clear();
+    setSkipNotice(null);
+  }, [unitKey]);
+  // 提示到时间收起（换了新提示就重新计时）
+  useEffect(() => {
+    if (!skipNotice) return;
+    const id = skipNotice.id;
+    const timer = window.setTimeout(
+      () => setSkipNotice((cur) => (cur?.id === id ? null : cur)),
+      skipNotice.kind === "forgot" ? SKIP_INFO_NOTICE_MS : SKIP_NOTICE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [skipNotice]);
+  // 自然播进了区间、这一段还没决定过：按 autoSkips 跳或只给按钮（一段一集最多自动跳一次）
+  useEffect(() => {
+    if (!skipSegment || state.phase !== "playing" || paused) return;
+    if (skipHandledRef.current.has(skipSegment.start_ms)) return;
+    skipHandledRef.current.add(skipSegment.start_ms);
+    if (!autoSkips(skipSegment, autoSkipEnabled, introLearned)) return;
+    seekToFileMs(skipSegment.end_ms, "auto");
+    showSkipNotice("skipped", skipSegment);
+  }, [skipSegment, state.phase, paused, autoSkipEnabled, introLearned, seekToFileMs, showSkipNotice]);
+
+  /** 点「跳过」：跳到这一段结束处。片头是这部剧第一次手动跳，就记下来、以后自动跳，给「不用」反悔 */
+  const skipCurrentSegment = (seg: SkipSegment) => {
+    commitSeek(seg.end_ms);
+    if (seg.type === "intro" && autoSkipEnabled && canLearnIntro && !introLearned) {
+      setIntroAutoSkip(unit.media_item_id, true);
+      showSkipNotice("learned");
+    }
+  };
+  /** 「撤回」：回到这一段起点接着看；撤回的是片头就忘掉这部剧的片头自动跳 */
+  const undoAutoSkip = (seg: SkipSegment) => {
+    commitSeek(seg.start_ms, "button");
+    if (seg.type === "intro" && introLearned) {
+      setIntroAutoSkip(unit.media_item_id, false);
+      showSkipNotice("forgot");
+    } else {
+      setSkipNotice(null);
+    }
+  };
+
+  /**
+   * 自动播下一集（Netflix 同款）：认出了片尾或已播完、卡片在显示、没到连播上限时倒计时 AUTO_NEXT_MS，
    * 走满就换集。暂停时停住（播完 `ended` 也算在走——片尾短于倒计时时不能卡在最后一帧），
    * 拖进度条时不走；关掉卡片 / 拖出片尾 / 换集都归零。点 ✕ 就是「继续看片尾」。
+   * 连播满上限后放完了不自动接，卡片改问「还在看吗？」
    */
   const autoNext =
-    showNextCard && !locked && autoNextArmed(segments, positionMs, autoNextStreak);
-  const autoNextRunning = autoNext && (!paused || state.phase === "ended") && !scrubbing;
+    showNextCard && !locked && autoNextArmed(segments, positionMs, autoNextStreak, ended);
+  const stillWatching = ended && autoNextStreak >= AUTO_NEXT_MAX_STREAK;
+  const autoNextRunning = autoNext && (!paused || ended) && !scrubbing;
   useEffect(() => {
     if (!autoNext) setAutoNextElapsed(0);
   }, [autoNext]);
@@ -4131,17 +4268,50 @@ export function VideoPlayer(props: VideoPlayerProps) {
 
   // 右下角浮层：「跳过片头」按钮与「即将播放」卡片（两者不同时出现）。交给 PlayerControls
   // 挂在时间行右端，跟着控制条展开 / 收起上下走（见 PlayerControlsProps.corner）
-  const corner = skipSegment ? (
-    // 点了直接跳到这一段结束处；片段里才出现、出了片段自动消失，不自动跳。
+  const corner = skipNotice ? (
+    // 自动跳过的提示占跳过按钮的位置、同样高（撤回后回到片头里，提示收起才轮到按钮）：
+    // 文字在左，反悔的那颗白色小胶囊在右
+    <div
+      data-testid="skip-notice"
+      className="flex h-7 items-center gap-2 rounded-full bg-black/60 pl-3 text-[13px] font-semibold text-white shadow-lg backdrop-blur max-md:text-[12px]"
+      style={{ paddingRight: skipNotice.kind === "forgot" ? undefined : 2 }}
+    >
+      <span className={skipNotice.kind === "forgot" ? "pr-3" : undefined}>
+        {skipNotice.kind === "skipped" && skipNotice.segment
+          ? t("player.controls.skipped", { segment: skipName(skipNotice.segment, locale) })
+          : skipNotice.kind === "learned"
+            ? t("player.controls.autoSkipLearned")
+            : t("player.controls.autoSkipDisabled")}
+      </span>
+      {skipNotice.kind !== "forgot" ? (
+        <button
+          type="button"
+          data-testid="skip-notice-action"
+          onClick={() => {
+            if (skipNotice.kind === "skipped" && skipNotice.segment) {
+              undoAutoSkip(skipNotice.segment);
+            } else {
+              setIntroAutoSkip(unit.media_item_id, false);
+              setSkipNotice(null);
+            }
+          }}
+          className="h-6 rounded-full bg-white/90 px-2.5 text-[12px] font-semibold text-black transition-colors hover:bg-white"
+        >
+          {skipNotice.kind === "skipped" ? t("player.controls.undoSkip") : t("player.controls.declineAutoSkip")}
+        </button>
+      ) : null}
+    </div>
+  ) : skipSegment ? (
+    // 点了直接跳到这一段结束处；片段里才出现、出了片段自动消失。
     // 高度与左边的时间胶囊一样（h-7），看起来是控制条的一部分
     <button
       type="button"
       data-testid="skip-segment"
       data-segment-type={skipSegment.type}
-      onClick={() => commitSeek(skipSegment.end_ms)}
+      onClick={() => skipCurrentSegment(skipSegment)}
       className="h-7 rounded-full bg-white/90 px-3 text-[13px] font-semibold text-black shadow-lg backdrop-blur transition-colors hover:bg-white max-md:text-[12px]"
     >
-      {skipLabel(skipSegment)}
+      {skipLabel(skipSegment, locale)}
     </button>
   ) : showNextCard && next ? (
     // 下一集卡片：左剧照、右「即将播放 / 集号 / 集名」三行，右上角 ✕（= 继续看片尾），
@@ -4159,7 +4329,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
         ) : null}
         <div className="min-w-0 flex-1 self-center">
           <p className="text-[11px] tracking-wide text-white/50">
-            即将播放{autoNext ? ` · ${autoNextLeftS} 秒` : ""}
+            {stillWatching ? t("player.controls.stillWatching") : t("player.controls.upNext", { countdown: autoNext ? t("player.controls.countdown", { seconds: autoNextLeftS }) : "" })}
           </p>
           <p className="mt-0.5 text-[13px] text-white/70">{next.code}</p>
           {next.name ? (
@@ -4172,7 +4342,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
           type="button"
           data-testid="upnext-dismiss"
           onClick={() => setNextDismissed(true)}
-          aria-label="不看下一集，继续看片尾"
+          aria-label={t("player.controls.watchCredits")}
           className="grid size-7 shrink-0 place-items-center self-start rounded-full bg-white/12 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
         >
           <XIcon className="size-3.5" />
@@ -4196,7 +4366,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
           ) : null}
           <span className="relative inline-flex items-center gap-1.5">
             <PlayIcon className="size-3.5" />
-            立即播放
+            {t("player.controls.playNow")}
           </span>
         </button>
       </div>
@@ -4239,6 +4409,11 @@ export function VideoPlayer(props: VideoPlayerProps) {
    */
   const overrideMs =
     seekPreview && !seekPreview.leaving ? seekPreview.targetMs : pendingSeekMs;
+
+  const selectDisplayMode = (selected: DisplayMode) => {
+    setDisplaySelection({ mediaItemId: unit.media_item_id, mode: selected });
+    flashNotice(displayModes().find((option) => option.id === selected)!.label);
+  };
 
   return (
     <div
@@ -4291,7 +4466,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
         // 打开时 chromeMustStayVisible 钉住）。不禁的话菜单开着等几秒会被它
         // 淡掉，绕过我们的 menuOpen 钉住逻辑（真机反馈的根因）。
         {...{ gesturesdisabled: "", autohide: "-1" }}
-        className="size-full"
+        className="size-full overflow-hidden"
         style={{ width: "100%", height: "100%", backgroundColor: "#000" }}
       >
         <video
@@ -4301,7 +4476,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
           poster={posterUrl ?? undefined}
           onClick={onSurfaceClick}
           onDoubleClick={onSurfaceDoubleClick}
-          className="size-full object-contain"
+          className="size-full"
+          style={{ objectFit: contentBox.objectFit }}
         >
           {pipSubtitleUrl ? (
             // key 让换轨时整个 <track> 重建——改 src 复用元素时 Safari 不重载 cue。
@@ -4322,7 +4498,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
           ref={freezeCanvasRef}
           {...{ noautohide: "" }}
           aria-hidden
-          className={`pointer-events-none absolute inset-0 size-full object-contain ${
+          style={{ objectFit: contentBox.objectFit }}
+          className={`pointer-events-none absolute inset-0 size-full ${
             frozen ? "" : "hidden"
           }`}
         />
@@ -4342,6 +4519,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
 
         <SubtitleLayer
           video={video}
+          displayMode={displayMode}
           // 烧录中的轨绝不旁挂——画面里已经有了，再挂一层是双字幕。
           // system-track（iOS 原生 HLS）时文本轨交系统渲染、自绘层闲置；
           // 但 PGS 位图轨进不了 HLS 字幕组，内联播放仍由 canvas 层负责
@@ -4390,7 +4568,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
             className={`grid size-9 shrink-0 place-items-center rounded-full border border-white/[0.09] bg-black/30 text-white/85 backdrop-blur-md transition hover:bg-black/50 hover:text-white active:scale-[0.94] pointer-coarse:size-11 ${
               chromeVisible ? "pointer-events-auto" : "pointer-events-none"
             }`}
-            aria-label={landscape ? "退出横屏" : "退出播放"}
+            aria-label={landscape ? t("player.controls.exitLandscape") : t("player.controls.exit")}
           >
             <ChevronLeftIcon className="size-[18px] pointer-coarse:size-[22px]" />
           </button>
@@ -4436,8 +4614,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
                 className={`grid size-9 shrink-0 place-items-center rounded-full border border-white/[0.09] bg-black/30 text-white/85 backdrop-blur-md transition hover:bg-black/50 hover:text-white active:scale-[0.94] pointer-coarse:size-11 ${
                   chromeVisible ? "pointer-events-auto" : "pointer-events-none"
                 }`}
-                aria-label="锁屏"
-                title="锁屏（防误触）"
+                aria-label={t("player.controls.lock")}
+                title={t("player.controls.lockHint")}
               >
                 <LockIcon className="size-[18px] pointer-coarse:size-[22px]" />
               </button>
@@ -4456,8 +4634,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
                 className={`grid size-9 shrink-0 place-items-center rounded-full border border-white/[0.09] bg-black/30 text-white/85 backdrop-blur-md transition hover:bg-black/50 hover:text-white active:scale-[0.94] pointer-coarse:size-11 ${
                   chromeVisible ? "pointer-events-auto" : "pointer-events-none"
                 }`}
-                aria-label={pipActive ? "退出画中画" : "画中画"}
-                title={pipActive ? "退出画中画" : "画中画"}
+                aria-label={pipActive ? t("player.controls.exitPip") : t("player.controls.pip")}
+                title={pipActive ? t("player.controls.exitPip") : t("player.controls.pip")}
               >
                 <PipGlyph exit={pipActive} />
               </button>
@@ -4482,8 +4660,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
                 setChromeVisible(true);
               }}
               className="grid size-11 place-items-center rounded-full border border-white/[0.09] bg-black/45 text-white backdrop-blur-md transition active:scale-[0.94]"
-              aria-label="解锁"
-              title="解锁"
+              aria-label={t("player.controls.unlock")}
+              title={t("player.controls.unlock")}
             >
               <LockIcon className="size-[22px]" />
             </button>
@@ -4498,7 +4676,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
             className="pointer-events-none absolute left-1/2 top-[calc(1rem_+_var(--safe-top))] z-30 -translate-x-1/2"
           >
             <div className="player-flash-in flex items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-[13px] font-medium text-white shadow-[0_10px_28px_rgba(0,0,0,0.45)]">
-              <span className="tnum">{HOLD_SPEED_RATE}× 快进中</span>
+              <span className="tnum">{HOLD_SPEED_RATE}{t("player.controls.fastForward")}</span>
               <SeekChevrons back={false} />
             </div>
           </div>
@@ -4523,9 +4701,9 @@ export function VideoPlayer(props: VideoPlayerProps) {
                 <VolumeGlyph muted={Boolean(adjust.muted) || adjust.value <= 0.001} />
               )}
               {adjust.unsupported ? (
-                <span>音量由系统侧键控制</span>
+                <span>{t("player.controls.volumeKeys")}</span>
               ) : adjust.muted ? (
-                <span>静音</span>
+                <span>{t("player.controls.muted")}</span>
               ) : (
                 <>
                   <div className="h-1 w-24 overflow-hidden rounded-full bg-white/25">
@@ -4596,11 +4774,13 @@ export function VideoPlayer(props: VideoPlayerProps) {
             className="absolute left-1/2 top-[calc(3.75rem_+_var(--safe-top))] z-30 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2"
           >
             <div className="player-flash-in rounded-2xl bg-black/80 p-4 text-white shadow-[0_10px_28px_rgba(0,0,0,0.45)] backdrop-blur-md">
-              <p className="text-[15px] font-semibold">网速跟不上当前画质</p>
+              <p className="text-[15px] font-semibold">{t("player.controls.slowNetwork")}</p>
               <p className="mt-1.5 text-[13px] leading-relaxed text-white/75">
-                实测约 {formatLoadingSpeed(qualityOffer.measuredBps) ?? "很慢"}，这一版需要约{" "}
-                {formatLoadingSpeed(qualityOffer.requiredBps) ?? "更快"}。可以暂停攒一会缓冲再看，或改用{" "}
-                {qualityOffer.maxHeight}p（服务端转码，画质会降低）。
+                {t("player.controls.slowDescription", {
+                  measured: formatLoadingSpeed(qualityOffer.measuredBps) ?? t("player.controls.slowMeasured"),
+                  required: formatLoadingSpeed(qualityOffer.requiredBps) ?? t("player.controls.slowRequired"),
+                  height: qualityOffer.maxHeight,
+                })}
               </p>
               <div className="mt-3 flex justify-end gap-2">
                 <button
@@ -4608,7 +4788,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
                   onClick={dismissQualityOffer}
                   className="rounded-full bg-white/15 px-4 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-white/25"
                 >
-                  继续当前画质
+                  {t("player.controls.keepQuality")}
                 </button>
                 <button
                   type="button"
@@ -4616,7 +4796,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
                   onClick={acceptQualityOffer}
                   className="rounded-full bg-[var(--player-accent)] px-4 py-1.5 text-[13px] font-semibold text-black transition-colors hover:bg-[var(--player-accent-hover)]"
                 >
-                  改用 {qualityOffer.maxHeight}p
+                  {t("player.controls.lowerQuality")} {qualityOffer.maxHeight}p
                 </button>
               </div>
             </div>
@@ -4638,7 +4818,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
               }`}
             >
               {seekFlash.seconds < 0 ? <SeekChevrons back /> : null}
-              <span className="tnum">{Math.abs(seekFlash.seconds)} 秒</span>
+              <span className="tnum">{Math.abs(seekFlash.seconds)} {t("player.controls.seconds")}</span>
               {seekFlash.seconds > 0 ? <SeekChevrons back={false} /> : null}
             </div>
           </div>
@@ -4673,7 +4853,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
             <div className="player-busy-appear flex flex-col items-center gap-4">
               <span className="size-12 animate-spin rounded-full border-[3px] border-white/15 border-t-[var(--player-accent)]" />
               <div className="flex flex-col items-center gap-1.5">
-                <span className="text-[14px] text-white/75">{busyLabel(state.phase)}</span>
+                <span className="text-[14px] text-white/75">{busyLabel(state.phase, locale)}</span>
                 {/* 转圈的时候正是用户最想知道「到底是谁慢」的时候：这里补一行
                     实测取流速度，贴着码率跑说明线路没问题、卡的是服务端转码，
                     远低于码率说明就是带宽不够，该去降一档画质。没有读数（样本
@@ -4694,9 +4874,9 @@ export function VideoPlayer(props: VideoPlayerProps) {
           >
             <div className="max-w-[480px] text-center">
               <p className="text-[17px] font-semibold text-white">{state.error.message}</p>
-              {state.error.suggestion ? (
+              {state.error.suggestion || state.error.suggestionKey ? (
                 <p className="mt-3 text-[14px] leading-relaxed text-white/60">
-                  {state.error.suggestion}
+                  {state.error.suggestionKey ? t(state.error.suggestionKey) : state.error.suggestion}
                 </p>
               ) : null}
               <div className="mt-6 flex justify-center gap-3">
@@ -4705,14 +4885,14 @@ export function VideoPlayer(props: VideoPlayerProps) {
                   onClick={retryFromError}
                   className="rounded-full bg-[var(--player-accent)] px-6 py-2.5 text-[14px] font-semibold text-black transition-colors hover:bg-[var(--player-accent-hover)]"
                 >
-                  重试
+                  {t("common.retry")}
                 </button>
                 <button
                   type="button"
                   onClick={onExit}
                   className="rounded-full bg-white/15 px-6 py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-white/25"
                 >
-                  返回
+                  {t("common.back")}
                 </button>
               </div>
             </div>
@@ -4763,7 +4943,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
               矮屏（手机横屏）底部这点空间会顶到中央簇，直接藏大字。 */}
           {showPauseOverlay && title ? (
             <div className="player-inset-x min-w-0 [@media(max-height:480px)]:hidden">
-              <p className="text-[12px] uppercase tracking-[0.3em] text-white/55">已暂停</p>
+              <p className="text-[12px] uppercase tracking-[0.3em] text-white/55">{t("player.controls.paused")}</p>
               <h2 className="mt-2 truncate text-[32px] font-bold leading-tight text-white drop-shadow-lg max-md:text-[22px]">
                 {title}
               </h2>
@@ -4809,11 +4989,14 @@ export function VideoPlayer(props: VideoPlayerProps) {
             systemSubtitles={systemSubtitles}
             quality={quality}
             onSelectQuality={selectQuality}
+            displayMode={displayMode}
+            onSelectDisplayMode={selectDisplayMode}
             fullscreen={fullscreen}
             onToggleFullscreen={toggleFullscreen}
             onMenuOpenChange={setMenuOpen}
             trickplay={trickplay}
             chapters={chapters}
+            skipSegments={segments}
             fakeLandscape={fakeLandscape}
           />
         </div>
@@ -4823,15 +5006,16 @@ export function VideoPlayer(props: VideoPlayerProps) {
 }
 
 /** 转圈时说清楚卡在哪一段——「正在启动」和「正在降档重试」不是一回事。 */
-function busyLabel(phase: string): string {
+function busyLabel(phase: string, locale: AppLocale): string {
+  const t = appTranslator(locale);
   switch (phase) {
     case "deciding":
-      return "正在判断播放方式…";
+      return t("player.busy.deciding");
     case "session-starting":
-      return "正在准备视频流…";
+      return t("player.busy.sessionStarting");
     case "degrading":
-      return "这一档放不出来，正在降档重试…";
+      return t("player.busy.degrading");
     default:
-      return "正在缓冲…";
+      return t("player.busy.buffering");
   }
 }

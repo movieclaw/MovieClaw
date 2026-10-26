@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import type { Route } from "next";
 import { useEffect, useMemo, useState } from "react";
 
@@ -9,6 +10,7 @@ import { useSubscribeEntry } from "@/components/subscribe-entry";
 import { SubsHomePosterCard } from "@/components/subscriptions-home-kit";
 import { listLibraries, type MediaLibrary } from "@/lib/api/libraries";
 import { listRuleSets, type RuleSet, type Subscription } from "@/lib/api/subscriptions";
+import { ruleSetLabel } from "@/lib/rule-set-label";
 import { usePermissions } from "@/lib/permissions";
 import { wallSummary, type SubsHomeShelfItem } from "@/lib/subscriptions-home";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
@@ -24,11 +26,14 @@ import { useSubscriptionsHome } from "@/lib/use-subscriptions-home";
  * 墙上的海报比首页多一行「规则组 → 媒体库」流向（规则组名只有管理员可见）。
  */
 export function SubscriptionWallView({ kind }: { kind: "movie" | "tv" }) {
+  const locale = useLocale();
+  const t = useTranslations();
+
   const { canManageSubscriptions, isAdmin } = usePermissions();
   const { subscriptions, refresh } = useSubscribeEntry();
   const { state } = useSubscriptionsHome(subscriptions, isAdmin);
   const shelf = kind === "movie" ? state.movie : state.tv;
-  const title = kind === "movie" ? "电影订阅" : "剧集订阅";
+  const title = kind === "movie" ? t("subscription.sections.movieSubscriptions") : t("subscription.sections.tvSubscriptions");
   const restoreScrollRef = useScrollRestoration(`subscriptions-wall-${kind}`, {
     anchorAttribute: "data-subscription-id",
   });
@@ -57,7 +62,7 @@ export function SubscriptionWallView({ kind }: { kind: "movie" | "tv" }) {
   }, [canManageSubscriptions]);
 
   const flowOf = useMemo(() => {
-    const ruleName = new Map(ruleSets.map((rule) => [rule.id, rule.name]));
+    const ruleName = new Map(ruleSets.map((rule) => [rule.id, ruleSetLabel(rule, locale)]));
     const libraryName = new Map(libraries.map((library) => [library.id, library.name]));
     const defaultLibrary = new Map(
       libraries.filter((library) => library.is_default).map((library) => [library.kind, library.name]),
@@ -66,34 +71,34 @@ export function SubscriptionWallView({ kind }: { kind: "movie" | "tv" }) {
     return (sub: Subscription) => {
       const library =
         sub.library_id === null ? defaultLibrary.get(sub.media.kind) : libraryName.get(sub.library_id);
-      const parts = [(sub.selection_mode === "smart" ? "智能选择" : sub.rule_set_id !== null ? ruleName.get(sub.rule_set_id) : null), library].filter(Boolean);
+      const parts = [(sub.selection_mode === "smart" ? t("subscription.smart.title") : sub.rule_set_id !== null ? ruleName.get(sub.rule_set_id) : null), library].filter(Boolean);
       return parts.length ? parts.join(" → ") : null;
     };
-  }, [ruleSets, libraries]);
+  }, [ruleSets, libraries, locale, t]);
 
   return (
     <div ref={restoreScrollRef} className="scroll-thin scroll-safe flex-1 overflow-y-auto pb-12">
-      <PageNav title={title} fallback={{ label: "我的订阅", href: "/subscriptions" as Route }} />
+      <PageNav title={title} fallback={{ label: t("subscription.overview.title"), href: "/subscriptions" as Route }} />
       <div className="px-6 max-md:px-4">
         <h2 className="text-on-image text-[26px] font-bold leading-tight tracking-[-0.02em] text-white max-md:text-[21px]">
           {title}
         </h2>
         {subscriptions !== null && (
           <p className="tnum text-on-image mt-1 text-ui text-[var(--text-muted)] max-md:text-sub">
-            {wallSummary(shelf, kind)}
+            {wallSummary(shelf, kind, locale)}
           </p>
         )}
       </div>
       {subscriptions === null ? (
         <div className="mt-16 flex items-center justify-center gap-2.5 text-ui text-[var(--text-muted)]">
           <BrandLoader className="size-5" />
-          正在加载订阅…
+          {t("subscription.feed.loading")}
         </div>
       ) : (
         <div className="mt-6 space-y-8 px-6 max-md:px-4">
-          <WallSection name="进行中" items={shelf.active} flowOf={flowOf} />
-          <WallSection name="已暂停" items={shelf.paused} flowOf={flowOf} />
-          <WallSection name={kind === "movie" ? "已入库" : "已收齐"} items={shelf.done} flowOf={flowOf} />
+          <WallSection name={t("subscription.milestone.inProgress")} items={shelf.active} flowOf={flowOf} />
+          <WallSection name={t("subscription.sections.paused")} items={shelf.paused} flowOf={flowOf} />
+          <WallSection name={kind === "movie" ? t("subscription.progress.imported") : t("subscription.sections.collected")} items={shelf.done} flowOf={flowOf} />
         </div>
       )}
     </div>

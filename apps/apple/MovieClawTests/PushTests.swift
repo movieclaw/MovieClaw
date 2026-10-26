@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import Security
 import Testing
+import UserNotifications
 @testable import MovieClaw
 
 /// App 推送（docs/design/cloud-push.md §9，push-payload.md）：密文格式、密钥与登录对照、明文解析、点开通知
@@ -347,6 +348,15 @@ struct PushPayloadTests {
         #expect(PushAlertPresentation(decrypted, logins: [nas, office]).subtitle == "192.168.1.10:3000")
     }
 
+    @Test func foregroundPushHiddenOnlyForTheSessionOnScreen() {
+        // 停在这个 AI 会话页：它的「AI 回复完成」什么都不出（回答就在眼前）
+        #expect(PushCenter.foregroundOptions(passive: false, openPath: "/sessions/abc", visibleSessionPath: "/sessions/abc") == [])
+        // 别的会话、别的页面：照常横幅 + 列表 + 响铃；被动的只进列表
+        #expect(PushCenter.foregroundOptions(passive: false, openPath: "/sessions/xyz", visibleSessionPath: "/sessions/abc") == [.banner, .list, .sound])
+        #expect(PushCenter.foregroundOptions(passive: false, openPath: "/sessions/abc", visibleSessionPath: nil) == [.banner, .list, .sound])
+        #expect(PushCenter.foregroundOptions(passive: true, openPath: nil, visibleSessionPath: "/sessions/abc") == [.list])
+    }
+
     @Test func rejectsOffSiteImagesAndLinks() throws {
         let presentation = PushAlertPresentation(
             try #require(try push(#"{"v":1,"type":"alert","title":"T","body":"B","image":"https://evil.example/x.jpg","open":"//evil.example/x"}"#)),
@@ -483,6 +493,31 @@ struct PushRegistrationTests {
         #expect(tokenless.permission == "not_determined")
     }
 
+    /// 侧载包（签名里没有推送权限）：带上 unsupported_build，不带令牌、不生成密钥；平常不发这个字段
+    @Test func unsupportedBuildReportsItself() throws {
+        var keyRequested = false
+        let body = API.PushRegistrationRequest.make(permission: .authorized, apnsToken: "a1b2c3", topic: "t", environment: "production",
+                                                    clientVersion: "0.7.0", unsupportedBuild: true) {
+            keyRequested = true
+            return key
+        }
+        #expect(!keyRequested)
+        #expect(body.token == nil && body.key == nil && body.unsupportedBuild == true)
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: Any]
+        #expect(json?["unsupported_build"] as? Bool == true)
+
+        let normal = API.PushRegistrationRequest.make(permission: .authorized, apnsToken: nil, topic: "t", environment: "production",
+                                                      clientVersion: nil) { key }
+        let normalJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(normal)) as? [String: Any]
+        #expect(normalJSON?["unsupported_build"] == nil)
+    }
+
+    @Test func recognizesMissingPushEntitlement() {
+        #expect(PushCenter.isMissingEntitlement(NSError(domain: NSCocoaErrorDomain, code: 3000)), "侧载包：签名里没有 aps-environment")
+        #expect(!PushCenter.isMissingEntitlement(NSError(domain: NSCocoaErrorDomain, code: 3010)), "模拟器")
+        #expect(!PushCenter.isMissingEntitlement(URLError(.notConnectedToInternet)))
+    }
+
     @Test func mapsSystemPermission() {
         #expect(PushPermission(.authorized).rawValue == "authorized")
         #expect(PushPermission(.provisional).rawValue == "provisional")
@@ -519,10 +554,10 @@ struct PushLibrarySelectionTests {
         #expect(some?["events"] == nil, "只改选的库时不碰开关")
         // 一个都不剩：关掉事件，同时回到「全部」（下次打开就是全勾上）
         let off = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
-            NotificationSettingsModel.LibrarySelection(ids: nil, events: ["library_new": false]))) as? [String: Any]
+            NotificationSettingsModel.LibrarySelection(ids: nil, events: ["library.items.arrived": false]))) as? [String: Any]
         #expect(off?["library_ids"] is NSNull)
-        #expect((off?["events"] as? [String: Bool]) == ["library_new": false])
-        let omitted = try JSONSerialization.jsonObject(with: JSONEncoder().encode(API.PushPreferencesRequest(events: ["library_new": true]))) as? [String: Any]
+        #expect((off?["events"] as? [String: Bool]) == ["library.items.arrived": false])
+        let omitted = try JSONSerialization.jsonObject(with: JSONEncoder().encode(API.PushPreferencesRequest(events: ["library.items.arrived": true]))) as? [String: Any]
         #expect(omitted?["library_ids"] == nil, "只改开关时不碰选的库")
     }
 }

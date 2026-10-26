@@ -21,6 +21,7 @@ import asyncio
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -88,6 +89,16 @@ def stack(tmp_path_factory):
         "APP_RELOAD": "false",
         "APP_PORT": str(api_port),
         "DATABASE_URL": database_url,
+        "MOVIECLAW_DATA_DIR": str(data),
+        "AGENT_SESSIONS_DIR": str(data / "agent-sessions"),
+        "AGENT_WORKSPACE_DIR": str(data / "agent-workspace"),
+        "AGENT_SKILLS_DIR": str(data / "agent-skills"),
+        "MOVIECLAW_PLAYBACK_SUBS_CACHE_DIR": str(data / "cache/subtitles"),
+        "MOVIECLAW_SUBTITLE_GEN_CACHE_DIR": str(data / "cache/subtitle-generation"),
+        "MOVIECLAW_TRANSCODE_DIR": str(data / "transcodes"),
+        "MOVIECLAW_TRICKPLAY_CACHE_DIR": str(data / "cache/trickplay"),
+        "IMAGE_CACHE_DIR": str(data / "cache/images"),
+        "PEOPLE_IMAGES_DIR": str(data / "metadata/people"),
         "METADATA_DIR": str(data / "metadata"),
         "LOG_DIR": str(data / "logs"),
         "SECRET_KEY_FILE": str(data / ".secret_key"),
@@ -99,6 +110,7 @@ def stack(tmp_path_factory):
         env=env,
         stdout=api_log,
         stderr=subprocess.STDOUT,
+        start_new_session=True,
         cwd=str(REPO),
     )
     web_log = (root / "web.log").open("w")
@@ -111,6 +123,7 @@ def stack(tmp_path_factory):
         },
         stdout=web_log,
         stderr=subprocess.STDOUT,
+        start_new_session=True,
         cwd=str(WEB),
     )
     try:
@@ -125,12 +138,14 @@ def stack(tmp_path_factory):
         }
     finally:
         for proc in (web, api):
-            proc.terminate()
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGTERM)
         for proc in (web, api):
             try:
                 proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait(timeout=5)
         api_log.close()
         web_log.close()
 

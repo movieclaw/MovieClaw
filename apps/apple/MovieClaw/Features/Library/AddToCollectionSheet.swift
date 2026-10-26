@@ -29,7 +29,7 @@ struct AddToCollectionSheet: View {
                 Section {
                     if let rows {
                         if rows.isEmpty {
-                            Text("还没有手动合集。下面新建一个。")
+                            Text(String(localized: .libraryCollectionsNoManual))
                                 .font(.subheadline)
                                 .foregroundStyle(Theme.textFaint)
                                 .frame(maxWidth: .infinity)
@@ -41,7 +41,7 @@ struct AddToCollectionSheet: View {
                                     HStack {
                                         Text(row.name).foregroundStyle(Theme.text).lineLimit(1)
                                         Spacer()
-                                        Text("\(row.itemCount) 部").font(.caption).foregroundStyle(Theme.textFaint)
+                                        Text(String(localized: .libraryStatusTitleCount(row.itemCount))).font(.caption).foregroundStyle(Theme.textFaint)
                                     }
                                 }
                             }
@@ -49,21 +49,21 @@ struct AddToCollectionSheet: View {
                     } else {
                         HStack(spacing: 8) {
                             ProgressView()
-                            Text("正在读取合集…").font(.subheadline).foregroundStyle(Theme.textFaint)
+                            Text(String(localized: .libraryCollectionsLoading)).font(.subheadline).foregroundStyle(Theme.textFaint)
                         }
                         .frame(maxWidth: .infinity)
                     }
                 } header: {
-                    Text("手动合集不会自动收录新片，加进去的就是你挑的那些。")
+                    Text(String(localized: .libraryCollectionsAddHint))
                         .textCase(nil)
                 }
 
                 Section {
                     HStack(spacing: 10) {
-                        TextField("新建合集，取个名字", text: $name)
+                        TextField(String(localized: .libraryCollectionsNewName), text: $name)
                             .submitLabel(.done)
                             .onSubmit { Task { await createAndAdd() } }
-                        Button("新建并加入") { Task { await createAndAdd() } }
+                        Button(String(localized: .libraryCollectionsCreateAndAdd)) { Task { await createAndAdd() } }
                             .buttonStyle(.glass)
                             .disabled(busy || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
@@ -71,13 +71,13 @@ struct AddToCollectionSheet: View {
             }
             .disabled(busy)
             .scrollContentBackground(.hidden)
-            .navigationTitle("加入合集")
+            .navigationTitle(String(localized: .libraryCollectionsAddTitle))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(String(localized: .commonCancel)) { dismiss() } }
             }
         }
-        .presentationDetents([.medium, .large])
+        .adaptiveDetents([.medium, .large])
         .interactiveDismissDisabled(busy)
         .task { await load() }
     }
@@ -99,7 +99,7 @@ struct AddToCollectionSheet: View {
                 collectionId: collection.id,
                 body: API.CollectionItemsPayload(mediaItemIds: [mediaItemId])
             )
-            feedback.success("《\(title)》已加入「\(collection.name)」")
+            feedback.success(String(localized: .libraryCollectionsAdded(title, collection.name)))
             dismiss()
         } catch {
             feedback.error(error)
@@ -115,7 +115,7 @@ struct AddToCollectionSheet: View {
             let created = try await api.collectionCreate(
                 body: API.CollectionPayload(name: trimmed, libraryId: libraryId, itemIds: [mediaItemId])
             )
-            feedback.success("已新建「\(created.name)」并加入《\(title)》")
+            feedback.success(String(localized: .libraryCollectionsCreatedAndAdded(created.name, title)))
             dismiss()
         } catch {
             feedback.error(error)

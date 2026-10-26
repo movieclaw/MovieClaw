@@ -1,0 +1,137 @@
+{
+  "src/movieclaw_plugins/discord/discord_channel/driver.py": {
+    "DiscordDriver.description": {
+      "sourceHash": "3140ab5b7006ef531fe802f674661ca645d0298ec63e6101b275bb5ab7b216df"
+    },
+    "binding.hint": {
+      "sourceHash": "8a16eaec6334e1dc4006ddeaa37153c827df10e1179b3367725693d3d27d05f1"
+    },
+    "field.token.help": {
+      "sourceHash": "65b418ee3b334d30aa1271342f00d6b24f75cc032886fe4d9defb5dfd90bd8bc"
+    },
+    "inputError.87f0ea61cdf5": {
+      "sourceHash": "87f0ea61cdf5ebbed452bb5088d35a38fc3d811a423c2d41c1d9591c102b1c73"
+    },
+    "inputError.6c991fe00935": {
+      "sourceHash": "6c991fe0093557f043c78bca8196fbf20f3bc226aeb46cbed5f7d2bb44b9fdbe"
+    }
+  },
+  "src/movieclaw_plugins/feishu/feishu_channel/client.py": {
+    "inputError.1bcc5f496764": {
+      "sourceHash": "1bcc5f49676416cc365953f9639d2275d2690a68dc2bbe1a13af61b09c9c70b2"
+    },
+    "inputError.eef0bea5ffdf": {
+      "sourceHash": "eef0bea5ffdf956f29d2b83948975248aebaa70169fb5f95d7509963b16112e1"
+    },
+    "inputError.982409ccb24d": {
+      "sourceHash": "982409ccb24da698264cb4d97fc02b599c7fcf87c42815a38ea60812412a9547"
+    }
+  },
+  "src/movieclaw_plugins/feishu/feishu_channel/driver.py": {
+    "FeishuDriver.title": {
+      "sourceHash": "7e4419d1de2510947e6b7674779a2c8048f9d1cb749877606ab7fa9b3adbb1fc"
+    },
+    "FeishuDriver.description": {
+      "sourceHash": "00a10d5d424c509e2fbf8b3c0275bf3dfdc9646847d5fa5cdc26c81589806996"
+    },
+    "binding.hint": {
+      "sourceHash": "a1b24f0e42b25122f639ce3c4bd12662c339205d349e251d9e6d2025d6108970"
+    },
+    "field.webhook_url.label": {
+      "sourceHash": "658c62655296cad44b69ae52880239dacba02283dd8bf2535603496f25ef343a"
+    },
+    "field.webhook_url.help": {
+      "sourceHash": "ba859ad0e63f7acd0d88e787488d35d85c62c04a9ab28dbfc4e15df8461b4a92"
+    },
+    "field.secret.label": {
+      "sourceHash": "77d3758c0428dc29d666ca927e578ca45db0b663c4f23b00a7e005d10379c25c"
+    },
+    "field.secret.help": {
+      "sourceHash": "93992e8397450b4ad84054d51e6dd35613508df88f53afe39fdab55f74fef425"
+    },
+    "inputError.a5ad0058cb3f": {
+      "sourceHash": "a5ad0058cb3f7891ea5282936dc321a933a25c39da18dea679806e9e47f5bc5d"
+    }
+  },
+  "src/movieclaw_plugins/telegram/telegram_channel/driver.py": {
+    "TelegramDriver.description": {
+      "sourceHash": "a369be30f5195eece41a8217285915d7018e7effcae7d8ec8561878e474b71e7"
+    },
+    "binding.hint": {
+      "sourceHash": "b84bfbe2ca976cfbcb39545f1f1272a253eafbac59b3a48f3215b47254933e26"
+    },
+    "field.token.help": {
+      "sourceHash": "7974a1351cf258cb95c56af67cda97a6d74efdcaa1eb80966b63f56f7bd5d9fa"
+    },
+    "inputError.87f0ea61cdf5": {
+      "sourceHash": "87f0ea61cdf5ebbed452bb5088d35a38fc3d811a423c2d41c1d9591c102b1c73"
+    },
+    "inputError.04a91adf3a86": {
+      "sourceHash": "04a91adf3a860739688bc75676e1964f2f8717d13bc54d9a10fb4c928ca20f65"
+    }
+  },
+  "src/movieclaw_plugins/weixin/weixin_channel/binding.py": {
+    "messages.scan": {
+      "sourceHash": "74b8ccfa58c4f69f215e0e146f71cc5ad92d4de2fd9c76ccb7ccbc3f1ceb05e7"
+    },
+    "messages.timeout": {
+      "sourceHash": "abcc0b21425d532c8289e985404624c7ecfe9777b565a83cd4061bf09b28cbe0"
+    },
+    "messages.replaced": {
+      "sourceHash": "953477d52c5140a3b50266d4c21ac9d14884fdba2211bdf57afd08b48a080bb6"
+    },
+    "messages.error": {
+      "sourceHash": "34b0159b0fdfa50787b00cb682387c5534e0bad127fb77e4b8feef9d741d93db"
+    },
+    "messages.scanned": {
+      "sourceHash": "76d278ade472ca0f9b416b48f7c4ae61826ff94b4b5d636da3aac6461e2876bb"
+    },
+    "messages.incorrect": {
+      "sourceHash": "887214d31d70a5ca552ab7463290af0b517fe77ebfd7e55f9931d4208a358802"
+    },
+    "messages.input": {
+      "sourceHash": "8df850e41bf361915d8c3d273c414738e48c78aee2d813806f6b2f84f6fb0f1b"
+    },
+    "messages.checking": {
+      "sourceHash": "921d90129d4b43a1f48b91ee5c8cf3748f6739ab14f7dd3fe29def469b3da3b9"
+    },
+    "messages.blocked": {
+      "sourceHash": "11348d10da27fd7c2e3d3c1ac0ac824e238b798c235aa9dfaf50474f846c9866"
+    },
+    "messages.refreshed": {
+      "sourceHash": "e8c1f297e9c012b4c7c315d23989e93c2548c24e76aa10cf5321968d8a8cf40e"
+    },
+    "messages.expired": {
+      "sourceHash": "5dcb06df220c3d633baeb770644441288f5cad7b5460619d34c74beb48ac9482"
+    },
+    "messages.alreadyLinked": {
+      "sourceHash": "0860dade512f6c036701cf3678bfcc174a70ba14a125fd1641190532c3d9f280"
+    },
+    "messages.confirmed": {
+      "sourceHash": "5148459471a6c76e18b9a8db3f76e76c107ccae08c0b16d4e12651d97e4dceba"
+    },
+    "messages.incomplete": {
+      "sourceHash": "ea919231d7c470886373adc57a5a715a7f6ff396b55b5eefcfa14b5a3b52f3d0"
+    },
+    "messages.saveFailed": {
+      "sourceHash": "4b9f7474cbcc23f63ec21205edb2a1ca0afe264ff4c3627e84a8d301bc8d1c89"
+    }
+  },
+  "src/movieclaw_plugins/weixin/weixin_channel/driver.py": {
+    "WeixinDriver.title": {
+      "sourceHash": "81b430b69643518018b5c10df96d0e1172cfdf1a034fbb3e6f104532a49b9030"
+    },
+    "WeixinDriver.description": {
+      "sourceHash": "31351915afecff2e0c9478765961ce7cd23202396828d2fd404e72d5bd34f430"
+    },
+    "binding.hint": {
+      "sourceHash": "ffb4d98d18a760abf9e401132bc29fe151cd420b272757900c8ca236484eaa62"
+    },
+    "flow.snapshot.input_label": {
+      "sourceHash": "db0b01891eef5835f4d7c5123dc9d65c777de3fd2d8c3ed74dce6e8c6b2da11a"
+    },
+    "flow.expired.message": {
+      "sourceHash": "58cee6c80fa420e800871c4adc14655d46e0c3bf8b05ba10ac08077a51a0f08a"
+    }
+  }
+}

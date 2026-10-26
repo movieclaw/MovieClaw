@@ -29,7 +29,17 @@ from movieclaw_api.core.config import get_settings
 from movieclaw_api.plugins import bundled
 
 #: 随带插件包能 import 的第三方库（SDK 承诺提供的运行环境）
-ALLOWED = {"movieclaw_sdk", "movieclaw_kernel", "httpx", "cryptography", "pydantic", "websockets"}
+ALLOWED = {
+    "movieclaw_sdk",
+    "movieclaw_kernel",
+    "httpx",
+    "cryptography",
+    "pydantic",
+    "websockets",
+    # 下载器插件的协议库（应用依赖里带着，SDK 承诺提供）
+    "qbittorrentapi",
+    "transmission_rpc",
+}
 
 
 def pack(path: Path) -> bytes:
@@ -68,7 +78,10 @@ def test_bundled_packages_pass_package_validation(package) -> None:
     manifest, _archive = pkg.read_archive(pack(package.path))
     assert manifest.plugin.id == package.id
     # 内置条目与本地插件以外的 id 都可以被插件包占用：随带插件包的 id 本来就要能被替换
-    pkg.check_compat(manifest, reserved=set(), operations=set())
+    from movieclaw_api.services.plugin_packages import _operations
+
+    # 申请的宿主操作要在操作目录里（预探插件要列待探、探一个文件）
+    pkg.check_compat(manifest, reserved=set(), operations=_operations())
 
 
 # ---------------------------------------------------------------------- 微信：替换与恢复
@@ -164,7 +177,7 @@ def make_client() -> TestClient:
     admin = Principal(kind="admin", name="tester")
     app.dependency_overrides[require_admin] = lambda: admin
     app.dependency_overrides[require_login] = lambda: admin
-    return TestClient(app)
+    return TestClient(app, headers={"Accept-Language": "zh-Hans"})
 
 
 def wait(predicate, timeout: float = 15.0) -> None:
@@ -226,7 +239,10 @@ def test_weixin_package_replaces_the_bundled_one_and_uninstall_restores_it(env, 
         assert uploaded.status_code == 200, uploaded.text
         approved = client.post(
             "/api/v1/app/plugins/packages/weixin-channel/approve",
-            json={"version": package.manifest.plugin.version, "operations": []},
+            json={
+                "version": package.manifest.plugin.version,
+                "operations": package.manifest.permissions.operations,
+            },
         )
         assert approved.status_code == 200, approved.text
         assert approved.json()["data"]["status"] == "active"
@@ -238,6 +254,12 @@ def test_weixin_package_replaces_the_bundled_one_and_uninstall_restores_it(env, 
         # 通道 id 沿用 weixin，已绑定账号由插件包接着跑
         channels = client.get("/api/v1/channels").json()["data"]
         assert [c["id"] for c in channels["channels"] if c["title"] == "微信"] == ["weixin"]
+        english = client.get("/api/v1/channels", headers={"Accept-Language": "en"}).json()["data"]
+        [translated] = [c for c in english["channels"] if c["id"] == "weixin"]
+        assert translated["title"] == "WeChat"
+        assert translated["binding"]["hint"].startswith("Scan the QR code below with WeChat")
+        assert translated["entry_id"] == "weixin-channel"
+        assert english["accounts"] == channels["accounts"]
         assert [(a["account_id"], a["channel_available"]) for a in channels["accounts"]] == [
             ("bot-1", True)
         ]
@@ -262,7 +284,24 @@ def test_weixin_package_replaces_the_bundled_one_and_uninstall_restores_it(env, 
         wait(lambda: ("me@im.wechat", "收到：又回到随带版本", "ctx-3") in fake.sent)
 
 
-@pytest.mark.parametrize("entry_id", sorted(bundled.bundled()), ids=str)
+def provided(client) -> set[str]:
+    """随带插件包提供的东西：消息通道 id、下载器类型值（包目录名与它们一致），或后台任务类型
+    （任务类型前缀即插件 id，换成包目录名的写法）。"""
+    from movieclaw_sdk.jobs import JOB_HANDLERS
+
+    channels = client.get("/api/v1/channels").json()["data"]["channels"]
+    types = client.get("/api/v1/downloaders/types").json()["data"]
+    jobs = [job_type for job_type, _ in client.app.state.kernel.registry(JOB_HANDLERS).items()]
+    owners = {job_type.split(":")[0].replace("-", "_") for job_type in jobs if ":" in job_type}
+    return {c["id"] for c in channels} | {t["type"] for t in types} | owners
+
+
+# 主题包（如 Netflix）没有后端代码、不提供通道：替换与恢复由 test_theme_packages.py 覆盖
+@pytest.mark.parametrize(
+    "entry_id",
+    sorted(i for i, p in bundled.bundled().items() if p.manifest.theme is None),
+    ids=str,
+)
 def test_every_bundled_package_installs_out_of_process_and_restores(env, entry_id) -> None:
     """每个随带插件包都能原样打包、作为插件包在独立进程里跑起来（替换随带版本），卸载即恢复。"""
     package = bundled.bundled()[entry_id]
@@ -278,18 +317,19 @@ def test_every_bundled_package_installs_out_of_process_and_restores(env, entry_i
         assert uploaded.json()["data"]["replaces_builtin"] is True
         approved = client.post(
             f"/api/v1/app/plugins/packages/{entry_id}/approve",
-            json={"version": package.manifest.plugin.version, "operations": []},
+            json={
+                "version": package.manifest.plugin.version,
+                "operations": package.manifest.permissions.operations,
+            },
         )
         assert approved.json()["data"]["status"] == "active", approved.text
         fiber = kernel.fiber(entry_id)
         assert fiber.entry.source == "package"
-        listed = client.get("/api/v1/channels").json()["data"]["channels"]
-        assert channel in {c["id"] for c in listed}, "替换后沿用随带版本的通道 id"
+        assert channel in provided(client), "替换后沿用随带版本的通道 id / 下载器类型"
         removed = client.delete(f"/api/v1/app/plugins/packages/{entry_id}")
         assert removed.status_code == 200
         assert kernel.fiber(entry_id).entry.source == "builtin"
-        listed = client.get("/api/v1/channels").json()["data"]["channels"]
-        assert channel in {c["id"] for c in listed}
+        assert channel in provided(client)
 
 
 def test_legacy_id_replacement_package_still_replaces_the_renamed_bundled_one(
@@ -319,7 +359,10 @@ def test_legacy_id_replacement_package_still_replaces_the_renamed_bundled_one(
         assert uploaded.json()["data"]["replaces_builtin"] is True
         approved = client.post(
             "/api/v1/app/plugins/packages/channel.telegram/approve",
-            json={"version": package.manifest.plugin.version, "operations": []},
+            json={
+                "version": package.manifest.plugin.version,
+                "operations": package.manifest.permissions.operations,
+            },
         )
         assert approved.json()["data"]["status"] == "active", approved.text
         # 随带版本被卸下，不会出现两个 Telegram 通道

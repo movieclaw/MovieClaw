@@ -56,11 +56,15 @@ type pluginManifest struct {
 	ID      string
 	Version string
 	Entry   string
+	// Runtime 为 exec 时是非 Python 插件：没有入口模块，Command 是包里的可执行文件
+	Runtime string
+	Command string
 }
 
 var tomlString = regexp.MustCompile(`^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*"([^"]*)"\s*(#.*)?$`)
 
-// readPluginManifest 读出 [plugin] 段的 id / version / entry，并检查入口模块在不在。
+// readPluginManifest 读出 [plugin] 段的 id / version / entry（exec 插件是 command），
+// 并检查入口模块（或可执行文件）在不在。
 func readPluginManifest(dir string) (pluginManifest, error) {
 	var manifest pluginManifest
 	file, err := os.Open(filepath.Join(dir, pluginManifestName))
@@ -88,15 +92,36 @@ func readPluginManifest(dir string) (pluginManifest, error) {
 				manifest.Version = match[2]
 			case "entry":
 				manifest.Entry = match[2]
+			case "runtime":
+				manifest.Runtime = match[2]
+			case "command":
+				manifest.Command = match[2]
 			}
 		}
 	}
-	for name, value := range map[string]string{
-		"id": manifest.ID, "version": manifest.Version, "entry": manifest.Entry,
-	} {
+	required := map[string]string{"id": manifest.ID, "version": manifest.Version}
+	// 只带网页（web/index.html）或只带主题（theme/theme.css）的插件没有后端代码
+	webOnly := manifest.Runtime != "exec" && manifest.Entry == "" &&
+		(fileExists(filepath.Join(dir, "web", "index.html")) || fileExists(filepath.Join(dir, "theme", "theme.css")))
+	if manifest.Runtime == "exec" {
+		required["command"] = manifest.Command
+	} else if !webOnly {
+		required["entry"] = manifest.Entry
+	}
+	for name, value := range required {
 		if value == "" {
 			return manifest, clierr.Usagef("%s 的 [plugin] 段缺少 %s", pluginManifestName, name)
 		}
+	}
+	if manifest.Runtime == "exec" {
+		if !fileExists(filepath.Join(dir, filepath.FromSlash(manifest.Command))) {
+			return manifest, clierr.Usagef("找不到可执行文件 %s（先按服务器平台编译好）", manifest.Command)
+		}
+		return manifest, nil
+	}
+	if webOnly {
+		// docs/design/plugin-web-pages.md、docs/design/theme-plugins.md
+		return manifest, nil
 	}
 	module := filepath.Join(dir, manifest.Entry+".py")
 	pkg := filepath.Join(dir, manifest.Entry, "__init__.py")
@@ -163,14 +188,22 @@ func buildPluginPackage(dir, version string) ([]byte, pluginManifest, error) {
 	var buf bytes.Buffer
 	archive := zip.NewWriter(&buf)
 	for _, rel := range files {
-		content, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		path := filepath.Join(dir, filepath.FromSlash(rel))
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, manifest, clierr.Usagef("读取 %s 失败：%v", rel, err)
+		}
+		info, err := os.Stat(path)
 		if err != nil {
 			return nil, manifest, clierr.Usagef("读取 %s 失败：%v", rel, err)
 		}
 		if rel == pluginManifestName && version != "" {
 			content = manifestVersion.ReplaceAll(content, []byte(`${1}"`+version+`"`))
 		}
-		writer, err := archive.CreateHeader(&zip.FileHeader{Name: rel, Method: zip.Deflate})
+		header := &zip.FileHeader{Name: rel, Method: zip.Deflate}
+		// 带上权限位：非 Python 插件的可执行文件解出来还能执行
+		header.SetMode(info.Mode())
+		writer, err := archive.CreateHeader(header)
 		if err != nil {
 			return nil, manifest, clierr.New("打包失败：%v", err)
 		}
@@ -194,7 +227,8 @@ func newPluginPackCommand() *cobra.Command {
 		Short: "把插件目录打包成 .mcplugin",
 		Long: `把插件目录打包成 .mcplugin（zip），供 mclaw app plugins packages upload 或网页上传。
 
-依赖请放进插件目录的 vendor/（安装时不联网、不跑 pip）；__pycache__、.git、隐藏文件不进包；
+纯 Python 依赖放进插件目录的 vendor/；带本机代码的第三方包写进 [dependencies] 锁文件，
+批准安装时由服务器下载；__pycache__、.git、隐藏文件不进包；
 软链接直接拒绝。清单的完整校验（SDK、契约、宿主操作、路径授权）在上传时由服务器做。
 
 示例：
@@ -250,14 +284,17 @@ func devVersion(base string, now time.Time) string {
 
 func newPluginDevCommand() *cobra.Command {
 	var interval time.Duration
-	var allowInline, once bool
+	var allowInline, allowDeps, allowWeb, allowTheme, once bool
 	cmd := &cobra.Command{
 		Use:   "dev <插件目录>",
 		Short: "开发循环：改一次代码就重新打包、上传、批准、加载",
 		Long: `把插件目录连到服务器边改边试：每次文件变化都重新打包（版本加 -dev.<时间戳> 后缀）、
 上传、按插件申请的权限批准、当场加载；起不来时服务器自动回到上一版并告诉你原因。
 
-批准等于授予插件申请的全部宿主操作与路径——只对自己的开发服务器用。看插件日志：
+批准等于授予插件申请的全部宿主操作与路径——只对自己的开发服务器用。插件带第三方依赖
+（清单 [dependencies]）时，看过要下载的包后加 --allow-dependencies 才会批准；带网页（web/）时，
+网页会以使用它的人的身份运行，用户同意后加 --allow-web 才会批准；网页主题带外框组件（theme/index.js）时，
+代码会在每个页面里以使用者的身份运行，用户同意后加 --allow-theme 才会批准。看插件日志：
 mclaw logs tail -f
 
 示例：
@@ -268,9 +305,12 @@ mclaw logs tail -f
 	}
 	flagx.Var(cmd.Flags(), &interval, "interval", time.Second, "检查文件变化的间隔（秒）")
 	cmd.Flags().BoolVar(&allowInline, "allow-inline", false, "插件申请在主进程里运行时，确认允许")
+	cmd.Flags().BoolVar(&allowDeps, "allow-dependencies", false, "插件要下载安装第三方包时，确认允许")
+	cmd.Flags().BoolVar(&allowWeb, "allow-web", false, "插件带网页时，确认允许它以使用者的身份运行")
+	cmd.Flags().BoolVar(&allowTheme, "allow-theme", false, "网页主题带外框组件时，确认允许它的代码以使用者的身份运行")
 	cmd.Flags().BoolVar(&once, "once", false, "装一次就退出，不监视文件变化")
 
-	return withOverrides(cmd, []string{"interval", "allow-inline", "once"},
+	return withOverrides(cmd, []string{"interval", "allow-inline", "allow-dependencies", "allow-web", "allow-theme", "once"},
 		func(s *Settings, _ *cobra.Command, args []string) error {
 			client, err := s.NewAPI()
 			if err != nil {
@@ -278,7 +318,7 @@ mclaw logs tail -f
 			}
 			dir := args[0]
 			if once {
-				return devInstall(client, dir, allowInline)
+				return devInstall(client, dir, allowInline, allowDeps, allowWeb, allowTheme)
 			}
 			stop := make(chan os.Signal, 1)
 			signal.Notify(stop, os.Interrupt)
@@ -293,7 +333,7 @@ mclaw logs tail -f
 				}
 				if current != last {
 					last = current
-					if err := devInstall(client, dir, allowInline); err != nil {
+					if err := devInstall(client, dir, allowInline, allowDeps, allowWeb, allowTheme); err != nil {
 						output.Info("✗ %v（改好后会自动重试）", err)
 					}
 				}
@@ -308,7 +348,7 @@ mclaw logs tail -f
 }
 
 // devInstall 打包 → 上传 → 按申请批准 → 报告结果。
-func devInstall(client *api.Client, dir string, allowInline bool) error {
+func devInstall(client *api.Client, dir string, allowInline, allowDeps, allowWeb, allowTheme bool) error {
 	data, manifest, err := buildPluginPackage(dir, devVersion(readVersion(dir), time.Now()))
 	if err != nil {
 		return err
@@ -332,6 +372,39 @@ func devInstall(client *api.Client, dir string, allowInline bool) error {
 		"operations":   nonNil(jsonval.Array(jsonval.At(uploaded, "operations"))),
 		"paths":        nonNil(jsonval.Array(jsonval.At(uploaded, "paths"))),
 		"allow_inline": allowInline,
+	}
+	if web := jsonval.At(uploaded, "web"); web != nil {
+		if !allowWeb {
+			return clierr.Usagef("插件带网页（%s）：网页会以使用它的人的身份运行，管理员打开时拥有管理员的全部权限；用户同意后加 --allow-web",
+				"/apps/"+manifest.ID)
+		}
+		body["allow_web"] = true
+	}
+	if theme := jsonval.At(uploaded, "theme"); theme != nil && jsonval.At(theme, "has_code") == true {
+		if !allowTheme {
+			return clierr.Usagef("网页主题「%s」带外框组件：代码会在每个页面里以使用它的人的身份运行，管理员打开时拥有管理员的全部权限；用户同意后加 --allow-theme",
+				jsonval.Str(jsonval.At(theme, "label")))
+		}
+		body["allow_theme"] = true
+	}
+	if deps := jsonval.At(uploaded, "dependencies"); deps != nil {
+		digest := jsonval.Str(jsonval.At(deps, "lock_digest"))
+		if jsonval.At(deps, "needs_consent") == true {
+			var names []string
+			for _, item := range jsonval.Array(jsonval.At(deps, "packages")) {
+				name := jsonval.Str(jsonval.At(item, "name")) + " " + jsonval.Str(jsonval.At(item, "version"))
+				if jsonval.At(item, "native") == true {
+					name += "（含本机代码）"
+				}
+				names = append(names, name)
+			}
+			if !allowDeps {
+				return clierr.Usagef("插件要下载安装 %d 个第三方包：%s；确认后加 --allow-dependencies",
+					len(names), strings.Join(names, "、"))
+			}
+			output.Info("下载安装第三方包：%s", strings.Join(names, "、"))
+		}
+		body["dependencies"] = digest
 	}
 	result, err := client.Request("POST", "/app/plugins/packages/"+url.PathEscape(manifest.ID)+"/approve", nil, body)
 	if err != nil {

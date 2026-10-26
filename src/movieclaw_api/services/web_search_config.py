@@ -1,0 +1,177 @@
+"""网页搜索配置的读写、连通性测试，以及运行时供应商装配。
+
+密钥明文只留在配置模型和供应商对象里。日志记供应商 id 和末四位，不记密钥本身。
+"""
+
+from __future__ import annotations
+
+import logging
+
+import httpx
+
+from movieclaw_agent.tools.web_search import make_web_search_tool
+from movieclaw_agent.web_search import (
+    WebSearchError,
+    get_provider,
+    provider_catalog,
+    provider_ids,
+)
+from movieclaw_agent.web_search.types import SearchProvider
+from movieclaw_api.exceptions import BadRequestException, UpstreamUnreachableException
+from movieclaw_api.i18n import messages, t
+from movieclaw_api.settings.store import get_setting_store
+from movieclaw_api.settings.web_search import WebSearchSetting
+from movieclaw_net import egress_transport
+
+logger = logging.getLogger("movieclaw_api.web_search")
+
+_TEST_QUERY = "Inception 2010"
+_HINT_MIN = 8
+
+
+def mask_key(api_key: str) -> str:
+    """末四位。太短的密钥不展示，避免短密钥几乎等于明文。"""
+    if len(api_key) < _HINT_MIN:
+        return ""
+    return api_key[-4:]
+
+
+def status_view(setting: WebSearchSetting) -> dict:
+    catalog = provider_catalog()
+    keys = {
+        "tavily": "settings.webSearch.noteTavily",
+        "exa": "settings.webSearch.noteExa",
+        "brave": "settings.webSearch.noteBrave",
+    }
+    for option in catalog:
+        key = keys.get(option["id"])
+        if key and option["note"] == messages("zh-Hans")[key]:
+            option["note"] = t(key)
+    return {
+        "provider": setting.provider or None,
+        "configured": setting.configured,
+        "key_hint": mask_key(setting.api_key) if setting.configured else "",
+        "providers": catalog,
+    }
+
+
+def search_transport(*, probe: bool) -> httpx.AsyncBaseTransport:
+    """业务搜索走熔断；设置页的测试必须真的发出去，所以绕过熔断。"""
+    return egress_transport("web_search", use_breaker=not probe)
+
+
+def build_provider(provider_id: str, api_key: str, *, probe: bool = False) -> SearchProvider:
+    cls = get_provider(provider_id)
+    return cls(api_key, transport=search_transport(probe=probe))
+
+
+async def get_status() -> dict:
+    return status_view(await get_setting_store().get(WebSearchSetting))
+
+
+async def save_web_search(*, provider: str, api_key: str | None) -> dict:
+    """先做一次真实搜索，通过了才落库。失败时已保存的密钥保持原样。"""
+    provider_id, key = await _resolve_key(
+        provider,
+        api_key,
+        missing_key="errors.webSearch.keyForProvider",
+    )
+    await _probe_key(provider_id, key)
+    saved = WebSearchSetting(provider=provider_id, api_key=key)
+    await get_setting_store().set(saved)
+    logger.info("已保存网页搜索配置 provider=%s hint=%s", provider_id, mask_key(key) or "（过短）")
+    return status_view(saved)
+
+
+async def clear_web_search() -> dict:
+    cleared = WebSearchSetting()
+    await get_setting_store().set(cleared)
+    logger.info("已清除网页搜索配置")
+    return status_view(cleared)
+
+
+async def load_web_search_provider() -> SearchProvider | None:
+    """没配供应商或没配密钥时返回 None，调用方据此不注册工具。
+
+    每轮对话都会调到这里。配置读不出来（密钥解不开、存的供应商已不再支持）时
+    也按没配置处理，只少一个搜索工具，不能让整轮对话跟着失败。
+    """
+    try:
+        setting = await get_setting_store().get(WebSearchSetting)
+    except Exception:  # noqa: BLE001 -- 可选功能出错按未配置处理
+        logger.warning("网页搜索配置读取失败，本轮不提供 web_search", exc_info=True)
+        return None
+    if not setting.configured:
+        return None
+    return build_provider(setting.provider, setting.api_key)
+
+
+async def test_web_search(*, provider: str | None, api_key: str | None) -> dict:
+    """用一把密钥做一次最小搜索。不保存。失败不覆盖已经保存的配置。"""
+    provider_id, key = await _resolve_key(
+        provider or "",
+        api_key,
+        missing_key="errors.webSearch.keyPaste",
+        allow_current_provider=True,
+    )
+    return await _probe_key(provider_id, key)
+
+
+async def _resolve_key(
+    provider: str,
+    api_key: str | None,
+    *,
+    missing_key: str,
+    allow_current_provider: bool = False,
+) -> tuple[str, str]:
+    current = await get_setting_store().get(WebSearchSetting)
+    provider_id = provider.strip().lower()
+    if not provider_id and allow_current_provider:
+        provider_id = current.provider
+    if not provider_id:
+        raise BadRequestException(message_key="errors.webSearch.providerRequired")
+    if provider_id not in provider_ids():
+        raise BadRequestException(message_key="errors.webSearch.providerUnsupported")
+    key = (api_key or "").strip()
+    if not key:
+        if current.provider == provider_id and current.api_key:
+            key = current.api_key
+        else:
+            raise BadRequestException(message_key=missing_key)
+    return provider_id, key
+
+
+async def _probe_key(provider_id: str, key: str) -> dict:
+    """最小搜索。任何失败都原样抛出，调用方据此决定要不要落库。"""
+    searcher = build_provider(provider_id, key, probe=True)
+    try:
+        hits = await searcher.search(_TEST_QUERY, max_results=1)
+    except WebSearchError as exc:
+        if exc.kind == "network":
+            raise UpstreamUnreachableException(
+                str(exc),
+                service="web_search",
+                hint=t("settings.webSearch.proxyHint"),
+                message_key=exc.message_key,
+                params=exc.params,
+            ) from None
+        if exc.kind == "auth":
+            # 默认文案是写给智能体的（叫它去设置页核对）；这里人就在设置页上
+            raise BadRequestException(message_key="errors.webSearch.invalidKey") from None
+        raise BadRequestException(
+            str(exc), message_key=exc.message_key, params=exc.params
+        ) from None
+    title = hits[0].title if hits else ""
+    message = (
+        t("settings.webSearch.connectedSample", title=title)
+        if title
+        else t("settings.webSearch.connected")
+    )
+    logger.info("网页搜索测试通过 provider=%s", provider_id)
+    return {"ok": True, "message": message, "sample_title": title or None}
+
+
+def attach_web_search_tool(tools: list, provider: SearchProvider | None) -> list:
+    if provider is None:
+        return tools
+    return [*tools, make_web_search_tool(provider)]

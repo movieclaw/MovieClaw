@@ -14,13 +14,13 @@ nonisolated enum TorrentSortKey: String, CaseIterable, Hashable, Sendable {
 
     var label: String {
         switch self {
-        case .seeders: "做种数"
-        case .time: "发布时间"
-        case .size: "体积"
-        case .snatched: "完成数"
-        case .complete: "全集优先"
-        case .quality: "画质优先"
-        case .free: "免费优先"
+        case .seeders: String(localized: .searchSortSeeders)
+        case .time: String(localized: .searchSortTime)
+        case .size: String(localized: .searchSortSize)
+        case .snatched: String(localized: .searchSortSnatched)
+        case .complete: String(localized: .searchSortComplete)
+        case .quality: String(localized: .searchSortQuality)
+        case .free: String(localized: .searchSortFree)
         }
     }
 
@@ -44,9 +44,9 @@ nonisolated enum TorrentResultView: String, CaseIterable, Hashable, Sendable {
 
     var label: String {
         switch self {
-        case .group: "分组"
-        case .list: "列表"
-        case .poster: "图览"
+        case .group: String(localized: .searchViewGroup)
+        case .list: String(localized: .searchViewList)
+        case .poster: String(localized: .searchViewPoster)
         }
     }
 
@@ -70,18 +70,18 @@ nonisolated enum TorrentFilterDim: String, CaseIterable, Hashable, Sendable {
 
     var title: String {
         switch self {
-        case .resolution: "分辨率"
-        case .site: "站点"
-        case .year: "年份"
-        case .season: "季"
-        case .episode: "集"
-        case .source: "片源"
-        case .platform: "流媒体平台"
-        case .codec: "视频编码"
+        case .resolution: String(localized: .searchFiltersResolution)
+        case .site: String(localized: .searchFiltersSite)
+        case .year: String(localized: .searchFiltersYear)
+        case .season: String(localized: .searchFiltersSeason)
+        case .episode: String(localized: .searchFiltersEpisode)
+        case .source: String(localized: .searchFiltersSource)
+        case .platform: String(localized: .searchFiltersPlatform)
+        case .codec: String(localized: .searchFiltersCodec)
         case .hdr: "HDR"
-        case .audio: "音频"
-        case .subtitle: "字幕"
-        case .group: "压制组"
+        case .audio: String(localized: .searchFiltersAudio)
+        case .subtitle: String(localized: .searchFiltersSubtitle)
+        case .group: String(localized: .searchFiltersGroup)
         }
     }
 }
@@ -354,12 +354,12 @@ nonisolated enum TorrentSearchLogic {
 
     // MARK: 展示标签
 
-    static let mediaTypeLabels = ["movie": "电影", "tv": "剧集"]
-    static let contentTypeLabels = ["anime": "动漫", "documentary": "纪录片", "variety": "综艺", "music": "音乐"]
+    static let mediaTypeLabels = ["movie": String(localized: .searchCategoriesMovie), "tv": String(localized: .searchCategoriesTv)]
+    static let contentTypeLabels = ["anime": String(localized: .searchCategoriesAnime), "documentary": String(localized: .searchCategoriesDocumentary), "variety": String(localized: .searchContentTypeVariety), "music": String(localized: .searchCategoriesMusic)]
 
     static let subtitleLanguageLabels = [
-        "zh": "中文字幕（未标简繁）", "zh-Hans": "简体中文字幕", "zh-Hant": "繁体中文字幕",
-        "en": "英文字幕", "ja": "日文字幕", "ko": "韩文字幕", "yue": "粤语字幕",
+        "zh": String(localized: .searchSubtitleChinese), "zh-Hans": String(localized: .searchSubtitleSimplified), "zh-Hant": String(localized: .searchSubtitleTraditional),
+        "en": String(localized: .searchSubtitleEnglish), "ja": String(localized: .searchSubtitleJapanese), "ko": String(localized: .searchSubtitleKorean), "yue": String(localized: .searchSubtitleCantonese),
     ]
 
     static func subtitleLanguageLabel(_ value: String) -> String { subtitleLanguageLabels[value] ?? value }
@@ -369,7 +369,7 @@ nonisolated enum TorrentSearchLogic {
         "apple_tv_plus": "Apple TV+", "paramount_plus": "Paramount+", "peacock": "Peacock", "showtime": "Showtime",
         "starz": "Starz", "discovery_plus": "Discovery+", "crave": "Crave", "stan": "Stan", "roku": "Roku",
         "google_tv": "Google TV", "itunes": "iTunes", "sony_core": "Sony Pictures Core", "criterion": "Criterion",
-        "iqiyi": "爱奇艺", "wetv": "腾讯视频", "youku": "优酷", "mangotv": "芒果 TV", "bilibili": "哔哩哔哩",
+        "iqiyi": String(localized: .searchPlatformsIqiyi), "wetv": String(localized: .searchPlatformsWetv), "youku": String(localized: .searchPlatformsYouku), "mangotv": String(localized: .searchPlatformsMangotv), "bilibili": String(localized: .searchPlatformsBilibili),
         "viu": "Viu", "nowplayer": "Now player", "mytv_super": "myTV SUPER", "hami_video": "Hami Video",
         "line_tv": "LINE TV", "kktv": "KKTV", "tving": "TVING", "wavve": "Wavve", "coupang_play": "Coupang Play",
         "kocowa": "KOCOWA", "viki": "Viki", "unext": "U-NEXT", "tver": "TVer", "fod": "FOD", "dmm_tv": "DMM TV",
@@ -383,29 +383,30 @@ nonisolated enum TorrentSearchLogic {
     static func facetLabel(_ dim: TorrentFilterDim, _ value: String, siteName: (String) -> String) -> String {
         switch dim {
         case .site: siteName(value)
-        case .season: "第\(value)季"
-        case .episode: "第\(value)集"
+        case .season: String(localized: .searchFiltersSeasonValue(value))
+        case .episode: String(localized: .searchFiltersEpisodeValue(value))
         case .subtitle: subtitleLanguageLabel(value)
         case .platform: platformLabel(value)
         default: value
         }
     }
 
-    static let subLangShort = ["zh-Hans": "简", "zh-Hant": "繁", "zh": "中", "en": "英", "ja": "日", "ko": "韩", "yue": "粤"]
-    static let audioLangShort = ["cmn": "国", "yue": "粤", "en": "英", "ja": "日", "ko": "韩"]
+    static let subLangShort = ["zh-Hans": String(localized: .searchSubtitleShortSimplified), "zh-Hant": String(localized: .searchSubtitleShortTraditional), "zh": String(localized: .searchSubtitleShortChinese), "en": String(localized: .searchSubtitleShortEnglish), "ja": String(localized: .searchSubtitleShortJapanese), "ko": String(localized: .searchSubtitleShortKorean), "yue": String(localized: .searchSubtitleShortCantonese)]
+    static let audioLangShort = ["cmn": String(localized: .searchAudioShortMandarin), "yue": String(localized: .searchSubtitleShortCantonese), "en": String(localized: .searchSubtitleShortEnglish), "ja": String(localized: .searchSubtitleShortJapanese), "ko": String(localized: .searchSubtitleShortKorean)]
 
     /// 「字幕 简·繁·英［·硬］」；仅泛称时「中字」；无声明 nil
     static func compactSubtitleBadge(_ a: API.TorrentAttrs) -> String? {
         var langs = a.subtitleLanguages
         if langs.isEmpty { return nil }
         if langs.contains(where: { $0.hasPrefix("zh-") }) { langs.removeAll { $0 == "zh" } }
-        let hard = a.subtitleCarriers.contains("hardcoded") ? "·硬" : ""
-        if langs == ["zh"] { return "中字\(hard)" }
-        return "字幕 \(langs.map { subLangShort[$0] ?? $0 }.joined(separator: "·"))\(hard)"
+        let hard = a.subtitleCarriers.contains("hardcoded")
+        if langs == ["zh"] { return hard ? String(localized: .searchSubtitleChineseBadgeHard) : String(localized: .searchSubtitleChineseBadgeSoft) }
+        let list = langs.map { subLangShort[$0] ?? $0 }.joined(separator: "·")
+        return hard ? String(localized: .searchSubtitleBadgeHard(list)) : String(localized: .searchSubtitleBadgeSoft(list))
     }
 
     static func compactAudioBadge(_ a: API.TorrentAttrs) -> String? {
-        a.audioLanguages.isEmpty ? nil : "音轨 \(a.audioLanguages.map { audioLangShort[$0] ?? $0 }.joined(separator: "·"))"
+        a.audioLanguages.isEmpty ? nil : String(localized: .searchAudioBadge(a.audioLanguages.map { audioLangShort[$0] ?? $0 }.joined(separator: "·")))
     }
 
     /// S01E01-E06 / S01-S03 形式的季集标签
@@ -426,7 +427,7 @@ nonisolated enum TorrentSearchLogic {
 
     static func completeLabel(_ a: API.TorrentAttrs?) -> String? {
         guard a?.complete == true else { return nil }
-        return a?.episodesTotal.map { "全\($0)集" } ?? "全集"
+        return a?.episodesTotal.map { String(localized: .searchTorrentCompleteCount($0)) } ?? String(localized: .searchTorrentComplete)
     }
 
     /// 连续数字用区间（1-6），不连续用顿号（1、3）
@@ -440,8 +441,8 @@ nonisolated enum TorrentSearchLogic {
     /// 图览海报左下角的季集 chip；pack = 全集 / 整季包（醒目底色）
     static func seasonEpisodeChip(_ a: API.TorrentAttrs?) -> (text: String, pack: Bool)? {
         guard let a, a.mediaType != "movie" else { return nil }
-        let season = a.seasons.isEmpty ? nil : "第\(formatNumList(a.seasons))季"
-        let episode = completeLabel(a) ?? (a.episodes.isEmpty ? nil : "第\(formatNumList(a.episodes))集")
+        let season = a.seasons.isEmpty ? nil : String(localized: .searchFiltersSeasonValue(formatNumList(a.seasons)))
+        let episode = completeLabel(a) ?? (a.episodes.isEmpty ? nil : String(localized: .searchFiltersEpisodeValue(formatNumList(a.episodes))))
         if season == nil, episode == nil { return nil }
         let pack = a.complete == true || (season != nil && a.episodes.isEmpty)
         return ([season, episode].compactMap { $0 }.joined(separator: " · "), pack)
@@ -483,7 +484,7 @@ nonisolated enum TorrentSearchLogic {
         }
         if hit.uploadVolumeFactor > 1 {
             let factor = hit.uploadVolumeFactor == hit.uploadVolumeFactor.rounded() ? String(Int(hit.uploadVolumeFactor)) : String(hit.uploadVolumeFactor)
-            result.append(.upload("\(factor)× 上传"))
+            result.append(.upload(String(localized: .searchTorrentUploadFactor(factor))))
         }
         if hit.hitAndRun == true { result.append(.hitAndRun) }
         return result
@@ -521,7 +522,7 @@ nonisolated enum TorrentSearchLogic {
     }
 
     /// 秒级耗时文案（站点状态弹层）
-    static func elapsedText(_ ms: Int) -> String { String(format: "%.1f 秒", Double(ms) / 1000) }
+    static func elapsedText(_ ms: Int) -> String { String(localized: .searchStatusSeconds(String(format: "%.1f", Double(ms) / 1000))) }
 
     private nonisolated(unsafe) static let isoFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()

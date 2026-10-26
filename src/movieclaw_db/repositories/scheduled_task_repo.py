@@ -142,6 +142,8 @@ class TaskRunRepository:
         finished_at: datetime,
         duration_ms: int,
         error: str | None = None,
+        error_key: str | None = None,
+        error_params: dict | None = None,
     ) -> None:
         """把 RUNNING 记录收尾为最终状态（SUCCESS / FAILED）。"""
         row = await self._session.get(TaskRun, run_id)
@@ -151,6 +153,8 @@ class TaskRunRepository:
         row.finished_at = finished_at
         row.duration_ms = duration_ms
         row.error = error
+        row.error_key = error_key
+        row.error_params = error_params or {}
         await self._session.commit()
 
     async def reap_orphan_running(self) -> int:
@@ -168,6 +172,8 @@ class TaskRunRepository:
             row.status = TaskRunStatus.FAILED
             row.finished_at = now
             row.error = "进程重启导致本次执行中断（启动自愈标记）"
+            row.error_key = "activity.task.interrupted"
+            row.error_params = {}
         if rows:
             await self._session.commit()
         return len(rows)

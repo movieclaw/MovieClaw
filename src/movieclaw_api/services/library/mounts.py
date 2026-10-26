@@ -19,15 +19,24 @@ from typing import Literal
 
 MountKind = Literal["local", "network", "unknown"]
 
-#: 网络 / 远端文件系统：内核不会为远端变更产生 inotify 事件。fuse.* 一律按网络
-#: 算（rclone / sshfs / davfs 都走 fuse，本地 fuse 文件系统极少见于媒体库根）
+#: 网络 / 远端文件系统：内核不会为远端变更产生 inotify 事件。fuse.* 默认按网络
+#: 算（rclone / sshfs / davfs 都走 fuse）
 _NETWORK_FSTYPES = {"nfs", "nfs4", "cifs", "smb3", "smbfs", "ncpfs", "afs", "9p", "davfs", "sshfs"}
 _NETWORK_FSTYPE_PREFIXES = ("fuse", "nfs")
+
+#: 本机的 FUSE 合并盘：数据都在本机磁盘上，下载器与 movieclaw 经同一个挂载读写，
+#: 内核照常产生 inotify 事件。飞牛 fnOS、Unraid、OMV 的多盘媒体池常见 mergerfs——
+#: 按网络算会把这些库的实时监控整个跳过，下载完成后要等每 6 小时一轮的对账才入库
+#: （实测 fnOS mergerfs：宿主与 qBittorrent 容器写入，movieclaw 容器内收到
+#: CREATE / CLOSE_WRITE / MOVED_TO）
+_LOCAL_FUSE_FSTYPES = {"fuse.mergerfs"}
 
 MOUNTS_FILE = "/proc/mounts"
 
 
 def _classify(fstype: str) -> MountKind:
+    if fstype in _LOCAL_FUSE_FSTYPES:
+        return "local"
     if fstype in _NETWORK_FSTYPES or fstype.startswith(_NETWORK_FSTYPE_PREFIXES):
         return "network"
     return "local"

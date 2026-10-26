@@ -15,12 +15,14 @@ from fastapi import APIRouter, Depends
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import render_value, stored_message
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.import_watch_config import ImportWatchConfigService
 from movieclaw_api.services.library import ingest
 from movieclaw_api.services.library.config import LibraryConfigService
-from movieclaw_api.services.library.profile import kind_label
+from movieclaw_api.services.library.profile import kind_reference
 from movieclaw_db.engine import get_session
 from movieclaw_db.models import ImportWatch, IngestEntry, IngestStatus
 
@@ -110,9 +112,15 @@ class ImportWatchView(BaseModel):
         if row.library_id is not None:
             label = library_name or "?"
         elif row.target_path:
-            label = f"自定义目录（{kind_label(row.kind or '')} · {row.target_path}）"
+            label = t(
+                "settings.importWatch.customTarget",
+                kind=render_value(kind_reference(row.kind or "")),
+                path=row.target_path,
+            )
         else:
-            label = f"自动路由（{kind_label(row.kind or '')}）"
+            label = t(
+                "settings.importWatch.autoTarget", kind=render_value(kind_reference(row.kind or ""))
+            )
         return cls(
             id=row.id,  # type: ignore[arg-type]
             source_path=row.source_path,
@@ -174,7 +182,7 @@ async def create_rule(
         process_existing=payload.process_existing,
     )
     views = await _views(session, [row])
-    return ok(views[0], message=f"已创建监听导入规则：{row.source_path}")
+    return ok(views[0], message=t("settings.importWatch.created", path=row.source_path))
 
 
 @router.put(
@@ -199,7 +207,7 @@ async def update_rule(
         process_existing=payload.process_existing,
     )
     views = await _views(session, [row])
-    return ok(views[0], message="已更新")
+    return ok(views[0], message=t("settings.importWatch.updated"))
 
 
 @router.delete(
@@ -215,7 +223,7 @@ async def delete_rule(
 ) -> ApiResponse[dict]:
     service = ImportWatchConfigService(session)
     await service.delete(rule_id)
-    return ok({}, message="已删除（源目录与已导入的文件均未受影响）")
+    return ok({}, message=t("settings.importWatch.deleted"))
 
 
 # —— 台账清单与人工拍板（实现层：services.library.ingest）——————————
@@ -228,7 +236,7 @@ class IngestEntryView(BaseModel):
     name: str = Field(description="条目名（源目录顶层的文件/目录名）")
     entry_path: str
     status: Literal["imported", "pending", "failed", "skipped", "ignored"]
-    message: str | None = Field(default=None, description="处理结论（中文）")
+    message: str | None = Field(default=None, description="处理结论（按请求语言）")
     imported_count: int
     attempted_at: datetime
     unresolved_files: list[str] = Field(
@@ -246,7 +254,12 @@ class IngestEntryView(BaseModel):
             name=PurePosixPath(row.entry_path).name,
             entry_path=row.entry_path,
             status=row.status,  # type: ignore[arg-type]
-            message=row.message,
+            # 旧记录没有引用，只有中文原文：反查目录渲染，查不到原样给
+            message=render_value(row.message_ref)
+            if row.message_ref
+            else stored_message(row.message)
+            if row.message
+            else None,
             imported_count=row.imported_count,
             attempted_at=attempted,
             unresolved_files=list(row.unresolved_files or []),
@@ -306,7 +319,7 @@ async def ignore_entry(
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[IngestEntryView]:
     row = await ingest.ignore_entry(session, entry_id)
-    return ok(IngestEntryView.from_model(row), message="已忽略（清单中可随时恢复）")
+    return ok(IngestEntryView.from_model(row), message=t("settings.importWatch.ignored"))
 
 
 @router.post(
@@ -320,7 +333,7 @@ async def restore_entry(
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[IngestEntryView]:
     row = await ingest.restore_entry(session, entry_id)
-    return ok(IngestEntryView.from_model(row), message="已恢复，将在下轮巡检时重新处理")
+    return ok(IngestEntryView.from_model(row), message=t("settings.importWatch.restored"))
 
 
 @router.post(
@@ -337,6 +350,6 @@ async def claim_entry(
     row = await ingest.claim_entry(session, entry_id, payload.tmdb_id, file=payload.entry_file)
     view = IngestEntryView.from_model(row)
     if row.status == IngestStatus.IMPORTED:
-        return ok(view, message=row.message or "已入库")
+        return ok(view, message=view.message or t("settings.importWatch.itemImported"))
     # 认领只持久化身份并唤醒原 Job；入库进度与故障继续由任务中心呈现。
-    return ok(view, message=row.message or "已认领，等待后台整理入库")
+    return ok(view, message=view.message or t("settings.importWatch.itemClaimed"))

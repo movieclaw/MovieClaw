@@ -1,0 +1,7 @@
+[plugin]
+id = "__PLUGIN_ID__"
+title = "__PLUGIN_TITLE__"
+version = "0.1.0"
+sdk = "^1.0"
+description = "__PLUGIN_DESCRIPTION__"
+# 只带网页：没有 entry，网页放在 web/（主程序地址 /apps/__PLUGIN_ID__）

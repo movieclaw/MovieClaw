@@ -3,6 +3,7 @@ package io.movieclaw.androidtv.ui.shell
 import android.view.KeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,7 +16,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -92,7 +95,15 @@ fun Sidebar(
                 } else {
                     false
                 }
-            },
+            }
+            // 焦点关在侧边栏里：上下到头、往左都不出去（收起时程序把焦点交还页面，那是 Enter，放行）
+            .focusProperties {
+                onExit = {
+                    val dir = requestedFocusDirection
+                    if (dir == FocusDirection.Up || dir == FocusDirection.Down || dir == FocusDirection.Left) cancelFocusChange()
+                }
+            }
+            .focusGroup(),
         verticalArrangement = Arrangement.spacedBy(4.pt),
     ) {
         for (item in tabItems()) {

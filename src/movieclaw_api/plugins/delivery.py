@@ -1,7 +1,7 @@
 """通道与推送插件（plugin-kernel.md §7）。
 
-IM 通道中枢（各通道是随带的插件包，见 src/movieclaw_plugins）、Cloud、推送中枢、新片到达、
-Jellyfin 局域网发现。
+IM 通道中枢（各通道是随带的插件包，见 src/movieclaw_plugins）、Cloud、推送中枢、Webhook 投递、
+新片到达、Jellyfin 局域网发现。
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from movieclaw_api.plugins.keys import (
     IM_CHANNELS,
     PUSH_HUB,
 )
-from movieclaw_kernel import Context, plugin
+from movieclaw_kernel import DURABLE_EVENTS, Context, plugin
 
 
 @plugin(
@@ -28,6 +28,7 @@ from movieclaw_kernel import Context, plugin
     reloadable=True,
 )
 async def channel_hub(ctx: Context) -> None:
+    """连接已配置的聊天通道（如 Telegram、飞书、微信），把收到的消息交给 AI 助手处理并回复。"""
     from movieclaw_api.services.channel_hub import ChannelHub, set_hub
 
     # 通道列表 = 注册表现取：通道插件装上 / 关掉 / 卸载，中枢跟着启停账号
@@ -74,6 +75,7 @@ async def channel_hub(ctx: Context) -> None:
     reloadable=True,
 )
 async def cloud(ctx: Context) -> None:
+    """连接 MovieClaw Cloud（用于手机推送等）；未连接时不会向云端发送任何请求。"""
     from movieclaw_api.services.cloud import close_cloud_service, init_cloud_service
 
     # 已连接就起续签循环；未连接时对云端不发任何请求（docs/design/cloud-push.md §2、§3）
@@ -84,16 +86,39 @@ async def cloud(ctx: Context) -> None:
 
 @plugin("push.hub", title="推送事件中枢", inject=(DB,), provides=(PUSH_HUB,), reloadable=True)
 async def push_hub(ctx: Context) -> None:
-    from movieclaw_api.services.push import hub
+    """推送消息的统一出口：按通知规则把系统事件（如新片入库）整理成通知，推到手机和 IM。"""
+    from movieclaw_api.services.push import engine, hub
 
     # 中枢懒启动（第一次 emit 时建队列和消费者），这里只负责关停：
     # 停消费者、取消剧卡的定时（docs/design/cloud-push.md §5.1）
     ctx.effect(hub.stop, label="stop-push-hub")
     ctx.provide(PUSH_HUB, hub)
+    # 通知引擎：有通知规则的事件各挂一个实时监听器（docs/design/domain-events.md §6.1）
+    engine.attach(ctx)
+
+
+@plugin(
+    "webhook.delivery",
+    title="Webhook 投递",
+    inject=(DB, DURABLE_EVENTS),
+    disableable=True,
+    reloadable=True,
+)
+async def webhook_delivery(ctx: Context) -> None:
+    """把系统事件推给「设置 → Webhook」里配置的地址：每个地址按勾选订阅，失败自动重试，重启不丢。"""
+    from movieclaw_api.services.webhook import delivery
+
+    service = delivery.Subscriptions(ctx, ctx.use(DURABLE_EVENTS))
+    # 停用时取消订阅但保留各地址的消费者进度：恢复后从停下的地方补投
+    ctx.effect(service.close, label="unsubscribe-webhook")
+    await service.sync()
+    delivery.bind(service)
+    ctx.effect(lambda: delivery.bind(None), label="unbind-webhook")
 
 
 @plugin("push.channels-refresh", title="推送通道能力快照", inject=(CLOUD,), reloadable=True)
 async def push_channels_refresh(ctx: Context) -> None:
+    """每半小时检查推送通道的信息是否过期并刷新，让手机推送选对通道。"""
     from movieclaw_api.services.push.channels import start_refresh_loop, stop_refresh_loop
 
     # 推送通道的能力快照（/v1/info）每半小时检查一次是否过期
@@ -105,6 +130,7 @@ async def push_channels_refresh(ctx: Context) -> None:
     "push.arrivals", title="媒体库有新片", inject=(PUSH_HUB, DB), disableable=True, reloadable=True
 )
 async def push_arrivals(ctx: Context) -> None:
+    """媒体库有新片入库时推送到手机：后台每两分钟检查一次新入库的内容。"""
     from movieclaw_api.services.push import arrivals
 
     # 每两分钟看一眼台账里新出现的行；先于推送中枢停下
@@ -112,10 +138,12 @@ async def push_arrivals(ctx: Context) -> None:
     ctx.effect(arrivals.stop, label="stop-arrivals")
 
 
-@plugin("jellyfin.discovery", title="Jellyfin 局域网发现", disableable=True, reloadable=True)
+# 插件 id 沿用早期的 jellyfin.discovery：用户存过的禁用补丁 / 功能开关都按它认
+@plugin("jellyfin.discovery", title="局域网发现", disableable=True, reloadable=True)
 async def jellyfin_discovery(ctx: Context) -> None:
-    from movieclaw_jellyfin.udp import start_discovery, stop_discovery
+    """在局域网内应答各端 App 与 Jellyfin 客户端的自动发现，不必手填地址就能找到本服务器。"""
+    from movieclaw_api.services.lan_discovery import start_discovery, stop_discovery
 
-    # UDP 7359；开关关闭 / 端口被占时内部自行降级
+    # UDP 7359；端口被占时内部自行降级。Jellyfin 兼容开关只管要不要应答 Jellyfin 的询问
     await start_discovery(ctx.settings.jellyfin_public_port)
     ctx.effect(stop_discovery, label="stop-discovery")

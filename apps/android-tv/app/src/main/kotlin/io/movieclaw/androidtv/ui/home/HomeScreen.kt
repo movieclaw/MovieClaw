@@ -39,6 +39,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -52,7 +54,7 @@ import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Icon
 import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.LocalSession
-import io.movieclaw.androidtv.core.model.generated.UpNextItemView
+import io.movieclaw.core.model.generated.UpNextItemView
 import io.movieclaw.androidtv.ui.components.CaptionMode
 import io.movieclaw.androidtv.ui.components.LandscapeCard
 import io.movieclaw.androidtv.ui.components.McIcons
@@ -88,12 +90,19 @@ import io.movieclaw.androidtv.ui.components.layerFocus
 private sealed interface HomeFocus {
     data object Play : HomeFocus
     data object Details : HomeFocus
-    data class Card(val id: Long) : HomeFocus
+    /** 「接下来继续」里的某张卡：具体哪一张只有那一行自己记着（[UpNextFocus]） */
+    data object Cards : HomeFocus
+}
+
+/** 「接下来继续」里焦点所在的那张卡：行自己写、首页只在决定让位时读，不做成界面状态 */
+private class UpNextFocus {
+    var id: Long? = null
 }
 
 /**
  * 首页（TVHomeView）：首屏是跟着焦点走的「接下来继续」大图区，下面接用户在网页自定义的行。
  * - 大图、片名、简介永远讲焦点所在的那一部（焦点停稳 160 毫秒再换，按住方向键划过不逐张闪），不自动轮播；
+ *   卡片之间挪焦点只在「接下来继续」这一行里记，首页不跟着重组，停稳要换大图时才重组一次（同 Apple 端 TVUpNextRow）；
  * - 默认焦点在「继续播放」；从按钮往下落在大图正讲的那张卡上；进卡片行时列表滚到 334 点、回到按钮滚回顶部；
  * - 「我的媒体库」是进各个库的唯一入口，网页上藏了这一行电视上照样画。
  */
@@ -120,6 +129,7 @@ fun HomeScreen() {
     var wakes by remember { mutableStateOf(0) }
     // 卡片行顶边在屏幕上的位置：只在决定让位时读。不做成界面状态——滚动时每帧都在变，写状态会让整页每帧重组
     val cardTop = remember { CardTop() }
+    val upNextFocus = remember { UpNextFocus() }
 
     // 出现时刷新（从二级页退回来也算，同 Apple 端 .task）、关掉播放器后刷新
     val pageVisible = io.movieclaw.androidtv.ui.shell.LocalPageVisible.current
@@ -127,6 +137,11 @@ fun HomeScreen() {
     // 接下来继续变了就同步到系统首页的「继续观看」
     val graph = io.movieclaw.androidtv.LocalGraph.current
     LaunchedEffect(store.upNext) { store.upNext?.let { graph.watchNext.publish(it, session.server, session.token) } }
+    // 开机直达 MovieClaw 时 Wi-Fi 常比 App 晚几秒连上：一次都没加载成功时，网络一连上就重试，不等下面每分钟的定时刷新；
+    // 加载成功后不再订阅。重试放在页面的作用域里跑：媒体库一到 failed 就变、这个 effect 随之重启，不能把还没回来的内容行请求一起取消
+    LaunchedEffect(store, store.failed) {
+        if (store.failed && store.libraries == null) graph.networkAvailable.collect { scope.launch { store.reload() } }
+    }
     // 定时刷新只在首页真被看着时做：播放器盖在上面、或压着二级页时不刷（故障注入实测：看片时首页照样每分钟
     // 把各行与背景图重取一遍，线路差时跟视频抢带宽）。回到首页由上面那条按可见性刷新补上
     val watching = pageVisible && router.player == null
@@ -180,15 +195,18 @@ fun HomeScreen() {
     val previewing = preview != null && stage != null && preview.showing && preview.key == stage.mediaItemId
     LaunchedEffect(previewing) { if (previewing) previewSince = System.currentTimeMillis() }
     LaunchedEffect(previewing, focus, stage?.mediaItemId, wakes) {
-        val onStageCard = stage != null && focus == HomeFocus.Card(stage.mediaItemId)
-        if (!previewing || !onStageCard || cardTop.px == null) {
+        if (!previewing || stage == null || focus != HomeFocus.Cards || cardTop.px == null) {
             rowYielded = false
             return@LaunchedEffect
         }
-        // 视频淡入之后再让（先看清换成了视频），还要离上一次操作 4 秒（刚进这一行的人正在挑卡）
-        val until = maxOf(previewSince + 1_200, lastInput + 4_000)
-        delay(maxOf(0L, until - System.currentTimeMillis()))
-        rowYielded = true
+        // 视频淡入之后再让（先看清换成了视频），还要离上一次操作 4 秒（刚进这一行的人正在挑卡）。
+        // 行里左右挪卡不重启这里，所以醒来再看一眼上次操作的时间
+        while (true) {
+            val wait = maxOf(previewSince + 1_200, lastInput + 4_000) - System.currentTimeMillis()
+            if (wait <= 0) break
+            delay(wait)
+        }
+        if (upNextFocus.id == stage.mediaItemId) rowYielded = true
     }
     val screenPx = 1080 * ptPx
     val yieldTarget = if (rowYielded) maxOf(0f, screenPx - 56 * ptPx - (cardTop.px ?: screenPx)) else 0f
@@ -205,13 +223,6 @@ fun HomeScreen() {
         snapshotFlow { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 4 }
             .distinctUntilChanged()
             .collect { chrome.pillVisible = it }
-    }
-    // 焦点停稳 0.16 秒再换大图
-    LaunchedEffect(focus) {
-        val card = focus as? HomeFocus.Card ?: return@LaunchedEffect
-        if (card.id == stageId) return@LaunchedEffect
-        delay(160)
-        stageId = card.id
     }
     // 开机落在首页：第一次有内容就把焦点放到「继续播放」上（只这一次）
     LaunchedEffect(stage?.mediaItemId) {
@@ -231,9 +242,9 @@ fun HomeScreen() {
             focus = new
             lastInput = System.currentTimeMillis()
             when {
-                new is HomeFocus.Card && old !is HomeFocus.Card ->
+                new == HomeFocus.Cards && old != HomeFocus.Cards ->
                     scope.launch { listState.animateScrollToItem(0, (334 * ptPx).toInt()) }
-                old is HomeFocus.Card && (new == HomeFocus.Play || new == HomeFocus.Details) ->
+                old == HomeFocus.Cards && (new == HomeFocus.Play || new == HomeFocus.Details) ->
                     scope.launch { listState.animateScrollToItem(0, 0) }
             }
         }
@@ -293,38 +304,24 @@ fun HomeScreen() {
                                 }
                             },
                         )
-                        Shelf(
-                            "接下来继续",
-                            // 从按钮往下回到这一行：落在大图正讲的那张卡上
-                            modifier = Modifier
-                                .graphicsLayer { translationY = yieldOffset }
-                                .focusProperties { enter = { cardFocus[stage.mediaItemId] ?: FocusRequester.Default } },
-                            titleAlpha = yieldAlpha,
-                        ) {
-                            items(upNext, key = { it.mediaItemId }) { item ->
-                                val requester = remember(item.mediaItemId) { cardFocus.getOrPut(item.mediaItemId) { FocusRequester() } }
-                                val current = item.mediaItemId == stage.mediaItemId
-                                Box(
-                                    Modifier
-                                        .graphicsLayer { alpha = if (current) 1f else yieldAlpha }
-                                        .onGloballyPositioned { if (!rowYielded) cardTop.px = it.positionInRoot().y },
-                                ) {
-                                if (current && rowYielded && preview != null) PreviewProgressLine(preview, Modifier.offset(y = (-26).pt))
-                                LandscapeCard(
-                                    image = if (item.kind == "tv") item.episodeStillUrl ?: item.backdropUrl else item.backdropUrl ?: item.posterUrl,
-                                    title = item.title,
-                                    onClick = { resume(item) },
-                                    modifier = Modifier.focusRequester(requester),
-                                    caption = CaptionMode.Always,
-                                    badge = if (item.advanced) "下一集" else null,
-                                    progress = (item.progressPercent ?: 0L) / 100f,
-                                    detail = upNextBand(item),
-                                    onLongClick = { menuFor = item },
-                                    onFocus = { if (it) onFocusChange(HomeFocus.Card(item.mediaItemId)) },
-                                )
-                                }
-                            }
-                        }
+                        UpNextRow(
+                            upNext = upNext,
+                            stageId = stage.mediaItemId,
+                            cardFocus = cardFocus,
+                            focused = upNextFocus,
+                            yielded = rowYielded,
+                            yieldOffset = { yieldOffset },
+                            yieldAlpha = { yieldAlpha },
+                            preview = preview,
+                            cardTop = cardTop,
+                            onCardFocus = {
+                                lastInput = System.currentTimeMillis()
+                                if (focus != HomeFocus.Cards) onFocusChange(HomeFocus.Cards)
+                            },
+                            onSettle = { stageId = it },
+                            onPlay = { resume(it) },
+                            onMenu = { menuFor = it },
+                        )
                     }
                 }
             }
@@ -359,6 +356,77 @@ fun HomeScreen() {
             ),
             onDismiss = { menuFor = null },
         )
+    }
+}
+
+/**
+ * 「接下来继续」一行（TVUpNextRow）：焦点在卡片之间挪动只记在这一行里（[focused]），停稳 0.16 秒才通知首页换大图（[onSettle]）；
+ * 首页不随每一下按键重组、下面各行也不跟着重算。进出这一行由 [onCardFocus] 告诉首页（滚动位置、让位要用）
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun UpNextRow(
+    upNext: List<UpNextItemView>,
+    stageId: Long,
+    cardFocus: MutableMap<Long, FocusRequester>,
+    focused: UpNextFocus,
+    yielded: Boolean,
+    yieldOffset: () -> Float,
+    yieldAlpha: () -> Float,
+    preview: StagePreview?,
+    cardTop: CardTop,
+    onCardFocus: () -> Unit,
+    onSettle: (Long) -> Unit,
+    onPlay: (UpNextItemView) -> Unit,
+    onMenu: (UpNextItemView) -> Unit,
+) {
+    // 行内的焦点：只在下面的停稳计时里读，挪一下焦点这一行也不重组
+    var focusedId by remember { mutableStateOf<Long?>(null) }
+    val settle by rememberUpdatedState(onSettle)
+    LaunchedEffect(Unit) {
+        snapshotFlow { focusedId }.collectLatest { id ->
+            if (id == null) return@collectLatest
+            delay(160)
+            settle(id)
+        }
+    }
+    Shelf(
+        "接下来继续",
+        // 从按钮往下回到这一行：落在大图正讲的那张卡上
+        modifier = Modifier
+            .graphicsLayer { translationY = yieldOffset() }
+            .focusProperties { enter = { cardFocus[stageId] ?: FocusRequester.Default } },
+        titleAlpha = yieldAlpha,
+    ) {
+        items(upNext, key = { it.mediaItemId }) { item ->
+            val requester = remember(item.mediaItemId) { cardFocus.getOrPut(item.mediaItemId) { FocusRequester() } }
+            val current = item.mediaItemId == stageId
+            Box(
+                Modifier
+                    .graphicsLayer { alpha = if (current) 1f else yieldAlpha() }
+                    .onGloballyPositioned { if (!yielded) cardTop.px = it.positionInRoot().y },
+            ) {
+                if (current && yielded && preview != null) PreviewProgressLine(preview, Modifier.offset(y = (-26).pt))
+                LandscapeCard(
+                    image = if (item.kind == "tv") item.episodeStillUrl ?: item.backdropUrl else item.backdropUrl ?: item.posterUrl,
+                    title = item.title,
+                    onClick = { onPlay(item) },
+                    modifier = Modifier.focusRequester(requester),
+                    caption = CaptionMode.Always,
+                    badge = if (item.advanced) "下一集" else null,
+                    progress = (item.progressPercent ?: 0L) / 100f,
+                    detail = upNextBand(item),
+                    onLongClick = { onMenu(item) },
+                    onFocus = {
+                        if (it) {
+                            focused.id = item.mediaItemId
+                            focusedId = item.mediaItemId
+                            onCardFocus()
+                        }
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -450,8 +518,8 @@ fun upNextBand(item: UpNextItemView): String? {
 private fun HomeRow(
     row: HomeRows.Row,
     store: HomeStore,
-    browsable: List<io.movieclaw.androidtv.core.model.generated.LibraryView>,
-    pinnedCollections: List<io.movieclaw.androidtv.core.model.generated.CollectionView>,
+    browsable: List<io.movieclaw.core.model.generated.LibraryView>,
+    pinnedCollections: List<io.movieclaw.core.model.generated.CollectionView>,
     onRowFocus: (Boolean) -> Unit,
 ) {
     val router = LocalRouter.current

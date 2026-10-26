@@ -3,6 +3,7 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from movieclaw_api.exceptions import BadRequestException, NotFoundException
+from movieclaw_api.i18n import t
 from movieclaw_db.models.site_credential import AuthType
 from movieclaw_tracker.registry import SiteConfig, get_site_config, list_sites
 
@@ -69,15 +70,18 @@ class SiteCatalogService:
         try:
             return get_site_config(site_id)
         except Exception as exc:  # registry 抛 SiteNotFoundError
-            raise NotFoundException(f"站点不存在或未被系统支持：{site_id}") from exc
+            raise NotFoundException(
+                message_key="errors.sites.missing", params={"id": site_id}
+            ) from exc
 
     def assert_auth_type_supported(self, site_id: str, auth_type: AuthType) -> SiteConfig:
         """校验某站点是否支持指定授权类型，不支持则抛 400。返回站点目录项。"""
         config = self.get(site_id)
         if auth_type.value not in config.supported_auth_types:
-            supported = "、".join(config.supported_auth_types) or "（无）"
+            supported = "、".join(config.supported_auth_types) or t("common.value.none")
             raise BadRequestException(
-                f"站点 {site_id} 不支持授权类型 '{auth_type.value}'，支持的类型为：{supported}"
+                message_key="errors.sites.authTypeUnsupported",
+                params={"id": site_id, "type": auth_type.value, "supported": supported},
             )
         return config
 

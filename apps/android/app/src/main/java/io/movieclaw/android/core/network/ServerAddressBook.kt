@@ -1,0 +1,617 @@
+package io.movieclaw.android.core.network
+
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.net.Inet4Address
+import java.net.NetworkInterface
+import java.security.SecureRandom
+import java.util.Base64
+import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlin.coroutines.resume
+
+private val Context.addressStore by preferencesDataStore(name = "mc_addresses")
+
+/**
+ * 内外双地址自动选连（docs/design/server-addresses.md §4；iOS `ServerRoutes` 的对应物）。
+ *
+ * 服务器的身份是登录地址（[SessionRepository] 不迁移）；这里只维护一张「路由表」：
+ * 拉地址簿 → 按当前网络预筛 → 竞速探测（/health?nonce= 验实例号 + proof）→
+ * 把选中的地址挂进 [ApiFactory.setRoutedBase]，之后的请求自动走新地址。
+ *
+ * 预筛与竞速口径照设计稿：蜂窝一律不试内网；记过的网络直接用记忆（后台核实）；
+ * 内网 1.5s / 外网 5s 超时；外网晚 250ms 发（Happy Eyeballs）；先通先用。
+ */
+@Singleton
+class ServerAddressBook @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val apiFactory: ApiFactory,
+) {
+    data class Entry(val url: String, val kind: String, val source: String)
+
+    data class Selection(
+        val origin: String,
+        /** 当前选中的入口（绝对地址，含协议+主机+端口） */
+        val url: String,
+        val kind: String,
+        val fingerprint: String,
+        /** 是否本轮竞速验证过（false = 按记忆直接用，后台核实） */
+        val verified: Boolean,
+    )
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val json = Json { ignoreUnknownKeys = true }
+    private val probeClient = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .build()
+
+    private val _selection = MutableStateFlow<Selection?>(null)
+    val selection: StateFlow<Selection?> = _selection.asStateFlow()
+
+    private val _book = MutableStateFlow<List<Entry>>(emptyList())
+    val book: StateFlow<List<Entry>> = _book.asStateFlow()
+
+    /** 上一次成功拉到的地址簿：网络刚断开/刚出门时当前入口不可达，用它直接竞速（§4.5） */
+    @Volatile private var lastBook: ServerAddressesView? = null
+
+    @Volatile private var selecting = false
+    @Volatile private var reselectQueued = false
+    @Volatile private var callbackRegistered = false
+
+    /** 供 RemoteImage / 取流拼地址用：返回该登录 origin 当前应使用的入口 base（无则原样返回） */
+    fun baseFor(origin: String?): String? {
+        val s = _selection.value ?: return null
+        if (s.origin != origin) return null
+        return s.url.trimEnd('/')
+    }
+
+    /** 冷启动 / 登录后 / 网络变化时调用：选一个地址并挂上 */
+    fun selectAndApply(origin: String?) {
+        if (origin.isNullOrBlank()) return
+        if (selecting) {
+            // 选路期间又来了事件（比如连着换网络）：记一笔，本轮结束后再选一次，不能丢
+            reselectQueued = true
+            return
+        }
+        selecting = true
+        scope.launch {
+            // finally 复位：任何异常/超时都不能把「正在选路」永久卡住
+            // （否则网络变化与设置页「重新选择」会被永久忽略，见 PR #1001 评审）
+            try {
+                runCatching { select(origin) }
+            } finally {
+                selecting = false
+                registerNetworkCallback()
+                if (reselectQueued) {
+                    reselectQueued = false
+                    _selection.value?.let { selectAndApply(it.origin) }
+                }
+            }
+        }
+    }
+
+    /** 设置 → 网络：手动重选（忽略记忆里的结论重新竞速） */
+    fun reselect(origin: String?) {
+        scope.launch {
+            context.addressStore.edit { prefs ->
+                val fp = fingerprint()
+                prefs.remove(stringPreferencesKey(key(fp)))
+            }
+            selectAndApply(origin)
+        }
+    }
+
+    // ── 事件驱动（§4.5） ──
+
+    private val backgroundedAt = java.util.concurrent.atomic.AtomicLong(0L)
+    @Volatile private var lastHardErrorAt = 0L
+
+    init {
+        // 请求层硬错误 → 重新选路；同一波失败只触发一次
+        ServerRoutes.onHardError = {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastHardErrorAt >= 15_000L) {
+                lastHardErrorAt = now
+                _selection.value?.let { selectAndApply(it.origin) }
+            }
+        }
+    }
+
+    fun onAppBackground() {
+        backgroundedAt.set(android.os.SystemClock.elapsedRealtime())
+    }
+
+    /** 回前台且在后台超过 10 分钟：重选一次（与可达性的「久别回来」同口径） */
+    fun onAppForeground() {
+        val at = backgroundedAt.getAndSet(0L)
+        if (at == 0L) return
+        if (android.os.SystemClock.elapsedRealtime() - at < 10 * 60_000L) return
+        _selection.value?.let { selectAndApply(it.origin) }
+    }
+
+    private suspend fun select(origin: String) {
+        val api = apiFactory.forOrigin(origin)
+        val fp = fingerprint()
+        val previousSelection = _selection.value
+        val networkJustChanged = previousSelection != null && previousSelection.fingerprint != fp
+        val cached = lastBook
+        // 网络刚变（Wi-Fi 掉线 / 出门 / 回家）且手里有上次的地址簿：直接拿它竞速。
+        // 此时当前入口往往已经不可达，先去内网入口拉地址簿会干等 5 秒超时，切换就“感觉没反应”。
+        val fetched = if (networkJustChanged && cached != null) {
+            null
+        } else {
+            runCatching { api.serverAddresses().dataOrThrow() }.getOrNull()
+        }
+        if (fetched != null) lastBook = fetched
+        val book = fetched ?: cached ?: return
+        val entries = book.addresses.map { Entry(it.url.trimEnd('/'), it.kind, it.source) }
+        _book.value = entries
+        val loginUrl = origin.trimEnd('/')
+        val candidates = (entries.map { it.url } + loginUrl).distinct()
+
+        val cellular = isCellular()
+        val remembered = withTimeoutOrNull(2_000) {
+            context.addressStore.data.first()[stringPreferencesKey(key(fp))]
+        }?.trimEnd('/')
+        val rememberedValid = remembered?.let { r -> candidates.firstOrNull { it == r } }
+
+        // 预筛（不发请求）：蜂窝只考虑外网与 https 的登录地址
+        val lanCandidates = entries.filter { it.kind == "lan" }
+            .map { it.url }
+            .filter { !cellular }
+        val wanCandidates = entries.filter { it.kind == "wan" }.map { it.url }
+        val inSubnet = lanCandidates.firstOrNull { inSameSubnet(it) }
+
+        // 候选排序：记忆 > 同网段内网 > 登录地址（非纯蜂窝）> 外网。
+        fun ordered(list: List<String>): List<String> {
+            val rememberedOne = rememberedValid?.takeIf { it in list }
+            val inSubnetOne = inSubnet?.takeIf { it in list }
+            return listOfNotNull(rememberedOne, inSubnetOne) + list.filter { it != rememberedOne && it != inSubnetOne }
+        }
+
+        val lanOrdered = ordered(
+            lanCandidates.ifEmpty { listOfNotNull(loginUrl.takeIf { isPrivateLiteral(it) }) },
+        )
+        val wanOrdered = ordered(
+            (wanCandidates + listOfNotNull(loginUrl.takeIf { wanCandidates.isEmpty() && !cellular }))
+                .filter { it !in lanCandidates }
+                .distinct(),
+        )
+
+        // 当前在外网、网络变化后预筛出了内网候选：只探内网，不重探外网（§4.5）
+        val previous = _selection.value
+        val onlyLanUpgrade = previous != null && previous.kind != "lan" &&
+            previous.fingerprint != fp && lanOrdered.isNotEmpty()
+        val wanToRace = if (onlyLanUpgrade) emptyList() else wanOrdered
+        if (onlyLanUpgrade) android.util.Log.i("McRoutes", "外网回内网：只探内网候选")
+
+        // 预选（§4.2 / §4.4）：先不发请求定一个，但只能先用「本来就信得过」的入口——
+        // 登录地址本身，或 https（证书已验过主机名）。http 内网记忆要等 /health 验过。
+        // 登录地址是内网 IP、人却不在那个网段（也没 VPN）时不能预选它，先走 https 外网。
+        val vpnActive = isVpnTransport()
+        val loginIsPrivate = isPrivateLiteral(loginUrl)
+        val loginUsable = !loginIsPrivate || vpnActive || rememberedValid == loginUrl ||
+            (!cellular && inSameSubnet(loginUrl))
+        val prePick = buildList {
+            rememberedValid?.let(::add)
+            inSubnet?.let(::add)
+            add(loginUrl)
+            addAll(wanOrdered)
+        }.distinct().firstOrNull { url ->
+            if (url == loginUrl) loginUsable else url.startsWith("https://")
+        }
+        if (prePick != null) {
+            val trusted = listOf(loginUrl, prePick).distinct()
+            ServerTrust.allow(origin, trusted)
+            apply(origin, prePick, kindOf(entries, prePick), verified = false, alternates = trusted)
+            android.util.Log.i("McRoutes", "预选 $prePick")
+        }
+
+        // 竞速核实：每个候选独立超时；第一个通过就切；内网后到就升级（§4.3）
+        val nonce = newNonce()
+        val verified = mutableListOf<String>()
+        raceRoutes(
+            lan = lanOrdered,
+            wan = wanToRace,
+            nonce = nonce,
+            instanceId = book.instanceId,
+            hostKey = book.hostKey,
+        ) { url, isLan ->
+            if (url !in verified) verified += url
+            val trusted = (listOf(loginUrl) + verified).distinct()
+            ServerTrust.allow(origin, trusted)
+            val current = _selection.value
+            val currentIsLan = current?.kind == "lan" && current.verified
+            val shouldApply = current == null || !current.verified ||
+                (isLan && !currentIsLan) || current.url.trimEnd('/') == url
+            if (shouldApply) {
+                apply(origin, url, kindOf(entries, url), verified = true, alternates = trusted)
+                android.util.Log.i(
+                    "McRoutes",
+                    "验证通过 $url（${if (isLan) "内网" else "外网"}），已切换",
+                )
+            }
+        }
+
+        val applied = _selection.value
+        if (prePick == null && (applied == null || !applied.verified)) {
+            // 一个都验不过（出门、服务器不可达…）：回到登录地址本身
+            ServerTrust.allow(origin, listOf(loginUrl))
+            apply(origin, loginUrl, "login", verified = false, alternates = listOf(loginUrl))
+        }
+        if (applied?.verified == true) {
+            rememberChoice(fp, applied.url)
+        }
+        val finalUrl = (_selection.value?.url ?: loginUrl).trimEnd('/')
+        ServerRoutes.alternates = (verified + loginUrl).map { it.trimEnd('/') }
+            .filter { it != finalUrl }
+            .distinct()
+    }
+
+    private fun apply(
+        origin: String,
+        url: String,
+        kind: String,
+        verified: Boolean,
+        alternates: List<String>,
+    ) {
+        val apiBase = url + "/api/v1"
+        if (url.trimEnd('/') == origin.trimEnd('/')) {
+            apiFactory.setRoutedBase(origin, null)
+        } else {
+            apiFactory.setRoutedBase(origin, apiBase)
+        }
+        // 图片等按 origin 拼 URL 的地方跟着换入口
+        ServerRoutes.provider = { o -> if (o == null || o == origin) url.trimEnd('/') else null }
+        // 服务端按这个头判内外网（§5.2）：内网走 lan；经 VPN 回家走 vpn；其余 wan
+        ServerRoutes.route = routeFor(kind, url)
+        // 其它已验证入口：当前地址硬错误时幂等请求换过去
+        ServerRoutes.alternates = alternates.map { it.trimEnd('/') }
+            .filter { it != url.trimEnd('/') }
+            .distinct()
+        _selection.value = Selection(origin, url, kind, fingerprint(), verified)
+        android.util.Log.i(
+            "McRoutes",
+            "当前入口 $url（${if (verified) "已验证" else "预选"}，路线 ${ServerRoutes.route.header}，" +
+                "备选 ${ServerRoutes.alternates.size} 个）",
+        )
+    }
+
+    /** 路线判定：内网地址 + VPN 通路且不在任何实体网卡网段里 → vpn（§4.9）；其余按 lan / wan */
+    private fun routeFor(kind: String, url: String): ServerRoutes.Route {
+        if (kind != "lan") return ServerRoutes.Route.WAN
+        return if (isVpnRoute(url)) ServerRoutes.Route.VPN else ServerRoutes.Route.LAN
+    }
+
+    private fun isVpnRoute(lanUrl: String): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return false
+        // 代理 App 的 TUN（Clash / Surge 一类）地址在 198.18.0.0/15：不算 VPN 回家
+        val proxyTun = cm.getLinkProperties(network)?.linkAddresses.orEmpty().any { link ->
+            val a = link.address
+            a is Inet4Address && a.address.let {
+                (it[0].toInt() and 0xff) == 198 && (it[1].toInt() and 0xff) == 18
+            }
+        }
+        if (proxyTun) return false
+        // 内网地址落在任一实体网卡的 /24 里 → 就是普通局域网（VPN 只是并存）
+        val host = runCatching { java.net.URI(lanUrl).host }.getOrNull() ?: return false
+        return !hostInPhysicalSubnet(host)
+    }
+
+    private fun hostInPhysicalSubnet(host: String): Boolean {
+        val prefix = host.substringBeforeLast('.', "")
+        if (prefix.isEmpty()) return false
+        return runCatching {
+            java.util.Collections.list(NetworkInterface.getNetworkInterfaces()).any { iface ->
+                val name = iface.name.orEmpty()
+                val physical = !name.startsWith("tun") && !name.startsWith("ppp") &&
+                    !name.startsWith("rmnet") && !name.startsWith("dummy")
+                iface.isUp && !iface.isLoopback && physical &&
+                    java.util.Collections.list(iface.inetAddresses).any { addr ->
+                        addr is Inet4Address && addr.hostAddress?.startsWith("$prefix.") == true
+                    }
+            }
+        }.getOrDefault(false)
+    }
+
+    private fun kindOf(entries: List<Entry>, url: String): String =
+        entries.firstOrNull { it.url == url }?.kind
+            ?: if (isPrivateLiteral(url)) "lan" else "wan"
+
+    private data class ProbeResult(val url: String, val isLan: Boolean, val ok: Boolean)
+
+    /**
+     * 竞速并**边验边切**（§4.3）：每个候选独立超时；第一个通过校验的立刻回调；
+     * 外网先通过时继续等内网，内网在超时前通过就再回调一次（调用方负责升级、不回退）。
+     */
+    private suspend fun raceRoutes(
+        lan: List<String>,
+        wan: List<String>,
+        nonce: String,
+        instanceId: String,
+        hostKey: String,
+        onVerified: suspend (url: String, isLan: Boolean) -> Unit,
+    ): List<String> {
+        if (lan.isEmpty() && wan.isEmpty()) return emptyList()
+        val verified = mutableListOf<String>()
+        val results = Channel<ProbeResult>(Channel.UNLIMITED)
+        return kotlinx.coroutines.coroutineScope {
+            val jobs = mutableListOf<Job>()
+            lan.forEach { url ->
+                jobs += launch {
+                    val ok = runCatching {
+                        verifyHealth(url, nonce, instanceId, hostKey, LAN_PROBE_TIMEOUT_MS)
+                    }.getOrDefault(false)
+                    results.send(ProbeResult(url, true, ok))
+                }
+            }
+            // 有内网候选时外网晚 250ms 发；只有外网候选时立即发（§4.3）
+            val wanDelay = if (lan.isNotEmpty()) WAN_PROBE_DELAY_MS else 0L
+            wan.forEach { url ->
+                jobs += launch {
+                    if (wanDelay > 0) delay(wanDelay)
+                    val ok = runCatching {
+                        verifyHealth(url, nonce, instanceId, hostKey, WAN_PROBE_TIMEOUT_MS)
+                    }.getOrDefault(false)
+                    results.send(ProbeResult(url, false, ok))
+                }
+            }
+            var remaining = lan.size + wan.size
+            withTimeoutOrNull(RACE_TIMEOUT_MS) {
+                while (remaining > 0) {
+                    val r = results.receive()
+                    remaining--
+                    if (!r.ok) continue
+                    verified += r.url
+                    onVerified(r.url, r.isLan)
+                    // 内网已通：不再等外网，立即收敛
+                    if (r.isLan) break
+                }
+            }
+            jobs.forEach { it.cancel() }
+            verified
+        }
+    }
+
+    private data class ProbeResponse(val code: Int, val specHash: String?, val body: String?)
+
+    /**
+     * GET /health?nonce= → 三关（§4.8）：响应带 `X-Movieclaw-Spec-Hash`、instance_id 一致、
+     * proof 能用 host_key 验过（旧服务器没有 host_key 时只校验前两关）。
+     * 每个候选独立超时；超时会 cancel 掉在飞的 HTTP 请求。
+     */
+    private suspend fun verifyHealth(
+        url: String,
+        nonce: String,
+        instanceId: String,
+        hostKey: String,
+        timeoutMs: Long,
+    ): Boolean {
+        val call = probeClient.newCall(
+            Request.Builder()
+                .url(url.trimEnd('/') + "/api/v1/health?nonce=" + nonce)
+                .build(),
+        )
+        val response = withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine<ProbeResponse?> { cont ->
+                cont.invokeOnCancellation { runCatching { call.cancel() } }
+                call.enqueue(object : okhttp3.Callback {
+                    override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                        if (cont.isActive) cont.resume(null)
+                    }
+
+                    override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                        val parsed = response.use { resp ->
+                            ProbeResponse(
+                                code = resp.code,
+                                specHash = resp.header("X-Movieclaw-Spec-Hash"),
+                                body = runCatching { resp.body?.string() }.getOrNull(),
+                            )
+                        }
+                        if (cont.isActive) cont.resume(parsed)
+                    }
+                })
+            }
+        } ?: return false
+        // 第一关：门户页 / 反代错误页没有这个头
+        if (response.specHash.isNullOrBlank()) return false
+        if (response.code != 200 && response.code != 401 && response.code != 403) return false
+        val body = response.body ?: return false
+        val obj = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull() ?: return false
+        // 无信封结构：instance_id / proof 在顶层；spec hash 在响应头（body 里没有）
+        val id = obj["instance_id"]?.jsonPrimitive?.contentOrNull ?: return false
+        if (id != instanceId) return false
+        val proof = obj["proof"]?.jsonPrimitive?.contentOrNull
+        if (hostKey.isNotEmpty()) {
+            if (proof.isNullOrEmpty()) return false
+            if (!verifyProof(hostKey, nonce, id, proof)) return false
+        }
+        return true
+    }
+
+    /** Ed25519：proof = sign("movieclaw-health\n" + instance_id + "\n" + nonce)，base64url */
+    private fun verifyProof(hostKeyB64: String, nonce: String, instanceId: String, proofB64: String): Boolean = runCatching {
+        val spec = net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable.getByName(
+            net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable.ED_25519,
+        )
+        val publicKey = net.i2p.crypto.eddsa.EdDSAPublicKey(
+            net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec(Base64.getUrlDecoder().decode(hostKeyB64), spec),
+        )
+        val verifier = java.security.Signature.getInstance("EdDSA")
+        verifier.initVerify(publicKey)
+        verifier.update("movieclaw-health\n$instanceId\n$nonce".toByteArray(Charsets.UTF_8))
+        verifier.verify(Base64.getUrlDecoder().decode(proofB64))
+    }.getOrDefault(false)
+
+    private fun newNonce(): String {
+        val bytes = ByteArray(16)
+        SecureRandom().nextBytes(bytes)
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+    }
+
+    // ── 网络指纹与回调 ──
+
+    private fun key(fingerprint: String) = "chosen_" + fingerprint.hashCode().toString()
+
+    /** 记这个网络选中的入口；只留最近 8 个网络（§4.4） */
+    private suspend fun rememberChoice(fingerprint: String, url: String) {
+        context.addressStore.edit { prefs ->
+            val hash = fingerprint.hashCode().toString()
+            prefs[stringPreferencesKey("chosen_$hash")] = url
+            prefs[stringPreferencesKey("at_$hash")] = System.currentTimeMillis().toString()
+            val chosen = prefs.asMap().keys.filter { it.name.startsWith("chosen_") }
+            if (chosen.size > 8) {
+                val oldest = chosen.sortedBy { k ->
+                    prefs[stringPreferencesKey("at_" + k.name.removePrefix("chosen_"))]
+                        ?.toLongOrNull() ?: 0L
+                }
+                oldest.take(oldest.size - 8).forEach { k ->
+                    prefs.remove(k)
+                    prefs.remove(stringPreferencesKey("at_" + k.name.removePrefix("chosen_")))
+                }
+            }
+        }
+    }
+
+    /** 网络指纹 = 传输类型 + IPv4 /24（不读 Wi-Fi 名，不需要定位权限） */
+    internal fun fingerprint(): String {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return "unknown"
+        val network = cm.activeNetwork ?: return "unknown"
+        val caps = cm.getNetworkCapabilities(network) ?: return "unknown"
+        val transport = when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cell"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "eth"
+            else -> "other"
+        }
+        val lp = cm.getLinkProperties(network)
+        val subnet = lp?.linkAddresses
+            ?.mapNotNull { it.address as? Inet4Address }
+            ?.firstOrNull()
+            ?.hostAddress
+            ?.substringBeforeLast('.', "0.0.0.0")
+            ?.let { "$it.0/24" }
+            ?: "nosubnet"
+        return "$transport|$subnet"
+    }
+
+    private fun isCellular(): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+            !caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+            !caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+    }
+
+    private fun isVpnTransport(): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        val network = cm.activeNetwork ?: return false
+        return cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+    }
+
+    private fun inSameSubnet(url: String): Boolean {
+        val fpSubnet = fingerprint().substringAfter('|').substringBefore("/")
+        if (fpSubnet == "nosubnet") return false
+        val host = runCatching { java.net.URI(url).host }.getOrNull() ?: return false
+        return host.startsWith(fpSubnet.removeSuffix(".0/24") + ".")
+    }
+
+    private fun isPrivateLiteral(url: String): Boolean {
+        val host = runCatching { java.net.URI(url).host }.getOrNull() ?: return false
+        return host.startsWith("10.") || host.startsWith("192.168.") ||
+            Regex("^172\\.(1[6-9]|2\\d|3[01])\\.").containsMatchIn(host)
+    }
+
+    /** 网络变化 → 重新选路（事件驱动，不轮询） */
+    private fun registerNetworkCallback() {
+        if (callbackRegistered) return
+        callbackRegistered = true
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        val request = android.net.NetworkRequest.Builder().build()
+        runCatching {
+            cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                private var lastFingerprint = fingerprint()
+                override fun onCapabilitiesChanged(network: android.net.Network, caps: NetworkCapabilities) {
+                    val fp = fingerprint()
+                    if (fp != lastFingerprint) {
+                        lastFingerprint = fp
+                        _selection.value?.let { selectAndApply(it.origin) }
+                    }
+                }
+            })
+        }
+    }
+}
+
+/** 竞速总超时：内网 1.5s、外网 5s，再留 1.5s 余量；到点没赢家就回登录地址。 */
+private const val RACE_TIMEOUT_MS = 6_500L
+
+/** 单候选探测超时（§4.3）：内网 1.5s、外网 5s；外网晚 250ms 发（Happy Eyeballs） */
+private const val LAN_PROBE_TIMEOUT_MS = 1_500L
+private const val WAN_PROBE_TIMEOUT_MS = 5_000L
+private const val WAN_PROBE_DELAY_MS = 250L
+
+/**
+ * 「先通先用」竞速（评审问题 2 的修复）：内网候选立即探测、外网晚 [wanDelayMs] 发（Happy Eyeballs 思路），
+ * 任何一路先回 true 即返回；全部失败或到 [timeoutMs] 仍未成功就返回 null，调用方据此回落到登录地址。
+ *
+ * 独立成函数是为了可单测：不需要真实网络即可验证「全部失败会返回」「先成功者胜」。
+ */
+internal suspend fun <T> raceFirst(
+    lan: List<T>,
+    wan: List<T>,
+    timeoutMs: Long,
+    probe: suspend (candidate: T, timeoutMs: Long) -> Boolean,
+    lanTimeoutMs: Long = 1_500L,
+    wanTimeoutMs: Long = 5_000L,
+    wanDelayMs: Long = 250L,
+): T? = kotlinx.coroutines.coroutineScope {
+    val winner = java.util.concurrent.atomic.AtomicReference<T?>(null)
+
+    suspend fun run(candidate: T, timeout: Long) {
+        if (probe(candidate, timeout)) winner.compareAndSet(null, candidate)
+    }
+
+    lan.forEach { candidate -> launch { run(candidate, lanTimeoutMs) } }
+    wan.forEach { candidate ->
+        launch {
+            kotlinx.coroutines.delay(wanDelayMs)
+            run(candidate, wanTimeoutMs)
+        }
+    }
+    kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+        while (winner.get() == null) kotlinx.coroutines.delay(50)
+    }
+    winner.get()
+}

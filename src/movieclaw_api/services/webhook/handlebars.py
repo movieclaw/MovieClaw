@@ -30,7 +30,12 @@ _BLOCK_HELPERS = ("if_equals", "if_exist")
 
 
 class TemplateError(ValueError):
-    """模板语法/助手错误（中文信息，直接进投递记录）。"""
+    """Keep the original diagnostic beside an optional display reference."""
+
+    def __init__(self, message: str, *, message_key: str | None = None, params: dict | None = None):
+        super().__init__(message)
+        self.message_key = message_key
+        self.params = params or {}
 
 
 def _stringify(value: object) -> str:
@@ -60,7 +65,9 @@ def _apply_inline(name: str, args: list[str], values: dict) -> str:
         return f'<a href="{url}">{text}</a>'
     raise TemplateError(
         f"模板使用了不支持的助手：{name}"
-        "（支持 if_equals / if_exist / link_to / url_encode / json_encode）"
+        "（支持 if_equals / if_exist / link_to / url_encode / json_encode）",
+        message_key="settings.webhook.template.unsupportedHelper",
+        params={"name": name},
     )
 
 
@@ -117,20 +124,34 @@ def render(template: str, values: dict) -> str:
             parts = _ARG_RE.findall(inner[1:])
             name, args = parts[0], parts[1:]
             if name not in _BLOCK_HELPERS:
-                raise TemplateError(f"模板使用了不支持的块助手：{name}")
+                raise TemplateError(
+                    f"模板使用了不支持的块助手：{name}",
+                    message_key="settings.webhook.template.unsupportedBlock",
+                    params={"name": name},
+                )
             stack.append([name, _block_truth(name, args, values), False])
         elif inner.startswith("/"):
             name = inner[1:].strip()
             if not stack or stack[-1][0] != name:
                 raise TemplateError(
-                    f"模板的闭合标签 {{{{/{name}}}}} 与当前打开的块不匹配"
+                    f"模板的闭合标签 {{{{/{name}}}}} 与当前打开的块不匹配",
+                    message_key="settings.webhook.template.closingMismatch",
+                    params={"tag": "{{/" + name + "}}"},
                 )
             stack.pop()
         elif inner == "else":
             if not stack:
-                raise TemplateError("模板的 {{else}} 不在任何块助手内")
+                raise TemplateError(
+                    "模板的 {{else}} 不在任何块助手内",
+                    message_key="settings.webhook.template.elseOutside",
+                    params={"tag": "{{else}}"},
+                )
             if stack[-1][2]:
-                raise TemplateError("同一个块助手里出现了重复的 {{else}}")
+                raise TemplateError(
+                    "同一个块助手里出现了重复的 {{else}}",
+                    message_key="settings.webhook.template.duplicateElse",
+                    params={"tag": "{{else}}"},
+                )
             stack[-1][2] = True
         else:
             parts = _ARG_RE.findall(inner)
@@ -146,5 +167,9 @@ def render(template: str, values: dict) -> str:
 
     emit(template[pos:])
     if stack:
-        raise TemplateError("模板存在未闭合的块助手（缺少 {{/if_…}}）")
+        raise TemplateError(
+            "模板存在未闭合的块助手（缺少 {{/if_…}}）",
+            message_key="settings.webhook.template.unclosed",
+            params={"tag": "{{/if_…}}"},
+        )
     return "".join(out)

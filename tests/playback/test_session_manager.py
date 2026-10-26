@@ -13,6 +13,7 @@ trap 只 kill API 进程，不会连坐孙子进程；不做这条，每次后�
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import signal
 import time
@@ -413,6 +414,41 @@ async def test_idle_session_is_reaped(manager, monkeypatch):
     assert await wait_until(lambda: not pid_alive(pid))
 
 
+async def test_stream_disconnect_without_ping_reaps_early(manager, monkeypatch):
+    """页签直接关闭：DELETE 发不出，在途的分片响应被掐断，之后心跳与请求都没再来。
+
+    断开后超过 STREAM_DISCONNECT_REAP_S 仍没有动静 → 提前回收，
+    不让 ffmpeg 对着没人看的片转满整个空闲超时（GPU 空转数分钟）。"""
+    install_fake(monkeypatch, WRITES_PLAYLIST_THEN_SLEEPS)
+    monkeypatch.setattr(session_mod, "SESSION_IDLE_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(session_mod, "STREAM_DISCONNECT_REAP_S", 0.1)
+    monkeypatch.setattr(
+        type(manager), "_signal_group", lambda self, session, signal: None
+    )
+    session = await manager.start(make_plan(), source_path="/m/a.mkv", member_id=0)
+    manager.note_stream_disconnect(session.id)
+    await asyncio.sleep(0.15)
+    assert await manager.reap() == 1
+    assert manager.get(session.id) is None
+
+
+async def test_activity_after_a_stream_disconnect_cancels_the_early_reap(manager, monkeypatch):
+    """分片响应被掐断后播放器又有动静：不提前回收。
+
+    seek 就会掐掉在途的分片请求，随后播放器照常发心跳、来取新分片。"""
+    install_fake(monkeypatch, WRITES_PLAYLIST_THEN_SLEEPS)
+    monkeypatch.setattr(session_mod, "STREAM_DISCONNECT_REAP_S", 0.1)
+    session = await manager.start(make_plan(), source_path="/m/a.mkv", member_id=0)
+    try:
+        manager.note_stream_disconnect(session.id)
+        assert manager.ping(session.id) is True
+        await asyncio.sleep(0.15)
+        assert await manager.reap() == 0
+        assert manager.get(session.id) is not None
+    finally:
+        await manager.shutdown()
+
+
 async def test_ping_keeps_session_alive(manager, monkeypatch):
     install_fake(monkeypatch, WRITES_PLAYLIST_THEN_SLEEPS)
     monkeypatch.setattr(session_mod, "SESSION_IDLE_TIMEOUT_S", 0.3)
@@ -790,6 +826,7 @@ async def test_remote_session_dispatches_job_without_local_process(manager, monk
             plan: PlaybackPlan | None = None,
             source_id: int | None = None,
             learn_speed: bool = False,
+            preemptible: bool = False,
         ):
             self.reserved = (job_id, backend)
             return SimpleNamespace(
@@ -890,6 +927,7 @@ async def test_remote_session_uses_worker_connect_address_without_any_config(
             plan: PlaybackPlan | None = None,
             source_id: int | None = None,
             learn_speed: bool = False,
+            preemptible: bool = False,
         ):
             return SimpleNamespace(
                 worker_id="mac-mini-a",
@@ -978,6 +1016,7 @@ async def test_remote_start_failure_does_not_fallback_to_local_software(manager,
             plan: PlaybackPlan | None = None,
             source_id: int | None = None,
             learn_speed: bool = False,
+            preemptible: bool = False,
         ):
             raise session_mod.RemoteWorkerUnavailable("Worker 刚刚断线")
 
@@ -1082,6 +1121,7 @@ async def test_remote_restart_failure_cleans_up_new_job(manager, tmp_path, monke
             plan: PlaybackPlan | None = None,
             source_id: int | None = None,
             learn_speed: bool = False,
+            preemptible: bool = False,
         ):
             return SimpleNamespace(
                 worker_id="mac-mini-a",
@@ -1176,6 +1216,7 @@ async def test_remote_seek_restart_uses_the_worker_that_took_the_job(
             plan: PlaybackPlan | None = None,
             source_id: int | None = None,
             learn_speed: bool = False,
+            preemptible: bool = False,
         ):
             self.reserved.append((job_id, backend))
             return SimpleNamespace(
@@ -1812,7 +1853,9 @@ def test_behind_request_ready_only_holds_probe_like_requests(manager, tmp_path):
     """宽限只留给「像探测」的落后请求：起播窗口内的列表头、以及挂号之后客户端又去
     要了别处的过时请求；紧跟着它的顺序预取不算「别处」。"""
     session = _vod_session(tmp_path, head=317, completed=set())
-    now = time.monotonic()
+    # 只测传入时间的逻辑；固定到可精确表示的值，避免真实 monotonic 的
+    # 小数在「恰好 3 秒」处相减后变成 2.999999999999986。
+    now = 100.0
     session.created_at = now - 1.0  # 会话刚开 1 秒，还在探测窗口里
 
     session.pending_since[0] = now
@@ -2028,6 +2071,56 @@ async def test_writer_that_never_produces_segment_is_not_restarted_forever(
         await manager.shutdown()
 
 
+#: 模拟 issue #763：VAAPI 链路过了 0.3 秒的快速失败窗口才死，一段都没产出。
+#: 关键报错在倒数第五行之前，末尾几行只是连带的「编码器打不开」。
+DIES_AFTER_FAST_FAIL_WINDOW = """
+import sys, time
+time.sleep(0.6)
+for line in [
+    "[Parsed_tonemap_vaapi_0 @ 0x1] VAAPI driver doesn't support HDR",
+    "[vf#0:0 @ 0x2] Error while filtering: Function not implemented",
+    "[vf#0:0 @ 0x2] Terminating thread with return code -38 (Function not implemented)",
+    "[vost#0:0/h264_vaapi @ 0x3] Could not open encoder before EOF",
+    "[vost#0:0/h264_vaapi @ 0x3] Task finished with error code: -22 (Invalid argument)",
+    "[vost#0:0/h264_vaapi @ 0x3] Terminating thread with return code -22 (Invalid argument)",
+    "[out#0/hls @ 0x4] Nothing was written into output file",
+]:
+    print(line, file=sys.stderr)
+sys.exit(218)
+"""
+
+
+@pytest.mark.asyncio
+async def test_writer_dying_before_first_segment_fails_the_session(manager, monkeypatch, caplog):
+    """回归 issue #763：硬件转码命令起步即退出（过了快速失败窗口，开会话那一步没抓到），
+    一段都没产出。旧逻辑把第 0 段标成「产不出来」后会话仍是 ready：分片秒回 404、
+    init.mp4 每次干等 15 秒，播放器对着死会话缓冲了 4 分多钟也不降档，日志还把原因
+    说成「源文件比台账时长短」。现在判会话失败、带上完整 stderr，init 立即 404。"""
+    install_fake(monkeypatch, DIES_AFTER_FAST_FAIL_WINDOW)
+    monkeypatch.setattr(TranscodeSessionManager, "_SEGMENT_WAIT_S", 10.0)
+    session = await manager.start(
+        make_plan(), source_path="/m/a.mkv", member_id=0, segment_plan=_boundaries(800)
+    )
+    try:
+        assert session.state == "ready"  # 快速失败窗口内还活着
+        with caplog.at_level(logging.WARNING, logger=session_mod.logger.name):
+            started = time.monotonic()
+            assert await manager.ensure_segment(session, 0) is None
+            assert time.monotonic() - started < 5.0
+            # 异常退出那行由 stderr 读取任务记，与分片等待并行：等它落地再看
+            assert await wait_until(
+                lambda: any("异常退出" in r.getMessage() for r in caplog.records)
+            )
+        assert session.state == "failed"
+        # 真正的原因（倒数第七行）进了会话错误与日志，不再只剩末尾的连带报错
+        assert "doesn't support HDR" in (session.error or "")
+        exit_logs = [r.getMessage() for r in caplog.records if "异常退出" in r.getMessage()]
+        assert all("doesn't support HDR" in m for m in exit_logs)
+        assert not any("比台账时长短" in r.getMessage() for r in caplog.records)
+    finally:
+        await manager.shutdown()
+
+
 class _FinishedJobRegistry:
     """远程 job 都已正常结束（job.finished）、Worker 在线的注册表替身。"""
 
@@ -2147,6 +2240,7 @@ async def test_remote_disc_session_reads_ffconcat_and_follows_worker_caps(manage
             plan: PlaybackPlan | None = None,
             source_id: int | None = None,
             learn_speed: bool = False,
+            preemptible: bool = False,
         ):
             self.reserved_disc = disc
             return SimpleNamespace(
@@ -2230,7 +2324,8 @@ async def test_remote_disc_session_reads_ffconcat_and_follows_worker_caps(manage
         "/poster?token=source-grant"
     )
     assert args[args.index("-vf") + 1].startswith(
-        "scale_vt=w=trunc(iw*1080/ih/2)*2:h=1080:format=p010le,tonemap_videotoolbox="
+        "scale_vt=w=trunc(iw*1080/ih/2)*2:h=1080:format=p010le,"
+        "setparams=colorspace=bt2020nc,tonemap_videotoolbox="
     )
     assert "-pix_fmt" not in args
     assert await manager.stop(session.id) is True
@@ -2276,3 +2371,71 @@ async def test_remote_segment_wait_wakes_up_when_the_artifact_lands(manager, tmp
     )
     assert await asyncio.wait_for(waiter, 2) == tmp_path / "seg00005.m4s"
     assert time.monotonic() - landed < 1.0
+
+
+# ---------------------------------------------------------------------------
+# 离线导出让路（offline-download.md §5.3）：播放永远优先
+# ---------------------------------------------------------------------------
+
+
+async def test_playback_evicts_a_local_export_when_transcode_slots_are_full(manager, monkeypatch):
+    """本机转码名额被离线导出占着：播放照常起来，导出被停并标记「被挤掉」（不是失败）。"""
+    install_fake(monkeypatch, WRITES_PLAYLIST_THEN_SLEEPS)
+    try:
+        export = await manager.start(
+            make_plan(PlaybackTier.SOFTWARE_TRANSCODE),
+            source_path="/m/a.mkv", member_id=-1, max_transcode=1, export_id="exp1",
+        )
+        playback = await manager.start(
+            make_plan(PlaybackTier.SOFTWARE_TRANSCODE, file_id=2),
+            source_path="/m/b.mkv", member_id=0, max_transcode=1,
+        )
+        assert playback.state == "ready"
+        assert export.state == "stopped" and export.preempted
+        assert manager.get(export.id) is None
+    finally:
+        await manager.shutdown()
+
+
+async def test_export_never_evicts_another_export_or_playback(manager, monkeypatch):
+    """导出自己开会话时名额满了：照常报满（它去排队），不挤任何人。"""
+    install_fake(monkeypatch, WRITES_PLAYLIST_THEN_SLEEPS)
+    try:
+        playback = await manager.start(
+            make_plan(PlaybackTier.SOFTWARE_TRANSCODE),
+            source_path="/m/a.mkv", member_id=0, max_transcode=1,
+        )
+        with pytest.raises(SessionLimitError):
+            await manager.start(
+                make_plan(PlaybackTier.SOFTWARE_TRANSCODE, file_id=2),
+                source_path="/m/b.mkv", member_id=-1, max_transcode=1, export_id="exp1",
+            )
+        assert playback.state == "ready"
+    finally:
+        await manager.shutdown()
+
+
+async def test_local_export_runs_niced(manager, monkeypatch):
+    """本机转的导出降优先级：宁可导出慢，不让播放卡。"""
+    install_fake(monkeypatch, WRITES_PLAYLIST_THEN_SLEEPS)
+    seen: list[list[str]] = []
+    real_exec = asyncio.create_subprocess_exec
+
+    async def spy(*argv, **kwargs):
+        seen.append(list(argv))
+        return await real_exec(*argv, **kwargs)
+
+    monkeypatch.setattr(session_mod.asyncio, "create_subprocess_exec", spy)
+    try:
+        await manager.start(
+            make_plan(PlaybackTier.SOFTWARE_TRANSCODE),
+            source_path="/m/a.mkv", member_id=-1, max_transcode=2, export_id="exp1",
+        )
+        await manager.start(
+            make_plan(PlaybackTier.SOFTWARE_TRANSCODE, file_id=2),
+            source_path="/m/b.mkv", member_id=0, max_transcode=2,
+        )
+        assert seen[0][:3] == ["nice", "-n", "10"]
+        assert seen[1][0] != "nice"
+    finally:
+        await manager.shutdown()

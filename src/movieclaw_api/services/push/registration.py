@@ -7,6 +7,9 @@ App 用这台设备自己的凭证调 ``PUT /push/me/registration``，把 APNs �
 - 只有 App 类设备（ios / tvos / android）能登记，网页会话、命令行没有推送；
 - 退出登录、注销设备、删除成员时登记随行删除，不会留下一个还能推到别人手机上的登记；
 - 中继说令牌失效（``unregistered``）就清掉登记，App 下次启动会重新登记。
+
+Android App 还可以登记成「实时通知」设备（``stream=true``，§4.1）：不交令牌和密钥，
+推送写进这台设备的发件箱（services/push/outbox.py），由它连着的实时连接送出。
 """
 
 from __future__ import annotations
@@ -34,6 +37,8 @@ logger = logging.getLogger("movieclaw_api.push.registration")
 PUSH_KINDS = ("ios", "android")
 PERMISSIONS = ("authorized", "provisional", "ephemeral", "denied", "not_determined")
 ENVIRONMENTS = ("production", "development")
+#: 能开实时通知（保持连接）的设备类型：iOS 有 APNs，不需要
+STREAM_KINDS = ("android",)
 #: 实例会发的推送类型（中继还支持别的，但实例目前只用这两种）
 KNOWN_TYPES = ("alert", "background")
 
@@ -52,6 +57,10 @@ class Registration:
     types: tuple[str, ...] = ()
     key_id: str | None = None
     key: str | None = None
+    #: 安装包签名里没有推送权限（侧载包）：永远拿不到令牌
+    unsupported_build: bool = False
+    #: 实时通知：True 开、False 关、None 不改（旧版 App 不带这个字段）
+    stream: bool | None = None
 
 
 def validate(
@@ -63,28 +72,38 @@ def validate(
     types: list[str] | None,
     key_id: str | None,
     key: str | None,
+    unsupported_build: bool = False,
+    stream: bool | None = None,
 ) -> Registration:
     """校验 App 交上来的登记；不合规抛 400（说明给开发者看，App 不会展示给用户）。"""
     if permission not in PERMISSIONS:
-        raise BadRequestException(f"permission 只能是 {' / '.join(PERMISSIONS)}")
+        raise BadRequestException(
+            message_key="errors.push.permissionInvalid", params={"values": " / ".join(PERMISSIONS)}
+        )
     provided = [v for v in (token, key_id, key) if v]
+    if stream:
+        if provided:
+            raise BadRequestException(message_key="errors.push.realtimeNoToken")
+        return Registration(permission=permission, stream=True)
     if not provided:
-        return Registration(permission=permission)
+        return Registration(
+            permission=permission, stream=stream, unsupported_build=unsupported_build
+        )
     if len(provided) != 3:
-        raise BadRequestException("token、key_id、key 三个要么都有，要么都没有")
+        raise BadRequestException(message_key="errors.push.keyFieldsIncomplete")
     assert token and key_id and key
     if not _TOKEN_PATTERN.fullmatch(token):
-        raise BadRequestException("token 必须是 32–400 位的十六进制字符串")
+        raise BadRequestException(message_key="errors.push.tokenInvalid")
     if not topic or not _TOPIC_PATTERN.fullmatch(topic):
-        raise BadRequestException("topic 必须是 App 的 Bundle ID")
+        raise BadRequestException(message_key="errors.push.topicInvalid")
     if environment not in ENVIRONMENTS:
-        raise BadRequestException("environment 只能是 production 或 development")
+        raise BadRequestException(message_key="errors.push.environmentInvalid")
     if not crypto.KEY_ID_PATTERN.fullmatch(key_id):
-        raise BadRequestException("key_id 必须是 11 个 base64url 字符")
+        raise BadRequestException(message_key="errors.push.keyIdInvalid")
     try:
         crypto.decode_key(key)
     except ValueError as exc:
-        raise BadRequestException("key 必须是 32 字节密钥的 base64url") from exc
+        raise BadRequestException(message_key="errors.push.keyInvalid") from exc
     kinds = tuple(t for t in dict.fromkeys(types or ["alert"]) if t in KNOWN_TYPES)
     return Registration(
         permission=permission,
@@ -94,6 +113,7 @@ def validate(
         types=kinds or ("alert",),
         key_id=key_id,
         key=key,
+        stream=stream,
     )
 
 
@@ -103,10 +123,23 @@ async def save(session: AsyncSession, device: LoginDevice, reg: Registration) ->
     只上报权限、不带令牌时：权限是关着的（``denied`` / ``not_determined``）就清掉令牌；
     权限开着就保留已有的令牌——App 冷启动时可能先上报权限、稍后才拿到 APNs 令牌，
     这时清掉，中间这段的推送就丢了。令牌真失效了中继会说 ``unregistered``。
+    安装包没有推送权限（侧载包）时清掉令牌并记下 ``unsupported_build``，设备页据此说清楚原因。
+
+    ``stream``：True 登记成实时通知设备（清掉中继令牌）；False 关掉并清空发件箱；
+    None 不动（实时通知设备只上报权限变化时也走这里）。
     """
+    from movieclaw_api.services.push import outbox
+
     device.push_permission = reg.permission
     device.push_registered_at = utcnow()
-    if reg.token:
+    if reg.stream is False and device.push_stream:
+        device.push_stream = False
+        await outbox.clear(session, device.id or 0)
+    if reg.stream:
+        # 实时通知取代中继：同一台设备不会两条路各响一次
+        _clear_push_fields(device, keep_permission=True)
+        device.push_stream = True
+    elif reg.token:
         if device.push_token != reg.token or device.push_environment != reg.environment:
             device.push_problem = None  # 换了令牌或环境，之前的 bad_token 不再成立
         device.push_token = reg.token
@@ -115,15 +148,25 @@ async def save(session: AsyncSession, device: LoginDevice, reg: Registration) ->
         device.push_types = list(reg.types)
         device.push_key_id = reg.key_id
         device.push_key = get_secret_box().encrypt(reg.key or "")
-    elif reg.permission in ("denied", "not_determined"):
+    elif reg.unsupported_build:
         _clear_push_fields(device, keep_permission=True)
+        device.push_problem = "unsupported_build"
+    else:
+        if reg.permission in ("denied", "not_determined"):
+            _clear_push_fields(device, keep_permission=True)
+        elif device.push_problem == "unsupported_build":
+            device.push_problem = None  # 换装了能收推送的包，只是令牌还没到
     session.add(device)
     await session.commit()
     await session.refresh(device)
     logger.info(
         "设备「%s」登记推送：%s，权限 %s",
         device.name,
-        f"{device.push_topic}（{device.push_environment}）" if reg.token else "未提供令牌",
+        "实时通知"
+        if device.push_stream
+        else f"{device.push_topic}（{device.push_environment}）"
+        if reg.token
+        else "未提供令牌",
         reg.permission,
     )
     return device
@@ -138,13 +181,17 @@ def _clear_push_fields(device: LoginDevice, *, keep_permission: bool) -> None:
     device.push_key = None
     device.push_problem = None
     if not keep_permission:
+        device.push_stream = False
         device.push_permission = None
         device.push_registered_at = None
 
 
 async def clear(session: AsyncSession, device: LoginDevice) -> None:
-    """App 在这台设备上关掉了这台服务器的通知：清掉整条登记。"""
+    """App 在这台设备上关掉了这台服务器的通知：清掉整条登记（连同实时通知的发件箱）。"""
+    from movieclaw_api.services.push import outbox
+
     _clear_push_fields(device, keep_permission=False)
+    await outbox.clear(session, device.id or 0)
     session.add(device)
     await session.commit()
 
@@ -206,6 +253,22 @@ async def registered_devices(
             return []
         stmt = stmt.where(LoginDevice.member_id.in_(member_ids))  # type: ignore[attr-defined]
     return list((await session.execute(stmt.order_by(LoginDevice.id))).scalars().all())
+
+
+async def stream_devices(session: AsyncSession, *, member_ids: set[int]) -> list[LoginDevice]:
+    """开了实时通知、系统通知权限没关的设备。"""
+    if not member_ids:
+        return []
+    stmt = select(LoginDevice).where(
+        LoginDevice.push_stream.is_(True),  # type: ignore[attr-defined]
+        LoginDevice.kind.in_(STREAM_KINDS),  # type: ignore[attr-defined]
+        LoginDevice.member_id.in_(member_ids),  # type: ignore[attr-defined]
+    )
+    return [
+        d
+        for d in (await session.execute(stmt.order_by(LoginDevice.id))).scalars()
+        if d.push_permission != "denied"
+    ]
 
 
 async def newest_registrations(session: AsyncSession, tokens: set[str]) -> dict[str, datetime]:

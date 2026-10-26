@@ -48,7 +48,7 @@ def client(tmp_path, monkeypatch):
     from movieclaw_api.app import create_app
 
     app = create_app()
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c:
         yield c
 
     reset_setting_store()
@@ -75,6 +75,21 @@ def test_bootstrap_status_flips_after_init(client: TestClient) -> None:
     assert resp.json()["data"]["username"] == "admin"
 
     assert client.get(f"{_AUTH}/bootstrap").json()["data"]["initialized"] is True
+
+
+def test_bootstrap_reports_static_native_app_kinds_without_account_data(client: TestClient) -> None:
+    expected = {"ios", "tvos", "macos", "android", "androidtv", "windows"}
+    before = client.get(f"{_AUTH}/bootstrap").json()["data"]
+    assert set(before) == {"initialized", "native_device_kinds", "demo"}
+    assert before["demo"] is None
+    assert before["initialized"] is False
+    assert set(before["native_device_kinds"]) == expected
+    assert _bootstrap(client).status_code == 200
+    anonymous = TestClient(client.app)
+    after = anonymous.get(f"{_AUTH}/bootstrap").json()["data"]
+    assert after == {
+        "initialized": True, "native_device_kinds": before["native_device_kinds"], "demo": None
+    }
 
 
 def test_bootstrap_rejects_second_attempt(client: TestClient) -> None:
@@ -178,6 +193,7 @@ _ADMIN_VIEW_EXTRAS = {
         "allow_subscribe": True,
         "allow_search": True,
         "allow_direct_download": True,
+        "allow_video_download": True,
     },
     # 登录 / 建号的响应不带当前设备（客户端要看就调 /auth/me）
     "device": None,
@@ -295,7 +311,12 @@ _PUBLIC_ALLOWLIST = {
     # 只凭查询参数里的签名 token，引擎的读取器不带登录凭据
     ("GET", "/api/v1/playback/files/{file_id}/disc"),
     ("GET", "/api/v1/playback/files/{file_id}/disc/{relative_path}"),
+    # 蓝光剪辑清单（disc-clip-play.md）：Android 统一引擎的读取器同样只凭签名 token
+    ("GET", "/api/v1/playback/files/{file_id}/bluray"),
+    ("GET", "/api/v1/playback/files/{file_id}/bluray/{index}"),
     ("GET", "/api/v1/playback/files/{file_id}/subtitles"),
+    # 预切片段（reels.md §8）：系统播放器按 Range 取，同原文件直出只凭签名 token
+    ("GET", "/api/v1/reels/clips/{file_id}/{start_ms}.mp4"),
     ("GET", "/api/v1/playback/files/{file_id}/fonts"),
     ("GET", "/api/v1/playback/files/{file_id}/fonts/{name}"),
     ("GET", "/api/v1/playback/files/{file_id}/trickplay"),
@@ -314,6 +335,11 @@ _PUBLIC_ALLOWLIST = {
     ("POST", "/api/v1/auth/device/token"),
     ("GET", "/api/v1/appearance"),  # 登录页需要背景图地址
     ("GET", "/api/v1/appearance/backdrops/{backdrop_id}"),  # 登录页背景图文件
+    # 网页主题的样式与资源（docs/design/theme-plugins.md §4.6）：登录页、初始化页也要按所选
+    # 主题渲染，样式表挂在根布局的 <head> 里、没有登录态可带；只托管样式 / 图片 / 字体并带沙箱 CSP。
+    # 主题的外框组件（JS）在路由里单独要求登录，主题目录 /ui/themes 同样要登录
+    ("GET", "/api/v1/ui/themes.css"),
+    ("GET", "/api/v1/ui/themes/{theme_id}/{path}"),
     # 影片分享的访客通道（docs/design/media-share.md §4.3）：访客没有账号，
     # 每个端点自带 require_share_access（slug 有效 + 密码已解锁）。匿名请求
     # 一个不存在的 slug 得到 404 而不是 401，与「分享不存在」不可区分。
@@ -347,9 +373,12 @@ def fill_path_params(path: str) -> str:
     设备授权的全路由扫描（tests/api/test_device_auth.py）也复用这一份。
     """
     return (
-        path.replace("{site_id}", "mteam")
+        # 客户端更新：不存在的客户端名（参数校验 422，不会真去 GitHub 查发布、下安装包）
+        path.replace("{product}", "x")
+        .replace("{site_id}", "mteam")
         .replace("{history_id}", "1")
         .replace("{backdrop_id}", "f" * 32)
+        .replace("{theme_id}", "nope-theme")
         .replace("{attachment_id}", "f" * 32)
         .replace("{downloader_id}", "1")
         .replace("{category}", "anime")
@@ -372,9 +401,12 @@ def fill_path_params(path: str) -> str:
         .replace("{media_item_id}", "1")
         .replace("{rule_id}", "1")
         .replace("{entry_id}", "1")
+        .replace("{plugin_id}", "1")
         .replace("{file_id}", "1")
         .replace("{token_id}", "1")
         .replace("{notice_id}", "1")
+        .replace("{event_id}", "x")
+        .replace("{tip_id}", "x")
         .replace("{run_id}", "test-run")
         .replace("{session_id}", "test-session")
         .replace("{day}", "2026-01-01")
@@ -385,6 +417,7 @@ def fill_path_params(path: str) -> str:
         .replace("{channel}", "weixin")
         .replace("{channel_id}", "weixin")
         .replace("{binding_id}", "test-binding")
+        .replace("{login_id}", "test-login")
         .replace("{endpoint_id}", "test-endpoint")
         .replace("{username}", "family")
         .replace("{member_id}", "1")
@@ -398,10 +431,12 @@ def fill_path_params(path: str) -> str:
         .replace("{share_id}", "1")
         .replace("{key}", "cache.images")  # 缓存管理的登记目录 key
         .replace("{attempt_id}", "test-attempt")  # 播放体验记录的播放编号
+        .replace("{export_id}", "no-such-export")  # 离线下载的导出号
         .replace("{relay_id}", "r_test")  # App 推送的自建中继
         .replace("{token}", "no-such-image")  # 推送配图的签名
         .replace("{item_id}", "1")  # 推送「这部剧不再提醒」的条目
         .replace("{letter_id}", "1")  # 可靠事件死信
+        .replace("{start_ms}", "0")  # 预切片段的起点
         .replace("{key_id}", "1")  # 插件回调地址
     )
 

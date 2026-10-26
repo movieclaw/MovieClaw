@@ -20,6 +20,7 @@ from sqlmodel import select
 from movieclaw_api.api.deps import require_login
 from movieclaw_api.api.routes.images import WIDTH_QUERY, requested_width, sized_file
 from movieclaw_api.exceptions import BadRequestException, ForbiddenException, NotFoundException
+from movieclaw_api.i18n import t
 from movieclaw_api.schemas.library import (
     CollectionCover,
     CollectionItemsPayload,
@@ -38,6 +39,8 @@ from movieclaw_api.services.library.access import (
     visible_library_ids,
 )
 from movieclaw_api.services.library.collections import (
+    BUILTIN_FAVORITES,
+    builtin_key,
     cached_membership,
     cover_head,
     effective_rules,
@@ -79,11 +82,13 @@ CollectionSort = Literal[
     "title", "added_at", "release_date", "rating", "runtime", "size", "last_played", "random"
 ]
 _SORT_DESC = (
+    # i18n-ignore: OpenAPI parameter description
     "排序：不给=合集自己的顺序（自定顺序 / 合集默认序）；title=按标题 / "
     "added_at=最近入账 / release_date=按上映时间 / rating=按评分 / runtime=按片长 / "
     "size=按体积 / last_played=最近观看 / random=随便看看（按天换一批，首页自定义行用）"
     "——与单库海报墙同一套档位"
 )
+# i18n-ignore: OpenAPI parameter description
 _ORDER_DESC = "方向：asc / desc；不给 = 该档的自然方向（自定顺序即名单序）"
 
 
@@ -122,6 +127,13 @@ def _kind_of(row: Collection) -> str:
     if is_series_collection(row):
         return "series"
     return "builtin" if row.builtin else "user"
+
+
+def _display_name(row: Collection) -> str:
+    # i18n-ignore: recognize the stored default name; custom collection names remain unchanged
+    if row.name == "我的收藏" and builtin_key(row) == BUILTIN_FAVORITES:
+        return t("library.collections.favoritesTitle")
+    return row.name
 
 
 async def _views(
@@ -185,7 +197,7 @@ async def _views(
         views.append(
             CollectionView(
                 id=row.id or 0,
-                name=row.name,
+                name=_display_name(row),
                 library_id=row.library_id,
                 rules=effective_rules(row),
                 sort=row.sort,
@@ -227,7 +239,7 @@ async def _view(
 async def _get_or_404(session: AsyncSession, collection_id: int) -> Collection:
     row = await session.get(Collection, collection_id)
     if row is None:
-        raise NotFoundException("合集不存在（可能已被删除）")
+        raise NotFoundException(message_key="errors.collections.missing")
     return row
 
 
@@ -237,9 +249,9 @@ def _guard_visible(row: Collection, member_id: int, visible: set[int] | None) ->
     与既有条目可见性的处理一致：id 可枚举，空列表等于确认它存在。
     """
     if row.visibility == "private" and row.member_id != member_id:
-        raise NotFoundException("合集不存在（可能已被删除）")
+        raise NotFoundException(message_key="errors.collections.missing")
     if visible is not None and row.library_id is not None and row.library_id not in visible:
-        raise NotFoundException("合集不存在（可能已被删除）")
+        raise NotFoundException(message_key="errors.collections.missing")
 
 
 def _manageable(row: Collection, member_id: int) -> bool:
@@ -264,7 +276,7 @@ def _guard_manageable(row: Collection, member_id: int) -> None:
     """写操作的归属校验。放在 :func:`_guard_visible` 之后：看不见的先 404，看得见
     但不归你管的才 403——成员能看到这个合集，说"不能改"不泄露任何东西。"""
     if not _manageable(row, member_id):
-        raise ForbiddenException("这个合集是全家共享的，只有创建它的人或管理员可以修改")
+        raise ForbiddenException(message_key="errors.collections.editPermission")
 
 
 @router.get(
@@ -327,11 +339,11 @@ async def create_collection(
 
     member_id, visible, content_limit = await _scope(session, principal)
     if not payload.name:
-        raise BadRequestException("合集需要一个名字")
+        raise BadRequestException(message_key="errors.collections.nameRequired")
     if payload.library_id is None and not payload.item_ids:
-        raise BadRequestException("规则驱动的合集必须指定所属库（跨库合集只能给固定名单）")
+        raise BadRequestException(message_key="errors.collections.ruleLibraryRequired")
     if visible is not None and payload.library_id is not None and payload.library_id not in visible:
-        raise NotFoundException("库不存在或不可见")
+        raise NotFoundException(message_key="errors.collections.libraryMissing")
 
     row = Collection(
         name=payload.name,
@@ -442,7 +454,7 @@ async def get_collection_cover(
     )
     result = await ensure_collection_cover(collection_id, [files[i] for i in head if files.get(i)])
     if result is None:
-        raise NotFoundException("该合集还没有可用的封面素材")
+        raise NotFoundException(message_key="errors.collections.coverUnavailable")
     path, key = result
     w = requested_width(w)
     etag = f'"{key}-w{w}"' if w else f'"{key}"'
@@ -483,7 +495,7 @@ async def update_collection(
         ):
             # 把全家合集改成私有 = 收归自己名下、全家从此看不到；只有创建者能这么做
             # （超管也不能借此把成员建的合集据为己有）
-            raise ForbiddenException("只有合集的创建者可以把全家共享的合集改为私有")
+            raise ForbiddenException(message_key="errors.collections.makePrivatePermission")
         if payload.visibility == "household" and row.visibility == "private":
             # 私有转共享：归属人就是创建者（迁移前的老私有合集没记创建者，这里补上）
             row.created_by_member_id = member_id
@@ -496,11 +508,11 @@ async def update_collection(
         row.hidden = payload.hidden
     if payload.rules is not None:
         if row.builtin:
-            raise BadRequestException("自动生成的合集规则不可修改（可以改名，或者隐藏它）")
+            raise BadRequestException(message_key="errors.collections.generatedRules")
         row.rules = list(payload.rules)
     if payload.item_ids is not None:
         if row.builtin:
-            raise BadRequestException("内置合集的成员由规则决定，不能手工指定")
+            raise BadRequestException(message_key="errors.collections.builtinMembers")
         for old in (
             await session.execute(
                 select(CollectionItem).where(CollectionItem.collection_id == collection_id)
@@ -529,12 +541,9 @@ def _guard_manual(row: Collection) -> None:
     只会**静默消失**——那比报错糟得多。所以这里拒绝，并把出路说清楚。
     """
     if row.builtin:
-        raise BadRequestException("自动生成的合集成员由规则决定，不能手工增删")
+        raise BadRequestException(message_key="errors.collections.generatedMembers")
     if row.rules:
-        raise BadRequestException(
-            "这是个会自动收录的合集，成员由条件决定。想手工挑片请新建一个合集，"
-            "或者在创建时勾「固定现在这些」把它定格成名单"
-        )
+        raise BadRequestException(message_key="errors.collections.dynamicMembers")
 
 
 async def _member_rows(session: AsyncSession, collection_id: int) -> list[CollectionItem]:
@@ -594,7 +603,11 @@ async def add_collection_items(
         session, row, member_id=member_id, visible=visible, content_limit=content_limit
     )
     await session.commit()
-    message = f"已加入「{row.name}」" if added else f"这些作品已经在「{row.name}」里了"
+    message = (
+        t("library.collections.itemsAdded", name=_display_name(row))
+        if added
+        else t("library.collections.itemsAlreadyPresent", name=_display_name(row))
+    )
     return ok(view, message=message)
 
 
@@ -632,7 +645,7 @@ async def remove_collection_item(
         session, row, member_id=member_id, visible=visible, content_limit=content_limit
     )
     await session.commit()
-    return ok(view, message=f"已移出「{row.name}」")
+    return ok(view, message=t("library.collections.itemRemoved", name=_display_name(row)))
 
 
 @router.put(
@@ -682,7 +695,7 @@ async def reorder_collection_items(
         session, row, member_id=member_id, visible=visible, content_limit=content_limit
     )
     await session.commit()
-    return ok(view, message="顺序已保存")
+    return ok(view, message=t("library.collections.orderSaved"))
 
 
 @router.delete(
@@ -719,7 +732,7 @@ async def delete_collection(
         row.hidden = True
         await session.flush()
         await session.commit()
-        return ok(None, message=f"已隐藏「{row.name}」（在「显示已隐藏的合集」里可以放回来）")
+        return ok(None, message=t("library.collections.hidden", name=_display_name(row)))
     await session.delete(row)
     await session.commit()
     return ok(None)

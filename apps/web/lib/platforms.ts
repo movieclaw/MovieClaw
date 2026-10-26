@@ -1,3 +1,6 @@
+import { appTranslator, type AppMessageKey } from "./i18n/translate.ts";
+import type { AppLocale } from "./i18n/negotiate.ts";
+
 /**
  * 流媒体平台的展示层：规范值 → 中文/惯用展示名。
  *
@@ -27,11 +30,6 @@ export const PLATFORM_LABELS: Record<string, string> = {
   sony_core: "Sony Pictures Core",
   criterion: "Criterion",
   // 中国及亚洲
-  iqiyi: "爱奇艺",
-  wetv: "腾讯视频",
-  youku: "优酷",
-  mangotv: "芒果 TV",
-  bilibili: "哔哩哔哩",
   viu: "Viu",
   nowplayer: "Now player",
   mytv_super: "myTV SUPER",
@@ -59,9 +57,18 @@ export const PLATFORM_LABELS: Record<string, string> = {
   b_global: "B-Global",
 };
 
+const PLATFORM_KEYS: Record<string, AppMessageKey> = {
+  iqiyi: "search.platforms.iqiyi",
+  wetv: "search.platforms.wetv",
+  youku: "search.platforms.youku",
+  mangotv: "search.platforms.mangotv",
+  bilibili: "search.platforms.bilibili",
+};
+
 /** 规范值 → 展示名；未知值原样返回。 */
-export function platformLabel(id: string): string {
-  return PLATFORM_LABELS[id] ?? id;
+export function platformLabel(id: string, locale: AppLocale = "zh-Hans"): string {
+  const key = Object.hasOwn(PLATFORM_KEYS, id) ? PLATFORM_KEYS[id] : undefined;
+  return key ? appTranslator(locale)(key) : PLATFORM_LABELS[id] ?? id;
 }
 
 /**

@@ -33,10 +33,12 @@
    用户在字幕菜单里**显式选中内封 PGS 轨**时，视频转码并把字幕压制进画面——
    换来画中画/原生全屏/投屏处处有字幕；文本字幕与不选字幕时策略照旧。烧录
    永远由用户的这个选择触发，决策器绝不主动；菜单里明示代价（§6.2）。
-2. **strm 网盘条目只允许直连**。strm 指向云端 URL，一旦允许转码，服务端就得
-   先把云端内容拉下来再转——直接推翻 strm-workflow.md 的「零网盘流量」，且用户
-   点一部网盘 4K 就能同时打爆 NAS 上行与网盘流量额度，还完全无感。
-   strm 条目在决策引擎里是**硬规则分支**，不走通用逻辑。
+2. ~~**strm 网盘条目只允许直连**~~（2026-10-11 撤销，issue #601，见
+   [strm-playback.md](strm-playback.md)）。原理由是「转码要先把云端内容拉到服务器、
+   消耗网盘流量」，但浏览器直连同样从网盘读这些字节，网盘侧的消耗并不更多；代价只是
+   服务器的带宽与转码算力，与本地文件同一回事。现在 strm 条目播放前按需探测规格，
+   与本地文件走**同一套判定**（直出仍是 302 到网盘直链），只有探测不到规格时才
+   乐观直连。
 3. **遥测只落本地**。播放指标写进 SQLite、设置页可看、可导出，**绝不上报任何
    外部服务**，也不提供「匿名统计」开关。这是开源自建软件的隐私红线。
 4. **决策与执行分离**。决策引擎是纯函数（零 IO、可表驱动单测，跑在
@@ -118,7 +120,7 @@ nginx**（Node 每 GB 多烧约 10 个 CPU 秒，这条现成的设计正好用�
 
 | 档 | 名称 | 处理 | 服务端开销 | 目标首帧 | 画质 | 典型场景 |
 |---|---|---|---|---|---|---|
-| **0** | Direct Play | 原文件直出 + Range | ~0 | <300ms | 无损 | MP4/H.264/AAC；全部 strm |
+| **0** | Direct Play | 原文件直出 + Range | ~0 | <300ms | 无损 | MP4/H.264/AAC（含 302 到网盘直链的 strm） |
 | **1** | Remux 直通 | 容器重封装，码流逐字节不变 | ~0（仅 IO） | <1s | **无损** | MKV + H.264/HEVC + AAC |
 | **2** | 音频单转 | `-c:v copy` + 转音频 | 单核 ~5% | ~1s | 仅音频 | MKV + HEVC + DTS/TrueHD |
 | **3** | 硬件转码 | GPU 解+编，含 HDR tone-map | 低（GPU） | <4s | 有 | 编码不支持 / HDR / 降码率 |
@@ -229,17 +231,16 @@ ffmpeg -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device <dev>
 | `MediaStreams[]` | `movieclaw_jellyfin/catalog.py` 现有 DTO | codec / VideoRange / 声道 / 码率 / 时长，**已是 ffprobe 落库的真值，无需新增探测** |
 | 关键帧密度 | 新增，见 §3.5 | 档 1/2 是否可行的决定性输入 |
 | DV profile | ffprobe `dv_profile` | 见 §7-④ |
-| 是否 strm | `library_file` 现有标记 | 硬规则分支 |
+| 是否 strm | `library_file` 现有标记 | 规格由播放前按需探测补齐（strm-playback.md）；探测不到才走乐观直连分支 |
 | 候选文件集 | 同一条目的多版本 | **接口形状是「多候选 → 最优计划」**，见 §3.5 |
 | 策略配置 | 自动推导 + 同意弹窗 | 并发/高度/配额按机器规格自动推导（limits.py，2026-08-25 撤下设置页）；软件转码开关由播放页弹窗承载 |
 
 ### 3.3 判定顺序（决策引擎的规范流程）
 
 ```text
-1. strm 条目？
-     → 能力快照能直接播 → 档 0（下发云端 URL）
-     → 否则 → 拒绝，reason="网盘条目不支持转码播放，请使用第三方播放器打开"
-       （硬边界 2，不进入后续任何分支）
+1. 没探测到规格的 strm 条目？（探测到的与本地文件同走 2–8，strm-playback.md）
+     → 档 0 未失败过 → 档 0（下发网盘直链），乐观直连
+     → 否则 → 拒绝，提示检查直链 / 用第三方播放器（服务端也读不了它）
 
 2. 对每个候选文件独立评分（§3.5），取最优；下述 3–8 针对单个候选。
 
@@ -254,7 +255,9 @@ ffmpeg -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device <dev>
      源为 SDR                               → 无约束
      源为 HDR10/HLG 且 hdr.dynamicRange=high 且视频可 copy → 直通
      源为 DV P5                             → 必须转码 + tone-map（见 §7-④）
-     源为 DV P7                             → 丢弃 EL 层后按 HDR10 处理
+     源为 DV P7（基础层兼容）且可直出 HDR    → 换封装剥掉 EL 与 RPU（NAL 63/62）、打 hvc1，
+                                              按 HDR10 直通（不给原文件：ExoPlayer 解不了 P7
+                                              时不退回 HEVC 解码器）；播放器申报了 P7 的照申报
      需 tone-map 但无可用 GPU               → 拒绝，reason 说明原因
                                               （软件 tone-map 4K 是幻灯片，不硬撑）
 
@@ -350,6 +353,41 @@ class PlaybackPlan(BaseModel):
 
 **DV profile**。`dv_profile` 必须单独分支——P5 用 IPTPQc2 色彩空间，当成普通
 HDR10 处理会输出**绿紫画面**（见 §7-④）。
+
+**记录与码流矛盾的 DV**（2026-10-15）。反过来的坑：发布组把流媒体版的 P5 RPU 原样注进
+另一版的 HDR10 / HDR10+ 基础层、没转成 8.1（文件名常带「DV HDR10+ Hybrid」），容器记录
+写 P5，码流 VUI 却声明 BT.2020 YCbCr PQ。照记录按 P5 还原，YCbCr 被当 IPT 算，同样整片
+偏绿或偏紫。真 P5 不写 VUI（NAS 375 个 P5 全是空），所以探测把「记录 P5 + VUI 声明 YCbCr
+HDR」认定为基础层格式（`hdr="HDR10"`，记录原样留在 `dv_profile`），各条路径只放基础层：
+转码与抓帧关掉 `apply_dovi`；会读原文件记录的播放器（ExoPlayer、老版本 App）不给原文件、
+改给换封装（封装打 hvc1，记录不进流）；App 新版自研引擎申报 `dolby_vision_record_audit`，
+照常拿原文件，自己核对后放基础层（引擎补丁 P62）。
+
+**P5 在 NAS 本机核显上**（2026-10-23，J4125 / UHD 600 + jellyfin-ffmpeg 7.1.4 实测）。VAAPI /
+QSV 的原生色调映射不认 RPU，P5 的 IPT 基础层被当 YCbCr 映射，整片偏绿或偏紫（《空枪》）。要吃 RPU
+的执行者只有 Mac（`tonemap_videotoolbox`）、NVENC（`tonemap_cuda`）和软件 `tonemapx`，所以
+`select_execution_backend` 优先把 P5 交给在线的转码器；没有转码器时仍落本机——能放但颜色一定不对，
+这时判定理由里会补一句原因与出路（`plan.dolby_vision_caveat`，网页 / App 诊断面板的底部）。
+本机补救路径逐条实测过，**没有可交付的**，别再重走：
+
+- CPU（GPU 解码 + `hwdownload` + `tonemapx` + 硬编）：这块核显回读只有约 40 MB/s（1080p P010 3.6 帧/秒），
+  纯软件 4K 解码约 3 帧/秒；`tonemapx` 本身 1080p 约 28 帧/秒，瓶颈在回读，不在算力。
+- Vulkan / `libplacebo`（杜比视界实现最正统）：镜像里 ANV 驱动在，但 Mesa 25.0 的 ANV 导入不了带 DRM
+  modifier 的多平面帧，`libplacebo` 建图失败（NV12、P010 都一样；`hwmap` 到 Vulkan 后 `hwdownload` 倒是通）。
+- OpenCL `tonemap_opencl`（带 `apply_dovi`）：镜像没有 OpenCL ICD（要装 `intel-opencl-icd` 及其依赖的
+  LLVM / IGC，数百 MB）。装上后 4K→1080p 约 2 倍实时，**输出正常的那几次**颜色是对的（与 CPU 参照
+  的亮度均值差 <0.5），但杜比视界内核的输出**不确定**：同一输入重复运行，约一半几乎全黑（Debian 的 NEO
+  22.43 与 Intel 的 legacy 24.35 + IGC 1.0.17537 都复现；`tradeoff=0/1` 都不改善，`tonemap_mode=rgb|lum`
+  只是离群变少，12 次里仍有 1 次不同；`apply_dovi=0` 与纯 HDR10 合成源则 8/8 确定）。帧要先打 HDR10
+  标签（`setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc`）并显式 `peak=100`，
+  缺一就偏暗。不可靠，没做。
+
+**全范围（`color_range=pc`）源与 VAAPI**。P5 的基础层全是全范围；少数 HDR10 / SDR 压制也是。VPP 色调映射
+和缩放**保持输入的范围**（合成黑白场实测：全范围源黑 0 / 白 255），而输出侧声明 `-color_range tv`，帧标签
+（pc）与声明不符，ffmpeg 7.1 在硬件帧后面插接不上的软件 scale，起步即崩。修法是两步都做：硬件 scale 带
+`out_range=tv`（GPU 上真转换，黑 0→16、白 255→235；它**只转数据、不改帧标签**），帧标签再如实写
+`range=tv`。只贴标签不转换，全范围的黑白会被当成 limited 剪掉；两步缺一不可。只有 VAAPI 实测过
+（`HwBackend.scale_range`），QSV / NVENC 不写。
 
 **多候选择优**。同一条目常有 1080p / 2160p 两个版本
 （[disc-version-layout.md](disc-version-layout.md)）。决策接口的形状必须是
@@ -594,6 +632,10 @@ IO 安全定值（`limits.py`，2026-08-25 撤下设置页）。
   > 检测到 Intel 核显，但 `/dev/dri/renderD128` 无访问权限。
   > 请在 compose 中加入 `group_add: ["<你的 render 组 GID>"]` 后重启容器。
 - 探测结果缓存，接口带 `refresh=true` 可强制重测。
+- VAAPI 先探**低功耗编码**（`h264_vaapi -low_power 1`，带上真实转码的 profile / level /
+  码率控制），跑通就用它，探不通退回普通编码（2026-10-12，issue #763）。现场是黑群晖
+  虚拟机里的 SR-IOV 虚拟核显（12 代）：普通编码合成画面能过自检，一跑真实片子就让
+  GPU 挂死重置；低功耗整条链正常。诊断面板的编码器名会标「（低功耗）」。
 
 ### 5.3 ffmpeg 与 runtime-version
 
@@ -672,13 +714,16 @@ compression、参数集只在 CodecPrivate、开放 GOP……穷举不完。因�
    → 上报 {plan_id, tier, 错误码, 已播时长}
    → 重新 decide，携带「上一档失败」标记
    → 服务端降一档重开会话，PlaybackPlan.degraded_from 记录原档
-   → 同一文件连续失败 2 次 → 直接到最高兜底档
+   → 同一文件连续失败 2 次 → 跳过剩下的直通档（0–2）直接转码：有显卡落档 3，
+     没有才落档 4（档 3 没试过就不能替它报失败）
 
 **降档阶梯是逐级的，档 1 失败后仍要试档 2**（实现期定，2026-08-21）。
 档 2 同样 `-c:v copy`，若失败原因在视频码流会同样失败；但若原因在音轨，
 档 2 正好修好。浏览器给不出可靠的失败归因，只能取舍：多试一档只浪费几秒
 （一次性），跳过档 2 却可能让本可直通的视频永久多转一路（每次播放都付）。
 这个不对称决定了保留 1→2。无可用显卡时降档要越过档 3 直接落档 4。
+被失败顶到档 2 及以下的会话，音轨一律固定为 AAC-LC 双声道（源轨已是 AAC 双声道的照旧
+copy；#906）：上一档的失败让客户端申报的音频能力不可信，降档不能再沿用「可直通」。
    → 兜底档仍失败 → 中文错误 + 诊断面板 + 建议用第三方播放器
 ```
 
@@ -1192,6 +1237,7 @@ ref——`setChromeVisible(true)` 是异步的，click 回调读到的可能已�
 | ㉘ | **stall 判定把「追上转码器」当解码卡死** | 烧录/软转会话起步慢，前方缓冲剩 0.5~2 秒卡住 8 秒就被降档——「选个 PGS 字幕先给我降了一档」 | 解码卡死要求前方缓冲 ≥3 秒；只剩零头按缺粮给 45 秒长限（`stall.ts`） |
 | ㉙ | **换会话后用 watch 记忆覆盖用户刚点的字幕** | 烧录切回 SRT，轨记忆里还是 PGS，用户的选择被悄悄撤销、字幕不显示 | 本单元内用户表过态后「初始字幕选择」不再插手（subtitleTouchedRef） |
 | ㉚ | **degraded_from 无条件标 min(failed_tiers)** | 历史上失败过一次，之后每个会话都被诊断面板标「降档而来」——包括与那次失败毫无关系的烧录会话 | 只在本次真被 failed_tiers 顶下来时标（`_resolve_tier` 返回真实降档起点） |
+| ㉛ | **降档只推档位号，音轨判定沿用原结论** | 小米电视申报能解 AC3、实际一放就停滞（#906）：档 2「音频单转」照样 copy AC3，档 4 也只转了视频，全档失败 | 被顶下来的会话音轨固定为 AAC-LC 双声道（`_degraded_audio`）；Android TV 实验台 `audio-stall-ac3` 场景复现 |
 
 ---
 
@@ -1615,7 +1661,7 @@ Mac mini 验证。做成发版前的人工清单，列进 `.claude/skills/releas
 | §4.5 | 并发超限「排队并明确告知」 | **立即拒绝**并报当前占用（如「2/2」） | HTTP 请求里排队 = 用户对着转圈等一个不知道多久的位置 |
 | §3.5 | 关键帧索引落 `library_file` | **不落库**，采样现算 + 内存缓存 | 存量库无论如何要懒加载补齐，落库的增量收益只是「重启后不用重算」，不值一次迁移 |
 | §7-④ | 按 `dv_profile` 区分 P5/P8 | **DV 一律转码** | 探测层只落 `hdr="Dolby Vision"` 不落 profile；判错的代价是绿紫画面，保守 |
-| §7-④ | P5 转码 + tone-map 即可 | **仍未真正解决 P5** | P5 是 IPT-PQ-c2，不是 YCbCr/BT.2020；`tonemapx` 按 BT.2020 处理它依然出绿紫。要治得走 jellyfin-ffmpeg 的 `-dolbyvision` 解码开关，缺真片验证，未动 |
+| §7-④ | P5 转码 + tone-map 即可 | **要认 RPU 的执行者才还原得对** | P5 是 IPT-PQ-c2，不是 YCbCr/BT.2020；当年的 `zscale+tonemap` 出绿紫。现在由 jellyfin-ffmpeg 的 `tonemapx` / `tonemap_cuda` / `tonemap_videotoolbox` 的 `apply_dovi` 按 RPU 还原；VAAPI / QSV 的原生映射不认，见 §3.5 |
 | §7-④e | BT.601 源也转到 709 | **不转，也不打标签** | 探测层把 601 的 525/625 两制式并成一个标签，补不回来是哪一个；两者矩阵相同只差原色，猜错的收益小于风险 |
 
 ### 12.5 尚未做

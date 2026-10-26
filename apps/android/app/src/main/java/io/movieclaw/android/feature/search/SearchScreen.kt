@@ -79,8 +79,10 @@ import io.movieclaw.android.core.designsystem.Success
 import io.movieclaw.android.core.designsystem.TextFaint
 import io.movieclaw.android.core.designsystem.TextMuted
 import io.movieclaw.android.core.designsystem.Warning
+import io.movieclaw.android.core.model.SearchTabView
 import io.movieclaw.android.core.model.TorrentCategory
 import io.movieclaw.android.core.model.TorrentHit
+import io.movieclaw.android.core.designsystem.mcCards
 
 @Composable
 fun SearchScreen(
@@ -174,7 +176,7 @@ fun SearchScreen(
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             // 头部：输入框 312×40、圆角 999、白 9%；右侧「取消」17px
             Row(
-                Modifier.fillMaxWidth().height(56.dp).padding(horizontal = McMetrics.pagePadding),
+                Modifier.fillMaxWidth().height(56.dp).padding(horizontal = mcCards.pagePadding),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(
@@ -191,16 +193,18 @@ fun SearchScreen(
                     // 分类 token（方案 a，同 web/iOS）：资源模式且选了分类时进框，点它清回全部分类；
                     // 框下 chips 行保留管「换范围」
                     if (state.mode == SearchMode.TORRENTS) {
-                        state.category?.let { category ->
+                        val scopeLabel = state.activeTab?.name?.takeIf { it.isNotBlank() }
+                            ?: state.category?.label
+                        scopeLabel?.let { label ->
                             Row(
                                 Modifier
                                     .clip(RoundedCornerShape(999.dp))
                                     .background(Color(0xFF56637A))
-                                    .clickable { vm.onCategory(null) }
+                                    .clickable { vm.onTab(null) }
                                     .padding(start = 10.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(category.label, fontSize = 12.sp, color = Color.White, maxLines = 1)
+                                Text(label, fontSize = 12.sp, color = Color.White, maxLines = 1)
                                 Spacer(Modifier.width(3.dp))
                                 Icon(
                                     Icons.Rounded.Close,
@@ -279,7 +283,7 @@ fun SearchScreen(
                     fontSize = 12.5.sp,
                     color = Info,
                     modifier = Modifier
-                        .padding(horizontal = McMetrics.pagePadding)
+                        .padding(horizontal = mcCards.pagePadding)
                         .padding(top = 8.dp)
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
@@ -289,7 +293,12 @@ fun SearchScreen(
             }
 
             if (state.mode == SearchMode.TORRENTS) {
-                CategoryChips(selected = state.category, onSelect = vm::onCategory)
+                CategoryChips(
+                    tabs = state.searchTabs,
+                    selectedCategory = state.category,
+                    selectedTab = state.activeTab,
+                    onSelect = vm::onTab,
+                )
             }
 
             if (state.history.isNotEmpty() && state.blocks.isEmpty() && state.titles.isEmpty() && state.librarySearch?.items.isNullOrEmpty()) {
@@ -302,7 +311,7 @@ fun SearchScreen(
                     Text("清空", style = McType.caption, color = TextFaint, modifier = Modifier.clickable { vm.clearHistory() })
                 }
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = McMetrics.pagePadding, vertical = 6.dp),
+                    contentPadding = PaddingValues(horizontal = mcCards.pagePadding, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(state.history, key = { it.id }) { item ->
@@ -374,13 +383,16 @@ fun SearchScreen(
                     }
                 }
 
-                if (state.mode == SearchMode.TITLES) {
+                // 影视分区：没提交过搜索就不渲染结果区——`keyword` 只在 submit() 里写入，
+                // 初始为空时此前会画一屏「豆瓣/TMDB 共 0 条结果 · 没有结果」（真机审计发现）
+                val titlesSearched = state.searching || state.keyword.isNotBlank()
+                if (state.mode == SearchMode.TITLES && titlesSearched) {
                     // iOS MediaSearchResultsView：豆瓣 / TMDB 两栏并排，各自带来源标签与条数
                     val douban = state.titles.filter { it.provider.equals("douban", true) }
                     val tmdb = state.titles.filterNot { it.provider.equals("douban", true) }
                     item(key = "titles-dual") {
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding, vertical = 8.dp),
+                            Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding, vertical = 8.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             listOf("豆瓣" to douban, "TMDB" to tmdb).forEach { (label, list) ->
@@ -419,12 +431,12 @@ fun SearchScreen(
                     if (lib != null && lib.people.isNotEmpty() && state.libraryPerson == null) {
                         item(key = "library-people") {
                             Column {
-                                Row(Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding, vertical = 8.dp)) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding, vertical = 8.dp)) {
                                     // 只有「人物」一个标题（iOS LibrarySearchResultsView 同款）
                                     Text("人物", style = McType.headline, color = TextPrimary)
                                 }
                                 LazyRow(
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = McMetrics.pagePadding),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = mcCards.pagePadding),
                                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                                 ) {
                                     items(lib.people, key = { "p-${it.id}" }) { person ->
@@ -437,7 +449,7 @@ fun SearchScreen(
                     if (state.libraryPerson != null) {
                         item(key = "library-person-bar") {
                             Row(
-                                Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding, vertical = 8.dp),
+                                Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
@@ -457,7 +469,7 @@ fun SearchScreen(
                     if (state.searching && state.librarySearch?.items.isNullOrEmpty()) {
                         // 加载骨架：格宽与结果一致（网页 7 块 / iOS 6 块，这里三行两列）
                         item(key = "library-skeleton") {
-                            Column(Modifier.padding(horizontal = McMetrics.pagePadding)) {
+                            Column(Modifier.padding(horizontal = mcCards.pagePadding)) {
                                 repeat(3) {
                                     Row(
                                         Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -488,13 +500,13 @@ fun SearchScreen(
                             Text(
                                 "共 $total 条结果 · 按相关度排序",
                                 style = McType.sub, color = TextMuted,
-                                modifier = Modifier.padding(horizontal = McMetrics.pagePadding, vertical = 8.dp),
+                                modifier = Modifier.padding(horizontal = mcCards.pagePadding, vertical = 8.dp),
                             )
                         }
                     }
                     items(hits.chunked(2), key = { row -> "lib-row-${row.firstOrNull()?.item?.mediaItemId}" }) { row ->
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding, vertical = 8.dp),
+                            Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding, vertical = 8.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
                             row.forEach { hit ->
@@ -610,7 +622,7 @@ private fun SearchModeSelector(modes: List<SearchMode>, current: SearchMode, onS
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = McMetrics.pagePadding)
+            .padding(horizontal = mcCards.pagePadding)
             .height(37.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(Color.White.copy(alpha = 0.06f)),
@@ -644,14 +656,19 @@ private fun SearchModeSelector(modes: List<SearchMode>, current: SearchMode, onS
 }
 
 @Composable
-private fun CategoryChips(selected: TorrentCategory?, onSelect: (TorrentCategory?) -> Unit) {
+private fun CategoryChips(
+    tabs: List<SearchTabView>,
+    selectedCategory: TorrentCategory?,
+    selectedTab: SearchTabView?,
+    onSelect: (SearchTabView?) -> Unit,
+) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
             FilterChip(
-                selected = selected == null,
+                selected = selectedCategory == null && selectedTab == null,
                 onClick = { onSelect(null) },
                 label = { Text("全部") },
                 colors = FilterChipDefaults.filterChipColors(
@@ -660,11 +677,21 @@ private fun CategoryChips(selected: TorrentCategory?, onSelect: (TorrentCategory
                 ),
             )
         }
-        items(TorrentCategory.entries.toList()) { category ->
+        items(tabs, key = { "${it.type}:${it.id}" }) { tab ->
+            val selected = if (tab.type == "category") {
+                selectedCategory?.id == tab.id
+            } else {
+                selectedTab?.id == tab.id
+            }
+            val label = if (tab.type == "category") {
+                TorrentCategory.of(tab.id)?.label ?: tab.id
+            } else {
+                tab.name.orEmpty().ifBlank { tab.id }
+            }
             FilterChip(
-                selected = selected == category,
-                onClick = { onSelect(category) },
-                label = { Text(category.label) },
+                selected = selected,
+                onClick = { onSelect(tab) },
+                label = { Text(label) },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = AccentSoft,
                     selectedLabelColor = Accent,
@@ -947,7 +974,7 @@ private fun PersonSearchChip(
 @Composable
 private fun LibraryEmptyState(onSwitchToMedia: () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding, vertical = 56.dp),
+        Modifier.fillMaxWidth().padding(horizontal = mcCards.pagePadding, vertical = 56.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text("媒体库中没有找到相关影片", style = McType.headline, color = TextPrimary)

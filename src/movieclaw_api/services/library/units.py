@@ -37,6 +37,7 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from movieclaw_api.i18n.stored import reference
 from movieclaw_api.services.library.layout import (
     explicit_episode,
     explicit_unit,
@@ -60,9 +61,9 @@ class FileUnit:
     # 显式声明的 E00（先导/特辑占位）。与"真正解析不出集号"性质完全不同：
     # 占位按设计就不入库，重试和模型升级都改变不了结果，不该把记录钉在待处理
     explicit_pilot: bool = False
-    # 季号被台账守卫否决时的原因，供上层写进台账 message。缺省 None 表示
-    # 压根没解出季号（而不是解出了但没通过守卫）——两者对用户是不同的故事
-    rejected_reason: str | None = None
+    # 季号被台账守卫否决时的原因（文案引用），供上层写进台账 message。缺省 None
+    # 表示压根没解出季号（而不是解出了但没通过守卫）——两者对用户是不同的故事
+    rejected_reason: dict | None = None
 
 
 @dataclass
@@ -168,7 +169,7 @@ def resolve_units(
 
     # 批次统一季号
     batch_season: int | None = None
-    reason: str | None = None
+    reason: dict | None = None
     if len(certain) == 1:
         # 批次内唯一的确定季号借给缺季号的同伴——"S02E01 + 裸 E05 混编"这类包
         # 全批归位。确定性可传递，不必再受台账约束
@@ -189,7 +190,7 @@ def resolve_units(
             # 否决之后不是直接放弃——推断值既然已被证伪，台账里若只有一个正片季，
             # 它就是唯一可能的答案（NAS 实测《人生第二次》：模型误判第 2 季被拦下，
             # 改判台账唯一的第 1 季即为正确结果）。台账有多季才真的没法定案
-            reason = f"推断出第 {batch_season} 季，但该条目在 TMDB 没有这一季"
+            reason = reference("library.ingest.seasonRejected", season=batch_season)
             batch_season = ledger_sole
             if batch_season is not None:
                 reason = None

@@ -10,6 +10,7 @@ import SwiftUI
 /// 格子与单库墙同一个 `LibraryInventoryCell`（库存概况、补齐缺集 / 自动续订、缺失提示），同 Web InventoryCell。
 /// 从详情页返回只整窗对账（`refresh`），不清空窗口、不动滚动位置；换排序才回墙首。
 struct FavoritesView: View {
+    @Environment(\.cardMetrics) private var cards
     @Environment(\.api) private var api
     @State private var pager = LibraryWallPager<API.FavoriteItemView>(pageSize: 60)
     @State private var sort = WallSortState.load(Self.sortKey, default: WallSortState(sort: "default"), allowed: Self.sortOptions.map(\.value))
@@ -27,14 +28,14 @@ struct FavoritesView: View {
 
     /// 默认档叫「最近收藏」，其余同单库页
     static let sortOptions: [WallSortMenu.Option] = [
-        .init(value: "default", label: "最近收藏", direction: WallSortDirections.of("favorited_at")),
-        .init(value: "title", label: "按标题", direction: WallSortDirections.of("title")),
-        .init(value: "added_at", label: "最近添加", direction: WallSortDirections.of("added_at")),
-        .init(value: "release_date", label: "按上映时间", direction: WallSortDirections.of("release_date")),
-        .init(value: "rating", label: "按评分", direction: WallSortDirections.of("rating")),
-        .init(value: "runtime", label: "按片长", direction: WallSortDirections.of("runtime")),
-        .init(value: "size", label: "按体积", direction: WallSortDirections.of("size")),
-        .init(value: "last_played", label: "最近观看", direction: WallSortDirections.of("last_played")),
+        .init(value: "default", label: String(localized: .libraryFavoritesRecent), direction: WallSortDirections.of("favorited_at")),
+        .init(value: "title", label: String(localized: .librarySortTitle), direction: WallSortDirections.of("title")),
+        .init(value: "added_at", label: String(localized: .libraryRowsRecentAdded), direction: WallSortDirections.of("added_at")),
+        .init(value: "release_date", label: String(localized: .librarySortReleaseDate), direction: WallSortDirections.of("release_date")),
+        .init(value: "rating", label: String(localized: .librarySortRating), direction: WallSortDirections.of("rating")),
+        .init(value: "runtime", label: String(localized: .librarySortRuntime), direction: WallSortDirections.of("runtime")),
+        .init(value: "size", label: String(localized: .librarySortSize), direction: WallSortDirections.of("size")),
+        .init(value: "last_played", label: String(localized: .libraryRowsRecentWatched), direction: WallSortDirections.of("last_played")),
     ]
 
     private var effectiveSort: String { sort.sort == "default" ? "favorited_at" : sort.sort }
@@ -79,7 +80,7 @@ struct FavoritesView: View {
             .onAppear { scrollProxy = proxy }
         }
         .appBackground()
-        .navigationTitle("我的收藏")
+        .navigationTitle(String(localized: .libraryFavoritesPageTitle))
         .toolbar {
             if !empty {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -88,7 +89,7 @@ struct FavoritesView: View {
                     } label: {
                         Image(systemName: gallery ? "square.grid.2x2" : "photo.on.rectangle.angled")
                     }
-                    .accessibilityLabel(gallery ? "回到海报墙" : "图床浏览")
+                    .accessibilityLabel(gallery ? String(localized: .libraryDetailBackToPosters) : String(localized: .libraryDetailGalleryView))
                 }
                 if gallery {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -97,7 +98,7 @@ struct FavoritesView: View {
                         } label: {
                             Image(systemName: "slider.horizontal.3")
                         }
-                        .accessibilityLabel("浏览设置")
+                        .accessibilityLabel(String(localized: .libraryFavoritesBrowseSettings))
                     }
                 }
             }
@@ -131,9 +132,9 @@ struct FavoritesView: View {
     @ViewBuilder
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(pager.items == nil ? "正在读取收藏…"
-                : (pager.total ?? 0) > 0 ? "\(pager.total ?? 0) 部作品 · 与 Jellyfin 客户端里点的心同一份"
-                : "还没有收藏。在影片页点心，或在 Jellyfin 客户端里收藏，都会出现在这里。")
+            Text(pager.items == nil ? String(localized: .libraryFavoritesLoading)
+                : (pager.total ?? 0) > 0 ? String(localized: .libraryFavoritesSummary(pager.total ?? 0))
+                : String(localized: .libraryFavoritesEmpty))
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
                 .accessibilityIdentifier("favorites-summary")
@@ -142,14 +143,14 @@ struct FavoritesView: View {
                     .glassEffect(.regular.interactive(), in: .capsule)
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.top, 4)
     }
 
     @ViewBuilder
     private var content: some View {
         if let failed = pager.failed, pager.items == nil {
-            ErrorState(title: "收藏加载失败", message: failed) { await reload() }
+            ErrorState(title: String(localized: .libraryFavoritesLoadFailed), message: failed) { await reload() }
         } else if pager.items == nil {
             ProgressView().frame(maxWidth: .infinity).padding(.top, 60)
         } else if gallery {
@@ -168,7 +169,7 @@ struct FavoritesView: View {
                 await pager.loadPrevious()
                 if let anchor, let proxy = scrollProxy { proxy.scrollTo(anchor, anchor: .top) }
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)], alignment: .leading, spacing: 20) {
+            LazyVGrid(columns: cards.wallColumns(), alignment: .leading, spacing: 20) {
                 ForEach(items) { item in
                     // 与单库墙同一个格子（Web favorites-view → PosterWall → InventoryCell），每格落回自己所属的库；
                     // 整面墙钉死 2:3（同 Web FAVORITES_FRAME_ASPECT），收藏层级不上墙
@@ -176,7 +177,7 @@ struct FavoritesView: View {
                 }
             }
             .scrollTargetLayout()
-            .padding(.horizontal, Theme.pagePadding)
+            .padding(.horizontal, cards.edge)
             WallLoadMoreFooter(hasMore: pager.hasMore, start: pager.start, loaded: items.count, total: pager.total) {
                 await pager.loadMore()
             }

@@ -71,6 +71,8 @@ enum AppRoute: Hashable {
 
     // MARK: 我的 / 设置
     case my
+    /// /my/downloads：下载（「我的」里的入口与页面都叫「下载」；docs/design/offline-download.md §8）
+    case offlineStorage
     case settings
     /// /settings/{section}?…：query 原样透传给分区页（如 /settings/app?tab=storage、
     /// /settings/downloaders?limits=… 的预填与直达），分区页经 `@Environment(\.routeQuery)` 读取
@@ -85,6 +87,8 @@ enum AppRoute: Hashable {
     /// 搜索页参数（对应 /search 的查询串）
     struct SearchQuery: Hashable {
         var q: String = ""
+        /// 同搜词：与 q 一起搜、结果按站点合并（详情页「搜索资源」带上英文名/原名，同 Web 的 also 参数）
+        var also: [String] = []
         /// media | torrents | library；nil 表示按权限取第一个可用分区
         var tab: String?
         var scope: String?
@@ -109,53 +113,53 @@ enum SettingsSection: String, CaseIterable, Hashable, Identifiable {
 
     var title: String {
         switch self {
-        case .overview: "概览"
-        case .profile: "个人信息"
-        case .members: "成员"
-        case .devices: "设备"
-        case .notifications: "通知"
-        case .subscription: "订阅规则"
-        case .sites: "资源站点"
-        case .downloaders: "下载器"
-        case .importWatch: "自动入库"
-        case .scrape: "刮削与整理"
-        case .playback: "播放"
-        case .appPush: "App 推送"
-        case .imPush: "IM 推送"
-        case .webhook: "Webhook"
-        case .llm: "模型接入"
-        case .mcp: "MCP 服务"
-        case .ai: "AI 设定"
-        case .cloud: "MovieClaw Cloud"
-        case .app: "更新与维护"
-        case .network: "网络"
-        case .logs: "系统日志"
+        case .overview: String(localized: .settingsOverviewTitle)
+        case .profile: String(localized: .settingsProfileTitle)
+        case .members: String(localized: .settingsMembersTitle)
+        case .devices: String(localized: .settingsDevicesTitle)
+        case .notifications: String(localized: .settingsNotificationsTitle)
+        case .subscription: String(localized: .settingsSubscriptionTitle)
+        case .sites: String(localized: .settingsSitesTitle)
+        case .downloaders: String(localized: .settingsDownloadersTitle)
+        case .importWatch: String(localized: .settingsImportWatchTitle)
+        case .scrape: String(localized: .settingsScrapeTitle)
+        case .playback: String(localized: .settingsPlaybackTitle)
+        case .appPush: String(localized: .settingsAppPushTitle)
+        case .imPush: String(localized: .settingsImPushTitle)
+        case .webhook: String(localized: .settingsWebhookTitle)
+        case .llm: String(localized: .settingsLlmTitle)
+        case .mcp: String(localized: .settingsMcpTitle)
+        case .ai: String(localized: .settingsAiTitle)
+        case .cloud: String(localized: .settingsCloudTitle)
+        case .app: String(localized: .settingsAppTitle)
+        case .network: String(localized: .settingsNetworkTitle)
+        case .logs: String(localized: .settingsLogsTitle)
         }
     }
 
     var subtitle: String {
         switch self {
-        case .overview: "配置状态一览：缺什么、有什么问题、下一步做什么"
-        case .profile: "头像、昵称与登录密码"
-        case .members: "家庭成员账号、能力开关与可见范围"
-        case .devices: "登录着你的账号的浏览器、App、命令行与转码器"
-        case .notifications: "自己收哪些通知，哪些设备能收到"
-        case .subscription: "订阅规则组与投递模拟预演"
-        case .sites: "站点接入与鉴权、搜索分类、插件 Cookie 同步"
-        case .downloaders: "qBittorrent / Transmission 接入"
-        case .importWatch: "监听下载目录，下载完成后自动整理进媒体库"
-        case .scrape: "海报、简介、命名与目录整理的全局默认"
-        case .playback: "远程转码与播放体验"
-        case .appPush: "官方推送与自建推送中继，各 App 走哪个通道"
-        case .imPush: "微信 / Telegram / Discord / 飞书 推送与 AI 对话"
-        case .webhook: "向外部服务推送播放、收藏等事件"
-        case .llm: "接入 OpenAI、百炼等模型供应商，可同时接入多家"
-        case .mcp: "把 movieclaw 的能力开放给 Claude Code、Cursor 等 AI 客户端"
-        case .ai: "智能体与字幕处理使用的默认模型"
-        case .cloud: "连接到 MovieClaw 账号，家人的手机就能收到通知"
-        case .app: "版本更新与应用重启"
-        case .network: "代理、镜像与外部访问地址，解决 TMDB 等不可达"
-        case .logs: "后端运行日志，按天存档"
+        case .overview: String(localized: .settingsOverviewAppDescription)
+        case .profile: String(localized: .settingsProfileAppDescription)
+        case .members: String(localized: .settingsMembersAppDescription)
+        case .devices: String(localized: .settingsDevicesAppDescription)
+        case .notifications: String(localized: .settingsNotificationsAppDescription)
+        case .subscription: String(localized: .settingsSubscriptionAppDescription)
+        case .sites: String(localized: .settingsSitesAppDescription)
+        case .downloaders: String(localized: .settingsDownloadersAppDescription)
+        case .importWatch: String(localized: .settingsImportWatchAppDescription)
+        case .scrape: String(localized: .settingsScrapeAppDescription)
+        case .playback: String(localized: .settingsPlaybackAppDescription)
+        case .appPush: String(localized: .settingsAppPushAppDescription)
+        case .imPush: String(localized: .settingsImPushAppDescription)
+        case .webhook: String(localized: .settingsWebhookAppDescription)
+        case .llm: String(localized: .settingsLlmAppDescription)
+        case .mcp: String(localized: .settingsMcpAppDescription)
+        case .ai: String(localized: .settingsAiAppDescription)
+        case .cloud: String(localized: .settingsCloudAppDescription)
+        case .app: String(localized: .settingsAppAppDescription)
+        case .network: String(localized: .settingsNetworkAppDescription)
+        case .logs: String(localized: .settingsLogsAppDescription)
         }
     }
 
@@ -200,17 +204,17 @@ enum SettingsSection: String, CaseIterable, Hashable, Identifiable {
 
     /// 分组（空标题的组不渲染组头）。「个人信息」不列在设置目录里：「我的」页顶部的头像卡
     /// 就是它的入口（2026-09-27 用户要求去掉重复入口），分区本身与 /settings/profile 深链照旧可用
-    static let groups: [(title: String, items: [SettingsSection])] = [
+    static var groups: [(title: String, items: [SettingsSection])] { [
         ("", [.overview]),
         // 「设备」「通知」人人可用（成员看自己的设备、管自己收什么）；「个人信息」走「我的」页头像卡。
         // 「成员」并进这一组（原先各自单成一组、每组只有一行，2026-09-29 用户要求合并）；成员身份只看得到前两项
-        ("账号", [.devices, .notifications, .members]),
-        ("资源与下载", [.subscription, .sites, .downloaders, .importWatch]),
-        ("媒体库", [.scrape, .playback]),
-        ("通知与集成", [.appPush, .imPush, .webhook, .llm, .mcp, .ai]),
+        (String(localized: .settingsGroupsAccount), [.devices, .notifications, .members]),
+        (String(localized: .settingsGroupsDownloads), [.subscription, .sites, .downloaders, .importWatch]),
+        (String(localized: .settingsGroupsLibrary), [.scrape, .playback]),
+        (String(localized: .settingsGroupsIntegrations), [.appPush, .imPush, .webhook, .llm, .mcp, .ai]),
         // 「MovieClaw Cloud」：整台服务器连到管理员的 MovieClaw 账号（docs/design/cloud-push.md §1）
-        ("系统", [.cloud, .app, .network, .logs]),
-    ]
+        (String(localized: .settingsGroupsSystem), [.cloud, .app, .network, .logs]),
+    ] }
 }
 
 // MARK: - 站内链接解析
@@ -299,7 +303,7 @@ extension AppRoute {
             guard parts.count >= 2 else { return nil }
             self = .session(id: parts[1])
         case "my":
-            self = .my
+            self = parts.count >= 2 && parts[1] == "downloads" ? .offlineStorage : .my
         case "activate":
             self = .deviceApproval(code: query["code"])
         case "settings":
@@ -330,7 +334,7 @@ extension AppRoute {
         case .libraryHome, .libraryCustomize, .favorites, .allCollections, .collection, .library, .libraryKind, .libraryItem, .libraryManage, .reels: .library
         case .subscriptions, .subscription, .subscriptionWall: .subscriptions
         case .activity, .activityPage: .activity
-        case .my: .more
+        case .my, .offlineStorage: .more
         case .searchHome, .search, .newSession, .session, .settings, .settingsSection, .deviceApproval, .share: nil
         }
     }

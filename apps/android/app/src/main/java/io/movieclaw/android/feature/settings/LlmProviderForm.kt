@@ -46,6 +46,7 @@ import io.movieclaw.android.core.model.LlmModelInfo
 import io.movieclaw.android.core.model.LlmPresetView
 import io.movieclaw.android.core.model.LlmProviderPayload
 import io.movieclaw.android.core.model.LlmProviderView
+import io.movieclaw.android.core.designsystem.formSheetScroll
 
 /**
  * 接入 / 编辑模型供应商（iOS `SettingsBLLMProviderForm` / Web `llm-config-section` 同构）。
@@ -72,15 +73,24 @@ internal fun LlmProviderFormSheet(
     var apiKey by remember { mutableStateOf("") }
     var showKey by remember { mutableStateOf(false) }
     var userAgent by remember { mutableStateOf(existing?.userAgent.orEmpty()) }
+    // 空串 = 跟随预设默认协议（不编码）
+    var apiProtocol by remember { mutableStateOf(existing?.apiProtocol.orEmpty()) }
     var advancedOpen by remember { mutableStateOf(false) }
     var customModels by remember { mutableStateOf(existing?.extraModels.orEmpty()) }
     var addModelOpen by remember { mutableStateOf(false) }
     var localError by remember { mutableStateOf<String?>(null) }
     val customEndpoint = preset != null && preset.baseUrl == null
+    // 协议可切换的预设（OpenAI / 通用兼容端点）才展示协议选择
+    val protocolOptions = preset?.selectableProtocols.orEmpty()
+    val canChooseProtocol = protocolOptions.size > 1
+    // 编辑时 Key 可留空沿用；但类型或端点变了必须重填（与后端同一判据），免得旧 Key 被发往新地址
+    val apiKeyRequired = existing == null || presetId != existing.providerType ||
+        baseUrl.trim().trimEnd('/').ifEmpty { null } != existing.baseUrl
 
     fun validate(): String? = when {
         name.contains("/") -> "实例名不能包含斜杠 /。"
-        apiKey.isBlank() -> "请填写 API Key。"
+        apiKeyRequired && apiKey.isBlank() ->
+            if (existing == null) "请填写 API Key。" else "更换了供应商或 API 端点，请重新填写 API Key。"
         customEndpoint && !(baseUrl.startsWith("http://") || baseUrl.startsWith("https://")) ->
             "请填写以 http:// 或 https:// 开头的完整 API 端点。"
         customEndpoint && customModels.isEmpty() -> "请至少添加一个模型（接入后才有模型可用）。"
@@ -114,6 +124,7 @@ internal fun LlmProviderFormSheet(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(max = 560.dp)
+                    .formSheetScroll()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -132,6 +143,7 @@ internal fun LlmProviderFormSheet(
                         // 换供应商：端点 / UA / 高级设置 / 自定义模型全清空（iOS 同款）
                         baseUrl = ""
                         userAgent = ""
+                        apiProtocol = ""
                         advancedOpen = false
                         customModels = emptyList()
                         presetOpen = false
@@ -169,9 +181,9 @@ internal fun LlmProviderFormSheet(
 
                 // ── API Key ──
                 FormField(
-                    label = "API Key *",
+                    label = if (apiKeyRequired) "API Key *" else "API Key",
                     value = apiKey,
-                    placeholder = if (existing == null) "sk-…" else "出于安全，请重新填写",
+                    placeholder = if (apiKeyRequired) "sk-…" else "留空保持原密钥不变",
                     onChange = { apiKey = it },
                     trailing = {
                         Text(
@@ -182,16 +194,40 @@ internal fun LlmProviderFormSheet(
                     },
                 )
                 if (existing != null) {
-                    Text("已保存的密钥不会回显，修改其他配置时也需要重新填写。", style = McType.caption, color = TextFaint)
+                    Text(
+                        if (apiKeyRequired) "更换了供应商或 API 端点，需要重新填写密钥。" else "已保存的密钥不会回显；留空则继续使用原密钥。",
+                        style = McType.caption, color = TextFaint,
+                    )
                 }
 
-                // ── 高级设置：User-Agent ──
+                // ── 高级设置：API 协议 / User-Agent ──
                 if (customEndpoint) {
                     Text(
                         if (advancedOpen) "▾ 高级设置" else "▸ 高级设置",
                         style = McType.subSemibold, color = TextMuted,
                         modifier = Modifier.clickable { advancedOpen = !advancedOpen },
                     )
+                    if (advancedOpen && canChooseProtocol) {
+                        FieldLabel("API 协议")
+                        var protocolOpen by remember { mutableStateOf(false) }
+                        val shown = apiProtocol.ifEmpty { preset?.protocol ?: protocolOptions.first() }
+                        PickerValue(protocolLabel(shown)) { protocolOpen = true }
+                        if (protocolOpen) {
+                            OptionDialog(
+                                "API 协议",
+                                protocolOptions.map { id ->
+                                    id to protocolLabel(id) + if (id == preset?.protocol) "（默认）" else ""
+                                },
+                            ) { picked ->
+                                apiProtocol = picked
+                                protocolOpen = false
+                            }
+                        }
+                        Text(
+                            "GPT-5.6 等推理模型要在调用工具时调节思维链强度，需选 Responses API；端点不支持 /v1/responses 时选 Chat Completions。",
+                            style = McType.caption, color = TextFaint,
+                        )
+                    }
                     if (advancedOpen) {
                         FormField(
                             label = "User-Agent（可选）",
@@ -253,7 +289,8 @@ internal fun LlmProviderFormSheet(
                                         providerType = presetId,
                                         baseUrl = baseUrl.takeIf { it.isNotBlank() },
                                         userAgent = userAgent.takeIf { it.isNotBlank() },
-                                        apiKey = apiKey,
+                                        apiProtocol = apiProtocol.takeIf { canChooseProtocol && it.isNotEmpty() },
+                                        apiKey = apiKey.takeIf { it.isNotBlank() },
                                         defaultModel = customModels.firstOrNull()?.id,
                                         extraModels = if (customEndpoint) customModels else emptyList(),
                                     ),
@@ -276,6 +313,13 @@ internal fun LlmProviderFormSheet(
             },
         )
     }
+}
+
+/** API 协议展示名（与 Web / iOS 一致） */
+internal fun protocolLabel(id: String): String = when (id) {
+    "openai_chat" -> "Chat Completions"
+    "openai_responses" -> "Responses API"
+    else -> id
 }
 
 /** 预设提示卡（iOS `providerHint` 逐字） */

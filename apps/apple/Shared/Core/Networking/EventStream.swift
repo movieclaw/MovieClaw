@@ -75,7 +75,7 @@ nonisolated extension APIClient {
                 do {
                     let (bytes, response) = try await session.bytes(for: finalRequest)
                     guard let http = response as? HTTPURLResponse else {
-                        throw APIError.network("服务器响应异常")
+                        throw APIError.network(String(localized: .errorsNetworkAbnormal))
                     }
                     guard (200 ..< 300).contains(http.statusCode) else {
                         var body = Data()
@@ -84,7 +84,7 @@ nonisolated extension APIClient {
                         if http.statusCode == 401 {
                             NotificationCenter.default.post(name: .apiUnauthorized, object: server, userInfo: token.map { ["token": $0] })
                         }
-                        throw APIError.http(status: http.statusCode, message: message ?? "请求失败（HTTP \(http.statusCode)）", code: nil)
+                        throw APIError.http(status: http.statusCode, message: message ?? String(localized: .offlineErrorHttp(String(http.statusCode))), code: nil)
                     }
                     var parser = SSELineParser()
                     var line = Data()

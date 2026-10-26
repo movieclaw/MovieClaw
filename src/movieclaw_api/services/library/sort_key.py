@@ -10,6 +10,9 @@ SQL 里 ORDER BY 就得落一列排序键 + 加索引 + 在改名/重识别时�
 所以这里的取舍是——不加列、不迁移，把排序键算在内存里，等条目规模真的
 大到「每次翻页排全部标题」有感了，再考虑落库。
 
+拼音本身不在主进程里算：走 ``pinyin.py`` 的持久记忆（表 + 短命子进程），主进程
+不常驻 pypinyin 的词库（约 50MB）。排序前先 ``await prepare_titles(...)``。
+
 首字母分档口径（与 Emby/Plex 的索引条一致）：
 - 中文取拼音首字母（多音字/姓氏由 pypinyin 词库判定）；
 - 拉丁字母取大写首字母；
@@ -18,9 +21,10 @@ SQL 里 ORDER BY 就得落一列排序键 + 加索引 + 在改名/重识别时�
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from functools import cache
 
-from pypinyin import Style, lazy_pinyin
+from movieclaw_api.services.library import pinyin as pinyin_memo
 
 # 落不进 A-Z 的条目统一归档到这一档（数字开头、符号开头、假名/谚文等）
 OTHER_INITIAL = "#"
@@ -54,12 +58,17 @@ def title_sort_key(title: str) -> tuple[int, str]:
     cleaned = title.strip()
     if not cleaned:
         return _INITIAL_ORDER[OTHER_INITIAL], ""
-    # 逐字转拼音后拼接：整串比较才排得对（"三国" 与 "三体" 要看第二个字）
-    syllables = lazy_pinyin(cleaned, style=Style.NORMAL, errors=lambda item: item.lower())
-    pinyin = "".join(syllables).lower()
+    # 逐字转拼音后拼接：整串比较才排得对（"三国" 与 "三体" 要看第二个字）。
+    # 拼音本身走持久记忆（pinyin.py），调用方排序前须先 prepare_titles
+    pinyin = pinyin_memo.sort_pinyin(cleaned)
     head = pinyin[:1].upper()
     initial = head if "A" <= head <= "Z" else OTHER_INITIAL
     return _INITIAL_ORDER[initial], pinyin
+
+
+async def prepare_titles(titles: Iterable[str]) -> None:
+    """排序前把这批标题的拼音备进进程内记忆（主进程不导入 pypinyin，见 pinyin.py）。"""
+    await pinyin_memo.prepare(sort={t.strip() for t in titles if t and t.strip()})
 
 
 def title_initial(title: str) -> str:

@@ -11,7 +11,8 @@
 Android 模拟器里访问宿主机用 http://10.0.2.2:8810，Apple TV 模拟器用 http://127.0.0.1:8810。
 
 内容：
-- 电影库：编码矩阵（H.264 MP4、HEVC + AC3 5.1 + 双字幕 MKV、MPEG-2 TS、VP9 WebM）+ 一批 6 分钟的片；
+- 电影库：编码矩阵（H.264 MP4、HEVC + AC3 5.1 + 双字幕 MKV、MPEG-2 TS、VP9 WebM）+ 一批 6 分钟的片
+  （其中《第七号房客》是 H.264 1080p + AC3 5.1 的 MKV，#906 的降档复现片）；
 - 剧集库：雾港疑云（3 集，带片头片尾标记）、月光侦探社（两季）、长街灯火、隔壁的外星人；
 - 其他库：两段本地视频；
 - 账号 admin、xiaoyu（成员），密码都是 mclaw-atv-2026；admin 有续播记录、看到一半的剧、收藏。
@@ -113,6 +114,13 @@ MASTERS: dict[str, list[str]] = {
         "-metadata:s:s:1", "language=eng", "-metadata:s:s:1", "title=English",
         "-disposition:a:0", "default", "-t", "360",
     ],
+    # #906 小米电视那部片的规格：H.264 1080p MKV + 英语 AC3 5.1。模拟器靠 FFmpeg 软解放 AC3，
+    # 申报照样有 AC3，服务端给的降档阶梯与真机一致；配合调试开关 mc_stall_audio 复现「一放就停滞」
+    "h264_ac3.mkv": [
+        *_video("1920x1080", 24, 360), *_tone(360, "5.1"),
+        "-c:v", "libx264", "-preset", "ultrafast", "-b:v", "3000k", "-g", "48",
+        "-c:a", "ac3", "-b:a", "640k", "-metadata:s:a:0", "language=eng", "-t", "360",
+    ],
 }  # fmt: skip
 
 #: 电影：TMDB id → 母片。编码矩阵四部各用一种片源，其余用 6 分钟的片
@@ -121,6 +129,7 @@ MOVIES = {
     99000002: "hevc51.mkv",
     99000003: "mpeg2.ts",
     99100011: "vp9.webm",
+    99100004: "h264_ac3.mkv",
     **{
         mid: "long.mkv"
         for mid in (

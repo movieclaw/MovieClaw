@@ -10,7 +10,7 @@ MovieClaw 主程序自己就由约 60 个插件拼成（数据库、调度、订
 |---|---|---|
 | 服务 `ServiceKey` | `@plugin(inject=(KEY,))` 声明，`ctx.use(KEY)` 取 | `HOST_OPS`、`PLUGIN_DATA`、`PLUGIN_ROUTES` |
 | 注册表 `RegistryKey` | `ctx.contribute(KEY, "<贡献 id>", 贡献项)` 往里加一项 | `IM_CHANNELS`、`SCHEDULED_TASKS`、`INGEST_STEPS` |
-| 事件 `Event` | `ctx.on(EVENT, handler, id=...)` 监听 | `LIBRARY_INGEST_IMPORTED`、`SUBSCRIPTION_CREATED` |
+| 事件 `Event` | `ctx.on(EVENT, handler)` 实时订阅；`ctx.on(EVENT, handler, id=..., durable=True)` 可靠订阅 | `LIBRARY_INGEST_COMPLETED`、`SUBSCRIPTION_CREATED` |
 | 决策钩子（也是 `Event`，模式为 waterfall / bail） | `ctx.on(HOOK, handler)`，返回值影响主程序的决策 | `SEARCH_KEYWORDS`、`CANDIDATES_FILTER`、`DOWNLOADER_SELECT` |
 
 每个契约有**稳定性**：`internal`（只给内置插件）、`experimental`、`stable`。第三方插件只能用 experimental 以上的，
@@ -56,7 +56,8 @@ async def apply(ctx: Context) -> None:
 | `inline` | 主程序进程里 | 与主程序相同 | 只有用户明确要求、且插件确实需要（极低延迟）时；安装须单独批准 |
 
 进程外运行时，宿主为插件生成代理：`ctx.use(...)` 的服务、`ctx.on` 的监听器、`ctx.contribute` 的贡献项、
-挂的路由都经标准输入输出上的协议转发（`$SRC/movieclaw_sdk/runner.py`）。所以：
+挂的路由都经 HTTP（Unix 套接字）转发：插件调宿主走宿主的插件网关，宿主调插件走插件进程里的控制服务
+（`$SRC/movieclaw_sdk/runner.py`、`rpc.py`）。所以：
 
 - 载荷、返回值要能 JSON 序列化（契约里的类型都满足）；
 - 贡献项若是对象（如通道驱动），它的方法会被远程调用，方法必须是 `async`；
@@ -73,17 +74,19 @@ async def apply(ctx: Context) -> None:
   危险操作（删除、清理这类，`mclaw` 帮助里带 ⚠）必须逐个列出。
 - 插件以自己的身份调用：`ops = await ctx.use(HOST_OPS).client(ctx)`，`await ops.call("<操作 id>", {参数})`。
   没批准的操作调用时报权限错误。失败抛 `OpsError(status, code, message, details)`
-  （`from movieclaw_api.services.host_ops import OpsError`）。
+  （`from movieclaw_sdk.ops import OpsError`）。
 - 文件：清单 `permissions.paths` 申请目录（绝对路径，或 `staging` / `library` / `library:<id>` 这类别名），
   经 `PLUGIN_FILES` 读写；插件自己的目录 `files.path("plugin", ...)` 总是可读写。
-- 网络：`permissions.network = true` 只是声明给用户看；连外网要走用户的代理设置（`movieclaw_sdk.net.http_transport`）。
+- 网络：`permissions.network = true` 只是声明给用户看，运行时不拦流量；连外网要走用户的代理设置（`movieclaw_sdk.net.http_transport`）。
+- 进程资源：打开文件数收到 1024、禁止 core dump、`nice(10)`。没有内存上限，清单也不能申请 `RLIMIT_AS`。
+- 设置页只画配置模型收成的 JSON Schema，不加载插件包里的 HTML。
 
 ## 6. 数据与状态
 
 - 插件数据 `PLUGIN_DATA`：键值存储，按条目隔离；`scope` 可挂到实体上（`entity_scope("subscription", 35)`）；
   `secret=True` 加密存储。卸载默认保留数据，重装后还在。
-- 插件包目前**没有用户可改的配置**（`ctx.config` 只有配置模型的默认值）。需要用户可调的参数时：
-  先用常量；或挂一个管理员路由让用户写进插件数据；或请用户告诉你值后改代码发新版本。
+- 用户可调的参数写成配置模型（`@plugin(config=...)`）：插件详情页自动出现「设置」表单，保存后插件按新值重启，
+  `ctx.config` 是模型实例（写法与界面支持的类型见 `recipes.md` 第 13 节）。
 
 ## 7. 主程序源码在哪（源码地图）
 
@@ -97,11 +100,12 @@ async def apply(ctx: Context) -> None:
 | 位置 | 内容 |
 |---|---|
 | `$SRC/movieclaw_kernel/` | 内核：`plugin`、`Context`、事件总线、契约与版本、测试工具 `KernelHarness` |
-| `$SRC/movieclaw_sdk/` | 给插件用的 SDK：`plugin` / `Context` 再导出、IM 通道契约 `channels.py`、网络出口 `net.py`、进程外运行器 `runner.py`、契约表面 `surface.json` |
-| `$SRC/movieclaw_plugins/` | 随应用携带的插件包（微信、Telegram、Discord、飞书），与第三方插件包同格式，最好的完整样板 |
+| `$SRC/movieclaw_sdk/` | 给插件用的 SDK：`plugin` / `Context` 再导出、IM 通道契约 `channels.py`、下载器契约 `downloaders.py`、网盘契约 `drives.py`、宿主操作 `ops.py`、调 AI 助手 `agent.py`、后台任务 `jobs.py`、系统事件 `events/`、网络出口 `net.py`、进程外运行器 `runner.py`、契约表面 `surface.json` |
+| `$SRC/movieclaw_plugins/` | 随应用携带的插件包（微信、Telegram、Discord、飞书、qBittorrent、Transmission、网盘规格预探），与第三方插件包同格式 |
+| <https://github.com/movieclaw/movieclaw-plugins> | 第三方插件和商店索引。每个插件目录的 `store.json` 只给索引用，见该仓库 `example/GUIDE.md` |
 | `$SRC/movieclaw_api/plugins/` | 主程序的内置插件与插件管理，见下表 |
 | `$SRC/movieclaw_api/services/plugin_*.py`、`host_ops.py` | 插件用到的各服务的实现（看方法签名）；`plugin_runtime.py` 是进程外运行的宿主侧 |
-| 本技能 `references/examples/` | 插件体系的验收插件（删片联动、片单订阅、关键字规则、网盘上传、站点数据包、ntfy 通道），CI 真实运行 |
+| 本技能 `references/examples/` | 插件体系的验收插件（删片联动、片单订阅、关键字规则、网盘上传、站点数据包、ntfy 通道、企业微信通道、Go 写的 A2A 桥），CI 真实运行 |
 
 **内置插件**（`$SRC/movieclaw_api/plugins/`，产品功能都以插件形式挂在内核上）
 
@@ -124,7 +128,7 @@ async def apply(ctx: Context) -> None:
 
 | 扩展点 | 去读 |
 |---|---|
-| 可靠事件（下载完成、入库、删片、订阅……） | 定义与发出：`$SRC/movieclaw_api/domain_events.py`（`record_*` 函数，grep 函数名找调用处） |
+| 系统事件（下载完成、入库、删片、订阅、播放……） | 定义：`$SRC/movieclaw_sdk/events/`；发出：各域的 `events.py`（`publish_*` 函数，唯一入口 `$SRC/movieclaw_api/events.py`；grep 事件常量名找产生点） |
 | 订阅搜索词、淘汰 / 重排候选 | `$SRC/movieclaw_api/services/subscription/matching.py`（`hooks.waterfall` 调用处）；订阅规则组的内置过滤在 `$SRC/movieclaw_matcher/` |
 | 选下载器 | `$SRC/movieclaw_api/services/torrent_submit.py`（各投递路径构造 `DownloaderQuery` 的地方） |
 | 否决删种 | `$SRC/movieclaw_api/services/download_tasks.py` |

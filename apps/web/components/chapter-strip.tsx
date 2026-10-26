@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { HScroller } from "@/components/h-scroller";
@@ -45,6 +46,7 @@ export function ChapterStrip({
   /** 从章节起播；起播时间用图上那一帧的真实时间，无图时退回章节起点 */
   onPlay: (chapter: LibraryChapter) => void;
 }) {
+  const t = useTranslations();
   const [lightbox, setLightbox] = useState<number | null>(null);
   const sectionRef = useRef<HTMLElement>(null);
   const resumeScrolled = useRef(false);
@@ -90,16 +92,16 @@ export function ChapterStrip({
   };
 
   return (
-    <section ref={sectionRef} aria-label="章节">
+    <section ref={sectionRef} aria-label={t("library.item.chapters")}>
       <div className="mb-3 flex items-center gap-3">
         <h2 className="text-on-image text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
-          章节
+          {t("library.item.chapters")}
         </h2>
-        <span className="tnum text-sub text-[var(--text-faint)]">{chapters.length} 个章节</span>
+        <span className="tnum text-sub text-[var(--text-faint)]">{t("library.item.chapterCount", { count: chapters.length })}</span>
         {pending && (
           <span className="ml-auto flex items-center gap-2 text-caption text-[var(--text-muted)]">
             <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-white/20 border-t-white/70" />
-            正在生成章节
+            {t("library.item.chaptersGenerating")}
           </span>
         )}
       </div>
@@ -118,7 +120,7 @@ export function ChapterStrip({
 
       {lightbox != null && slides[lightbox] && (
         <ZoomLightbox
-          label={`查看章节图：${slides[lightbox].title}`}
+          label={t("library.item.viewChapter", { title: slides[lightbox].title })}
           slides={slides}
           index={lightbox}
           hasMore={false}
@@ -129,8 +131,8 @@ export function ChapterStrip({
           actions={
             <button
               type="button"
-              title="从此处播放"
-              aria-label="从此处播放"
+              title={t("library.item.playHere")}
+              aria-label={t("library.item.playHere")}
               onClick={() => {
                 const target = withImages[lightbox];
                 if (target) onPlay(target);
@@ -171,8 +173,9 @@ function ChapterCard({
   onOpen: () => void;
   onPlay: () => void;
 }) {
+  const t = useTranslations();
   const clock = formatClock(chapter.frame_ms ?? chapter.start_ms);
-  const label = chapter.title ?? `第 ${chapter.index + 1} 章`;
+  const label = chapter.title ?? t("library.item.chapterLabel", { index: chapter.index + 1 });
   return (
     <div className="group/chapter w-[240px] shrink-0 max-md:w-[200px]" data-chapter-index={chapter.index}>
       {/* 画面区单独一个相对定位盒：播放键按它居中，不受下面标题行高度影响 */}
@@ -180,12 +183,12 @@ function ChapterCard({
         <button
           type="button"
           onClick={onOpen}
-          aria-label={chapter.image_url ? `查看章节图：${label} ${clock}` : `从 ${clock} 播放`}
+          aria-label={chapter.image_url ? t("library.item.viewChapterAt", { title: label, time: clock }) : t("library.item.playAt", { time: clock })}
           className="relative block size-full overflow-hidden rounded-xl bg-[var(--poster-placeholder)] text-left outline-none ring-1 ring-white/[0.08] transition duration-200 hover:ring-white/35 focus-visible:ring-2 focus-visible:ring-white/70"
         >
           <PosterImage
             src={imageUrl(chapter.image_url, { width: chapterCardImageWidth() })}
-            alt={`${label} 章节图`}
+            alt={t("library.item.chapterImage", { title: label })}
             className="size-full object-cover"
             fallback={
               <span className="tnum flex size-full items-center justify-center text-[20px] font-bold text-white/20">
@@ -199,7 +202,7 @@ function ChapterCard({
           </span>
           {resumeHere && (
             <span className="pointer-events-none absolute right-1.5 top-1.5 rounded bg-[var(--accent-2)] px-1.5 py-px text-micro font-semibold text-white shadow-lg">
-              上次看到这里
+              {t("library.item.resumeChapter")}
             </span>
           )}
         </button>
@@ -209,7 +212,7 @@ function ChapterCard({
         {chapter.image_url && (
           <button
             type="button"
-            aria-label={`从 ${clock} 播放`}
+            aria-label={t("library.item.playAt", { time: clock })}
             onClick={onPlay}
             className="absolute left-1/2 top-1/2 flex size-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[1.5px] border-white/80 bg-black/35 text-white opacity-0 shadow-[0_1px_10px_rgba(0,0,0,0.45)] transition duration-200 hover:scale-[1.06] hover:border-white hover:bg-black/50 focus-visible:opacity-100 focus-visible:outline-none group-hover/chapter:opacity-100 [@media(hover:none)]:hidden"
           >

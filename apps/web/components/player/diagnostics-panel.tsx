@@ -1,5 +1,8 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { appTranslator } from "@/lib/i18n/translate";
 import { useEffect, useState } from "react";
 
 import type { PlaybackDiagnostics, PlaybackSession } from "@/lib/api/playback";
@@ -20,58 +23,11 @@ import { languageLabel } from "@/lib/language-labels";
  * 在转码」这类问题必须把源和处理摆在一起才看得出来。
  */
 
-const TIER_LABELS: Record<number, string> = {
-  0: "原文件直出",
-  1: "换壳直通",
-  2: "换壳 + 转音轨",
-  3: "硬件转码",
-  4: "软件转码",
-};
-
-const PROCESSING_LABELS: Record<string, string> = {
-  direct: "原文件直出",
-  remux: "仅容器重封装",
-  "audio-transcode": "仅音频转码",
-  "transcode-pending": "硬件转码（执行端读取中）",
-  "local-hardware": "本地硬件转码",
-  "local-software": "本地软件转码",
-  "remote-hardware": "远程硬件转码",
-};
-
-const LOCATION_LABELS: Record<string, string> = {
-  client: "客户端",
-  nas: "NAS",
-  remote_worker: "远程 Worker",
-};
-
 const BACKEND_LABELS: Record<string, string> = {
   videotoolbox: "VideoToolbox",
   vaapi: "VAAPI",
   qsv: "Intel QSV",
   nvenc: "NVENC",
-};
-
-const JOB_STATE_LABELS: Record<string, string> = {
-  "job.pending": "排队中",
-  "job.accepted": "已接单",
-  "job.progress": "转码中",
-  "job.failed": "任务失败",
-  "job.finished": "已完成",
-};
-
-const READY_STATE_LABELS: Record<number, string> = {
-  0: "无媒体",
-  1: "元数据",
-  2: "可播放",
-  3: "可播放且有数据",
-  4: "可持续播放",
-};
-
-const NETWORK_STATE_LABELS: Record<number, string> = {
-  0: "空闲",
-  1: "加载中",
-  2: "已加载",
-  3: "无资源",
 };
 
 /** 掉帧率高于这个比例就标红：能解但解不动，通常是该降一档了。 */
@@ -94,14 +50,15 @@ function segmentLabel(index: number | null | undefined): string {
   return `seg${String(index).padStart(5, "0")}`;
 }
 
-function uploadLabel(upload: PlaybackDiagnostics["recent_uploads"][number]): string {
-  const status = upload.status === 201 ? "成功" : `HTTP ${upload.status}`;
+function uploadLabel(upload: PlaybackDiagnostics["recent_uploads"][number], locale: AppLocale): string {
+  const t = appTranslator(locale);
+  const status = upload.status === 201 ? t("player.diagnostics.success") : `HTTP ${upload.status}`;
   const expected =
     upload.content_length == null
       ? upload.transfer_encoding === "chunked"
         ? "chunked"
         : null
-      : `${formatBytes(upload.content_length)} 期望`;
+      : t("player.diagnostics.expectedBytes", { size: formatBytes(upload.content_length) });
   return [upload.name, status, formatBytes(upload.received_bytes), expected]
     .filter(Boolean)
     .join(" · ");
@@ -153,6 +110,55 @@ export function DiagnosticsPanel({
   diagnostics: PlaybackDiagnostics | null;
   onClose: () => void;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
+  const TIER_LABELS: Record<number, string> = {
+    0: t("player.diagnostics.tier.direct"),
+    1: t("player.diagnostics.tier.remux"),
+    2: t("player.diagnostics.tier.audioTranscode"),
+    3: t("player.diagnostics.tier.hardware"),
+    4: t("player.diagnostics.tier.software"),
+  };
+
+  const PROCESSING_LABELS: Record<string, string> = {
+    direct: t("player.diagnostics.tier.direct"),
+    remux: t("player.diagnostics.processing.remux"),
+    "audio-transcode": t("player.diagnostics.processing.audioTranscode"),
+    "transcode-pending": t("player.diagnostics.processing.pending"),
+    "local-hardware": t("player.diagnostics.processing.localHardware"),
+    "local-software": t("player.diagnostics.processing.localSoftware"),
+    "remote-hardware": t("player.diagnostics.processing.remoteHardware"),
+  };
+
+  const LOCATION_LABELS: Record<string, string> = {
+    client: t("player.diagnostics.location.client"),
+    nas: "NAS",
+    remote_worker: t("player.diagnostics.location.remote"),
+  };
+
+  const JOB_STATE_LABELS: Record<string, string> = {
+    "job.pending": t("player.diagnostics.job.pending"),
+    "job.accepted": t("player.diagnostics.job.accepted"),
+    "job.progress": t("player.diagnostics.job.progress"),
+    "job.failed": t("player.diagnostics.job.failed"),
+    "job.finished": t("player.diagnostics.job.finished"),
+  };
+
+  const READY_STATE_LABELS: Record<number, string> = {
+    0: t("player.diagnostics.ready.none"),
+    1: t("player.diagnostics.ready.metadata"),
+    2: t("player.diagnostics.ready.current"),
+    3: t("player.diagnostics.ready.future"),
+    4: t("player.diagnostics.ready.enough"),
+  };
+
+  const NETWORK_STATE_LABELS: Record<number, string> = {
+    0: t("player.diagnostics.network.idle"),
+    1: t("player.diagnostics.network.loading"),
+    2: t("player.diagnostics.network.loaded"),
+    3: t("player.diagnostics.network.empty"),
+  };
+
   const [stats, setStats] = useState<EngineStats | null>(null);
   const [qoeStats, setQoeStats] = useState<QoeLiveStats | null>(null);
 
@@ -178,15 +184,15 @@ export function DiagnosticsPanel({
 
   // —— 流媒体节：容器层的「源 → 协议」 ——
   const sourceContainer = [
-    (source?.container ?? decision.container ?? "未知").toUpperCase(),
+    (source?.container ?? decision.container ?? t("player.diagnostics.unknown")).toUpperCase(),
     formatMbps(source?.bit_rate),
   ]
     .filter(Boolean)
     .join(" · ");
   const streamTarget =
     decision.tier === 0
-      ? "原文件直出"
-      : `HLS · fMP4（${TIER_LABELS[decision.tier ?? -1] ?? "未知档位"}）`;
+      ? t("player.diagnostics.tier.direct")
+      : t("player.diagnostics.streamTarget", { tier: TIER_LABELS[decision.tier ?? -1] ?? t("player.diagnostics.unknownTier") });
 
   const fallbackProcessingMode =
     session.session_id == null
@@ -203,8 +209,8 @@ export function DiagnosticsPanel({
   const locationLabel = diagnostics
     ? LOCATION_LABELS[diagnostics.execution_location] ?? diagnostics.execution_location
     : session.session_id == null
-      ? "客户端直出"
-      : "读取中";
+      ? t("player.diagnostics.location.direct")
+      : t("player.diagnostics.reading");
   const backendLabel = diagnostics?.backend
     ? BACKEND_LABELS[diagnostics.backend] ?? diagnostics.backend
     : session.hw_backend
@@ -229,17 +235,17 @@ export function DiagnosticsPanel({
   const videoCopy = decision.video?.action === "copy";
   const videoAction = decision.video
     ? videoCopy
-      ? "直通"
-      : `转码（${(decision.video.codec ?? "h264").toUpperCase()}${
+      ? t("player.diagnostics.copy")
+      : t("player.diagnostics.transcode", { format: `${(decision.video.codec ?? "h264").toUpperCase()}${
           decision.video.height ? ` ${decision.video.height}p` : ""
-        }${session.hw_backend ? ` · ${session.hw_backend}` : " · 软件"}${
-          decision.video.tone_map ? " · HDR 转 SDR" : ""
+        }${session.hw_backend ? ` · ${session.hw_backend}` : t("player.diagnostics.software")}${
+          decision.video.tone_map ? t("player.diagnostics.toneMap") : ""
         }${
           // 按实测带宽压过码率要摆出来：否则用户会以为画质设置坏了（§C）
           decision.video.bitrate_cap_bps
-            ? ` · 按线路限 ${(decision.video.bitrate_cap_bps / 1_000_000).toFixed(2)} Mbps`
+            ? t("player.diagnostics.bandwidthCap", { value: (decision.video.bitrate_cap_bps / 1_000_000).toFixed(2) })
             : ""
-        }）`
+        }` })
     : null;
 
   // —— 音频节：源行来自候选轨列表里「这次放的那条」 ——
@@ -248,20 +254,20 @@ export function DiagnosticsPanel({
   );
   const audioSource = activeTrack
     ? [
-        activeTrack.language ? languageLabel(activeTrack.language) : null,
+        activeTrack.language ? languageLabel(activeTrack.language, locale) : null,
         activeTrack.codec?.toUpperCase(),
-        activeTrack.channels ? `${activeTrack.channels} 声道` : null,
+        activeTrack.channels ? t("player.tracks.channels", { count: activeTrack.channels }) : null,
       ]
         .filter(Boolean)
-        .join(" ") + (activeTrack.is_default ? "（默认）" : "")
+        .join(" ") + (activeTrack.is_default ? t("player.diagnostics.default") : "")
     : null;
   const audioCopy = decision.audio?.action === "copy";
   const audioAction = decision.audio
     ? audioCopy
-      ? "直通"
-      : `转码（${(decision.audio.codec ?? "aac").toUpperCase()}${
-          decision.audio.channels ? ` ${decision.audio.channels} 声道` : ""
-        }${decision.audio.downmix ? " · 已降混" : ""}）`
+      ? t("player.diagnostics.copy")
+      : t("player.diagnostics.transcode", { format: `${(decision.audio.codec ?? "aac").toUpperCase()}${
+          decision.audio.channels ? ` ${t("player.tracks.channels", { count: decision.audio.channels })}` : ""
+        }${decision.audio.downmix ? t("player.diagnostics.downmix") : ""}` })
     : null;
 
   return (
@@ -323,11 +329,11 @@ export function DiagnosticsPanel({
       `}
     >
       <div className="mb-1.5 flex items-center justify-between">
-        <h3 className="text-[12px] font-semibold text-white/90">播放诊断</h3>
+        <h3 className="text-[12px] font-semibold text-white/90">{t("player.controls.diagnostics")}</h3>
         <button
           type="button"
           onClick={onClose}
-          aria-label="关闭播放诊断"
+          aria-label={t("player.diagnostics.close")}
           className="-mr-1 grid size-6 place-items-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
         >
           <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden>
@@ -337,20 +343,20 @@ export function DiagnosticsPanel({
       </div>
 
       <div className="space-y-2">
-        <Section title="流媒体">
+        <Section title={t("player.diagnostics.stream")}>
           <SourceLine>{sourceContainer}</SourceLine>
           <ActionLine>{streamTarget}</ActionLine>
           {decision.degraded_from != null ? (
-            <ActionLine alert>上一档播放失败，自动降档而来</ActionLine>
+            <ActionLine alert>{t("player.diagnostics.degraded")}</ActionLine>
           ) : null}
         </Section>
 
-        <Section title="执行">
+        <Section title={t("player.diagnostics.execution")}>
           <SourceLine>{processingLabel}</SourceLine>
-          <ActionLine>位置：{locationLabel}</ActionLine>
+          <ActionLine>{t("player.diagnostics.locationLine", { location: locationLabel })}</ActionLine>
           {backendLabel ? (
             <ActionLine>
-              后端：{backendLabel}
+              {t("player.diagnostics.backendLine", { backend: backendLabel })}
               {diagnostics?.encoder ? ` · ${diagnostics.encoder}` : null}
             </ActionLine>
           ) : null}
@@ -358,10 +364,10 @@ export function DiagnosticsPanel({
             <ActionLine>
               Worker：<span className="break-all">{diagnostics.worker_id}</span>
               {diagnostics.worker_online === true
-                ? " · 在线"
+                ? t("player.diagnostics.online")
                 : diagnostics.worker_online === false
-                  ? " · 离线"
-                  : " · 切换中"}
+                  ? t("player.diagnostics.offline")
+                  : t("player.diagnostics.switching")}
             </ActionLine>
           ) : null}
           {diagnostics?.worker_version || diagnostics?.ffmpeg_version ? (
@@ -373,12 +379,12 @@ export function DiagnosticsPanel({
           ) : null}
           {diagnostics?.worker_platform || diagnostics?.worker_arch ? (
             <ActionLine>
-              平台：{[diagnostics.worker_platform, diagnostics.worker_arch].filter(Boolean).join(" · ")}
+              {t("player.diagnostics.platformLine", { platform: [diagnostics.worker_platform, diagnostics.worker_arch].filter(Boolean).join(" · ") })}
             </ActionLine>
           ) : null}
           {diagnostics?.job_id ? (
             <ActionLine>
-              任务：<span className="break-all">{diagnostics.job_id}</span>
+              {t("player.diagnostics.jobLine")}<span className="break-all">{diagnostics.job_id}</span>
               {diagnostics.job_state
                 ? ` · ${JOB_STATE_LABELS[diagnostics.job_state] ?? diagnostics.job_state}`
                 : null}
@@ -386,7 +392,7 @@ export function DiagnosticsPanel({
             </ActionLine>
           ) : null}
           {diagnostics?.job_exit_code != null ? (
-            <ActionLine alert>ffmpeg 退出码：{diagnostics.job_exit_code}</ActionLine>
+            <ActionLine alert>{t("player.diagnostics.exitCode", { code: diagnostics.job_exit_code })}</ActionLine>
           ) : null}
           {diagnostics?.job_error && diagnostics.job_error !== diagnostics.session_error ? (
             <ActionLine alert>
@@ -405,12 +411,12 @@ export function DiagnosticsPanel({
           ) : null}
         </Section>
 
-        <Section title="视频">
+        <Section title={t("player.diagnostics.video")}>
           {videoSource ? <SourceLine>{videoSource}</SourceLine> : null}
           {videoAction ? <ActionLine>{videoAction}</ActionLine> : null}
-          {decision.video?.burn_subtitle ? <ActionLine>字幕压制进画面</ActionLine> : null}
+          {decision.video?.burn_subtitle ? <ActionLine>{t("player.diagnostics.burnedSubtitles")}</ActionLine> : null}
           <div className={dropRatio > DROP_ALERT_RATIO ? "text-red-300" : "text-white/75"}>
-            掉帧{" "}
+            {t("player.diagnostics.droppedFrames")}{" "}
             <span className="tnum">
               {stats?.droppedFrames != null
                 ? `${stats.droppedFrames} / ${stats.totalFrames ?? "?"}`
@@ -419,23 +425,23 @@ export function DiagnosticsPanel({
           </div>
         </Section>
 
-        <Section title="音频">
+        <Section title={t("player.diagnostics.audio")}>
           {audioSource ? <SourceLine>{audioSource}</SourceLine> : null}
           {audioAction ? <ActionLine>{audioAction}</ActionLine> : null}
         </Section>
 
-        <Section title="传输">
+        <Section title={t("player.diagnostics.transfer")}>
           <p className="text-white/75">
             {[
               stats?.engine ?? "—",
-              formatMbps(stats?.bitrate) && `实时 ${formatMbps(stats?.bitrate)}`,
+              formatMbps(stats?.bitrate) && t("player.diagnostics.liveBitrate", { value: formatMbps(stats?.bitrate)! }),
               // 带宽与实时码率并排：带宽贴着码率跑说明线路吃得下、卡的是
               // 服务端转码；带宽远低于码率说明就是线路不够。单看任一个都会误诊。
               // 「带宽」是线路能跑多快（缓冲满了也保持实测值），顶栏「↓」是此刻在下多快，两者不是一个量
               formatBandwidth(stats?.downlinkBps ?? null) &&
-                `带宽 ${formatBandwidth(stats?.downlinkBps ?? null)}`,
-              stats ? `缓冲 ${stats.bufferedSeconds.toFixed(1)} 秒` : null,
-              stats ? `播放头 ${stats.currentTimeSeconds.toFixed(1)} 秒` : null,
+                t("player.diagnostics.bandwidth", { value: formatBandwidth(stats?.downlinkBps ?? null)! }),
+              stats ? t("player.diagnostics.buffer", { seconds: stats.bufferedSeconds.toFixed(1) }) : null,
+              stats ? t("player.diagnostics.playhead", { seconds: stats.currentTimeSeconds.toFixed(1) }) : null,
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -443,9 +449,9 @@ export function DiagnosticsPanel({
           {stats ? (
             <p className="text-white/75">
               {[
-                `媒体 ${READY_STATE_LABELS[stats.readyState] ?? `readyState ${stats.readyState}`}`,
-                `网络 ${NETWORK_STATE_LABELS[stats.networkState] ?? `networkState ${stats.networkState}`}`,
-                stats.seeking ? "定位中" : stats.paused ? "已暂停" : "播放中",
+                t("player.diagnostics.mediaState", { state: READY_STATE_LABELS[stats.readyState] ?? `readyState ${stats.readyState}` }),
+                t("player.diagnostics.networkState", { state: NETWORK_STATE_LABELS[stats.networkState] ?? `networkState ${stats.networkState}` }),
+                stats.seeking ? t("player.diagnostics.seeking") : stats.paused ? t("player.diagnostics.paused") : t("player.diagnostics.playing"),
               ]
                 .filter(Boolean)
                 .join(" · ")}
@@ -457,79 +463,65 @@ export function DiagnosticsPanel({
           <p className="text-white/75">
             {[
               qoeStats?.lastSeekMs != null
-                ? `上次跳转 ${(qoeStats.lastSeekMs / 1000).toFixed(1)} 秒`
+                ? t("player.diagnostics.lastSeek", { seconds: (qoeStats.lastSeekMs / 1000).toFixed(1) })
                 : null,
               qoeStats
-                ? `卡顿 ${qoeStats.rebufferCount} 次${
-                    qoeStats.rebufferCount > 0
-                      ? ` · 累计 ${(qoeStats.rebufferMs / 1000).toFixed(1)} 秒`
-                      : ""
-                  }`
+                ? t("player.diagnostics.rebuffer", { count: qoeStats.rebufferCount,
+                    total: qoeStats.rebufferCount > 0 ? t("player.diagnostics.rebufferTotal", { seconds: (qoeStats.rebufferMs / 1000).toFixed(1) }) : "",
+                  })
                 : null,
             ]
               .filter(Boolean)
               .join(" · ")}
           </p>
           <p className="tnum break-all text-white/50">
-            会话 {session.session_id ?? "无（直出）"}
+            {t("player.diagnostics.session", { session: session.session_id ?? t("player.diagnostics.noSession") })}
           </p>
         </Section>
 
         {diagnostics?.total_segments != null ? (
-          <Section title="供片">
+          <Section title={t("player.diagnostics.segments")}>
             <SourceLine>
               {pendingSegment != null
-                ? `等待 ${segmentLabel(pendingSegment)}`
+                ? t("player.diagnostics.pendingSegment", { segment: segmentLabel(pendingSegment) })
                 : diagnostics.requested_segment != null
-                  ? `最近请求 ${segmentLabel(diagnostics.requested_segment)}`
-                  : "当前无等待分片"}
+                  ? t("player.diagnostics.requestedSegment", { segment: segmentLabel(diagnostics.requested_segment) })
+                  : t("player.diagnostics.noPendingSegment")}
             </SourceLine>
             <ActionLine>
-              连续产出 {segmentLabel(diagnostics.highest_produced_segment)} · 头部{" "}
-              {segmentLabel(diagnostics.head_segment)} · 共 {diagnostics.total_segments} 段
+              {t("player.diagnostics.produced", { produced: segmentLabel(diagnostics.highest_produced_segment), head: segmentLabel(diagnostics.head_segment), count: diagnostics.total_segments })}
             </ActionLine>
             {diagnostics.lead_seconds != null ? (
               // 领先量与挂起态：用户问「为什么转码停了」时这一行直接作答——
               // 停是因为已经领先够多（闭环节流，§A），不是转不动
               <ActionLine>
-                转码领先 {Math.round(diagnostics.lead_seconds)} 秒
-                {diagnostics.pause_reasons?.includes("lead")
-                  ? " · 已领先足够，转码暂停"
-                  : diagnostics.pause_reasons?.includes("disk")
-                    ? " · 磁盘空间告急，转码暂停"
-                    : ""}
+                {t("player.diagnostics.lead", { seconds: Math.round(diagnostics.lead_seconds), pause: diagnostics.pause_reasons?.includes("lead")
+                  ? t("player.diagnostics.pauseLead") : diagnostics.pause_reasons?.includes("disk") ? t("player.diagnostics.pauseDisk") : "" })}
               </ActionLine>
             ) : null}
             <ActionLine>
-              NAS 会话缓存 {formatBytes(diagnostics.cache_bytes)}
-              {diagnostics.cache_hit
-                ? ` · 命中上次转码产物（${diagnostics.cached_segments ?? 0} 段免转）`
-                : ""}
+              {t("player.diagnostics.cache", { size: formatBytes(diagnostics.cache_bytes), hit: diagnostics.cache_hit ? t("player.diagnostics.cacheHit", { count: diagnostics.cached_segments ?? 0 }) : "" })}
             </ActionLine>
             {failedSegment != null ? (
               <ActionLine alert>
-                当前缺口 {segmentLabel(failedSegment)}
-                {diagnostics.failed_segments.length > 1
-                  ? ` 等 ${diagnostics.failed_segments.length} 段`
-                  : " · 上传失败待重试"}
+                {t("player.diagnostics.failedSegment", { segment: segmentLabel(failedSegment), details: diagnostics.failed_segments.length > 1
+                  ? t("player.diagnostics.multipleSegments", { count: diagnostics.failed_segments.length }) : t("player.diagnostics.retryUpload") })}
               </ActionLine>
             ) : null}
             {historicalFailedSegment != null ? (
               <ActionLine>
-                历史失败 {segmentLabel(historicalFailedSegment)}
-                {diagnostics.historical_failed_segments.length > 1
-                  ? ` 等 ${diagnostics.historical_failed_segments.length} 段`
-                  : " · 已落后当前播放位置"}
+                {t("player.diagnostics.historicalFailure", { segment: segmentLabel(historicalFailedSegment), details: diagnostics.historical_failed_segments.length > 1
+                  ? t("player.diagnostics.multipleSegments", { count: diagnostics.historical_failed_segments.length }) : t("player.diagnostics.behindPlayhead") })}
               </ActionLine>
             ) : null}
             {latestUpload ? (
               <ActionLine alert={latestUpload.status >= 400}>
-                最近上传 {uploadLabel(latestUpload)}
+                {t("player.diagnostics.lastUpload", { upload: uploadLabel(latestUpload, locale) })}
               </ActionLine>
             ) : null}
             {diagnostics.segment_wait_ms != null ? (
               <ActionLine>
-                最近供片等待 {(diagnostics.segment_wait_ms / 1000).toFixed(1)} 秒
+                {t("player.diagnostics.lastSegmentWait", { seconds: (diagnostics.segment_wait_ms / 1000).toFixed(1) })}
                 {diagnostics.segment_status != null
                   ? ` · HTTP ${diagnostics.segment_status}`
                   : null}

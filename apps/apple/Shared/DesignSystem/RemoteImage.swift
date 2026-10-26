@@ -86,23 +86,138 @@ extension ImageWidth {
     }
 }
 
-/// iPhone 上几种固定宽度的卡片（点）：页面与首屏预载（`FirstScreenImages`，代码在 Shared）按同一个宽度取图，
-/// 地址一致才命中同一条缓存。改卡片宽度改这里
-enum PhoneCardWidth {
-    /// 首页横滑行的海报（收藏、库 / 类型 / 合集行）
-    static let homePoster: CGFloat = 124
+/// 横滑行、海报墙里几种卡片的尺寸与页边距（点）：iPhone 一套（`phone`）；iPad 宽窗口（常规宽度）照 Mac 版 `MacMetrics`
+/// 放大一档（`wide`，docs/design/ipad.md §4.1）——iPad 离眼睛比手机远，照搬手机尺寸看上去反而更小，一行也排得像缩略图墙。
+/// 比例不变（海报 2:3、剧照 16:9 由素材定），只换大小与间距。
+/// 页面经环境值 `cardMetrics` 读（跟着窗口宽度变，台前调度拉窄会退回手机那套），首屏预载（`FirstScreenImages`，
+/// 代码在 Shared）按 `CardMetrics.current` 取——两边同一套，取图地址一致才命中同一条缓存。改卡片宽度改这里
+struct CardMetrics: Equatable, Sendable {
+    /// 首页横滑行的海报（收藏、库 / 类型 / 合集行），也用于相似推荐、系列
+    var homePoster: CGFloat
     /// 发现页横滑行的海报（`DiscoverPosterRow.cardWidth`）
-    static let discoverPoster: CGFloat = 126
+    var discoverPoster: CGFloat
     /// 首页「接下来继续」横卡（16:9）
-    static let upNext: CGFloat = 200
+    var upNext: CGFloat
     /// 首页「我的媒体库」库 / 合集封面卡（21:10）
-    static let libraryCover: CGFloat = 230
-    /// 首页「按类型找电影 / 剧集」全幅剧照卡（同手机网页，196 × 124.6，保持 236:150）
-    static let genreTile: CGFloat = 196
+    var libraryCover: CGFloat
+    /// 首页「按类型找电影 / 剧集」全幅剧照卡（同网页与 Mac 版，196 × 124.6，保持 236:150）
+    var genreTile: CGFloat
     /// 订阅首页「刚刚入库」横卡（16:9）
-    static let recent: CGFloat = 264
+    var recent: CGFloat
     /// 「刚刚入库」卡左下角的小号片名 Logo 最宽
-    static let recentLogo: CGFloat = 118
+    var recentLogo: CGFloat
+    /// 详情页演职员卡（2:3）：比海报小一档，人物是辅助信息
+    var cast: CGFloat
+    /// 详情页分集卡（16:9）
+    var episode: CGFloat
+    /// 海报墙网格的最小列宽（`adaptive(minimum:)`，宽窗口同 Mac 版 MacPosterWall 的 150），宽一档的墙（剧照墙等）各页自己再加
+    var wallMinimum: CGFloat
+    /// 横滑行里卡片之间
+    var spacing: CGFloat
+    /// 页面左右边距（手机 16，同 `Theme.pagePadding`；宽窗口同 Mac 版 32）
+    var edge: CGFloat
+    /// 是不是 iPad 宽窗口那套（详情页的 Mac 式大图区、列表限宽等也按它分支）
+    var isWide = false
+    /// 内容区宽（点，已扣掉侧边栏等安全区）；0 = 还没量到。宽窗口按它把海报排成整列，见 `fitted(contentWidth:)`
+    var contentWidth: CGFloat = 0
+
+    static let phone = CardMetrics(homePoster: 124, discoverPoster: 126, upNext: 200, libraryCover: 230, genreTile: 196,
+                                   recent: 264, recentLogo: 118, cast: 96, episode: 200, wallMinimum: 140, spacing: 12, edge: 16)
+    /// 宽窗口海报的目标宽（同 Mac 版 `MacMetrics.posterWidth`）：实际宽按内容区排成整列后在它上下浮动
+    static let widePosterTarget: CGFloat = 168
+    static let wide = CardMetrics(homePoster: 168, discoverPoster: 168, upNext: 296, libraryCover: 296, genreTile: 196,
+                                  recent: 296, recentLogo: 140, cast: 128, episode: 296, wallMinimum: 150, spacing: 18, edge: 32,
+                                  isWide: true)
+
+    /// 宽窗口：按内容区宽把海报排成整列，首页横排海报、相似推荐、发现 / 订阅的海报行都用这一列的宽——
+    /// 同一个窗口宽度下首页和海报墙的海报一样大，展开 / 收起侧边栏时一起变（真机反馈：首页 168、海报墙 157，看着不一致）
+    func fitted(contentWidth width: CGFloat) -> CardMetrics {
+        guard isWide, width > 0 else { return self }
+        var metrics = self
+        metrics.contentWidth = width
+        let poster = metrics.columnWidth(target: Self.widePosterTarget)
+        metrics.homePoster = poster
+        metrics.discoverPoster = poster
+        return metrics
+    }
+
+    /// 排海报的可用宽（内容区减两侧页边距）
+    private var rowWidth: CGFloat { contentWidth - edge * 2 }
+
+    /// 按目标宽排成整列时的列数：取最接近目标宽的那个整数
+    private func columnCount(target: CGFloat) -> Int {
+        max(1, Int(((rowWidth + spacing) / (target + spacing)).rounded()))
+    }
+
+    private func columnWidth(target: CGFloat) -> CGFloat {
+        let count = CGFloat(columnCount(target: target))
+        return ((rowWidth - (count - 1) * spacing) / count).rounded(.down)
+    }
+
+    /// 横排骨架行要几张占位才铺满一行：宽窗口按内容区宽多算一张（多出的被裁掉）；手机 4 张（已宽过屏幕）
+    func skeletonRowCount(cardWidth: CGFloat) -> Int {
+        guard isWide, contentWidth > 0 else { return 4 }
+        return Int((rowWidth / (cardWidth + spacing)).rounded(.up)) + 1
+    }
+
+    /// 网格骨架的格数：宽窗口一行能放 5～7 格，手机那套 6 / 9 / 12 格会剩半行，统一给 18 格（约三整行，铺满首屏）
+    func skeletonGridCount(phone: Int) -> Int {
+        isWide ? 18 : phone
+    }
+
+    /// 海报墙的列。宽窗口按内容区排成整列（列宽与首页横排海报一致）；手机照旧 `adaptive(minimum:)`。
+    /// `extra`：比海报宽一档的墙（剧照墙 +20、类型剧照墙 +60）
+    func wallColumns(extra: CGFloat = 0) -> [GridItem] {
+        if isWide, contentWidth > 0 {
+            let count = columnCount(target: Self.widePosterTarget + extra)
+            return Array(repeating: GridItem(.flexible(), spacing: spacing, alignment: .top), count: count)
+        }
+        return [GridItem(.adaptive(minimum: wallMinimum + extra), spacing: spacing, alignment: .top)]
+    }
+
+    /// 某个窗口该用哪套：只有 iPad 的常规宽度用 `wide`。iPhone Pro Max 横屏也是常规宽度，但仍按手机排
+    /// （2026-10-15 定：宽版式只给 iPad，iPhone 横屏多是看片，不改它）
+    static func forWindow(regular: Bool) -> CardMetrics {
+        #if os(iOS)
+        regular && UIDevice.current.userInterfaceIdiom == .pad ? .wide : .phone
+        #else
+        .phone
+        #endif
+    }
+
+    /// 首屏预载用：当前窗口是常规宽度就是 `wide`（与页面的环境值同一口径）
+    @MainActor static var current: CardMetrics {
+        #if os(iOS)
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes.first as? UIWindowScene
+        return forWindow(regular: scene?.traitCollection.horizontalSizeClass == .regular)
+        #else
+        return .phone
+        #endif
+    }
+}
+
+/// 手机那套卡片宽度的旧名字（Apple TV 等不分窗口宽度的地方用）
+enum PhoneCardWidth {
+    static let homePoster = CardMetrics.phone.homePoster
+    static let discoverPoster = CardMetrics.phone.discoverPoster
+    static let upNext = CardMetrics.phone.upNext
+    static let libraryCover = CardMetrics.phone.libraryCover
+    static let genreTile = CardMetrics.phone.genreTile
+    static let recent = CardMetrics.phone.recent
+    static let recentLogo = CardMetrics.phone.recentLogo
+}
+
+private struct CardMetricsKey: EnvironmentKey {
+    static let defaultValue = CardMetrics.phone
+}
+
+extension EnvironmentValues {
+    /// 卡片尺寸：由各页签的导航根按窗口宽度注入（见 `TabRoot`）
+    var cardMetrics: CardMetrics {
+        get { self[CardMetricsKey.self] }
+        set { self[CardMetricsKey.self] = newValue }
+    }
 }
 
 @MainActor
@@ -115,7 +230,7 @@ extension ImageWidth {
 
 /// 旧的图片尺寸预设（同 Web `lib/image-proxy.ts` 的 ImageVariant）：按「设备 × 场景」命名，尺寸按网页定，
 /// iPhone 3 倍屏、4K 电视上都偏小。客户端已全部改用宽度阶梯（`ImageWidth`），这里只为旧路径保留，新代码不要再用
-@available(*, deprecated, message: "改用宽度阶梯：api.image(raw, width: ImageWidth.points(...))")
+@available(*, deprecated, message: "改用宽度阶梯：api.image(raw, width: ImageWidth.points(...))") // i18n-ignore: developer message
 nonisolated enum ImageVariant: String {
     case landscapeCard = "landscape-card"
     case posterCard = "poster-card"
@@ -146,7 +261,7 @@ nonisolated extension ServerAddress {
     }
 
     /// 旧的按预设取图（只有刮削资产与代理认）；保留给旧路径
-    @available(*, deprecated, message: "改用 imageURL(_:width:)")
+    @available(*, deprecated, message: "改用 imageURL(_:width:)") // i18n-ignore: developer message
     func imageURL(_ raw: String?, variant: ImageVariant?) -> URL? {
         guard var components = imageComponents(raw) else { return nil }
         if let variant, components.path.hasSuffix("/images/proxy") || components.path.contains("/images/assets/") {
@@ -287,6 +402,23 @@ private nonisolated struct AuthorizedDataLoader: DataLoading {
            let token = AuthTokenRegistry.shared.token(for: url) {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        // 图片地址按登录地址拼（缓存键、离线图片都认它），真正去取时换成当前地址（在家内网、出门外网）
+        let original = request.url
+        if let url = original { request.url = ServerRoutes.shared.rewrite(url) }
+        #if os(iOS)
+        // 离线下载的本机图片（docs/design/offline-download.md §4）：离线模式直接用、不发请求；在线时请求失败才回落
+        if let url = original, OfflineModeFlag.isOffline, let data = OfflineImages.shared.localData(for: url) {
+            Self.deliver(data, url: url, didReceiveData: didReceiveData, completion: completion)
+            return RetryingTask()
+        }
+        let completion: @Sendable (Error?) -> Void = { [url = original] error in
+            if error != nil, let url, let data = OfflineImages.shared.localData(for: url) {
+                Self.deliver(data, url: url, didReceiveData: didReceiveData, completion: completion)
+            } else {
+                completion(error)
+            }
+        }
+        #endif
         guard let fallback = Self.withoutVariant(request) else {
             return base.loadData(with: request, didReceiveData: didReceiveData, completion: completion)
         }
@@ -300,6 +432,17 @@ private nonisolated struct AuthorizedDataLoader: DataLoading {
             }
         }
         return task
+    }
+
+    private static func deliver(
+        _ data: Data, url: URL,
+        didReceiveData: @escaping @Sendable (Data, URLResponse) -> Void,
+        completion: @escaping @Sendable (Error?) -> Void
+    ) {
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)
+            ?? URLResponse(url: url, mimeType: nil, expectedContentLength: data.count, textEncodingName: nil)
+        didReceiveData(data, response)
+        completion(nil)
     }
 
     /// 带 `variant` 的请求去掉这个参数；不带的返回 nil（不需要兜底）

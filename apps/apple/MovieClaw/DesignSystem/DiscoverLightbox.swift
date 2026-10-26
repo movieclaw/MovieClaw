@@ -53,7 +53,7 @@ struct DiscoverLightbox: View {
                     Image(systemName: "xmark").font(.body.weight(.semibold)).frame(width: 36, height: 36)
                 }
                 .buttonStyle(.glass)
-                .accessibilityLabel("关闭")
+                .accessibilityLabel(String(localized: .commonClose))
                 .accessibilityIdentifier("lightbox-close")
                 VStack(alignment: .leading, spacing: 2) {
                     Text(content.title).font(.subheadline.weight(.semibold)).lineLimit(1)
@@ -101,7 +101,7 @@ struct DiscoverLightbox: View {
                         }
                         .buttonStyle(.plain)
                         .id(i)
-                        .accessibilityLabel("查看第 \(i + 1) 张图片")
+                        .accessibilityLabel(Self.thumbnailLabel(i))
                         .accessibilityAddTraits(i == index ? .isSelected : [])
                     }
                 }
@@ -115,6 +115,8 @@ struct DiscoverLightbox: View {
         }
         .accessibilityIdentifier("lightbox-thumbnails")
     }
+
+    private static func thumbnailLabel(_ index: Int) -> String { String(localized: .mediaImagesViewIndex(index + 1)) }
 }
 
 /// 可缩放的单张图：双指缩放、放大后拖动、双击在 1× / 2.5× 之间切换；

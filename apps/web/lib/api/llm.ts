@@ -14,6 +14,7 @@ async function unwrap<T>(promise: Promise<ApiEnvelope<T>>): Promise<T> {
 
 /** 供应商类型（与后端 movieclaw_llm 预设 id 对应）。 */
 export type LlmProviderType =
+  | "chatgpt"
   | "openai"
   | "bailian"
   | "deepseek"
@@ -31,9 +32,16 @@ export interface LlmModelInfo {
   context_window: number | null;
   /** 单独的输入上限（百炼公布，OpenAI 不单独公布） */
   max_input_tokens: number | null;
+  max_input_tokens_thinking?: number | null;
   /** 单次响应的输出上限 */
   max_output_tokens: number | null;
+  default_output_tokens?: number | null;
   supports_tools: boolean;
+  requires_responses_for_tools?: boolean;
+  chat_tools_require_no_reasoning?: boolean;
+  max_tokens_parameter?: "max_tokens" | "max_completion_tokens";
+  sampling_requires_no_reasoning?: boolean;
+  fixed_sampling?: boolean;
   /** 是否支持一次响应发起多个工具调用 */
   supports_parallel_tool_calls: boolean;
   /** 是否会输出思考内容（reasoning_content） */
@@ -55,6 +63,7 @@ export interface LlmThinkingControl {
   levels?: string[];
   /** 是否有真关闭协议（菜单出现「关」） */
   supports_off?: boolean;
+  off_body?: Record<string, unknown> | null;
 }
 
 /** 供应商预设（见 schemas.llm.LlmPresetView）：设置页渲染选项用。 */
@@ -67,11 +76,19 @@ export interface LlmPreset {
   requires_base_url: boolean;
   /** 用户不覆盖 User-Agent 时实际发送的 SDK 自带 UA（输入框占位提示） */
   default_user_agent: string;
+  /** 默认 API 协议（旧服务端不返回） */
+  protocol?: LlmApiProtocol | null;
+  /** 实例可切换的协议（含默认）；空或缺省 = 不可切换，隐藏选择器 */
+  selectable_protocols?: LlmApiProtocol[] | null;
   models: LlmModelInfo[];
 }
 
+/** 线协议：Chat Completions / Responses API（GPT-5.6 带工具调思考强度需后者） */
+export type LlmApiProtocol = "openai_chat" | "openai_responses" | "openai_chatgpt";
+
 /** 一个已接入的供应商实例（见 schemas.llm.LlmProviderView，脱敏无 API Key）。 */
 export interface LlmProviderConfig {
+  chatgpt_account?: string | null;
   id: number;
   /** 实例名（全局唯一，「实例名/模型id」路由引用的前半段） */
   name: string;
@@ -79,7 +96,9 @@ export interface LlmProviderConfig {
   base_url: string | null;
   /** 自定义 User-Agent；null 表示用 SDK 自带 UA */
   user_agent: string | null;
-  /** 连接测试用的模型（目录里第一个，服务端自动填） */
+  /** 选用的 API 协议；null 表示跟随预设默认 */
+  api_protocol?: LlmApiProtocol | null;
+  /** 连接测试用的模型（可指定，留空时服务端取目录第一项） */
   default_model: string;
   status: LlmProviderStatus;
   /** 是否可用 = 连接测试通过 */
@@ -102,7 +121,10 @@ export interface LlmProviderPayload {
   base_url?: string | null;
   /** 自定义 User-Agent：留空（null）使用 SDK 自带 UA */
   user_agent?: string | null;
-  api_key: string;
+  /** API 协议：null 跟随预设默认；不传则编辑时沿用原值 */
+  api_protocol?: LlmApiProtocol | null;
+  /** 新增必填；编辑时留空（null）沿用原 Key，但改了类型或端点须重填 */
+  api_key?: string | null;
   /** 连接测试模型；留空由服务端取目录第一个 */
   default_model?: string | null;
   /** 自定义模型目录（openai_compat 端点至少一条，每条带齐参数） */
@@ -154,6 +176,16 @@ export function listLlmModels(init?: RequestInit): Promise<LlmModelOption[]> {
   return unwrap(request<ApiEnvelope<LlmModelOption[]>>("/llm/models", init));
 }
 
+/** 查询草稿端点上报的模型 ID；不保存配置，编辑时可沿用同一端点的密钥。 */
+export function discoverLlmModels(
+  payload: LlmProviderPayload & { provider_id?: number },
+): Promise<string[]> {
+  return unwrap(request<ApiEnvelope<string[]>>("/llm/models/discover", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }));
+}
+
 /** 接入一个实例（保存后后端异步测试连接；第一个实例自动成为默认）。 */
 export function createLlmProvider(payload: LlmProviderPayload): Promise<LlmProviderConfig> {
   return unwrap(
@@ -200,8 +232,7 @@ export function updateLlmDefaults(payload: LlmDefaultsPayload): Promise<LlmDefau
 }
 
 /** 删除一个实例（AI 设定里指向它的默认模型会自动兜底）。 */
-export function deleteLlmProvider(id: number): Promise<Record<string, never>> {
-  return unwrap(
-    request<ApiEnvelope<Record<string, never>>>(`/llm/providers/${id}`, { method: "DELETE" }),
-  );
+export async function deleteLlmProvider(id: number): Promise<{ message: string; remoteRevoked?: boolean }> {
+  const result = await request<ApiEnvelope<{ remote_revoked?: boolean }>>(`/llm/providers/${id}`, { method: "DELETE" });
+  return { message: result.message, remoteRevoked: result.data.remote_revoked };
 }

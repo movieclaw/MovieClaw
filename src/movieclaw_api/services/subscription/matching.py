@@ -26,6 +26,7 @@ from sqlmodel import select
 # 发布预测的预筛都依赖它与源字段一致（见 services/torrent_match_text.py）
 import movieclaw_api.services.torrent_match_text  # noqa: F401
 from movieclaw_api import hooks
+from movieclaw_api.i18n.stored import reference, source_render, source_text, stored_fields
 from movieclaw_api.services.subscription.identity_recheck import (
     fetch_external_ids,
     needs_external_id_recheck,
@@ -34,6 +35,7 @@ from movieclaw_api.services.subscription.smart_profiles import read_policy
 from movieclaw_api.services.subscription.twins import ambiguous_verdict, ensure_twins
 from movieclaw_db.models import (
     ActivityType,
+    MediaEpisode,
     MediaItem,
     MediaMetadata,
     MediaSeason,
@@ -112,6 +114,17 @@ def upgrade_backoff_delay(attempts: int) -> timedelta:
 
 
 _SITE_CALENDAR_TIMEZONE = ZoneInfo(DEFAULT_SITE_TIMEZONE)
+
+
+# 追新工单的漏抓宽限期：air_date + 该值 = 首个真实搜索到期时刻。
+# 被动匹配通常在到点前满足工单；真到点仍缺的，worker 捞起即漏抓兜底。
+FUTURE_GRACE = timedelta(hours=48)
+
+# 明确单集的提前发布容错（issue #1044）：TMDB 记录的播出日常比站点首发晚
+# 一两天（平台抢先上线、时区与录入偏差）。标题写明季集号的单集资源，播出日
+# 不晚于"发布日 + 该值"即视为可覆盖；整季/全集包展开仍以发布日为硬上限，
+# 不拿容错去批量承诺未来集。发布时间预测（release_forecast）采样用同一口径。
+EARLY_RELEASE_TOLERANCE = timedelta(days=2)
 
 
 def publish_calendar_date(value: datetime | None) -> date:
@@ -219,6 +232,45 @@ async def load_season_titles(session: AsyncSession, media_item_id: int) -> tuple
     )
 
 
+async def media_identity(
+    session: AsyncSession, item: MediaItem, *, season_numbers: tuple[int, ...]
+) -> MediaIdentity:
+    """条目的内核身份切片（缺口匹配与集数证据探测共用同一口径）。"""
+    assert item.id is not None
+    season_titles = await load_season_titles(session, item.id)
+    # 片长：体积÷片长 的反证要用（§6）。冷门片 TMDB 常缺，缺了反证自动跳过
+    runtime_minutes = (
+        await session.execute(
+            select(MediaMetadata.runtime_minutes).where(MediaMetadata.media_item_id == item.id)
+        )
+    ).scalar_one_or_none()
+    # 已播集：与包种子声明的「全 N 集」对照，识破同名的另一部剧
+    aired_episodes = tuple(
+        (
+            await session.execute(
+                select(MediaEpisode.season_number, MediaEpisode.air_date).where(
+                    MediaEpisode.media_item_id == item.id,
+                    MediaEpisode.season_number != 0,
+                    MediaEpisode.air_date.is_not(None),  # type: ignore[union-attr]
+                )
+            )
+        )
+        .tuples()
+        .all()
+    )
+    return MediaIdentity(
+        kind=item.kind,
+        year=item.year,
+        aliases=tuple(item.aliases),
+        imdb_id=item.imdb_id,
+        douban_id=item.douban_id,
+        season_numbers=season_numbers,
+        season_titles=season_titles,
+        runtime_minutes=runtime_minutes,
+        aired_episodes=aired_episodes,
+    )
+
+
 async def _ensure_context(
     session: AsyncSession,
     contexts: dict[int, MediaContext],
@@ -233,27 +285,10 @@ async def _ensure_context(
     item = await session.get(MediaItem, media_item_id)
     if item is None:  # 外键保证下理论不可达
         return None
-    season_titles = await load_season_titles(session, media_item_id)
-    # 片长：体积÷片长 的反证要用（§6）。冷门片 TMDB 常缺，缺了反证自动跳过
-    runtime_minutes = (
-        await session.execute(
-            select(MediaMetadata.runtime_minutes).where(
-                MediaMetadata.media_item_id == media_item_id
-            )
-        )
-    ).scalar_one_or_none()
     ctx = MediaContext(
         item=item,
-        identity=MediaIdentity(
-            kind=item.kind,
-            year=item.year,
-            aliases=tuple(item.aliases),
-            imdb_id=item.imdb_id,
-            douban_id=item.douban_id,
-            season_numbers=(),  # 先占位，收集完工单后统一回填
-            season_titles=season_titles,
-            runtime_minutes=runtime_minutes,
-        ),
+        # 季号先占位，收集完工单后统一回填
+        identity=await media_identity(session, item, season_numbers=()),
         subscription=subscription,
         spec=spec,
         open_wanted={},
@@ -533,10 +568,8 @@ def _id_conflict_verdict(match: IdentityMatch) -> RuleVerdict:
     return RuleVerdict(
         accepted=False,
         reason_code="identity_id_conflict",
-        reason_text=(
-            f"站点标注的影片编号与本条目不符（{match.id_conflict}）；"
-            "若确认是站点标错，可在搜索页手动选种投递"
-        ),
+        # matcher 的裁决只收字符串：落中文原文，展示侧按读者语言另给引用
+        reason_text=source_text("subscription.matching.idConflict", conflict=match.id_conflict),
     )
 
 
@@ -558,7 +591,7 @@ def _absurd_size_verdict(reason: str) -> RuleVerdict:
     return RuleVerdict(
         accepted=False,
         reason_code="size_absurd_for_runtime",
-        reason_text=f"{reason}；若确认这就是你要的资源，可在搜索页手动选种投递",
+        reason_text=source_text("subscription.matching.absurdSize", reason=reason),
     )
 
 
@@ -568,7 +601,9 @@ def _recheck_mismatch_verdict(candidate: TorrentCandidate) -> RuleVerdict:
     return RuleVerdict(
         accepted=False,
         reason_code="identity_recheck_failed",
-        reason_text=(f"投递前复核后无法确认「{candidate.title[:60]}」属于本条目，已跳过"),
+        reason_text=source_text(
+            "subscription.matching.recheckFailed", title=candidate.title[:60]
+        ),
     )
 
 
@@ -589,8 +624,9 @@ def covered_units(
     **发布时间是覆盖范围的物理上限**（真实教训：2025-12 发布的他剧整季包曾把
     2026-06 才开播订阅的未播集标记为已投递）：
     - 整季/全集包展开只覆盖"种子发布时已播出"的集；未定档集无证据，不覆盖；
-    - 显式声明的集号（标题写明 E05）信其声明，但播出日期晚于发布时间的仍剔除
-      ——未来的集在物理上不可能已经存在于种子里。
+    - 显式声明的集号（标题写明 E05）信其声明，容许播出日比发布日晚
+      ``EARLY_RELEASE_TOLERANCE``（平台常提前一两天首发，issue #1044）；再晚的
+      仍剔除——远期集在物理上不可能已经存在于种子里。
     ``published``：种子发布日期（date）；未知时调用方传评估当日（保守可用）。
     """
 
@@ -599,28 +635,56 @@ def covered_units(
             return not require_dated
         return w.air_date <= published
 
+    def _explicit_airable(w: WantedItem) -> bool:
+        # 标题明确写了这一集：容许常见的一两天提前首发（EARLY_RELEASE_TOLERANCE），
+        # 再往前就更像集号错配/远期集，仍剔除
+        if w.air_date is None:
+            return True
+        return w.air_date <= published + EARLY_RELEASE_TOLERANCE
+
+    def _declared(w: WantedItem) -> bool:
+        # 「全 N 集」声明兜住未定档单元（多为超出 TMDB 的占位集，issue #640）：
+        # 它们没有播出日期可比发布时间，包里有没有只能信标题声明的总集数。
+        # 只在能确定声明指向哪一季时采信——多季包的"全 N 集"说不清是哪季的
+        total = match.declared_total
+        return w.air_date is None and total is not None and 0 < w.episode_number <= total
+
+    def _beyond_declared(w: WantedItem) -> bool:
+        # 「全 N 集」也是上限：包里不可能有第 N+1 集。真实教训：全 8 集的同名剧
+        # 整季包被展开到 13 集的纪录片订阅上，E09~E13 永远选不到文件、对账空转
+        total = match.declared_total
+        return total is not None and total > 0 and w.episode_number > total
+
     if match.is_complete_series:
         # 全集包不承诺特别篇（season 0 的具体集）：市面上的"全集/合集"几乎
         # 从不收录 SP/短剧集，赌它包含的代价是工单挂上一个永远等不来的种子
         # （真实教训：绝命毒师全集包 62 个文件全是 S01-S05 正剧，S00 工单
         # 以 grabbed 卡死"等待入库"）。特别篇只信显式声明——标题写明 S00/SP
         # 时走 episodes / pack_seasons 通道覆盖。电影单元 (0, 0) 不受影响。
+        regular_seasons = {s for s, _ in open_units if s != 0}
+        single_season = len(regular_seasons) == 1
         return [
             w
             for w in open_units.values()
             if not (w.season_number == 0 and w.episode_number > 0)
-            and _airable(w, require_dated=True)
+            and not (single_season and _beyond_declared(w))
+            and (
+                _airable(w, require_dated=True)
+                or (single_season and w.season_number != 0 and _declared(w))
+            )
         ]
     result = [
-        w
-        for key, w in open_units.items()
-        if key in match.episodes and _airable(w, require_dated=False)
+        w for key, w in open_units.items() if key in match.episodes and _explicit_airable(w)
     ]
     if match.pack_seasons:
+        single_pack = len(match.pack_seasons) == 1
         result.extend(
             w
             for (season, _), w in open_units.items()
-            if season in match.pack_seasons and w not in result and _airable(w, require_dated=True)
+            if season in match.pack_seasons
+            and w not in result
+            and not (single_pack and _beyond_declared(w))
+            and (_airable(w, require_dated=True) or (single_pack and _declared(w)))
         )
     return result
 
@@ -746,6 +810,11 @@ async def evaluate_and_dispatch(
 
     summary = MatchSummary(torrents_seen=len(torrents))
     torrents = await drop_protected_sites(session, torrents)
+    # 集数证据要看"缺口已清零"的订阅：TMDB 少录集数的剧恰恰停在这一步，
+    # 下面的缺口上下文根本不会装载它们（issue #640）
+    from movieclaw_api.services.subscription.episode_floor import record_episode_overflow
+
+    await record_episode_overflow(session, torrents, subscription_ids=subscription_ids)
     contexts = await load_match_context(session, subscription_ids=subscription_ids)
     if not contexts:
         return summary
@@ -784,7 +853,13 @@ async def evaluate_and_dispatch(
                 if ctx.item.kind == "movie":
                     identity_rejections_by_media.setdefault(media_id, {})[
                         candidate_key(candidate)
-                    ] = f"{candidate.title}：{_id_conflict_verdict(match).reason_text}"
+                    ] = reference(
+                        "subscription.matching.identityRejected",
+                        title=candidate.title,
+                        reason=reference(
+                            "subscription.matching.idConflict", conflict=match.id_conflict
+                        ),
+                    )
                 # 外部 ID 反证：站点明确说了这是另一部片。当下没有别的上下文
                 # 可以推翻它（时长/体积反证与孪生条目探测尚未落地），按保守
                 # 口径否决——但**必须留下解释**：站点的 IMDb 是上传者手填的，
@@ -900,8 +975,8 @@ async def evaluate_and_dispatch(
                             else _recheck_mismatch_verdict(enriched),
                             source,
                         )
-                        identity_rejections[candidate_key(candidate)] = (
-                            f"{candidate.title}：影片编号与订阅不符，已跳过"
+                        identity_rejections[candidate_key(candidate)] = reference(
+                            "subscription.matching.idMismatch", title=candidate.title
                         )
                         continue
                     # 证据变强了：候选与判定一起换成复核后的版本，投递台账
@@ -932,7 +1007,11 @@ async def evaluate_and_dispatch(
                         _ambiguous_verdict(outcome, reason),
                         source,
                     )
-                    identity_rejections[candidate_key(candidate)] = f"{candidate.title}：{reason}"
+                    identity_rejections[candidate_key(candidate)] = reference(
+                        "subscription.matching.identityRejected",
+                        title=candidate.title,
+                        reason=reason,
+                    )
                     continue
             verified.append((candidate, match, verdict, rank))
         entries = verified
@@ -1151,20 +1230,23 @@ async def _log_rejection(
             and activity.payload.get("reason_code") == verdict.reason_code
         ):
             return  # 已经解释过这个候选为什么被拒，不重复刷屏
-    units_label = units_text(covered)
-    reason_note = f"{verdict.reason_text}——来自 {candidate.site_id} 的「{candidate.title[:60]}」"
+    reason_note = reference(
+        "subscription.matching.rejectNote",
+        reason=verdict.reason_text,
+        site=candidate.site_id,
+        title=candidate.title[:60],
+    )
     # 单集履历注解：最近一次被拒原因冻结在工单上，详情页里程碑链的搜索站
     # 直接读。covered 行与本 repo 同一 session，setattr 进 dirty 集、随下方
     # add_activity 的 commit 一起落库。同一种子的重复评估在上方去重 return，
     # 不会用旧闻覆盖更新的拒绝原因。
     for w in covered:
-        w.last_reject_reason = reason_note
+        w.last_reject_reason = source_render(reason_note)
     await repo.add_activity(
         SubscriptionActivity(
             subscription_id=subscription_id,
             wanted_item_id=covered[0].id,
             type=ActivityType.MATCH_REJECTED,
-            message=f"{units_label}有候选被拒：{reason_note}",
             payload={
                 "site_id": candidate.site_id,
                 "torrent_id": candidate.torrent_id,
@@ -1172,16 +1254,25 @@ async def _log_rejection(
                 "source": source,
                 "units": [[w.season_number, w.episode_number] for w in covered],
             },
+            **stored_fields(
+                "activity.subscription.candidatesRejected",
+                units=units_reference(covered),
+                reason=reason_note,
+            ),
         )
     )
 
 
 def units_text(rows: list[WantedItem]) -> str:
-    """工单列表 → 可读单元描述："正片" / "S02E01" / "S02E01 等 8 集"。"""
+    """工单列表 → 可读单元描述（中文原文，日志用）："正片" / "S02E01" / "S02E01 等 8 集"。"""
+    return source_render(units_reference(rows))
+
+
+def units_reference(rows: list[WantedItem]) -> dict | str:
     first = rows[0]
     if first.season_number == 0 and first.episode_number == 0:
-        return "正片"
+        return reference("media.kind.feature")
     label = f"S{first.season_number:02d}E{first.episode_number:02d}"
     if len(rows) == 1:
         return label
-    return f"{label} 等 {len(rows)} 集"
+    return reference("activity.subscription.multipleUnits", first=label, count=len(rows))

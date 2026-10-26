@@ -29,6 +29,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from movieclaw_api.i18n import t
 from movieclaw_api.services.library.config import sanitize_folder_name
 
 # 占位符：``{name}`` 或 ``{name:02d}``（补零仅对纯数字值生效）
@@ -74,12 +75,12 @@ MAX_SEGMENT_BYTES = 200
 # 自由文本最多截到这么长（约 10 个汉字）：片名截没了不同影片会撞名
 _SHRINK_FLOOR_BYTES = 30
 
-# 模板字段的中文名（错误文案用，面向非开发者）
-FIELD_LABELS = {
-    "entry_dir": "条目目录",
-    "movie_file": "电影文件名",
-    "season_dir": "季目录",
-    "episode_file": "剧集文件名",
+# 模板字段 → 展示名的文案键（错误文案用，面向非开发者）
+FIELD_LABEL_KEYS = {
+    "entry_dir": "library.naming.field.entryDir",
+    "movie_file": "library.naming.field.movieFile",
+    "season_dir": "library.naming.field.seasonDir",
+    "episode_file": "library.naming.field.episodeFile",
 }
 
 
@@ -216,19 +217,22 @@ def render(template: str, context: Mapping[str, Any]) -> str:
 
 def validate_template(field: str, template: str) -> str | None:
     """校验单个模板；通过返回 None，否则返回面向用户的中文错误。"""
-    label = FIELD_LABELS.get(field, field)
+    label = t(FIELD_LABEL_KEYS[field]) if field in FIELD_LABEL_KEYS else field
     if not template.strip():
-        return f"{label}模板不能为空"
+        return t("library.naming.empty", field=label)
     if "/" in template or "\\" in template:
-        return f"{label}模板不能包含路径分隔符（目录层级是固定的，模板只描述一段名字）"
+        return t("library.naming.separator", field=label)
 
     allowed = ALLOWED_TOKENS[field]
     used = {m.group(1) for m in _TOKEN.finditer(template)}
     unknown = sorted(used - allowed)
     if unknown:
-        return (
-            f"{label}模板里有不可用的占位符：{'、'.join('{' + n + '}' for n in unknown)}"
-            f"（该模板可用：{'、'.join('{' + n + '}' for n in sorted(allowed))}）"
+        separator = t("common.list.separator")
+        return t(
+            "library.naming.unknownTokens",
+            field=label,
+            unknown=separator.join("{" + n + "}" for n in unknown),
+            allowed=separator.join("{" + n + "}" for n in sorted(allowed)),
         )
 
     return None

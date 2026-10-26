@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -28,6 +29,28 @@ class EngineDependencyTests(unittest.TestCase):
 
     def test_accepts_committed_lock(self):
         prepare.check_lock(self.project, self.lock)
+
+    def test_catalog_languages_are_added_to_generated_project(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Shared").mkdir()
+            (root / "MovieClaw.xcodeproj").mkdir()
+            (root / "Shared/Localizable.xcstrings").write_text(
+                json.dumps(
+                    {
+                        "sourceLanguage": "zh-Hans",
+                        "strings": {"common.close": {"localizations": {"en": {}, "zh-Hant": {}}}},
+                    }
+                )
+            )
+            project = root / "MovieClaw.xcodeproj/project.pbxproj"
+            project.write_text('knownRegions = ("zh-Hans", Base);')
+            prepare.add_catalog_regions(root)
+            result = project.read_text()
+            self.assertIn('"en"', result)
+            self.assertIn('"zh-Hant"', result)
+            self.assertIn('"zh-Hans"', result)
+            self.assertIn('"Base"', result)
 
     def test_rejects_unresolved_engine_upgrade(self):
         self.project["packages"]["AetherEngine"]["revision"] = "0" * 40

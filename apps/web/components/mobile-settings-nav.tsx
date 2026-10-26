@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useLayoutEffect } from "react";
@@ -9,7 +11,7 @@ import { PAGE_NAV_BUTTON_CLASS } from "@/components/page-nav";
 import { SearchCommand } from "@/components/search-command";
 import { useBackNavigation } from "@/lib/back-navigation";
 import { usePageChrome } from "@/lib/page-chrome";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 
 /**
  * 移动端设置页的导航条：左侧返回键 + 页面标题 + 右侧搜索键（基础实现，两个
@@ -47,6 +49,7 @@ export function MobileSettingsNav({
   /** 列表页（银玻璃）：按浏览历史回到打开「更多」面板的那一页，无历史才落 backHref */
   historyBack?: boolean;
 }) {
+  const t = useTranslations();
   const router = useRouter();
   const chrome = usePageChrome();
   const goBackInHistory = useBackNavigation(backHref);
@@ -59,15 +62,15 @@ export function MobileSettingsNav({
   // 设置，与 iOS 设置页的返回心智不符。固定 replace 到上级，一次到位且不
   // 额外堆积历史。
   const back = () => (historyBack ? goBackInHistory() : router.replace(backHref));
-  const isNf = useTheme().structural;
+  const cinema = useLayout() === "cinema";
 
   return (
     <div
       className={`relative z-30 shrink-0 px-2 py-2 pt-[calc(var(--safe-top)+0.5rem)] ${
-        isNf ? "border-b border-[var(--line)] bg-[var(--bg)]" : ""
+        cinema ? "border-b border-[var(--line)] bg-[var(--bg)]" : ""
       }`}
     >
-      {!isNf && (
+      {!cinema && (
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-x-0 -bottom-6 top-0 backdrop-blur-md"
@@ -83,7 +86,7 @@ export function MobileSettingsNav({
         <button
           type="button"
           onClick={back}
-          aria-label="返回"
+          aria-label={t("nav.actions.back")}
           // 返回键与右侧搜索键同一套规格（PAGE_NAV_BUTTON_CLASS：size-9 /
           // pointer-coarse:size-11，按指针能力分档）：全站返回键同图标
           // （ChevronLeft）同尺寸档，不再用 !important 强制 44px 单档

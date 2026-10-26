@@ -23,6 +23,10 @@
  */
 
 import { useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import { formatList, formatNumber } from "@/lib/i18n/format";
+import type { AppLocale } from "@/lib/i18n/negotiate";
 
 import { Modal } from "@/components/modal";
 import { formatBytes } from "@/lib/format";
@@ -37,8 +41,9 @@ const DANGER_BTN_CLS =
   "rounded-lg bg-red-500/85 px-4 py-2 text-ui font-medium text-white transition hover:bg-red-500 disabled:opacity-50";
 
 /** 「第 2 季」/「第 2、4 季」——与后端 _season_text 同一口径。 */
-function seasonText(seasons: number[]): string {
-  return `第 ${[...seasons].sort((a, b) => a - b).join("、")} 季`;
+function seasonText(seasons: number[], locale: AppLocale): string {
+  const t = appTranslator(locale);
+  return t("subscription.seasonCleanup.seasons", { numbers: formatList([...seasons].sort((a, b) => a - b).map(n => formatNumber(n, undefined, locale)), locale), count: seasons.length });
 }
 
 export function SeasonCleanupDialog({
@@ -61,6 +66,8 @@ export function SeasonCleanupDialog({
   /** 用户确认清理：带上两个开关的最终取值 */
   onConfirm: (options: SubscriptionRemovalOptions) => Promise<void> | void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const [deleteTorrents, setDeleteTorrents] = useState(false);
   const [deleteLibraryFiles, setDeleteLibraryFiles] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -74,20 +81,17 @@ export function SeasonCleanupDialog({
     }
   };
 
-  const label = seasonText(seasons);
-  // 多季一起减时「这一季」读不通；范围本身已由标题和每个开关点明
-  const them = seasons.length > 1 ? "这几季" : "这一季";
+  const label = seasonText(seasons, locale);
   const torrentCount = preview.torrent_count;
   const fileCount = preview.library_file_count;
   const retained = preview.retained_cross_season;
 
   return (
-    <Modal open={open} onClose={busy ? () => {} : onClose} label={`清理${label}的内容`}>
+    <Modal open={open} onClose={busy ? () => {} : onClose} label={t("subscription.seasonCleanup.label", { seasons: label })}>
       <div className="p-6 max-md:p-5">
-        <h2 className="text-title-sm font-bold text-white">{label}已移出订阅</h2>
+        <h2 className="text-title-sm font-bold text-white">{t("subscription.seasonCleanup.removed", { seasons: label })}</h2>
         <p className="mt-2 text-sub leading-6 text-[var(--text-muted)]">
-          《{title}》的{them}不再追了。要不要把已经下载的内容也清理掉？不清理也没关系，
-          种子和文件都原样留着。
+          {t("subscription.seasonCleanup.description", { title, count: seasons.length })}
         </p>
 
         <div className="mt-4 space-y-3">
@@ -97,17 +101,17 @@ export function SeasonCleanupDialog({
             onChange={setDeleteTorrents}
             label={
               torrentCount === 0
-                ? `同时删除${label}的下载任务（没有可单独删除的任务）`
-                : `同时删除${label}的下载任务（${torrentCount} 个）`
+                ? t("subscription.seasonCleanup.noTasks", { seasons: label })
+                : t("subscription.seasonCleanup.tasks", { seasons: label, count: torrentCount })
             }
             description={
               torrentCount === 0
                 ? undefined
-                : `从下载器移除任务，并删除下载目录里的文件，不可恢复。以后重新勾选${them}需要重新下载。`
+                : t("subscription.seasonCleanup.taskConsequence", { count: seasons.length })
             }
             warning={
               deleteTorrents && preview.hit_and_run_count > 0
-                ? `其中 ${preview.hit_and_run_count} 个种子仍在 H&R 考核或考核状态未知，删除后可能影响站点考核。`
+                ? t("subscription.seasonCleanup.hitAndRun", { count: preview.hit_and_run_count })
                 : undefined
             }
           />
@@ -117,13 +121,13 @@ export function SeasonCleanupDialog({
             onChange={setDeleteLibraryFiles}
             label={
               fileCount === 0
-                ? `同时删除${label}在媒体库里的资源（媒体库中没有）`
-                : `同时删除${label}在媒体库里的资源（${fileCount} 个文件 · ${formatBytes(preview.library_bytes)}）`
+                ? t("subscription.seasonCleanup.noFiles", { seasons: label })
+                : t("subscription.seasonCleanup.files", { seasons: label, count: fileCount, size: formatBytes(preview.library_bytes) })
             }
             description={
               fileCount === 0
                 ? undefined
-                : `文件会移入媒体库回收站，${preview.recycle_retention_days} 天内可以恢复。`
+                : t("subscription.seasonCleanup.recycle", { days: preview.recycle_retention_days })
             }
           />
         </div>
@@ -132,21 +136,19 @@ export function SeasonCleanupDialog({
             用户不需要处理它（全站口径：只有"要你处理"才配用警告色） */}
         {retained.length > 0 && (
           <p className="mt-3 rounded-lg border border-[var(--info)]/25 bg-[var(--info)]/[0.08] px-3 py-2 text-xs leading-5 text-[#bcd4ff]">
-            另有 {retained.length} 个跨季种子
-            {retained[0].seasons.length > 0 && `（如 ${seasonText(retained[0].seasons)}合集）`}
-            仍被保留的季使用，不会删除。
+            {t("subscription.seasonCleanup.retained", { count: retained.length, hasExample: retained[0].seasons.length > 0 ? "yes" : "no", example: seasonText(retained[0].seasons, locale) })}
           </p>
         )}
 
         {(deleteTorrents || deleteLibraryFiles) && (
           <p className="mt-4 rounded-lg bg-white/[0.04] px-3 py-2.5 text-xs leading-5 text-[var(--text-muted)]">
-            清理在后台进行——可以在「任务中心」查看进度和结果。
+            {t("subscription.seasonCleanup.background")}
           </p>
         )}
 
-        <div className="mt-5 flex justify-end gap-2.5">
+        <div className={`mt-5 flex justify-end gap-2.5 ${locale === "en" ? "flex-wrap" : ""}`}>
           <button type="button" onClick={onClose} disabled={busy} className={CANCEL_BTN_CLS}>
-            保留内容
+            {t("subscription.seasonCleanup.keep")}
           </button>
           <button
             type="button"
@@ -154,7 +156,7 @@ export function SeasonCleanupDialog({
             disabled={busy || (!deleteTorrents && !deleteLibraryFiles)}
             className={DANGER_BTN_CLS}
           >
-            {busy ? "处理中…" : `清理${label}`}
+            {busy ? t("subscription.seasonCleanup.busy") : t("subscription.seasonCleanup.confirm", { seasons: label })}
           </button>
         </div>
       </div>

@@ -11,6 +11,9 @@ const hooks = registerHooks({
         shortCircuit: true,
       };
     }
+    if (specifier.startsWith("@/lib/")) {
+      return nextResolve(new URL(`../${specifier.slice(2)}.ts`, import.meta.url).href, context);
+    }
     return nextResolve(specifier, context);
   },
 });

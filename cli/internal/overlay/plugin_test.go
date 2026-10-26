@@ -112,6 +112,57 @@ func TestPluginManifestErrorsAreActionable(t *testing.T) {
 	}
 }
 
+func TestWebOnlyPluginNeedsNoEntry(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "movieclaw-plugin.toml"),
+		[]byte("[plugin]\nid = \"weekly-board\"\ntitle = \"看板\"\nversion = \"1.0.0\"\n"), 0o644)
+	if _, err := readPluginManifest(dir); err == nil || !strings.Contains(err.Error(), "entry") {
+		t.Fatalf("既没有 entry 也没有 web/index.html 要报缺 entry，实际：%v", err)
+	}
+	os.MkdirAll(filepath.Join(dir, "web"), 0o755)
+	os.WriteFile(filepath.Join(dir, "web", "index.html"), []byte("<title>看板</title>"), 0o644)
+	manifest, err := readPluginManifest(dir)
+	if err != nil || manifest.ID != "weekly-board" {
+		t.Fatalf("只带网页的插件不需要入口模块，实际：%+v %v", manifest, err)
+	}
+	data, _, err := buildPluginPackage(dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, _ := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	found := false
+	for _, f := range archive.File {
+		found = found || f.Name == "web/index.html"
+	}
+	if !found {
+		t.Fatal("web/ 要打进包里")
+	}
+}
+
+func TestThemeOnlyPluginNeedsNoEntry(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "movieclaw-plugin.toml"),
+		[]byte("[plugin]\nid = \"ocean\"\nversion = \"1.0.0\"\n\n[theme]\nlabel = \"海蓝\"\n"), 0o644)
+	os.MkdirAll(filepath.Join(dir, "theme"), 0o755)
+	os.WriteFile(filepath.Join(dir, "theme", "theme.css"), []byte(`html[data-theme="ocean"] {}`), 0o644)
+	manifest, err := readPluginManifest(dir)
+	if err != nil || manifest.ID != "ocean" {
+		t.Fatalf("只带主题的插件不需要入口模块，实际：%+v %v", manifest, err)
+	}
+	data, _, err := buildPluginPackage(dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, _ := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	found := false
+	for _, f := range archive.File {
+		found = found || f.Name == "theme/theme.css"
+	}
+	if !found {
+		t.Fatal("theme/ 要打进包里")
+	}
+}
+
 func TestDirFingerprintChangesWithContent(t *testing.T) {
 	dir := writePluginDir(t)
 	first, err := dirFingerprint(dir)
@@ -131,5 +182,39 @@ func TestDirFingerprintChangesWithContent(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "__pycache__", "demo.pyc"), []byte("other"), 0o644)
 	if cache, _ := dirFingerprint(dir); cache != changed {
 		t.Fatal("__pycache__ 变化不应触发重装")
+	}
+}
+
+func TestBuildExecPluginPackageKeepsTheExecutable(t *testing.T) {
+	dir := t.TempDir()
+	manifest := "[plugin]\nid = \"go-demo\"\nversion = \"0.1.0\"\nruntime = \"exec\"\n" +
+		"command = \"bin/bridge\"\nplatforms = [\"linux/amd64\"]\n"
+	if err := os.WriteFile(filepath.Join(dir, "movieclaw-plugin.toml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := buildPluginPackage(dir, ""); err == nil || !strings.Contains(err.Error(), "bin/bridge") {
+		t.Fatalf("缺可执行文件应报错并点名，实际 %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bin", "bridge"), []byte("\x7fELF"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, read, err := buildPluginPackage(dir, "")
+	if err != nil {
+		t.Fatalf("打包失败：%v", err)
+	}
+	if read.Runtime != "exec" || read.Command != "bin/bridge" || read.Entry != "" {
+		t.Fatalf("清单读错了：%+v", read)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range archive.File {
+		if file.Name == "bin/bridge" && file.Mode()&0o111 == 0 {
+			t.Fatalf("可执行位丢了：%v", file.Mode())
+		}
 	}
 }

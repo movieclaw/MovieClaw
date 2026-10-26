@@ -1,0 +1,9 @@
+{
+  "duration": {
+    "seconds": "{count} 秒",
+    "minutes": "{count} 分钟",
+    "hours": "{count} 小时",
+    "fractionalHours": "{count, number, oneDecimal} 小时",
+    "hoursMinutes": "{hours} 小时 {minutes} 分钟"
+  }
+}

@@ -1,5 +1,11 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator, type AppMessageKey } from "@/lib/i18n/translate";
+import { formatList } from "@/lib/i18n/format";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+
 import {
   createContext,
   memo,
@@ -30,7 +36,7 @@ import { useTileWindow } from "@/components/photo-wall";
 import { PosterImage } from "@/components/poster-image";
 import { Tooltip } from "@/components/tooltip";
 import { ZoomLightbox, type ZoomLightboxSlide } from "@/components/zoom-lightbox";
-import { CATEGORY_LABEL, type SearchScope, type TorrentCategory } from "@/lib/categories";
+import { categoryLabel, searchScopeLabel, type SearchScope, type TorrentCategory } from "@/lib/categories";
 import {
   forgetDownloadTargetPref,
   listDownloadTargetPrefs,
@@ -61,7 +67,7 @@ import { cachedImageUrl, coverWidth, fullScreenImageWidth, screenImageWidth } fr
 import { layoutPosterGrid } from "@/lib/wall-window";
 import { usePermissions } from "@/lib/permissions";
 import { formatDateTime, formatRelativeTime } from "@/lib/time";
-import { useTheme } from "@/lib/ui-prefs";
+import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
 
@@ -93,6 +99,8 @@ import { useScrollRestoration } from "@/lib/use-scroll-restoration";
  */
 export interface SearchQuery {
   keyword: string;
+  /** 同搜词：与 keyword 一起搜、结果按站点合并（详情页「搜索资源」带上英文名/原名） */
+  also?: string[];
   /** 搜索范围（标签换算而来）：展示名 + 分类/站点组合 */
   scope: SearchScope;
   /**
@@ -105,7 +113,13 @@ export interface SearchQuery {
 export interface SearchResultsProps {
   query: SearchQuery;
   /** 发起实时搜索（快照提示条的「重新搜索」按钮）；不传则不渲染该按钮。 */
-  onResearch?: (keyword: string, scope: SearchScope) => void;
+  onResearch?: (keyword: string, scope: SearchScope, also?: string[]) => void;
+  /**
+   * 地址栏带着一次性 fresh=1（快照条「重新搜索」）：挂载时这次搜索不复用服务端刚跑完
+   * 的同一个搜索。由页面从 useSearchParams 读入——客户端跳转时新页面先渲染、地址栏后更新，
+   * 这里读 window.location 会读到上一页的地址。
+   */
+  fresh?: boolean;
   /** 手动选种模式（URL 的 for_sub 参数）：每条资源多一颗「投给订阅」按钮，
    *  点击直接投给该订阅（跳过规则组过滤，身份匹配照常）。 */
   grabForSubscriptionId?: number | null;
@@ -215,18 +229,21 @@ interface SiteProgress {
   phase: "searching" | "ok" | "error";
   count: number;
   error: string | null;
+  error_key?: string | null;
+  error_params?: Record<string, string | number> | null;
   elapsed_ms: number | null;
 }
 
 /** 耗时展示：统一到秒（一位小数），站点状态弹层用。 */
-function formatElapsed(ms: number): string {
-  return `${(ms / 1000).toFixed(1)} 秒`;
+function formatElapsed(ms: number, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  return t("search.results.elapsed", { seconds: ms / 1000 });
 }
 
 /** 影视类型的展示文案（值与后端 TorrentAttrs.media_type 一致）。 */
-const MEDIA_TYPE_LABEL: Record<string, string> = {
-  movie: "电影",
-  tv: "剧集",
+const MEDIA_TYPE_LABEL: Record<string, AppMessageKey> = {
+  movie: "search.kind.movie",
+  tv: "search.kind.tv",
 };
 
 /* —— 排序 —— */
@@ -240,11 +257,11 @@ type SortKey =
   | "quality"
   | "free";
 
-const SORT_OPTIONS: { key: SortKey; label: string }[] = [
-  { key: "seeders", label: "做种数" },
-  { key: "time", label: "发布时间" },
-  { key: "size", label: "体积" },
-  { key: "snatched", label: "完成数" },
+const SORT_OPTIONS: { key: SortKey; label: AppMessageKey }[] = [
+  { key: "seeders", label: "search.sort.seeders" },
+  { key: "time", label: "search.sort.time" },
+  { key: "size", label: "search.sort.size" },
+  { key: "snatched", label: "search.sort.snatched" },
 ];
 
 /**
@@ -253,10 +270,10 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
  * 「全集优先」，电影为主时给「画质优先」，「免费优先」常驻。
  * 语义都是「优先」，选中即降序（升序无意义但仍可手动切换）。
  */
-const SMART_SORT_OPTIONS: { key: SortKey; label: string }[] = [
-  { key: "complete", label: "全集优先" },
-  { key: "quality", label: "画质优先" },
-  { key: "free", label: "免费优先" },
+const SMART_SORT_OPTIONS: { key: SortKey; label: AppMessageKey }[] = [
+  { key: "complete", label: "search.sort.complete" },
+  { key: "quality", label: "search.sort.quality" },
+  { key: "free", label: "search.sort.free" },
 ];
 
 interface SortState {
@@ -276,6 +293,22 @@ function readSortFromUrl(): SortState {
     return { key: key as SortKey, dir };
   }
   return fallback;
+}
+
+/**
+ * 抹掉地址栏的一次性 fresh=1（见 SearchResultsProps.fresh）：之后刷新/前进后退照常
+ * 接上这次搜索，而不是又重新打站。
+ */
+function stripFreshFlag() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has("fresh")) return;
+  params.delete("fresh");
+  const qs = params.toString();
+  window.history.replaceState(
+    window.history.state,
+    "",
+    qs ? `${window.location.pathname}?${qs}` : window.location.pathname,
+  );
 }
 
 /** 结果展示视图：group=按作品分组（默认），list=平铺种子列表，poster=图览。 */
@@ -407,54 +440,57 @@ type SheetKey = (typeof SHEET_KEYS)[number];
 
 // 语言值来自 movieclaw_enrich.lang_decl（BCP 47）；zh 是"中字"类泛称声明，
 // 刻意不猜简繁。未收录的语言码直接展示原值
-const SUBTITLE_LANGUAGE_LABELS: Record<string, string> = {
-  zh: "中文字幕（未标简繁）",
-  "zh-Hans": "简体中文字幕",
-  "zh-Hant": "繁体中文字幕",
-  en: "英文字幕",
-  ja: "日文字幕",
-  ko: "韩文字幕",
-  yue: "粤语字幕",
+const SUBTITLE_LANGUAGE_LABELS: Record<string, AppMessageKey> = {
+  zh: "search.subtitle.chinese",
+  "zh-Hans": "search.subtitle.simplified",
+  "zh-Hant": "search.subtitle.traditional",
+  en: "search.subtitle.english",
+  ja: "search.subtitle.japanese",
+  ko: "search.subtitle.korean",
+  yue: "search.subtitle.cantonese",
 };
 
-function subtitleLanguageLabel(language: string): string {
-  return SUBTITLE_LANGUAGE_LABELS[language] ?? language;
+function subtitleLanguageLabel(language: string, locale: AppLocale): string {
+  const t = appTranslator(locale);
+  return SUBTITLE_LANGUAGE_LABELS[language] ? t(SUBTITLE_LANGUAGE_LABELS[language]) : language;
 }
 
 // —— 结果行紧凑徽标：多语言聚合成单徽标（"字幕 简·繁·英"），全称留给筛选弹层
-const SUB_LANG_SHORT: Record<string, string> = {
-  "zh-Hans": "简",
-  "zh-Hant": "繁",
-  zh: "中",
-  en: "英",
-  ja: "日",
-  ko: "韩",
-  yue: "粤",
+const SUB_LANG_SHORT: Record<string, AppMessageKey> = {
+  "zh-Hans": "search.subtitleShort.simplified",
+  "zh-Hant": "search.subtitleShort.traditional",
+  zh: "search.subtitleShort.chinese",
+  en: "search.subtitleShort.english",
+  ja: "search.subtitleShort.japanese",
+  ko: "search.subtitleShort.korean",
+  yue: "search.subtitleShort.cantonese",
 };
-const AUDIO_LANG_SHORT: Record<string, string> = {
-  cmn: "国",
-  yue: "粤",
-  en: "英",
-  ja: "日",
-  ko: "韩",
+const AUDIO_LANG_SHORT: Record<string, AppMessageKey> = {
+  cmn: "search.audioShort.mandarin",
+  yue: "search.audioShort.cantonese",
+  en: "search.audioShort.english",
+  ja: "search.audioShort.japanese",
+  ko: "search.audioShort.korean",
 };
 
 /** "字幕 简·繁·英［·硬］"；仅泛称时显示"中字"；无声明返回 null。 */
-function compactSubtitleBadge(attrs: TorrentAttrs): string | null {
+function compactSubtitleBadge(attrs: TorrentAttrs, locale: AppLocale): string | null {
+  const t = appTranslator(locale);
   let langs = attrs.subtitle_languages ?? [];
   if (!langs.length) return null;
   // 有具体简繁时泛称 zh 被蕴含，不重复展示
   if (langs.some((v) => v.startsWith("zh-"))) langs = langs.filter((v) => v !== "zh");
-  const hard = (attrs.subtitle_carriers ?? []).includes("hardcoded") ? "·硬" : "";
-  if (langs.length === 1 && langs[0] === "zh") return `中字${hard}`;
-  return `字幕 ${langs.map((v) => SUB_LANG_SHORT[v] ?? v).join("·")}${hard}`;
+  const hard = (attrs.subtitle_carriers ?? []).includes("hardcoded") ? "yes" : "no";
+  if (langs.length === 1 && langs[0] === "zh") return t("search.subtitle.chineseBadge", { hard });
+  return t("search.subtitle.badge", { languages: langs.map((v) => SUB_LANG_SHORT[v] ? t(SUB_LANG_SHORT[v]) : v).join("·"), hard });
 }
 
 /** "音轨 国·粤"；无声明返回 null。 */
-function compactAudioBadge(attrs: TorrentAttrs): string | null {
+function compactAudioBadge(attrs: TorrentAttrs, locale: AppLocale): string | null {
+  const t = appTranslator(locale);
   const langs = attrs.audio_languages ?? [];
   if (!langs.length) return null;
-  return `音轨 ${langs.map((v) => AUDIO_LANG_SHORT[v] ?? v).join("·")}`;
+  return t("search.audio.badge", { languages: langs.map((v) => AUDIO_LANG_SHORT[v] ? t(AUDIO_LANG_SHORT[v]) : v).join("·") });
 }
 
 function sheetSelectionCount(f: Filters): number {
@@ -760,7 +796,14 @@ function collectEntities(items: TorrentHit[]): Map<string, EntityGroup> {
   return groups;
 }
 
-export function SearchResults({ query, onResearch, grabForSubscriptionId }: SearchResultsProps) {
+export function SearchResults({
+  query,
+  fresh: freshOnMount = false,
+  onResearch,
+  grabForSubscriptionId,
+}: SearchResultsProps) {
+  const locale = useLocale();
+  const t = useTranslations();
   // 保存位置记忆只对能一键下载的超管有意义：成员的落点弹窗不读写记忆（后端也只
   // 为超管记），记忆判失效还要拉下载器配置（超管接口），所以成员一律不拉
   const {
@@ -769,10 +812,10 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
     isAdmin: pageIsAdmin,
   } = usePermissions();
   // 银玻璃手机端：条件胶囊行 / 去掉关键词标题 / 站点详情走底部弹层（见文件头注释）
-  const isNf = useTheme().structural;
-  const silverMobile = useIsMobile() && !isNf;
+  const cinema = useLayout() === "cinema";
+  const panelMobile = useIsMobile() && !cinema;
   const scrollRef = useScrollRestoration(
-    `search:torrent:${query.keyword}:${query.scope.label ?? "all"}:${query.scope.categories.join(",")}:${query.scope.siteIds.join(",")}:${query.snapshotId ?? "live"}`,
+    `search:torrent:${query.keyword}:${(query.also ?? []).join("|")}:${query.scope.label ?? "all"}:${query.scope.categories.join(",")}:${query.scope.siteIds.join(",")}:${query.snapshotId ?? "live"}`,
   );
   const [phase, setPhase] = useState<Phase>("connecting");
   // 手动选种模式：拉一次订阅标题供横幅与按钮提示；订阅不存在则静默退出该模式
@@ -794,12 +837,14 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
       cancelled = true;
     };
   }, [canGrabForSubscription, grabForSubscriptionId]);
-  const [fatalError, setFatalError] = useState<string | null>(null);
+  const [fatalError, setFatalError] = useMessageState();
   // 结果按 site_result 事件到达顺序累加——快站先上屏，排序视图实时并入新结果
   const [items, setItems] = useState<TorrentHit[]>([]);
   const [siteProgress, setSiteProgress] = useState<SiteProgress[]>([]);
   // 整次搜索的总耗时（done 事件 / 快照回放），站点状态弹层的汇总行展示
   const [totalElapsedMs, setTotalElapsedMs] = useState<number | null>(null);
+  // 实际同搜的词：以后端回显为准（URL 里的词经它去重后可能变少），标题旁写「另含」
+  const [alsoSearched, setAlsoSearched] = useState<string[]>([]);
   // 快照预览态：非空 = 当前展示的是历史快照（值为快照生成时间，供提示条换算年龄）
   const [snapshotAt, setSnapshotAt] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
@@ -821,6 +866,9 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
   const [exhausted, setExhausted] = useState(false);
   // 补充流（单站重试 / 加载更多）的中止句柄：新搜索发起时一并中止
   const auxAbortsRef = useRef<Set<AbortController>>(new Set());
+  // fresh=1 只对挂载时的那次搜索生效：记下它对应的 query，dev 下 StrictMode 把搜索
+  // effect 跑两遍（第一条流随即中止）时两遍都算 fresh，换了搜索就不再算
+  const freshQueryRef = useRef(freshOnMount ? query : null);
 
   // 视图态（排序 / 展示视图）实时同步进地址栏：让「点一下就变」的操作也能刷新保留、分享还原。
   // 用原生 replaceState 而非 router.replace——只改地址不触发 Next 路由/useSearchParams 更新，
@@ -843,6 +891,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
   }, [sort, view]);
 
   // 查询（关键词/范围）变化即重新发起流式搜索；用 AbortController 中断上一条流，避免竞态。
+  // 中断只是不再看：搜索在服务端后台跑完，同一个搜索再发起即接上它、从头回放（#920）。
   // 新搜索同时重置筛选条件——旧结果的筛选对新结果没有意义。
   // 依赖用 query 对象本身：app-shell 每次提交都会构造新对象，成员深比较无必要。
   useEffect(() => {
@@ -852,6 +901,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
     setItems([]);
     setSiteProgress([]);
     setTotalElapsedMs(null);
+    setAlsoSearched([]);
     setSnapshotAt(null);
     setFilters(emptyFilters());
     setPage(1);
@@ -879,10 +929,13 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
               phase: s.error ? "error" : "ok",
               count: s.count,
               error: s.error,
+              error_key: s.error_key,
+              error_params: s.error_params,
               elapsed_ms: s.elapsed_ms ?? null,
             })),
           );
           setTotalElapsedMs(snap.elapsed_ms ?? null);
+          setAlsoSearched(snap.also_keywords ?? []);
           setSnapshotAt(snap.snapshot_at);
           setPhase("done");
         })
@@ -890,11 +943,14 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
           if (controller.signal.aborted) return;
           setPhase("error");
           setFatalError(
-            err instanceof Error ? err.message : "快照加载失败，请稍后重试",
+            err instanceof Error ? err.message : { key: "search.results.snapshotFailed" },
           );
         });
       return () => controller.abort();
     }
+
+    const fresh = freshQueryRef.current === query;
+    if (fresh) stripFreshFlag();
 
     // 用最新事件更新单个站点的进度
     const patchSite = (siteId: string, patch: Partial<SiteProgress>) =>
@@ -903,11 +959,12 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
       );
 
     streamSearchTorrents(
-      { keyword: query.keyword, scope: query.scope },
+      { keyword: query.keyword, also: query.also, scope: query.scope, fresh },
       (event) => {
         switch (event.type) {
           case "start":
             setPhase("streaming");
+            setAlsoSearched(event.data.also_keywords ?? []);
             setSiteProgress(
               event.data.sites.map((s) => ({
                 ...s,
@@ -928,7 +985,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
           }
           case "site_error": {
             const d = event.data;
-            patchSite(d.site_id, { phase: "error", error: d.error, elapsed_ms: d.elapsed_ms });
+            patchSite(d.site_id, { phase: "error", error: d.error, error_key: d.error_key, error_params: d.error_params, elapsed_ms: d.elapsed_ms });
             break;
           }
           case "done":
@@ -942,10 +999,10 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
     ).catch((err: unknown) => {
       if (controller.signal.aborted) return; // 被新搜索中断，忽略
       setPhase("error");
-      setFatalError(err instanceof Error ? err.message : "搜索失败，请稍后重试");
+      setFatalError(err instanceof Error ? err.message : { key: "search.results.failed" });
     });
     return () => controller.abort();
-  }, [query]);
+  }, [query, setFatalError]);
 
   /**
    * 单站重试（站点状态弹层的「重试」）：清掉该站旧结果，仅对它重发一次流。
@@ -957,14 +1014,20 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
     setSiteProgress((prev) =>
       prev.map((s) =>
         s.site_id === siteId
-          ? { ...s, phase: "searching", count: 0, error: null, elapsed_ms: null }
+          ? { ...s, phase: "searching", count: 0, error: null, error_key: null, error_params: null, elapsed_ms: null }
           : s,
       ),
     );
     const controller = new AbortController();
     auxAbortsRef.current.add(controller);
     streamSearchTorrents(
-      { keyword: query.keyword, scope: { ...query.scope, siteIds: [siteId] } },
+      // fresh：重试就是要重新打这个站（典型是修完 Cookie 回来验证），不能接上刚跑完的结果
+      {
+        keyword: query.keyword,
+        also: query.also,
+        scope: { ...query.scope, siteIds: [siteId] },
+        fresh: true,
+      },
       (event) => {
         if (event.type === "site_result") {
           const d = event.data;
@@ -972,7 +1035,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
           setSiteProgress((prev) =>
             prev.map((s) =>
               s.site_id === d.site_id
-                ? { ...s, phase: "ok", count: d.count, error: null, elapsed_ms: d.elapsed_ms }
+                ? { ...s, phase: "ok", count: d.count, error: null, error_key: null, error_params: null, elapsed_ms: d.elapsed_ms }
                 : s,
             ),
           );
@@ -981,7 +1044,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
           setSiteProgress((prev) =>
             prev.map((s) =>
               s.site_id === d.site_id
-                ? { ...s, phase: "error", error: d.error, elapsed_ms: d.elapsed_ms }
+                ? { ...s, phase: "error", error: d.error, error_key: d.error_key, error_params: d.error_params, elapsed_ms: d.elapsed_ms }
                 : s,
             ),
           );
@@ -994,7 +1057,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
         setSiteProgress((prev) =>
           prev.map((s) =>
             s.site_id === siteId && s.phase === "searching"
-              ? { ...s, phase: "error", error: "重试失败，请稍后再试" }
+              ? { ...s, phase: "error", error: t("search.results.retryFailed"), error_key: "search.results.retryFailed", error_params: null }
               : s,
           ),
         );
@@ -1015,7 +1078,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
     let added = 0;
     let lastPage = false;
     streamSearchTorrents(
-      { keyword: query.keyword, scope: query.scope, page: next },
+      { keyword: query.keyword, also: query.also, scope: query.scope, page: next },
       (event) => {
         if (event.type === "done") lastPage = noMorePages(event.data.sites);
         if (event.type !== "site_result") return;
@@ -1091,6 +1154,8 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
           site_name: s.site_name,
           count: s.count,
           error: s.error,
+              error_key: s.error_key,
+              error_params: s.error_params,
           elapsed_ms: s.elapsed_ms,
         })),
     [siteProgress],
@@ -1110,8 +1175,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
       {grabTarget && (
         <div className={`page-inset-mx mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[var(--info-soft)]/30 bg-[var(--info-soft)]/12 px-4 py-2.5 text-sub text-[var(--info-text)] backdrop-blur-sm`}>
           <span className="min-w-0">
-            正在为《{grabTarget.title}》手动选种——点资源上的「投给订阅」直接下载并计入该订阅
-            （跳过规则组限制）
+            {t("search.results.manualGrab", { title: grabTarget.title })}
           </span>
           {/* 「返回订阅」是回到来路的返回语义，箭头却在文字右侧指向前方——
               方向配错。统一为 ChevronLeft 置于文字前，与全站返回语言一致 */}
@@ -1120,7 +1184,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
             className="ml-auto flex shrink-0 items-center gap-0.5 font-medium text-white/85 hover:underline"
           >
             <ChevronLeftIcon className="size-3.5" />
-            返回订阅
+            {t("search.results.backSubscription")}
           </Link>
         </div>
       )}
@@ -1132,28 +1196,37 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
       <header className={`relative z-20 shrink-0 pb-3 pt-4 page-inset max-md:pt-3`}>
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
           {/* 银玻璃手机不重复关键词与范围：顶栏的关键词胶囊与范围菜单已写着 */}
-          {!silverMobile && (
+          {!panelMobile && (
             <h1 className="text-on-image text-title-lg font-semibold tracking-[-0.01em] text-white">
               {/* 浏览模式（无关键词）标题落在动作上，具体范围由右边的分类药丸交代 */}
-              {query.keyword ? `“${query.keyword}”` : "最新资源"}
+              {query.keyword ? `“${query.keyword}”` : t("search.results.latest")}
             </h1>
           )}
-          {!silverMobile && query.scope.label && (
+          {/* 详情页带来的同搜词（英文名/原名）：结果是几个词合并的，写明免得困惑 */}
+          {alsoSearched.length > 0 && (
+            <span
+              title={t("search.results.alsoHint")}
+              className="text-on-image min-w-0 truncate text-sub text-[rgba(243,245,249,0.6)]"
+            >
+              {t("search.results.also", { names: alsoSearched.join(" · ") })}
+            </span>
+          )}
+          {!panelMobile && searchScopeLabel(query.scope, locale) && (
             <span className="rounded-full bg-black/30 px-2.5 py-0.5 text-caption text-[var(--accent)] backdrop-blur-sm">
-              {query.scope.label}
+              {searchScopeLabel(query.scope, locale)}
             </span>
           )}
           {phase === "streaming" && (
             <span className="text-on-image flex items-center gap-1.5 text-sub text-[rgba(243,245,249,0.75)]">
               <span className="size-1.5 animate-pulse rounded-full bg-[var(--accent)]" />
-              已找到 {items.length} 条
+              {t("search.results.found", { count: items.length })}
             </span>
           )}
           {phase === "done" && (
             <span className="text-on-image text-sub text-[rgba(243,245,249,0.75)]">
               {filtering
-                ? `筛选后 ${filtered.length} / 共 ${items.length} 条`
-                : `共 ${items.length} 条结果`}
+                ? t("search.results.filteredCount", { filtered: filtered.length, count: items.length })
+                : t("search.results.count", { count: items.length })}
             </span>
           )}
 
@@ -1162,7 +1235,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
             {snapshotAt && phase === "done" && (
               <>
                 <span
-                  title="这是历史留存的结果快照，站点数据（做种数/促销/链接）可能已变化"
+                  title={t("search.results.snapshotHint")}
                   className="flex items-center gap-1.5 rounded-full border border-[var(--info-soft)]/30 bg-[var(--info-soft)]/12 px-2.5 py-1 text-caption text-[var(--info-text)] backdrop-blur-sm"
                 >
                   <svg
@@ -1177,20 +1250,20 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
                     <circle cx="12" cy="12" r="8.5" />
                     <path d="M12 7.5V12l3 2" />
                   </svg>
-                  {formatRelativeTime(snapshotAt)}的快照
+                  {t("search.results.snapshotAge", { time: formatRelativeTime(snapshotAt, locale) })}
                 </span>
                 {onResearch && (
                   <button
                     type="button"
-                    onClick={() => onResearch(query.keyword, query.scope)}
+                    onClick={() => onResearch(query.keyword, query.scope, query.also)}
                     className="btn-accent rounded-full px-2.5 py-1 text-caption font-medium"
                   >
-                    重新搜索
+                    {t("search.results.research")}
                   </button>
                 )}
               </>
             )}
-            {silverMobile && siteProgress.length > 0 && (
+            {panelMobile && siteProgress.length > 0 && (
               <ViewModeMenu view={view} onChange={setView} />
             )}
             <SiteStatusSummary
@@ -1198,16 +1271,16 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
               streaming={streaming}
               onRetrySite={snapshotAt ? undefined : retrySite}
               totalElapsedMs={totalElapsedMs}
-              asSheet={silverMobile}
+              asSheet={panelMobile}
             />
           </div>
         </div>
         {phase === "done" && siteProgress.length === 0 && !snapshotAt && (
           <p className="text-on-image mt-2 text-sub text-[rgba(243,245,249,0.7)]">
-            当前没有「已启用且验证通过」的站点，请先在设置里配置站点。
+            {t("search.results.noSites")}
           </p>
         )}
-        {siteProgress.length > 0 && silverMobile && (
+        {siteProgress.length > 0 && panelMobile && (
           <ConditionChips
             sites={settledStatuses}
             facets={facets}
@@ -1218,7 +1291,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
             onSortChange={setSort}
           />
         )}
-        {siteProgress.length > 0 && !silverMobile && (
+        {siteProgress.length > 0 && !panelMobile && (
           <>
             <FilterToolbar
               sites={settledStatuses}
@@ -1253,7 +1326,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
           <SkeletonList siteCount={siteProgress.length} />
         )}
         {phase === "error" && (
-          <EmptyHint title="搜索出错" hint={fatalError ?? "搜索失败，请稍后重试"} />
+          <EmptyHint title={t("search.results.errorTitle")} hint={fatalError ?? t("search.results.failed")} />
         )}
         {sorted.length > 0 ? (
           view === "poster" ? (
@@ -1275,16 +1348,16 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
           )
         ) : items.length ? (
           <EmptyHint
-            title="没有符合筛选条件的结果"
-            hint="放宽或清除顶部的筛选条件试试。"
+            title={t("search.results.filteredEmpty")}
+            hint={t("search.results.relaxFilters")}
           />
         ) : phase === "done" ? (
           <EmptyHint
-            title="没有找到匹配的资源"
+            title={t("search.results.empty")}
             hint={
               query.keyword
-                ? "换个关键词，或检查已配置站点是否验证通过。"
-                : "换个分类，或检查已配置站点是否验证通过。"
+                ? t("search.results.tryKeyword")
+                : t("search.results.tryCategory")
             }
           />
         ) : null}
@@ -1298,13 +1371,13 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
               onClick={loadMore}
               className="btn-glass px-5 py-2 text-sub font-medium disabled:opacity-50"
             >
-              {loadingMore ? "正在加载…" : `加载更多（第 ${page + 1} 页）`}
+              {loadingMore ? t("search.results.loading") : t("search.results.loadPage", { page: page + 1 })}
             </button>
           </div>
         )}
         {phase === "done" && exhausted && items.length > 0 && (
           <p className="mt-4 text-center text-caption text-[var(--text-faint)]">
-            已加载全部 {page} 页结果
+            {t("search.results.allPages", { count: page })}
           </p>
         )}
       </div>
@@ -1380,6 +1453,7 @@ function GroupedResults({
   hits: TorrentHit[];
   entities: Map<string, EntityGroup>;
 }) {
+  const t = useTranslations();
   // 折叠/展开状态按组键记忆：筛选与排序变化不清空；新搜索时组件整体重挂载自然重置
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [uncapped, setUncapped] = useState<Set<string>>(() => new Set());
@@ -1434,7 +1508,7 @@ function GroupedResults({
                     onClick={() => setUncapped((prev) => toggleIn(prev, key))}
                     className="ml-4 mt-2 px-1 py-0.5 text-sub text-[var(--accent-2)] transition-colors hover:text-[var(--text)]"
                   >
-                    展开其余 {rows.length - GROUP_ROW_CAP} 个版本 ▾
+                    {t("search.group.expand", { count: rows.length - GROUP_ROW_CAP })}
                   </button>
                 )}
               </>
@@ -1458,6 +1532,8 @@ function GroupHeader({
   open: boolean;
   onToggle: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const unparsed = meta === null;
   const freeCount = rows.filter((h) => h.free || h.download_volume_factor === 0).length;
   const topRes = maxResolution(rows);
@@ -1465,11 +1541,11 @@ function GroupHeader({
   // 哪部剧能一包带走；季包不算（连载中的整季包不等于全集）
   const hasCompletePack = rows.some((h) => h.attrs?.complete === true);
   const info = unparsed
-    ? "按原始名展示"
+    ? t("search.group.rawNames")
     : [
         meta.year,
-        meta.mediaType && MEDIA_TYPE_LABEL[meta.mediaType],
-        meta.contentType && CONTENT_TYPE_LABEL[meta.contentType],
+        meta.mediaType && t(MEDIA_TYPE_LABEL[meta.mediaType]),
+        meta.contentType && t(CONTENT_TYPE_LABEL[meta.contentType]),
       ]
         .filter(Boolean)
         .join(" · ");
@@ -1480,16 +1556,16 @@ function GroupHeader({
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      className="solid-card flex w-full items-center gap-3 rounded-2xl border border-white/[0.09] bg-white/[0.045] px-4 py-2.5 text-left backdrop-blur-xl transition-colors hover:border-white/[0.16] hover:bg-white/[0.07]"
+      className={`solid-card flex w-full items-center gap-3 rounded-2xl border border-white/[0.09] bg-white/[0.045] px-4 py-2.5 text-left backdrop-blur-xl transition-colors hover:border-white/[0.16] hover:bg-white/[0.07] ${locale === "en" ? "max-sm:flex-wrap max-sm:gap-y-2" : ""}`}
     >
       <span
         className={`shrink-0 text-micro text-[var(--text-faint)] transition-transform ${open ? "rotate-90" : ""}`}
       >
         ▶
       </span>
-      <span className="min-w-0 flex-1 truncate">
+      <span className={`min-w-0 flex-1 truncate ${locale === "en" ? "max-sm:basis-[calc(100%-2rem)]" : ""}`}>
         <span className="text-body font-semibold text-[var(--text)]">
-          {unparsed ? "未识别" : (meta.nameZh ?? meta.nameEn)}
+          {unparsed ? t("search.group.unidentified") : (meta.nameZh ?? meta.nameEn)}
         </span>
         {!unparsed && meta.nameZh && meta.nameEn && (
           <span className="ml-2 text-sub text-[var(--text-muted)]">{meta.nameEn}</span>
@@ -1498,19 +1574,19 @@ function GroupHeader({
           <span className="tnum ml-2 text-sub text-[var(--text-faint)]">{info}</span>
         )}
       </span>
-      <span className="flex shrink-0 items-center gap-1.5">
+      <span className={`flex shrink-0 items-center gap-1.5 ${locale === "en" ? "max-sm:ml-6 max-sm:w-[calc(100%-1.5rem)] max-sm:shrink max-sm:flex-wrap" : ""}`}>
         <span className="tnum rounded-md bg-white/[0.05] px-1.5 py-0.5 text-micro text-[var(--text-muted)]">
-          {rows.length} 个版本
+          {t("search.group.versions", { count: rows.length })}
         </span>
         {topRes && (
           <span className="rounded-md bg-white/[0.05] px-1.5 py-0.5 text-micro text-[var(--accent-2)]">
-            最高 {topRes}
+            {t("search.group.highest", { resolution: topRes })}
           </span>
         )}
-        {hasCompletePack && <span className={COMPLETE_BADGE_CLS}>全集包</span>}
+        {hasCompletePack && <span className={COMPLETE_BADGE_CLS}>{t("search.group.completePack")}</span>}
         {freeCount > 0 && (
           <span className="tnum rounded-md bg-[var(--ok)]/15 px-1.5 py-0.5 text-micro font-semibold text-[#79d193]">
-            {freeCount} 个免费
+            {t("search.group.free", { count: freeCount })}
           </span>
         )}
       </span>
@@ -1576,13 +1652,15 @@ function FilterToolbar({
   view: ResultView;
   onViewChange: (v: ResultView) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const [sheetOpen, setSheetOpen] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
   useDismiss(sheetRef, () => setSheetOpen(false), sheetOpen);
   const badge = sheetSelectionCount(filters);
   // 当前选中的智能键即使不在注入列表里（URL 还原/上次搜索的偏好残留）也要
   // 保留其选项，否则 select 会显示空白
-  const smartOptions = SMART_SORT_OPTIONS.filter(
+  const smartOptions = smartSortOptions(locale).filter(
     (o) => smartSortKeys.includes(o.key) || o.key === sort.key,
   );
 
@@ -1617,7 +1695,7 @@ function FilterToolbar({
         <div className="flex items-center gap-2 max-md:hidden">
         {facets.years.length >= 2 && (
           <FacetDropdown
-            label="年份"
+            label={t("search.filters.year")}
             options={facets.years.map((y) => ({
               value: y.value,
               label: String(y.value),
@@ -1629,10 +1707,10 @@ function FilterToolbar({
         )}
         {facets.seasons.length >= 2 && (
           <FacetDropdown
-            label="季"
+            label={t("search.filters.season")}
             options={facets.seasons.map((s) => ({
               value: s.value,
-              label: `第${s.value}季`,
+              label: t("search.filters.seasonValue", { value: s.value }),
               count: s.count,
             }))}
             active={filters.season}
@@ -1641,7 +1719,7 @@ function FilterToolbar({
         )}
         {facets.groups.length >= 2 && (
           <FacetDropdown
-            label="压制组"
+            label={t("search.filters.group")}
             options={facets.groups.map((g) => ({
               value: g.value,
               label: g.value,
@@ -1659,7 +1737,7 @@ function FilterToolbar({
         {/* 视图分段切换：只切换当次搜索的展示方式，图览的长期默认值在自定义分类里
             设置。纯图标 + tooltip：设置一次就不常动的偏好，不配占文字标签的宽度 */}
         <div className="flex items-center rounded-full border border-white/[0.08] bg-black/[0.16] p-0.5">
-          {VIEW_OPTIONS.map(({ v, label, Icon, hint }) => (
+          {viewOptions(locale).map(({ v, label, Icon, hint }) => (
             <button
               key={v}
               type="button"
@@ -1684,7 +1762,7 @@ function FilterToolbar({
               badge > 0 ? CHIP_ACTIVE_CLS : CHIP_IDLE_CLS
             }`}
           >
-            筛选
+            {t("search.filters.filter")}
             {badge > 0 && (
               <span className="tnum rounded-full bg-[var(--accent)]/25 px-1.5 text-micro">
                 {badge}
@@ -1813,12 +1891,14 @@ function SortDropdown({
   smartOptions: { key: SortKey; label: string }[];
   onChange: (s: SortState) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   useDismiss(rootRef, () => setOpen(false), open);
   const arrow = sort.dir === "desc" ? "↓" : "↑";
   const label =
-    [...SORT_OPTIONS, ...SMART_SORT_OPTIONS].find((o) => o.key === sort.key)?.label ?? sort.key;
+    [...sortOptions(locale), ...smartSortOptions(locale)].find((o) => o.key === sort.key)?.label ?? sort.key;
   const pick = (key: SortKey) => {
     onChange(
       key === sort.key
@@ -1848,7 +1928,7 @@ function SortDropdown({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        aria-label={`排序：${label}${sort.dir === "desc" ? "降序" : "升序"}`}
+        aria-label={t("search.sort.accessible", { label, direction: sort.dir })}
         className={`flex h-7 items-center gap-1.5 rounded-full border px-3 text-caption transition-all ${CHIP_IDLE_CLS}`}
       >
         {label}
@@ -1859,16 +1939,16 @@ function SortDropdown({
       </button>
       {open && (
         <div className="solid-popover absolute left-0 top-full z-30 mt-2 w-44 rounded-2xl border border-white/[0.12] bg-[rgba(14,16,22,0.96)] p-1.5 shadow-2xl backdrop-blur-2xl">
-          <p className="px-2.5 pb-1 pt-1.5 text-micro text-[var(--text-faint)]">常规</p>
-          {SORT_OPTIONS.map(item)}
+          <p className="px-2.5 pb-1 pt-1.5 text-micro text-[var(--text-faint)]">{t("search.sort.regular")}</p>
+          {sortOptions(locale).map(item)}
           {smartOptions.length > 0 && (
             <>
-              <p className="px-2.5 pb-1 pt-2 text-micro text-[var(--text-faint)]">智能</p>
+              <p className="px-2.5 pb-1 pt-2 text-micro text-[var(--text-faint)]">{t("search.sort.smart")}</p>
               {smartOptions.map(item)}
             </>
           )}
           <p className="border-t border-white/[0.08] px-2.5 pb-1 pt-2 text-micro text-[var(--text-faint)]">
-            点击当前项可切换升降序
+            {t("search.sort.directionHint")}
           </p>
         </div>
       )}
@@ -1900,6 +1980,8 @@ function FilterSheet({
   resultCount: number;
   onClose: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const toggle = (key: SheetKey, value: string | number) =>
     onChange({ ...filters, [key]: toggleIn(filters[key] as Set<string | number>, value) });
 
@@ -1911,17 +1993,17 @@ function FilterSheet({
       {/* 宽度收着点：右侧浮层少遮结果列表，让「选择即生效」的变化被看见 */}
       <div className="solid-popover absolute right-0 top-full z-30 mt-2 max-h-[60dvh] w-[480px] max-w-[82vw] overflow-y-auto rounded-2xl border border-white/[0.12] bg-[rgba(14,16,22,0.96)] p-4 shadow-2xl backdrop-blur-2xl">
         <div className="mb-4 flex items-center justify-between">
-          <div>
-            <p className="text-ui font-medium text-[var(--text)]">筛选结果</p>
-            <p className="mt-0.5 text-caption text-[var(--text-faint)]">可多选，分类之间组合生效</p>
+          <div className={locale === "en" ? "min-w-0 flex-1 pr-2" : undefined}>
+            <p className="text-ui font-medium text-[var(--text)]">{t("search.filters.title")}</p>
+            <p className="mt-0.5 text-caption text-[var(--text-faint)]">{t("search.filters.hint")}</p>
           </div>
-          <button type="button" onClick={onClose} className={`grid size-7 place-items-center rounded-full border text-body ${CHIP_IDLE_CLS}`} aria-label="关闭筛选">
+          <button type="button" onClick={onClose} className={`grid size-7 place-items-center rounded-full border text-body ${CHIP_IDLE_CLS} ${locale === "en" ? "shrink-0" : ""}`} aria-label={t("search.filters.close")}>
             ×
           </button>
         </div>
         <div className="space-y-3.5">
           {okSites.length > 0 && (
-            <SheetGroup title="站点">
+            <SheetGroup title={t("search.filters.site")}>
               {okSites.map((s) => (
                 <FacetChip
                   key={s.site_id}
@@ -1935,7 +2017,7 @@ function FilterSheet({
             </SheetGroup>
           )}
           {facets.years.length > 0 && (
-            <SheetGroup title="年份">
+            <SheetGroup title={t("search.filters.year")}>
               {facets.years.map((y) => (
                 <FacetChip
                   key={y.value}
@@ -1948,11 +2030,11 @@ function FilterSheet({
             </SheetGroup>
           )}
           {facets.seasons.length > 0 && (
-            <SheetGroup title="季">
+            <SheetGroup title={t("search.filters.season")}>
               {facets.seasons.map((s) => (
                 <FacetChip
                   key={s.value}
-                  label={`第${s.value}季`}
+                  label={t("search.filters.seasonValue", { value: s.value })}
                   count={s.count}
                   active={filters.season.has(s.value)}
                   onToggle={() => toggle("season", s.value)}
@@ -1961,11 +2043,11 @@ function FilterSheet({
             </SheetGroup>
           )}
           {facets.episodes.length > 0 && (
-            <SheetGroup title="集">
+            <SheetGroup title={t("search.filters.episode")}>
               {facets.episodes.map((ep) => (
                 <FacetChip
                   key={ep.value}
-                  label={`第${ep.value}集`}
+                  label={t("search.filters.episodeValue", { value: ep.value })}
                   count={ep.count}
                   active={filters.episode.has(ep.value)}
                   onToggle={() => toggle("episode", ep.value)}
@@ -1974,7 +2056,7 @@ function FilterSheet({
             </SheetGroup>
           )}
           {facets.source.length > 0 && (
-            <SheetGroup title="片源">
+            <SheetGroup title={t("search.filters.source")}>
               {facets.source.map((v) => (
                 <FacetChip
                   key={v.value}
@@ -1987,11 +2069,11 @@ function FilterSheet({
             </SheetGroup>
           )}
           {facets.platform.length > 0 && (
-            <SheetGroup title="流媒体平台">
+            <SheetGroup title={t("search.filters.platform")}>
               {facets.platform.map((v) => (
                 <FacetChip
                   key={v.value}
-                  label={platformLabel(v.value)}
+                  label={platformLabel(v.value, locale)}
                   count={v.count}
                   active={filters.platform.has(v.value)}
                   onToggle={() => toggle("platform", v.value)}
@@ -2000,7 +2082,7 @@ function FilterSheet({
             </SheetGroup>
           )}
           {facets.codec.length > 0 && (
-            <SheetGroup title="视频编码">
+            <SheetGroup title={t("search.filters.codec")}>
               {facets.codec.map((v) => (
                 <FacetChip
                   key={v.value}
@@ -2013,7 +2095,7 @@ function FilterSheet({
             </SheetGroup>
           )}
           {facets.hdr.length > 0 && (
-            <SheetGroup title="HDR">
+            <SheetGroup title={t("search.filters.hdr")}>
               {facets.hdr.map((v) => (
                 <FacetChip
                   key={v.value}
@@ -2026,7 +2108,7 @@ function FilterSheet({
             </SheetGroup>
           )}
           {facets.audio.length > 0 && (
-            <SheetGroup title="音频">
+            <SheetGroup title={t("search.filters.audio")}>
               {facets.audio.map((v) => (
                 <FacetChip
                   key={v.value}
@@ -2039,11 +2121,11 @@ function FilterSheet({
             </SheetGroup>
           )}
           {facets.subtitles.length > 0 && (
-            <SheetGroup title="字幕">
+            <SheetGroup title={t("search.filters.subtitle")}>
               {facets.subtitles.map((v) => (
                 <FacetChip
                   key={v.value}
-                  label={subtitleLanguageLabel(v.value)}
+                  label={subtitleLanguageLabel(v.value, locale)}
                   count={v.count}
                   active={filters.subtitle.has(v.value)}
                   onToggle={() => toggle("subtitle", v.value)}
@@ -2052,7 +2134,7 @@ function FilterSheet({
             </SheetGroup>
           )}
           {facets.groups.length > 0 && (
-            <SheetGroup title="压制组">
+            <SheetGroup title={t("search.filters.group")}>
               {facets.groups.map((v) => (
                 <FacetChip
                   key={v.value}
@@ -2072,14 +2154,14 @@ function FilterSheet({
             onClick={() => onChange(emptyFilters())}
             className="btn-glass h-8 px-3 text-caption text-[var(--text-muted)]"
           >
-            清除全部
+            {t("search.filters.clear")}
           </button>
           <button
             type="button"
             onClick={onClose}
             className="btn-accent h-8 rounded-full px-4 text-caption font-medium"
           >
-            查看 {resultCount} 条结果
+            {t("search.filters.viewCount", { count: resultCount })}
           </button>
         </div>
       </div>
@@ -2098,15 +2180,17 @@ function AppliedChips({
   filters: Filters;
   onChange: (f: Filters) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   if (sheetSelectionCount(filters) === 0) return null;
 
   const siteName = (id: string) =>
     sites.find((s) => s.site_id === id)?.site_name ?? id;
   const labelOf = (key: SheetKey, value: string | number): string => {
     if (key === "site") return siteName(String(value));
-    if (key === "season") return `第${value}季`;
-    if (key === "episode") return `第${value}集`;
-    if (key === "subtitle") return subtitleLanguageLabel(String(value));
+    if (key === "season") return t("search.filters.seasonValue", { value });
+    if (key === "episode") return t("search.filters.episodeValue", { value });
+    if (key === "subtitle") return subtitleLanguageLabel(String(value), locale);
     return String(value);
   };
 
@@ -2116,7 +2200,7 @@ function AppliedChips({
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-1.5 px-1">
-      <span className="text-caption text-[var(--text-faint)]">生效条件</span>
+      <span className="text-caption text-[var(--text-faint)]">{t("search.filters.applied")}</span>
       {chips.map(({ key, value }) => (
         <button
           key={`${key}:${value}`}
@@ -2135,7 +2219,7 @@ function AppliedChips({
         onClick={() => onChange(emptyFilters())}
         className="ml-1 text-caption text-[var(--text-faint)] transition-colors hover:text-[var(--text)]"
       >
-        清除全部
+        {t("search.filters.clear")}
       </button>
     </div>
   );
@@ -2144,19 +2228,19 @@ function AppliedChips({
 /* —— 银玻璃手机端：条件胶囊行（取代上面三层） —— */
 
 /** 条件胶囊行的维度顺序与标题（同 iOS TorrentFilterDim.allCases，与筛选弹层同口径）。 */
-const CHIP_DIMS: { dim: FilterDim; title: string }[] = [
-  { dim: "resolution", title: "分辨率" },
-  { dim: "site", title: "站点" },
-  { dim: "year", title: "年份" },
-  { dim: "season", title: "季" },
-  { dim: "episode", title: "集" },
-  { dim: "source", title: "片源" },
-  { dim: "platform", title: "流媒体平台" },
-  { dim: "codec", title: "视频编码" },
-  { dim: "hdr", title: "HDR" },
-  { dim: "audio", title: "音频" },
-  { dim: "subtitle", title: "字幕" },
-  { dim: "group", title: "压制组" },
+const CHIP_DIMS: { dim: FilterDim; title: AppMessageKey }[] = [
+  { dim: "resolution", title: "search.filters.resolution" },
+  { dim: "site", title: "search.filters.site" },
+  { dim: "year", title: "search.filters.year" },
+  { dim: "season", title: "search.filters.season" },
+  { dim: "episode", title: "search.filters.episode" },
+  { dim: "source", title: "search.filters.source" },
+  { dim: "platform", title: "search.filters.platform" },
+  { dim: "codec", title: "search.filters.codec" },
+  { dim: "hdr", title: "search.filters.hdr" },
+  { dim: "audio", title: "search.filters.audio" },
+  { dim: "subtitle", title: "search.filters.subtitle" },
+  { dim: "group", title: "search.filters.group" },
 ];
 
 /** 某维度在当前结果里的可选值与计数；站点只列成功返回的站点（顺序同站点状态），同 iOS dimValues。 */
@@ -2194,12 +2278,13 @@ function dimOptions(
 }
 
 /** 取值的展示名（胶囊摘要与菜单项共用；与筛选弹层 / 条件回显行同一套叫法）。 */
-function facetLabel(dim: FilterDim, value: string | number, siteName: (id: string) => string): string {
+function facetLabel(dim: FilterDim, value: string | number, siteName: (id: string) => string, locale: AppLocale): string {
+  const t = appTranslator(locale);
   if (dim === "site") return siteName(String(value));
-  if (dim === "season") return `第${value}季`;
-  if (dim === "episode") return `第${value}集`;
-  if (dim === "subtitle") return subtitleLanguageLabel(String(value));
-  if (dim === "platform") return platformLabel(String(value));
+  if (dim === "season") return t("search.filters.seasonValue", { value });
+  if (dim === "episode") return t("search.filters.episodeValue", { value });
+  if (dim === "subtitle") return subtitleLanguageLabel(String(value), locale);
+  if (dim === "platform") return platformLabel(String(value), locale);
   return String(value);
 }
 
@@ -2265,14 +2350,16 @@ function ConditionChips({
   smartSortKeys: SortKey[];
   onSortChange: (s: SortState) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const okSites = sites.filter((s) => !s.error);
   const siteName = (id: string) => sites.find((s) => s.site_id === id)?.site_name ?? id;
   const clearing = hasActiveFilters(filters);
-  const dims = CHIP_DIMS.filter(
+  const dims = chipDims(locale).filter(
     ({ dim }) => dimOptions(dim, facets, okSites).length > 0 || filters[dim].size > 0,
   );
   // 当前选中的智能键即使不在注入列表里（URL 还原的偏好残留）也要保留，同 FilterToolbar
-  const smartOptions = SMART_SORT_OPTIONS.filter(
+  const smartOptions = smartSortOptions(locale).filter(
     (o) => smartSortKeys.includes(o.key) || o.key === sort.key,
   );
 
@@ -2283,11 +2370,11 @@ function ConditionChips({
           <button
             type="button"
             onClick={() => onChange(emptyFilters())}
-            aria-label="清空全部筛选条件"
+            aria-label={t("search.filters.clearLabel")}
             className={`${GLASS_CHIP_CLS} ${GLASS_CHIP_IDLE_CLS}`}
           >
             <XIcon className="size-3.5" />
-            清空
+            {t("search.filters.clearShort")}
           </button>
         </div>
       )}
@@ -2303,10 +2390,10 @@ function ConditionChips({
             title={title}
             options={dimOptions(dim, facets, okSites).map((o) => ({
               ...o,
-              label: facetLabel(dim, o.value, siteName),
+              label: facetLabel(dim, o.value, siteName, locale),
             }))}
             selected={filters[dim] as Set<string | number>}
-            labelOf={(value) => facetLabel(dim, value, siteName)}
+            labelOf={(value) => facetLabel(dim, value, siteName, locale)}
             onToggle={(value) =>
               onChange({ ...filters, [dim]: toggleIn(filters[dim] as Set<string | number>, value) })
             }
@@ -2328,9 +2415,11 @@ function SortChip({
   smartOptions: { key: SortKey; label: string }[];
   onChange: (s: SortState) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const menu = useTouchSafeMenu();
   const label =
-    [...SORT_OPTIONS, ...SMART_SORT_OPTIONS].find((o) => o.key === sort.key)?.label ?? sort.key;
+    [...sortOptions(locale), ...smartSortOptions(locale)].find((o) => o.key === sort.key)?.label ?? sort.key;
   const arrow = sort.dir === "desc" ? "↓" : "↑";
   const isDefault = sort.key === "seeders" && sort.dir === "desc";
   const item = (o: { key: SortKey; label: string }) => (
@@ -2354,7 +2443,7 @@ function SortChip({
       <DropdownMenu.Trigger asChild {...menu.triggerProps}>
         <button
           type="button"
-          aria-label={`排序：${label}${sort.dir === "desc" ? "降序" : "升序"}`}
+          aria-label={t("search.sort.accessible", { label, direction: sort.dir })}
           className={`${GLASS_CHIP_CLS} ${isDefault ? GLASS_CHIP_IDLE_CLS : GLASS_CHIP_ACTIVE_CLS}`}
         >
           {label}
@@ -2370,19 +2459,19 @@ function SortChip({
           className="menu-surface z-50 min-w-[11rem] p-1"
         >
           <DropdownMenu.Label className="px-3 pb-1 pt-1.5 text-micro text-[var(--text-faint)]">
-            常规
+            {t("search.sort.regular")}
           </DropdownMenu.Label>
-          {SORT_OPTIONS.map(item)}
+          {sortOptions(locale).map(item)}
           {smartOptions.length > 0 && (
             <>
               <DropdownMenu.Label className="px-3 pb-1 pt-2 text-micro text-[var(--text-faint)]">
-                智能
+                {t("search.sort.smart")}
               </DropdownMenu.Label>
               {smartOptions.map(item)}
             </>
           )}
           <DropdownMenu.Separator className="my-1 h-px bg-white/[0.08]" />
-          <p className="px-3 pb-1 pt-0.5 text-micro text-[var(--text-faint)]">点当前项可切换升降序</p>
+          <p className="px-3 pb-1 pt-0.5 text-micro text-[var(--text-faint)]">{t("search.sort.directionHintShort")}</p>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
@@ -2409,20 +2498,22 @@ function FilterChip({
   onToggle: (value: string | number) => void;
   onRemove: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const menu = useTouchSafeMenu();
   const labels = [...selected].map(labelOf).sort((a, b) => a.localeCompare(b));
   const summary =
     labels.length === 0
       ? null
       : labels.length <= 2
-        ? labels.join("、")
-        : `${labels[0]}等 ${labels.length} 个`;
+        ? formatList(labels, locale)
+        : t("search.filters.selectedCount", { first: labels[0], count: labels.length });
   return (
     <DropdownMenu.Root open={menu.open} onOpenChange={menu.setOpen}>
       <DropdownMenu.Trigger asChild {...menu.triggerProps}>
         <button
           type="button"
-          aria-label={summary ? `${title}：${summary}` : title}
+          aria-label={summary ? t("search.filters.summaryLabel", { title, summary }) : title}
           className={`${GLASS_CHIP_CLS} ${summary ? GLASS_CHIP_ACTIVE_CLS : GLASS_CHIP_IDLE_CLS}`}
         >
           <span className="max-w-[12rem] truncate">{summary ?? title}</span>
@@ -2451,7 +2542,7 @@ function FilterChip({
                 </span>
                 <span className="truncate">{o.label}</span>
               </span>
-              <span className="tnum shrink-0 text-caption text-[var(--text-faint)]">{o.count} 条</span>
+              <span className="tnum shrink-0 text-caption text-[var(--text-faint)]">{t("search.filters.optionCount", { count: o.count })}</span>
             </DropdownMenu.CheckboxItem>
           ))}
           {selected.size > 0 && (
@@ -2460,7 +2551,7 @@ function FilterChip({
               <DropdownMenu.Item onSelect={onRemove} className={`${MENU_ITEM_CLS} text-[#ff9a9a]`}>
                 <span className="flex items-center gap-2">
                   <XIcon className="size-3.5" />
-                  移除此条件
+                  {t("search.filters.remove")}
                 </span>
               </DropdownMenu.Item>
             </>
@@ -2473,9 +2564,9 @@ function FilterChip({
 
 /** 结果视图三选一的文案与图标（桌面工具栏分段与手机视图菜单共用）。 */
 const VIEW_OPTIONS = [
-  { v: "group", label: "分组", Icon: LayersIcon, hint: "分组：按作品聚合，组内是各版本" },
-  { v: "list", label: "列表", Icon: ListIcon, hint: "列表：平铺展示每条种子" },
-  { v: "poster", label: "图览", Icon: PhotoIcon, hint: "图览：带海报的结果以图墙展示" },
+  { v: "group", label: "search.view.group", Icon: LayersIcon, hint: "search.view.groupHint" },
+  { v: "list", label: "search.view.list", Icon: ListIcon, hint: "search.view.listHint" },
+  { v: "poster", label: "search.view.poster", Icon: PhotoIcon, hint: "search.view.posterHint" },
 ] as const;
 
 /**
@@ -2484,13 +2575,15 @@ const VIEW_OPTIONS = [
  * 这里收在状态行右侧、站点状态胶囊旁边。
  */
 function ViewModeMenu({ view, onChange }: { view: ResultView; onChange: (v: ResultView) => void }) {
-  const current = VIEW_OPTIONS.find((o) => o.v === view) ?? VIEW_OPTIONS[0];
+  const locale = useLocale();
+  const t = useTranslations();
+  const current = viewOptions(locale).find((o) => o.v === view) ?? viewOptions(locale)[0];
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          aria-label={`结果视图：${current.label}`}
+          aria-label={t("search.view.current", { label: current.label })}
           className="grid size-7 place-items-center rounded-full border border-white/[0.12] bg-white/[0.05] text-[var(--text-muted)] backdrop-blur-sm transition-colors data-[state=open]:text-[var(--text)]"
         >
           <current.Icon className="size-3.5" />
@@ -2504,7 +2597,7 @@ function ViewModeMenu({ view, onChange }: { view: ResultView; onChange: (v: Resu
           className="menu-surface z-50 min-w-[10rem] p-1"
         >
           <DropdownMenu.RadioGroup value={view} onValueChange={(v) => onChange(v as ResultView)}>
-            {VIEW_OPTIONS.map(({ v, label, Icon }) => (
+            {viewOptions(locale).map(({ v, label, Icon }) => (
               <DropdownMenu.RadioItem key={v} value={v} className={MENU_ITEM_CLS}>
                 <span className="flex items-center gap-2">
                   <Icon className="size-3.5" />
@@ -2551,6 +2644,8 @@ function SiteStatusSummary({
   /** 详情用底部弹层呈现（银玻璃手机端） */
   asSheet?: boolean;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const [open, setOpen] = useState(false);
   // 站点设置是超管页面：成员看不到「去站点设置」，只留就地重试
   const { isAdmin } = usePermissions();
@@ -2587,35 +2682,35 @@ function SiteStatusSummary({
               {/* 右侧固定：状态 + 条数/耗时。失败也带耗时——超时一眼可辨 */}
               {s.phase === "searching" && (
                 <span className="shrink-0 text-caption text-[var(--text-faint)]">
-                  搜索中…
+                  {t("search.status.searching")}
                 </span>
               )}
               {s.phase === "ok" && (
                 <span className="tnum shrink-0 text-caption text-[var(--text-muted)]">
-                  {s.count} 条
+                  {t("search.status.resultCount", { count: s.count })}
                   {s.elapsed_ms !== null && (
                     <span className="text-[var(--text-faint)]">
-                      {" "}· {formatElapsed(s.elapsed_ms)}
+                      {" "}· {formatElapsed(s.elapsed_ms, locale)}
                     </span>
                   )}
                 </span>
               )}
               {s.phase === "error" && (
                 <span className="tnum shrink-0 text-caption text-[#ff9a9a]">
-                  失败
+                  {t("search.status.failed")}
                   {s.elapsed_ms !== null && (
-                    <span className="opacity-75"> · {formatElapsed(s.elapsed_ms)}</span>
+                    <span className="opacity-75"> · {formatElapsed(s.elapsed_ms, locale)}</span>
                   )}
                 </span>
               )}
             </div>
             {/* 失败原因独立成行，不再和站名挤在一行里被截断到没法读 */}
-            {s.phase === "error" && s.error && (
+            {s.phase === "error" && (s.error || s.error_key) && (
               <p
-                title={s.error}
-                className="mt-0.5 line-clamp-2 pl-3.5 text-caption leading-4 text-[#ff9a9a]/80"
+                title={siteError(s, locale) ?? undefined}
+                className={`mt-0.5 pl-3.5 text-caption leading-4 text-[#ff9a9a]/80 ${locale === "en" ? "" : "line-clamp-2"}`}
               >
-                {s.error}
+                {siteError(s, locale)}
               </p>
             )}
             {/* 失败行的行动出口：就地重试 / 去站点设置修凭据——此前只能
@@ -2629,7 +2724,7 @@ function SiteStatusSummary({
                     onClick={() => onRetrySite(s.site_id)}
                     className="rounded-md bg-white/[0.08] px-2 py-0.5 text-caption font-medium text-white/80 transition hover:bg-white/[0.15]"
                   >
-                    重试该站
+                    {t("search.status.retry")}
                   </button>
                 )}
                 {isAdmin && (
@@ -2637,7 +2732,7 @@ function SiteStatusSummary({
                     href={"/settings/sites" as Route}
                     className="rounded-md bg-white/[0.08] px-2 py-0.5 text-caption font-medium text-white/80 transition hover:bg-white/[0.15]"
                   >
-                    去站点设置 ›
+                    {t("search.status.settings")}
                   </Link>
                 )}
               </div>
@@ -2648,8 +2743,8 @@ function SiteStatusSummary({
       {/* 汇总行：整次搜索的总耗时（≈ 最慢站点耗时）；快照回放同样有值 */}
       {totalElapsedMs !== null && (
         <div className="mt-1 border-t border-white/[0.08] px-2 pb-0.5 pt-1.5 text-caption text-[var(--text-faint)]">
-          总耗时 {formatElapsed(totalElapsedMs)}
-          <span className="opacity-70">（以最慢的站点为准）</span>
+          {t("search.status.totalTime", { time: formatElapsed(totalElapsedMs, locale) })}
+          <span className="opacity-70">{t("search.status.slowest")}</span>
         </div>
       )}
     </>
@@ -2662,17 +2757,17 @@ function SiteStatusSummary({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        title="查看各站点的搜索详情"
+        title={t("search.status.detailsHint")}
         className="solid-card flex items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.05] px-2.5 py-1 text-caption text-[var(--text-muted)] backdrop-blur-sm transition-colors hover:border-white/[0.22] hover:text-[var(--text)]"
       >
         <span className={`size-1.5 rounded-full ${dotCls}`} />
         {streaming ? (
-          <span className="tnum">{settled}/{sites.length} 站点</span>
+          <span className="tnum">{t("search.status.progress", { settled, count: sites.length })}</span>
         ) : (
           <>
-            <span className="tnum">{sites.length} 站点</span>
+            <span className="tnum">{t("search.status.siteCount", { count: sites.length })}</span>
             {failed > 0 && (
-              <span className="tnum text-[#ff9a9a]">· {failed} 失败</span>
+              <span className="tnum text-[#ff9a9a]">· {t("search.status.failureCount", { count: failed })}</span>
             )}
           </>
         )}
@@ -2680,9 +2775,9 @@ function SiteStatusSummary({
       </button>
 
       {asSheet ? (
-        <Modal open={open} onClose={() => setOpen(false)} label="各站点的搜索详情">
+        <Modal open={open} onClose={() => setOpen(false)} label={t("search.status.details")}>
           <div className="p-3">
-            <p className="px-2 pb-2 pt-1 text-body font-semibold text-[var(--text)]">站点状态</p>
+            <p className="px-2 pb-2 pt-1 text-body font-semibold text-[var(--text)]">{t("search.status.title")}</p>
             {details}
           </div>
         </Modal>
@@ -2690,7 +2785,7 @@ function SiteStatusSummary({
         <>
           {/* 点击空白处关闭（与筛选弹层同款交互） */}
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="solid-popover absolute right-0 top-full z-30 mt-2 w-[320px] max-w-[82vw] rounded-2xl border border-white/[0.12] bg-[rgba(14,16,22,0.94)] p-2 shadow-2xl backdrop-blur-2xl">
+          <div className="solid-popover absolute right-0 top-full z-30 mt-2 max-h-[60dvh] w-[320px] max-w-[82vw] overflow-y-auto rounded-2xl border border-white/[0.12] bg-[rgba(14,16,22,0.94)] p-2 shadow-2xl backdrop-blur-2xl">
             {details}
           </div>
         </>
@@ -2707,6 +2802,7 @@ function SiteStatusSummary({
  * 全部结果都无海报时不渲染空网格，整页自然退化为普通列表。
  */
 function PosterResults({ hits }: { hits: TorrentHit[] }) {
+  const t = useTranslations();
   // 流式期间每批结果都重渲染本组件，分桶结果按 hits 缓存
   const { withPoster, withoutPoster } = useMemo(() => {
     const withPoster: TorrentHit[] = [];
@@ -2721,7 +2817,7 @@ function PosterResults({ hits }: { hits: TorrentHit[] }) {
         <div>
           {withPoster.length > 0 && (
             <p className="text-on-image mb-2 text-caption text-[rgba(243,245,249,0.7)]">
-              以下 {withoutPoster.length} 条结果没有海报，按列表展示
+              {t("search.results.noPoster", { count: withoutPoster.length })}
             </p>
           )}
           <ul className="space-y-2">
@@ -2917,10 +3013,11 @@ function usePosterCardMetrics(sample: TorrentHit | undefined) {
  * 左上只放促销（回答「值不值得下」）；全集信息挪到了左下季/集 chip
  * （seasonEpisodeChip，回答「是哪些内容」），两类信息各归各位。
  */
-function posterPromoBadges(hit: TorrentHit): { text: string; cls: string }[] {
+function posterPromoBadges(hit: TorrentHit, locale: AppLocale): { text: string; cls: string }[] {
+  const t = appTranslator(locale);
   const badges: { text: string; cls: string }[] = [];
   if (hit.free || hit.download_volume_factor === 0) {
-    badges.push({ text: "免费", cls: "bg-[var(--ok)]/90 text-[#052e16]" });
+    badges.push({ text: t("search.torrent.free"), cls: "bg-[var(--ok)]/90 text-[#052e16]" });
   } else if (hit.download_volume_factor < 1) {
     badges.push({
       text: `${Math.round(hit.download_volume_factor * 100)}%`,
@@ -2930,7 +3027,7 @@ function posterPromoBadges(hit: TorrentHit): { text: string; cls: string }[] {
     });
   }
   if (hit.upload_volume_factor > 1) {
-    badges.push({ text: `${hit.upload_volume_factor}× 上传`, cls: "bg-[#c792ff]/85 text-white" });
+    badges.push({ text: t("search.torrent.uploadFactor", { factor: hit.upload_volume_factor }), cls: "bg-[#c792ff]/85 text-white" });
   }
   if (hit.hit_and_run) {
     badges.push({ text: "H&R", cls: "bg-[#f59e0b]/90 text-[#3a2600]" });
@@ -2939,11 +3036,11 @@ function posterPromoBadges(hit: TorrentHit): { text: string; cls: string }[] {
 }
 
 /** 数字列表 → 展示串：连续用区间（1-6），不连续用顿号（1、3）。 */
-function formatNumList(nums: number[]): string {
+function formatNumList(nums: number[], locale: AppLocale): string {
   const sorted = [...nums].sort((a, b) => a - b);
   const contiguous = sorted.every((n, i) => i === 0 || n === sorted[i - 1] + 1);
   if (sorted.length > 1 && contiguous) return `${sorted[0]}-${sorted[sorted.length - 1]}`;
-  return sorted.join("、");
+  return formatList(sorted.map(String), locale);
 }
 
 /**
@@ -2955,13 +3052,14 @@ function formatNumList(nums: number[]): string {
  * 渐变底（与列表模式全集徽标 COMPLETE_BADGE_CLS 同视觉语言），
  * 单集/区间用黑底弱化——海报墙上扫一眼就能分辨「一包带走」和「零散单集」。
  */
-function seasonEpisodeChip(attrs: TorrentAttrs | null): { text: string; pack: boolean } | null {
+function seasonEpisodeChip(attrs: TorrentAttrs | null, locale: AppLocale): { text: string; pack: boolean } | null {
+  const t = appTranslator(locale);
   if (!attrs || attrs.media_type === "movie") return null;
-  const season = attrs.seasons.length > 0 ? `第${formatNumList(attrs.seasons)}季` : null;
+  const season = attrs.seasons.length > 0 ? t("search.torrent.seasons", { count: attrs.seasons.length, values: formatNumList(attrs.seasons, locale) }) : null;
   // 明确标注全集时集数展示成「全N集」，否则列出观测到的集
   const episode =
-    completeLabel(attrs) ??
-    (attrs.episodes.length > 0 ? `第${formatNumList(attrs.episodes)}集` : null);
+    completeLabel(attrs, locale) ??
+    (attrs.episodes.length > 0 ? t("search.torrent.episodes", { count: attrs.episodes.length, values: formatNumList(attrs.episodes, locale) }) : null);
   if (!season && !episode) return null;
   const pack = attrs.complete === true || (!!season && attrs.episodes.length === 0);
   return { text: [season, episode].filter(Boolean).join(" · "), pack };
@@ -2992,6 +3090,8 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
   /** 只为量高度而渲染的探针 */
   measuring?: boolean;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   // 灯箱当前看的是第几张；null = 没打开（灯箱受控翻页，与媒体库那套一致）
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   // 取图用的卡宽（CSS px）；量高度的探针没有宽度，按格子常见上沿 185 估
@@ -3004,7 +3104,7 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
   const [actionsOpen, setActionsOpen] = useState(false);
   const size = hit.size ?? formatBytes(hit.size_bytes);
   const name = parsedName(hit);
-  const seChip = seasonEpisodeChip(hit.attrs);
+  const seChip = seasonEpisodeChip(hit.attrs, locale);
   // 灯箱图集：海报 + 全部图片（poster_url 通常是 image_urls 第一张，去重兜底）。
   // 三级地址与媒体库灯箱同一口径：缩略条取小图（格子 48 高，宽不过 96），舞台按
   // 屏宽像素取（WebP，比图床原图少几倍字节、翻页跟手），只有放大到 1:1
@@ -3036,7 +3136,7 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
         tabIndex={0}
         // 标题展示解析片名后，原始种子名/副标题靠悬停提示查看（图外文字区同）
         title={rawTitleTooltip(hit)}
-        aria-label={`浏览「${hit.title}」的 ${slides.length} 张图片`}
+        aria-label={t("search.torrent.browseLabel", { title: hit.title, count: slides.length })}
         onClick={() => setViewerIndex(0)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -3081,7 +3181,7 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
             站点名不占这个最显眼的位置——它是次要的来源信息，下沉到底部弱化展示。 */}
         <div className="absolute inset-x-1.5 top-1.5 flex items-start justify-between gap-1">
           <span className="flex flex-col items-start gap-1">
-            {posterPromoBadges(hit).map((b) => (
+            {posterPromoBadges(hit, locale).map((b) => (
               <span
                 key={b.text}
                 className={`rounded-md px-1.5 py-0.5 text-micro font-semibold ${b.cls}`}
@@ -3092,7 +3192,7 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
           </span>
           {/* 张数常显（含 1 张）：点开前就知道里面有几张图，只有一张时不必特意点开 */}
           <span
-            title={`共 ${slides.length} 张图片，点击卡片浏览`}
+            title={t("search.torrent.imageCountHint", { count: slides.length })}
             className="tnum flex shrink-0 items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 text-micro font-medium text-white/85"
           >
             <PhotoIcon className="size-3" />
@@ -3126,7 +3226,7 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
                 onClick={(e) => e.stopPropagation()}
                 className="rounded-lg border border-white/40 bg-black/40 px-2.5 py-1 text-caption text-white backdrop-blur-sm transition-colors hover:bg-black/60"
               >
-                详情
+                {t("search.torrent.details")}
               </a>
             )}
             <GrabButton
@@ -3154,7 +3254,7 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
         {(hit.detail_url || hit.download_url) && (
           <button
             type="button"
-            aria-label={`打开「${hit.title}」的资源操作`}
+            aria-label={t("search.torrent.openActions", { title: hit.title })}
             onClick={() => setActionsOpen(true)}
             className="absolute inset-0 z-10 hidden cursor-pointer max-md:block [@media(hover:none)]:block"
           />
@@ -3179,7 +3279,7 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
         <p className="mt-0.5 flex items-baseline gap-1.5 text-micro text-[var(--text-faint)]">
           <span className="min-w-0 truncate">
             {hit.site_name}
-            {hit.upload_time ? ` · ${formatRelativeTime(hit.upload_time)}` : ""}
+            {hit.upload_time ? ` · ${formatRelativeTime(hit.upload_time, locale)}` : ""}
           </span>
           <span className="tnum ml-auto shrink-0">
             <span className="text-[#a7d9b6]">↑{hit.seeders}</span>
@@ -3193,14 +3293,14 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
         // 顶栏右侧的按钮换成种子该有的那几个：截图是「值不值得下」的判据，
         // 看完当场就能下，不必退出灯箱回卡片上再找一遍
         <ZoomLightbox
-          label={`浏览图片：${hit.title}`}
+          label={t("search.torrent.imageTitle", { title: hit.title })}
           slides={slides}
           index={viewerIndex}
           hasMore={false}
           onIndexChange={setViewerIndex}
           onReachEnd={noop}
           onClose={() => setViewerIndex(null)}
-          brokenHint="图床可能已失效或拒绝外链访问"
+          brokenHint={t("search.torrent.imagesUnavailable")}
           actions={
             <>
               {hit.detail_url && (
@@ -3210,7 +3310,7 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
                   rel="noreferrer"
                   className="flex h-8 items-center rounded-full bg-white/[0.12] px-3.5 text-sub font-medium text-white/85 transition-colors hover:bg-white/[0.2] hover:text-white"
                 >
-                  详情
+                  {t("search.torrent.details")}
                 </a>
               )}
               <GrabButton
@@ -3250,12 +3350,12 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
 /** 下载按钮的提交状态：终态（done/exists）不可再点，error 可点重试。 */
 type DownloadState = "idle" | "submitting" | "done" | "exists" | "error";
 
-const DOWNLOAD_LABEL: Record<DownloadState, string> = {
-  idle: "下载",
-  submitting: "提交中…",
-  done: "已提交",
-  exists: "已在下载器",
-  error: "失败·重试",
+const DOWNLOAD_LABEL: Record<DownloadState, AppMessageKey> = {
+  idle: "search.download.idle",
+  submitting: "search.download.submitting",
+  done: "search.download.done",
+  exists: "search.download.exists",
+  error: "search.download.error",
 };
 
 /**
@@ -3275,6 +3375,8 @@ function DownloadButton({
   /** 按钮长在灯箱（z-70）里时置位：保存位置弹窗**与确认条**都要抬到灯箱之上才看得见 */
   dialogTopmost?: boolean;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const { canDirectDownload } = usePermissions();
   const toast = useToast();
   const [state, setState] = useState<DownloadState>("idle");
@@ -3298,8 +3400,8 @@ function DownloadButton({
     setState(result.already_exists ? "exists" : "done");
     toast.success(
       result.already_exists
-        ? "该种子已在下载器中，未重复添加"
-        : `已提交到「${result.downloader_name}」${result.save_path ? ` · ${result.save_path}` : ""}`,
+        ? t("search.download.existsHint")
+        : t("search.download.submitted", { name: result.downloader_name, hasPath: result.save_path ? "yes" : "no", path: result.save_path ?? "" }),
     );
   }
 
@@ -3312,7 +3414,7 @@ function DownloadButton({
         if (result === null) {
           // 智能入库预检没收敛：绝不静默放进默认库，展开弹窗并说明原因
           setState("idle");
-          setFallbackReason("这条种子没匹配到唯一条目，请确认是哪部作品。");
+          setFallbackReason(t("search.download.confirmIdentity"));
           setRequest(req);
           return;
         }
@@ -3320,8 +3422,8 @@ function DownloadButton({
       })
       .catch((err) => {
         setState("error");
-        setError(err instanceof Error ? err.message : "提交失败");
-        toast.error(err instanceof Error ? err.message : "提交失败，请重试");
+        setError(err instanceof Error ? err.message : t("search.download.submitFailed"));
+        toast.error(err instanceof Error ? err.message : t("search.download.retryHint"));
       });
   }
 
@@ -3355,19 +3457,19 @@ function DownloadButton({
     }
     // 记忆存的是「智能入库」但这条种子没解析出身份：套不上，回落弹窗并说明
     if (remembered.kind === "smart" && !req.identity) {
-      setFallbackReason("这条种子没解析出条目身份，用不了记住的「智能入库」，请确认是哪部作品。");
+      setFallbackReason(t("search.download.smartIdentity"));
       setRequest(req);
       return;
     }
     // 记住的下载器已被删除（后端解析不出名称）：目标已经不成立
     if (remembered.downloader_id != null && remembered.downloader_name === null) {
-      setFallbackReason("上次使用的下载器已不可用，请重新选择保存位置。");
+      setFallbackReason(t("search.download.downloaderUnavailable"));
       setRequest(req);
       return;
     }
     // 记住的目录已不在候选里（库被删、路径映射改了）
     if (prefs.isStaleDir(remembered)) {
-      setFallbackReason(`上次的保存位置 ${remembered.save_path} 已不存在，请重新选择。`);
+      setFallbackReason(t("search.download.missingPath", { path: remembered.save_path ?? "" }));
       setRequest(req);
       return;
     }
@@ -3385,7 +3487,7 @@ function DownloadButton({
           state === "submitting" ? " cursor-wait opacity-75" : ""
         }`}
       >
-        {DOWNLOAD_LABEL[state]}
+        {t(DOWNLOAD_LABEL[state])}
       </button>
       {confirming && (
         <DownloadTargetConfirmBar
@@ -3406,7 +3508,7 @@ function DownloadButton({
             // 这个默认不对，不是因为不想下载
             void prefs.forget(target.category);
             setFallbackReason(
-              `已清除「${CATEGORY_LABEL[target.category as TorrentCategory] ?? target.category}」的默认位置。想重新设一个，在下面勾上「记住本次选择」。`,
+              t("search.download.forgot", { category: categoryLabel(target.category as TorrentCategory, locale) }),
             );
             setRequest(req);
           }}
@@ -3434,11 +3536,11 @@ function DownloadButton({
 /** 「投给订阅」按钮的提交状态：done 终态不可再点，error 可点重试。 */
 type GrabState = "idle" | "submitting" | "done" | "error";
 
-const GRAB_LABEL: Record<GrabState, string> = {
-  idle: "投给订阅",
-  submitting: "投递中…",
-  done: "已投递",
-  error: "失败·重试",
+const GRAB_LABEL: Record<GrabState, AppMessageKey> = {
+  idle: "search.grab.idle",
+  submitting: "search.grab.submitting",
+  done: "search.grab.done",
+  error: "search.grab.error",
 };
 
 /**
@@ -3447,6 +3549,7 @@ const GRAB_LABEL: Record<GrabState, string> = {
  * 身份对不上/没有可满足缺口时后端给可读中文错误，进 toast 并可重试。
  */
 function GrabButton({ hit, className }: { hit: TorrentHit; className: string }) {
+  const t = useTranslations();
   const grabFor = useContext(GrabContext);
   const toast = useToast();
   const [state, setState] = useState<GrabState>("idle");
@@ -3472,10 +3575,10 @@ function GrabButton({ hit, className }: { hit: TorrentHit; className: string }) 
         publish_time: hit.upload_time,
       });
       setState("done");
-      toast.success(`已投给《${grabFor.title}》，覆盖 ${units.length} 个追踪单元`);
+      toast.success(t("search.grab.success", { title: grabFor.title, count: units.length }));
     } catch (err) {
       setState("error");
-      toast.error(err instanceof Error ? err.message : "投递失败，请稍后重试");
+      toast.error(err instanceof Error ? err.message : t("search.grab.failed"));
     }
   };
 
@@ -3484,12 +3587,12 @@ function GrabButton({ hit, className }: { hit: TorrentHit; className: string }) 
       type="button"
       onClick={(e) => void grab(e)}
       disabled={state === "submitting"}
-      title={`直接投给《${grabFor.title}》（跳过规则组限制）`}
+      title={t("search.grab.directHint", { title: grabFor.title })}
       className={`${className}${state === "done" ? " cursor-default opacity-75" : ""}${
         state === "submitting" ? " cursor-wait opacity-75" : ""
       }`}
     >
-      {GRAB_LABEL[state]}
+      {t(GRAB_LABEL[state])}
     </button>
   );
 }
@@ -3527,17 +3630,17 @@ function rawTitleTooltip(hit: TorrentHit): string {
  * 与同组其他版本的差异——季集 + 分辨率 + 片源/Remux + 编码 + HDR + 字幕 + 音轨
  * + 压制组。
  */
-function specSummary(attrs: TorrentAttrs): string | null {
+function specSummary(attrs: TorrentAttrs, locale: AppLocale): string | null {
   const parts = [
     seasonEpLabel(attrs),
     attrs.resolution,
-    ...(attrs.platforms ?? []).map(platformLabel),
+    ...(attrs.platforms ?? []).map(value => platformLabel(value, locale)),
     attrs.media_source,
     attrs.remux && "Remux",
     attrs.video_codec,
     ...attrs.hdr,
-    compactSubtitleBadge(attrs),
-    compactAudioBadge(attrs),
+    compactSubtitleBadge(attrs, locale),
+    compactAudioBadge(attrs, locale),
     ...attrs.audio.slice(0, 2),
     attrs.release_group,
   ].filter(Boolean);
@@ -3563,13 +3666,15 @@ const TorrentRow = memo(function TorrentRow({
   /** 列表模式直接展示站点原始种子名与副标题，不使用扩充层解析出的片名。 */
   showRawTitles?: boolean;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const [actionsOpen, setActionsOpen] = useState(false);
   const size = hit.size ?? formatBytes(hit.size_bytes);
   const name = showRawTitles ? null : parsedName(hit);
-  const complete = completeLabel(hit.attrs);
+  const complete = completeLabel(hit.attrs, locale);
   // 分组模式且片名已解析：片名由组头承担，行标题换成版本规格摘要
   const asSpecRow = grouped && name !== null;
-  const spec = asSpecRow && hit.attrs ? specSummary(hit.attrs) : null;
+  const spec = asSpecRow && hit.attrs ? specSummary(hit.attrs, locale) : null;
   return (
     // 行底不用 backdrop-filter：结果动辄上千行，每行一个独立的实时模糊合成层，
     // 滚动时 GPU 要逐层重采样背后内容，是搜索页掉帧的主因；页面蒙版本就压暗了
@@ -3581,7 +3686,7 @@ const TorrentRow = memo(function TorrentRow({
       {(hit.detail_url || hit.download_url) && (
         <button
           type="button"
-          aria-label={`打开「${hit.title}」的资源操作`}
+          aria-label={t("search.torrent.openActions", { title: hit.title })}
           onClick={() => setActionsOpen(true)}
           className="absolute inset-0 z-10 hidden cursor-pointer rounded-2xl max-md:block [@media(hover:none)]:block"
         />
@@ -3645,12 +3750,12 @@ const TorrentRow = memo(function TorrentRow({
 
         {/* 固定指标列带短标签，数值的含义无需靠图标猜测，跨行仍可垂直比较。 */}
         <div className="tnum hidden shrink-0 grid-cols-[70px_78px_78px] gap-x-3 text-right text-caption lg:grid">
-          <Metric label="大小" value={size || "—"} />
-          <Metric label="做种 / 下载" value={<><span className={seederTone(hit.seeders)}>{hit.seeders}</span><span className="text-[var(--text-faint)]"> / {hit.leechers}</span></>} />
+          <Metric label={t("search.torrent.size")} value={size || "—"} />
+          <Metric label={t("search.torrent.peers")} value={<><span className={seederTone(hit.seeders)}>{hit.seeders}</span><span className="text-[var(--text-faint)]"> / {hit.leechers}</span></>} />
           <Metric
-            label={hit.snatched > 0 ? `完成 ${hit.snatched}` : "发布时间"}
-            value={hit.upload_time ? formatRelativeTime(hit.upload_time) : "—"}
-            title={hit.upload_time ? formatDateTime(hit.upload_time) : undefined}
+            label={hit.snatched > 0 ? t("search.torrent.completed", { count: hit.snatched }) : t("search.torrent.published")}
+            value={hit.upload_time ? formatRelativeTime(hit.upload_time, locale) : "—"}
+            title={hit.upload_time ? formatDateTime(hit.upload_time, locale) : undefined}
           />
         </div>
 
@@ -3666,7 +3771,7 @@ const TorrentRow = memo(function TorrentRow({
                 rel="noreferrer"
                 className="btn-glass h-7 px-3 text-caption text-[var(--text-muted)]"
               >
-                详情
+                {t("search.torrent.details")}
               </a>
             )}
             <GrabButton
@@ -3706,13 +3811,15 @@ function TorrentActionsSheet({
   /** 海报模式可从抽屉继续进入图片灯箱；列表模式不提供。 */
   onViewImages?: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const name = parsedName(hit);
   const displayTitle = name?.primary ?? hit.title;
   const secondaryTitle = name ? hit.title : hit.subtitle;
   const size = hit.size ?? formatBytes(hit.size_bytes);
 
   return (
-    <Modal open={open} onClose={onClose} label={`${displayTitle}的资源操作`}>
+    <Modal open={open} onClose={onClose} label={t("search.torrent.actionsTitle", { title: displayTitle })}>
       <div className="px-4 pb-5 pt-2">
         <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20" aria-hidden="true" />
         <div className="flex items-start gap-3">
@@ -3727,8 +3834,8 @@ function TorrentActionsSheet({
               {[
                 hit.site_name,
                 size,
-                `${hit.seeders} 做种`,
-                hit.upload_time ? formatRelativeTime(hit.upload_time) : null,
+                t("search.torrent.seederCount", { count: hit.seeders }),
+                hit.upload_time ? formatRelativeTime(hit.upload_time, locale) : null,
               ]
                 .filter(Boolean)
                 .join(" · ")}
@@ -3736,7 +3843,7 @@ function TorrentActionsSheet({
           </div>
           <button
             type="button"
-            aria-label="关闭资源操作"
+            aria-label={t("search.torrent.closeActions")}
             onClick={onClose}
             className="touch-target flex size-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-[var(--text-muted)]"
           >
@@ -3752,7 +3859,7 @@ function TorrentActionsSheet({
               className="btn-glass flex h-11 w-full items-center justify-center gap-2 text-ui font-medium text-[var(--text)]"
             >
               <PhotoIcon className="size-4" />
-              浏览图片
+              {t("search.torrent.browseImages")}
             </button>
           )}
           {hit.detail_url && (
@@ -3763,7 +3870,7 @@ function TorrentActionsSheet({
               onClick={onClose}
               className="btn-glass flex h-11 w-full items-center justify-center text-ui font-medium text-[var(--text)]"
             >
-              查看详情
+              {t("search.torrent.viewDetails")}
             </a>
           )}
           <GrabButton
@@ -3800,9 +3907,10 @@ function Metric({
 
 /** 促销角标：免费 / 打折下载系数 / 双倍上传 / H&R 考核。 */
 function PromoBadges({ hit }: { hit: TorrentHit }) {
+  const t = useTranslations();
   const badges: { text: string; cls: string }[] = [];
   if (hit.free || hit.download_volume_factor === 0) {
-    badges.push({ text: "免费", cls: "bg-[var(--ok)]/15 text-[#79d193]" });
+    badges.push({ text: t("search.torrent.free"), cls: "bg-[var(--ok)]/15 text-[#79d193]" });
   } else if (hit.download_volume_factor < 1) {
     badges.push({
       text: `${Math.round(hit.download_volume_factor * 100)}%`,
@@ -3812,7 +3920,7 @@ function PromoBadges({ hit }: { hit: TorrentHit }) {
   }
   if (hit.upload_volume_factor > 1) {
     badges.push({
-      text: `${hit.upload_volume_factor}× 上传`,
+      text: t("search.torrent.uploadFactor", { factor: hit.upload_volume_factor }),
       cls: "bg-[#c792ff]/15 text-[#c8a6ff]",
     });
   }
@@ -3846,30 +3954,32 @@ const MAX_ATTR_BADGES = 4;
  * 标题串（release name）本身也完整携带这些属性，+N 悬停即见全部。
  */
 /** 题材轴的中文标签（attrs.content_type → 徽标文案）。 */
-const CONTENT_TYPE_LABEL: Record<string, string> = {
-  anime: "动漫",
-  documentary: "纪录片",
-  variety: "综艺",
-  music: "音乐",
+const CONTENT_TYPE_LABEL: Record<string, AppMessageKey> = {
+  anime: "search.contentType.anime",
+  documentary: "search.contentType.documentary",
+  variety: "search.contentType.variety",
+  music: "search.contentType.music",
 };
 
 function AttrBadges({ attrs }: { attrs: TorrentAttrs }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const chips: { text: string; cls?: string }[] = [];
   const seasonEp = seasonEpLabel(attrs);
   if (seasonEp) chips.push({ text: seasonEp, cls: "text-[var(--accent-2)]" });
   if (attrs.content_type && CONTENT_TYPE_LABEL[attrs.content_type]) {
-    chips.push({ text: CONTENT_TYPE_LABEL[attrs.content_type], cls: "text-[#f0b6d8]" });
+    chips.push({ text: t(CONTENT_TYPE_LABEL[attrs.content_type]), cls: "text-[#f0b6d8]" });
   }
   if (attrs.resolution) chips.push({ text: attrs.resolution });
   if (attrs.remux) chips.push({ text: "Remux", cls: "text-[var(--info-text-2)]" });
   for (const v of attrs.hdr) chips.push({ text: v, cls: "text-[#c8a6ff]" });
-  const subBadge = compactSubtitleBadge(attrs);
+  const subBadge = compactSubtitleBadge(attrs, locale);
   if (subBadge) chips.push({ text: subBadge, cls: "text-[#7ee2b8]" });
-  const audioBadge = compactAudioBadge(attrs);
+  const audioBadge = compactAudioBadge(attrs, locale);
   if (audioBadge) chips.push({ text: audioBadge, cls: "text-[#ffd08a]" });
   if (attrs.release_group) chips.push({ text: attrs.release_group, cls: "text-[var(--accent)]" });
   for (const v of attrs.platforms ?? []) {
-    chips.push({ text: platformLabel(v), cls: "text-[#8fd8ff]" });
+    chips.push({ text: platformLabel(v, locale), cls: "text-[#8fd8ff]" });
   }
   if (attrs.media_source) chips.push({ text: attrs.media_source });
   if (attrs.video_codec) chips.push({ text: attrs.video_codec });
@@ -3928,9 +4038,10 @@ function seasonEpLabel(attrs: TorrentAttrs): string | null {
  * 徽标样式也统一走 COMPLETE_BADGE_CLS——全集包是"一把带走"的下载决策关键，
  * 用区别于普通属性 chip 的渐变描边样式让它跳出来。
  */
-function completeLabel(attrs: TorrentAttrs | null): string | null {
+function completeLabel(attrs: TorrentAttrs | null, locale: AppLocale): string | null {
+  const t = appTranslator(locale);
   if (attrs?.complete !== true) return null;
-  return attrs.episodes_total ? `全${attrs.episodes_total}集` : "全集";
+  return attrs.episodes_total ? t("search.torrent.completeCount", { count: attrs.episodes_total }) : t("search.torrent.complete");
 }
 
 /** 全集徽标的统一样式（列表/分组/组头）；海报卡用实底变体叠图可读。
@@ -3970,6 +4081,7 @@ const SKELETON_TITLE_WIDTHS = ["72%", "58%", "80%", "64%", "70%", "52%"];
  * 结果是流式渐进的，通常最快的站点亚秒级就会替换掉这里。
  */
 function SkeletonList({ siteCount }: { siteCount: number }) {
+  const t = useTranslations();
   return (
     <div>
       <div className="text-on-image flex items-center gap-2 px-1 pb-3 text-sub text-[rgba(243,245,249,0.8)]">
@@ -3985,8 +4097,8 @@ function SkeletonList({ siteCount }: { siteCount: number }) {
           <path d="M12 3a9 9 0 1 1-9 9" />
         </svg>
         {siteCount > 0
-          ? `正在搜索 ${siteCount} 个站点，结果将实时呈现…`
-          : "正在连接搜索服务…"}
+          ? t("search.results.searchingSites", { count: siteCount })
+          : t("search.results.connecting")}
       </div>
       <ul className="space-y-2" aria-hidden="true">
         {SKELETON_TITLE_WIDTHS.map((width, i) => (
@@ -4039,4 +4151,31 @@ function formatBytes(bytes: number): string {
     i += 1;
   }
   return `${value.toFixed(value >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function sortOptions(locale: AppLocale) {
+  const t = appTranslator(locale);
+  return SORT_OPTIONS.map(option => ({ ...option, label: t(option.label) }));
+}
+
+function smartSortOptions(locale: AppLocale) {
+  const t = appTranslator(locale);
+  return SMART_SORT_OPTIONS.map(option => ({ ...option, label: t(option.label) }));
+}
+
+function chipDims(locale: AppLocale) {
+  const t = appTranslator(locale);
+  return CHIP_DIMS.map(option => ({ ...option, title: t(option.title) }));
+}
+
+function viewOptions(locale: AppLocale) {
+  const t = appTranslator(locale);
+  return VIEW_OPTIONS.map(option => ({ ...option, label: t(option.label), hint: t(option.hint) }));
+}
+
+/** A marked site reason updates in place; unknown provider text remains verbatim. */
+function siteError(site: SiteProgress, locale: AppLocale): string | null {
+  const t = appTranslator(locale);
+  const key = site.error_key as AppMessageKey | undefined;
+  return key && t.has(key) ? t(key, site.error_params ?? {}) : site.error;
 }

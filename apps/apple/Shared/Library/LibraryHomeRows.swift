@@ -31,23 +31,23 @@ enum HomeRows {
     static func preset(_ sort: String) -> SortPreset {
         switch sort {
         case "release_date":
-            SortPreset(name: { l, r in r ? "最早上映的\(l)" : "最近上映的\(l)" }, short: { $0 ? "最早上映" : "最近上映" },
-                       direction: WallSortDirection(naturalAsc: false, asc: "旧→新", desc: "新→旧"), hint: "上映时间")
+            SortPreset(name: { l, r in r ? String(localized: .libraryRowsFirstReleasedName(l)) : String(localized: .libraryRowsRecentReleasedName(l)) }, short: { $0 ? String(localized: .libraryRowsFirstReleased) : String(localized: .libraryRowsRecentReleased) },
+                       direction: WallSortDirection(naturalAsc: false, asc: String(localized: .libraryRowsOldToNew), desc: String(localized: .libraryRowsNewToOld)), hint: String(localized: .libraryRowsReleasedHint))
         case "last_played":
             // 反转 = 上次播放离现在最远的在前：「很久没看的」比「最早观看的」更像人话
-            SortPreset(name: { l, r in r ? "很久没看的\(l)" : "最近观看的\(l)" }, short: { $0 ? "很久没看" : "最近观看" },
-                       direction: WallSortDirection(naturalAsc: false, asc: "远→近", desc: "近→远"), hint: "我播放过的，按上次播放时间")
+            SortPreset(name: { l, r in r ? String(localized: .libraryRowsLongUnwatchedName(l)) : String(localized: .libraryRowsRecentWatchedName(l)) }, short: { $0 ? String(localized: .libraryRowsLongUnwatched) : String(localized: .libraryRowsRecentWatched) },
+                       direction: WallSortDirection(naturalAsc: false, asc: String(localized: .libraryRowsFarToNear), desc: String(localized: .libraryRowsNearToFar)), hint: String(localized: .libraryRowsWatchedHint))
         case "rating":
-            SortPreset(name: { l, r in r ? "评分最低的\(l)" : "评分最高的\(l)" }, short: { $0 ? "评分最低" : "评分最高" },
-                       direction: WallSortDirection(naturalAsc: false, asc: "低→高", desc: "高→低"), hint: "评分")
+            SortPreset(name: { l, r in r ? String(localized: .libraryRowsLowestRatedName(l)) : String(localized: .libraryRowsHighestRatedName(l)) }, short: { $0 ? String(localized: .libraryRowsLowestRated) : String(localized: .libraryRowsHighestRated) },
+                       direction: WallSortDirection(naturalAsc: false, asc: String(localized: .libraryRowsLowToHigh), desc: String(localized: .libraryRowsHighToLow)), hint: String(localized: .libraryRowsRatingHint))
         case "random":
-            SortPreset(name: { l, _ in "随便看看 · \(l)" }, short: { _ in "随便看看" }, direction: nil, hint: "每天换一批")
+            SortPreset(name: { l, _ in String(localized: .libraryRowsRandomName(l)) }, short: { _ in String(localized: .libraryRowsRandom) }, direction: nil, hint: String(localized: .libraryRowsRandomHint))
         case "title":
             SortPreset(name: { l, r in r ? "\(l) Z–A" : "\(l) A–Z" }, short: { $0 ? "Z–A" : "A–Z" },
-                       direction: WallSortDirection(naturalAsc: true, asc: "A→Z", desc: "Z→A"), hint: "片名")
+                       direction: WallSortDirection(naturalAsc: true, asc: "A→Z", desc: "Z→A"), hint: String(localized: .libraryRowsTitleHint))
         default: // added_at
-            SortPreset(name: { l, r in r ? "最早添加的\(l)" : "最近添加的\(l)" }, short: { $0 ? "最早添加" : "最近添加" },
-                       direction: WallSortDirection(naturalAsc: false, asc: "旧→新", desc: "新→旧"), hint: "入库时间")
+            SortPreset(name: { l, r in r ? String(localized: .libraryRowsFirstAddedName(l)) : String(localized: .libraryRowsRecentAddedName(l)) }, short: { $0 ? String(localized: .libraryRowsFirstAdded) : String(localized: .libraryRowsRecentAdded) },
+                       direction: WallSortDirection(naturalAsc: false, asc: String(localized: .libraryRowsOldToNew), desc: String(localized: .libraryRowsNewToOld)), hint: String(localized: .libraryRowsAddedHint))
         }
     }
 
@@ -68,16 +68,16 @@ enum HomeRows {
     /// 类型行的叫法：「全部电影」「全部剧集」「全部其他视频」
     static func mediaKindLabel(_ kind: String) -> String {
         switch kind {
-        case "tv": "剧集"
-        case "video": "其他视频"
-        default: "电影"
+        case "tv": String(localized: .mediaKindTv)
+        case "video": String(localized: .libraryKindVideos)
+        default: String(localized: .mediaKindMovie)
         }
     }
 
     /// 类型行的推荐名：「全部电影 · 最近添加」。
     /// 不套库行的「最近添加的{库}」：很多人的电影库就叫「电影」，那样类型行与那个库的默认行会同名并排，分不清
     static func mediaKindRowName(_ kind: String, sort: String, reversed: Bool) -> String {
-        "全部\(mediaKindLabel(kind)) · \(preset(sort).short(reversed))"
+        String(localized: .libraryRowsKindName(mediaKindLabel(kind), preset(sort).short(reversed)))
     }
 
     /// 每种类型由哪些库组成：可见 ∩ 该类型 ∩ 没勾「从首页排除」——与服务端 `kind_library_ids` 同一口径。
@@ -101,13 +101,13 @@ enum HomeRows {
     static func favoritesPreset(_ sort: String) -> FavoritesPreset {
         switch sort {
         case "favorited_at":
-            FavoritesPreset(name: { $0 ? "最早收藏" : "最近收藏" }, direction: WallSortDirection(naturalAsc: false, asc: "旧→新", desc: "新→旧"), hint: "收藏时间")
+            FavoritesPreset(name: { $0 ? String(localized: .libraryRowsFirstFavorited) : String(localized: .libraryFavoritesRecent) }, direction: WallSortDirection(naturalAsc: false, asc: String(localized: .libraryRowsOldToNew), desc: String(localized: .libraryRowsNewToOld)), hint: String(localized: .libraryRowsFavoritedHint))
         case "rating":
-            FavoritesPreset(name: { $0 ? "评分最低" : "评分最高" }, direction: WallSortDirection(naturalAsc: false, asc: "低→高", desc: "高→低"), hint: "评分")
+            FavoritesPreset(name: { $0 ? String(localized: .libraryRowsLowestRated) : String(localized: .libraryRowsHighestRated) }, direction: WallSortDirection(naturalAsc: false, asc: String(localized: .libraryRowsLowToHigh), desc: String(localized: .libraryRowsHighToLow)), hint: String(localized: .libraryRowsRatingHint))
         case "title":
-            FavoritesPreset(name: { $0 ? "片名 Z–A" : "片名 A–Z" }, direction: WallSortDirection(naturalAsc: true, asc: "A→Z", desc: "Z→A"), hint: "片名")
+            FavoritesPreset(name: { $0 ? String(localized: .libraryRowsTitleZA) : String(localized: .libraryRowsTitleAZ) }, direction: WallSortDirection(naturalAsc: true, asc: "A→Z", desc: "Z→A"), hint: String(localized: .libraryRowsTitleHint))
         default:
-            FavoritesPreset(name: { _ in "未看优先" }, direction: nil, hint: "没看完的在前，再按收藏时间")
+            FavoritesPreset(name: { _ in String(localized: .libraryRowsUnwatchedFirst) }, direction: nil, hint: String(localized: .libraryRowsUnwatchedHint))
         }
     }
 
@@ -150,10 +150,10 @@ enum HomeRows {
         /// 这一行显示的名字：用户起的优先，空则跟随默认（库行按排序推荐，合集行用合集名）
         var title: String {
             switch kind {
-            case .upNext: "接下来继续"
-            case .favorites: "我的收藏"
-            case .libraries: "我的媒体库"
-            case let .genres(kind, _): "按类型找\(HomeRows.mediaKindLabel(kind))"
+            case .upNext: String(localized: .libraryRowsUpNext)
+            case .favorites: String(localized: .libraryFavoritesPageTitle)
+            case .libraries: String(localized: .libraryRowsLibraries)
+            case let .genres(kind, _): String(localized: .libraryRowsGenreTitle(HomeRows.mediaKindLabel(kind)))
             case let .library(library, sort, reversed, _, name, _):
                 name.isEmpty ? HomeRows.preset(sort).name(library.name, reversed) : name
             case let .mediaKind(kind, _, sort, reversed, _, name, _):
@@ -166,17 +166,17 @@ enum HomeRows {
         /// 自定义页里每行的小字：来源 · 排序 · 只看没看过的
         var meta: String {
             switch kind {
-            case .upNext: "内置 · 我正在看的"
-            case let .favorites(sort, reversed): "内置 · \(HomeRows.favoritesPreset(sort).name(reversed))"
-            case .libraries: "内置 · 管理页的库顺序"
-            case let .genres(_, libraries): "内置 · 每个类型一格（\(libraries.count) 个库）"
+            case .upNext: String(localized: .libraryRowsWatchingMeta)
+            case let .favorites(sort, reversed): String(localized: .libraryRowsFavoritesMeta(HomeRows.favoritesPreset(sort).name(reversed)))
+            case .libraries: String(localized: .libraryRowsLibrariesMeta)
+            case let .genres(_, libraries): String(localized: .libraryRowsGenresMeta(libraries.count))
             case let .library(library, sort, reversed, unwatched, _, _):
-                ["\(library.name)库", HomeRows.preset(sort).short(reversed), unwatched ? "只看没看过的" : nil]
+                [String(localized: .libraryRowsLibraryMeta(library.name)), HomeRows.preset(sort).short(reversed), unwatched ? String(localized: .libraryRowsOnlyUnwatched) : nil]
                     .compactMap { $0 }.joined(separator: " · ")
             case let .mediaKind(kind, libraries, sort, reversed, unwatched, _, _):
-                ["全部\(HomeRows.mediaKindLabel(kind))（\(libraries.count) 个库）", HomeRows.preset(sort).short(reversed), unwatched ? "只看没看过的" : nil]
+                [String(localized: .libraryRowsKindMeta(HomeRows.mediaKindLabel(kind), libraries.count)), HomeRows.preset(sort).short(reversed), unwatched ? String(localized: .libraryRowsOnlyUnwatched) : nil]
                     .compactMap { $0 }.joined(separator: " · ")
-            case let .collection(_, sort, reversed, _): "合集 · \(HomeRows.preset(sort).short(reversed))"
+            case let .collection(_, sort, reversed, _): String(localized: .libraryRowsCollectionMeta(HomeRows.preset(sort).short(reversed)))
             }
         }
 

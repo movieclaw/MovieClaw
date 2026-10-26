@@ -1,3 +1,7 @@
+import { appTranslator } from "./i18n/translate.ts";
+import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
+import { formatDate } from "./i18n/format.ts";
+
 /**
  * 活动总览（银玻璃，components/activity-overview.tsx）的纯逻辑：摘要文案、播放方式配色、
  * 7 天观看涨跌、刷流按站点开关状态汇总。对应原生 App 的 ActivityView.swift（摘要）、
@@ -32,14 +36,15 @@ export function activitySummaryParts(counts: {
   watching: number;
   downloading: number;
   active: number;
-}): SummaryPart[] {
+}, locale: AppLocale = requestLocale() ?? "zh-Hans"): SummaryPart[] {
+  const t = appTranslator(locale);
   const parts: SummaryPart[] = [];
-  if (counts.attention > 0) parts.push({ text: `${counts.attention} 项需要处理`, alert: true });
-  if (counts.watching > 0) parts.push({ text: `${counts.watching} 台设备在播放` });
-  if (counts.downloading > 0) parts.push({ text: `${counts.downloading} 台设备在下载` });
-  if (counts.active > 0) parts.push({ text: `${counts.active} 个任务进行中` });
-  if (parts.length === 0) return [{ text: "一切正常" }, { text: "现在没有人在看" }];
-  if (counts.watching === 0) parts.push({ text: "现在没有人在看" });
+  if (counts.attention > 0) parts.push({ text: t("activity.overview.attentionCount", { count: counts.attention }), alert: true });
+  if (counts.watching > 0) parts.push({ text: t("activity.overview.watchingCount", { count: counts.watching }) });
+  if (counts.downloading > 0) parts.push({ text: t("activity.overview.downloadingCount", { count: counts.downloading }) });
+  if (counts.active > 0) parts.push({ text: t("activity.overview.activeCount", { count: counts.active }) });
+  if (parts.length === 0) return [{ text: t("activity.overview.healthy") }, { text: t("activity.overview.noOneWatching") }];
+  if (counts.watching === 0) parts.push({ text: t("activity.overview.noOneWatching") });
   return parts;
 }
 
@@ -54,7 +59,13 @@ export function activitySummaryParts(counts: {
 export function deliveryColor(delivery: PlaybackDelivery): string {
   if (delivery.mode === "direct") return "var(--ok)";
   if (delivery.mode === "remux" || delivery.mode === "audio") return "var(--info)";
+  if (delivery.execution_kind != null) {
+    if (delivery.execution_kind === "remote") return "#c084fc";
+    return delivery.execution_kind === "software" ? "var(--danger)" : "var(--warn)";
+  }
+  // i18n-ignore: legacy playback delivery discriminator; retain for old API responses.
   if (delivery.label === "远程转码") return "#c084fc";
+  // i18n-ignore: legacy playback delivery discriminator; retain for old API responses.
   return delivery.label === "软件转码" ? "var(--danger)" : "var(--warn)";
 }
 
@@ -71,9 +82,10 @@ export function deliveryDetail(delivery: PlaybackDelivery): string | null {
  * - 设备名里已有某段以客户端名打头时不再重复（「Apple TV」+「Apple TV · tvOS 27.0」→
  *   「Apple TV · tvOS 27.0」，「iOS」+「iPhone · iOS 27.0」→「iPhone · iOS 27.0」）。
  */
-export function deviceLabel(client: string, deviceName: string): string {
+export function deviceLabel(client: string, deviceName: string, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
   const name = client.startsWith("MovieClaw ") ? client.slice("MovieClaw ".length) : client;
-  if (!deviceName) return name || "未知设备";
+  if (!deviceName) return name || t("activity.overview.unknownDevice");
   const repeats = deviceName
     .split(" · ")
     .some((part) => part === name || part.startsWith(`${name} `));
@@ -91,25 +103,25 @@ export interface WeeklyDelta {
 }
 
 /** 较前 7 天的涨跌；上一周期不可比（服务端还没攒够日志）时不显示 */
-export function weeklyDelta(stats: PlaybackWatchStats): WeeklyDelta | null {
+export function weeklyDelta(stats: PlaybackWatchStats, locale: AppLocale = requestLocale() ?? "zh-Hans"): WeeklyDelta | null {
+  const t = appTranslator(locale);
   if (!stats.previous_available) return null;
   const current = stats.current.watched_ms;
   const previous = stats.previous.watched_ms;
-  if (previous <= 0) return current > 0 ? { text: "比前 7 天新增", tone: "up" } : null;
+  if (previous <= 0) return current > 0 ? { text: t("activity.overview.weeklyNew"), tone: "up" } : null;
   const ratio = Math.round(((current - previous) / previous) * 100);
-  if (ratio === 0) return { text: "与前 7 天持平", tone: "flat" };
+  if (ratio === 0) return { text: t("activity.overview.weeklyFlat"), tone: "flat" };
   return ratio > 0
-    ? { text: `比前 7 天 ↑ ${ratio}%`, tone: "up" }
-    : { text: `比前 7 天 ↓ ${-ratio}%`, tone: "down" };
+    ? { text: t("activity.overview.weeklyUp", { percent: ratio }), tone: "up" }
+    : { text: t("activity.overview.weeklyDown", { percent: -ratio }), tone: "down" };
 }
 
-const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 
 /** "2026-09-26" → 「六」；解析不了原样返回 */
-export function weekdayLabel(date: string): string {
+export function weekdayLabel(date: string, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
   const [year, month, day] = date.split("-").map(Number);
   if (!year || !month || !day) return date;
-  return WEEKDAYS[new Date(year, month - 1, day).getDay()];
+  return formatDate(new Date(year, month - 1, day), { weekday: locale === "zh-Hans" ? "narrow" : "short" }, locale);
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +168,8 @@ export interface BoostSite {
  * 不再汰换——所以「还有刷流种子」不等于「刷流开着」。`pool` 为 null（还没取到或取失败）
  * 时一律当作运行中，不替用户下「已关闭」的结论。
  */
-export function boostSites(tasks: DownloadTask[], pool: BoostPool | null) {
+export function boostSites(tasks: DownloadTask[], pool: BoostPool | null, locale: AppLocale = requestLocale() ?? "zh-Hans") {
+  const t = appTranslator(locale);
   const poolSites = new Map((pool?.sites ?? []).map((site) => [site.site_id, site]));
   const bySite = new Map<string, DownloadTask[]>();
   for (const task of tasks) {
@@ -175,7 +188,7 @@ export function boostSites(tasks: DownloadTask[], pool: BoostPool | null) {
             ? "paused"
             : "running"
           : "off";
-      const name = siteTasks[0]?.site_name || info?.site_name || (id || "未知站点");
+      const name = siteTasks[0]?.site_name || info?.site_name || (id || t("activity.overview.unknownSite"));
       return { id, name, mode, tasks: siteTasks, pool: info };
     })
     .sort((a, b) => b.tasks.length - a.tasks.length);
@@ -198,9 +211,10 @@ export function boostSites(tasks: DownloadTask[], pool: BoostPool | null) {
  * 全暂停是「刷流已暂停 · N 个种子限速做种」，否则「刷流做种」并补上部分关闭 / 暂停 /
  * 待删除；只有一切正常时才报已上传总量（ActivityDashboardRows.swift 的 ActivityBoostSummaryRow）。
  */
-export function boostSummary(tasks: DownloadTask[], pool: BoostPool | null) {
+export function boostSummary(tasks: DownloadTask[], pool: BoostPool | null, locale: AppLocale = requestLocale() ?? "zh-Hans") {
+  const t = appTranslator(locale);
   const totals = boostTotals(tasks);
-  const sites = boostSites(tasks, pool);
+  const sites = boostSites(tasks, pool, locale);
   const off = sites.count("off");
   const paused = sites.count("paused");
   const scheduled = sites.scheduledCount;
@@ -209,21 +223,21 @@ export function boostSummary(tasks: DownloadTask[], pool: BoostPool | null) {
   const mode: BoostMode = allOff ? "off" : allPaused ? "paused" : "running";
   const parts = [
     allOff
-      ? `${totals.count} 个种子仍在做种`
+      ? t("activity.overview.boostSeeding", { count: totals.count })
       : allPaused
-        ? `${totals.count} 个种子限速做种`
-        : `${totals.count} 个种子`,
+        ? t("activity.overview.boostLimited", { count: totals.count })
+        : t("activity.boost.torrentCount", { count: totals.count }),
     `↑ ${formatBytes(totals.upSpeed)}/s`,
-    !allOff && off > 0 ? `${off} 个来自已关闭刷流的站点` : null,
-    !allPaused && paused > 0 ? `${paused} 个已暂停` : null,
-    scheduled > 0 ? `${scheduled} 个等待到期删除` : null,
+    !allOff && off > 0 ? t("activity.overview.boostSiteOff", { count: off }) : null,
+    !allPaused && paused > 0 ? t("activity.overview.boostPaused", { count: paused }) : null,
+    scheduled > 0 ? t("activity.overview.boostScheduled", { count: scheduled }) : null,
     allOff || off > 0 || paused > 0 || scheduled > 0
       ? null
-      : `已上传 ${formatBytes(totals.uploaded)}`,
+      : t("activity.boost.uploadedSize", { size: formatBytes(totals.uploaded) }),
   ];
   return {
     mode,
-    title: allOff ? "刷流已关闭" : allPaused ? "刷流已暂停" : "刷流做种",
+    title: allOff ? t("activity.boost.off") : allPaused ? t("activity.boost.paused") : t("activity.boost.heading"),
     detail: parts.filter((part): part is string => part != null).join(" · "),
   };
 }

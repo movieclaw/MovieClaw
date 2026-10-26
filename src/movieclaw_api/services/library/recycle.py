@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+from copy import deepcopy
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -28,6 +29,7 @@ from typing import Any, Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import source_render
 from movieclaw_api.services.library.sidecar import find_sidecars
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import FileState, LibraryFile, utcnow
@@ -93,7 +95,8 @@ async def recycle_file(
     *,
     reason: str,
     trigger: dict[str, Any],
-    note: str,
+    note: str | None = None,
+    note_ref: dict | None = None,
     purge_after: Any = _AUTO,
 ) -> RecycleOutcome:
     """把在位文件转入待回收（唯一入口）。只改行 + 移文件、不 commit。
@@ -121,10 +124,14 @@ async def recycle_file(
     """
     now = utcnow()
     src = Path(file.file_path)
-    if not src.exists():
+    if file.local_bytes and not src.exists():
         return "already_gone"
 
+    if note is None:
+        note = source_render(note_ref) if note_ref else ""
     context = {"reason": reason, "trigger": trigger, "note": note}
+    if note_ref:
+        context["note_ref"] = deepcopy(note_ref)
     retention = now + DEFAULT_RETENTION if purge_after is _AUTO else purge_after
 
     def _keep_in_place(why: str) -> RecycleOutcome:
@@ -137,10 +144,18 @@ async def recycle_file(
         logger.info("文件原地待回收（%s），按保留期倒计时：%s", why, src)
         return "kept_in_place"
 
+    if not file.local_bytes:
+        # 只在网盘上（cloud-storage.md §10）：本地没东西可搬，原地待回收；网盘上的文件留到清理时再删
+        # i18n-ignore: log text
+        outcome = _keep_in_place("只在网盘上")
+        await _record(session, "trashed", file)
+        return outcome
+
     if src.is_dir():
         # 原盘目录不改名：内部可能住着其他在案文件行（监听导入按站点目录
         # 结构落盘的新版本），移动会让那些行的路径悬空；到期清理走
         # purge_file 的爆炸半径保护，账面未清空的目录会被拒绝
+        # i18n-ignore: log text
         outcome = _keep_in_place("原盘目录不改名")
         await _record(session, "trashed", file)
         return outcome
@@ -157,6 +172,7 @@ async def recycle_file(
         # （行删了而文件还在，扫描会把它当新文件重新收编）。倒计时照常，
         # 不因一次移动失败失去自动清理承诺
         logger.exception("移入回收站失败，降级为原地待回收：%s", src)
+        # i18n-ignore: log text
         outcome = _keep_in_place("移动失败降级")
         await _record(session, "trashed", file)
         return outcome
@@ -193,7 +209,7 @@ async def restore_file(session: AsyncSession, file: LibraryFile) -> bool:
         # 跟随进回收站的附属文件（字幕/NFO）按同一规则搬回原目录
         _move_sidecars(src, target)
         file.file_path = str(target)
-    elif not Path(file.file_path).exists():
+    elif file.local_bytes and not Path(file.file_path).exists():
         return False  # 原地形态文件已消失——留给清理任务收敛，不造在位幽灵
     # 事件里的原因取进回收站时的记录，要在清掉 trash_context 之前拍
     await _record(session, "restored", file)
@@ -214,6 +230,14 @@ async def purge_file(session: AsyncSession, file: LibraryFile, *, reason: str = 
     炸掉。只要目录下还有其他在案文件行就拒绝清理（爆炸半径保护）。
     """
     if file.state != FileState.TRASHED:
+        return False
+    # 网盘上的副本先删（cloud-storage.md §10）：没删掉就不清这一行，下次再试
+    from movieclaw_api.services.drives.deletes import delete_cloud_copies
+
+    assert file.id is not None
+    cloud_error = await delete_cloud_copies([file.id])
+    if cloud_error is not None:
+        logger.warning("清理待回收文件时%s：%s", cloud_error, file.file_path)
         return False
     path = Path(file.file_path)
     try:
@@ -244,15 +268,10 @@ async def purge_file(session: AsyncSession, file: LibraryFile, *, reason: str = 
 async def _record(
     session: AsyncSession, kind: str, file: LibraryFile, *, reason: str | None = None
 ) -> None:
-    """回收站的进出与清除发可靠事件（plugin-phase2a.md §4），随调用方的提交成立。"""
-    from movieclaw_api import domain_events
+    """回收站的进出与清除发事件（domain-events.md §8），随调用方的提交成立。"""
+    from movieclaw_api.services.library.events import publish_recycled
 
-    event = {
-        "trashed": domain_events.LIBRARY_FILE_TRASHED,
-        "restored": domain_events.LIBRARY_FILE_RESTORED,
-        "purged": domain_events.LIBRARY_FILE_PURGED,
-    }[kind]
-    await domain_events.record_recycled(session, event, file, reason=reason)
+    await publish_recycled(session, kind, file, reason=reason)
 
 
 async def _has_other_files_under(session: AsyncSession, file: LibraryFile, directory: Path) -> bool:
@@ -275,9 +294,11 @@ async def _has_other_files_under(session: AsyncSession, file: LibraryFile, direc
 @register_task(
     "library_recycle_purge",
     title="回收站到期清理",
+    title_key="settings.scheduledTasks.catalog.libraryRecyclePurgeTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=3600,
     description="删除超过保留期的待回收文件；待回收期间已消失的行顺带收敛",
+    description_key="settings.scheduledTasks.catalog.libraryRecyclePurgeDescription",
 )
 async def purge_due_files() -> None:
     """每小时：`purge_after <= now` 的删文件+删行；物理已消失的行删行收敛。
@@ -296,11 +317,22 @@ async def purge_due_files() -> None:
                 )
             ).scalars()
         )
+        due = [f for f in rows if f.purge_after is not None and f.purge_after <= now]
+        # 一次自动清理涉及的网盘文件太多：先不删网盘上的，等管理员到回收站确认（cloud-storage.md
+        # §10 批量护栏，SmartStrm #37 的教训）
+        from movieclaw_api.services.drives.deletes import over_guard, replicas_of
+
+        cloud_due = await replicas_of(f.id for f in due if f.id is not None)
+        held = {r.library_file_id for r in cloud_due} if over_guard(cloud_due) else set()
+        if held:
+            await _notify_held(len(held), sum(r.size_bytes or 0 for r in cloud_due))
         for file in rows:
             path = Path(file.file_path)
-            if not path.exists():
+            if file.local_bytes and not path.exists():
                 await session.delete(file)  # 待回收期间文件消失：删行收敛
                 converged += 1
+                continue
+            if file.id in held:
                 continue
             if (
                 file.purge_after is not None
@@ -313,12 +345,32 @@ async def purge_due_files() -> None:
             logger.info("回收站到期清理：删除 %d 个文件，收敛 %d 条消失行", purged, converged)
 
 
+async def _notify_held(count: int, size: int) -> None:
+    """自动清理被批量护栏拦下：系统通知，让管理员到回收站手动确认清理。"""
+    from movieclaw_api.services.system_notice import upsert_notice
+    from movieclaw_db.models import NoticeSeverity
+
+    async with get_database().session() as session:
+        await upsert_notice(
+            session,
+            dedupe_key="library.recycle.cloud-guard",
+            severity=NoticeSeverity.WARNING,
+            source="library",
+            title_key="notify.recycleHeld.title",
+            message_key="notify.recycleHeld.body",
+            message_params={"count": count, "size": size / 1024**3},
+            payload={"action_href": "/library/manage?tab=recycle"},
+        )
+
+
 @register_task(
     "library_recycle_orphan_sweep",
     title="回收站孤儿清扫",
+    title_key="settings.scheduledTasks.catalog.libraryRecycleOrphanSweepTitle",
     trigger_type=TriggerType.CRON,
     cron="40 4 * * *",
     description="按修改时间清理回收站目录里没有台账行的历史遗留文件",
+    description_key="settings.scheduledTasks.catalog.libraryRecycleOrphanSweepDescription",
 )
 async def sweep_orphan_trash() -> None:
     """每天：清理回收站目录中**没有台账行**的超期文件（机制上线前的旧版本

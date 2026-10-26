@@ -9,19 +9,35 @@
  *
  * 读取 Cookie 需目标站点 host 权限（可选权限，按站点申请）；访问后端需后端源 host 权限
  * （保存/测试时申请）。出于安全，不展示 Cookie 明文，仅展示条数。
+ *
+ * 授权 → 同步必须能在弹窗被关掉后完成：Firefox 弹出权限提示会关闭弹窗，授权之后的代码
+ * 不会执行。因此展示「允许读取本站 Cookie」时先把授权意图写入 storage，由后台在
+ * permissions.onAdded 里接手同步；弹窗重开时若本扩展从未推送成功过，也会自动补同步一次。
+ * 「重新同步」只在本扩展真的推送成功过之后出现（看本地记录，不看后端是否已有站点记录）。
  */
 
-import { api, ensureBackendPermission, type ExtensionSiteView } from '../../lib/api';
+import { api, requestBackendPermission, type ExtensionSiteView } from '../../lib/api';
 import {
   type BackendConfig,
+  clearPendingGrant,
   isConfigured,
   loadConfig,
+  loadPendingGrant,
   loadSyncState,
-  recordSyncState,
   saveConfig,
-  setManagedSite,
+  savePendingGrant,
 } from '../../lib/config';
+import { readCookieHeader } from '../../lib/cookies';
 import { registrableDomain } from '../../lib/domain';
+import {
+  type PendingGrant,
+  type SyncState,
+  formatPushTime,
+  lastSuccessAt,
+  shouldAutoSync,
+  syncActionLabel,
+} from '../../lib/sync-logic';
+import { syncSiteCookies } from '../../lib/sync';
 
 // —— DOM 引用 ——
 const $connChip = document.getElementById('conn-chip') as HTMLSpanElement;
@@ -54,11 +70,14 @@ interface TabInfo {
   hostname: string;
   origin: string;
   favIconUrl?: string;
+  /** Firefox 容器标签页 / 隐私窗口的 cookie store；Chrome 的 Tab 没有这个字段 */
+  cookieStoreId?: string;
 }
 let tab: TabInfo | null = null; // null = 非 http(s) 页面
 let config: BackendConfig = { backendUrl: '', syncToken: '', autoSyncEnabled: true };
 let matchedSite: ExtensionSiteView | null = null;
-let cookieHeader = '';
+/** 弹窗自己正在推送时，忽略 storage 变化触发的重绘 */
+let syncing = false;
 
 // —— 通用 UI 设置 ——
 function setConn(text: string, kind: 'ok' | 'warn' | 'error' | 'neutral') {
@@ -117,15 +136,6 @@ function renderAvatar(hostname: string, favIconUrl?: string) {
   }
 }
 
-function formatSince(at: number): string {
-  const min = Math.floor((Date.now() - at) / 60000);
-  if (min < 1) return '刚刚';
-  if (min < 60) return `${min} 分钟前`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} 小时前`;
-  return new Date(at).toLocaleDateString();
-}
-
 // —— 视图切换 ——
 function showSettings() {
   $backendUrl.value = config.backendUrl;
@@ -148,6 +158,8 @@ function showMain() {
 // —— 主流程 ——
 async function init() {
   config = await loadConfig();
+  // 后台授权后同步成功打的 ✓ 角标，用户打开弹窗即视为已读（错误角标保留）
+  if ((await chrome.action.getBadgeText({})) === '✓') void chrome.action.setBadgeText({ text: '' });
 
   const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (activeTab?.url && /^https?:/.test(activeTab.url)) {
@@ -157,6 +169,7 @@ async function init() {
       hostname: url.hostname,
       origin: url.origin,
       favIconUrl: activeTab.favIconUrl,
+      cookieStoreId: (activeTab as { cookieStoreId?: string }).cookieStoreId,
     };
     $siteName.textContent = url.hostname;
     $siteUrl.textContent = url.origin;
@@ -224,6 +237,8 @@ async function refresh() {
     origins: registrablePatterns(tab.hostname),
   });
   if (!authorized) {
+    // 先记下授权意图：Firefox 弹权限提示会关掉弹窗，后台据此在授权后接手同步
+    await savePendingGrant(pendingGrantFor(tab));
     setStatus('需要授权访问本站', 'neutral');
     showAction('grant', '允许读取本站 Cookie');
     setHint('首次读取需授权，仅本站生效。');
@@ -234,47 +249,87 @@ async function refresh() {
   await readAndOfferSync();
 }
 
-/** 读取当前站点 Cookie，并据此给出「立即同步 / 重新同步」按钮 */
-async function readAndOfferSync() {
-  if (!tab) return;
-  try {
-    const cookies = await chrome.cookies.getAll({ url: tab.url });
-    if (cookies.length === 0) {
-      setStatus('未检测到 Cookie', 'warn');
-      hideAction();
-      setHint('可能尚未登录该站点，请先登录后再试。');
-      return;
-    }
-    cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
-    setStatus(`已读取 ${cookies.length} 条 Cookie`, 'ok');
-    showAction('sync', matchedSite?.configured ? '重新同步' : '立即同步');
+function pendingGrantFor(t: TabInfo): PendingGrant {
+  return {
+    domain: registrableDomain(t.hostname),
+    host: t.hostname,
+    url: t.url,
+    cookieStoreId: t.cookieStoreId,
+    at: Date.now(),
+  };
+}
 
-    // 展示上次同步情况（若有）
-    const domain = registrableDomain(tab.hostname);
-    const state = (await loadSyncState())[domain];
-    setHint(state ? `上次同步：${formatSince(state.at)}` : '');
+/** 按本地同步记录给出按钮与提示：只有本扩展推送成功过才显示「重新同步」 */
+function renderSyncState(state: SyncState | undefined) {
+  showAction('sync', syncActionLabel(state));
+  const success = lastSuccessAt(state);
+  if (state && !state.ok) {
+    const lastOk = success ? `（上次成功：${formatPushTime(success, Date.now())}）` : '';
+    setHint(`同步失败：${state.message ?? '未知错误'}${lastOk}`, 'error');
+  } else if (success) {
+    setHint(successHint(state?.siteName, success), 'ok');
+  } else {
+    setHint(matchedSite?.configured ? '后台已有该站点，但本扩展尚未推送过 Cookie。' : '尚未同步。');
+  }
+}
+
+function successHint(siteName: string | undefined, at: number): string {
+  const time = formatPushTime(at, Date.now());
+  const auto = config.autoSyncEnabled ? '后续自动保持最新' : '自动同步未开启';
+  return `✓ ${siteName ? `已同步到 ${siteName}` : '已同步'}（${time}），${auto}。`;
+}
+
+/** 读取当前站点 Cookie，给出「立即同步 / 重新同步」按钮；必要时（或 forceSync）自动同步一次 */
+async function readAndOfferSync(forceSync = false) {
+  if (!tab) return;
+  const domain = registrableDomain(tab.hostname);
+  let count = 0;
+  try {
+    count = (await readCookieHeader(tab.url, tab.cookieStoreId)).count;
   } catch (err) {
     console.error('[MovieClaw] 读取 Cookie 失败：', err);
     setStatus('读取失败', 'warn');
     hideAction();
     setHint((err as Error).message, 'error');
+    return;
   }
+  if (count === 0) {
+    setStatus('未检测到 Cookie', 'warn');
+    hideAction();
+    setHint('可能尚未登录该站点，请先登录后再试。');
+    return;
+  }
+  const inContainer = Boolean(tab.cookieStoreId && tab.cookieStoreId !== 'firefox-default');
+  setStatus(`已读取 ${count} 条 Cookie${inContainer ? '（容器标签页）' : ''}`, 'ok');
+
+  const state = (await loadSyncState())[domain];
+  const pending = await loadPendingGrant(domain);
+  if (forceSync || shouldAutoSync({ cookieCount: count, state, pending, now: Date.now() })) {
+    // 授权了但从没推送成功过（多半是 Firefox 授权时弹窗被关掉）→ 自动补同步一次
+    await syncNow();
+    return;
+  }
+  renderSyncState(state);
 }
 
 /** 申请当前站点 host 权限（用户手势中调用） */
 async function grantSite() {
   if (!tab) return;
+  const domain = registrableDomain(tab.hostname);
   try {
-    const granted = await chrome.permissions.request({
-      origins: registrablePatterns(tab.hostname),
-    });
+    // Firefox 只认用户手势里【同步】发起的 permissions.request，所以它必须是第一个调用
+    const request = chrome.permissions.request({ origins: registrablePatterns(tab.hostname) });
+    // 刷新授权意图并唤醒后台：权限提示可能马上关掉弹窗，之后由后台接手同步
+    void savePendingGrant(pendingGrantFor(tab));
+    chrome.runtime.sendMessage({ type: 'movieclaw:grant-pending' }).catch(() => {});
+    const granted = await request;
     if (!granted) {
       setHint('已取消授权，点按钮可再次尝试。');
       return;
     }
-    // 读取 Cookie；读到了就顺手自动同步一次，省去用户再点一下
-    await readAndOfferSync();
-    if (actionMode === 'sync') await syncNow();
+    // 弹窗还活着（Chrome 通常如此）：清掉意图自己同步，后台见不到意图就不会重复推
+    await clearPendingGrant(domain);
+    await readAndOfferSync(true);
   } catch (err) {
     setHint(`申请权限失败：${(err as Error).message}`, 'error');
   }
@@ -282,35 +337,27 @@ async function grantSite() {
 
 /** 立即同步：推送当前 Cookie，并把该站点纳入自动同步管理 */
 async function syncNow() {
-  if (!tab || !matchedSite) return;
+  if (!tab || !matchedSite || syncing) return;
+  const domain = registrableDomain(tab.hostname);
+  syncing = true;
   showAction('sync', '同步中…', true);
   setHint('正在同步到 MovieClaw…');
   try {
-    const granted = await ensureBackendPermission(config.backendUrl);
-    if (!granted) {
-      setHint('未授权访问后端地址，无法同步。请到设置重新保存。', 'error');
-      showAction('sync', '重新同步');
-      return;
-    }
-    const result = await api.pushCookies(config, tab.hostname, cookieHeader);
-    const domain = registrableDomain(tab.hostname);
-    // 纳入管理：全局自动同步开着时，后台会随 Cookie 变化保持它最新
-    await setManagedSite(domain, {
+    await clearPendingGrant(domain);
+    const result = await syncSiteCookies(config, {
+      domain,
       host: tab.hostname,
-      siteId: result.site_id,
-      displayName: result.display_name,
+      url: tab.url,
+      cookieStoreId: tab.cookieStoreId,
     });
-    await recordSyncState(domain, { ok: true, at: Date.now(), message: `已同步到 ${result.display_name}` });
-    setStatus(`已同步到 ${result.display_name}`, 'ok');
+    setStatus(`已同步到 ${result.displayName}`, 'ok');
     showAction('sync', '重新同步');
-    setHint(
-      config.autoSyncEnabled ? '✓ 已同步，后续自动保持最新。' : '✓ 已同步（自动同步未开启）。',
-      'ok',
-    );
+    setHint(successHint(result.displayName, result.at), 'ok');
   } catch (err) {
     console.error('[MovieClaw] 同步失败：', err);
-    setHint(`同步失败：${(err as Error).message}`, 'error');
-    showAction('sync', '重新同步');
+    renderSyncState((await loadSyncState())[domain]);
+  } finally {
+    syncing = false;
   }
 }
 
@@ -353,7 +400,8 @@ async function onSave() {
   $saveBtn.disabled = true;
   setSettingsStatus('正在连接…');
   try {
-    if (!(await ensureBackendPermission(form.backendUrl))) {
+    // 第一个异步操作就是申请权限（Firefox 只认用户手势里同步发起的 permissions.request）
+    if (!(await requestBackendPermission(form.backendUrl))) {
       setSettingsStatus('未授权访问该地址', 'error');
       return;
     }
@@ -381,5 +429,11 @@ $backBtn.addEventListener('click', () => {
   void refresh();
 });
 $saveBtn.addEventListener('click', () => void onSave());
+// 后台（授权后接手 / 自动同步）写入结果时，弹窗开着就即时更新
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.syncState || syncing || !tab || actionMode !== 'sync') return;
+  const state = (changes.syncState.newValue as Record<string, SyncState> | undefined)?.[registrableDomain(tab.hostname)];
+  if (state) renderSyncState(state);
+});
 
 void init();

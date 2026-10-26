@@ -1,7 +1,29 @@
 package io.movieclaw.android.feature.agent
 
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.asRequestBody
+import io.movieclaw.android.core.designsystem.FeedbackTone
+import io.movieclaw.android.core.designsystem.McNotice
+import io.movieclaw.android.core.designsystem.AccentSoft
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -53,6 +75,7 @@ import kotlinx.coroutines.launch
 
 @HiltViewModel
 class AgentNewSessionViewModel @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
     private val apiFactory: ApiFactory,
     private val sessionRepository: SessionRepository,
 ) : ViewModel() {
@@ -61,24 +84,110 @@ class AgentNewSessionViewModel @Inject constructor(
         val input: String = "",
         val creating: Boolean = false,
         val error: String? = null,
+        /** 可选模型（`GET /llm/models`）；与对话页同一套选择器 */
+        val models: List<io.movieclaw.android.core.model.LlmModelOption> = emptyList(),
+        /** null = 智能体默认 */
+        val modelRef: String? = null,
+        /** null = 由模型自行决定 */
+        val thinkingLevel: String? = null,
+        /** 已上传的图片附件（首条消息一起发出去） */
+        val attachments: List<io.movieclaw.android.core.model.AgentAttachment> = emptyList(),
+        val uploading: Boolean = false,
+        val notice: io.movieclaw.android.core.designsystem.McNotice? = null,
     )
 
     private val _ui = MutableStateFlow(UiState())
     val ui = _ui.asStateFlow()
 
-    fun onInput(value: String) = _ui.update { it.copy(input = value) }
-
-    fun create(onCreated: (String) -> Unit) {
-        val text = _ui.value.input.trim()
-        if (text.isEmpty() || _ui.value.creating) return
-        _ui.update { it.copy(creating = true, error = null) }
+    init {
+        // 与对话页同一份模型清单（同一个端点；失败不影响建会话）
         viewModelScope.launch {
             val origin = sessionRepository.ui.value.origin ?: return@launch
+            runCatching { apiFactory.forOrigin(origin).llmModels().dataOrThrow() }
+                .onSuccess { list ->
+                    val choice = AgentComposerPrefs.reconcile(AgentComposerPrefs.load(context), list)
+                    AgentComposerPrefs.save(context, choice)
+                    _ui.update { it.copy(models = list, modelRef = choice.model, thinkingLevel = choice.thinking) }
+                }
+        }
+    }
+
+    fun onInput(value: String) = _ui.update { it.copy(input = value) }
+
+    fun setModel(ref: String?) {
+        _ui.update { it.copy(modelRef = ref, thinkingLevel = null) }
+        AgentComposerPrefs.save(context, AgentComposerPrefs.Choice(ref, null))
+    }
+
+    fun setThinkingLevel(level: String?) {
+        _ui.update { it.copy(thinkingLevel = level) }
+        AgentComposerPrefs.save(context, AgentComposerPrefs.Choice(_ui.value.modelRef, level))
+    }
+
+    fun consumeNotice() = _ui.update { it.copy(notice = null) }
+
+    /** 图片附件：读字节 → multipart 上传 → 记录 attachment_id（与对话页同一份实现） */
+    fun attachImage(uri: android.net.Uri) {
+        _ui.update { it.copy(uploading = true) }
+        viewModelScope.launch {
+            val origin = sessionRepository.ui.value.origin
+            if (origin == null) {
+                _ui.update { it.copy(uploading = false) }
+                return@launch
+            }
+            val api = apiFactory.forOrigin(origin)
+            when (val outcome = uploadAgentAttachment(context, uri) { file, mime ->
+                val part = okhttp3.MultipartBody.Part.createFormData(
+                    "file", file.name, file.asRequestBody(mime.toMediaType()),
+                )
+                api.uploadAgentAttachment(part).dataOrThrow()
+            }) {
+                is UploadOutcome.Ok -> _ui.update {
+                    it.copy(uploading = false, attachments = it.attachments + outcome.attachment)
+                }
+                UploadOutcome.Unreadable -> _ui.update {
+                    it.copy(uploading = false, notice = McNotice("无法读取所选图片", FeedbackTone.Error))
+                }
+                is UploadOutcome.Failed -> _ui.update {
+                    it.copy(uploading = false, notice = McNotice(friendlyMessage(outcome.error), FeedbackTone.Error))
+                }
+            }
+        }
+    }
+
+    fun removeAttachment(id: String) = _ui.update { state ->
+        state.copy(attachments = state.attachments.filterNot { it.attachmentId == id })
+    }
+
+    fun create(onCreated: (String) -> Unit) {
+        val state = _ui.value
+        val text = state.input.trim()
+        // 与按钮同一个条件：要有文字或图片、不在创建中、也不在上传中（上传没完就建会话会把图丢掉）
+        if (state.creating || state.uploading) return
+        if (text.isEmpty() && state.attachments.isEmpty()) return
+        _ui.update { it.copy(creating = true, error = null) }
+        viewModelScope.launch {
+            val origin = sessionRepository.ui.value.origin
+            if (origin == null) {
+                _ui.update { it.copy(creating = false) }   // 别把按钮卡在"创建中"
+                return@launch
+            }
             runCatching {
-                apiFactory.forOrigin(origin).startAgentSession(AgentSessionStart(content = text)).dataOrThrow()
+                // 首条消息就带上模型 / 思维链选择（与对话页发送同口径）
+                apiFactory.forOrigin(origin).startAgentSession(
+                    AgentSessionStart(
+                        content = text,
+                        attachments = _ui.value.attachments.map { it.attachmentId },
+                        model = _ui.value.modelRef ?: "",
+                        thinkingLevel = _ui.value.thinkingLevel,
+                    )
+                ).dataOrThrow()
             }
                 .onSuccess { accepted ->
-                    _ui.update { it.copy(creating = false) }
+                    // 建完清空：这个页面可能还在返回栈上，别留下上次的图和文字
+                    _ui.update { it.copy(creating = false, attachments = emptyList(), input = "") }
+                    // 会话列表立刻能看到这条（「我的」页订阅这个信号）
+                    sessionRepository.notifyAgentSessionsChanged()
                     onCreated(accepted.sessionId)
                 }
                 .onFailure { e -> _ui.update { it.copy(creating = false, error = friendlyMessage(e)) } }
@@ -102,7 +211,7 @@ fun AgentNewSessionScreen(
         }
         Column(Modifier.padding(16.dp)) {
             GlassCard(Modifier.fillMaxWidth()) {
-                Text("你可以让我做什么", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                Text("你可以让我做什么", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 listOf(
                     "「帮我订阅《幕府将军》,只要 4K」",
@@ -110,48 +219,61 @@ fun AgentNewSessionScreen(
                     "「这部剧缺了第 4 集,帮我找找资源」",
                     "「最近空间不够了,清理一下重复文件」",
                 ).forEach { example ->
-                    Text(example, fontSize = 11.5.sp, color = TextMuted, lineHeight = 19.sp)
+                    Text(example, fontSize = 14.sp, color = TextMuted, lineHeight = 21.sp)
                 }
             }
         }
         Spacer(Modifier.height(6.dp))
-        TextField(
-            value = state.input,
-            onValueChange = vm::onInput,
-            placeholder = { Text("描述你的需求…", fontSize = 13.5.sp, color = TextFaint) },
+        // 图片附件（iOS 新会话页用的同一个 AgentComposer，`+` 菜单里就有图片）：
+        // 选择器 + 已选图片条 + 工具行里的图片键，与对话页同一份口径
+        val pickImage = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
+        ) { uri -> uri?.let(vm::attachImage) }
+        // 与对话页共用同一个 composer；小幕趴在输入框右上角（iOS `agentCompanion` 同款）
+        var focused by remember { mutableStateOf(false) }
+        val companion = rememberCompanionActivity(
+            running = state.creating,
+            lastRunFailed = state.error != null,
+            unavailable = state.models.isEmpty(),
+        )
+        Box(Modifier.fillMaxWidth()) {
+            AgentComposerBar(
+            input = state.input,
+            onInput = vm::onInput,
+            placeholder = "描述你的需求…",
+            attachments = state.attachments,
+            uploading = state.uploading,
+            onPickImage = {
+                pickImage.launch(
+                    androidx.activity.result.PickVisualMediaRequest(
+                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
+                    )
+                )
+            },
+            onRemoveAttachment = vm::removeAttachment,
+            models = state.models,
+            modelRef = state.modelRef,
+            thinkingLevel = state.thinkingLevel,
+            onPickModel = vm::setModel,
+            onPickThinking = vm::setThinkingLevel,
+            sendEnabled = !state.creating && !state.uploading &&
+                (state.input.isNotBlank() || state.attachments.isNotEmpty()),
+            sending = state.creating,
+            onSend = { vm.create(onCreated) },
             minLines = 3,
             maxLines = 8,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = { vm.create(onCreated) }),
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color.White.copy(alpha = 0.06f),
-                unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                cursorColor = Accent,
-            ),
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        )
-        state.error?.let {
-            Text(it, fontSize = 12.sp, color = Danger, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
-        }
-        Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
-            Button(
-                onClick = { vm.create(onCreated) },
-                enabled = !state.creating && state.input.isNotBlank(),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color(0xFF0A0E12)),
-            ) {
-                if (state.creating) {
-                    CircularProgressIndicator(color = Color(0xFF0A0E12), modifier = Modifier.height(16.dp), strokeWidth = 2.dp)
-                } else {
-                    Text("开始对话", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                }
-            }
+            horizontalPadding = 16.dp,
+            menuLift = 210.dp,
+            onFocusChange = { focused = it },
+            )
+            AgentCompanion(
+                activity = companion,
+                attentive = focused && state.input.isNotEmpty(),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(y = (-62).dp)
+                    .padding(end = 14.dp),
+            )
         }
     }
 }

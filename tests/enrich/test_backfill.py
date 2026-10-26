@@ -120,9 +120,9 @@ async def test_backfill_offloads_enrich_to_worker_thread(db, monkeypatch):
     worker_threads: list[int] = []
     real_enrich = backfill.enrich
 
-    def spy_enrich(title, subtitle="", category=None):
+    def spy_enrich(title, subtitle="", category=None, site_labels=None):
         worker_threads.append(threading.get_ident())
-        return real_enrich(title, subtitle, category)
+        return real_enrich(title, subtitle, category, site_labels)
 
     monkeypatch.setattr(backfill, "enrich", spy_enrich)
 
@@ -136,3 +136,30 @@ async def test_backfill_offloads_enrich_to_worker_thread(db, monkeypatch):
     assert await reenrich_stale_torrents() == 1
     assert worker_threads
     assert all(thread_id != caller_thread for thread_id in worker_threads)
+
+
+async def test_backfill_carries_site_labels_over(db):
+    """站点标记不是从标题推出来的：存量重算时要从旧 attrs 带回去，不然版本一 bump 就被抹掉。"""
+    async with db.session() as session:
+        session.add(SiteTorrent(
+            site_id="demo", torrent_id="m1", source=TorrentSource.LIST,
+            title="Mayday 2026 2160p ATVP WEB-DL DDP 5.1 Atmos DV H.265-FLUX",
+            attrs={"site_labels": ["中字", "4k", "DoVi"]}, enrich_version=ENRICH_VERSION - 1,
+        ))
+        session.add(SiteTorrent(
+            site_id="demo", torrent_id="m2", source=TorrentSource.LIST,
+            title="Dune.2021.1080p.BluRay.x265-WiKi",
+            attrs={"year": 1999}, enrich_version=ENRICH_VERSION - 1,
+        ))
+        await session.commit()
+
+    assert await reenrich_stale_torrents() == 2
+
+    async with db.session() as session:
+        rows = {
+            r.torrent_id: r
+            for r in (await session.execute(select(SiteTorrent))).scalars().all()
+        }
+    assert rows["m1"].attrs["site_labels"] == ["中字", "4k", "DoVi"]
+    assert rows["m1"].attrs["hdr"] == ["DV"]  # 标题推出来的部分照常重算
+    assert "site_labels" not in rows["m2"].attrs  # 没有标记的行不会凭空多出这个键

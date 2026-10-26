@@ -41,10 +41,8 @@ class SpecCatalogUnavailable(AppException):
         super().__init__(
             status_code=500,
             code="SPEC_BASELINE_CORRUPT",
-            message=(
-                f"服务端的 CLI 基线 spec 损坏（{_SPEC_PATH}）：{detail}。"
-                "Agent 功能不可用。这通常是镜像或安装包不完整，请更新到新版镜像后重新部署。"
-            ),
+            message_key="errors.agent.specCorrupt",
+            params={"path": str(_SPEC_PATH), "detail": detail},
         )
 
 
@@ -63,10 +61,11 @@ def load_spec() -> dict[str, Any]:
 
         return build_spec()
     except OSError as exc:
-        raise SpecCatalogUnavailable(f"文件不可读（{exc}）") from exc
+        raise SpecCatalogUnavailable(f"文件不可读（{exc}）") from exc  # i18n-ignore: detail
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
+        # i18n-ignore: technical detail inside errors.agent.specCorrupt
         raise SpecCatalogUnavailable(f"内容不是合法 JSON（{exc}）") from exc
 
 

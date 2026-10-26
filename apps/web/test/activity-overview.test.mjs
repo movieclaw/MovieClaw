@@ -148,3 +148,12 @@ test("刷流种子按上行速度倒序，同速按累计上传", () => {
   const sorted = sortBoostTasks([boostTask("a", 0, 5), boostTask("b", 10, 0), boostTask("c", 0, 9)]);
   assert.deepEqual(sorted.map((task) => task.site_id), ["b", "c", "a"]);
 });
+
+test("executor semantics determine colors even when labels change language or are customized", () => {
+  const expected = { software: "var(--danger)", hardware: "var(--warn)", remote: "#c084fc" };
+  for (const [execution_kind, color] of Object.entries(expected)) {
+    for (const label of ["Software transcode", "Remote transcode", "原始标签", ""]) {
+      assert.equal(deliveryColor({ mode: "transcode", execution_kind, label }), color);
+    }
+  }
+});

@@ -1,6 +1,5 @@
 package io.movieclaw.android.core.notify
 
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -24,6 +23,7 @@ import io.movieclaw.android.MainActivity
 import io.movieclaw.android.core.network.ApiFactory
 import io.movieclaw.android.core.network.dataOrThrow
 import io.movieclaw.android.core.session.SessionRepository
+import io.movieclaw.android.feature.activity.jobTypeLabel
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.first
 
@@ -37,6 +37,9 @@ import kotlinx.coroutines.flow.first
  *
  * 与 iOS 的差别要如实说：iOS 走 APNs 是即时推送（且有 4 类事件的服务端语义），
  * 这里是本机轮询；通知文案沿用两端同源的那套状态词（下载中 / 整理中 / 等待资源 / 新入库…）。
+ *
+ * 用户打开「实时通知（保持连接）」（core/push）后，服务器的推送经长连接即时送达；那时这里只做兜底：
+ * 实时通知正常时只更新基线、不弹通知（见 PushStreamState.coversPolling），免得同一件事响两次。
  */
 
 private val Context.notifyStore by preferencesDataStore(name = "mc_notify")
@@ -161,7 +164,17 @@ object Notifier {
     }
 
     @Suppress("MissingPermission")
-    fun post(context: Context, id: Int, channel: String, title: String, text: String, tab: String, route: String? = null) {
+    fun post(
+        context: Context,
+        id: Int,
+        channel: String,
+        title: String,
+        text: String,
+        tab: String,
+        route: String? = null,
+        /** 不响不振（服务器的 passive 级别：开始下载、进度更新这类） */
+        silent: Boolean = false,
+    ) {
         ensureChannels(context)
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
         val intent = Intent(context, MainActivity::class.java).apply {
@@ -176,11 +189,13 @@ object Notifier {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val notification = Notification.Builder(context, channel)
+        val notification = androidx.core.app.NotificationCompat.Builder(context, channel)
             .setSmallIcon(io.movieclaw.android.R.drawable.ic_mc_notify)
             .setContentTitle(title)
             .setContentText(text)
+            .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
+            .setSilent(silent)
             .setContentIntent(pending)
             .build()
         NotificationManagerCompat.from(context).notify(id, notification)
@@ -212,7 +227,12 @@ class NotifyWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
         val settings = prefs.read()
         if (!settings.enabled) return Result.success()
         val entry = EntryPointAccessors.fromApplication(applicationContext, NotifyEntryPoint::class.java)
+        // 后台拉起的进程里界面没跑过：先恢复登录态（已恢复过就是空操作）
+        runCatching { entry.sessionRepository().boot() }
         val origin = entry.sessionRepository().ui.value.origin ?: return Result.success()
+        // 实时通知（core/push）正常时服务器事件已即时送达：轮询只更新基线、不再弹通知，
+        // 免得同一件事响两次；实时通知断开超过一小时才由轮询兜底
+        val quiet = io.movieclaw.android.core.push.PushStreamState.coversPolling(applicationContext)
         val api = entry.apiFactory().forOrigin(origin)
 
         val tasks = runCatching { api.downloadTasks().dataOrThrow().items }.getOrDefault(emptyList())
@@ -242,7 +262,7 @@ class NotifyWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
             return if (libraryId > 0 && mediaItemId > 0) "item/$libraryId/$mediaItemId" else "subscription/$subscriptionId"
         }
 
-        if (!firstRun) {
+        if (!firstRun && !quiet) {
             if (settings.download || settings.task) {
                 tasks.forEach { task ->
                     val was = before.downloads[task.id]
@@ -267,7 +287,7 @@ class NotifyWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
                     if (was != null && was != job.status && bad) {
                         val text = listOfNotNull(
                             job.subject?.takeIf { it.isNotBlank() },
-                            job.jobType.takeIf { it.isNotBlank() },
+                            jobTypeLabel(job).takeIf { it.isNotBlank() },
                             job.error?.message?.takeIf { it.isNotBlank() },
                         ).joinToString(" · ")
                         Notifier.post(

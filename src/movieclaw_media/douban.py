@@ -448,6 +448,16 @@ class DoubanDiscoverService:
             lambda: self._build_detail(douban_id),
         )
 
+    async def episode_count(self, douban_id: str) -> int | None:
+        """豆瓣标注的集数（剧集季条目）；没有或不是剧集时为 None。走详情持久缓存。"""
+        data = await self._client.detail(douban_id)
+        count = data.get("episodes_count") or data.get("webisode_count")
+        try:
+            number = int(count)
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
+
     async def _celebrity_people(self, douban_id: str) -> dict[str, Any]:
         """取带头像的导演和演员；这一跳失败只降级演职员条，不影响其余详情。"""
         try:
@@ -490,6 +500,12 @@ class DoubanDiscoverService:
             overview=(data.get("intro") or "").strip(),
             poster_url=cover,
         )
+        if kind is MediaKind.TV and isinstance(episodes, int) and episodes > 0:
+            card.extent_key = "media.extent.episodes"
+            card.extent_params = {"count": episodes}
+        elif kind is MediaKind.MOVIE and (duration := re.fullmatch(r"(\d+)分钟", extent)):
+            card.extent_key = "media.extent.compactMinutes"
+            card.extent_params = {"count": int(duration[1])}
         # 演职员优先用带头像的完整名单；该接口不可用时分别退回详情里的导演和
         # 演员信息。不能因为多打的这一跳失败就让整个详情页失败。
         celebrities = await self._celebrity_people(douban_id)

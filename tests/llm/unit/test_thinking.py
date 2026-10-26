@@ -37,6 +37,14 @@ TOGGLE_MODEL = ModelInfo(
 PLAIN_MODEL = ModelInfo(id="deepseek-chat", supports_thinking=True)
 
 
+def test_deepseek_effort_and_off_use_different_native_parameters():
+    from movieclaw_llm.providers import get_preset
+
+    model = next(m for m in get_preset("deepseek").models if m.id == "deepseek-flash")
+    assert thinking_body_fragment("off", model, model.id) == {"thinking": {"type": "disabled"}}
+    assert thinking_body_fragment("high", model, model.id) == {"reasoning_effort": "high"}
+
+
 # ---------------------------------------------------------------------------
 # 菜单推导
 # ---------------------------------------------------------------------------

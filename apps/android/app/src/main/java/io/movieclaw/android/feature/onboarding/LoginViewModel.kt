@@ -40,6 +40,8 @@ class LoginViewModel @Inject constructor(
     val ui = _ui.asStateFlow()
 
     fun presetUsername(value: String) = _ui.update { it.copy(username = value) }
+    /** 地址只在空时预填，不覆盖用户手输（iOS `WelcomeSignInPanel.applyPrefill` 同规则） */
+    fun presetServer(value: String) = _ui.update { if (it.server.isBlank()) it.copy(server = value) else it }
     fun onServer(v: String) = _ui.update { it.copy(server = v, error = null) }
     fun onUsername(v: String) = _ui.update { it.copy(username = v, error = null) }
     fun onPassword(v: String) = _ui.update { it.copy(password = v, error = null) }
@@ -74,10 +76,12 @@ class LoginViewModel @Inject constructor(
         viewModelScope.launch {
             _ui.update { it.copy(loading = true, error = null) }
             try {
+                // 只写了主机(如 192.168.1.10)时试一下 3000 / 80 / https,免得默认落到 80 端口连不上
+                val server = discovery.settle(s.server)
                 if (s.needSetup) {
-                    repository.createAdminAndLogin(s.server, s.username, s.password)
+                    repository.createAdminAndLogin(server, s.username, s.password)
                 } else {
-                    repository.login(s.server, s.username, s.password)
+                    repository.login(server, s.username, s.password)
                 }
                 _ui.update { it.copy(loading = false, loggedIn = true) }
             } catch (e: Exception) {

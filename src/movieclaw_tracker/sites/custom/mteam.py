@@ -169,7 +169,10 @@ class MTeamSite(BaseSite):
             # 提示用户处理；其余（参数错误、风控等）仍视为响应异常
             if any(kw in raw_message.lower() for kw in _AUTH_ERROR_KEYWORDS):
                 raise TrackerAuthError(
-                    f"M-Team 接口返回错误：{raw_message}", details=details
+                    f"M-Team 接口返回错误：{raw_message}",
+                    details=details,
+                    message_key="errors.siteDiagnostic.upstreamAuth",
+                    params={"site": "M-Team", "error": raw_message},
                 )
             raise TrackerParseError(
                 f"M-Team 接口返回错误：{raw_message}", details=details
@@ -268,6 +271,9 @@ class MTeamSite(BaseSite):
                 download_url=torrent_id,
                 # 详情链接给用户在浏览器打开，必须用网页域名而非 API 域名
                 detail_url=f"{self.web_base_url}/detail/{torrent_id}",
+                # labelsNew：站点的结构化标记（中字 / 中配 / 4k / hdr10 / hdr10+ / DoVi …），
+                # 搜索与列表接口都带，不需要额外请求
+                labels=[str(label) for label in (t.get("labelsNew") or []) if label],
             )
         except Exception:  # noqa: BLE001 - 单条解析失败不应中断整页
             logger.warning("解析 M-Team 种子数据失败，已跳过该条", exc_info=True)

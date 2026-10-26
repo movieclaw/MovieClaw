@@ -12,8 +12,16 @@ struct SettingsBMCPToolCatalog: View {
     let tools: [API.ToolPreview]
 
     private enum Filter: String, CaseIterable, Identifiable {
-        case all = "全部", read = "只读", write = "会改动"
+        case all, read, write
         var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .all: String(localized: .settingsMcpControlsAll)
+            case .read: String(localized: .settingsMcpControlsReadOnly)
+            case .write: String(localized: .settingsMcpControlsWrite)
+            }
+        }
     }
 
     @State private var query = ""
@@ -44,31 +52,31 @@ struct SettingsBMCPToolCatalog: View {
         SettingsFormSection {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Theme.textFaint)
-                TextField("搜索工具名或说明", text: $query)
+                TextField(String(localized: .settingsMcpControlsSearchTools), text: $query)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("mcp-tools-search")
                 if !query.isEmpty {
-                    Button("清空搜索", systemImage: "xmark.circle.fill") { query = "" }
+                    Button(String(localized: .settingsMcpControlsClearSearch), systemImage: "xmark.circle.fill") { query = "" }
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
                         .foregroundStyle(Theme.textFaint)
                 }
             }
             // 只读 / 会改动：判断「这个端点危不危险」最快的一刀
-            Picker("筛选", selection: $only) {
-                ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
+            Picker(String(localized: .libraryFiltersTitle), selection: $only) {
+                ForEach(Filter.allCases) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("mcp-tools-filter")
         } footer: {
-            Text(shown == tools.count ? "\(tools.count) 个工具" : "\(shown) / \(tools.count) 个工具")
+            Text(shown == tools.count ? String(localized: .settingsMcpControlsToolsCount(tools.count)) : String(localized: .settingsMcpControlsToolFraction(shown, tools.count)))
                 .accessibilityIdentifier("mcp-tools-count")
         }
 
         if shown == 0 {
             SettingsFormSection {
-                Text("没有匹配「\(query)」的工具")
+                Text(String(localized: .settingsMcpControlsNoMatchingTools(query)))
                     .foregroundStyle(Theme.textMuted)
                     .frame(maxWidth: .infinity)
             }
@@ -89,7 +97,7 @@ struct SettingsBMCPToolCatalog: View {
                     HStack(spacing: 6) {
                         Image(systemName: folded ? "chevron.right" : "chevron.down").font(.caption2)
                         Text(group.service).font(.subheadline.monospaced()).foregroundStyle(Theme.text)
-                        Text("\(group.tools.count) 个工具").font(.caption).foregroundStyle(Theme.textFaint)
+                        Text(String(localized: .settingsMcpControlsToolsCount(group.tools.count))).font(.caption).foregroundStyle(Theme.textFaint)
                         Spacer()
                     }
                     .textCase(nil)
@@ -113,8 +121,8 @@ struct SettingsBMCPToolCatalog: View {
                     HStack(spacing: 6) {
                         Text(tool.name).font(.subheadline.monospaced()).foregroundStyle(Theme.accent)
                             .fixedSize(horizontal: false, vertical: true)
-                        if tool.readOnly { SettingsBMCPBadge(text: "只读") }
-                        if tool.destructive { SettingsBMCPBadge(text: "破坏性", danger: true) }
+                        if tool.readOnly { SettingsBMCPBadge(text: String(localized: .settingsMcpControlsReadOnly)) }
+                        if tool.destructive { SettingsBMCPBadge(text: String(localized: .settingsMcpControlsDestructive), danger: true) }
                     }
                     Text(tool.summary.isEmpty ? tool.description : tool.summary)
                         .font(.caption)
@@ -122,7 +130,7 @@ struct SettingsBMCPToolCatalog: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 4)
-                Text(tool.commands.isEmpty ? "\(tool.parameters.count) 参数" : "\(tool.commands.count) 命令")
+                Text(tool.commands.isEmpty ? String(localized: .settingsMcpControlsParameterBadge(tool.parameters.count)) : String(localized: .settingsMcpControlsCommandBadge(tool.commands.count)))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(Theme.textFaint)
             }
@@ -153,13 +161,13 @@ private struct SettingsBMCPToolDetail: View {
             if !tool.commands.isEmpty {
                 commandList
             } else if tool.parameters.isEmpty {
-                Text("这个工具不需要参数。").font(.caption).foregroundStyle(Theme.textFaint)
+                Text(String(localized: .settingsMcpControlsNoParameters)).font(.caption).foregroundStyle(Theme.textFaint)
             } else {
                 parameterList
             }
             HStack(spacing: 8) {
-                copyButton("复制工具名", tool.name, id: "mcp-tool-copy-name")
-                copyButton("复制调用样例", sample, id: "mcp-tool-copy-sample")
+                copyButton(String(localized: .settingsMcpControlsCopyToolName), tool.name, id: "mcp-tool-copy-name")
+                copyButton(String(localized: .settingsMcpControlsCopyExample), sample, id: "mcp-tool-copy-sample")
             }
         }
         .padding(.vertical, 4)
@@ -168,7 +176,7 @@ private struct SettingsBMCPToolDetail: View {
     private func copyButton(_ title: String, _ text: String, id: String) -> some View {
         Button(title) {
             UIPasteboard.general.string = text
-            feedback.success("已复制")
+            feedback.success(String(localized: .commonCopied))
         }
         .font(.caption.weight(.medium))
         .buttonStyle(.glass)
@@ -182,8 +190,8 @@ private struct SettingsBMCPToolDetail: View {
         let list = matched.isEmpty ? tool.commands : matched
         return VStack(alignment: .leading, spacing: 0) {
             Text(list.count == tool.commands.count
-                 ? "\(tool.commands.count) 条命令，填进 command 参数"
-                 : "匹配「\(keyword)」的 \(list.count) / \(tool.commands.count) 条命令")
+                 ? String(localized: .settingsMcpControlsCommandCaption(tool.commands.count))
+                 : String(localized: .settingsMcpControlsMatchingCommands(keyword, String(list.count), String(tool.commands.count))))
                 .font(.caption)
                 .foregroundStyle(Theme.textFaint)
                 .padding(.bottom, 4)
@@ -195,10 +203,10 @@ private struct SettingsBMCPToolDetail: View {
                             Text("⚠")
                                 .font(.caption)
                                 .foregroundStyle(Theme.danger)
-                                .accessibilityLabel(command.dangerous == "destructive" ? "破坏性：会删数据或磁盘文件" : "会清除配置或记录")
+                                .accessibilityLabel(command.dangerous == "destructive" ? String(localized: .settingsMcpControlsDestructiveHint) : String(localized: .settingsMcpControlsClearHint))
                         }
                     }
-                    Text("\(command.summary.isEmpty ? "—" : command.summary)\(command.isJob ? Text("（后台任务，返回 job_id）").foregroundStyle(Theme.textFaint) : Text(verbatim: ""))")
+                    Text("\(command.summary.isEmpty ? "—" : command.summary)\(command.isJob ? Text(String(localized: .settingsMcpControlsBackgroundJob)).foregroundStyle(Theme.textFaint) : Text(verbatim: ""))")
                     .font(.caption)
                     .foregroundStyle(Theme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -233,7 +241,7 @@ private struct SettingsBMCPToolDetail: View {
                         .foregroundStyle(Theme.textMuted)
                         .fixedSize(horizontal: false, vertical: true)
                     if !param.options.isEmpty {
-                        Text("可选：\(param.options.joined(separator: " / "))")
+                        Text(String(localized: .settingsMcpKitOptions(param.options.joined(separator: " / "))))
                             .font(.system(size: 11).monospaced())
                             .foregroundStyle(Theme.textFaint)
                             .fixedSize(horizontal: false, vertical: true)

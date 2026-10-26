@@ -30,6 +30,11 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      // 主题 SDK（docs/design/theme-plugins.md §4.1）：主题代码只经它用内核能力，
+      // 拆成插件包后同一个说明符由 import map 指向运行时垫片
+      "@movieclaw/theme-sdk": [
+        "./theme-sdk/index.ts"
       ]
     }
   },
@@ -38,6 +43,7 @@
     "**/*.tsx",
     ".next-breadcrumb/types/**/*.ts",
     ".next-check/types/**/*.ts",
+    ".next-clips/types/**/*.ts",
     ".next-dockercheck/types/**/*.ts",
     ".next-e2e/types/**/*.ts",
     ".next-extinstall/types/**/*.ts",
@@ -71,14 +77,16 @@
     ".next-preview/types/**/*.ts",
     ".next-rowload/types/**/*.ts",
     ".next-scanux/types/**/*.ts",
+    ".next-smart-memory/types/**/*.ts",
     ".next-subcancel/types/**/*.ts",
     ".next-subinspector/types/**/*.ts",
     ".next-tapguard/types/**/*.ts",
     ".next-transfer/types/**/*.ts",
+    ".next-uidev/types/**/*.ts",
     ".next-wishbtn/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-uidev/types/**/*.ts"
+    ".next-smart-memory-e2e/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

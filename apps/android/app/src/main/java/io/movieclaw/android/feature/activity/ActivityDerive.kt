@@ -83,18 +83,23 @@ fun JobView.isSystemCancelled(): Boolean =
  * 卡片、历史标题都从这里取——以前三处各写各的，`library.skip_segments` 这种原始键就
  * 从没补过的表里漏到了界面上（用户看到的正是它）。
  */
-internal fun jobTypeLabel(jobType: String): String = when (jobType) {
+internal fun jobTypeLabel(job: JobView): String =
+    localJobTypeLabel(job.jobType) ?: job.jobTypeLabel?.takeIf { it.isNotBlank() } ?: job.jobType
+
+/** 内置类型的本地文案；插件任务的名字由服务端给（`job_type_label`，与网页、iOS 同一顺序） */
+private fun localJobTypeLabel(jobType: String): String? = when (jobType) {
     "subtitle.generate" -> "生成 AI 字幕"
     "library.scan" -> "扫描媒体库"
     "library.metadata.refresh" -> "刷新媒体库元数据"
     "media.metadata.refresh" -> "刷新条目元数据"
     "library.chapter_images" -> "生成章节"
     "library.skip_segments", "media.skip_segments" -> "识别片头片尾"
+    "reels.clips" -> "预切片段"
     "library.organize" -> "整理媒体库文件"
     "library.transfer" -> "转移媒体库条目"
     "library.ingest" -> "自动整理入库"
-    // 认不出就给原始键（服务端加了新类型时至少不空白）
-    else -> jobType
+    // 认不出：交给服务端给的名字，再没有就显示原始键（至少不空白）
+    else -> null
 }
 
 /** 状态的展示词（iOS `TaskCenter.jobStatusLabels`） */
@@ -120,6 +125,7 @@ internal fun activeJobStatus(job: JobView): String = if (job.status == "running"
         "media.metadata.refresh" -> "正在刷新元数据"
         "library.chapter_images" -> "正在生成章节"
         "library.skip_segments", "media.skip_segments" -> "正在识别片头片尾"
+        "reels.clips" -> "正在预切片段"
         "library.organize" -> "正在整理文件"
         "library.transfer" -> "正在转移文件"
         "library.ingest" -> "正在入库"
@@ -138,6 +144,7 @@ private val COMPLETED_JOB_ACTIONS = mapOf(
     "library.chapter_images" to "章节生成",
     "library.skip_segments" to "片头片尾识别",
     "media.skip_segments" to "片头片尾识别",
+    "reels.clips" to "片段预切",
     "library.organize" to "文件整理",
     "library.transfer" to "文件转移",
     "library.ingest" to "入库",
@@ -171,7 +178,7 @@ fun historicalJobTitle(job: JobView): String {
         "failed" -> "未完成"
         else -> "完成"
     }
-    return if (identity != null && action != null) "$identity$action$result" else "${identity ?: jobTypeLabel(job.jobType)}$result"
+    return if (identity != null && action != null) "$identity$action$result" else "${identity ?: jobTypeLabel(job)}$result"
 }
 
 /** 网页 `historicalJobSummary` */

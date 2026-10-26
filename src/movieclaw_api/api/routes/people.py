@@ -47,7 +47,7 @@ async def get_person(
     repo = PersonRepository(session)
     person = await repo.get_by_tmdb_id(tmdb_person_id)
     if person is None or person.id is None:
-        raise NotFoundException("库内没有这个影人的记录")
+        raise NotFoundException(message_key="errors.people.missing")
 
     credits = await repo.list_credits(
         person.id, visible_library_ids=await visible_library_ids(session, principal)
@@ -58,8 +58,7 @@ async def get_person(
         # ——「他在我库里的作品」——不成立，给 404 让前端走空状态，
         # 而不是渲染一个「库内 0 部」的空壳页。他的片全在范围外的库里也是
         # 同一个 404：不泄露「有这个人、但你不能看」
-        raise NotFoundException("库内没有这位影人的作品")
-
+        raise NotFoundException(message_key="errors.people.worksMissing")
 
     # 海报优先本地资产：一次查完再配对，不逐条目查（N+1）
     item_ids = [c.media_item.id for c in credits if c.media_item.id is not None]

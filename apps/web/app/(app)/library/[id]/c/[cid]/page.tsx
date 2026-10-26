@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 
 import { LibraryCollectionDetailView } from "@/components/library-collection-detail-view";
 
 /** 兜底标题；合集名要等接口返回，就绪后由视图内的 usePageTitle 覆盖。 */
-export const metadata: Metadata = { title: "合集" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations();
+  return { title: t("library.collections.pageTitle") };
+}
 
 /** 合集详情页（/library/[id]/c/[cid]）：规则条 + 成员海报墙。 */
 export default async function LibraryCollectionPage({

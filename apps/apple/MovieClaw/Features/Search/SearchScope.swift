@@ -9,18 +9,18 @@ enum SearchVertical: String, CaseIterable, Hashable {
 
     var label: String {
         switch self {
-        case .media: "影视"
-        case .torrent: "站点资源"
-        case .library: "媒体库"
+        case .media: String(localized: .searchVerticalMedia)
+        case .torrent: String(localized: .searchPageTorrentTab)
+        case .library: String(localized: .searchVerticalLibrary)
         }
     }
 
     /// 搜索面板里的短名
     var shortLabel: String {
         switch self {
-        case .media: "影视"
-        case .torrent: "资源"
-        case .library: "媒体库"
+        case .media: String(localized: .searchVerticalMedia)
+        case .torrent: String(localized: .searchVerticalTorrent)
+        case .library: String(localized: .searchVerticalLibrary)
         }
     }
 
@@ -40,8 +40,8 @@ enum SearchVertical: String, CaseIterable, Hashable {
 /// 种子一级分类（值与后端 TorrentCategory 逐一对应）
 nonisolated enum TorrentCategories {
     static let all: [(value: String, label: String)] = [
-        ("movie", "电影"), ("tv", "剧集"), ("documentary", "纪录片"), ("anime", "动漫"),
-        ("music", "音乐"), ("game", "游戏"), ("av", "成人"), ("other", "其他"),
+        ("movie", String(localized: .searchCategoriesMovie)), ("tv", String(localized: .searchCategoriesTv)), ("documentary", String(localized: .searchCategoriesDocumentary)), ("anime", String(localized: .searchCategoriesAnime)),
+        ("music", String(localized: .searchCategoriesMusic)), ("game", String(localized: .searchCategoriesGame)), ("av", String(localized: .searchCategoriesAv)), ("other", String(localized: .searchCategoriesOther)),
     ]
 
     static func label(_ value: String) -> String {
@@ -82,6 +82,12 @@ nonisolated struct SearchScope: Hashable, Sendable {
     static func ofMediaKind(_ kind: String?) -> SearchScope {
         guard let kind, kind == "movie" || kind == "tv" else { return .all }
         return SearchScope(label: TorrentCategories.label(kind), categories: [kind])
+    }
+
+    /// 详情页「搜索资源」的同搜词（同 Web titleSearchAlso）：英文名 + 原名，主词是中文名，
+    /// 与订阅的召回词同一套。空值丢掉，重复的由后端去重
+    static func titleSearchAlso(_ englishTitle: String?, _ originalTitle: String?) -> [String] {
+        [englishTitle, originalTitle].compactMap { $0 }.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
     }
 
     /// 编码进路由 `SearchQuery.scope`（查询串格式，与 Web URL 参数同名：label / cats / sites / poster / private）。
@@ -217,9 +223,10 @@ enum SearchTab: Hashable {
     /// 预设的范围摘要（同设置页预设行）：分类组合 · 站点组合（· 图览 · 无痕）；内置分类没有摘要
     var summary: String? {
         guard case let .preset(_, _, _, categories, siteIds, posterMode, skipHistory) = self else { return nil }
-        let cats = categories.isEmpty ? "不限分类" : categories.map(TorrentCategories.label).joined(separator: "、")
-        let sites = siteIds.isEmpty ? "全部站点" : "\(siteIds.count) 个站点"
-        return "\(cats) · \(sites)\(posterMode ? " · 图览" : "")\(skipHistory ? " · 无痕" : "")"
+        let cats = categories.isEmpty ? String(localized: .searchScopeAnyCategory) : AppFormatting.list(categories.map(TorrentCategories.label))
+        let sites = siteIds.isEmpty ? String(localized: .searchScopeAllSites) : String(localized: .searchScopeSiteCount(siteIds.count))
+        return "\(cats) · \(sites)" + (posterMode ? String(localized: .searchScopePosterSuffix) : "")
+            + (skipHistory ? String(localized: .searchScopePrivateSuffix) : "")
     }
 
     var isPreset: Bool {

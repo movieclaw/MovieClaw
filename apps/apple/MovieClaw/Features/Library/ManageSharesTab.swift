@@ -6,6 +6,7 @@ import SwiftUI
 /// 行尾「复制」「取消」。分享多了只有这里能一眼管住；过期 / 已取消的后端不列。
 /// 30 秒轮询，列表回报条数给页签计数。
 struct ManageSharesTab: View {
+    @Environment(\.cardMetrics) private var cards
     var onCountChange: (Int) -> Void = { _ in }
 
     @Environment(\.api) private var api
@@ -24,39 +25,39 @@ struct ManageSharesTab: View {
                 if shares.isEmpty {
                     EmptyState(
                         systemImage: "link",
-                        title: "还没有分享任何影片",
-                        message: "在影片详情页的 ⋯ 菜单里可以创建分享：拿到链接的人不用登录就能看这一部影片。"
+                        title: String(localized: .libraryShareEmpty),
+                        message: String(localized: .libraryShareEmptyHint)
                     )
                     .padding(.top, 30)
                 } else {
                     if failed {
-                        ManageBanner(text: "与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据")
+                        ManageBanner(text: String(localized: .libraryHomeStale))
                     }
                     ForEach(shares, id: \.id) { share in
                         row(share)
                     }
                 }
             } else if failed {
-                ErrorState(message: "分享列表加载失败") { await reload() }
+                ErrorState(message: String(localized: .librarySharesLoadFailed)) { await reload() }
             } else {
                 HStack(spacing: 10) {
                     ProgressView()
-                    Text("正在读取分享…").font(.subheadline).foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .libraryShareLoading)).font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
                 .padding(.vertical, 30)
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .task { await reload() }
         .polling(every: 30) { await reload() }
-        .alert("取消《\(revoking?.title ?? "")》的分享？", isPresented: Binding(
+        .alert(String(localized: .librarySharesRevokeTitle(revoking?.title ?? "")), isPresented: Binding(
             get: { revoking != nil },
             set: { if !$0 { revoking = nil } }
         ), presenting: revoking) { share in
-            Button("先不", role: .cancel) {}
-            Button("取消分享", role: .destructive) { Task { await revoke(share) } }
+            Button(String(localized: .libraryItemNotNow), role: .cancel) {}
+            Button(String(localized: .libraryShareRevoke), role: .destructive) { Task { await revoke(share) } }
         } message: { _ in
-            Text("链接立即失效，正在播放的访客会在一分钟内中断。")
+            Text(String(localized: .libraryShareRevokeShort))
         }
     }
 
@@ -81,7 +82,7 @@ struct ManageSharesTab: View {
                         }
                         .buttonStyle(.plain)
                         if share.password != nil {
-                            Label("密码", systemImage: "lock.fill")
+                            Label(String(localized: .authLoginPassword), systemImage: "lock.fill")
                                 .labelStyle(.titleAndIcon)
                                 .font(.caption)
                                 .foregroundStyle(Theme.textFaint)
@@ -92,8 +93,8 @@ struct ManageSharesTab: View {
                         .font(.caption)
                         .foregroundStyle(Theme.textMuted)
                         .lineLimit(2)
-                    Text((share.viewCount > 0 ? "已打开 \(share.viewCount) 次" : "还没有人打开")
-                        + (share.lastAccessedAt.map { " · 最近 \(libraryFromNow($0))" } ?? ""))
+                    Text((share.viewCount > 0 ? String(localized: .libraryShareViews(share.viewCount)) : String(localized: .libraryShareNoViews))
+                        + (share.lastAccessedAt.map { String(localized: .librarySharesLastAccess(libraryFromNow($0))) } ?? ""))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(Theme.textFaint)
                         .lineLimit(1)
@@ -105,14 +106,14 @@ struct ManageSharesTab: View {
                 Button {
                     copy(share)
                 } label: {
-                    Label("复制", systemImage: "doc.on.doc").font(.footnote)
+                    Label(String(localized: .commonCopy), systemImage: "doc.on.doc").font(.footnote)
                 }
                 .buttonStyle(.glass)
                 .accessibilityIdentifier("share-copy-\(share.slug)")
                 Button {
                     revoking = share
                 } label: {
-                    Text("取消").font(.footnote).foregroundStyle(Color(red: 1, green: 0.62, blue: 0.62))
+                    Text(String(localized: .commonCancel)).font(.footnote).foregroundStyle(Color(red: 1, green: 0.62, blue: 0.62))
                 }
                 .buttonStyle(.glass)
                 .disabled(busyId == share.id)
@@ -131,7 +132,7 @@ struct ManageSharesTab: View {
     private func facts(_ share: API.ShareView) -> String {
         var parts: [String] = []
         if share.collectionId != nil {
-            parts.append("合集 · \(share.itemCount ?? 0) 部")
+            parts.append(String(localized: .libraryShareCollectionCount(share.itemCount ?? 0)))
         } else if let kind = share.kind {
             parts.append(ManageKind.label(kind))
         }
@@ -151,7 +152,7 @@ struct ManageSharesTab: View {
     private func copy(_ share: API.ShareView) {
         let link = ShareLinkKit.absoluteURL(share.url, origin: api.server.origin)
         UIPasteboard.general.string = ShareLinkKit.copyText(title: share.title, url: link, password: share.password)
-        feedback.success(share.password != nil ? "已复制链接和密码" : "已复制链接")
+        feedback.success(share.password != nil ? String(localized: .libraryShareCopiedProtected) : String(localized: .libraryShareCopiedLink))
     }
 
     private func revoke(_ share: API.ShareView) async {
@@ -159,10 +160,10 @@ struct ManageSharesTab: View {
         defer { busyId = nil }
         do {
             _ = try await api.sharesRevoke(shareId: share.id)
-            feedback.success("分享已取消")
+            feedback.success(String(localized: .libraryShareRevoked))
             await reload()
         } catch {
-            feedback.error(error.localizedDescription.isEmpty ? "取消分享失败，请稍后重试" : error.localizedDescription)
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .libraryShareRevokeFailed) : error.localizedDescription)
         }
     }
 

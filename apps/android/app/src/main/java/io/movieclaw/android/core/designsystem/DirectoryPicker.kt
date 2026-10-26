@@ -187,7 +187,7 @@ fun DirectoryPickerSheet(
                 )
             }
 
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp)) {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp).formSheetScroll()) {
                 val v = view
                 if (v != null) {
                     v.parent?.let { parent ->

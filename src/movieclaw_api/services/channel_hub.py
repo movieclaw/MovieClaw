@@ -7,7 +7,7 @@
 - 绑定：表单（可带配对码）与插件驱动的交互式流程两种；
 - 收发：复用 ``movieclaw_channel`` 的 manager / dispatcher（白名单、去重、会话串行、拆分、重试），
   驱动经 ``_DriverAdapter`` 接进去；入站消息交给 AI 助手（``channel_agent``）；
-- 主动推送：扇出到所有在运行、有推送目标的账号。
+- 主动推送：发到某个成员的账号（推什么由通知决定，services/push/im.py）；测试推送发给所有账号。
 
 通道插件不在了（关闭 / 卸载），它的账号仍在库里，设置页显示「通道插件未启用」，接口不报错。
 """
@@ -21,13 +21,24 @@ import secrets
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Coroutine
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from movieclaw_api.i18n import current_locale, t, use_locale
+from movieclaw_api.i18n.stored import (
+    keyed_error,
+    reference,
+    source_render,
+    source_text,
+    stored_fields,
+)
+from movieclaw_api.services.system_notice import resolve_notices, upsert_notice
 from movieclaw_channel.adapter import ChannelContext
 from movieclaw_channel.dispatcher import make_dispatcher
 from movieclaw_channel.manager import ChannelManager
 from movieclaw_db.engine import get_database
+from movieclaw_db.models import NoticeSeverity
 from movieclaw_db.models.channel_account import ChannelAccount, ChannelAccountStatus
 from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
 from movieclaw_sdk.channels import (
@@ -70,8 +81,11 @@ class HostAccount(Account):
         credentials: dict[str, str],
         state: dict[str, Any],
         persist: bool = True,
+        member_id: int = 0,
     ) -> None:
         self.channel_id = channel_id
+        #: 归属成员（0=超管）：主动推送按这个人的通知偏好发
+        self.member_id = member_id
         self.id = account_id
         self.display_name = display_name
         self.bound_user = bound_user
@@ -153,6 +167,22 @@ class Binding:
     #: 靠平台回调收消息的通道：这个账号的回调地址（只在发出的这一刻有完整地址）与说明
     callback_url: str | None = None
     callback_note: str = ""
+    message_ref: dict | None = None
+    input_label_localized: dict | None = None
+    callback_note_ref: dict | None = None
+    #: 发起绑定的人的界面语言：配对回执（IM 里的确认消息）用它
+    locale: str = field(default_factory=current_locale.get)
+
+    def text(self, key: str) -> str:
+        with use_locale(self.locale):
+            return t(key)
+
+    def set_reason(self, key: str, **params) -> None:
+        self.set_message(stored_fields(key, **params)["message"], reference(key, **params))
+
+    def set_message(self, message: str, message_ref: dict | None = None) -> None:
+        self.message = message
+        self.message_ref = deepcopy(message_ref)
 
     @property
     def terminal(self) -> bool:
@@ -163,7 +193,44 @@ class ChannelUnavailable(LookupError):
     """通道插件未启用（关闭、卸载或从未安装）。"""
 
 
+class ChannelBindingError(ValueError):
+    def __init__(self, message_key: str, **params) -> None:
+        self.message_key = message_key
+        self.params = params
+        self.message_ref = reference(message_key, **params)
+        super().__init__(stored_fields(message_key, **params)["message"])
+
+
+class ChannelBindingMissing(LookupError):
+    message_ref = reference("channels.binding.missing")
+
+
+def _message_fields(key: str, **params) -> dict:
+    """Binding 的 message（中文原文）与 message_ref（按读者语言渲染）。"""
+    return {
+        "message": source_render(reference(key, **params)),
+        "message_ref": reference(key, **params),
+    }
+
+
+def _driver_label(driver: ChannelDriver) -> dict:
+    return {"message_text": driver.title, "message_localized": driver.title_localized}
+
+
 # ---------------------------------------------------------------------- 中枢
+
+
+def _notice_key(channel_id: str, account_id: str) -> str:
+    return f"channel:{channel_id}:{account_id}"
+
+
+async def _resolve_notice(channel_id: str, account_id: str) -> None:
+    """账号重新绑定、或者解绑了：「账号失效」的待处理事项消退。出错只记日志。"""
+    try:
+        async with get_database().session() as session:
+            await resolve_notices(session, dedupe_key=_notice_key(channel_id, account_id))
+    except Exception:  # noqa: BLE001 -- 消退失败不影响绑定 / 解绑
+        logger.warning("消退 IM 账号失效提醒失败", exc_info=True)
 
 
 class ChannelHub:
@@ -192,7 +259,7 @@ class ChannelHub:
     def driver(self, channel_id: str) -> ChannelDriver:
         found = self._drivers().get(channel_id)
         if found is None:
-            raise ChannelUnavailable(f"通道插件「{channel_id}」未启用")
+            raise keyed_error(ChannelUnavailable, "channels.binding.disabled", channel=channel_id)
         return found
 
     async def start(self) -> None:
@@ -275,6 +342,7 @@ class ChannelHub:
                 return CallbackResponse(status=404)
             account = self.running_account(*parsed)
             if account is None:
+                # i18n-ignore: response to the messaging platform, not a person
                 return CallbackResponse.text("这个账号没有在运行", status=503)
             return await self.driver(channel_id).webhook(account, request)
 
@@ -289,21 +357,24 @@ class ChannelHub:
             return
         service = get_service()
         if service is None:
-            raise ValueError("插件回调端点没有启用，靠回调收消息的通道用不了")
+            raise ChannelBindingError("channels.binding.callbackUnavailable")
         entry_id = self.contributor(binding.channel_id)
         scope = account_scope(binding.channel_id, binding.account_id)
         existing = await service.active(entry_id, scope)
         if existing:
             binding.callback_url = existing[0].url
-            binding.callback_note = "沿用之前的回调地址（平台后台不用改）；要换新地址在插件页换"
+            binding.callback_note = source_text("channels.binding.callbackReused")
+            binding.callback_note_ref = reference("channels.binding.callbackReused")
             return
         issued = await service.issue_for(entry_id, WEBHOOK_ENDPOINT, scope)
         binding.callback_url = issued.url
-        binding.callback_note = (
-            "把这个地址填到平台后台的回调 / 接收消息设置里（只在这次绑定里显示完整地址）"
+        note = (
+            "channels.binding.callbackAbsolute"
             if issued.absolute
-            else "还没配外部访问地址：先在「设置 → 应用设置」里填，地址前面要加上它"
+            else "channels.binding.callbackRelative"
         )
+        binding.callback_note = source_text(note)
+        binding.callback_note_ref = reference(note)
 
     async def _revoke_callbacks(self, channel_id: str, account_id: str) -> None:
         from movieclaw_api.services.plugin_callbacks import get_service
@@ -316,6 +387,7 @@ class ChannelHub:
 
     def schedule_sync(self) -> None:
         """注册表变化的回调是同步的：排一次对齐。"""
+        # i18n-ignore: background task label for logs
         self._spawn(self.sync(), "通道对齐")
 
     def _spawn(self, coro: Coroutine[Any, Any, None], what: str) -> None:
@@ -344,6 +416,7 @@ class ChannelHub:
             bound_user=(row.bound_user_id or "").strip() or None,
             credentials=ChannelAccountRepository.credentials(row),
             state=ChannelAccountRepository.state(row),
+            member_id=row.member_id,
         )
         await self._run_account(account)
 
@@ -395,8 +468,20 @@ class ChannelHub:
         async def handle(account_id: str) -> None:
             title = self._title(channel_id)
             async with get_database().session() as session:
+                # 存目录原文：读时按读者语言渲染（账号就列在通道下面，不必带通道名）
                 await ChannelAccountRepository(session).mark_stale(
-                    channel_id, account_id, f"{title}凭据已失效，请重新绑定"
+                    channel_id, account_id, source_text("channels.accounts.credentialsExpired")
+                )
+                # 凭据失效 = IM 通知悄悄断了：进待处理事项（管理员手机也会收到），重新绑定后自动消退
+                await upsert_notice(
+                    session,
+                    dedupe_key=_notice_key(channel_id, account_id),
+                    severity=NoticeSeverity.WARNING,
+                    source="channel",
+                    title_key="notify.channelStale.title",
+                    message_key="notify.channelStale.body",
+                    message_params={"channel": title},
+                    payload={"channel_id": channel_id, "account_id": account_id},
                 )
             self._accounts.pop((channel_id, account_id), None)
 
@@ -415,18 +500,35 @@ class ChannelHub:
             await self._stop_account(channel_id, account_id)
             await self._revoke_callbacks(channel_id, account_id)
             async with get_database().session() as session:
-                return await ChannelAccountRepository(session).delete(channel_id, account_id)
+                removed = await ChannelAccountRepository(session).delete(channel_id, account_id)
+        await _resolve_notice(channel_id, account_id)
+        return removed
+
+    def account_owners(self) -> set[int]:
+        """在运行的账号归属于哪些成员（通知的 IM 渠道据此判断谁有 IM 可收）。"""
+        return {account.member_id for account in self._accounts.values()}
+
+    def account_count(self, member_id: int) -> int:
+        """这个人在运行的账号数（「账号 → 通知」的测试按钮与实际发送同一口径）。"""
+        return sum(1 for account in self._accounts.values() if account.member_id == member_id)
 
     async def accounts(self) -> list[ChannelAccount]:
         async with get_database().session() as session:
             return await ChannelAccountRepository(session).list_all()
 
     # ------------------------------------------------------------------ 推送
-    async def push(self, text: str, photo: bytes | None = None) -> int:
-        """把一条文本（可附图）推给所有在运行、有推送目标的账号；返回送达队列的账号数。"""
+    async def push(
+        self, text: str, photo: bytes | None = None, *, member_id: int | None = None
+    ) -> int:
+        """把一条文本（可附图）推给在运行、有推送目标的账号；返回送达队列的账号数。
+
+        ``member_id``：只推这个人的账号；None = 所有账号（IM 推送页的测试推送）。
+        """
         count = 0
         drivers = self._drivers()
         for (channel_id, account_id), account in list(self._accounts.items()):
+            if member_id is not None and account.member_id != member_id:
+                continue
             driver = drivers.get(channel_id)
             dispatcher = self.manager.get_dispatcher(channel_id, account_id)
             if driver is None or dispatcher is None:
@@ -454,7 +556,7 @@ class ChannelHub:
             and time.monotonic() > binding.expires_at
         ):
             binding.status = "expired"
-            binding.message = "配对码已过期，请重新发起绑定"
+            binding.set_reason("channels.binding.expired")
         return binding
 
     async def begin_binding(self, channel_id: str, fields: dict[str, str]) -> Binding:
@@ -466,7 +568,11 @@ class ChannelHub:
         except ValueError:
             raise
         except Exception as exc:  # noqa: BLE001 -- 校验失败的原因直接给用户看
-            raise ValueError(f"{driver.title}校验失败：{exc}") from exc
+            raise ChannelBindingError(
+                "channels.binding.validationFailed",
+                channel=_driver_label(driver),
+                error=getattr(exc, "message_ref", None) or str(exc),
+            ) from exc
         if driver.binding.pairing == "code":
             return await self._begin_pairing(channel_id, driver, result)
         row = await self._commit(channel_id, result)
@@ -475,7 +581,7 @@ class ChannelHub:
             channel_id=channel_id,
             kind="done",
             status="confirmed",
-            message=f"已接入{driver.title}",
+            **_message_fields("channels.binding.linked", channel=_driver_label(driver)),
             account_id=row.account_id,
         )
         await self._attach_callback(binding)
@@ -485,7 +591,7 @@ class ChannelHub:
     async def binding_input(self, binding_id: str, value: str) -> Binding:
         binding = self.binding(binding_id)
         if binding is None:
-            raise LookupError("绑定不存在或已过期")
+            raise keyed_error(ChannelBindingMissing, "channels.binding.missing")
         if binding.kind != "flow" or binding.terminal:
             return binding
         state = await self.driver(binding.channel_id).flow_input(binding.flow_id, value)
@@ -499,6 +605,7 @@ class ChannelHub:
             await asyncio.sleep(max(0.0, binding.expires_at - time.monotonic()) + BINDING_LINGER_S)
             self._bindings.pop(binding.binding_id, None)
 
+        # i18n-ignore: background task label for logs
         self._spawn(linger(), "绑定留存")
 
     async def _commit(self, channel_id: str, result: BindResult) -> ChannelAccount:
@@ -515,6 +622,7 @@ class ChannelHub:
         async with self._sync_lock:  # 与 sync 互斥，免得同一账号被拉起两次
             await self._stop_account(channel_id, result.account_id)
             await self._start_account(row)
+        await _resolve_notice(channel_id, result.account_id)
         logger.info("通道账号已绑定 channel=%s account=%s", channel_id, result.account_id)
         return row
 
@@ -544,6 +652,7 @@ class ChannelHub:
         )
         await self._apply_flow(binding, state)
         self._remember(binding)
+        # i18n-ignore: background task label for logs
         self._spawn(self._watch_flow(binding), "交互式绑定")
         return binding
 
@@ -555,7 +664,7 @@ class ChannelHub:
                 state = await self.driver(binding.channel_id).flow_state(binding.flow_id)
             except ChannelUnavailable:
                 binding.status = "failed"
-                binding.message = "通道插件已关闭"
+                binding.set_reason("channels.binding.closed")
                 return
             except Exception as exc:  # noqa: BLE001
                 logger.warning("读取绑定状态失败：%s", exc)
@@ -567,22 +676,30 @@ class ChannelHub:
             return
         binding.qr = state.qr
         binding.input_label = state.input_label
+        binding.input_label_localized = deepcopy(state.input_label_localized)
         if state.status == "confirmed":
             if state.result is None:
                 binding.status = "failed"
-                binding.message = "绑定结果缺失，请重新发起"
+                binding.set_reason("channels.binding.missingResult")
                 return
             try:
                 row = await self._commit(binding.channel_id, state.result)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("绑定落库失败 channel=%s", binding.channel_id)
                 binding.status = "failed"
-                binding.message = f"绑定失败：{exc}"
+                binding.set_reason(
+                    "channels.binding.failed", error=getattr(exc, "message_ref", None) or str(exc)
+                )
                 return
             binding.account_id = row.account_id
             await self._attach_callback(binding)
         binding.status = state.status
-        binding.message = state.message
+        binding.set_message(
+            state.message,
+            {"message_text": state.message, "message_localized": state.message_localized}
+            if state.message_localized
+            else None,
+        )
 
     # ---- 配对码（表单 + 私聊 bot 发码）
     async def _begin_pairing(
@@ -597,7 +714,12 @@ class ChannelHub:
             display_name=result.display_name,
             account_id=result.account_id,
             pending=result,
-            message=f"请在 {driver.title} 上私聊 @{result.display_name} 发送配对码 {code}",
+            **_message_fields(
+                "channels.binding.pairing",
+                channel=_driver_label(driver),
+                name=result.display_name,
+                code=code,
+            ),
         )
         # 配对期临时收发：任何人发来的消息只跟配对码比对，不进 AI 助手；命中即落库转正
         await self._stop_account(channel_id, result.account_id)
@@ -613,11 +735,14 @@ class ChannelHub:
         await self._run_account(temp, pairing=binding)
         await self._attach_callback(binding)
         if binding.callback_url:
-            binding.message = (
-                f"先把回调地址填到{driver.title}后台，再在{driver.title}里给"
-                f"「{result.display_name}」发送配对码 {code}"
+            binding.set_reason(
+                "channels.binding.callbackPairing",
+                channel=_driver_label(driver),
+                name=result.display_name,
+                code=code,
             )
         self._remember(binding)
+        # i18n-ignore: background task label for logs
         self._spawn(self._pairing_watchdog(binding, temp), "配对超时守护")
         return binding
 
@@ -632,35 +757,33 @@ class ChannelHub:
             return
         if time.monotonic() > binding.expires_at:
             binding.status = "expired"
-            binding.message = "配对码已过期，请重新发起绑定"
+            binding.set_reason("channels.binding.expired")
             return
         if msg.text.strip() != binding.pair_code:
             binding.attempts += 1
             if binding.attempts >= PAIR_MAX_ATTEMPTS:
                 binding.status = "failed"
-                binding.message = "配对码错误次数过多，绑定已作废，请重新发起"
+                binding.set_reason("channels.binding.tooManyAttempts")
                 # 终态回执直接发（不走出站队列）：随后停账号会关发送泵，入队的回执会丢
-                await _send_receipt(
-                    adapter, msg, "配对码错误次数过多，本次绑定已作废。请回设置页重新发起绑定。"
-                )
+                await _send_receipt(adapter, msg, binding.text("channels.pairing.tooManyAttempts"))
+                # i18n-ignore: background task label for logs
                 self._spawn(self._teardown_pairing(binding, adapter.account), "配对作废清理")
                 return
-            await emit("配对码不正确。请发送设置页上显示的 6 位数字完成绑定。")
+            await emit(binding.text("channels.pairing.wrongCode"))
             return
         pending = binding.pending
         if pending is None:
             binding.status = "failed"
-            binding.message = "绑定状态已丢失，请重新发起"
+            binding.set_reason("channels.binding.lost")
             return
         binding.pending = None
         binding.status = "confirmed"
-        binding.message = "绑定完成，通道已启动"
-        await _send_receipt(
-            adapter, msg, "绑定成功！我是 MovieClaw 助手，现在可以直接发消息让我干活了。"
-        )
+        binding.set_reason("channels.binding.started")
+        await _send_receipt(adapter, msg, binding.text("channels.pairing.success"))
         # 当前正在临时账号的会话 worker 里：转正（停临时账号、起正式账号）放后台，避免自锁
         self._spawn(
             self._confirm_pairing(binding, replace(pending, bound_user=msg.user_id)),
+            # i18n-ignore: background task label for logs
             "配对转正",
         )
 
@@ -670,13 +793,15 @@ class ChannelHub:
         except Exception as exc:  # noqa: BLE001
             logger.exception("配对转正失败 channel=%s", binding.channel_id)
             binding.status = "failed"
-            binding.message = f"绑定失败：{exc}"
+            binding.set_reason(
+                "channels.binding.failed", error=getattr(exc, "message_ref", None) or str(exc)
+            )
 
     async def _pairing_watchdog(self, binding: Binding, temp: HostAccount) -> None:
         await asyncio.sleep(max(0.0, binding.expires_at - time.monotonic()))
         if binding.status == "pending":
             binding.status = "expired"
-            binding.message = "配对码已过期，请重新发起绑定"
+            binding.set_reason("channels.binding.expired")
         await self._teardown_pairing(binding, temp)
 
     async def _teardown_pairing(self, binding: Binding, temp: HostAccount) -> None:

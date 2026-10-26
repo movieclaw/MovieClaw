@@ -9,9 +9,12 @@ from movieclaw_api.plugins.keys import DB, JOBS
 from movieclaw_kernel import Context, plugin
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("library.builtin-collections", title="内置合集自愈", inject=(DB,), reloadable=True)
 async def builtin_collections(ctx: Context) -> None:
-    """给每个库补齐内置合集（现在只有「我的收藏」），幂等。
+    """启动时给每个媒体库补齐内置合集「我的收藏」。
+
+    给每个库补齐内置合集（现在只有「我的收藏」），幂等。
 
     做成启动自愈而不是一次性迁移：迁移只补得到「迁移那一刻已经存在」的库，此后任何绕过
     建库接口写进来的库（导入、测试夹具、手工 SQL）都会缺这一行。每个库一次 SELECT，可忽略。
@@ -30,8 +33,10 @@ async def builtin_collections(ctx: Context) -> None:
         await session.commit()
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("enrich.backfill", title="扩充属性重算", inject=(DB,), reloadable=True)
 async def enrich_backfill(ctx: Context) -> None:
+    """种子识别规则升级后，启动时在后台把已缓存的站点种子按新规则重新识别一遍。"""
     from movieclaw_api.services.enrich_backfill import (
         close_enrich_backfill,
         start_enrich_backfill,
@@ -42,8 +47,10 @@ async def enrich_backfill(ctx: Context) -> None:
     ctx.effect(close_enrich_backfill, label="close-enrich-backfill")
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("library.disc-image-durations", title="光盘镜像片长修正", inject=(DB,), reloadable=True)
 async def disc_image_durations(ctx: Context) -> None:
+    """启动后在后台修正光盘镜像（ISO）记错的片长，避免一开播就算看完、进度显示不对。"""
     from movieclaw_api.services.library.disc_image_durations import (
         close_disc_image_duration_heal,
         start_disc_image_duration_heal,
@@ -55,9 +62,11 @@ async def disc_image_durations(ctx: Context) -> None:
 
 
 @plugin(
+    # i18n-ignore: source default of plugins.builtins.* (guarded by test)
     "library.dolby-vision-backfill", title="杜比视界 profile 补记", inject=(DB,), reloadable=True
 )
 async def dolby_vision_backfill(ctx: Context) -> None:
+    """启动后在后台为早先入库的杜比视界文件补记格式信息，让播放时能选对直接播放还是转码。"""
     from movieclaw_api.services.library.dolby_vision_backfill import (
         close_dolby_vision_backfill,
         start_dolby_vision_backfill,
@@ -68,8 +77,10 @@ async def dolby_vision_backfill(ctx: Context) -> None:
     ctx.effect(close_dolby_vision_backfill, label="close-dolby-vision-backfill")
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("library.watch", title="媒体库实时监控", inject=(DB,), disableable=True, reloadable=True)
 async def library_watch(ctx: Context) -> None:
+    """监控媒体库目录，新文件落地后自动入账；删除、改名也会及时同步。"""
     from movieclaw_api.services.library.watch import close_library_watcher, init_library_watcher
 
     # 库根路径文件事件 → 去抖 → 增量扫描；watchdog 缺失 / 根路径未就绪时降级为对账任务兜底。
@@ -80,9 +91,11 @@ async def library_watch(ctx: Context) -> None:
 
 
 @plugin(
+    # i18n-ignore: source default of plugins.builtins.* (guarded by test)
     "library.ingest-watch", title="下载监听导入", inject=(DB,), disableable=True, reloadable=True
 )
 async def ingest_watch(ctx: Context) -> None:
+    """监听下载目录，把下载完成的内容自动识别，再硬链接或复制进媒体库（或指定目录）。"""
     from movieclaw_api.services.library.ingest import close_ingest_watcher, init_ingest_watcher
 
     # 监听目录文件事件 → 去抖 → 完成检测 → 创建持久化 Job；watchdog 缺失时降级为兜底巡检
@@ -90,8 +103,10 @@ async def ingest_watch(ctx: Context) -> None:
     ctx.effect(close_ingest_watcher, label="close-ingest-watcher")
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("library.search-index", title="媒体库搜索索引", inject=(JOBS,), reloadable=True)
 async def search_index(ctx: Context) -> None:
+    """维护媒体库搜索用的名称索引（含拼音），作品新增或改名后在后台自动更新。"""
     from movieclaw_api.services.jobs import contribute_job_handlers
     from movieclaw_api.services.library import search_index as module
 
@@ -100,12 +115,38 @@ async def search_index(ctx: Context) -> None:
     contribute_job_handlers(ctx, module)
     module.start_search_index()
     ctx.effect(module.close_search_index, label="close-search-index")
+    # 拼音记忆补算（services/library/pinyin.py）：主进程不常驻 pypinyin 词库
+    from movieclaw_api.services.library import pinyin
+
+    ctx.task(pinyin.backfill(), name="pinyin-backfill")
 
 
+# i18n-ignore: source default of plugins.builtins.* (guarded by test)
 @plugin("library.skip-segments", title="片头识别启动补算", inject=(JOBS,), reloadable=True)
 async def skip_segments_recovery(ctx: Context) -> None:
+    """启动后检查哪些媒体库的片头片尾识别需要重算（如算法升级），排进后台任务。"""
     from movieclaw_api.services.library.skip_segments import enqueue_pending_libraries
 
     # 算法升级后旧识别结果须主动重算；后台只排持久化任务，不在启动期间读 NAS。
     # 释放时先取消排队，避免关闭任务执行器和数据库时仍在创建任务
     ctx.task(enqueue_pending_libraries(), name="startup-recovery")
+
+
+@plugin(
+    "library.media-server-refresh",
+    # i18n-ignore: source default of plugins.builtins.* (guarded by test)
+    title="通知媒体服务器刷新",
+    disableable=True,
+    reloadable=True,
+)
+async def media_server_refresh(ctx: Context) -> None:
+    """媒体库内容变了（新入账、删除、回收站进出、转移）就通知 Emby / Jellyfin 刷新，
+    一阵子的变化合成一次。"""
+    from movieclaw_api.services import media_server_notify as notify
+
+    if not notify.configured():
+        return  # 没配媒体服务器：不订阅，库变化时什么都不多做
+    refresher = notify.Refresher(lambda coro: ctx.task(coro, name="refresh"))
+    ctx.effect(refresher.close, label="stop-refresher")
+    for event in notify.triggers():
+        ctx.on(event, refresher.poke, id=f"refresh:{event.name}")

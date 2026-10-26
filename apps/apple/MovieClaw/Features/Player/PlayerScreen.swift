@@ -34,7 +34,7 @@ struct PlayerScreen: View {
             if let existing = router.activePlayback, existing.request.id == request.id, existing.viewAttached {
                 controller = existing
                 #if DEBUG
-                FileHandle.standardError.write(Data("[PlayerDiag] 播放器视图重建，复用原控制器\n".utf8))
+                FileHandle.standardError.write(Data("[PlayerDiag] 播放器视图重建，复用原控制器\n".utf8)) // i18n-ignore: debug log
                 #endif
                 return
             }
@@ -62,10 +62,10 @@ struct PlayerScreen: View {
                     try? await Task.sleep(for: .seconds(drill[0]))
                     if drill[2] == 1 { created.debugGrowForwardBuffer() }
                     created.togglePlay()
-                    Self.autoTestLog("暂停攒缓冲 \(Int(drill[1])) 秒\(drill[2] == 1 ? "（已放大前向缓冲）" : "")")
+                    Self.autoTestLog("暂停攒缓冲 \(Int(drill[1])) 秒\(drill[2] == 1 ? "（已放大前向缓冲）" : "")") // i18n-ignore: debug log
                     try? await Task.sleep(for: .seconds(drill[1]))
                     created.togglePlay()
-                    Self.autoTestLog("恢复播放")
+                    Self.autoTestLog("恢复播放") // i18n-ignore: debug log
                 }
             }
             // -mcAutoReconnect <秒>：到点模拟一次断线重连（新会话、新引擎实例），验证片源字节缓存接得上
@@ -73,7 +73,7 @@ struct PlayerScreen: View {
             if autoReconnect > 0 {
                 Task {
                     try? await Task.sleep(for: .seconds(autoReconnect))
-                    Self.autoTestLog("模拟断线重连")
+                    Self.autoTestLog("模拟断线重连") // i18n-ignore: debug log
                     created.debugReconnect()
                 }
             }
@@ -82,7 +82,7 @@ struct PlayerScreen: View {
             if storageFull.count == 2 {
                 Task {
                     try? await Task.sleep(for: .seconds(storageFull[0]))
-                    Self.autoTestLog("模拟存储写满 \(Int(storageFull[1])) 秒")
+                    Self.autoTestLog("模拟存储写满 \(Int(storageFull[1])) 秒") // i18n-ignore: debug log
                     NativeEngine.simulateStorageFull(forSeconds: storageFull[1])
                 }
             }
@@ -99,7 +99,7 @@ struct PlayerScreen: View {
                     for (at, height) in autoQuality {
                         try? await Task.sleep(for: .seconds(max(0, at - elapsed)))
                         elapsed = at
-                        Self.autoTestLog("切画质 \(height == 0 ? "原画" : "\(height)p")")
+                        Self.autoTestLog("切画质 \(height == 0 ? String(localized: .playerQualityOriginal) : "\(height)p")") // i18n-ignore: debug log
                         created.selectQuality(height == 0 ? nil : height)
                     }
                 }
@@ -115,7 +115,7 @@ struct PlayerScreen: View {
             #endif
             created.start()
             UIApplication.shared.isIdleTimerDisabled = true
-            created.startupDiag("播放器视图出现处理完")
+            created.startupDiag("播放器视图出现处理完") // i18n-ignore: debug log
             #if DEBUG
             // 真机排查用：-mcAutoHoldSpeed <秒> 起播后到点自动长按 2 倍速 15 秒（验证倍速时的掉帧判定）
             let autoHold = UserDefaults.standard.double(forKey: "mcAutoHoldSpeed")
@@ -137,7 +137,7 @@ struct PlayerScreen: View {
                     for at in autoPiPTimes.sorted() {
                         try? await Task.sleep(for: .seconds(at - elapsed))
                         elapsed = at
-                        Self.autoTestLog("画中画切换（第 \(Int(at)) 秒）")
+                        Self.autoTestLog("画中画切换（第 \(Int(at)) 秒）") // i18n-ignore: debug log
                         created.togglePictureInPicture()
                     }
                 }
@@ -150,7 +150,7 @@ struct PlayerScreen: View {
                     for (at, ref) in subtitleSteps {
                         try? await Task.sleep(for: .seconds(at - elapsed))
                         elapsed = at
-                        Self.autoTestLog("换字幕 → \(ref)")
+                        Self.autoTestLog("换字幕 → \(ref)") // i18n-ignore: debug log
                         created.selectSubtitle(ref == "off" ? nil : ref)
                     }
                 }
@@ -165,7 +165,7 @@ struct PlayerScreen: View {
                     for (at, ref) in audioSteps {
                         try? await Task.sleep(for: .seconds(at - elapsed))
                         elapsed = at
-                        Self.autoTestLog("换音轨 → \(ref)")
+                        Self.autoTestLog("换音轨 → \(ref)") // i18n-ignore: debug log
                         created.selectAudio(ref)
                     }
                 }
@@ -180,7 +180,7 @@ struct PlayerScreen: View {
                         guard let value = Double(spec) else { continue }
                         let relative = spec.hasPrefix("+") || spec.hasPrefix("-")
                         let targetMs = relative ? created.positionMs + Int(value * 1000) : Int(value * 1000)
-                        Self.autoTestLog("跳转 → \(targetMs / 1000) 秒")
+                        Self.autoTestLog("跳转 → \(targetMs / 1000) 秒") // i18n-ignore: debug log
                         created.seek(toFileMs: targetMs, source: .auto)
                     }
                 }
@@ -191,7 +191,7 @@ struct PlayerScreen: View {
             if autoClose > 0 {
                 Task {
                     try? await Task.sleep(for: .seconds(autoClose))
-                    Self.autoTestLog("自动退出播放器")
+                    Self.autoTestLog("自动退出播放器") // i18n-ignore: debug log
                     exit()
                 }
             }
@@ -319,6 +319,7 @@ private struct PlayerContent: View {
                         url: controller.overlaySubtitleURL,
                         style: controller.subtitleStyle,
                         videoSize: engine.videoSize,
+                        displayMode: controller.displayMode,
                         time: { Double(controller.originMs) / 1000 + (controller.engine?.currentTime ?? 0) },
                         session: controller.scope.api.session
                     )
@@ -392,6 +393,14 @@ private struct PlayerContent: View {
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
+            // 放在共同父层：控制条可见时，两指也能在画面中央捏合；
+            // 原始触摸层遇到第二指会取消拖进度/倍速，不与捏合争抢。
+            .simultaneousGesture(MagnifyGesture(minimumScaleDelta: 0.08).onEnded { value in
+                // 系统设置菜单自行接管触摸，关闭后的标记可能晚于原生菜单消失。
+                guard !locked, !isModal, menu == .none || menu == .settings else { return }
+                let mode = controller.displayMode.pinched(scale: value.magnification)
+                if mode != controller.displayMode { controller.selectDisplayMode(mode) }
+            })
             .animation(.easeInOut(duration: 0.25), value: chromeVisible)
             .animation(.easeInOut(duration: 0.2), value: controller.notice)
             .animation(.easeInOut(duration: 0.25), value: controller.qualityOffer)
@@ -542,7 +551,19 @@ private struct PlayerContent: View {
                     .padding(.horizontal, PlayerLayout.edge)
                     .padding(.bottom, PlayerLayout.gap)
                 }
-                if let segment = controller.skipSegment {
+                // 自动跳过的提示和跳过按钮占同一个角落，提示优先（撤回后回到片头里，提示收起才轮到按钮）
+                if let notice = controller.skipNotice {
+                    HStack {
+                        Spacer()
+                        PlayerSkipNotice(notice: notice, undo: controller.undoAutoSkip, decline: controller.declineIntroAutoSkip)
+                    }
+                    .padding(.horizontal, PlayerLayout.edge)
+                    .padding(.bottom, PlayerLayout.gap)
+                    .task(id: notice.id) {
+                        try? await Task.sleep(for: .milliseconds(notice.durationMs))
+                        controller.expireSkipNotice(notice.id)
+                    }
+                } else if let segment = controller.skipSegment {
                     HStack {
                         Spacer()
                         PlayerSkipButton(segment: segment, action: controller.skipCurrentSegment)
@@ -554,10 +575,11 @@ private struct PlayerContent: View {
                     HStack {
                         Spacer()
                         PlayerUpNextCard(
-                            code: "第 \(next.episodeNumber) 集",
+                            code: String(localized: .mediaEpisodeNumber(next.episodeNumber)),
                             name: next.name.flatMap { $0.isEmpty ? nil : $0 },
                             still: controller.scope.api.image(next.stillUrl, width: ImageWidth.points(PlayerUpNextCard.stillWidth)),
                             countdown: controller.autoNextArmed ? controller.autoNextProgress : nil,
+                            stillWatching: controller.asksStillWatching,
                             dismiss: {
                                 controller.noteUserActivity()
                                 controller.nextDismissed = true
@@ -616,7 +638,8 @@ private struct PlayerContent: View {
             case .none: EmptyView()
             case .audio: AudioMenu(controller: controller) { menu = .none }.transition(menuTransition(.audio))
             case .subtitles: SubtitleMenu(controller: controller) { menu = .none }.transition(menuTransition(.subtitles))
-            case .settings: SettingsMenu(controller: controller) { menu = .none }.transition(menuTransition(.settings))
+            // ⋯ 是系统菜单（PlayerSettingsMenu），自己弹出；这里只记着它开着，让控制层常显
+            case .settings: EmptyView()
             }
         }
         .animation(.spring(duration: 0.32, bounce: 0.18), value: menu)
@@ -652,13 +675,13 @@ private struct PlayerContent: View {
     private func lockButton(unlock: Bool) -> some View {
         HStack {
             if unlock {
-                GlassIconButton(systemImage: "lock.open", label: "解锁", identifier: "player-unlock") {
+                GlassIconButton(systemImage: "lock.open", label: String(localized: .playerControlsUnlock), identifier: "player-unlock") {
                     locked = false
                     lockHint = false
                     chromeVisible = true
                 }
             } else {
-                GlassIconButton(systemImage: "lock", label: "锁屏", identifier: "player-lock") {
+                GlassIconButton(systemImage: "lock", label: String(localized: .playerControlsLock), identifier: "player-lock") {
                     locked = true
                     menu = .none
                     revealLock()
@@ -690,7 +713,7 @@ private struct PlayerContent: View {
     /// 片段模式的「退出全屏」：先转回竖屏、转好了再关播放器回到刷片（刷片页从这里接着放这一段）。
     /// 直接关的话，转屏与收起两段动画叠在一起，中间会露出横着排的信息流
     private func exitClip(landscape: Bool) {
-        guard landscape else {
+        guard landscape, PlayerOrientation.appControlsRotation else {
             exit()
             return
         }
@@ -709,11 +732,12 @@ private struct PlayerContent: View {
         exit()
     }
 
-    /// 横屏时左上角是「退出横屏」，竖屏时才是「退出播放」（同 Web 的后退语义）；片段模式是「退出全屏」
+    /// 手机横屏时左上角是「退出横屏」，竖屏时才是「退出播放」（同 Web 的后退语义）；片段模式是「退出全屏」；
+    /// iPad 方向跟随设备，永远是「退出播放」
     private func back(landscape: Bool) {
         if controller.clip != nil {
             exitClip(landscape: landscape)
-        } else if landscape {
+        } else if landscape, PlayerOrientation.appControlsRotation {
             PlayerOrientation.request(landscape: false)
         } else {
             exit()
@@ -727,7 +751,7 @@ private struct PlayerContent: View {
         VStack {
             if controller.holdSpeedActive {
                 PlayerHUD {
-                    Text("2× 快进中").monospacedDigit()
+                    Text(String(localized: .playerControlsSpeedFastForward)).monospacedDigit()
                     Image(systemName: "forward.fill")
                 }
                 .accessibilityIdentifier("player-hold-speed")
@@ -735,7 +759,7 @@ private struct PlayerContent: View {
                 PlayerHUD {
                     Image(systemName: adjust.side == .brightness ? "sun.max.fill" : (adjust.value <= 0.001 ? "speaker.slash.fill" : "speaker.wave.2.fill"))
                     if adjust.side == .volume, volumeUnsupported {
-                        Text("音量由系统侧键控制")
+                        Text(String(localized: .playerControlsVolumeKeys))
                     } else {
                         LevelBar(value: adjust.value)
                     }

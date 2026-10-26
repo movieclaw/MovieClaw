@@ -29,8 +29,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import io.movieclaw.androidtv.ui.components.Text
-import io.movieclaw.androidtv.core.playback.PlayerFormat
-import io.movieclaw.androidtv.core.playback.PlayerState
+import io.movieclaw.core.playback.PlayerFormat
+import io.movieclaw.core.playback.PlayerState
+import io.movieclaw.androidtv.ui.theme.McColors
 import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt
 
@@ -57,6 +58,17 @@ fun TransportBar(state: PlayerState, scrubMs: Long?, trickplay: TrickplayImages,
             Box(Modifier.fillMaxWidth().height(BAR).clip(CircleShape).background(Color.White.copy(alpha = 0.22f))) {
                 Box(Modifier.width(width * fraction(buffered, duration)).height(BAR).clip(CircleShape).background(Color.White.copy(alpha = 0.35f)))
                 Box(Modifier.width(played).height(BAR).clip(CircleShape).background(Color.White))
+                // 可跳过的段（同 Apple 端）：一集两三段，拖动时一眼看出哪截是片头
+                if (duration > 0) {
+                    state.segments.orEmpty().forEach { segment ->
+                        val from = width * fraction(segment.startMs, duration)
+                        val to = width * fraction(segment.endMs, duration)
+                        Box(
+                            Modifier.offset(x = from).width((to - from).coerceAtLeast(2.pt)).height(BAR)
+                                .clip(CircleShape).background(McColors.Skippable.copy(alpha = 0.9f)),
+                        )
+                    }
+                }
             }
             if (scrubMs != null) {
                 Box(Modifier.offset(x = played - 13.pt).size(26.pt).background(Color.White, CircleShape))

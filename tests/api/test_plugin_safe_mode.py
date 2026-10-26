@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.i18n.stored import source_render
 from movieclaw_api.plugins import safe_mode
 from movieclaw_api.plugins.local import PACKAGE
 from movieclaw_api.services import durable_events
@@ -51,7 +52,7 @@ def test_unsettled_start_with_plugins_enters_safe_mode_and_stays(tmp_path) -> No
     mode = safe_mode.decide(settings, ["acme.a", "acme.b"], now=1030)
     assert mode.active and mode.forced is None
     assert mode.skipped == ["acme.a", "acme.b"]
-    assert "acme.a" in mode.reason
+    assert "acme.a" in source_render(mode.reason)
     assert state(tmp_path)["pending"] == {"started_at": 1030, "plugins": []}
 
     # 安全模式下稳定运行、正常停机：记录清掉，但安全模式保持到用户退出

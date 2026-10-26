@@ -1,3 +1,5 @@
+import { appTranslator } from "../i18n/translate.ts";
+
 /**
  * 播放引擎抽象（docs/design/web-player.md §6.1）。
  *
@@ -296,15 +298,15 @@ function mediaErrorCause(video: HTMLVideoElement): FailureCause {
 function describeMediaError(video: HTMLVideoElement): string {
   switch (video.error?.code) {
     case MediaError.MEDIA_ERR_ABORTED:
-      return "播放被中断";
+      return appTranslator()("player.errors.aborted");
     case MediaError.MEDIA_ERR_NETWORK:
-      return "取流中断，网络或服务端连接断开";
+      return appTranslator()("player.errors.networkInterrupted");
     case MediaError.MEDIA_ERR_DECODE:
-      return "解码失败，这一档的码流浏览器吃不下";
+      return appTranslator()("player.errors.decode");
     case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-      return "浏览器不支持这个格式或编码";
+      return appTranslator()("player.errors.unsupported");
     default:
-      return "播放失败";
+      return appTranslator()("player.errors.failed");
   }
 }
 
@@ -600,7 +602,7 @@ class HlsEngine implements PlaybackEngine {
           this.hls?.startLoad();
           return;
         }
-        onFailed(`取流持续失败（${data.details}），已连续重试 ${MAX_NETWORK_RECOVERIES} 次`, "network");
+        onFailed(appTranslator()("player.errors.repeatedNetwork", { reason: data.details, count: MAX_NETWORK_RECOVERIES }), "network");
         return;
       }
       if (data.type === HlsCtor.ErrorTypes.MEDIA_ERROR) {
@@ -623,10 +625,10 @@ class HlsEngine implements PlaybackEngine {
           return;
         }
         clientLog(this.options, "hls-media-recover-failed", { details: data.details });
-        onFailed(`码流解码失败（${data.details}）`, "decode");
+        onFailed(appTranslator()("player.errors.streamDecode", { reason: data.details }), "decode");
         return;
       }
-      onFailed(`播放失败（${data.details}）`, "decode");
+      onFailed(appTranslator()("player.errors.streamFailed", { reason: data.details }), "decode");
     });
     /**
      * 按实测码率收紧已播缓冲的保留时长（理由见 buffer-budget.ts）。

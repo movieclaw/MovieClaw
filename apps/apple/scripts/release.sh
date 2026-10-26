@@ -1,13 +1,16 @@
 #!/bin/zsh
-# 打包 iPhone / Apple TV App（Release 归档 → 导出），可选直接上传到 App Store Connect。
+# 打包 iPhone / iPad / Apple TV / Mac App（Release 归档 → 导出），可选直接上传到 App Store Connect。
+# iPhone 与 iPad 是同一个包（TARGETED_DEVICE_FAMILY 1,2），不用另打。
 # 只有一个发行版本：同一个构建既进内部 / 对外 TestFlight，也用于提审。发版流程与上架清单见
 # docs/design/ios-release.md。
-# 两端共用同一条 App Store 记录（同一个 Bundle ID）、各自一条构建序列，按需分别打包上传。
+# 三端共用同一条 App Store 记录（同一个 Bundle ID）、各自一条构建序列，按需分别打包上传。
+# Mac 版这里只管 TestFlight / App Store；随 GitHub Release 发的公证 zip 见 package-mac-app.sh。
 #
 # 用法：
-#   scripts/release.sh                只在本机导出 iPhone 版 .ipa，不上传（验证签名与打包）
-#   scripts/release.sh --upload       导出并上传 iPhone 版到 App Store Connect
+#   scripts/release.sh                只在本机导出 iPhone / iPad 版 .ipa，不上传（验证签名与打包）
+#   scripts/release.sh --upload       导出并上传 iPhone / iPad 版到 App Store Connect
 #   scripts/release.sh --tv [--upload] 同上，打的是 Apple TV 版
+#   scripts/release.sh --mac [--upload] 同上，打的是 Mac 版（导出为 .pkg）
 #
 # 认证（二选一）：
 #   - App Store Connect API 密钥（推荐，无人值守/CI 都能用；角色须为「管理」，「App 管理」用不了云端发布证书）：
@@ -28,7 +31,8 @@ for arg in "$@"; do
   case $arg in
     --upload) upload=1 ;;
     --tv) scheme=MovieClawTV platform=tvOS ;;
-    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+    --mac) scheme=MovieClawMac platform=macOS ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "未知参数：$arg（用 --help 看用法）" >&2; exit 64 ;;
   esac
 done
@@ -87,6 +91,17 @@ if ! xcodebuild -project MovieClaw.xcodeproj -scheme "$scheme" -configuration Re
   exit 1
 fi
 
+# iOS 包要同时声明 iPhone 与 iPad（UIDeviceFamily 含 1 和 2）：设备族被改回去会悄悄丢掉 iPad，
+# 而 App Store 一旦上过支持 iPad 的版本就不能再撤掉 iPad，提前在这里拦住
+if [[ $platform == iOS ]]; then
+  families="$(/usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily' "$archive/Products/Applications/MovieClaw.app/Info.plist" 2>/dev/null | tr -d ' ' | grep -E '^[0-9]+$' | tr '\n' ',')"
+  if [[ $families != *1,* || $families != *2,* ]]; then
+    echo "错误：归档里的 UIDeviceFamily 是「${families%,}」，应同时包含 1（iPhone）和 2（iPad）。检查 project.yml 的 TARGETED_DEVICE_FAMILY" >&2
+    exit 1
+  fi
+  echo "设备族：iPhone + iPad"
+fi
+
 # 导出选项
 export_options="$out/$name-ExportOptions.plist"
 cat >"$export_options" <<EOF
@@ -104,7 +119,7 @@ cat >"$export_options" <<EOF
 </plist>
 EOF
 
-echo "$([[ $upload == 1 ]] && echo "导出并上传到 App Store Connect" || echo "导出 .ipa")中（完整日志：$out/$name-export.log）…"
+echo "$([[ $upload == 1 ]] && echo "导出并上传到 App Store Connect" || echo "导出安装包")中（完整日志：$out/$name-export.log）…"
 if ! xcodebuild -exportArchive -archivePath "$archive" -exportPath "$out/$name" \
   -exportOptionsPlist "$export_options" -allowProvisioningUpdates "${auth[@]}" \
   >"$out/$name-export.log" 2>&1; then

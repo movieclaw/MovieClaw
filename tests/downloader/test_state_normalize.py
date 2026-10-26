@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from movieclaw_downloader.clients.qbittorrent import _error_message as qb_error
-from movieclaw_downloader.clients.qbittorrent import _normalize_state as qb_state
-from movieclaw_downloader.clients.transmission import _error_message as tr_error
-from movieclaw_downloader.clients.transmission import _normalize_state as tr_state
+from movieclaw_plugins.qbittorrent.qbittorrent_downloader.client import _error_message as qb_error
+from movieclaw_plugins.qbittorrent.qbittorrent_downloader.client import _normalize_state as qb_state
+from movieclaw_plugins.transmission.transmission_downloader.client import _error_message as tr_error
+from movieclaw_plugins.transmission.transmission_downloader.client import (
+    _normalize_state as tr_state,
+)
 
 
 class _FakeTrTorrent:

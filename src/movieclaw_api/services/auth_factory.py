@@ -56,4 +56,5 @@ def build_auth_provider(credential: SiteCredential) -> AuthProvider:
             password=CredentialRepository.decrypted_password(credential) or "",
         )
     # 理论上不会到这里（auth_type 是受约束的枚举），做防御式兜底
+    # i18n-ignore: developer error
     raise ValueError(f"不支持的授权类型：{auth_type}")

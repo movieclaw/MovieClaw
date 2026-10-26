@@ -2,6 +2,8 @@
 packages:
   - "apps/web"
   - "apps/extension"
+  # 网页主题插件（docs/design/theme-plugins.md）：源码在 plugins/<id>/，构建进随带插件包
+  - "plugins/netflix"
 allowBuilds:
   "@tailwindcss/oxide": true
   esbuild: true
@@ -13,3 +15,7 @@ allowBuilds:
 # 渐进 fMP4 延续片段保持时间轴；端到端守卫见 test_remote_transcode_e2e.py。
 patchedDependencies:
   hls.js@1.7.1: patches/hls.js@1.7.1.patch
+
+# Next 15 固定的 PostCSS 8.4.31 有安全公告；沿用工作区已验证的修复版。
+overrides:
+  "next>postcss": "8.5.29"

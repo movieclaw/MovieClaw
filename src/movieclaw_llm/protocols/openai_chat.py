@@ -10,24 +10,12 @@ compatible-mode、自建 vLLM/Ollama 等，差异由预设的 compat 声明吸�
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-import httpx
-
-from movieclaw_llm.base import BaseLlmProtocol
-from movieclaw_llm.exceptions import (
-    LlmAuthError,
-    LlmConnectError,
-    LlmContentFilterError,
-    LlmError,
-    LlmRateLimitError,
-    LlmRequestError,
-    LlmServerError,
-)
+from movieclaw_llm.exceptions import LlmRequestError
 from movieclaw_llm.models import (
     ChatMessage,
     ChatRequest,
@@ -35,44 +23,19 @@ from movieclaw_llm.models import (
     ChatStreamEvent,
     FinishReason,
     ImagePart,
-    LlmProviderConfig,
-    ModelInfo,
-    ProviderInfo,
-    ProviderPreset,
     TextPart,
+    ThinkingPart,
     TokenUsage,
-    ToolCall,
+)
+from movieclaw_llm.protocols.openai_base import (
+    OpenAIProtocolBase,
+    StreamAccumulator,
+    _sdk,
+    _warn_harmony_residue_in_content,
 )
 from movieclaw_llm.thinking import thinking_body_fragment
-from movieclaw_llm.tools import HARMONY_RESIDUE_HINT, has_harmony_residue
-from movieclaw_net import egress_transport
-
-if TYPE_CHECKING:  # 仅供类型检查，运行期不导入
-    import openai as openai_sdk
 
 logger = logging.getLogger(__name__)
-
-
-def _sdk() -> openai_sdk:
-    """按需导入 openai SDK。
-
-    **刻意不在模块顶部导入**：这个包一旦被 import，就要打开 800 个文件、
-    花掉小半秒——而它只在用户真的调用大模型时才用得上。本模块却在启动路径上
-    （协议注册表 → LLM 路由 → Agent → API 路由），顶部导入等于让每次启动都替
-    「可能整轮都不会用到的功能」付这笔冷启动磁盘 IO。家用 NAS 的机械盘上，
-    几百个小文件的随机读就是实打实的秒级。
-
-    SDK 本体由 Python 的模块缓存持有，第二次起是一次字典查找。
-    """
-    import openai
-
-    return openai
-
-
-def _warn_harmony_residue_in_content(content: str | None) -> None:
-    """正文里泄漏 Harmony 标记（如整段思考被当正文返回）时告警，引导用户修后端。"""
-    if has_harmony_residue(content):
-        logger.warning("模型返回的正文含 Harmony 格式残留。%s", HARMONY_RESIDUE_HINT)
 
 
 def sdk_default_user_agent() -> str:
@@ -85,6 +48,7 @@ def sdk_default_user_agent() -> str:
     openai = _sdk()
     return f"{openai.AsyncOpenAI.__name__}/Python {openai.__version__}"
 
+
 # OpenAI 的 finish_reason → 统一枚举；未知值按 stop 兜底
 _FINISH_REASON_MAP: dict[str, FinishReason] = {
     "stop": "stop",
@@ -93,45 +57,9 @@ _FINISH_REASON_MAP: dict[str, FinishReason] = {
     "content_filter": "content_filter",
 }
 
-# 百炼等国内端点内容审查拦截的错误码/关键词
-_CONTENT_FILTER_CODES = {"data_inspection_failed", "content_filter"}
 
-
-class OpenAIChatProtocol(BaseLlmProtocol):
-    def __init__(self, config: LlmProviderConfig, preset: ProviderPreset) -> None:
-        super().__init__(config, preset)
-        kwargs: dict[str, Any] = {"api_key": config.api_key}
-        base_url = config.base_url or preset.base_url
-        if base_url:
-            kwargs["base_url"] = base_url
-        if config.timeout_seconds is not None:
-            kwargs["timeout"] = config.timeout_seconds
-        if config.user_agent:
-            # default_headers 在 SDK 内部是最后一层合并，能盖掉 SDK 自带的
-            #「AsyncOpenAI/Python x.y.z」；留空则完全不干预，保持 SDK 默认。
-            kwargs["default_headers"] = {"User-Agent": config.user_agent}
-        # 统一出口：底层 httpx 客户端注入服务标签 llm 的出口 transport，
-        # 用户可在「设置 → 网络」让 LLM 请求走代理（OpenAI 官方等被墙端点）。
-        # 超时仍由 AsyncOpenAI 的 timeout 参数按请求控制，这里不重复设置。
-        kwargs["http_client"] = httpx.AsyncClient(transport=egress_transport("llm"))
-        self._client = _sdk().AsyncOpenAI(**kwargs)
-
+class OpenAIChatProtocol(OpenAIProtocolBase):
     # -- 请求转换 -----------------------------------------------------------
-
-    def _model_info(self, model_id: str) -> ModelInfo | None:
-        """按 id 查模型声明：用户补录（extra_models）优先于预设目录。
-
-        与 LlmRouter._catalog 同一合并口径；思考档位翻译靠它拿
-        thinking_control / max_thinking_tokens。目录外模型返回 None——
-        fail-closed，档位不落请求。
-        """
-        for model in self.config.extra_models:
-            if model.id == model_id:
-                return model
-        for model in self.preset.models:
-            if model.id == model_id:
-                return model
-        return None
 
     def _convert_content(self, message: ChatMessage) -> str | list[dict] | None:
         """内容块 → OpenAI 格式。纯文本尽量压成字符串（兼容端点最稳）。"""
@@ -173,6 +101,12 @@ class OpenAIChatProtocol(BaseLlmProtocol):
             # assistant 历史消息：正文压成纯文本；tool_calls 用 raw_arguments 保真回传
             text = message.text()
             out["content"] = text or None
+            if self.preset.compat.preserve_thinking and self.preset.compat.thinking_field:
+                thinking = "".join(
+                    part.text for part in message.content if isinstance(part, ThinkingPart)
+                ) if isinstance(message.content, list) else ""
+                if thinking:
+                    out[self.preset.compat.thinking_field] = thinking
             if message.tool_calls:
                 out["tool_calls"] = [
                     {
@@ -190,6 +124,15 @@ class OpenAIChatProtocol(BaseLlmProtocol):
         return out
 
     def _build_payload(self, request: ChatRequest, model_id: str, *, stream: bool) -> dict:
+        model = self._model_info(model_id)
+        if request.tools and model and model.requires_responses_for_tools:
+            raise LlmRequestError(
+                f"模型「{model_id}」的工具调用需要 Responses API，"
+                "请在模型接入的高级设置中切换 API 协议",
+                provider=self.config.name,
+                message_key="errors.llm.connection.responsesTools",
+                params={"model": model_id},
+            )
         payload: dict[str, Any] = {
             "model": model_id,
             "messages": [self._convert_message(m) for m in request.messages],
@@ -227,7 +170,8 @@ class OpenAIChatProtocol(BaseLlmProtocol):
         ):
             value = getattr(s, key)
             if value is not None:
-                payload[key] = value
+                target = model.max_tokens_parameter if key == "max_tokens" and model else key
+                payload[target] = value
         if s.response_format == "json_object":
             payload["response_format"] = {"type": "json_object"}
         # 思考档位翻译（reasoning_effort / enable_thinking+thinking_budget /
@@ -235,9 +179,29 @@ class OpenAIChatProtocol(BaseLlmProtocol):
         # 顶层，正是各家兼容端点期望的位置。用户显式 extra_body 同名键优先
         # （逃生舱语义）。
         extra = {
-            **thinking_body_fragment(s.thinking_level, self._model_info(model_id), model_id),
+            **thinking_body_fragment(s.thinking_level, model, model_id),
             **(s.extra_body or {}),
         }
+        if request.tools and model and model.chat_tools_require_no_reasoning:
+            if extra.get("reasoning_effort") not in (None, "none"):
+                raise LlmRequestError(
+                    f"模型「{model_id}」在 Chat Completions 中调用工具必须关闭推理；"
+                    "如需推理，请切换 Responses API",
+                    provider=self.config.name,
+                    message_key="errors.llm.connection.chatToolsNoReasoning",
+                    params={"model": model_id},
+                )
+            extra["reasoning_effort"] = "none"
+        if (
+            model
+            and model.sampling_requires_no_reasoning
+            and extra.get("reasoning_effort") != "none"
+        ):
+            payload.pop("temperature", None)
+            payload.pop("top_p", None)
+        if model and model.fixed_sampling:
+            payload.pop("temperature", None)
+            payload.pop("top_p", None)
         if extra:
             payload["extra_body"] = extra
         if stream:
@@ -247,28 +211,6 @@ class OpenAIChatProtocol(BaseLlmProtocol):
         return payload
 
     # -- 响应转换 -----------------------------------------------------------
-
-    @staticmethod
-    def _parse_tool_call(tc_id: str, name: str, raw_arguments: str) -> ToolCall:
-        """尽力解析工具参数 JSON；失败不抛异常，交给上层回喂模型纠错。"""
-        arguments: dict = {}
-        parse_error: str | None = None
-        if raw_arguments:
-            try:
-                parsed = json.loads(raw_arguments)
-                if isinstance(parsed, dict):
-                    arguments = parsed
-                else:
-                    parse_error = f"工具参数应为 JSON 对象，实际是 {type(parsed).__name__}"
-            except json.JSONDecodeError as exc:
-                parse_error = f"工具参数不是合法 JSON：{exc}"
-        return ToolCall(
-            id=tc_id,
-            name=name,
-            arguments=arguments,
-            raw_arguments=raw_arguments,
-            parse_error=parse_error,
-        )
 
     def _read_thinking(self, obj: Any) -> str | None:
         """按 compat 声明的字段名提取思考内容（如 reasoning_content）。"""
@@ -313,45 +255,6 @@ class OpenAIChatProtocol(BaseLlmProtocol):
             provider=self.config.name,
         )
 
-    # -- 错误翻译 -----------------------------------------------------------
-
-    def _translate_error(self, exc: Exception) -> LlmError:
-        name = self.config.name
-        if isinstance(exc, LlmError):
-            return exc
-        openai = _sdk()
-        if isinstance(exc, openai.AuthenticationError | openai.PermissionDeniedError):
-            return LlmAuthError(f"认证失败，请检查 API Key 是否有效：{exc}", provider=name)
-        if isinstance(exc, openai.RateLimitError):
-            retry_after = None
-            headers = getattr(exc.response, "headers", None)
-            if headers is not None:
-                raw = headers.get("retry-after")
-                if raw is not None:
-                    with contextlib.suppress(ValueError):
-                        retry_after = float(raw)
-            return LlmRateLimitError(
-                f"触发供应商限流，请稍后重试：{exc}", provider=name, retry_after=retry_after
-            )
-        if isinstance(exc, openai.APITimeoutError | openai.APIConnectionError):
-            return LlmConnectError(
-                f"连接模型服务失败，请检查网络与 base_url 配置：{exc}", provider=name
-            )
-        if isinstance(exc, openai.BadRequestError):
-            code = getattr(exc, "code", None)
-            if code in _CONTENT_FILTER_CODES:
-                return LlmContentFilterError(f"内容被供应商合规审查拦截：{exc}", provider=name)
-            return LlmRequestError(f"请求参数错误：{exc}", provider=name)
-        if isinstance(exc, openai.APIStatusError):
-            if exc.status_code >= 500:
-                return LlmServerError(
-                    f"模型服务暂时出错（HTTP {exc.status_code}）：{exc}", provider=name
-                )
-            return LlmRequestError(
-                f"模型服务返回错误（HTTP {exc.status_code}）：{exc}", provider=name
-            )
-        return LlmConnectError(f"调用模型服务时发生未知错误：{exc}", provider=name)
-
     # -- 对外接口 -----------------------------------------------------------
 
     async def chat(self, request: ChatRequest, model_id: str) -> ChatResponse:
@@ -366,12 +269,12 @@ class OpenAIChatProtocol(BaseLlmProtocol):
         self, request: ChatRequest, model_id: str
     ) -> AsyncIterator[ChatStreamEvent]:
         payload = self._build_payload(request, model_id, stream=True)
-        acc = _StreamAccumulator(model_id, self.config.name)
+        acc = StreamAccumulator(model_id, self.config.name)
         try:
             stream = await self._client.chat.completions.create(**payload)
         except Exception as exc:  # noqa: BLE001
             err = self._translate_error(exc)
-            yield acc.error_event(str(err))
+            yield acc.error_event(err)
             return
 
         yield ChatStreamEvent(type="start", partial=acc.snapshot())
@@ -417,7 +320,7 @@ class OpenAIChatProtocol(BaseLlmProtocol):
         except Exception as exc:  # noqa: BLE001 - 流中断以 error 事件收尾，保留 partial
             err = self._translate_error(exc)
             logger.warning("流式调用中断：%s", err)
-            yield acc.error_event(str(err))
+            yield acc.error_event(err)
             return
 
         # 收尾：工具参数完整了，逐个解析并发 toolcall_end
@@ -428,79 +331,3 @@ class OpenAIChatProtocol(BaseLlmProtocol):
         if acc.finish_reason is None:
             acc.finish_reason = "tool_calls" if acc.tool_order else "stop"
         yield ChatStreamEvent(type="done", partial=acc.snapshot())
-
-    async def test_connection(self) -> ProviderInfo:
-        try:
-            page = await self._client.models.list()
-        except Exception as exc:  # noqa: BLE001
-            raise self._translate_error(exc) from exc
-        return ProviderInfo(models=[m.id for m in page.data])
-
-    async def close(self) -> None:
-        await self._client.close()
-
-
-class _StreamAccumulator:
-    """流式增量的累积器：随时可产出完整的 ChatResponse 快照（partial）。"""
-
-    def __init__(self, model_id: str, provider: str) -> None:
-        self.model_id = model_id
-        self.provider = provider
-        self.content: list[str] = []
-        self.thinking: list[str] = []
-        self.usage = TokenUsage()
-        self.finish_reason: FinishReason | None = None
-        # index → 累积中的工具调用（id/name 首个分片给出，arguments 逐片拼接）
-        self._tools: dict[int, dict] = {}
-        self.tool_order: list[int] = []
-        self._finalized: dict[int, ToolCall] = {}
-
-    def feed_tool_fragment(self, frag: Any) -> tuple[bool, str | None]:
-        """吸收一个 tool_call 分片，返回 (是否新调用开始, 参数增量)。"""
-        started = frag.index not in self._tools
-        if started:
-            self._tools[frag.index] = {"id": "", "name": "", "arguments": []}
-            self.tool_order.append(frag.index)
-        slot = self._tools[frag.index]
-        if frag.id:
-            slot["id"] = frag.id
-        fn = frag.function
-        delta = None
-        if fn is not None:
-            if fn.name:
-                slot["name"] = fn.name
-            if fn.arguments:
-                slot["arguments"].append(fn.arguments)
-                delta = fn.arguments
-        return started, delta
-
-    def tool_snapshot(self, index: int) -> ToolCall:
-        slot = self._tools[index]
-        return ToolCall(
-            id=slot["id"], name=slot["name"], raw_arguments="".join(slot["arguments"])
-        )
-
-    def finalize_tool(self, index: int, parser: Any) -> ToolCall:
-        slot = self._tools[index]
-        tc = parser(slot["id"], slot["name"], "".join(slot["arguments"]))
-        self._finalized[index] = tc
-        return tc
-
-    def snapshot(self, error: str | None = None) -> ChatResponse:
-        tool_calls = [
-            self._finalized.get(i) or self.tool_snapshot(i) for i in self.tool_order
-        ] or None
-        return ChatResponse(
-            content="".join(self.content) or None,
-            thinking="".join(self.thinking) or None,
-            tool_calls=tool_calls,
-            finish_reason=self.finish_reason,
-            usage=self.usage,
-            model=self.model_id,
-            provider=self.provider,
-            error=error,
-        )
-
-    def error_event(self, message: str) -> ChatStreamEvent:
-        self.finish_reason = "error"
-        return ChatStreamEvent(type="error", partial=self.snapshot(error=message))

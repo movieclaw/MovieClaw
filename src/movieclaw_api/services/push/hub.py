@@ -40,9 +40,6 @@ class Started:
     detail: str
     upgrade: bool
     skip_member_id: int | None = None
-    #: IM 消息里的来源（「来自 hdsky 的『…』」）与规格
-    source: str = ""
-    spec: str = ""
 
 
 @dataclass(frozen=True)
@@ -56,9 +53,11 @@ class Imported:
 
 @dataclass(frozen=True)
 class Downloaded:
-    """手动下载的一个种子入库完了（services/push/downloads.py 的 ``Finished``）。"""
+    """手动下载的一个种子入库完了：点下载的人、入了哪个库、各条目的单元。"""
 
-    finished: object
+    member_id: int
+    library_id: int
+    items: tuple[tuple[int, tuple[Unit, ...]], ...]
 
 
 @dataclass(frozen=True)
@@ -78,6 +77,15 @@ class Upgraded:
     unit: Unit
     old_label: str
     new_label: str
+
+
+@dataclass(frozen=True)
+class Completed:
+    """订阅的剧自然收齐了（没有在路上的、也不会再有新集）。"""
+
+    subscription_id: int
+    item_id: int
+    title: str
 
 
 @dataclass(frozen=True)
@@ -156,7 +164,10 @@ async def _run(queue: asyncio.Queue) -> None:
 
 
 async def drain() -> None:
-    """等队列里已有的事件处理完（测试用）。"""
+    """等已发出的系统事件交到这里、队列里已有的事件处理完（测试用）。"""
+    from movieclaw_api import events
+
+    await events.drain()
     if _queue is not None:
         await _queue.join()
 

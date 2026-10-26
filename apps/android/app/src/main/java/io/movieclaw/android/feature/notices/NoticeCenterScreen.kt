@@ -176,12 +176,15 @@ fun NoticeCenterScreen(onBack: () -> Unit, vm: NoticeCenterViewModel = hiltViewM
                     }
                 }
             } else {
+                // 宽窗口限宽居中（760dp，同 iOS padReadableWidth）；手机上原样铺满
+                io.movieclaw.android.core.designsystem.McReadableWidthBox(Modifier.fillMaxSize()) {
                 LazyColumn(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     items(s.value, key = { it.id }) { notice -> NoticeCard(notice) { vm.dismiss(notice) } }
+                }
                 }
             }
         }

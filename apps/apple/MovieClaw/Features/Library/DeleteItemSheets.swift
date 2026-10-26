@@ -9,6 +9,7 @@ import SwiftUI
 /// 删除完成后弹层不可下滑关闭：只能点「回到库存页」（或左上「关闭」，行为相同），
 /// 保证调用方一定收到 `onDeleted` 去离开已经不存在的条目页。
 struct DeleteItemSheet: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     let mediaItemId: Int
     let title: String
@@ -23,6 +24,7 @@ struct DeleteItemSheet: View {
     @State private var busy = false
     @State private var result: API.ItemDeleteResultView?
     @State private var error: String?
+    @State private var options = DeleteOptionsState()
 
     var body: some View {
         NavigationStack {
@@ -31,44 +33,50 @@ struct DeleteItemSheet: View {
                     VStack(alignment: .leading, spacing: 0) {
                         if let result {
                             DeleteResultView(
-                                title: result.errors.isEmpty ? "已从磁盘彻底删除" : "部分删除完成",
+                                title: result.errors.isEmpty ? String(localized: .libraryItemDeletedPermanently) : String(localized: .libraryItemDeletePartial),
                                 result: result,
-                                emptyText: "没有删除任何磁盘路径"
+                                emptyText: String(localized: .libraryItemNoPathsDeleted)
                             )
                         } else {
                             confirmStep(detail)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Theme.pagePadding)
+                    .padding(cards.edge)
                 }
                 .safeAreaInset(edge: .bottom) { bottomBar }
             }
-            .navigationTitle("删除影片")
+            .navigationTitle(String(localized: .libraryItemDeleteMovie))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(result == nil ? "取消" : "关闭") { result == nil ? dismiss() : finish() }
+                    Button(result == nil ? String(localized: .commonCancel) : String(localized: .commonClose)) { result == nil ? dismiss() : finish() }
                         .disabled(busy)
                 }
             }
         }
-        .presentationDetents([.large])
+        .adaptiveDetents([.large])
         .interactiveDismissDisabled(busy || result != nil)
         .task { await load() }
+        .task {
+            options = await .load { try await api.libraryItemsDeletePreview(libraryId: libraryId, mediaItemId: mediaItemId) }
+        }
     }
 
     @ViewBuilder
     private func confirmStep(_ detail: API.LibraryItemDetailView) -> some View {
         Label {
-            Text("删除「\(title)」")
+            Text(String(localized: .libraryItemDeleteHeading(title)))
         } icon: {
             Image(systemName: "trash").foregroundStyle(Theme.danger)
         }
         .font(.headline)
         .foregroundStyle(Theme.text)
 
-        Text("这不是「从列表移除」——将把下列目录从磁盘\(Text("彻底删除").bold().foregroundStyle(Theme.danger))，包括视频文件、NFO、海报、字幕等全部刮削产物，共 \(Text("\(detail.fileCount)").bold()) 个媒体文件、\(Text(Formatters.bytes(detail.totalSizeBytes)).bold())。此操作不可恢复。")
+        (Text(String(localized: .libraryDeletionNotRemoveLead)) + Text(String(localized: .libraryDeletePermanently)).bold().foregroundStyle(Theme.danger)
+            + Text(String(localized: .libraryDeletionNotRemoveContent)) + Text("\(detail.fileCount)").bold()
+            + Text(String(localized: .libraryDeletionMediaFilesJoin)) + Text(Formatters.bytes(detail.totalSizeBytes)).bold()
+            + Text(String(localized: .libraryDeletionIrreversible)))
             .font(.body)
             .foregroundStyle(.white.opacity(0.8))
             .monospacedDigit()
@@ -77,7 +85,10 @@ struct DeleteItemSheet: View {
         PathListBox(paths: detail.entryDirs.isEmpty ? detail.files.map(\.filePath) : detail.entryDirs, folderIcon: true)
             .padding(.top, 16)
 
-        AcknowledgeToggle(isOn: $confirmed, text: "我已明白：以上目录及其中全部文件将被永久删除，无法恢复。")
+        DeleteOptionsSection(state: $options, disabled: busy)
+            .padding(.top, 12)
+
+        AcknowledgeToggle(isOn: $confirmed, text: String(localized: .libraryItemDeleteAcknowledge))
             .padding(.top, 16)
 
         if let error {
@@ -89,14 +100,14 @@ struct DeleteItemSheet: View {
         HStack {
             Spacer()
             if result != nil {
-                Button("回到库存页", action: finish).buttonStyle(.glassProminent)
+                Button(String(localized: .libraryItemBackToInventory), action: finish).buttonStyle(.glassProminent)
             } else {
                 DangerButton(busy: busy, enabled: confirmed && detail.value != nil) {
                     Task { await run() }
                 }
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.vertical, 12)
         .background(.bar)
     }
@@ -112,10 +123,10 @@ struct DeleteItemSheet: View {
         error = nil
         defer { busy = false }
         do {
-            result = try await api.libraryItemsDelete(libraryId: libraryId, mediaItemId: mediaItemId)
+            result = try await api.libraryItemsDelete(libraryId: libraryId, mediaItemId: mediaItemId, options: options.query)
         } catch is CancellationError {
         } catch {
-            self.error = error.localizedDescription.isEmpty ? "删除失败，请稍后重试" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .libraryItemDeleteFailedRetry) : error.localizedDescription
         }
     }
 
@@ -132,6 +143,7 @@ struct DeleteItemSheet: View {
 /// 2. 该单元有订阅盯着时，删掉最后一份拷贝订阅会自动重新下载补齐。
 /// 判断「是不是最后一个文件」与剧集的季集标签都要条目详情，由弹层自己拉。
 struct DeleteFileSheet: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     let mediaItemId: Int
     let file: API.LibraryFileView
@@ -148,6 +160,7 @@ struct DeleteFileSheet: View {
     @State private var busy = false
     @State private var result: API.ItemDeleteResultView?
     @State private var error: String?
+    @State private var options = DeleteOptionsState()
 
     var body: some View {
         NavigationStack {
@@ -158,39 +171,45 @@ struct DeleteFileSheet: View {
                     VStack(alignment: .leading, spacing: 0) {
                         if let result {
                             DeleteResultView(
-                                title: result.errors.isEmpty ? "已从磁盘删除" : "删除失败",
+                                title: result.errors.isEmpty ? String(localized: .libraryItemDeleted) : String(localized: .libraryCollectionsDeleteFailed),
                                 result: result,
-                                emptyText: "没有删除任何磁盘路径" + (file.missing ? "（文件本就缺失，仅清除了台账记录）" : "")
+                                emptyText: String(localized: .libraryItemNoPathsDeleted) + (file.missing ? String(localized: .libraryDeletionAlreadyMissing) : "")
                             )
                         } else {
                             confirmStep(detail, isLast: isLast)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Theme.pagePadding)
+                    .padding(cards.edge)
                 }
                 .safeAreaInset(edge: .bottom) { bottomBar(isLast: isLast) }
             }
-            .navigationTitle("删除文件")
+            .navigationTitle(String(localized: .libraryItemDeleteFile))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(result == nil ? "取消" : "关闭") {
+                    Button(result == nil ? String(localized: .commonCancel) : String(localized: .commonClose)) {
                         if result == nil { dismiss() } else { finish(isLast: detail.value?.files.count == 1) }
                     }
                     .disabled(busy)
                 }
             }
         }
-        .presentationDetents([.large])
+        .adaptiveDetents([.large])
         .interactiveDismissDisabled(busy || result != nil)
         .task { await load() }
+        .task {
+            guard !file.missing else { return }
+            options = await .load {
+                try await api.libraryItemsDeletePreview(libraryId: libraryId, mediaItemId: mediaItemId, fileId: file.id)
+            }
+        }
     }
 
     @ViewBuilder
     private func confirmStep(_ detail: API.LibraryItemDetailView, isLast: Bool) -> some View {
         Label {
-            Text("删除文件")
+            Text(String(localized: .libraryItemDeleteFile))
         } icon: {
             Image(systemName: "trash").foregroundStyle(Theme.danger)
         }
@@ -199,9 +218,10 @@ struct DeleteFileSheet: View {
 
         Group {
             if file.missing {
-                Text("该文件在磁盘上已缺失，删除只会清掉这条台账记录。")
+                Text(String(localized: .libraryItemDeleteMissingHint))
             } else {
-                Text("将把下列文件从磁盘\(Text("彻底删除").bold().foregroundStyle(Theme.danger))，同名的 NFO/字幕/图片附属文件一并清除。此操作不可恢复。")
+                (Text(String(localized: .libraryDeletionFilesLead)) + Text(String(localized: .libraryDeletePermanently)).bold().foregroundStyle(Theme.danger)
+            + Text(String(localized: .libraryDeletionFilesTail)))
             }
         }
         .font(.body)
@@ -224,7 +244,7 @@ struct DeleteFileSheet: View {
         .padding(.top, 16)
 
         if isLast {
-            Text("这是「\(detail.title)」在本库的最后一个文件——删除将升级为整条目删除，整个刮削目录（含 NFO/海报）一并清除，条目将从库存消失。")
+            Text(String(localized: .libraryDeletionLastFileWarning(detail.title)))
                 .font(.subheadline)
                 .foregroundStyle(Theme.warning)
                 .padding(.horizontal, 14)
@@ -235,14 +255,19 @@ struct DeleteFileSheet: View {
                 .padding(.top, 12)
         }
 
-        Text("若该作品有订阅且删除后此单元不再有其他拷贝，订阅会将其视为缺失并自动重新下载。")
+        Text(String(localized: .libraryItemRedownloadHint))
             .font(.caption)
             .foregroundStyle(Theme.textFaint)
             .padding(.top, 12)
 
+        if !file.missing {
+            DeleteOptionsSection(state: $options, disabled: busy)
+                .padding(.top, 12)
+        }
+
         AcknowledgeToggle(
             isOn: $confirmed,
-            text: "我已明白：\(isLast ? "整个条目目录及其中全部文件" : "该文件及其同名附属文件")将被永久删除，无法恢复。"
+            text: isLast ? String(localized: .libraryDeletionAckDirectory) : String(localized: .libraryDeletionAckFile)
         )
         .padding(.top, 16)
 
@@ -262,14 +287,14 @@ struct DeleteFileSheet: View {
         HStack {
             Spacer()
             if result != nil {
-                Button("完成") { finish(isLast: isLast) }.buttonStyle(.glassProminent)
+                Button(String(localized: .commonDone)) { finish(isLast: isLast) }.buttonStyle(.glassProminent)
             } else {
                 DangerButton(busy: busy, enabled: confirmed) {
                     Task { await run() }
                 }
             }
         }
-        .padding(.horizontal, Theme.pagePadding)
+        .padding(.horizontal, cards.edge)
         .padding(.vertical, 12)
         .background(.bar)
     }
@@ -285,10 +310,12 @@ struct DeleteFileSheet: View {
         error = nil
         defer { busy = false }
         do {
-            result = try await api.libraryItemsDeleteFile(libraryId: libraryId, mediaItemId: mediaItemId, fileId: file.id)
+            result = try await api.libraryItemsDeleteFile(
+                libraryId: libraryId, mediaItemId: mediaItemId, fileId: file.id, options: options.query
+            )
         } catch is CancellationError {
         } catch {
-            self.error = error.localizedDescription.isEmpty ? "删除失败，请稍后重试" : error.localizedDescription
+            self.error = error.localizedDescription.isEmpty ? String(localized: .libraryItemDeleteFailedRetry) : error.localizedDescription
         }
     }
 
@@ -333,9 +360,171 @@ private struct DeleteResultView: View {
                 .font(.subheadline)
                 .foregroundStyle(Theme.danger)
             }
-            Text("已清理 \(result.rowsDeleted) 条台账，释放 \(Formatters.bytes(result.freedBytes))。")
+            Text(String(localized: .libraryItemDeleteResult(result.rowsDeleted, Formatters.bytes(result.freedBytes))))
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
+            ForEach(result.followUps ?? [], id: \.jobId) { FollowUpRow(item: $0) }
+        }
+    }
+}
+
+// MARK: - 附加选项（Web `library-delete-options.tsx`，docs/design/library-boundary.md §3）
+
+/// 删除弹窗的附加选项：来自别的模块登记的删除参与方（如下载模块的「同时删除下载任务和源文件」），
+/// 媒体库不认识它们。打开弹层时取一次删除预览；默认一律不勾；预览取不到不挡删除，只是这次没有附加选项。
+struct DeleteOptionsState {
+    var preview: API.ItemDeletePreviewView?
+    var failed = false
+    var selected: Set<String> = []
+
+    /// 勾选的键，传给删除接口；没勾为 nil（旧服务端不认识这个参数也不受影响）
+    var query: String? { selected.isEmpty ? nil : selected.sorted().joined(separator: ",") }
+
+    static func load(_ fetch: () async throws -> API.ItemDeletePreviewView) async -> DeleteOptionsState {
+        var state = DeleteOptionsState()
+        do {
+            state.preview = try await fetch()
+        } catch {
+            state.failed = !(error is CancellationError)
+        }
+        return state
+    }
+}
+
+private struct DeleteOptionsSection: View {
+    @Binding var state: DeleteOptionsState
+    let disabled: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if state.failed {
+                Text(String(localized: .libraryDeletionOptionsUnavailable))
+                    .font(.caption)
+                    .foregroundStyle(Theme.textFaint)
+            } else if let preview = state.preview {
+                if preview.linkedBytes > 0 {
+                    (Text(String(localized: .libraryDeletionHardlinkLead)) + Text(Formatters.bytes(preview.linkedBytes)).bold()
+                + Text(String(localized: .libraryDeletionHardlinkTail)))
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .monospacedDigit()
+                }
+                ForEach(preview.options, id: \.key) { option in
+                    DeleteOptionRow(
+                        option: option,
+                        isOn: state.selected.contains(option.key),
+                        disabled: disabled
+                    ) {
+                        if state.selected.contains(option.key) {
+                            state.selected.remove(option.key)
+                        } else {
+                            state.selected.insert(option.key)
+                        }
+                    }
+                }
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(String(localized: .libraryDeletionChecking))
+                }
+                .font(.caption)
+                .foregroundStyle(Theme.textFaint)
+            }
+        }
+    }
+}
+
+private struct DeleteOptionRow: View {
+    let option: API.DeleteOptionView
+    let isOn: Bool
+    let disabled: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button(action: toggle) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: isOn && option.available ? "checkmark.square.fill" : "square")
+                        .foregroundStyle(isOn && option.available ? Theme.danger : Theme.textMuted)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(option.label).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text)
+                        if !option.help.isEmpty {
+                            Text(option.help).font(.caption).foregroundStyle(Theme.textFaint)
+                        }
+                    }
+                    .multilineTextAlignment(.leading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .expandedHitArea(vertical: 6)
+            }
+            .buttonStyle(.plain)
+            .disabled(!option.available || disabled)
+            .opacity(option.available ? 1 : 0.5)
+
+            VStack(alignment: .leading, spacing: 2) {
+                if option.available {
+                    ForEach(option.lines, id: \.text) { line in
+                        Text(line.text).foregroundStyle(Self.color(line.tone))
+                    }
+                } else {
+                    Text(String(localized: .libraryDeletionDisabledReason(option.reason ?? String(localized: .libraryDeletionUnavailable)))).foregroundStyle(Theme.textMuted)
+                }
+            }
+            .font(.caption)
+            .padding(.leading, 28)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.03), in: .rect(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.08)))
+    }
+
+    private static func color(_ tone: String) -> Color {
+        switch tone {
+        case "warn": Theme.warning
+        case "danger": Theme.danger
+        default: .white.opacity(0.7)
+        }
+    }
+}
+
+/// 结果页：勾选的选项在后台跑，当场跟进到结束（失败了去「活动 → 任务」重试）
+private struct FollowUpRow: View {
+    let item: API.DeleteFollowUpView
+
+    @Environment(\.api) private var api
+    @State private var job: API.JobView?
+
+    private static let terminal: Set<String> = ["succeeded", "failed", "cancelled"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(item.label).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text)
+            Text(message).font(.caption).foregroundStyle(job?.status == "failed" ? Theme.danger : Theme.textMuted)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.03), in: .rect(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.08)))
+        .task { await poll() }
+    }
+
+    private var message: String {
+        switch job?.status {
+        case "succeeded": job?.result?["message"]?.stringValue ?? String(localized: .libraryDeletionCompleted)
+        case "failed": String(localized: .libraryDeletionFailedRetry(job?.error?["message"]?.stringValue ?? String(localized: .libraryDeletionUnknownReason)))
+        case "cancelled": String(localized: .libraryDeletionCancelled)
+        default: String(localized: .libraryDetailProcessing)
+        }
+    }
+
+    private func poll() async {
+        while !Task.isCancelled {
+            if let value = try? await api.jobsShow(jobId: item.jobId) {
+                job = value
+                if Self.terminal.contains(value.status) { return }
+            }
+            try? await Task.sleep(for: .seconds(1.5))
         }
     }
 }
@@ -399,7 +588,7 @@ private struct DangerButton: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 if busy { ProgressView().controlSize(.small).tint(.white) }
-                Text(busy ? "正在删除…" : "彻底删除").font(.body.weight(.semibold))
+                Text(busy ? String(localized: .libraryItemDeleting) : String(localized: .libraryItemDeletePermanently)).font(.body.weight(.semibold))
             }
         }
         .buttonStyle(.glassProminent)

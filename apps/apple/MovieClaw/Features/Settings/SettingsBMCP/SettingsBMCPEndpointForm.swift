@@ -55,9 +55,9 @@ struct SettingsBMCPEndpointFields: View {
         let s = slug.trimmingCharacters(in: .whitespaces)
         guard !s.isEmpty, editable else { return nil }
         if s.range(of: slugPattern, options: .regularExpression) == nil {
-            return "只能用小写字母、数字和连字符，且不能以连字符开头或结尾"
+            return String(localized: .settingsMcpControlsSlugInvalid)
         }
-        if taken.contains(s) { return "这个标识已被其他端点占用" }
+        if taken.contains(s) { return String(localized: .settingsMcpControlsSlugTaken) }
         return nil
     }
 
@@ -88,8 +88,8 @@ struct SettingsBMCPEndpointFields: View {
         modeSection
         servicesSection
         SettingsFormSection {
-            SettingsBNumberField(label: "单次调用超时（秒）", text: $draft.timeout, placeholder: "300", identifier: "mcp-form-timeout")
-        } footer: { Text(draft.timeoutValid ? "单次调用最多等待 5–900 秒。" : "请输入 5–900 之间的整数。") }
+            SettingsBNumberField(label: String(localized: .settingsMcpControlsTimeout), text: $draft.timeout, placeholder: "300", identifier: "mcp-form-timeout")
+        } footer: { Text(draft.timeoutValid ? String(localized: .settingsMcpFormTimeoutHint) : String(localized: .settingsMcpFormTimeoutInvalid)) }
         previewSection
     }
 
@@ -98,9 +98,9 @@ struct SettingsBMCPEndpointFields: View {
     private var basicSection: some View {
         let slugError = Self.slugError(draft.slug, editable: slugEditable, taken: takenSlugs)
         return SettingsFormSection {
-            SettingsBTextField(label: "端点名称", text: $draft.name, placeholder: "家庭影音助理", identifier: "mcp-form-name")
+            SettingsBTextField(label: String(localized: .settingsMcpControlsName), text: $draft.name, placeholder: String(localized: .settingsMcpControlsNamePlaceholder), identifier: "mcp-form-name")
             VStack(alignment: .leading, spacing: 6) {
-                Text("地址标识" + (slugEditable ? "" : "（建成后不可改）"))
+                Text(String(localized: .settingsMcpControlsSlug) + (slugEditable ? "" : String(localized: .settingsMcpControlsSlugFixed)))
                     .font(.subheadline).foregroundStyle(Theme.textMuted)
                 TextField("home-assistant", text: $draft.slug)
                     .font(.body.monospaced())
@@ -115,7 +115,7 @@ struct SettingsBMCPEndpointFields: View {
             if let slugError {
                 Text(slugError).foregroundStyle(Theme.danger).accessibilityIdentifier("mcp-form-slug-error")
             } else {
-                Text("\(baseUrl)/mcp/\(draft.slug.isEmpty ? "<地址标识>" : draft.slug)").font(.caption.monospaced())
+                Text("\(baseUrl)/mcp/\(draft.slug.isEmpty ? String(localized: .settingsMcpControlsSlugPlaceholder) : draft.slug)").font(.caption.monospaced())
             }
         }
     }
@@ -124,18 +124,18 @@ struct SettingsBMCPEndpointFields: View {
 
     private var modeSection: some View {
         SettingsFormSection {
-            Picker("工具形态", selection: $draft.expandTools) {
-                Text("展开").tag(true)
-                Text("折叠").tag(false)
+            Picker(String(localized: .settingsMcpControlsMode), selection: $draft.expandTools) {
+                Text(String(localized: .commonExpand)).tag(true)
+                Text(String(localized: .settingsMcpControlsCollapsed)).tag(false)
             }
             .pickerStyle(.menu)
             .accessibilityIdentifier("mcp-form-mode")
-            LabeledContent("工具数量", value: "\(toolCount) 个")
-            LabeledContent("定义大小", value: SettingsBMCPFormat.bytes(bytes))
-        } header: { Text("工具") } footer: {
+            LabeledContent(String(localized: .settingsMcpFormToolCount), value: String(localized: .settingsMcpControlsCountUnit(toolCount)))
+            LabeledContent(String(localized: .settingsMcpFormDefinitionSize), value: SettingsBMCPFormat.bytes(bytes))
+        } header: { Text(String(localized: .settingsMcpControlsTools)) } footer: {
             Text(draft.expandTools
-                 ? "每条命令作为独立工具，模型直接填写参数。工具较多时可以改用折叠。"
-                 : "每个服务作为一个工具，调用时指定命令与参数，减少上下文占用。")
+                 ? String(localized: .settingsMcpFormExpandedHint)
+                 : String(localized: .settingsMcpFormCollapsedHint))
         }
     }
 
@@ -145,12 +145,12 @@ struct SettingsBMCPEndpointFields: View {
         SettingsFormSection {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Theme.textFaint)
-                TextField("搜索服务…", text: $query)
+                TextField(String(localized: .settingsMcpControlsSearchServices), text: $query)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("mcp-form-service-search")
                 if !draft.services.isEmpty {
-                    Button("清空") { draft.services = [] }
+                    Button(String(localized: .commonClear)) { draft.services = [] }
                         .font(.caption)
                         .buttonStyle(.glass)
                         .accessibilityIdentifier("mcp-form-service-clear")
@@ -173,7 +173,7 @@ struct SettingsBMCPEndpointFields: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 8) {
                                 Text(service.domain).font(.subheadline.monospaced()).foregroundStyle(Theme.text)
-                                Text("\(service.commandCount) 条命令").font(.caption.monospacedDigit()).foregroundStyle(Theme.textFaint)
+                                Text(String(localized: .settingsMcpControlsCommandsCount(service.commandCount))).font(.caption.monospacedDigit()).foregroundStyle(Theme.textFaint)
                             }
                             Text(service.description)
                                 .font(.caption)
@@ -190,22 +190,22 @@ struct SettingsBMCPEndpointFields: View {
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
         } header: {
-            Text("开放的服务 · 已选 \(chosen.count) / \(services.count)")
+            Text(String(localized: .settingsMcpControlsSelectedServices(String(chosen.count), String(services.count))))
         } footer: {
-            Text("勾中的服务，接进来的模型就能全部执行，和你自己在命令行上能做的一样——勾了「library」它就可以删除磁盘上的媒体文件。")
+            Text(String(localized: .settingsMcpFormRiskHint))
         }
     }
 
     // MARK: 实时后果
 
     private var previewSection: some View {
-        SettingsFormSection("客户端将看到") {
+        SettingsFormSection(String(localized: .settingsMcpControlsClientSees)) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text("\(toolCount)").font(.title.weight(.medium).monospacedDigit())
-                    Text("个工具").foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .settingsMcpFormToolsUnit)).foregroundStyle(Theme.textMuted)
                 }
-                Text("\(chosen.count) 个服务 · 覆盖 \(commandTotal) 条命令 · 定义约 \(SettingsBMCPFormat.bytes(bytes))")
+                Text(String(localized: .settingsMcpFormSummary(chosen.count, commandTotal, SettingsBMCPFormat.bytes(bytes))))
                     .font(.caption)
                     .foregroundStyle(Theme.textMuted)
             }
@@ -218,14 +218,14 @@ struct SettingsBMCPEndpointFields: View {
 
             if draft.expandTools && toolCount > Self.toolHintThreshold {
                 SettingsBNotice(
-                    text: "超过 \(Self.toolHintThreshold) 个工具后模型选择准确率会下降。改用「折叠」可降到 \(chosen.count) 个工具、约 \(SettingsBMCPFormat.bytes(collapsedBytes))。",
+                    text: String(localized: .settingsMcpFormTooMany(Self.toolHintThreshold, chosen.count, SettingsBMCPFormat.bytes(collapsedBytes))),
                     tone: .warn
                 )
             }
 
             if let preview {
                 if preview.isEmpty {
-                    Text("选中服务后这里会列出工具").font(.caption).foregroundStyle(Theme.textFaint)
+                    Text(String(localized: .settingsMcpControlsPreviewEmpty)).font(.caption).foregroundStyle(Theme.textFaint)
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(preview.prefix(60), id: \.name) { tool in
@@ -236,12 +236,12 @@ struct SettingsBMCPEndpointFields: View {
                                 .truncationMode(.middle)
                         }
                         if preview.count > 60 {
-                            Text("…… 还有 \(preview.count - 60) 个").font(.caption).foregroundStyle(Theme.textFaint)
+                            Text(String(localized: .settingsMcpControlsMoreTools(String(preview.count - 60)))).font(.caption).foregroundStyle(Theme.textFaint)
                         }
                     }
                 }
             } else {
-                Text("正在计算…").font(.caption).foregroundStyle(Theme.textFaint)
+                Text(String(localized: .settingsMcpControlsCalculatingNow)).font(.caption).foregroundStyle(Theme.textFaint)
             }
         }
     }
@@ -300,9 +300,9 @@ struct SettingsBMCPCreateSheet: View {
     }
 
     private var form: some View {
-        SubsSheetScaffold(title: "创建端点", onClose: {
+        SubsSheetScaffold(title: String(localized: .settingsMcpControlsCreate), onClose: {
             if draft != SettingsBMCPDraft() { discarding = true } else { dismiss() }
-        }, confirm: SubsSheetConfirm(title: "创建端点", enabled: canSubmit,
+        }, confirm: SubsSheetConfirm(title: String(localized: .settingsMcpControlsCreate), enabled: canSubmit,
                                      busy: store.busy, identifier: "mcp-form-submit") {
             Task { await submit() }
         }) {
@@ -314,9 +314,9 @@ struct SettingsBMCPCreateSheet: View {
         }
         .disabled(store.busy)
         .interactiveDismissDisabled(store.busy || draft != SettingsBMCPDraft())
-        .alert("放弃未保存的修改？", isPresented: $discarding) {
-            Button("继续编辑", role: .cancel) { }
-            Button("放弃修改", role: .destructive) { dismiss() }
+        .alert(String(localized: .settingsFormDiscardTitle), isPresented: $discarding) {
+            Button(String(localized: .settingsFormKeepEditing), role: .cancel) { }
+            Button(String(localized: .settingsScrapeDiscardChanges), role: .destructive) { dismiss() }
         }
     }
 

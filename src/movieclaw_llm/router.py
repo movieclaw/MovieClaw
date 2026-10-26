@@ -27,14 +27,17 @@ from movieclaw_llm.models import (
     LlmProviderConfig,
     ModelInfo,
 )
-from movieclaw_llm.protocols import PROTOCOLS
+from movieclaw_llm.protocols import build_protocol
 from movieclaw_llm.providers import get_preset
 
 logger = logging.getLogger(__name__)
 
 
 class LlmRouter:
-    def __init__(self, providers: list[LlmProviderConfig] | None = None) -> None:
+    def __init__(
+        self, providers: list[LlmProviderConfig] | None = None, *, protocol_factory=build_protocol
+    ) -> None:
+        self._protocol_factory = protocol_factory
         self._providers: list[LlmProviderConfig] = list(providers or [])
         # 实例名 → (配置指纹, 协议客户端)；指纹变了说明配置被改过，需重建
         self._clients: dict[str, tuple[str, BaseLlmProtocol]] = {}
@@ -66,7 +69,10 @@ class LlmRouter:
     def _default_provider(self) -> LlmProviderConfig:
         enabled = self._enabled_providers()
         if not enabled:
-            raise LlmRoutingError("没有任何已启用的模型供应商，请先在设置中接入")
+            raise LlmRoutingError(
+                "没有任何已启用的模型供应商，请先在设置中接入",
+                message_key="errors.llm.connection.noProviders",
+            )
         return enabled[0]
 
     # -- 路由解析 -----------------------------------------------------------
@@ -78,8 +84,9 @@ class LlmRouter:
             provider = self._default_provider()
             if not provider.default_model:
                 raise LlmRoutingError(
-                    f"供应商「{provider.name}」未配置默认模型，"
-                    "请求需显式指定 model 或补全配置"
+                    f"供应商「{provider.name}」未配置默认模型，请求需显式指定 model 或补全配置",
+                    message_key="errors.llm.connection.noDefault",
+                    params={"name": provider.name},
                 )
             return provider, provider.default_model
 
@@ -88,10 +95,18 @@ class LlmRouter:
             for provider in self._providers:
                 if provider.name == name:
                     if not provider.enabled:
-                        raise LlmRoutingError(f"供应商「{name}」已被停用")
+                        raise LlmRoutingError(
+                            f"供应商「{name}」已被停用",
+                            message_key="errors.llm.connection.disabled",
+                            params={"name": name},
+                        )
                     # 显式指定实例时信任用户，模型不要求在目录里
                     return provider, model_id
-            raise LlmRoutingError(f"找不到名为「{name}」的供应商实例")
+            raise LlmRoutingError(
+                f"找不到名为「{name}」的供应商实例",
+                message_key="errors.llm.connection.providerMissing",
+                params={"name": name},
+            )
 
         owners = [
             p for p in self._enabled_providers() if any(m.id == ref for m in self._catalog(p))
@@ -103,12 +118,16 @@ class LlmRouter:
                 # 直接传裸 id 才会，记日志让用户知道实际走了哪家
                 logger.info(
                     "模型「%s」在 %d 个供应商实例目录中都存在，按默认优先路由到「%s」",
-                    ref, len(owners), owners[0].name,
+                    ref,
+                    len(owners),
+                    owners[0].name,
                 )
             return owners[0], ref
         raise LlmRoutingError(
             f"模型「{ref}」不在任何已启用供应商的目录中；"
-            "如确认端点支持该模型，请用「实例名/模型id」显式指定"
+            "如确认端点支持该模型，请用「实例名/模型id」显式指定",
+            message_key="errors.llm.connection.modelMissing",
+            params={"model": ref},
         )
 
     def get_model_info(self, model_ref: str) -> ModelInfo:
@@ -128,10 +147,7 @@ class LlmRouter:
         if cached and cached[0] == fingerprint:
             return cached[1]
         preset = get_preset(config.provider_type)
-        protocol_cls = PROTOCOLS.get(preset.protocol)
-        if protocol_cls is None:
-            raise LlmRoutingError(f"预设「{preset.id}」引用了未实现的协议「{preset.protocol}」")
-        client = protocol_cls(config, preset)
+        client = self._protocol_factory(config, preset)
         self._clients[config.name] = (fingerprint, client)
         return client
 

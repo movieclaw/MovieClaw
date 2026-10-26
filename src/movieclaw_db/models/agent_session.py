@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from sqlalchemy import JSON, Column
 from sqlmodel import Field
 
 from movieclaw_db.models.base import TimestampMixin
@@ -29,6 +30,8 @@ class AgentSession(TimestampMixin, table=True):
     id: str = Field(primary_key=True)
     # 会话标题：v1 取首条用户消息截断；将来支持用户改名/AI 起名时直接覆盖
     title: str | None = Field(default=None, description="会话标题（截断预览）")
+    title_ref: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    last_prompt_ref: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     # 最后一条用户消息的截断文本，列表页副标题
     last_prompt: str | None = Field(default=None, description="最后提示预览")
     # 消息 entry 总数（不含头行）
@@ -41,3 +44,5 @@ class AgentSession(TimestampMixin, table=True):
     last_heartbeat_at: datetime | None = Field(
         default=None, description="运行心跳时间（naive UTC）"
     )
+    # 会话归属（与 JSONL 头行一致，重建时回填）：空 = 网页 / 管理员；plugin:<条目 id> = 插件建的
+    owner: str | None = Field(default=None, index=True, description="会话归属")

@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import JSON, Column
+from sqlalchemy import JSON, Column, String
+from sqlalchemy.types import TypeDecorator
 from sqlmodel import Field
 
 from movieclaw_db.models.base import TimestampMixin
@@ -11,7 +12,8 @@ from movieclaw_db.models.site_credential import ConfigStatus
 
 
 class ClientType(StrEnum):
-    """下载器类型。取值与 ``movieclaw_downloader.DownloaderType`` 一一对应。
+    """内置的两种下载器类型。``client_type`` 列本身是开放的字符串：插件可以登记新的下载器类型
+    （movieclaw_downloader/registry.py），取值与它登记的类型值一致。
 
     此处独立定义而非直接 import —— movieclaw_db 是纯存储层，
     不反向依赖领域库（与 SiteCredential 不依赖 tracker 同理）。
@@ -20,6 +22,29 @@ class ClientType(StrEnum):
     QBITTORRENT = "qbittorrent"
     TRANSMISSION = "transmission"
     DEMO = "demo"
+
+
+# 早期这一列按 ``ClientType`` 枚举声明，SQLAlchemy 存的是成员**名**（"QBITTORRENT"），不是值。
+# 列放开成字符串之后，读出来要还原成值，插件注册表才认得；内置两种写回时仍存成员名，
+# 回退到旧版本（只认成员名）也能读——所以不做数据迁移。插件登记的类型原样存取。
+_LEGACY_NAMES = {member.value: member.name for member in ClientType}
+_LEGACY_VALUES = {name: value for value, name in _LEGACY_NAMES.items()}
+
+
+class _ClientTypeColumn(TypeDecorator):
+    impl = String
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):  # type: ignore[no-untyped-def]
+        if value is None:
+            return None
+        text = str(value)
+        return _LEGACY_NAMES.get(text, text)
+
+    def process_result_value(self, value, dialect):  # type: ignore[no-untyped-def]
+        if value is None:
+            return None
+        return _LEGACY_VALUES.get(value, value)
 
 
 class DownloaderClient(TimestampMixin, table=True):
@@ -41,7 +66,10 @@ class DownloaderClient(TimestampMixin, table=True):
     id: int | None = Field(default=None, primary_key=True)
     # 用户起的名字（如"家里的 qBittorrent"），用于列表区分，全局唯一
     name: str = Field(index=True, unique=True, description="用户命名的下载器名称")
-    client_type: ClientType = Field(description="下载器类型")
+    client_type: str = Field(
+        sa_column=Column(_ClientTypeColumn(), nullable=False),
+        description="下载器类型（qbittorrent / transmission / 插件登记的类型）",
+    )
     # 下载器 Web 服务完整地址：qBittorrent 为 WebUI 地址，Transmission 为 RPC 地址
     url: str = Field(description="下载器地址，如 http://192.168.1.10:8080")
     username: str | None = Field(default=None, description="登录用户名（未开鉴权可留空）")
@@ -71,6 +99,7 @@ class DownloaderClient(TimestampMixin, table=True):
     # 验证状态机（语义见 ConfigStatus）
     status: ConfigStatus = Field(default=ConfigStatus.PENDING, description="连接验证状态")
     last_error: str | None = Field(default=None, description="最近一次测试失败原因（中文）")
+    last_error_ref: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     last_checked_at: datetime | None = Field(default=None, description="最近一次测试时间")
     # 最近一次连接成功时获取的下载器版本号（如 v5.0.2），供管理页展示
     version: str | None = Field(default=None, description="下载器版本号")

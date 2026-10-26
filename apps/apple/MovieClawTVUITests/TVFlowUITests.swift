@@ -255,6 +255,48 @@ final class TVFlowUITests: XCTestCase {
         snapshot("40-search-results")
     }
 
+    // MARK: 播放器的左右键：点按跳 10 秒，按住连续快进 / 快退
+
+    /// 要一部够长的片（≥ 10 分钟），按住几秒能走出一两分钟
+    @MainActor
+    func testPlayerArrowHoldScrub() throws {
+        let item = try XCTUnwrap(env["MC_TEST_LONG_ITEM"], "需提供 ≥ 10 分钟的片源（MC_TEST_LONG_ITEM）")
+        let app = launchSignedIn(["-mcRoute", "/play/\(item)"])
+        waitForPlayback(app)
+        TVRemote.press(.up)
+        let start = try position(app)
+
+        TVRemote.press(.right)
+        let afterTap = try position(app)
+        XCTAssertTrue((8 ... 15).contains(afterTap - start), "点按右键应前进约 10 秒：\(start) → \(afterTap)")
+
+        // 按住 3 秒：0.4 秒起步，20× 走 1.6 秒、40× 走 1 秒 ≈ 72 秒
+        TVRemote.remote.press(.right, forDuration: 3)
+        let afterHold = try position(app)
+        XCTAssertGreaterThan(afterHold - afterTap, 45, "按住右键 3 秒应连续快进一分钟上下：\(afterTap) → \(afterHold)")
+        XCTAssertLessThan(afterHold - afterTap, 110, "按住 3 秒快进得太多：\(afterTap) → \(afterHold)")
+        snapshot("55-after-hold-forward")
+
+        // 按住左 2 秒：20× 走 1.6 秒 ≈ 32 秒
+        TVRemote.remote.press(.left, forDuration: 2)
+        let afterRewind = try position(app)
+        XCTAssertGreaterThan(afterHold - afterRewind, 20, "按住左键 2 秒应连续快退：\(afterHold) → \(afterRewind)")
+        XCTAssertLessThan(afterHold - afterRewind, 50, "按住左键 2 秒快退得太多：\(afterHold) → \(afterRewind)")
+        XCTAssertTrue(app.element("tv-player").exists, "长按不该退出播放器")
+    }
+
+    /// 进度条上的当前时间（秒）：无障碍标签是「片名, 当前, -剩余」，取第一个时间
+    @MainActor
+    private func position(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) throws -> Int {
+        let bar = app.element("tv-player-transport")
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "进度条没有出来", file: file, line: line)
+        // 跳转落地、时间刷新要一会儿
+        sleep(2)
+        let label = bar.label
+        let match = try XCTUnwrap(label.firstMatch(of: /(?:(\d+):)?(\d{1,2}):(\d{2})/), "进度条标签里没有时间：\(label)", file: file, line: line)
+        return (match.1.flatMap { Int($0) } ?? 0) * 3600 + Int(match.2)! * 60 + Int(match.3)!
+    }
+
     // MARK: 播放器的信息面板
 
     /// 多音轨、多字幕的 MKV：下滑出面板 → 有字幕与音轨两页 → 选一条字幕 → 返回键收起面板 → 再按返回退出
@@ -272,6 +314,33 @@ final class TVFlowUITests: XCTestCase {
         XCTAssertFalse(app.element("tv-player-panel").waitForExistence(timeout: 2), "返回键没有收起面板")
         XCTAssertTrue(app.element("tv-player").exists, "收面板时不该退出播放器")
         snapshot("51-after-subtitle-pick")
+        TVRemote.press(.menu)
+    }
+
+    /// 控制层顶部的小箭头提示能往下拉出面板（写着有哪几栏）；面板里左右换栏落在那一栏已选中的那项，
+    /// 而不是位置最近的一行（多字幕片源默认选中的字幕在第二行，按位置会落到第一行「关闭」）
+    @MainActor
+    func testPlayerPanelHintAndColumnFocus() {
+        let app = launchSignedIn(["-mcRoute", "/play/\(mkvItem)"])
+        waitForPlayback(app)
+        // 等起播那一轮控制层收起再按上唤出：免得读到一半它自己收了
+        let hint = app.element("tv-player-panel-hint")
+        _ = app.element("tv-player-transport").waitForNonExistence(timeout: 8)
+        XCTAssertFalse(hint.exists, "提示应跟控制层一起收起")
+        TVRemote.press(.up)
+        XCTAssertTrue(hint.waitForExistence(timeout: 3), "控制层顶部没有下拉面板的提示")
+        XCTAssertTrue(hint.label.contains("音轨"), "多音轨片源的提示里没有音轨：\(hint.label)")
+        snapshot("52-panel-hint")
+        TVRemote.press(.down)
+        XCTAssertTrue(app.element("tv-player-panel").waitForExistence(timeout: 10))
+        let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+        TVRemote.press(.right)
+        usleep(500_000)
+        XCTAssertEqual(focused.value as? String, "已选中", "进音轨栏没落在已选中的音轨上：\(focused.label)")
+        TVRemote.press(.left)
+        usleep(500_000)
+        XCTAssertEqual(focused.value as? String, "已选中", "回字幕栏没落在已选中的字幕上：\(focused.label)")
+        TVRemote.press(.menu)
         TVRemote.press(.menu)
     }
 
@@ -332,8 +401,11 @@ final class TVFlowUITests: XCTestCase {
     // MARK: 播放器：跳过片头、下一集
 
     /// 剧集从头放：片头时段出现「跳过片头」并自动拿到焦点，按一下就跳过
+    /// （按过一次这部剧就学会自动跳，开测前先忘掉，用例可重跑）
     @MainActor
-    func testSkipIntroButton() {
+    func testSkipIntroButton() async throws {
+        let token = try await TestBackend.login(server: server, username: username, password: password)
+        try await TestBackend.setIntroAutoSkip(server: server, token: token, item: Int(showItem) ?? 0, enabled: false)
         let app = launchSignedIn(["-mcRoute", "/play/\(showItem)/s01e03?t=0"])
         waitForPlayback(app)
         let skip = app.element("tv-player-skip")
@@ -402,83 +474,6 @@ final class TVFlowUITests: XCTestCase {
         XCTAssertTrue(app.element("tv-about").waitForNonExistence(timeout: 10), "返回键没有退出关于页")
         XCTAssertTrue(app.element("tv-who-is-watching").waitForExistence(timeout: 5), "关于页退回来应当回到「谁在看」")
     }
-
-    // MARK: T3：发现、订阅、片段
-    // 2026-10-03 起这三项在 Apple TV 上暂时收起（TVMainView.showsDiscoverAndSubscriptions），测试先跳过，开关打开时一并恢复
-
-    private static let discoverHidden = "发现、订阅、片段在 Apple TV 上暂时收起（TVMainView.showsDiscoverAndSubscriptions）"
-
-    /// 发现：本周精选大图 → 作品详情 → 一键订阅。大图那部已经订过时，往下到「相似推荐」里挨个找一部还没订的
-    @MainActor
-    func testDiscoverOneClickSubscribe() throws {
-        throw XCTSkip(Self.discoverHidden)
-        let app = launchSignedIn(["-mcTab", "discover"])
-        let detailButton = app.element("tv-discover-hero-detail")
-        XCTAssertTrue(detailButton.waitForExistence(timeout: 25), "发现页没有本周精选大图")
-        snapshot("70-discover")
-        // 先往下：焦点可能在「电影 / 剧集」切换上，往右会直接切到剧集、整页重载
-        TVRemote.select(detailButton, trying: [.down, .up, .right])
-        XCTAssertTrue(app.element("tv-discover-title").waitForExistence(timeout: 15), "没有进作品详情")
-        snapshot("71-discover-detail")
-
-        var subscribe = app.element("tv-discover-subscribe")
-        var attempt = 0
-        while !subscribe.waitForExistence(timeout: 3), attempt < 6 {
-            // 这一部已订阅 / 在库：从「相似推荐」进下一部（第 attempt 张海报）
-            attempt += 1
-            TVRemote.press(.down, times: 2)
-            TVRemote.press(.right, times: attempt - 1)
-            TVRemote.press(.select)
-            _ = app.element("tv-discover-title").waitForExistence(timeout: 10)
-            subscribe = app.element("tv-discover-subscribe")
-        }
-        XCTAssertTrue(subscribe.exists, "找了 \(attempt) 部推荐都没有可订阅的")
-        snapshot("72-discover-before-subscribe")
-        TVRemote.select(subscribe, trying: [.down, .right, .left])
-        let note = app.element("tv-discover-subscribe-note")
-        XCTAssertTrue(note.waitForExistence(timeout: 20), "按了订阅没有结果提示")
-        XCTAssertTrue(note.label.hasPrefix("已订阅"), "订阅没成功：\(note.label)")
-        XCTAssertTrue(app.element("tv-discover-subscribed").waitForExistence(timeout: 10), "订阅后按钮没有变成「已订阅」")
-        snapshot("73-discover-subscribed")
-    }
-
-    /// 我的订阅：大图里刚入库的那部「播放」→ 出画 → 返回
-    @MainActor
-    func testSubscriptionsHeroPlays() throws {
-        throw XCTSkip(Self.discoverHidden)
-        let app = launchSignedIn(["-mcTab", "subscriptions"])
-        XCTAssertTrue(app.element("tv-subscriptions").waitForExistence(timeout: 25))
-        snapshot("80-subscriptions")
-        let play = app.element("tv-subscriptions-hero-play")
-        guard play.waitForExistence(timeout: 10) else {
-            // 大图挑的不是已入库的那一部：页面能打开、各行在就算过（刚刚入库在下面的行里）
-            XCTAssertTrue(app.staticTexts["刚刚入库"].exists || app.staticTexts["本周日程"].exists, "订阅页没有任何分区")
-            return
-        }
-        // 冷启动直接落在订阅页时，页面还没加载完焦点可能先落在标签栏上：先往下进大图、再往左到「播放」
-        TVRemote.select(play, trying: [.down, .left])
-        waitForPlayback(app)
-        snapshot("81-playing-from-subscriptions")
-        TVRemote.press(.menu)
-    }
-
-    /// 片段：自动放第一段 → 点按右换下一段 → 按确认键接着看正片 → 返回回到片段
-    @MainActor
-    func testReelsPlayAndWatchFull() throws {
-        throw XCTSkip(Self.discoverHidden)
-        let app = launchSignedIn(["-mcTab", "reels"])
-        XCTAssertTrue(app.element("tv-reels-video").waitForExistence(timeout: 30), "片段没有出画")
-        sleep(3)
-        snapshot("90-reels-first")
-        TVRemote.press(.right)
-        sleep(3)
-        snapshot("91-reels-next")
-        TVRemote.press(.select)
-        waitForPlayback(app)
-        snapshot("92-reels-watch-full")
-        TVRemote.press(.menu)
-        XCTAssertTrue(app.element("tv-reels").waitForExistence(timeout: 10), "退出正片后没有回到片段")
-    }
 }
 
 /// 用例里需要「另一台设备」做的事（手机上批准配对）：直接调测试服务器的接口
@@ -498,6 +493,15 @@ enum TestBackend {
 
     static func approve(server: String, token: String, userCode: String) async throws {
         _ = try await call(server, "POST", "/api/v1/auth/devices/requests/\(userCode)/approve", body: nil, token: token)
+    }
+
+    /// 自动跳过：记下 / 忘掉这部剧的片头（docs/design/skip-intro.md §5）
+    static func setIntroAutoSkip(server: String, token: String, item: Int, enabled: Bool) async throws {
+        _ = try await call(server, "PUT", "/api/v1/playback/auto-skip/intro/\(item)", body: ["enabled": enabled], token: token)
+    }
+
+    static func setAutoSkip(server: String, token: String, enabled: Bool) async throws {
+        _ = try await call(server, "PUT", "/api/v1/playback/auto-skip", body: ["enabled": enabled], token: token)
     }
 
     static func logout(server: String, token: String) async throws {

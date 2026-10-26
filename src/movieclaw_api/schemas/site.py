@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import urllib.parse
 from datetime import UTC, datetime
+from typing import Any, Literal
 
 from pydantic import Field, field_serializer
 
+from movieclaw_api.i18n import t
+from movieclaw_api.i18n.stored import render_value
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.services.auth_factory import required_fields
 from movieclaw_db.models.site_credential import AuthType, ConfigStatus, SiteCredential
@@ -162,7 +166,7 @@ class ConfiguredSite(BaseModel):
             boost_downloader_id=row.boost_downloader_id,
             last_verified_at=row.last_verified_at,
             last_checked_at=row.last_checked_at,
-            last_error=row.last_error,
+            last_error=render_value(row.last_error_ref) if row.last_error_ref else row.last_error,
             profile=SiteUserProfileView.from_model(profile) if profile else None,
             created_at=row.created_at,
             updated_at=row.updated_at,
@@ -213,7 +217,11 @@ class SiteSyncStatsView(BaseModel):
             next_sync_at=cursor.next_sync_at if cursor else None,
             sync_interval_seconds=cursor.sync_interval_seconds if cursor else None,
             last_new_count=cursor.last_new_count if cursor else None,
-            last_error=cursor.last_error if cursor else None,
+            last_error=(
+                render_value(cursor.last_error_ref) if cursor.last_error_ref else cursor.last_error
+            )
+            if cursor
+            else None,
             consecutive_failures=cursor.consecutive_failures if cursor else 0,
         )
 
@@ -391,3 +399,165 @@ class BoostCleanupResult(BaseModel):
     disabled_sites: list[str] = Field(
         default_factory=list, description="本次顺带关闭了刷流的站点"
     )
+
+
+# ---------------------------------------------------------------------------
+# 站点代请求（site.proxy.request）
+# ---------------------------------------------------------------------------
+
+
+class SiteProxyRequest(BaseModel):
+    """插件借宿主已认证会话对站点发出的一个请求（凭据不出宿主）。
+
+    ``path`` 只能是站内相对路径（如 ``attendance.php``、``/api/member/updateLastBrowse``），
+    完整 URL 由宿主按站点注册的域名拼接——插件无法指定任意主机，杜绝 SSRF。
+    ``base`` 在站点自己的请求域名与网页域名之间选择（API 类站点两者不同）。
+    ``headers`` 里与认证相关的头（cookie / authorization / x-api-key 等）会被剥除：
+    认证头由宿主会话自动附加，插件传不进也覆盖不了。
+    站点回 3xx 时**不跟随**，原样返回（目标在 ``headers.location``）：认证头只发给上面
+    校验过的那一个 URL，不会因为站点的开放重定向被带到别的主机；想跟的话插件自己
+    再发一次站内路径的请求。
+    """
+
+    method: Literal["GET", "POST"] = Field(description="HTTP 方法（保活场景只需要这两种）")
+    path: str = Field(
+        min_length=1,
+        max_length=512,
+        description="站内相对路径，以 / 或字母开头；不允许出现协议或 //",
+    )
+    base: Literal["web", "api"] = Field(
+        default="web",
+        description="用站点的网页域名（web）还是请求域名（api）拼 URL；两者相同时无差别",
+    )
+    headers: dict[str, str] = Field(
+        default_factory=dict,
+        max_length=16,
+        description="插件补充的非敏感请求头（如 referer / content-type）",
+    )
+    body: dict[str, Any] | str | None = Field(
+        default=None, description="POST 体：字典按 JSON 发送，字符串按原始内容发送"
+    )
+    timeout_seconds: float = Field(default=30.0, ge=1.0, le=120.0, description="超时（秒）")
+
+
+class SiteProxyResponse(BaseModel):
+    """站点代请求的响应（已脱敏：凭据相关响应头剥除，正文截断）。
+
+    ``text`` 为正文文本（超出上限时截断，``truncated`` 置真）；JSON 响应会额外给
+    解析后的 ``json_body``。二进制内容（图片、种子文件）不回传正文，``text``/``json_body``
+    为 null。
+    """
+
+    status_code: int = Field(description="HTTP 状态码")
+    headers: dict[str, str] = Field(description="安全响应头子集（content-type / location 等）")
+    text: str | None = Field(default=None, description="正文文本；二进制内容为 null")
+    json_body: Any = Field(default=None, description="JSON 响应解析后的对象；非 JSON 为 null")
+    truncated: bool = Field(default=False, description="正文是否因超出上限被截断")
+
+
+def proxy_path_error(path: str) -> str | None:
+    """校验站内相对路径；不合规返回中文原因，合规返回 None。
+
+    独立成函数便于单测覆盖全部拒绝分支。这里只挡「明显想指定别处」的形态
+    （``//``、``scheme://``、反斜杠、CRLF）；文件名带点（``attendance.php``）是
+    合法路径。真正的安全保证在 ``proxy_same_origin``：拼接后再验证最终 host
+    仍等于站点域名，形态校验只是尽早给出可读错误。
+    """
+    if not path or not path.strip():
+        return t("errors.sitePath.empty")
+    if path.startswith("//"):
+        return t("errors.sitePath.protocolRelative")
+    if "://" in path:
+        return t("errors.sitePath.scheme")
+    if "\\" in path:
+        return t("errors.sitePath.backslash")
+    if any(ch in path for ch in ("\r", "\n", "\t")):
+        return t("errors.sitePath.control")
+    return None
+
+
+def proxy_same_origin(base_url: str, url: str) -> bool:
+    """拼接后的完整 URL 是否仍指向站点域名（防 SSRF 的最终防线）。
+
+    相对路径拼接不会换 host，但 ``/\\evil.com``、被编码的协议等构造可能骗过
+    简单拼接——统一 ``urlsplit`` 后按 scheme+hostname 比对，不一致即拒绝。
+    """
+    base = urllib.parse.urlsplit(base_url)
+    final = urllib.parse.urlsplit(url)
+    return base.scheme == final.scheme and (base.hostname or "") == (final.hostname or "")
+
+
+def proxy_base_url(config: SiteConfig, base: Literal["web", "api"]) -> str:
+    """按 base 选择拼 URL 的域名：web 用网页域名，api 用请求域名。
+
+    独立成函数便于单测；未配置 web_base_url 时两者相同。
+    """
+    if base == "web" and config.web_base_url:
+        return config.web_base_url.rstrip("/")
+    return config.base_url.rstrip("/")
+
+
+def join_proxy_url(base_url: str, path: str) -> str:
+    """把站内相对路径拼到站点域名上。路径里的查询串原样保留。"""
+    return f"{base_url}/{path.lstrip('/')}"
+
+
+#: 插件传不进也覆盖不了的请求头：认证由宿主会话统一附加，这里统一剥除。
+#: 键按小写比较。set-cookie / www-authenticate 属于响应头黑名单，不在此列。
+PROXY_FORBIDDEN_REQUEST_HEADERS = frozenset(
+    {
+        "cookie",
+        "authorization",
+        "x-api-key",
+        "proxy-authorization",
+        "host",
+    }
+)
+
+#: 不回传给插件的响应头：站点可能借它们下发新会话凭据。
+PROXY_FORBIDDEN_RESPONSE_HEADERS = frozenset(
+    {
+        "set-cookie",
+        "www-authenticate",
+        "proxy-authenticate",
+    }
+)
+
+#: 正文回传上限（字符）。保活/签到页面远小于此；超限截断并置 truncated。
+PROXY_MAX_TEXT_CHARS = 512 * 1024
+
+#: 判定为二进制（不回传正文）的 content-type 前缀。
+PROXY_BINARY_PREFIXES = ("application/octet-stream", "image/", "application/x-bittorrent")
+
+
+def sanitize_proxy_headers(
+    headers: dict[str, str],
+    forbidden: frozenset[str] = PROXY_FORBIDDEN_REQUEST_HEADERS,
+) -> dict[str, str]:
+    """剥除认证相关请求头；键按小写匹配。独立成函数便于单测。"""
+    return {k: v for k, v in headers.items() if k.lower() not in forbidden}
+
+
+def sanitize_proxy_response_headers(
+    headers: Any,
+    forbidden: frozenset[str] = PROXY_FORBIDDEN_RESPONSE_HEADERS,
+) -> dict[str, str]:
+    """从 httpx 响应头挑出安全子集（剥 set-cookie 等会话凭据头）。"""
+    return {k: v for k, v in headers.items() if k.lower() not in forbidden}
+
+
+def proxy_response_text(content: bytes, content_type: str) -> tuple[str | None, bool]:
+    """按 content-type 决定正文回传形态：文本返回（可能截断），二进制返回 None。
+
+    返回 (text, truncated)。
+    """
+    lowered = (content_type or "").split(";", 1)[0].strip().lower()
+    if lowered.startswith(PROXY_BINARY_PREFIXES):
+        return None, False
+    try:
+        text = content.decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001 - decode 带 errors="replace" 不会抛，防御性兜底
+        return None, False
+    if len(text) > PROXY_MAX_TEXT_CHARS:
+        return text[:PROXY_MAX_TEXT_CHARS], True
+    return text, False

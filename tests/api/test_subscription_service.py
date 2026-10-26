@@ -47,11 +47,9 @@ _YESTERDAY = (_TODAY - timedelta(days=1)).isoformat()
 _FUTURE_DATE = _TODAY + timedelta(days=10)
 _FUTURE = _FUTURE_DATE.isoformat()
 
-# 首页预告按站点业务日历（Asia/Shanghai）判断"今天"，UTC 凌晨会差一天，
-# 因此预告相关夹具统一用站点日历日构造，避免测试在特定时段假红。
-_SITE_TODAY = publish_calendar_date(utcnow())
-_SITE_TODAY_ISO = _SITE_TODAY.isoformat()
-_IN_WINDOW = (_SITE_TODAY + timedelta(days=3)).isoformat()
+# 首页预告按站点业务日历（Asia/Shanghai）判断"今天"。这两部剧的播出日不写在
+# 模块加载时：xdist 会先导入再跑，导入若卡在零点前、用例跑在零点后，"今天"就偏一天。
+# 播出日在假 TMDB 应答里按当次请求现算，见 _fake_tmdb。
 
 _ROUTES = {
     "/3/movie/100": {
@@ -124,45 +122,72 @@ _ROUTES = {
             {"episode_number": 3, "name": "E3", "air_date": None},
         ],
     },
-    # 首页预告夹具：202 = 三天后播（窗口内）、203 = 今天播
-    "/3/tv/202": {
-        "id": 202,
-        "name": "本周更新剧集",
-        "original_name": "This Week Show",
-        "first_air_date": _IN_WINDOW,
+    # issue #974：旧季 S3 的后半段 TMDB 没填播出日期（实为已播），S4 正在播
+    "/3/tv/204": {
+        "id": 204,
+        "name": "旧季缺日期剧集",
+        "original_name": "Undated Old Season Show",
+        "first_air_date": "2023-01-01",
         "status": "Returning Series",
         "external_ids": {},
         "alternative_titles": {"results": []},
         "translations": {"translations": []},
-        "seasons": [{"season_number": 1}],
+        "seasons": [{"season_number": 3}, {"season_number": 4}],
     },
-    "/3/tv/202/season/1": {
-        "name": "第 1 季",
-        "air_date": _IN_WINDOW,
-        "episodes": [{"episode_number": 1, "name": "E1", "air_date": _IN_WINDOW}],
+    "/3/tv/204/season/3": {
+        "name": "第 3 季",
+        "air_date": "2025-10-25",
+        "episodes": [
+            {"episode_number": 1, "name": "E1", "air_date": "2025-10-25"},
+            {"episode_number": 2, "name": "E2", "air_date": None},
+            {"episode_number": 3, "name": "E3", "air_date": None},
+        ],
     },
-    "/3/tv/203": {
-        "id": 203,
-        "name": "今日更新剧集",
-        "original_name": "Today Show",
-        "first_air_date": _SITE_TODAY_ISO,
-        "status": "Returning Series",
-        "external_ids": {},
-        "alternative_titles": {"results": []},
-        "translations": {"translations": []},
-        "seasons": [{"season_number": 1}],
-    },
-    "/3/tv/203/season/1": {
-        "name": "第 1 季",
-        "air_date": _SITE_TODAY_ISO,
-        "episodes": [{"episode_number": 1, "name": "E1", "air_date": _SITE_TODAY_ISO}],
+    "/3/tv/204/season/4": {
+        "name": "第 4 季",
+        "air_date": _AIRED,
+        "episodes": [
+            {"episode_number": 1, "name": "E1", "air_date": _AIRED},
+            {"episode_number": 2, "name": "E2", "air_date": _FUTURE},
+            {"episode_number": 3, "name": "E3", "air_date": None},
+        ],
     },
 }
 
 
+def _arrival_payload(path: str) -> dict | None:
+    """202 三天后播，203 今天播。日期跟本次请求的站点日历走。"""
+    site_today = publish_calendar_date(utcnow())
+    if path in {"/3/tv/202", "/3/tv/202/season/1"}:
+        air_date = (site_today + timedelta(days=3)).isoformat()
+        show_id, name, original = 202, "本周更新剧集", "This Week Show"
+    elif path in {"/3/tv/203", "/3/tv/203/season/1"}:
+        air_date = site_today.isoformat()
+        show_id, name, original = 203, "今日更新剧集", "Today Show"
+    else:
+        return None
+    if path.endswith("/season/1"):
+        return {
+            "name": "第 1 季",
+            "air_date": air_date,
+            "episodes": [{"episode_number": 1, "name": "E1", "air_date": air_date}],
+        }
+    return {
+        "id": show_id,
+        "name": name,
+        "original_name": original,
+        "first_air_date": air_date,
+        "status": "Returning Series",
+        "external_ids": {},
+        "alternative_titles": {"results": []},
+        "translations": {"translations": []},
+        "seasons": [{"season_number": 1}],
+    }
+
+
 def _fake_tmdb() -> TmdbClient:
     def handler(request: httpx.Request) -> httpx.Response:
-        payload = _ROUTES.get(request.url.path)
+        payload = _arrival_payload(request.url.path) or _ROUTES.get(request.url.path)
         if payload is None:
             return httpx.Response(404, json={})
         return httpx.Response(200, json=payload)
@@ -287,6 +312,51 @@ async def test_follow_future_only_excludes_aired(db) -> None:
         wanted = _key_map(await _wanted_of(session, sub.id))
 
     assert set(wanted) == {(2, 2), (2, 3)}
+
+
+async def test_follow_future_skips_undated_episodes_of_aired_past(db) -> None:
+    """issue #974：只勾 S4 + 追新，S3 里 TMDB 漏填日期的集不算「未定档新集」。
+
+    之后已有集播出过，说明这些集早播完了，只是 TMDB 没录日期；S4 末尾真正
+    未定档的集照追。
+    """
+    async with db.session() as session:
+        sub = await _service(session).create(
+            MediaKind.TV, 204, selected_seasons=[4], follow_future=True
+        )
+        wanted = _key_map(await _wanted_of(session, sub.id))
+        assert set(wanted) == {(4, 1), (4, 2), (4, 3)}
+
+        only_future = await _service(session).create(
+            MediaKind.TV, 200, selected_seasons=[], follow_future=True
+        )
+        assert set(_key_map(await _wanted_of(session, only_future.id))) == {(2, 2), (2, 3)}
+
+
+async def test_update_drops_legacy_undated_old_season_units(db) -> None:
+    """#974 修复前已落库的旧季缺日期工单：下次修改订阅时退出范围，不再被种子覆盖。"""
+    async with db.session() as session:
+        service = _service(session)
+        sub = await service.create(
+            MediaKind.TV, 204, selected_seasons=[4], follow_future=True
+        )
+        if (3, 2) not in _key_map(await _wanted_of(session, sub.id)):
+            session.add(
+                WantedItem(
+                    subscription_id=sub.id,
+                    media_item_id=sub.media_item_id,
+                    season_number=3,
+                    episode_number=2,
+                    status=WantedStatus.WANTED,
+                    air_date=None,
+                )
+            )
+            await session.commit()
+
+        await service.update(sub.id, rule_set_id=None)  # 无关修改
+        rows = _key_map(await _wanted_of(session, sub.id))
+        assert rows[(3, 2)].in_scope is False
+        assert all(rows[(4, n)].in_scope for n in (1, 2, 3))
 
 
 async def test_create_is_idempotent_per_media_item(db) -> None:
@@ -807,7 +877,7 @@ async def test_today_arrivals_falls_back_to_nearest_upcoming_day(db) -> None:
 
     assert [row.media.title for row in arrivals] == ["本周更新剧集"]
     assert arrivals[0].days_ahead == 3
-    assert arrivals[0].expected_day == _SITE_TODAY + timedelta(days=3)
+    assert arrivals[0].expected_day == publish_calendar_date(utcnow()) + timedelta(days=3)
 
 
 async def test_today_arrivals_prefers_today_over_upcoming(db) -> None:

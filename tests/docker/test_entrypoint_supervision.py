@@ -5,7 +5,7 @@
 从而锁住「前端不得在后端未就绪时启动」这一部署契约。
 
 nginx 前门用一个 Python 替身（MOVIECLAW_NGINX_BIN）：按 docker/nginx.conf.template
-的语义把 /api/* 转给 8000、其余转给 3001，上游连不上时回占位页/503——
+的语义把 /api/* 转给 8000、其余转给配置中的前端端口，上游连不上时回占位页/503——
 entrypoint 只关心它被何时拉起、何时退出，真实 nginx 配置由镜像构建期 nginx -t 把关。
 """
 
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -67,6 +68,15 @@ if mode == "exit":
 if mode == "hang":
     while True:
         time.sleep(1)
+if mode in ("migrate", "migrate-stall"):
+    # 模拟慢盘首装：逐个迁移，每完成一个按 alembic/env.py 的约定写一次心跳
+    progress = Path(os.environ["MOVIECLAW_MIGRATION_PROGRESS_FILE"])
+    for _ in range(int(os.environ.get("FAKE_API_MIGRATION_STEPS", "6"))):
+        time.sleep(1)
+        progress.write_text(str(int(time.time())), encoding="utf-8")
+    if mode == "migrate-stall":
+        while True:
+            time.sleep(1)
 if mode == "restart-once":
     state = Path(os.environ["FAKE_API_STATE_FILE"])
     if not state.exists():
@@ -148,7 +158,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 {no_fqdn_server}
-FakeServer(("127.0.0.1", 3001), Handler).serve_forever()
+FakeServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
 """
 
 
@@ -187,7 +197,8 @@ API_STARTING = json.dumps(
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        upstream = 8000 if self.path.startswith("/api/") else 3001
+        next_port = int(re.search(r"server 127\\.0\\.0\\.1:(\\d+);", conf.read_text()).group(1))
+        upstream = 8000 if self.path.startswith("/api/") else next_port
         try:
             with urlopen(f"http://127.0.0.1:{{upstream}}{{self.path}}", timeout=1) as response:
                 status, body = response.status, response.read()
@@ -257,7 +268,10 @@ def entrypoint_env(tmp_path: Path) -> dict[str, str]:
         _FAKE_NGINX.format(python=sys.executable, no_fqdn_server=_NO_FQDN_SERVER),
     )
     nginx_template = tmp_path / "nginx.conf.template"
-    nginx_template.write_text("listen __WEB_PORT__; root __ASSETS_DIR__;\n", encoding="utf-8")
+    nginx_template.write_text(
+        "listen __WEB_PORT__; root __ASSETS_DIR__; server 127.0.0.1:__NEXT_PORT__;\n",
+        encoding="utf-8",
+    )
 
     return {
         **os.environ,
@@ -379,6 +393,23 @@ def _read_last_exit(env: dict[str, str]) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _install_current_overlay(data_dir: Path, version: str) -> None:
+    """装一个 runtime 匹配、布局完整的 overlay 并设为 current。"""
+    overlay = data_dir / "updates" / "versions" / f"v{version}"
+    (overlay / "backend" / "src" / "movieclaw_api").mkdir(parents=True)
+    (overlay / "backend" / "src" / "movieclaw_api" / "main.py").touch()
+    (overlay / "backend" / "alembic.ini").touch()
+    (overlay / "web" / "apps" / "web").mkdir(parents=True)
+    (overlay / "web" / "apps" / "web" / "server.js").touch()
+    (overlay / "manifest.json").write_text(
+        json.dumps({"schema": 1, "version": version, "requires_runtime": 6}),
+        encoding="utf-8",
+    )
+    current = data_dir / "updates" / "current"
+    current.parent.mkdir(parents=True, exist_ok=True)
+    current.symlink_to(overlay)
+
+
 def test_web_starts_only_after_api_is_ready(entrypoint_env: dict[str, str]) -> None:
     """后端在 lifespan 中延迟时，前端不得提前监听或开始反代。"""
     entrypoint_env["FAKE_API_MODE"] = "serve"
@@ -417,10 +448,32 @@ def test_placeholder_page_serves_during_startup(entrypoint_env: dict[str, str]) 
         # 渲染出的 nginx 配置把端口与资源目录占位符都替换掉了
         rendered = Path(entrypoint_env["MOVIECLAW_NGINX_RUN_DIR"]) / "nginx.conf"
         assert rendered.read_text(encoding="utf-8") == (
-            f"listen 3000; root {entrypoint_env['MOVIECLAW_NGINX_ASSETS_DIR']};\n"
+            f"listen 3000; root {entrypoint_env['MOVIECLAW_NGINX_ASSETS_DIR']}; "
+            "server 127.0.0.1:3001;\n"
         )
     finally:
         _stop(process)
+
+
+def test_custom_next_port_avoids_host_conflict(entrypoint_env: dict[str, str]) -> None:
+    """host 共享网络下 3001 已被占用：自定义内部端口后页面、API 和看门狗都正常。"""
+    with socket.socket() as occupied:
+        occupied.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        occupied.bind(("127.0.0.1", 3001))
+        occupied.listen()
+        entrypoint_env.update(
+            FAKE_API_MODE="serve", MOVIECLAW_WEB_PORT="3005", MOVIECLAW_NEXT_PORT="13001"
+        )
+        process = _start_entrypoint(entrypoint_env)
+        try:
+            _wait_for_http_ok("http://127.0.0.1:13001/api/v1/health")
+            _wait_for_http_ok("http://127.0.0.1:3005/api/v1/health")
+            assert _http_get("http://127.0.0.1:3005/") == (200, "ok")
+            # 等待超过看门狗失败阈值，避免遗漏写死的健康检查端口。
+            time.sleep(3)
+            assert process.poll() is None
+        finally:
+            _stop(process)
 
 
 def test_nginx_exit_stops_container(entrypoint_env: dict[str, str]) -> None:
@@ -482,6 +535,59 @@ def test_api_readiness_timeout_never_starts_web(entrypoint_env: dict[str, str]) 
     assert "等待 后端 就绪超过 2s" in output
 
 
+def test_api_keeps_waiting_while_migrations_progress(entrypoint_env: dict[str, str]) -> None:
+    """慢盘首装迁移总耗时超过启动超时，但心跳一直在刷新：不杀后端，迁移跑完照常就绪。"""
+    entrypoint_env["FAKE_API_MODE"] = "migrate"
+    entrypoint_env["FAKE_API_MIGRATION_STEPS"] = "7"
+    entrypoint_env["MOVIECLAW_API_STARTUP_TIMEOUT_SECONDS"] = "3"
+    marker = Path(entrypoint_env["FAKE_WEB_MARKER"])
+    process = _start_entrypoint(entrypoint_env)
+    try:
+        try:
+            _wait_for_file(marker, timeout=15)
+        except AssertionError:
+            pytest.fail(_stop(process))
+        assert process.poll() is None
+        assert _read_count(Path(entrypoint_env["FAKE_API_START_COUNT"])) == 1
+    finally:
+        output = _stop(process)
+    assert "数据库迁移仍在推进，继续等待" in output
+    assert "就绪超过" not in output
+
+
+def test_api_timeout_counts_from_last_migration_progress(entrypoint_env: dict[str, str]) -> None:
+    """迁移推进一阵后卡死：从最后一次心跳起再等满超时才判失败，不会无限等。"""
+    entrypoint_env["FAKE_API_MODE"] = "migrate-stall"
+    entrypoint_env["FAKE_API_MIGRATION_STEPS"] = "4"
+    entrypoint_env["MOVIECLAW_API_STARTUP_TIMEOUT_SECONDS"] = "3"
+    marker = Path(entrypoint_env["FAKE_WEB_MARKER"])
+    started = time.monotonic()
+    process = _start_entrypoint(entrypoint_env)
+    output, _ = process.communicate(timeout=20)
+
+    assert process.returncode == 124
+    assert not marker.exists()
+    # 心跳持续约 4 秒，之后再等满 3 秒无进展才超时
+    assert time.monotonic() - started >= 6
+    assert "数据库迁移仍在推进，继续等待" in output
+    assert "等待 后端 就绪超过 3s" in output
+
+
+def test_stale_migration_progress_is_ignored(entrypoint_env: dict[str, str]) -> None:
+    """上一次启动残留的心跳（哪怕时间戳在未来）不能让本次卡死的后端逃过超时。"""
+    entrypoint_env["FAKE_API_MODE"] = "hang"
+    entrypoint_env["MOVIECLAW_API_STARTUP_TIMEOUT_SECONDS"] = "2"
+    state_dir = Path(entrypoint_env["MOVIECLAW_DATA_DIR"]) / "updates" / "state"
+    progress = state_dir / "migration-progress"
+    progress.parent.mkdir(parents=True, exist_ok=True)
+    progress.write_text(str(int(time.time()) + 3600), encoding="utf-8")
+    process = _start_entrypoint(entrypoint_env)
+    output, _ = process.communicate(timeout=10)
+
+    assert process.returncode == 124
+    assert "等待 后端 就绪超过 2s" in output
+
+
 def test_api_exit_during_web_readiness_stops_web_immediately(
     entrypoint_env: dict[str, str],
 ) -> None:
@@ -537,19 +643,7 @@ def test_startup_restart_codes_mark_bad_overlay_and_fall_back(
 ) -> None:
     """坏 overlay 连续以 42 退出时，必须被标坏并回落到镜像基线。"""
     data_dir = Path(entrypoint_env["MOVIECLAW_DATA_DIR"])
-    overlay = data_dir / "updates" / "versions" / "v1.0.0"
-    (overlay / "backend" / "src" / "movieclaw_api").mkdir(parents=True)
-    (overlay / "backend" / "src" / "movieclaw_api" / "main.py").touch()
-    (overlay / "backend" / "alembic.ini").touch()
-    (overlay / "web" / "apps" / "web").mkdir(parents=True)
-    (overlay / "web" / "apps" / "web" / "server.js").touch()
-    (overlay / "manifest.json").write_text(
-        json.dumps({"schema": 1, "version": "1.0.0", "requires_runtime": 6}),
-        encoding="utf-8",
-    )
-    current = data_dir / "updates" / "current"
-    current.parent.mkdir(parents=True, exist_ok=True)
-    current.symlink_to(overlay)
+    _install_current_overlay(data_dir, "1.0.0")
 
     entrypoint_env["FAKE_API_MODE"] = "restart-twice"
     entrypoint_env["FAKE_API_STATE_FILE"] = str(data_dir / "restart-count")
@@ -563,6 +657,35 @@ def test_startup_restart_codes_mark_bad_overlay_and_fall_back(
 
     assert (data_dir / "updates" / "state" / "bad-1.0.0").is_file()
     assert "标记为坏版本并回落" in output
+
+
+def test_baseline_failure_forgets_bad_overlay_marks(entrypoint_env: dict[str, str]) -> None:
+    """用户实例：慢机上把唯一认库的 overlay 误标坏，之后基线因不认识数据库而起不来，
+    容器永远卡在基线。基线都失败时坏版本判定已不可信，必须清掉，下一轮重新尝试。"""
+    data_dir = Path(entrypoint_env["MOVIECLAW_DATA_DIR"])
+    _install_current_overlay(data_dir, "1.0.0")
+    entrypoint_env["FAKE_API_MODE"] = "exit"
+    entrypoint_env["FAKE_API_EXIT_CODE"] = "3"
+    process = _start_entrypoint(entrypoint_env)
+    output, _ = process.communicate(timeout=15)
+
+    assert process.returncode == 3
+    # overlay 两次启动失败 → 标坏回落 → 基线也失败 → 标记被清掉
+    assert "标记为坏版本并回落" in output
+    assert "清除之前的坏版本标记" in output
+    state = data_dir / "updates" / "state"
+    assert not list(state.glob("bad-*"))
+    assert not list(state.glob("failures-*"))
+    # 下一轮（Docker 拉起）重新采用该 overlay
+    resolved = subprocess.run(
+        ["bash", str(_ENTRYPOINT), "resolve"],
+        env=entrypoint_env,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout
+    assert "source=overlay" in resolved
+    assert "version=1.0.0" in resolved
 
 
 def test_runtime_restart_keeps_web_alive(entrypoint_env: dict[str, str]) -> None:

@@ -29,9 +29,11 @@ _CACHE_RETENTION_DAYS = 30
 @register_task(
     "cleanup_task_runs",
     title="清理定时任务执行历史",
+    title_key="settings.scheduledTasks.catalog.cleanupTaskRunsTitle",
     trigger_type=TriggerType.CRON,
     cron="30 4 * * *",  # 每天凌晨 4:30（业务低谷）跑一次
     description="删除超过保留期的 task_run 历史记录，防止表无限增长。",
+    description_key="settings.scheduledTasks.catalog.cleanupTaskRunsDescription",
 )
 async def cleanup_task_runs() -> None:
     """删除超过保留天数的任务执行历史。
@@ -55,9 +57,11 @@ async def cleanup_task_runs() -> None:
 @register_task(
     "cleanup_cache_entries",
     title="清理过期的持久缓存",
+    title_key="settings.scheduledTasks.catalog.cleanupCacheEntriesTitle",
     trigger_type=TriggerType.CRON,
     cron="40 4 * * *",  # 每天凌晨 4:40（业务低谷，错开任务历史清理）
     description="删除 cache_entry 表中超过最长可用期的缓存行，防止缓存表无限增长。",
+    description_key="settings.scheduledTasks.catalog.cleanupCacheEntriesDescription",
 )
 async def cleanup_cache_entries() -> None:
     """删除超过保留期的持久缓存行。

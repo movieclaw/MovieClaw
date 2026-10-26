@@ -1,5 +1,9 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator } from "@/lib/i18n/translate";
+import { requestLocale, type AppLocale } from "@/lib/i18n/negotiate";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Route } from "next";
@@ -49,6 +53,8 @@ const PAGE_SIZE = 20;
 /** 桌面端五列：复选框 / 条目 / 文件 · 品质 / 原因 / 自动清理 · 操作。表头与行共用。 */
 const GRID_COLS =
   "grid-cols-[28px_minmax(0,1.1fr)_minmax(0,2fr)_minmax(0,1.15fr)_minmax(150px,auto)]";
+const EN_GRID_COLS =
+  "grid-cols-[28px_minmax(0,1.7fr)_minmax(0,2fr)_minmax(0,1.4fr)_minmax(150px,auto)]";
 
 interface Filter {
   q: string;
@@ -70,6 +76,8 @@ function toApiFilter(filter: Filter): TrashedFilter {
  * 是同一份数字。
  */
 export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: number) => void }) {
+  const t = useTranslations();
+  const locale = useLocale();
   const confirm = useConfirm();
   const toast = useToast();
   const isMobile = useIsMobile();
@@ -96,7 +104,7 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
   const reloadSeq = useRef(0);
   const reload = useCallback(() => {
     const seq = ++reloadSeq.current;
-    listTrashedFiles(toApiFilter(filter), { limit: PAGE_SIZE, offset })
+    listTrashedFiles(toApiFilter(filter), { limit: PAGE_SIZE, offset }, { headers: { "Accept-Language": locale } })
       .then((next) => {
         if (seq !== reloadSeq.current) return;
         setFailed(false);
@@ -106,10 +114,11 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
       .catch(() => {
         if (seq === reloadSeq.current) setFailed(true);
       });
-  }, [filter, offset, onCountChange]);
+  }, [filter, offset, onCountChange, locale]);
 
   useEffect(() => {
     reload();
+    return () => { reloadSeq.current += 1; };
   }, [reload]);
   useVisiblePolling(reload, 30_000);
 
@@ -143,7 +152,7 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
       setBusy(true);
       try {
         const result = await restoreTrashedFiles(ids);
-        (result.failed.length > 0 ? toast.error : toast.success)(batchResultText("恢复", result));
+        (result.failed.length > 0 ? toast.error : toast.success)(batchResultText("恢复", result, locale));
         setSelected((prev) => {
           const next = new Set(prev);
           for (const id of ids) next.delete(id);
@@ -151,12 +160,12 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
         });
         reload();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "恢复失败，请稍后重试");
+        toast.error(e instanceof Error ? e.message : t("library.recycle.restoreRequestFailed"));
       } finally {
         setBusy(false);
       }
     },
-    [busy, reload, toast],
+    [busy, reload, toast, locale, t],
   );
 
   /**
@@ -170,34 +179,34 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
     ) => {
       if (facts.files === 0 || busy) return;
       const bullets = [
-        `${facts.files} 个文件` + (facts.items > 1 ? `，涉及 ${facts.items} 个条目` : ""),
-        `释放空间 ${formatBytes(facts.bytes)}`,
+        t("library.recycle.filesCount", { count: facts.files }) + (facts.items > 1 ? t("library.recycle.affectedItems", { count: facts.items }) : ""),
+        t("library.recycle.spaceFreed", { bytes: formatBytes(facts.bytes) }),
       ];
-      if (facts.kept > 0) bullets.push(`${facts.kept} 个仍在原位（移入回收站失败的文件，按当前路径删除）`);
+      if (facts.kept > 0) bullets.push(t("library.recycle.keptWarning", { count: facts.kept }));
       const ok = await confirm({
         title: facts.title,
         description:
-          (facts.wholeFilter ? "会立即从磁盘删除当前筛选命中的全部文件，不只是本页。" : "会立即从磁盘删除。") +
-          " 删除不可撤销；若其中有文件仍在下载器里做种，删除会中断做种任务。",
+          (facts.wholeFilter ? t("library.recycle.purgeAllDescription") : t("library.recycle.purgeDescription")) +
+          t("library.recycle.purgeWarning"),
         bullets,
-        confirmLabel: `清理 ${facts.files} 个文件`,
-        cancelLabel: "先不",
+        confirmLabel: t("library.recycle.purgeCount", { count: facts.files }),
+        cancelLabel: t("library.recycle.notNow"),
         tone: "danger",
       });
       if (!ok) return;
       setBusy(true);
       try {
         const result = await purgeTrashedFiles(scope);
-        (result.failed.length > 0 ? toast.error : toast.success)(batchResultText("清理", result));
+        (result.failed.length > 0 ? toast.error : toast.success)(batchResultText("清理", result, locale));
         setSelected(new Set());
         reload();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "清理失败，请稍后重试");
+        toast.error(e instanceof Error ? e.message : t("library.recycle.purgeRequestFailed"));
       } finally {
         setBusy(false);
       }
     },
-    [busy, confirm, reload, toast],
+    [busy, confirm, reload, toast, locale, t],
   );
 
   const purgeFiles = (files: TrashedFile[], title: string, itemCount = 1) =>
@@ -220,10 +229,10 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
       { filter: toApiFilter(filter) },
       {
         title: libraryName
-          ? `清理「${libraryName}」库的全部待回收文件？`
+          ? t("library.recycle.purgeLibrary", { library: libraryName })
           : filterActive
-            ? "清理当前筛选下的全部待回收文件？"
-            : "清理全部待回收文件？",
+            ? t("library.recycle.purgeFilteredTitle")
+            : t("library.recycle.purgeAllTitle"),
         files: data.total_files,
         items: data.total_items,
         bytes: data.total_bytes,
@@ -236,7 +245,7 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
   const purgeSelected = () => {
     const files = items.flatMap((it) => it.files.filter((f) => selected.has(f.id)));
     const itemCount = items.filter((it) => it.files.some((f) => selected.has(f.id))).length;
-    purgeFiles(files, `清理所选的 ${files.length} 个文件？`, itemCount);
+    purgeFiles(files, t("library.recycle.purgeSelectionTitle", { count: files.length }), itemCount);
   };
 
   const toggleExpanded = (key: string) =>
@@ -277,16 +286,15 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
     return (
       <div className="mt-16 flex items-center justify-center gap-2.5 text-ui text-[var(--text-muted)]">
         <BrandLoader className="size-5" />
-        正在加载回收站…
-      </div>
+        {t("library.recycle.loading")}</div>
     );
   }
   if (data === null) {
     return (
       <div className="mt-16 flex flex-col items-center gap-3 text-center">
-        <p className="text-ui text-[var(--text-muted)]">回收站加载失败</p>
+        <p className="text-ui text-[var(--text-muted)]">{t("library.recycle.loadFailed")}</p>
         <button type="button" onClick={reload} className="btn-glass px-4 py-2 text-ui font-medium text-[var(--text)]">
-          重试
+          {t("library.recycle.retry")}
         </button>
       </div>
     );
@@ -296,8 +304,8 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
     return (
       <ContentEmptyState
         variant="library"
-        title="回收站是空的"
-        description="洗版替换下来的旧版本会先停在这里 7 天再自动删除，期间可以恢复；文件本身放在各库根目录的 .movieclaw-trash 里。"
+        title={t("library.recycle.empty")}
+        description={t("library.recycle.emptyDescription")}
       />
     );
   }
@@ -311,15 +319,14 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
     <>
       {failed && (
         <div className="mx-6 mt-4 rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sub text-amber-200 max-md:mx-4">
-          与后端通信失败，正在自动重试；下方显示的是最近一次成功加载的数据
-        </div>
+          {t("library.recycle.staleData")}</div>
       )}
 
       {/* 摘要行：一句话回答"多少、多大、多急"；右侧是页面唯一的页级动作 */}
       <div className="mt-5 flex flex-wrap items-center justify-between gap-2 px-6 text-ui text-[var(--text-muted)] tabular-nums max-md:px-4">
         <span className="flex flex-wrap items-center gap-x-1.5">
-          {summarySegments(data).map((seg, i) => (
-            <span key={seg.text} className="inline-flex items-center gap-x-1.5">
+          {summarySegments(data, locale).map((seg, i) => (
+            <span key={i} className="inline-flex items-center gap-x-1.5">
               {i > 0 && <span aria-hidden>·</span>}
               <span
                 className={
@@ -343,7 +350,7 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
           onClick={purgeAll}
           className="flex h-8 items-center rounded-full border border-[rgba(255,107,107,0.35)] px-3 text-caption font-medium text-[var(--danger)] transition hover:bg-[rgba(255,107,107,0.12)] disabled:opacity-40"
         >
-          立即清理全部 · {data.total_files}
+          {t("library.recycle.deleteAll", { count: data.total_files })}
         </button>
       </div>
 
@@ -355,14 +362,14 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
             type="search"
             value={queryDraft}
             onChange={(e) => setQueryDraft(e.target.value)}
-            placeholder="按片名、剧名或文件名搜索"
-            aria-label="搜索回收站"
+            placeholder={t("library.recycle.searchPlaceholder")}
+            aria-label={t("library.recycle.searchLabel")}
             className="min-w-0 flex-1 bg-transparent text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]"
           />
           {queryDraft && (
             <button
               type="button"
-              aria-label="清除搜索"
+              aria-label={t("library.recycle.clearSearch")}
               onClick={() => setQueryDraft("")}
               className="grid size-5 place-items-center rounded-full hover:bg-white/[0.1]"
             >
@@ -372,7 +379,7 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
         </label>
         <div className="flex flex-wrap items-center gap-1.5 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1">
           <Chip active={filter.libraryId === null} onClick={() => setFilter((f) => ({ ...f, libraryId: null }))}>
-            全部库 {data.by_library.reduce((sum, l) => sum + l.count, 0)}
+            {t("library.recycle.allLibraries")} {data.by_library.reduce((sum, l) => sum + l.count, 0)}
           </Chip>
           {data.by_library.map((lib) => (
             <Chip
@@ -392,7 +399,7 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
               active={filter.reason === r.reason}
               onClick={() => setFilter((f) => ({ ...f, reason: f.reason === r.reason ? null : r.reason }))}
             >
-              {reasonLabel(r.reason)} {r.count}
+              {reasonLabel(r.reason, locale)} {r.count}
             </Chip>
           ))}
         </div>
@@ -401,29 +408,28 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
       {/* 列表：桌面端表格、手机端卡片 */}
       <div
         role="table"
-        aria-label="待回收文件"
+        aria-label={t("library.recycle.tableLabel")}
         className="mx-6 mt-4 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] max-md:mx-4"
       >
         {!isMobile && (
           <div
             role="row"
-            className={`grid items-center gap-4 border-b border-white/[0.07] px-4 py-2.5 text-caption font-medium text-[var(--text-faint)] ${GRID_COLS}`}
+            className={`grid items-center gap-4 border-b border-white/[0.07] px-4 py-2.5 text-caption font-medium text-[var(--text-faint)] ${locale === "en" ? EN_GRID_COLS : GRID_COLS}`}
           >
             <span role="columnheader">
-              <TriCheckbox state={pageAll ? "all" : pageSome ? "some" : "none"} onChange={togglePage} label="全选本页" />
+              <TriCheckbox state={pageAll ? "all" : pageSome ? "some" : "none"} onChange={togglePage} label={t("library.recycle.selectPage")} />
             </span>
-            <span role="columnheader">条目</span>
-            <span role="columnheader">文件 · 品质</span>
-            <span role="columnheader">原因</span>
+            <span role="columnheader">{t("library.recycle.itemColumn")}</span>
+            <span role="columnheader">{t("library.recycle.qualityColumn")}</span>
+            <span role="columnheader">{t("library.recycle.reasonColumn")}</span>
             <span role="columnheader" className="text-right">
-              自动清理 · 操作
+              {t("library.recycle.actionsColumn")}
             </span>
           </div>
         )}
         {items.length === 0 ? (
           <div className="px-4 py-10 text-center text-ui text-[var(--text-muted)]">
-            没有符合条件的待回收文件
-            <button
+            {t("library.recycle.noMatches")}<button
               type="button"
               onClick={() => {
                 setQueryDraft("");
@@ -431,7 +437,7 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
               }}
               className="ml-2 text-[var(--info)] hover:underline"
             >
-              清除筛选
+              {t("library.recycle.clearFilters")}
             </button>
           </div>
         ) : (
@@ -472,9 +478,9 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
       {/* 页脚：范围 + 保留期说明 + 页码 */}
       <div className="mx-6 mt-3 flex flex-wrap items-center justify-between gap-2 text-caption text-[var(--text-faint)] tabular-nums max-md:mx-4">
         <span>
-          {items.length > 0 ? `第 ${pageStart}–${pageEnd} 个条目，共 ${data.total_items} 个条目 · ${data.total_files} 个文件` : ""}
+          {items.length > 0 ? t("library.recycle.pageInfo", { start: pageStart, end: pageEnd, items: data.total_items, files: data.total_files }) : ""}
           {items.length > 0 && " · "}
-          回收站内文件保留 7 天后自动删除
+          {t("library.recycle.retention")}
         </span>
         {pageCount > 1 && (
           <Pager page={pageIndex} count={pageCount} onChange={(p) => setOffset(p * PAGE_SIZE)} />
@@ -483,23 +489,23 @@ export function LibraryRecycleBin({ onCountChange }: { onCountChange?: (total: n
 
       {/* 勾选后的批量条：底部悬浮，不顶掉摘要行 */}
       {selection.count > 0 && (
-        <div className="sticky bottom-4 z-10 mx-auto mt-4 flex w-max max-w-full items-center gap-3 rounded-full border border-white/[0.15] bg-[#1b1f2b] py-2 pl-4 pr-2.5 text-ui shadow-[0_14px_40px_rgba(0,0,0,0.55)]">
+        <div className={`sticky bottom-4 z-10 mx-auto mt-4 flex w-max max-w-full items-center gap-3 rounded-full border border-white/[0.15] bg-[#1b1f2b] py-2 pl-4 pr-2.5 text-ui shadow-[0_14px_40px_rgba(0,0,0,0.55)]${locale === "en" ? " max-sm:bottom-24 max-sm:w-[calc(100%-2rem)] max-sm:flex-wrap max-sm:rounded-2xl" : ""}`}>
           <span className="whitespace-nowrap tabular-nums">
-            已选 <b className="font-semibold">{selection.count}</b> 个文件 · {formatBytes(selection.bytes)}
+            {t.rich("library.recycle.selected", { count: selection.count, bytes: formatBytes(selection.bytes), selectedCount: (chunks) => <b className="font-semibold">{chunks}</b> })}
           </span>
           <div className="flex items-center gap-1.5">
             <ActionButton disabled={busy} onClick={() => runRestore([...selected])}>
-              {isMobile ? "恢复" : "恢复所选"}
+              {isMobile ? t("library.recycle.restore") : t("library.recycle.restoreSelected")}
             </ActionButton>
             <ActionButton danger disabled={busy} onClick={purgeSelected}>
-              {isMobile ? "清理" : "立即清理所选"}
+              {isMobile ? t("library.recycle.purge") : t("library.recycle.purgeSelected")}
             </ActionButton>
             <button
               type="button"
               onClick={() => setSelected(new Set())}
               className="rounded-full px-2.5 py-1 text-caption text-[var(--text-muted)] hover:text-[var(--text)]"
             >
-              取消
+              {t("library.recycle.cancel")}
             </button>
           </div>
         </div>
@@ -524,56 +530,59 @@ interface RowProps {
   onPurge: (files: TrashedFile[], title: string) => void;
 }
 
-function itemTitle(item: TrashedItem): string {
-  return item.media_item?.title ?? item.files[0]?.file_name ?? "未识别文件";
+function itemTitle(item: TrashedItem, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  return item.media_item?.title ?? item.files[0]?.file_name ?? appTranslator(locale)("library.recycle.unrecognized");
 }
 
-function purgeTitle(item: TrashedItem): string {
-  const title = itemTitle(item);
-  return item.file_count > 1 ? `清理「${title}」的 ${item.file_count} 个待回收文件？` : `清理「${title}」的待回收文件？`;
+function purgeTitle(item: TrashedItem, locale: AppLocale = requestLocale() ?? "zh-Hans"): string {
+  const t = appTranslator(locale);
+  const title = itemTitle(item, locale);
+  return item.file_count > 1 ? t("library.recycle.purgeItemMany", { title, count: item.file_count }) : t("library.recycle.purgeItemOne", { title });
 }
 
 /** 桌面端条目行 + 展开的文件行。 */
 function ItemRow(props: RowProps) {
+  const t = useTranslations();
+  const locale = useLocale();
   const { item, expanded, selected, busy, onToggleExpanded, onToggleItem, onToggleFile, onRestore, onPurge } = props;
   const multi = item.file_count > 1;
   const single = !multi ? item.files[0] : null;
-  const quality = single ? fileQualityLine(single) : itemQualityLine(item);
-  const due = itemCountdown(item);
-  const dueTip = dueTooltip(item);
+  const quality = single ? fileQualityLine(single, locale) : itemQualityLine(item, locale);
+  const due = itemCountdown(item, undefined, locale);
+  const dueTip = dueTooltip(item, locale);
   const failedFile = single?.last_error ?? null;
 
   return (
     <div role="rowgroup" className={single?.last_error ? "bg-[rgba(255,107,107,0.06)]" : undefined}>
       <div
         role="row"
-        className={`grid items-center gap-4 px-4 py-3 transition-colors hover:bg-white/[0.025] ${GRID_COLS} ${
+        className={`grid items-center gap-4 px-4 py-3 transition-colors hover:bg-white/[0.025] ${locale === "en" ? EN_GRID_COLS : GRID_COLS} ${
           itemSelection(item, selected) === "all" ? "bg-[rgba(205,214,230,0.07)]" : ""
         }`}
       >
         <div role="cell">
-          <TriCheckbox state={itemSelection(item, selected)} onChange={onToggleItem} label={`选择「${itemTitle(item)}」`} />
+          <TriCheckbox state={itemSelection(item, selected)} onChange={onToggleItem} label={t("library.recycle.selectNamed", { name: itemTitle(item, locale) })} />
         </div>
         <ItemCell item={item} multi={multi} expanded={expanded} onToggleExpanded={onToggleExpanded} />
         <div role="cell" className="min-w-0">
           {single ? (
             <FileName file={single} />
           ) : (
-            <div className="truncate text-ui">
-              <b className="font-semibold">{itemFilesSummary(item).split(" · ")[0]}</b>
-              {itemFilesSummary(item).includes(" · ") && (
-                <span className="text-[var(--text-muted)]"> · {itemFilesSummary(item).split(" · ")[1]}</span>
+            <div className={locale === "en" ? "break-words text-ui" : "truncate text-ui"}>
+              <b className="font-semibold">{itemFilesSummary(item, locale).split(" · ")[0]}</b>
+              {itemFilesSummary(item, locale).includes(" · ") && (
+                <span className="text-[var(--text-muted)]"> · {itemFilesSummary(item, locale).split(" · ")[1]}</span>
               )}
             </div>
           )}
           <QualityText line={quality} />
           {single?.kept_in_place && <KeptBadge />}
-          {failedFile && <p className="mt-1 truncate text-caption text-[var(--danger)]">上次清理失败：{failedFile}</p>}
+          {failedFile && <p className={locale === "en" ? "mt-1 break-words text-caption text-[var(--danger)]" : "mt-1 truncate text-caption text-[var(--danger)]"}>{t("library.recycle.lastFailure")}{failedFile}</p>}
         </div>
         <div role="cell" className="min-w-0">
-          <div className="truncate text-ui">{itemReasonText(item)}</div>
-          <div className="truncate text-caption text-[var(--text-faint)]">
-            {[item.trigger_label, item.latest_trashed_at ? formatRelativeTime(item.latest_trashed_at) : null]
+          <div className={locale === "en" ? "break-words text-ui" : "truncate text-ui"}>{itemReasonText(item, locale)}</div>
+          <div className={locale === "en" ? "break-words text-caption text-[var(--text-faint)]" : "truncate text-caption text-[var(--text-faint)]"}>
+            {[item.trigger_label, item.latest_trashed_at ? formatRelativeTime(item.latest_trashed_at, locale) : null]
               .filter(Boolean)
               .join(" · ")}
           </div>
@@ -584,7 +593,7 @@ function ItemRow(props: RowProps) {
           count={multi ? item.file_count : null}
           busy={busy}
           onRestore={() => onRestore(item.files)}
-          onPurge={() => onPurge(item.files, purgeTitle(item))}
+          onPurge={() => onPurge(item.files, purgeTitle(item, locale))}
         />
       </div>
 
@@ -600,7 +609,7 @@ function ItemRow(props: RowProps) {
             busy={busy}
             onToggle={() => onToggleFile(file.id)}
             onRestore={() => onRestore([file])}
-            onPurge={() => onPurge([file], `清理「${file.file_name}」？`)}
+            onPurge={() => onPurge([file], t("library.recycle.purgeNamed", { name: file.file_name }))}
           />
         ))}
     </div>
@@ -627,24 +636,26 @@ function FileRow({
   onRestore: () => void;
   onPurge: () => void;
 }) {
-  const quality = fileQualityLine(file);
-  const due = countdown(file.purge_after);
+  const t = useTranslations();
+  const locale = useLocale();
+  const quality = fileQualityLine(file, locale);
+  const due = countdown(file.purge_after, undefined, locale);
   const code = episodeCode(file.season_number, file.episode_number);
   // 原因只在与条目行不同时写出（如某集实际被 WEB-DL 而非 BluRay 替换）
   const ownNote = item.note === null && file.note ? file.note : null;
   return (
     <div
       role="row"
-      className={`grid items-center gap-4 bg-white/[0.018] px-4 py-2 text-sub ${GRID_COLS} ${
+      className={`grid items-center gap-4 bg-white/[0.018] px-4 py-2 text-sub ${locale === "en" ? EN_GRID_COLS : GRID_COLS} ${
         checked ? "bg-[rgba(205,214,230,0.07)]" : ""
       } ${last ? "border-b border-white/[0.06]" : ""}`}
     >
       <div role="cell">
-        <TriCheckbox state={checked ? "all" : "none"} onChange={onToggle} label={`选择「${file.file_name}」`} />
+        <TriCheckbox state={checked ? "all" : "none"} onChange={onToggle} label={t("library.recycle.selectNamed", { name: file.file_name })} />
       </div>
       <div role="cell" className="col-span-2 min-w-0 pl-[58px]">
         <FileName file={file} muted />
-        <div className="truncate text-caption text-[var(--text-faint)]">
+        <div className={locale === "en" ? "break-words text-caption text-[var(--text-faint)]" : "truncate text-caption text-[var(--text-faint)]"}>
           {code && (
             <>
               <span className="font-mono font-semibold text-[var(--text)]">{code}</span>
@@ -655,14 +666,14 @@ function FileRow({
           <QualityText line={quality} inline muted />
         </div>
         {file.kept_in_place && <KeptBadge />}
-        {file.last_error && <p className="mt-0.5 truncate text-caption text-[var(--danger)]">上次清理失败：{file.last_error}</p>}
+        {file.last_error && <p className={locale === "en" ? "mt-0.5 break-words text-caption text-[var(--danger)]" : "mt-0.5 truncate text-caption text-[var(--danger)]"}>{t("library.recycle.lastFailure")}{file.last_error}</p>}
       </div>
-      <div role="cell" className="min-w-0 truncate text-caption text-[var(--text-faint)]">
+      <div role="cell" className={locale === "en" ? "min-w-0 break-words text-caption text-[var(--text-faint)]" : "min-w-0 truncate text-caption text-[var(--text-faint)]"}>
         {ownNote}
       </div>
       <OpsCell
         due={due}
-        tip={file.purge_after ? formatDateTime(file.purge_after) : null}
+        tip={file.purge_after ? formatDateTime(file.purge_after, locale) : null}
         count={null}
         busy={busy}
         compact
@@ -675,15 +686,17 @@ function FileRow({
 
 /** 手机端：一个条目一卡，读法与桌面同构（种子名 / 品质 / 原因 / 倒计时 + 按钮）。 */
 function ItemCard(props: RowProps) {
+  const t = useTranslations();
+  const locale = useLocale();
   const { item, expanded, selected, busy, onToggleExpanded, onToggleItem, onToggleFile, onRestore, onPurge } = props;
   const multi = item.file_count > 1;
   const single = !multi ? item.files[0] : null;
-  const quality = single ? fileQualityLine(single) : itemQualityLine(item);
-  const due = itemCountdown(item);
+  const quality = single ? fileQualityLine(single, locale) : itemQualityLine(item, locale);
+  const due = itemCountdown(item, undefined, locale, locale === "en");
   return (
     <div className={`px-4 py-3.5 ${itemSelection(item, selected) === "all" ? "bg-[rgba(205,214,230,0.07)]" : ""}`}>
       <div className="flex items-center gap-3">
-        <TriCheckbox state={itemSelection(item, selected)} onChange={onToggleItem} label={`选择「${itemTitle(item)}」`} />
+        <TriCheckbox state={itemSelection(item, selected)} onChange={onToggleItem} label={t("library.recycle.selectNamed", { name: itemTitle(item, locale) })} />
         <ItemIdentity item={item} />
       </div>
       {single ? (
@@ -691,24 +704,24 @@ function ItemCard(props: RowProps) {
       ) : (
         <button type="button" onClick={onToggleExpanded} className="mt-2 flex items-center gap-1.5 text-ui">
           <ChevronDownIcon className={`size-3.5 text-[var(--text-faint)] transition-transform ${expanded ? "" : "-rotate-90"}`} />
-          <b className="font-semibold">{itemFilesSummary(item)}</b>
-          <span className="text-caption text-[var(--text-faint)]">{expanded ? "收起" : "展开"}</span>
+          <b className="font-semibold">{itemFilesSummary(item, locale)}</b>
+          <span className="text-caption text-[var(--text-faint)]">{expanded ? t("library.recycle.collapse") : t("library.recycle.expand")}</span>
         </button>
       )}
       <div className="mt-1 text-caption text-[var(--text-faint)]">
         <QualityText line={quality} inline wrap />
       </div>
       {single?.kept_in_place && <KeptBadge />}
-      {single?.last_error && <p className="mt-1 text-caption text-[var(--danger)]">上次清理失败：{single.last_error}</p>}
-      <div className="mt-1 text-sub text-[var(--text-muted)]">{itemReasonText(item)}</div>
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <DueText due={due} suffix="自动清理" />
+      {single?.last_error && <p className="mt-1 text-caption text-[var(--danger)]">{t("library.recycle.lastFailure")}{single.last_error}</p>}
+      <div className="mt-1 text-sub text-[var(--text-muted)]">{itemReasonText(item, locale)}</div>
+      <div className={`mt-2 flex items-center justify-between gap-2${locale === "en" ? " flex-wrap" : ""}`}>
+        <DueText due={due} suffix={t("library.recycle.automatic")} />
         <div className="flex items-center gap-1.5">
           <ActionButton disabled={busy} onClick={() => onRestore(item.files)}>
-            恢复{multi ? ` ${item.file_count}` : ""}
+            {multi ? t("library.recycle.restoreActionCount", { count: item.file_count }) : t("library.recycle.restore")}
           </ActionButton>
-          <ActionButton danger disabled={busy} onClick={() => onPurge(item.files, purgeTitle(item))}>
-            清理{multi ? ` ${item.file_count}` : ""}
+          <ActionButton danger disabled={busy} onClick={() => onPurge(item.files, purgeTitle(item, locale))}>
+            {multi ? t("library.recycle.purgeActionCount", { count: item.file_count }) : t("library.recycle.purge")}
           </ActionButton>
         </div>
       </div>
@@ -716,17 +729,17 @@ function ItemCard(props: RowProps) {
         <div className="mt-2 divide-y divide-white/[0.06] border-t border-white/[0.06]">
           {item.files.map((file) => {
             const code = episodeCode(file.season_number, file.episode_number);
-            const fileDue = countdown(file.purge_after);
+            const fileDue = countdown(file.purge_after, undefined, locale, true);
             return (
               <div key={file.id} className="grid grid-cols-[16px_minmax(0,1fr)_auto] gap-x-2 gap-y-0.5 py-2 text-caption">
                 <TriCheckbox
                   state={selected.has(file.id) ? "all" : "none"}
                   onChange={() => onToggleFile(file.id)}
-                  label={`选择「${file.file_name}」`}
+                  label={t("library.recycle.selectNamed", { name: file.file_name })}
                   className="mt-0.5"
                 />
                 <FileName file={file} muted clamp />
-                <DueText due={fileDue} className="row-span-2 self-start text-right" short />
+                <DueText due={fileDue} className="row-span-2 self-start text-right" />
                 <div className="col-start-2 text-[var(--text-faint)]">
                   {code && (
                     <>
@@ -735,15 +748,13 @@ function ItemCard(props: RowProps) {
                       <span aria-hidden> · </span>
                     </>
                   )}
-                  <QualityText line={fileQualityLine(file)} inline muted wrap />
+                  <QualityText line={fileQualityLine(file, locale)} inline muted wrap />
                 </div>
                 <div className="col-start-2 flex items-center gap-1.5 pt-1">
                   <ActionButton small disabled={busy} onClick={() => onRestore([file])}>
-                    恢复
-                  </ActionButton>
-                  <ActionButton small danger disabled={busy} onClick={() => onPurge([file], `清理「${file.file_name}」？`)}>
-                    清理
-                  </ActionButton>
+                    {t("library.recycle.restore")}</ActionButton>
+                  <ActionButton small danger disabled={busy} onClick={() => onPurge([file], t("library.recycle.purgeNamed", { name: file.file_name }))}>
+                    {t("library.recycle.purge")}</ActionButton>
                   {file.kept_in_place && <KeptBadge inline />}
                 </div>
               </div>
@@ -771,13 +782,14 @@ function ItemCell({
   expanded: boolean;
   onToggleExpanded: () => void;
 }) {
+  const t = useTranslations();
   return (
     <div role="cell" className="flex min-w-0 items-center gap-2">
       {multi ? (
         <button
           type="button"
           aria-expanded={expanded}
-          aria-label={expanded ? "收起文件" : `展开 ${item.file_count} 个文件`}
+          aria-label={expanded ? t("library.recycle.collapseFiles") : t("library.recycle.expandCount", { count: item.file_count })}
           onClick={onToggleExpanded}
           className="grid size-5 shrink-0 place-items-center rounded text-[var(--text-faint)] hover:bg-white/[0.08] hover:text-[var(--text)]"
         >
@@ -793,6 +805,7 @@ function ItemCell({
 
 /** 海报 + 片名（链到条目详情页）+ 年份，第二行库名 · 季。 */
 function ItemIdentity({ item }: { item: TrashedItem }) {
+  const locale = useLocale();
   const media = item.media_item;
   const seasons = seasonsLabel(item.seasons);
   return (
@@ -810,11 +823,11 @@ function ItemIdentity({ item }: { item: TrashedItem }) {
               {media.title}
             </Link>
           ) : (
-            <span className="truncate">{itemTitle(item)}</span>
+            <span className="truncate">{itemTitle(item, locale)}</span>
           )}
           {media?.year && <span className="shrink-0 font-normal text-[var(--text-faint)]">{media.year}</span>}
         </div>
-        <div className="truncate text-caption text-[var(--text-faint)]">
+        <div className={locale === "en" ? "break-words text-caption text-[var(--text-faint)]" : "truncate text-caption text-[var(--text-faint)]"}>
           {item.library.name}
           {seasons && ` · ${seasons}`}
         </div>
@@ -840,23 +853,25 @@ function FileName({
   clamp?: boolean;
   className?: string;
 }) {
+  const t = useTranslations();
+  const locale = useLocale();
   return (
     <Tooltip
       openOnClick
-      maxWidth={560}
+      maxWidth={locale === "en" ? "min(560px, calc(100vw - 1rem))" : 560}
       content={
         <div className="space-y-2 text-caption leading-5">
           <div>
-            <div className="text-[var(--text-faint)]">原路径（恢复回这里）</div>
+            <div className="text-[var(--text-faint)]">{t("library.recycle.originalPath")}</div>
             <div className="break-all font-mono text-[var(--text)]">
               {file.trash_original_path ?? file.file_path}
             </div>
           </div>
           <div>
-            <div className="text-[var(--text-faint)]">现在的位置</div>
+            <div className="text-[var(--text-faint)]">{t("library.recycle.currentPath")}</div>
             <div className="break-all font-mono text-[var(--text)]">
               {file.kept_in_place
-                ? "仍在原路径（移入回收站失败，清理时按这个路径删除）"
+                ? t("library.recycle.keptPath")
                 : file.file_path}
             </div>
           </div>
@@ -865,7 +880,7 @@ function FileName({
     >
       <button
         type="button"
-        aria-label={`查看「${file.file_name}」的存放路径`}
+        aria-label={t("library.recycle.viewPath", { name: file.file_name })}
         className={`block max-w-full text-left font-mono text-caption decoration-white/30 hover:underline ${
           muted ? "text-[var(--text-muted)]" : "text-[var(--text)]"
         } ${
@@ -892,10 +907,13 @@ function QualityText({
   muted?: boolean;
   wrap?: boolean;
 }) {
+  const locale = useLocale();
+  const shouldWrap = wrap || locale === "en";
+  const wrapClass = locale === "en" ? "break-words" : "";
   const body = (
     <>
       {line.tiers.map((tier, i) => (
-        <span key={tier.label}>
+        <span key={tier.key ?? tier.label}>
           {i > 0 && <span className="text-[var(--text-faint)]"> · </span>}
           <b className={`${muted ? "font-medium text-[var(--text-muted)]" : "font-semibold text-[var(--text)]"}`}>{tier.label}</b>
           {tier.count !== null && <span className="ml-1 text-micro text-[var(--text-faint)]">{tier.count}</span>}
@@ -917,43 +935,43 @@ function QualityText({
       ))}
     </>
   );
-  if (inline) return <span className={wrap ? "" : "whitespace-nowrap"}>{body}</span>;
-  return <div className={`mt-0.5 text-caption ${wrap ? "" : "truncate"}`}>{body}</div>;
+  if (inline) return <span className={shouldWrap ? wrapClass : "whitespace-nowrap"}>{body}</span>;
+  return <div className={`mt-0.5 text-caption ${shouldWrap ? wrapClass : "truncate"}`}>{body}</div>;
 }
 
 function KeptBadge({ inline = false }: { inline?: boolean }) {
+  const t = useTranslations();
   return (
     <span
-      title="移入回收站失败，文件仍在原路径；清理按当前路径删除"
+      title={t("library.recycle.keptTooltip")}
       className={`inline-flex rounded-full border border-[rgba(245,196,81,0.4)] px-1.5 text-micro text-[var(--warn)] ${inline ? "" : "mt-1"}`}
     >
-      原地
+      {t("library.recycle.kept")}
     </span>
   );
 }
 
-function dueTooltip(item: TrashedItem): string | null {
+function dueTooltip(item: TrashedItem, locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
+  const t = appTranslator(locale);
   if (!item.earliest_purge_after) return null;
   if (item.file_count > 1 && item.latest_purge_after) {
-    return `最早 ${formatDateTime(item.earliest_purge_after)} · 最晚 ${formatDateTime(item.latest_purge_after)}`;
+    return t("library.recycle.dueRange", { earliest: formatDateTime(item.earliest_purge_after, locale), latest: formatDateTime(item.latest_purge_after, locale) });
   }
-  return formatDateTime(item.earliest_purge_after);
+  return formatDateTime(item.earliest_purge_after, locale);
 }
 
 function DueText({
   due,
   suffix,
-  short = false,
   className = "",
 }: {
   due: Countdown;
   suffix?: string;
-  short?: boolean;
   className?: string;
 }) {
   const tone =
     due.tone === "soon" ? "font-semibold text-[var(--warn)]" : due.tone === "never" ? "text-[var(--text-faint)]" : "text-[var(--text-muted)]";
-  const text = short ? due.text.replace(/后$/, "").replace(/^最早 /, "") : due.text;
+  const text = due.text;
   return (
     <span className={`whitespace-nowrap text-caption tabular-nums ${tone} ${className}`}>
       {text}
@@ -980,6 +998,7 @@ function OpsCell({
   onRestore: () => void;
   onPurge: () => void;
 }) {
+  const t = useTranslations();
   return (
     <div role="cell" className="flex flex-col items-end gap-1">
       <span title={tip ?? undefined}>
@@ -987,10 +1006,10 @@ function OpsCell({
       </span>
       <div className="flex items-center gap-1.5">
         <ActionButton small={compact} disabled={busy} onClick={onRestore}>
-          恢复{count ? ` ${count}` : ""}
+          {count ? t("library.recycle.restoreActionCount", { count }) : t("library.recycle.restore")}
         </ActionButton>
         <ActionButton small={compact} danger disabled={busy} onClick={onPurge}>
-          清理{count ? ` ${count}` : ""}
+          {count ? t("library.recycle.purgeActionCount", { count }) : t("library.recycle.purge")}
         </ActionButton>
       </div>
     </div>
@@ -1073,6 +1092,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 
 /** 页码：‹ 1 2 … 7 ›，当前页前后各两页，其余折成省略号。 */
 function Pager({ page, count, onChange }: { page: number; count: number; onChange: (page: number) => void }) {
+  const t = useTranslations();
   const pages: (number | "…")[] = [];
   for (let i = 0; i < count; i += 1) {
     if (i === 0 || i === count - 1 || Math.abs(i - page) <= 2) pages.push(i);
@@ -1080,8 +1100,8 @@ function Pager({ page, count, onChange }: { page: number; count: number; onChang
   }
   const btn = "grid h-7 min-w-7 place-items-center rounded-lg border text-caption tabular-nums transition";
   return (
-    <nav aria-label="分页" className="flex items-center gap-1">
-      <button type="button" disabled={page === 0} onClick={() => onChange(page - 1)} className={`${btn} border-transparent text-[var(--text-muted)] hover:bg-white/[0.06] disabled:opacity-40`} aria-label="上一页">
+    <nav aria-label={t("library.recycle.pagination")} className="flex items-center gap-1">
+      <button type="button" disabled={page === 0} onClick={() => onChange(page - 1)} className={`${btn} border-transparent text-[var(--text-muted)] hover:bg-white/[0.06] disabled:opacity-40`} aria-label={t("library.recycle.previous")}>
         ‹
       </button>
       {pages.map((p, i) =>
@@ -1101,7 +1121,7 @@ function Pager({ page, count, onChange }: { page: number; count: number; onChang
           </button>
         ),
       )}
-      <button type="button" disabled={page >= count - 1} onClick={() => onChange(page + 1)} className={`${btn} border-transparent text-[var(--text-muted)] hover:bg-white/[0.06] disabled:opacity-40`} aria-label="下一页">
+      <button type="button" disabled={page >= count - 1} onClick={() => onChange(page + 1)} className={`${btn} border-transparent text-[var(--text-muted)] hover:bg-white/[0.06] disabled:opacity-40`} aria-label={t("library.recycle.next")}>
         ›
       </button>
     </nav>

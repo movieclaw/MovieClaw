@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
+
 from movieclaw_enrich.models import TorrentAttrs
 from movieclaw_matcher import MediaIdentity, TorrentCandidate, match_identity
 from movieclaw_matcher.identity import (
@@ -787,3 +789,87 @@ def test_twin_discriminator_never_speaks_without_evidence() -> None:
 
     no_res = _sized("Movie 2026 WEB-DL", 1.0, media_type="movie")
     assert better_explained_by_twin(no_res, 210, {999: 45}) is None
+
+
+# ---------------------------------------------------------------------------
+# 反证：包声明的总集数 vs 条目已播集数
+# ---------------------------------------------------------------------------
+
+
+def _staircase(
+    total: int = 8,
+    imdb_id: str | None = None,
+    year: int | None = None,
+    published: datetime = datetime(2024, 3, 16, 13, 6, 14),
+) -> TorrentCandidate:
+    """真实样本（NAS chdbits/337980）：2022 年 HBO 同名剧，标题不带年份。"""
+    return TorrentCandidate(
+        site_id="chdbits",
+        torrent_id="337980",
+        title="The Staircase S01 2160p Max WEB-DL DDP5.1 Atmos DoVi HDR H.265-CHDWEB",
+        subtitle=f"官方 中字 美剧：阶梯之间 全{total}集 /小说家杀妻案 | 4K DV HDR10",
+        attrs=TorrentAttrs(
+            media_type="tv",
+            titles_zh=["阶梯之间", "说家杀妻案"],
+            titles_en=["The Staircase"],
+            seasons=[1],
+            episodes_total=total,
+            complete=True,
+            resolution="2160p",
+            year=year,
+        ),
+        imdb_id=imdb_id,
+        publish_time=published,
+    )
+
+
+def _docuseries(*air_dates: date, imdb_id: str | None = None) -> MediaIdentity:
+    """《楼梯杀妻案》（TMDB 21421，2004）：第 1 季的已播集。"""
+    return _tv(
+        ["楼梯杀妻案", "Soupçons", "Death on the Staircase", "The Staircase"],
+        2004,
+        seasons=(1,),
+        imdb_id=imdb_id,
+        aired_episodes=tuple((1, day) for day in air_dates),
+    )
+
+
+_AIRED_2018 = [date(2018, 6, 8) + timedelta(days=n) for n in range(13)]
+
+
+def test_declared_total_far_below_aired_is_identity_conflict() -> None:
+    match = match_identity(_staircase(), _docuseries(*_AIRED_2018))
+    assert match is not None and match.confidence == "title_only"
+    assert match.id_conflict == "资源声明全 8 集，本条目第 1 季在其发布前已播出 13 集"
+    # 同一部他剧标了自己的年份（The Staircase 2022 S01），剧集年份只校验下限，照样要拦
+    match = match_identity(_staircase(year=2022), _docuseries(*_AIRED_2018))
+    assert match is not None and match.confidence == "title_year" and match.id_conflict
+
+
+def test_year_matching_the_season_is_a_shorter_cut_not_another_show() -> None:
+    """真实样本（NAS 校准）：中餐厅 2024 S08 NF 版全 8 集，TMDB 该季记了 12 期。"""
+    aired = [date(2024, 4, 26) + timedelta(weeks=n) for n in range(12)]
+    candidate = _staircase(year=2024, published=datetime(2024, 8, 1))
+    assert match_identity(candidate, _docuseries(*aired)).id_conflict is None
+
+
+def test_declared_total_close_to_or_above_aired_is_not_conflict() -> None:
+    # 36 vs 40：播出版/网络版的常见差异；27 vs 6：TMDB 少录集数（#640）
+    for total, aired in ((36, 40), (27, 6), (8, 8), (11, 13)):
+        dates = [date(2018, 1, 1) + timedelta(days=n) for n in range(aired)]
+        match = match_identity(_staircase(total), _docuseries(*dates))
+        assert match is not None and match.id_conflict is None, (total, aired)
+
+
+def test_only_episodes_aired_before_publish_count() -> None:
+    # 季还在播：发布时只播了 8 集，「全8集」是当时的全部
+    dates = [date(2024, 3, 1) + timedelta(days=n) for n in range(8)]
+    dates += [date(2024, 5, 1) + timedelta(days=n) for n in range(5)]
+    assert match_identity(_staircase(), _docuseries(*dates)).id_conflict is None
+
+
+def test_exact_id_overrides_count_conflict() -> None:
+    match = match_identity(
+        _staircase(imdb_id="tt0388644"), _docuseries(*_AIRED_2018, imdb_id="tt0388644")
+    )
+    assert match is not None and match.confidence == "exact_id" and match.id_conflict is None

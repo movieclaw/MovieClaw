@@ -8,10 +8,10 @@ struct DiscoverLogicTests {
     @Test func tabTapReturnsToRoot() {
         let router = Router()
         for tab in MainTab.allCases {
-            router.paths[tab] = [.settings]
+            router.paths[.tab(tab)] = [.settings]
             router.selectTab(tab)
             #expect(router.selectedTab == tab)
-            #expect(router.paths[tab] == [])
+            #expect(router.paths[.tab(tab)] == [])
         }
     }
 

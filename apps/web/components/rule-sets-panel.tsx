@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
+import { appTranslator, type AppMessageKey } from "@/lib/i18n/translate";
+import type { AppLocale } from "@/lib/i18n/negotiate";
+import { useMessageState } from "@/lib/i18n/use-message-state";
+import { ruleSetLabel } from "@/lib/rule-set-label";
 
 
 import { useConfirm, useToast } from "@/components/feedback";
@@ -36,8 +41,9 @@ import { PLATFORM_OPTIONS, platformLabel } from "@/lib/platforms";
 import {
   CODEC_FAMILIES,
   DEFAULT_LADDER,
-  LADDER_OPTIONS,
-  MEDIA_SOURCE_OPTIONS,
+  ladderOptions,
+  mediaSourceOptions,
+  mediaSourceLabel,
   upgradeLadderPreview,
   type UpgradeLadderPreview,
 } from "@/lib/upgrade-ladder";
@@ -71,39 +77,41 @@ interface EditorTarget {
 }
 
 export function RuleSetsPanel({ onPreview }: { onPreview: () => void }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const confirm = useConfirm();
   const toast = useToast();
   const [ruleSets, setRuleSets] = useState<RuleSet[] | null>(null);
   const [editing, setEditing] = useState<EditorTarget | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
   const routingOptions = useRoutingOptions();
 
-  const reload = () => {
+  const reload = useCallback(() => {
     void listRuleSets()
       .then((rows) => {
         setRuleSets(rows);
         setError(null);
       })
       .catch(() => setRuleSets([]));
-  };
+  }, [setError]);
 
-  useEffect(reload, []);
+  useEffect(reload, [reload]);
 
   const makeDefault = async (rs: RuleSet) => {
     try {
       await setDefaultRuleSet(rs.id);
-      toast.success(`「${rs.name}」已设为默认规则组`);
+      toast.success(t("subscription.rules.defaultSaved", { name: ruleSetLabel(rs, locale) }));
       reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "设置失败，请稍后重试");
+      setError(e instanceof Error ? e.message : { key: "subscription.rules.defaultFailed" });
     }
   };
 
   const remove = async (rs: RuleSet) => {
     if (
       !(await confirm({
-        title: `删除规则组「${rs.name}」？`,
-        confirmLabel: "删除",
+        title: t("subscription.rules.deleteTitle", { name: ruleSetLabel(rs, locale) }),
+        confirmLabel: t("common.delete"),
         tone: "danger",
       }))
     ) {
@@ -113,30 +121,25 @@ export function RuleSetsPanel({ onPreview }: { onPreview: () => void }) {
       await deleteRuleSet(rs.id);
       reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "删除失败，请稍后重试");
+      setError(e instanceof Error ? e.message : { key: "subscription.rules.deleteFailed" });
     }
   };
 
   return (
     <SettingsSection
-      title="规则组"
-      description="规则组定义「什么样的资源可接受」——硬性条件（分辨率、编码、体积、免费等）与偏好顺序。"
-      footnote={
-        // 中文不能在 JSX 里折行：折行处会渲染成一个多余的空格
-        "给规则组设置「适用范围」（电影/剧集、区域、类型）后，订阅时会自动选中匹配的组：" +
-        "多个组都匹配时条件更多的优先，都不匹配时用标「默认」的组。" +
-        "修改只影响之后的资源评估，已下载的内容不受影响。"
-      }
+      title={t("subscription.rules.title")}
+      description={t("subscription.rules.description")}
+      footnote={t("subscription.rules.footnote")}
       action={
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={onPreview} className={SETTINGS_BUTTON_CLASS}>预览匹配</button>
+          <button type="button" onClick={onPreview} className={SETTINGS_BUTTON_CLASS}>{t("subscription.rules.preview")}</button>
           <button
             type="button"
             onClick={() => setEditing({ ruleSet: null, template: null })}
             className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`}
           >
             <PlusIcon className="size-4" />
-            新建规则组
+            {t("subscription.rules.create")}
           </button>
         </div>
       }
@@ -149,26 +152,26 @@ export function RuleSetsPanel({ onPreview }: { onPreview: () => void }) {
 
       {ruleSets === null ? (
         <p className="css-glass !rounded-xl px-4 py-4 text-ui text-[var(--text-muted)]">
-          正在加载…
+          {t("common.loading")}
         </p>
       ) : ruleSets.length === 0 ? (
-        <SettingsEmpty title="还没有规则组" description="点「新建规则组」创建。" />
+        <SettingsEmpty title={t("subscription.rules.empty")} description={t("subscription.rules.emptyHint")} />
       ) : (
         <div
           role="list"
-          aria-label="规则组列表"
+          aria-label={t("subscription.rules.listLabel")}
           className="css-glass divide-y divide-[var(--line)] overflow-hidden !rounded-xl"
         >
           {ruleSets.map((rs) => (
             <RuleSetRow
               key={rs.id}
               ruleSet={rs}
-              scope={scopeSummary(rs.match_rules, routingOptions)}
+              scope={scopeSummary(rs.match_rules, routingOptions, locale)}
               onEdit={() => setEditing({ ruleSet: rs, template: null })}
               onCopy={() =>
                 setEditing({
                   ruleSet: null,
-                  template: { name: `${rs.name} 副本`, spec: rs.spec },
+                  template: { name: t("subscription.rules.copyName", { name: ruleSetLabel(rs, locale) }), spec: rs.spec },
                 })
               }
               onSetDefault={() => void makeDefault(rs)}
@@ -179,8 +182,8 @@ export function RuleSetsPanel({ onPreview }: { onPreview: () => void }) {
       )}
 
       <details className="mt-4 text-sub text-[var(--text-muted)]">
-        <summary className="cursor-pointer py-2">匹配与修改说明</summary>
-        <p className="mt-1 leading-relaxed">多个规则组都适用时，条件更多的优先；没有匹配时使用默认组。修改只影响之后的资源评估，已下载内容不受影响。</p>
+        <summary className="cursor-pointer py-2">{t("subscription.rules.helpTitle")}</summary>
+        <p className="mt-1 leading-relaxed">{t("subscription.rules.help")}</p>
       </details>
 
       {editing !== null && (
@@ -230,11 +233,13 @@ function RuleSetRow({
   onSetDefault: () => void;
   onDelete: () => void;
 }) {
-  const chips = specSummary(rs.spec);
+  const locale = useLocale();
+  const t = useTranslations();
+  const chips = specSummary(rs.spec, {}, locale);
   const deleteBlock = rs.is_default
-    ? "默认组不可删"
+    ? t("subscription.rules.defaultProtected")
     : rs.reference_count > 0
-      ? `${rs.reference_count} 个订阅在用`
+      ? t("subscription.rules.inUse", { count: rs.reference_count })
       : null;
 
   return (
@@ -246,41 +251,41 @@ function RuleSetRow({
             onClick={onEdit}
             className="truncate text-left text-ui font-semibold text-white hover:underline"
           >
-            {rs.name}
+            {ruleSetLabel(rs, locale)}
           </button>
-          {rs.is_default && <span className={BADGE}>默认</span>}
+          {rs.is_default && <span className={BADGE}>{t("subscription.rules.defaultBadge")}</span>}
         </div>
         <p className="mt-0.5 text-caption leading-5 text-[var(--text-faint)]">
-          <span title="新订阅的作品符合这些条件时自动选用本组">
+          <span title={t("subscription.rules.scopeTooltip")}>
             {scope ? (
               <>
-                适用 <span className="text-[var(--text-muted)]">{scope}</span>
+                {t.rich("subscription.rules.applies", { value: scope, scope: (chunks) => <span className="text-[var(--text-muted)]">{chunks}</span> })}
               </>
             ) : rs.is_default ? (
-              "其他组都不适用时兜底"
+              t("subscription.rules.fallbackScope")
             ) : (
-              "未设适用范围，仅手动选用"
+              t("subscription.rules.manualScope")
             )}
           </span>
           {rs.reference_count > 0 && (
-            <span className="tnum"> · {rs.reference_count} 个订阅使用中</span>
+            <span className="tnum">{t("subscription.rules.usedBy", { count: rs.reference_count })}</span>
           )}
         </p>
       </div>
 
       <div className="flex justify-end">
         <SettingsMoreMenu
-          label={`「${rs.name}」的操作`}
+          label={t("subscription.rules.actions", { name: ruleSetLabel(rs, locale) })}
           items={[
-            { label: "编辑", onSelect: onEdit },
-            { label: "复制为新组", onSelect: onCopy },
+            { label: t("subscription.rules.editAction"), onSelect: onEdit },
+            { label: t("subscription.rules.copy"), onSelect: onCopy },
             {
-              label: rs.is_default ? "已是默认组" : "设为默认组",
+              label: rs.is_default ? t("subscription.rules.alreadyDefault") : t("subscription.rules.makeDefault"),
               onSelect: onSetDefault,
               disabled: rs.is_default,
             },
             {
-              label: "删除",
+              label: t("common.delete"),
               onSelect: onDelete,
               disabled: deleteBlock !== null,
               danger: true,
@@ -294,7 +299,7 @@ function RuleSetRow({
       <div className="col-span-2 mt-2 flex flex-wrap gap-1.5">
         {chips.length === 0 ? (
           <span className="text-caption text-[var(--text-faint)]">
-            全不限：任何识别为本条目的资源都可接受
+            {t("subscription.rules.unrestricted")}
           </span>
         ) : (
           chips.map((chip) => (
@@ -341,13 +346,14 @@ function buildScope(kind: ScopeKind, regions: string[], genres: number[]): Scope
 }
 
 /** 适用范围的一句话摘要（如「剧集 · 日韩 · 动画」）；未声明返回 null。 */
-function scopeSummary(rules: ScopeRule[], options: RoutingOptions | null): string | null {
+function scopeSummary(rules: ScopeRule[], options: RoutingOptions | null, locale: AppLocale): string | null {
+  const t = appTranslator(locale);
   if (!rules.length) return null;
   const { kind, regions, genres } = parseScope(rules);
   const parts: string[] = [];
-  if (kind) parts.push(kind === "movie" ? "电影" : "剧集");
+  if (kind) parts.push(kind === "movie" ? t("media.kind.movie") : t("media.kind.tv"));
   if (regions.length) {
-    parts.push(options ? regionLabels(regions, options).join("/") : `${regions.length} 个区域`);
+    parts.push(options ? regionLabels(regions, options).join("/") : t("subscription.rules.regions", { count: regions.length }));
   }
   if (genres.length) {
     parts.push(
@@ -356,7 +362,7 @@ function scopeSummary(rules: ScopeRule[], options: RoutingOptions | null): strin
             .filter((g) => genres.includes(g.id))
             .map((g) => g.label)
             .join("/")
-        : `${genres.length} 个类型`,
+        : t("subscription.rules.genres", { count: genres.length }),
     );
   }
   return parts.join(" · ");
@@ -371,46 +377,57 @@ const RESOLUTION_OPTIONS = ["2160p", "1080p", "720p"];
 
 // 语言值与 movieclaw_enrich.lang_decl 的 BCP 47 输出对齐；任一命中即过。
 // "zh" 前缀匹配简/繁/未标简繁的一切中文声明——日常"要中文字幕"选它就够
-const SUB_LANG_OPTIONS: [string, string][] = [
-  ["zh", "中文（不限简繁）"],
-  ["zh-Hans", "简体中文"],
-  ["zh-Hant", "繁体中文"],
-  ["en", "英文"],
-];
-const AUDIO_LANG_OPTIONS: [string, string][] = [
-  ["cmn", "国语"],
-  ["yue", "粤语"],
-  ["ja", "日语"],
-  ["en", "英语"],
-];
+function subLangOptions(locale: AppLocale) {
+  const t = appTranslator(locale);
+  const options: [string, string][] = [
+    ["zh", t("subscription.rules.subtitleChinese")],
+    ["zh-Hans", t("subscription.rules.subtitleSimplified")],
+    ["zh-Hant", t("subscription.rules.subtitleTraditional")],
+    ["en", t("subscription.rules.subtitleEnglish")],
+  ];
+  return options;
+}
+function audioLangOptions(locale: AppLocale) {
+  const t = appTranslator(locale);
+  const options: [string, string][] = [
+    ["cmn", t("subscription.rules.audioMandarin")],
+    ["yue", t("subscription.rules.audioCantonese")],
+    ["ja", t("subscription.rules.audioJapanese")],
+    ["en", t("subscription.rules.audioEnglish")],
+  ];
+  return options;
+}
 
 /**
  * 洗版目标片源档的三个选项就是全部预设（docs/design/quality-upgrade.md §8.2）
  * ——没有需要照抄的社区配置。目标分辨率缺省取分辨率偏好的第一位。
  */
-const UPGRADE_OPTIONS: [
-  NonNullable<RuleSetSpec["upgrade_source"]> & string,
-  string,
-][] = [
-  ["web-dl", "洗到 WEB-DL"],
-  ["blu-ray", "洗到蓝光"],
-  ["remux", "洗到 Remux"],
-];
-const UPGRADE_SOURCE_LABEL: Record<string, string> = {
-  "web-dl": "WEB-DL",
-  "blu-ray": "蓝光",
-  remux: "Remux",
-};
-
-/** 片源档规范值 → 展示名；未知值原样返回（与 platformLabel 同一取向）。 */
-const mediaSourceLabel = (value: string): string =>
-  MEDIA_SOURCE_OPTIONS.find((option) => option.value === value)?.label ?? value;
+function upgradeOptions(locale: AppLocale) {
+  const t = appTranslator(locale);
+  const options: [
+    NonNullable<RuleSetSpec["upgrade_source"]> & string,
+    string,
+  ][] = [
+    ["web-dl", t("subscription.rules.upgradeWeb")],
+    ["blu-ray", t("subscription.rules.upgradeBluray")],
+    ["remux", t("subscription.rules.upgradeRemux")],
+  ];
+  return options;
+}
 
 /**
  * HDR 值域（顺序即编辑器里的芯片顺序）。"SDR" 是哨兵值 = 资源未标注任何
  * HDR 格式——命名惯例里 HDR 属"缺席即否定"的强标记。
  */
 const HDR_OPTIONS = ["DV", "HDR10+", "HDR10", "HLG", "SDR"];
+
+/**
+ * 只能「排除」的 HDR 项：它不是标题里的记号，而是后端按命名约定与站点标记得出的判定
+ * （movieclaw_matcher.formats）。「DV P5」= 只标了 DV、没有 HDR10 兼容层的杜比视界
+ * （Profile 5），服务器转码会偏绿偏紫；与「DV」（整类）不同，带 HDR10 兼容层的 P8/P7 不受影响。
+ * 「只要 P5」没有意义，所以它不进三态循环，只在「不限 ↔ 排除」之间切。
+ */
+const HDR_BLOCK_ONLY = ["DV P5"];
 
 /**
  * 旧三态字段 → (白名单, 黑名单)。与后端 models._hdr_from_legacy 同一张表，
@@ -437,12 +454,13 @@ function hdrFromLegacy(spec: RuleSetSpec): { levels: string[]; block: string[] }
  * 换算出来的形态）说人话，避免清单里出现 "HDR DV/HDR10+/HDR10/HLG" 这种
  * 又长又没信息量的芯片。
  */
-function hdrChipText(levels: string[]): string {
+function hdrChipText(levels: string[], locale: AppLocale): string {
+  const t = appTranslator(locale);
   const family = HDR_OPTIONS.filter((v) => v !== "SDR");
   if (levels.length === family.length && family.every((v) => levels.includes(v))) {
-    return "必须 HDR";
+    return t("subscription.rules.requireHdr");
   }
-  if (levels.length === 1 && levels[0] === "SDR") return "排除 HDR";
+  if (levels.length === 1 && levels[0] === "SDR") return t("subscription.rules.excludeHdr");
   return `HDR ${levels.join("/")}`;
 }
 
@@ -450,11 +468,11 @@ const sameLadder = (a: string[], b: string[]) =>
   a.length === b.length && a.every((v, i) => v === b[i]);
 
 /** 洗版目标的人话标签（摘要芯片 / 订阅详情页规则组 fact 复用）。 */
-export function upgradeTargetLabel(spec: RuleSetSpec): string | null {
+export function upgradeTargetLabel(spec: RuleSetSpec, locale: AppLocale = "zh-Hans"): string | null {
   if (!spec.upgrade_source) return null;
   const resolution = spec.cutoff_resolution || spec.resolutions?.[0] || "1080p";
   const parts = [
-    `${resolution} ${UPGRADE_SOURCE_LABEL[spec.upgrade_source] ?? spec.upgrade_source}`,
+    `${resolution} ${mediaSourceLabel(spec.upgrade_source, locale)}`,
   ];
   // 与后端 decision.upgrade_target_label 同一口径：只渲染"进了阶梯且配了偏好"
   // 的维度（偏好为空的位后端会自动跳过）
@@ -466,7 +484,7 @@ export function upgradeTargetLabel(spec: RuleSetSpec): string | null {
     parts.push(spec.video_codecs[0]);
   }
   if (ladder.includes("platform") && spec.platforms?.length) {
-    parts.push(platformLabel(spec.platforms[0]));
+    parts.push(platformLabel(spec.platforms[0], locale));
   }
   return parts.join(" · ");
 }
@@ -476,15 +494,17 @@ export function upgradeTargetLabel(spec: RuleSetSpec): string | null {
 export function specSummary(
   spec: RuleSetSpec,
   { withoutUpgrade = false }: { withoutUpgrade?: boolean } = {},
+  locale: AppLocale = "zh-Hans",
 ): string[] {
+  const t = appTranslator(locale);
   const chips: string[] = [];
   if (spec.resolutions?.length) chips.push(spec.resolutions.join(" > "));
   if (spec.media_sources?.length) {
-    chips.push(spec.media_sources.map(mediaSourceLabel).join(" > "));
+    chips.push(spec.media_sources.map(value => mediaSourceLabel(value, locale)).join(" > "));
   }
-  const upgradeTarget = withoutUpgrade ? null : upgradeTargetLabel(spec);
+  const upgradeTarget = withoutUpgrade ? null : upgradeTargetLabel(spec, locale);
   if (upgradeTarget) {
-    chips.push(`洗到 ${upgradeTarget}${spec.upgrade_keep_old ? "（保留旧版）" : ""}`);
+    chips.push(t("subscription.rules.upgradeChip", { target: upgradeTarget, keepOld: spec.upgrade_keep_old ? "yes" : "no" }));
   }
   if (spec.video_codecs?.length) {
     const rest = new Set(spec.video_codecs);
@@ -499,35 +519,35 @@ export function specSummary(
     chips.push(labels.join("/"));
   }
   if (spec.platforms?.length) {
-    chips.push(`平台: ${spec.platforms.map(platformLabel).join("/")}`);
+    chips.push(t("subscription.rules.platformChip", { values: spec.platforms.map(value => platformLabel(value, locale)).join("/") }));
   }
   if (spec.platforms_block?.length) {
-    chips.push(`排除平台: ${spec.platforms_block.map(platformLabel).join("/")}`);
+    chips.push(t("subscription.rules.blockedPlatforms", { values: spec.platforms_block.map(value => platformLabel(value, locale)).join("/") }));
   }
   const { levels: hdrLevels, block: hdrBlock } = hdrFromLegacy(spec);
-  if (hdrLevels.length) chips.push(hdrChipText(hdrLevels));
-  if (hdrBlock.length) chips.push(`排除 ${hdrBlock.join("/")}`);
+  if (hdrLevels.length) chips.push(hdrChipText(hdrLevels, locale));
+  if (hdrBlock.length) chips.push(t("subscription.rules.excludeValues", { values: hdrBlock.join("/") }));
   if (spec.subtitle_languages_require?.length)
     chips.push(
-      `字幕: ${spec.subtitle_languages_require.map((v) => SUB_LANG_OPTIONS.find(([code]) => code === v)?.[1] ?? v).join("/")}`,
+      t("subscription.rules.subtitleChip", { values: spec.subtitle_languages_require.map((v) => subLangOptions(locale).find(([code]) => code === v)?.[1] ?? v).join("/") }),
     );
   if (spec.audio_languages_require?.length)
     chips.push(
-      `音轨: ${spec.audio_languages_require.map((v) => AUDIO_LANG_OPTIONS.find(([code]) => code === v)?.[1] ?? v).join("/")}`,
+      t("subscription.rules.audioChip", { values: spec.audio_languages_require.map((v) => audioLangOptions(locale).find(([code]) => code === v)?.[1] ?? v).join("/") }),
     );
-  if (spec.free_only) chips.push("仅免费");
-  if (spec.min_seeders != null) chips.push(`做种 ≥ ${spec.min_seeders}`);
+  if (spec.free_only) chips.push(t("subscription.rules.freeOnly"));
+  if (spec.min_seeders != null) chips.push(t("subscription.rules.seedersChip", { count: spec.min_seeders }));
   if (spec.size_min_mb != null || spec.size_max_mb != null) {
-    const min = spec.size_min_mb != null ? `${spec.size_min_mb}` : "";
-    const max = spec.size_max_mb != null ? `${spec.size_max_mb}` : "";
-    chips.push(min && max ? `单集 ${min}–${max}MB` : min ? `单集 ≥ ${min}MB` : `单集 ≤ ${max}MB`);
+    const min = spec.size_min_mb;
+    const max = spec.size_max_mb;
+    chips.push(min != null && max != null ? t("subscription.rules.episodeRange", { min, max }) : min != null ? t("subscription.rules.episodeMin", { min }) : t("subscription.rules.episodeMax", { max: max! }));
   }
   if (spec.exclude_hr)
-    chips.push(spec.hr_unknown_policy === "strict" ? "排除 H&R（未知也排）" : "排除 H&R");
+    chips.push(spec.hr_unknown_policy === "strict" ? t("subscription.rules.excludeHrStrict") : t("subscription.rules.excludeHr"));
   if (spec.release_groups_allow?.length)
-    chips.push(`制作组白名单 ${spec.release_groups_allow.length} 个`);
+    chips.push(t("subscription.rules.allowedGroupCount", { count: spec.release_groups_allow.length }));
   if (spec.release_groups_block?.length)
-    chips.push(`制作组黑名单 ${spec.release_groups_block.length} 个`);
+    chips.push(t("subscription.rules.blockedGroupCount", { count: spec.release_groups_block.length }));
   return chips;
 }
 
@@ -552,6 +572,8 @@ export function RuleSetEditorDialog({
   /** 保存成功回调，参数是后端返回的最新规则组（快捷新建场景要选中它） */
   onSaved: (saved: RuleSet) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations();
   const spec = useMemo<RuleSetSpec>(
     () => ruleSet?.spec ?? template?.spec ?? {},
     [ruleSet, template],
@@ -610,7 +632,7 @@ export function RuleSetEditorDialog({
   // 但也不能藏起来——折叠头直接显示当前顺序，需要时一点就开
   const [ladderOpen, setLadderOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageState();
 
   // 编码族之外的原有值（手工经 API 写入的自定义编码）：编辑时不丢
   const codecExtras = useMemo(
@@ -666,6 +688,9 @@ export function RuleSetEditorDialog({
     }
   };
 
+  const toggleHdrBlock = (value: string) =>
+    setHdrBlock((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
+
   /** 阶梯维度：交互与分辨率偏好完全一致——点击依次入列，序号即位次。
    *  最后一维不允许移除：空阶梯没有任何一位可比，后端会回落到缺省二元组，
    *  界面上却显示"一个都没选"——不让用户进入这种口径不一致的状态。 */
@@ -682,29 +707,29 @@ export function RuleSetEditorDialog({
   const qualitySummary =
     [
       codecFamilies.size ? [...codecFamilies].join("/") : "",
-      platformsAllow.length ? platformsAllow.map(platformLabel).join("/") : "",
-      platformsBlock.length ? `排除 ${platformsBlock.map(platformLabel).join("/")}` : "",
-      hdrLevels.length ? hdrChipText(hdrLevels) : "",
-      hdrBlock.length ? `排除 ${hdrBlock.join("/")}` : "",
-      groupsAllow.trim() ? `组 ${groupsAllow.trim()}` : "",
-      groupsBlock.trim() ? `排除组 ${groupsBlock.trim()}` : "",
+      platformsAllow.length ? platformsAllow.map(value => platformLabel(value, locale)).join("/") : "",
+      platformsBlock.length ? t("subscription.rules.excludeValues", { values: platformsBlock.map(value => platformLabel(value, locale)).join("/") }) : "",
+      hdrLevels.length ? hdrChipText(hdrLevels, locale) : "",
+      hdrBlock.length ? t("subscription.rules.excludeValues", { values: hdrBlock.join("/") }) : "",
+      groupsAllow.trim() ? t("subscription.rules.groupSummary", { values: groupsAllow.trim() }) : "",
+      groupsBlock.trim() ? t("subscription.rules.blockedGroupsSummary", { values: groupsBlock.trim() }) : "",
     ]
       .filter(Boolean)
-      .join(" · ") || "未设置";
+      .join(" · ") || t("subscription.rules.unset");
 
   const limitSummary =
     [
-      subLangs.length ? `字幕 ${labelOf(SUB_LANG_OPTIONS, subLangs)}` : "",
-      audioLangs.length ? `音轨 ${labelOf(AUDIO_LANG_OPTIONS, audioLangs)}` : "",
-      freeOnly ? "仅免费" : "",
-      excludeHr ? "排除 H&R" : "",
-      minSeeders.trim() ? `做种 ≥ ${minSeeders.trim()}` : "",
+      subLangs.length ? t("subscription.rules.subtitleSummary", { values: labelOf(subLangOptions(locale), subLangs) }) : "",
+      audioLangs.length ? t("subscription.rules.audioSummary", { values: labelOf(audioLangOptions(locale), audioLangs) }) : "",
+      freeOnly ? t("subscription.rules.freeOnly") : "",
+      excludeHr ? t("subscription.rules.excludeHr") : "",
+      minSeeders.trim() ? t("subscription.rules.seedersChip", { count: Number(minSeeders) }) : "",
       sizeMin.trim() || sizeMax.trim()
-        ? `体积 ${sizeMin.trim() || "0"}–${sizeMax.trim() || "∞"}MB`
+        ? sizeMax.trim() ? t("subscription.rules.sizeSummary", { min: Number(sizeMin) || 0, max: Number(sizeMax) }) : t("subscription.rules.sizeUnbounded", { min: Number(sizeMin) || 0 })
         : "",
     ]
       .filter(Boolean)
-      .join(" · ") || "未设置";
+      .join(" · ") || t("subscription.rules.unset");
 
   /** 某维度是否还没配偏好——后端会把这种位直接跳过。 */
   const ladderUnconfigured = (dim: string) =>
@@ -717,7 +742,7 @@ export function RuleSetEditorDialog({
   // 编码位"会误报
   const effectiveLadder = upgradeLadder.filter((dim) => !ladderUnconfigured(dim));
   const ladderText = effectiveLadder
-    .map((dim) => LADDER_OPTIONS.find((o) => o.value === dim)?.label ?? dim)
+    .map((dim) => ladderOptions(locale).find((o) => o.value === dim)?.label ?? dim)
     .join(" › ");
   const platformIndex = effectiveLadder.indexOf("platform");
   const platformNotLast =
@@ -755,7 +780,7 @@ export function RuleSetEditorDialog({
    * 保证用户看到的摘要就是将要存下去的东西。校验错误随返回值给出——memo 里
    * 不能 setState，也正好把校验变成纯函数。
    */
-  const draft = useMemo<{ spec: RuleSetSpec; error: string | null }>(() => {
+  const draft = useMemo<{ spec: RuleSetSpec; error: AppMessageKey | null }>(() => {
     const parseInt_ = (text: string): number | undefined => {
       const n = Number.parseInt(text.trim(), 10);
       return Number.isFinite(n) && n >= 0 ? n : undefined;
@@ -799,7 +824,7 @@ export function RuleSetEditorDialog({
     if (min !== undefined && min > 0) next.size_min_mb = min;
     if (max !== undefined && max > 0) next.size_max_mb = max;
     if (min !== undefined && max !== undefined && min > 0 && max > 0 && min > max) {
-      return { spec: next, error: "体积下限不能大于上限" };
+      return { spec: next, error: "subscription.rules.sizeInvalid" };
     }
     const allow = parseGroups(groupsAllow);
     const block = parseGroups(groupsBlock);
@@ -807,14 +832,14 @@ export function RuleSetEditorDialog({
     if (block.length) next.release_groups_block = block;
     if (upgradeSource) {
       if (mediaSources.length && !mediaSources.includes(upgradeSource)) {
-        return { spec: next, error: "洗版目标片源必须在允许的片源范围内" };
+        return { spec: next, error: "subscription.rules.sourceInvalid" };
       }
       next.upgrade_source = upgradeSource as RuleSetSpec["upgrade_source"];
       // 目标分辨率仅在偏离缺省（分辨率偏好首选）时写入；限定了分辨率时
       // 目标必须落在允许范围内（后端同样校验）
       if (cutoffResolution && cutoffResolution !== (resolutions[0] ?? "")) {
         if (resolutions.length && !resolutions.includes(cutoffResolution)) {
-          return { spec: next, error: "洗版目标分辨率必须在允许的分辨率范围内" };
+          return { spec: next, error: "subscription.rules.resolutionInvalid" };
         }
         next.cutoff_resolution = cutoffResolution;
       }
@@ -852,12 +877,12 @@ export function RuleSetEditorDialog({
 
   // 底部回执分两段：硬性筛选走芯片，洗版走阶梯（洗版开着时芯片里不再重复目标）
   const ladderPreview = useMemo(
-    () => upgradeLadderPreview(draft.spec, platformLabel),
-    [draft.spec],
+    () => upgradeLadderPreview(draft.spec, id => platformLabel(id, locale), locale),
+    [draft.spec, locale],
   );
   const draftChips = useMemo(
-    () => specSummary(draft.spec, { withoutUpgrade: ladderPreview !== null }),
-    [draft.spec, ladderPreview],
+    () => specSummary(draft.spec, { withoutUpgrade: ladderPreview !== null }, locale),
+    [draft.spec, ladderPreview, locale],
   );
 
   // 切换过电影/剧集时，另一类型独有的类型 ID 不带进保存结果
@@ -866,11 +891,11 @@ export function RuleSetEditorDialog({
       ? scopeGenres
       : scopeGenres.filter((id) => genreOptionsFor(scopeKind, routingOptions).some((g) => g.id === id));
   const scopeRules = buildScope(scopeKind, scopeRegions, validScopeGenres);
-  const scopeText = scopeSummary(scopeRules, routingOptions) ?? "未设置（只能手动选用，或作为默认组兜底）";
+  const scopeText = scopeSummary(scopeRules, routingOptions, locale) ?? t("subscription.rules.unsetScope");
 
   const submit = async () => {
     if (draft.error) {
-      setError(draft.error);
+      setError({ key: draft.error });
       return;
     }
     const next = draft.spec;
@@ -883,7 +908,7 @@ export function RuleSetEditorDialog({
           : await updateRuleSet(ruleSet.id, name.trim(), next, scopeRules);
       onSaved(saved);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "保存失败，请稍后重试");
+      setError(e instanceof Error ? e.message : { key: "subscription.rules.saveFailed" });
     } finally {
       setBusy(false);
     }
@@ -893,7 +918,7 @@ export function RuleSetEditorDialog({
     <Modal
       open
       onClose={onClose}
-      label={ruleSet ? `编辑规则组「${ruleSet.name}」` : "新建规则组"}
+      label={ruleSet ? t("subscription.rules.editTitle", { name: ruleSetLabel(ruleSet, locale) }) : t("subscription.rules.create")}
       width="lg"
       raised={raised}
       panelClassName="max-h-[76dvh]"
@@ -901,45 +926,43 @@ export function RuleSetEditorDialog({
       {/* 头部常驻：规则组表单比一屏长得多，标题要一直在 */}
       <div className="border-b border-white/[0.07] px-6 pb-4 pt-6 max-md:px-5">
         <h2 className="text-title font-bold text-white">
-          {ruleSet ? "编辑规则组" : "新建规则组"}
+          {ruleSet ? t("subscription.rules.edit") : t("subscription.rules.create")}
         </h2>
         <p className="mt-1 text-sub text-[var(--text-muted)]">
-          所有条件都可以留空 = 不限该维度；条件之间是「且」的关系。
+          {t("subscription.rules.editorHint")}
         </p>
         {ruleSet !== null && ruleSet.reference_count > 0 && (
           <p className="mt-2 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3.5 py-2.5 text-sub leading-6 text-amber-200">
-            此组正被 {ruleSet.reference_count} 个订阅使用，保存后对它们之后的资源评估立即生效
-            （已下载的内容不受影响）。
+            {t("subscription.rules.referencesWarning", { count: ruleSet.reference_count })}
           </p>
         )}
       </div>
 
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-6 max-md:p-5">
         <div className="space-y-5">
-          <Field label="名称">
+          <Field label={t("subscription.rules.name")}>
             <input
               type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="如：4K 免费、追剧省流"
+              value={ruleSet && name === ruleSet.name ? ruleSetLabel(ruleSet, locale) : name}
+              onChange={(e) => setName(ruleSet && e.target.value === ruleSetLabel(ruleSet, locale) ? ruleSet.name : e.target.value)}
+              placeholder={t("subscription.rules.namePlaceholder")}
               className={`${SETTINGS_INPUT_CLASS} w-full`}
             />
           </Field>
 
           {/* 适用范围：订阅时自动选组的依据。放在画质条件之前——"这个组给谁用"
               是建组时的第一个问题；折叠头直接显示当前范围 */}
-          <Section title="适用范围" summary={scopeText}>
+          <Section title={t("subscription.rules.scope")} summary={scopeText}>
             <p className="-mt-1 text-caption leading-relaxed text-[var(--text-faint)]">
-              订阅的作品符合这里的条件时，自动选用本规则组；多个组都符合时条件更多的优先，
-              都不符合时用默认组。只选「电影」或「剧集」即可让本组成为该类型的默认选择。
+              {t("subscription.rules.scopeHint")}
             </p>
-            <Field label="作品类型">
+            <Field label={t("subscription.rules.kind")}>
               <div className="flex flex-wrap gap-1.5">
                 {(
                   [
-                    [null, "不限"],
-                    ["movie", "电影"],
-                    ["tv", "剧集"],
+                    [null, t("subscription.rules.any")],
+                    ["movie", t("media.kind.movie")],
+                    ["tv", t("media.kind.tv")],
                   ] as const
                 ).map(([value, label]) => (
                   <ToggleChip
@@ -963,8 +986,8 @@ export function RuleSetEditorDialog({
           </Section>
 
           <Field
-            label="分辨率"
-            hint="点击依次选择，先选的优先（选中顺序 = 下载偏好）；不选 = 不限。限定分辨率后，无法从种子名识别出分辨率的资源也会被排除，可用「手动选种」兜底"
+            label={t("subscription.rules.resolution")}
+            hint={t("subscription.rules.resolutionHint")}
           >
             <div className="flex flex-wrap gap-1.5">
               {RESOLUTION_OPTIONS.map((option) => {
@@ -991,11 +1014,11 @@ export function RuleSetEditorDialog({
               仅有的两个偏好序参与候选选优的维度，因此并排放在最外层；它还必须
               排在洗版之前——洗版终点档只能从这个白名单里挑 */}
           <Field
-            label="片源"
-            hint="点击依次选择，先选的优先（选中顺序 = 下载偏好）；不选 = 不限。Rip 类 = WEBRip/BDRip，电视录制类 = HDTV/DVD。限定片源后，无法从种子名识别出片源的资源也会被排除，可用「手动选种」兜底"
+            label={t("subscription.rules.source")}
+            hint={t("subscription.rules.sourceHint")}
           >
             <div className="flex flex-wrap gap-1.5">
-              {MEDIA_SOURCE_OPTIONS.map((option) => {
+              {mediaSourceOptions(locale).map((option) => {
                 const index = mediaSources.indexOf(option.value);
                 return (
                   <ToggleChip
@@ -1015,8 +1038,8 @@ export function RuleSetEditorDialog({
             </div>
           </Field>
 
-          <Section title="画质与来源" summary={qualitySummary}>
-          <Field label="视频编码" hint="按家族选择，等价写法（如 x265 / HEVC）一并计入；不选 = 不限">
+          <Section title={t("subscription.rules.quality")} summary={qualitySummary}>
+          <Field label={t("subscription.rules.codec")} hint={t("subscription.rules.codecHint")}>
             <div className="flex flex-wrap gap-1.5">
               {CODEC_FAMILIES.map((family) => (
                 <ToggleChip
@@ -1029,15 +1052,15 @@ export function RuleSetEditorDialog({
               ))}
               {codecExtras.length > 0 && (
                 <span className="self-center text-caption text-[var(--text-faint)]">
-                  另有自定义值：{codecExtras.join("、")}（保留）
+                  {t("subscription.rules.customValues", { values: codecExtras.join(locale === "en" ? ", " : "、") })}
                 </span>
               )}
             </div>
           </Field>
 
           <Field
-            label="流媒体平台"
-            hint="点一下 = 只要，再点 = 排除，第三下取消。设了「只要」之后，识别不出平台的资源会被排除（与分辨率/编码口径一致）"
+            label={t("subscription.rules.platform")}
+            hint={t("subscription.rules.platformHint")}
           >
             <div className="flex flex-wrap gap-1.5">
               {PLATFORM_OPTIONS.map((id) => (
@@ -1046,22 +1069,20 @@ export function RuleSetEditorDialog({
                   state={platformState(id)}
                   onClick={() => cyclePlatform(id)}
                 >
-                  {platformLabel(id)}
+                  {platformLabel(id, locale)}
                 </TriChip>
               ))}
             </div>
             {(platformExtras.allow.length > 0 || platformExtras.block.length > 0) && (
               <p className="mt-1.5 text-caption text-[var(--text-faint)]">
-                另有自定义值：
-                {[...platformExtras.allow, ...platformExtras.block].map(platformLabel).join("、")}
-                （保留）
+                {t("subscription.rules.customValues", { values: [...platformExtras.allow, ...platformExtras.block].map(value => platformLabel(value, locale)).join(locale === "en" ? ", " : "、") })}
               </p>
             )}
           </Field>
 
           <Field
             label="HDR"
-            hint='点一下 = 只要，再点 = 排除，第三下取消。"SDR" 指资源没标注任何 HDR 格式；都不选 = 不限'
+            hint={t("subscription.rules.hdrHint")}
           >
             <div className="flex flex-wrap gap-1.5">
               {HDR_OPTIONS.map((value) => (
@@ -1069,39 +1090,48 @@ export function RuleSetEditorDialog({
                   {value}
                 </TriChip>
               ))}
+              {HDR_BLOCK_ONLY.map((value) => (
+                <TriChip
+                  key={value}
+                  state={hdrBlock.includes(value) ? "exclude" : "off"}
+                  onClick={() => toggleHdrBlock(value)}
+                >
+                  {value}
+                </TriChip>
+              ))}
             </div>
           </Field>
 
           <Field
-            label="制作组白名单"
-            hint="只接受这些制作组的资源，逗号或空格分隔（如 FRDS, WiKi）；留空 = 不限"
+            label={t("subscription.rules.groupsAllow")}
+            hint={t("subscription.rules.groupsAllowHint")}
           >
             <input
               type="text"
               value={groupsAllow}
               onChange={(e) => setGroupsAllow(e.target.value)}
-              placeholder="留空不限"
+              placeholder={t("subscription.rules.blankAny")}
               className={`${SETTINGS_INPUT_CLASS} w-full`}
             />
           </Field>
-          <Field label="制作组黑名单" hint="这些制作组的资源一律不要">
+          <Field label={t("subscription.rules.groupsBlock")} hint={t("subscription.rules.groupsBlockHint")}>
             <input
               type="text"
               value={groupsBlock}
               onChange={(e) => setGroupsBlock(e.target.value)}
-              placeholder="留空不启用"
+              placeholder={t("subscription.rules.blankDisabled")}
               className={`${SETTINGS_INPUT_CLASS} w-full`}
             />
           </Field>
           </Section>
 
-          <Section title="下载与限制" summary={limitSummary}>
+          <Section title={t("subscription.rules.limits")} summary={limitSummary}>
           <Field
-            label="字幕语言"
-            hint="任一命中即通过；按种子标题声明判断——未声明字幕的资源会被排除，不选 = 不限"
+            label={t("subscription.rules.subtitleLanguage")}
+            hint={t("subscription.rules.subtitleHint")}
           >
             <div className="flex flex-wrap gap-1.5">
-              {SUB_LANG_OPTIONS.map(([value, label]) => (
+              {subLangOptions(locale).map(([value, label]) => (
                 <ToggleChip
                   key={value}
                   active={subLangs.includes(value)}
@@ -1120,11 +1150,11 @@ export function RuleSetEditorDialog({
           </Field>
 
           <Field
-            label="音轨语言"
-            hint="任一命中即通过；按种子标题声明判断——未声明音轨的资源会被排除，不选 = 不限"
+            label={t("subscription.rules.audioLanguage")}
+            hint={t("subscription.rules.audioHint")}
           >
             <div className="flex flex-wrap gap-1.5">
-              {AUDIO_LANG_OPTIONS.map(([value, label]) => (
+              {audioLangOptions(locale).map(([value, label]) => (
                 <ToggleChip
                   key={value}
                   active={audioLangs.includes(value)}
@@ -1144,14 +1174,14 @@ export function RuleSetEditorDialog({
 
           <div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
             <CheckRow
-              label="只要免费资源"
-              hint="促销状态未知的按非免费处理"
+              label={t("subscription.rules.free")}
+              hint={t("subscription.rules.freeHint")}
               checked={freeOnly}
               onChange={setFreeOnly}
             />
             <CheckRow
-              label="排除 H&R 考核种子"
-              hint="有做种考核要求的资源不下载"
+              label={t("subscription.rules.hr")}
+              hint={t("subscription.rules.hrHint")}
               checked={excludeHr}
               onChange={setExcludeHr}
             />
@@ -1160,7 +1190,7 @@ export function RuleSetEditorDialog({
             <div className="-mt-2 rounded-xl bg-white/[0.03] px-4 py-2.5">
               <label className="flex cursor-pointer items-center justify-between">
                 <span className="text-sub text-[var(--text-muted)]">
-                  站点未提供 H&R 信息时，保守视作有考核而排除
+                  {t("subscription.rules.hrStrictHint")}
                 </span>
                 <input
                   type="checkbox"
@@ -1173,30 +1203,30 @@ export function RuleSetEditorDialog({
           )}
 
           <div className="grid grid-cols-3 gap-3 max-md:grid-cols-1">
-            <Field label="做种数下限">
-              <NumberInput value={minSeeders} onChange={setMinSeeders} placeholder="不限" />
+            <Field label={t("subscription.rules.seeders")}>
+              <NumberInput value={minSeeders} onChange={setMinSeeders} placeholder={t("subscription.rules.any")} />
             </Field>
-            <Field label="单集体积下限 (MB)">
-              <NumberInput value={sizeMin} onChange={setSizeMin} placeholder="不限" />
+            <Field label={t("subscription.rules.minSize")}>
+              <NumberInput value={sizeMin} onChange={setSizeMin} placeholder={t("subscription.rules.any")} />
             </Field>
-            <Field label="单集体积上限 (MB)">
-              <NumberInput value={sizeMax} onChange={setSizeMax} placeholder="不限" />
+            <Field label={t("subscription.rules.maxSize")}>
+              <NumberInput value={sizeMax} onChange={setSizeMax} placeholder={t("subscription.rules.any")} />
             </Field>
           </div>
           <p className="-mt-3 text-caption leading-relaxed text-[var(--text-faint)]">
-            体积按「每集均摊」评估：整季包用总体积 ÷ 集数比较，整季合集不会被单集上限误杀。
+            {t("subscription.rules.sizeHint")}
           </p>
           </Section>
 
           <Field
-            label="洗版"
-            hint="收齐后继续追更高版本，直到达到目标档位为止。新版本入库后旧版本进回收站保留 7 天，做种中的任务不受影响；不开启 = 下到即止"
+            label={t("subscription.rules.upgrade")}
+            hint={t("subscription.rules.upgradeHint")}
           >
             <div className="flex flex-wrap gap-1.5">
               <ToggleChip active={upgradeSource === ""} onClick={() => setUpgradeSource("")}>
-                不洗版
+                {t("subscription.rules.upgradeOff")}
               </ToggleChip>
-              {UPGRADE_OPTIONS.filter(
+              {upgradeOptions(locale).filter(
                 ([value]) => !mediaSources.length || mediaSources.includes(value),
               ).map(([value, label]) => (
                 <ToggleChip
@@ -1211,7 +1241,7 @@ export function RuleSetEditorDialog({
             {upgradeSource !== "" && (
               <div className="mt-2 rounded-xl bg-white/[0.03] px-4 py-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
-                  <span className="text-sub text-[var(--text-muted)]">目标分辨率</span>
+                  <span className="text-sub text-[var(--text-muted)]">{t("subscription.rules.cutoff")}</span>
                   <div className="flex flex-wrap gap-1.5">
                     {(resolutions.length ? resolutions : RESOLUTION_OPTIONS).map((option) => {
                       const effective = cutoffResolution || resolutions[0] || "1080p";
@@ -1231,18 +1261,18 @@ export function RuleSetEditorDialog({
                 </div>
                 <p className="mt-1.5 text-caption text-[var(--text-faint)]">
                   {resolutions.length > 0
-                    ? "缺省跟随上方分辨率偏好的第一位"
-                    : "未限定分辨率时缺省洗到 1080p（避免意外进入 4K 的磁盘占用）"}
+                    ? t("subscription.rules.cutoffHint")
+                    : t("subscription.rules.cutoffUnrestricted")}
                 </p>
                 {/* 旧版本处置（library-file-recycle.md §9）：配置洗版的那一刻
                     就是询问旧版去留的合适时机；保留共存服务收藏家场景 */}
                 <label className="mt-2.5 flex cursor-pointer items-center justify-between gap-3 border-t border-white/[0.06] pt-2.5">
                   <span>
                     <span className="block text-sub text-[var(--text-muted)]">
-                      洗到新版本后保留旧版本
+                      {t("subscription.rules.keepOld")}
                     </span>
                     <span className="mt-0.5 block text-caption text-[var(--text-faint)]">
-                      多版本共存（收藏家模式）；关闭 = 旧版本进回收站保留 7 天
+                      {t("subscription.rules.keepOldHint")}
                     </span>
                   </span>
                   <input
@@ -1262,7 +1292,7 @@ export function RuleSetEditorDialog({
                     className="flex w-full items-center gap-3 text-left"
                   >
                     <span className="shrink-0 text-sub text-[var(--text-muted)]">
-                      洗版优先级
+                      {t("subscription.rules.priority")}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-right text-caption text-[var(--text-faint)]">
                       {ladderText}
@@ -1278,9 +1308,9 @@ export function RuleSetEditorDialog({
                   {ladderOpen && (
                     <>
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
-                    <span className="text-caption text-[var(--text-faint)]">点击依次选择</span>
+                    <span className="text-caption text-[var(--text-faint)]">{t("subscription.rules.chooseOrder")}</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {LADDER_OPTIONS.map((dim) => {
+                      {ladderOptions(locale).map((dim) => {
                         const index = upgradeLadder.indexOf(dim.value);
                         const unconfigured = ladderUnconfigured(dim.value);
                         return (
@@ -1296,7 +1326,7 @@ export function RuleSetEditorDialog({
                             )}
                             {dim.label}
                             {index >= 0 && unconfigured && (
-                              <span className="ml-1 text-[var(--text-faint)]">· 未配置</span>
+                              <span className="ml-1 text-[var(--text-faint)]">{t("subscription.rules.unconfigured")}</span>
                             )}
                           </ToggleChip>
                         );
@@ -1304,17 +1334,13 @@ export function RuleSetEditorDialog({
                     </div>
                   </div>
                     <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
-                      按顺序逐维度比较，先分出高低的那一维说了算。每多一维，就多一轮
-                      潜在的重复下载——缺省只比分辨率与片源。标「未配置」的维度会被
-                      自动跳过；全被跳过时按缺省的「分辨率 › 片源」比。
+                      {t("subscription.rules.priorityHint")}
                     </p>
                     </>
                   )}
                   {platformNotLast && (
                     <p className="mt-1.5 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-caption leading-relaxed text-amber-200">
-                      很多资源的标题里根本没写平台。把平台排在前面，等于要求「先比平台
-                      再比别的」——没写平台的资源就全都分不出高低，洗版会大面积停住。
-                      建议把平台放到最后一位。
+                      {t("subscription.rules.platformWarning")}
                     </p>
                   )}
                 </div>
@@ -1326,12 +1352,12 @@ export function RuleSetEditorDialog({
               内容来自与保存同一个 draft.spec，不会出现"看到的和存下去的不一样" */}
           <div className="rounded-xl bg-white/[0.03] px-4 py-3">
             <p className="text-caption text-[var(--text-faint)]">
-              {ladderPreview ? "先这样筛掉不要的" : "这条规则会这样筛选"}
+              {ladderPreview ? t("subscription.rules.filterFirst") : t("subscription.rules.filterSummary")}
             </p>
             <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">
               {draftChips.length
                 ? draftChips.join(" · ")
-                : "不限任何条件——身份对得上的资源都接受"}
+                : t("subscription.rules.noConditions")}
             </p>
             {ladderPreview && (
               <UpgradeLadderPreviewView preview={ladderPreview} keepOld={upgradeKeepOld} />
@@ -1349,7 +1375,7 @@ export function RuleSetEditorDialog({
       {/* 底栏常驻 */}
       <div className="flex justify-end gap-3 border-t border-white/[0.07] px-6 py-4 max-md:px-5">
         <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
-          取消
+          {t("common.cancel")}
         </button>
         <button
           type="button"
@@ -1357,7 +1383,7 @@ export function RuleSetEditorDialog({
           onClick={() => void submit()}
           className={SETTINGS_PRIMARY_BUTTON_CLASS}
         >
-          {busy ? "正在保存…" : "保存"}
+          {busy ? t("subscription.rules.saving") : t("common.save")}
         </button>
       </div>
     </Modal>
@@ -1392,6 +1418,7 @@ function UpgradeLadderPreviewView({
   preview: UpgradeLadderPreview;
   keepOld: boolean;
 }) {
+  const t = useTranslations();
   const [open, setOpen] = useState(false);
   return (
     <div className="mt-2.5 border-t border-white/[0.06] pt-2.5">
@@ -1402,11 +1429,10 @@ function UpgradeLadderPreviewView({
         className="flex w-full items-center gap-3 text-left"
       >
         <span className="min-w-0 flex-1 text-sub text-[var(--text-muted)]">
-          再一级级洗到{" "}
-          <span className="font-semibold text-white">{preview.target}</span>
+          {t.rich("subscription.rules.upgradeTo", { value: preview.target, target: (chunks) => <span className="font-semibold text-white">{chunks}</span> })}
         </span>
         <span className="shrink-0 text-caption text-[var(--text-faint)]">
-          {open ? "收起" : "看会经过哪些档"}
+          {open ? t("subscription.rules.collapse") : t("subscription.rules.showLadder")}
         </span>
         <span
           className={`shrink-0 text-[var(--text-faint)] transition-transform ${
@@ -1420,29 +1446,25 @@ function UpgradeLadderPreviewView({
       {open && (
         <div className="mt-2.5">
           <p className="text-caption leading-relaxed text-[var(--text-faint)]">
-            {`按「${preview.dimensions.join(" › ")}」逐维比较，先分出高低的那一维说了算。`}
+            {t("subscription.rules.ladderOrder", { dimensions: preview.dimensions.join(" › ") })}
           </p>
 
           <div className="mt-2 rounded-lg border border-[var(--accent-2)]/45 bg-[var(--accent-2)]/[0.14] px-3 py-2">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
               <span className="rounded-full bg-[var(--accent-2)]/25 px-2 py-0.5 text-micro font-semibold text-white">
-                终点
+                {t("subscription.rules.target")}
               </span>
               <span className="text-sub font-semibold text-white">{preview.target}</span>
             </div>
             <p className="mt-1 text-caption leading-relaxed text-[var(--text-faint)]">
-              到手即停，不再洗版
-              {preview.ceiling
-                ? `；比它更高的档（最高 ${preview.ceiling}）同样算达标，也会停`
-                : ""}
-              。{keepOld ? "旧版本保留共存。" : "旧版本进回收站保留 7 天。"}
+              {t("subscription.rules.targetStop", { higher: preview.ceiling ? "yes" : "no", ceiling: preview.ceiling ?? "", keepOld: keepOld ? "yes" : "no" })}
             </p>
           </div>
 
           {preview.below.length > 0 ? (
             <>
               <p className="mt-2.5 text-caption leading-relaxed text-[var(--text-faint)]">
-                {"到终点之前，先到手的可能是下面任意一档；之后每遇到更高的一档，就再下一次、换掉旧的："}
+                {t("subscription.rules.belowHint")}
               </p>
               <ol className="mt-1.5 space-y-1">
                 {preview.below.map((label) => (
@@ -1457,14 +1479,14 @@ function UpgradeLadderPreviewView({
                 {preview.moreBelow > 0 && (
                   <li className="flex items-center gap-2 text-caption text-[var(--text-faint)]">
                     <span>↑</span>
-                    <span>更低的 {preview.moreBelow} 档同理</span>
+                    <span>{t("subscription.rules.moreBelow", { count: preview.moreBelow })}</span>
                   </li>
                 )}
               </ol>
             </>
           ) : (
             <p className="mt-2 text-caption text-[var(--text-faint)]">
-              终点已是最低档，不会有过渡版本。
+              {t("subscription.rules.lowestTarget")}
             </p>
           )}
         </div>

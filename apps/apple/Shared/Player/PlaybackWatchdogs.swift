@@ -119,11 +119,11 @@ struct StallWatch {
     /// 判定 → 给用户看的中文原因
     static func reason(_ verdict: Verdict, deadLimit: Int) -> String {
         if verdict == .decodeStalled {
-            return "播放停滞超过 \(decodeStallSeconds) 秒，这一档的码流播放器吃不下"
+            return String(localized: .playerErrorsNativeDecodeStall(decodeStallSeconds))
         }
         return deadLimit < serverDeadSeconds
-            ? "连续 \(deadLimit) 秒没有收到数据——连接可能中断了"
-            : "连续 \(deadLimit) 秒没有收到服务端的数据——转码可能中断了"
+            ? String(localized: .playerErrorsDirectStall(deadLimit))
+            : String(localized: .playerErrorsServerStall(deadLimit))
     }
 }
 

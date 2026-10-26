@@ -1,3 +1,7 @@
+import type { AppLocale } from "./i18n/negotiate.ts";
+import { appTranslator } from "./i18n/translate.ts";
+import { formatList } from "./i18n/format.ts";
+
 export type DiscoverySort = "popular" | "rating" | "newest" | "most-rated";
 
 export interface DiscoveryFilters {
@@ -14,28 +18,39 @@ export const EMPTY_DISCOVERY_FILTERS: DiscoveryFilters = {
   sort: "popular",
 };
 
-export const DISCOVERY_COUNTRIES = [
-  ["CN", "中国大陆"],
-  ["US", "美国"],
-  ["JP", "日本"],
-  ["KR", "韩国"],
-  ["GB", "英国"],
-  ["FR", "法国"],
-  ["HK", "中国香港"],
-  ["TW", "中国台湾"],
-  ["IN", "印度"],
+const COUNTRY_KEYS = [
+  ["CN", "media.regions.mainlandChina"],
+  ["US", "media.regions.unitedStates"],
+  ["JP", "media.regions.japan"],
+  ["KR", "media.regions.southKorea"],
+  ["GB", "media.regions.unitedKingdom"],
+  ["FR", "media.regions.france"],
+  ["HK", "media.regions.chinaHongKong"],
+  ["TW", "media.regions.chinaTaiwan"],
+  ["IN", "media.regions.india"],
 ] as const;
 
-const COUNTRY_LABELS = new Map<string, string>(DISCOVERY_COUNTRIES);
-const SORT_LABELS: Record<DiscoverySort, string> = {
-  popular: "热门优先",
-  rating: "评分优先",
-  newest: "最新优先",
-  "most-rated": "最多评分",
-};
+const COUNTRY_LABELS = new Map(COUNTRY_KEYS.map(([code, key]) => [code as string, key]));
+const SORT_LABELS = {
+  popular: "media.filters.popular",
+  rating: "media.filters.rated",
+  newest: "media.filters.newest",
+  "most-rated": "media.filters.mostRated",
+} as const;
 
 /** 排序的全部取值（菜单按这个顺序列出） */
-export const DISCOVERY_SORTS = Object.entries(SORT_LABELS) as Array<[DiscoverySort, string]>;
+export function discoverySorts(locale?: AppLocale): Array<[DiscoverySort, string]> {
+  const t = appTranslator(locale);
+  return (Object.entries(SORT_LABELS) as Array<[DiscoverySort, typeof SORT_LABELS[DiscoverySort]]>).map(([value, key]) => [value, t(key)]);
+}
+export function discoveryCountries(locale?: AppLocale): Array<[string, string]> {
+  const t = appTranslator(locale);
+  return COUNTRY_KEYS.map(([code, key]) => [code, t(key)]);
+}
+function countryLabel(code: string, locale?: AppLocale): string {
+  const key = COUNTRY_LABELS.get(code);
+  return key ? appTranslator(locale)(key) : code;
+}
 /** 最低评分、最长片长两个维度的可选档位 */
 export const DISCOVERY_RATING_STEPS = [6, 7, 8, 9] as const;
 export const DISCOVERY_RUNTIME_STEPS = [60, 90, 120, 150] as const;
@@ -91,19 +106,19 @@ export function discoveryFilterCount(filters: DiscoveryFilters): number {
 /** 把 URL 筛选状态转为可扫读标签；类型名由后端本地化清单补齐。 */
 export function discoveryFilterLabels(
   filters: DiscoveryFilters,
-  genreNames: ReadonlyMap<number, string> = new Map(),
+  genreNames: ReadonlyMap<number, string> = new Map(), locale?: AppLocale,
 ): string[] {
   const labels = filters.genreIds.map((id) => genreNames.get(id)).filter(Boolean) as string[];
   if (filters.genreIds.length > 0 && labels.length === 0) {
-    labels.push(`${filters.genreIds.length} 个类型`);
+    labels.push(appTranslator(locale)("media.filters.genreCount", { count: filters.genreIds.length }));
   }
   if (filters.originCountry) {
-    labels.push(COUNTRY_LABELS.get(filters.originCountry) ?? filters.originCountry);
+    labels.push(countryLabel(filters.originCountry, locale));
   }
-  if (filters.year) labels.push(`${filters.year} 年`);
-  if (filters.ratingGte !== undefined) labels.push(`${filters.ratingGte} 分以上`);
-  if (filters.runtimeLte) labels.push(`${filters.runtimeLte} 分钟以内`);
-  if (filters.sort !== "popular") labels.push(SORT_LABELS[filters.sort]);
+  if (filters.year) labels.push(appTranslator(locale)("media.filters.yearValue", { year: filters.year }));
+  if (filters.ratingGte !== undefined) labels.push(appTranslator(locale)("media.filters.ratingValue", { rating: filters.ratingGte }));
+  if (filters.runtimeLte) labels.push(appTranslator(locale)("media.filters.runtimeValue", { minutes: filters.runtimeLte }));
+  if (filters.sort !== "popular") labels.push(appTranslator(locale)(SORT_LABELS[filters.sort]));
   return labels;
 }
 
@@ -141,22 +156,23 @@ export type DiscoveryFilterDimension = (typeof DISCOVERY_FILTER_DIMENSIONS)[numb
 /** 维度名；年份与片长按电影 / 剧集换说法 */
 export function discoveryDimensionTitle(
   dimension: DiscoveryFilterDimension,
-  mediaType: string,
+  mediaType: string, locale?: AppLocale,
 ): string {
+  const t = appTranslator(locale);
   const movie = mediaType === "movie";
   switch (dimension) {
     case "genres":
-      return "类型";
+      return t("media.filters.genres");
     case "country":
-      return "国家 / 地区";
+      return t("media.filters.country");
     case "year":
-      return movie ? "上映年份" : "首播年份";
+      return movie ? t("media.filters.movieYear") : t("media.filters.tvYear");
     case "rating":
-      return "最低评分";
+      return t("media.filters.rating");
     case "runtime":
-      return movie ? "最长片长" : "最长单集时长";
+      return movie ? t("media.filters.movieRuntime") : t("media.filters.tvRuntime");
     case "sort":
-      return "排序";
+      return t("media.filters.sort");
   }
 }
 
@@ -168,28 +184,28 @@ export function discoveryDimensionTitle(
 export function discoveryDimensionSummary(
   dimension: DiscoveryFilterDimension,
   filters: DiscoveryFilters,
-  genreNames: ReadonlyMap<number, string> = new Map(),
+  genreNames: ReadonlyMap<number, string> = new Map(), locale?: AppLocale,
 ): string | undefined {
   switch (dimension) {
     case "genres": {
       const ids = filters.genreIds;
       if (ids.length === 0) return undefined;
       const names = ids.map((id) => genreNames.get(id)).filter(Boolean) as string[];
-      if (names.length === ids.length && names.length <= 2) return names.join("、");
-      return names.length > 0 ? `${names[0]}等 ${ids.length} 个` : `${ids.length} 个类型`;
+      if (names.length === ids.length && names.length <= 2) return formatList(names, locale);
+      return names.length > 0 ? appTranslator(locale)("media.filters.genreSummary", { name: names[0], count: ids.length }) : appTranslator(locale)("media.filters.genreCount", { count: ids.length });
     }
     case "country":
       return filters.originCountry
-        ? (COUNTRY_LABELS.get(filters.originCountry) ?? filters.originCountry)
+        ? (countryLabel(filters.originCountry, locale))
         : undefined;
     case "year":
-      return filters.year ? `${filters.year} 年` : undefined;
+      return filters.year ? appTranslator(locale)("media.filters.yearValue", { year: filters.year }) : undefined;
     case "rating":
-      return filters.ratingGte !== undefined ? `${filters.ratingGte} 分以上` : undefined;
+      return filters.ratingGte !== undefined ? appTranslator(locale)("media.filters.ratingValue", { rating: filters.ratingGte }) : undefined;
     case "runtime":
-      return filters.runtimeLte ? `${filters.runtimeLte} 分钟以内` : undefined;
+      return filters.runtimeLte ? appTranslator(locale)("media.filters.runtimeValue", { minutes: filters.runtimeLte }) : undefined;
     case "sort":
-      return filters.sort === "popular" ? undefined : SORT_LABELS[filters.sort];
+      return filters.sort === "popular" ? undefined : appTranslator(locale)(SORT_LABELS[filters.sort]);
   }
 }
 
@@ -229,13 +245,14 @@ export function clearDiscoveryDimension(
  */
 export function discoveryFilterButtonTitle(
   filters: DiscoveryFilters,
-  genreNames: ReadonlyMap<number, string> = new Map(),
+  genreNames: ReadonlyMap<number, string> = new Map(), locale?: AppLocale,
 ): string {
+  const t = appTranslator(locale);
   const [first] = filters.genreIds;
-  if (first === undefined) return "全部";
+  if (first === undefined) return t("media.filters.all");
   const name = genreNames.get(first);
-  if (filters.genreIds.length === 1) return name ?? "1 个类型";
-  return name ? `${name}等 ${filters.genreIds.length} 个` : `${filters.genreIds.length} 个类型`;
+  if (filters.genreIds.length === 1) return name ?? appTranslator(locale)("media.filters.genreCount", { count: 1 });
+  return name ? appTranslator(locale)("media.filters.genreSummary", { name, count: filters.genreIds.length }) : appTranslator(locale)("media.filters.genreCount", { count: filters.genreIds.length });
 }
 
 /** 单选维度当前值的字符串形式（菜单单选组用）；未启用为 ""，排序给实际档位 */

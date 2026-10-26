@@ -27,6 +27,7 @@ from typing import Any
 
 from movieclaw_playback.decide import PlaybackPlan
 from movieclaw_playback.hls_vod import SegmentPlan
+from movieclaw_playback.streaming import file_stamp
 
 logger = logging.getLogger("movieclaw_api.playback.cache")
 
@@ -49,10 +50,10 @@ def cache_components(
     segment_plan: SegmentPlan,
 ) -> dict[str, Any]:
     """指纹的明文成分。全部落进台账，命中时逐项比对，不只比哈希。"""
-    try:
-        stat = os.stat(source_path)
-        source = {"path": source_path, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
-    except OSError:
+    stamp = file_stamp(source_path)
+    if stamp is not None:
+        source = {"path": source_path, "size": stamp[0], "mtime_ns": stamp[1]}
+    else:
         # 源文件 stat 不到（网络挂载抖动）：仍按路径算，但记下无法校验——
         # 文件被替换而路径不变时会命中旧缓存，这是可接受的极端边角
         source = {"path": source_path, "size": None, "mtime_ns": None}

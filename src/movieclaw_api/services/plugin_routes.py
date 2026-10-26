@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextvars
 import hashlib
 import hmac
 import re
@@ -37,6 +38,12 @@ from fastapi.routing import APIRoute
 from movieclaw_api.exceptions import NotFoundException
 
 Zone = Literal["admin", "member", "public"]
+
+#: 这次请求从插件的哪个区进来（回调端点记为 ``callback``）。插件驱动 Agent 时据此封顶工具档位：
+#: 只有管理员区按授权档位，成员区、公开区、回调端点进来的一律不带工具（plugin-agent.md §6）
+current_zone: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "movieclaw_plugin_zone", default=None
+)
 
 #: 宿主路由器：挂在 /api/v1 下（api/router.py），插件路由按条目 id 加前缀挂到它上面
 host_router = APIRouter(prefix="/plugins")
@@ -68,29 +75,43 @@ class PluginRoutes:
 
         entry_id = ctx.entry_id
         if not _ENTRY_ID.match(entry_id):
+            # i18n-ignore: plugin developer contract error at registration
             raise ValueError(f"条目 id 不能用作路径：{entry_id!r}（小写字母、数字、. _ -）")
         if zone not in ("admin", "member", "public"):
+            # i18n-ignore: plugin developer contract error at registration
             raise ValueError(f"未知的区：{zone!r}（admin / member / public）")
         prefix = f"plugins.{entry_id}."
         for route in router.routes:
             if not isinstance(route, APIRoute):
+                # i18n-ignore: plugin developer contract error at registration
                 raise ValueError(f"插件路由只支持普通 HTTP 接口：{route!r}")
             if not (route.operation_id or "").startswith(prefix):
                 raise ValueError(
+                    # i18n-ignore: plugin developer contract error at registration
                     f"{route.path} 的 operationId 须以 {prefix} 开头（当前 {route.operation_id!r}）"
                 )
+            if route.path == "/web" or route.path.startswith("/web/"):
+                # 留给插件网页的静态托管（docs/design/plugin-web-pages.md §3）
+                # i18n-ignore: plugin developer contract error at registration
+                raise ValueError(f"{route.path}：/web 这一段留给插件网页，插件路由不能用")
         if zone == "admin":
             guard = require_admin
         elif zone == "member":
             guard = require_login
         else:
             guard = self._verifier(entry_id)
+
+        async def mark_zone() -> None:
+            # 异步依赖与处理函数在同一个任务里：设的上下文变量处理函数看得到；
+            # 进程外插件的反代在这里登记调用上下文，同样带着它
+            current_zone.set(zone)
+
         before = list(host_router.routes)
         host_router.include_router(
             router,
             prefix=f"/{entry_id}",
             tags=[f"plugin:{entry_id}"],
-            dependencies=[Depends(guard)],
+            dependencies=[Depends(guard), Depends(mark_zone)],
         )
         added = [r for r in host_router.routes if r not in before]
         self._changed()
@@ -149,6 +170,7 @@ class PluginRoutes:
         ``absolute=True`` 拼上「外部访问地址」，没配置时报错（媒体播放器需要完整地址）。
         """
         if not path.startswith("/"):
+            # i18n-ignore: plugin developer contract error at registration
             raise ValueError("path 须以 / 开头（相对本插件的前缀）")
         full = f"/api/v1/plugins/{ctx.entry_id}{path}"
         items = [(k, str(v)) for k, v in (params or {}).items()]
@@ -164,6 +186,7 @@ class PluginRoutes:
 
         base = (await get_setting_store().get(AppServerSetting)).external_url.strip().rstrip("/")
         if not base:
+            # i18n-ignore: plugin developer contract error at registration
             raise ValueError("没有配置外部访问地址（设置 → 应用），无法生成完整链接")
         return f"{base}{url}"
 
@@ -175,8 +198,8 @@ class PluginRoutes:
             key = await self._key(entry_id)
             digest = hmac.new(key, _canonical(request.url.path, items), hashlib.sha256)
             if not hmac.compare_digest(given, _b64(digest.digest())):
-                raise NotFoundException("链接无效")
+                raise NotFoundException(message_key="errors.plugins.linkInvalid")
             if exp is not None and (not exp.isdigit() or int(exp) < time.time()):
-                raise NotFoundException("链接已过期")
+                raise NotFoundException(message_key="errors.plugins.linkExpired")
 
         return verify_plugin_signature

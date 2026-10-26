@@ -6,13 +6,14 @@ package tree
 //
 // 本文件由 Python 版逐字导出，两边内容必须一致（有守护测试）。
 var domainHelp = map[string]string{
-	"app":           "外部访问设置、应用重启、版本升级/回退与 NER 模型更新",
+	"app":           "外部访问设置、访问地址（内网 / 外网）、应用重启、版本升级/回退与 NER 模型更新",
 	"appearance":    "首页背景与图库",
 	"auth":          "个人信息、会话与 API 令牌",
 	"channels":      "微信、Telegram、Discord、飞书消息推送与 AI 对话入口",
 	"collection":    "媒体库合集：把一组筛选条件存下来，可自动收录新入库的片，也可固定成一份名单",
 	"discover":      "浏览 TMDB/豆瓣电影与剧集片单，并读取影视条目完整资料",
 	"dl":            "qBittorrent/Transmission 下载器接入与路径映射、种子投递，以及查看和处理下载器里正在跑的任务",
+	"drives":        "网盘账号：可用网盘、扫码或 Cookie 登录、速率/预算/同时播放数设置与移除",
 	"extension":     "浏览器扩展 Cookie 同步",
 	"fs":            "浏览服务器上的目录（填媒体库根路径前先确认路径在服务器上长什么样）",
 	"health":        "API 存活检查",

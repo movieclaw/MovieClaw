@@ -98,16 +98,16 @@ class ImageProxy:
         parsed = urlsplit(url)
         host = (parsed.hostname or "").lower()
         if parsed.scheme not in _STANDARD_PORTS or not host or parsed.username or parsed.password:
-            raise BadRequestException("图片地址必须是合法的 http(s) URL 且不得携带用户名密码")
+            raise BadRequestException(message_key="errors.images.urlInvalid")
         if parsed.port not in (None, _STANDARD_PORTS[parsed.scheme]):
-            raise BadRequestException("图片地址不允许使用非标准端口")
+            raise BadRequestException(message_key="errors.images.portInvalid")
         # 禁止 IP 字面量：正常图床都有域名，直连 IP 几乎只出现在探测内网的攻击里
         try:
             ipaddress.ip_address(host)
         except ValueError:
             pass
         else:
-            raise BadRequestException("图片地址不允许直接使用 IP")
+            raise BadRequestException(message_key="errors.images.ipForbidden")
         if self._allowed_host_suffixes is not None and not any(
             host == suffix or host.endswith(f".{suffix}") for suffix in self._allowed_host_suffixes
         ):
@@ -121,9 +121,13 @@ class ImageProxy:
         try:
             addresses = await self._resolve(host)
         except (socket.gaierror, OSError) as exc:
-            raise UpstreamServiceException(f"图片域名 {host} 解析失败") from exc
+            raise UpstreamServiceException(
+                message_key="errors.images.dnsFailed", params={"host": host}
+            ) from exc
         if not addresses:
-            raise UpstreamServiceException(f"图片域名 {host} 解析失败")
+            raise UpstreamServiceException(
+                message_key="errors.images.dnsFailed", params={"host": host}
+            )
         for address in addresses:
             addr = ipaddress.ip_address(address)
             # IPv4-mapped IPv6（::ffff:a.b.c.d）按内嵌的 IPv4 判定，防止绕过
@@ -133,7 +137,7 @@ class ImageProxy:
                 continue
             if not addr.is_global:
                 logger.warning("拒绝代理解析到内网地址的图片域名：%s -> %s", host, address)
-                raise BadRequestException("图片域名解析到内网地址，已拒绝代理")
+                raise BadRequestException(message_key="errors.images.privateAddress")
         return host
 
     def _headers_for(self, url: str, host: str, accept: str | None = None) -> dict[str, str]:
@@ -169,7 +173,9 @@ class ImageProxy:
                     if response.is_redirect:
                         location = response.headers.get("location")
                         if not location:
-                            raise UpstreamServiceException("图床返回的重定向缺少目标地址")
+                            raise UpstreamServiceException(
+                                message_key="errors.images.redirectTargetMissing"
+                            )
                         # 逐跳校验：新地址在下一轮循环里重新过一遍全部安全检查
                         current = str(httpx.URL(current).join(location))
                         continue
@@ -186,24 +192,28 @@ class ImageProxy:
                             content_type or "（缺失）",
                             snippet,
                         )
-                        raise UpstreamServiceException("远端地址返回的内容不是图片")
+                        raise UpstreamServiceException(
+                            message_key="errors.images.contentTypeInvalid"
+                        )
                     declared_size = int(response.headers.get("content-length") or 0)
                     if declared_size > self._max_bytes:
-                        raise UpstreamServiceException("远端图片超过代理允许的大小")
+                        raise UpstreamServiceException(message_key="errors.images.proxySizeLimit")
                     chunks: list[bytes] = []
                     size = 0
                     async for chunk in response.aiter_bytes():
                         size += len(chunk)
                         if size > self._max_bytes:
-                            raise UpstreamServiceException("远端图片超过代理允许的大小")
+                            raise UpstreamServiceException(
+                                message_key="errors.images.proxySizeLimit"
+                            )
                         chunks.append(chunk)
                     return b"".join(chunks), content_type
-            raise UpstreamServiceException("图床重定向次数过多，已放弃")
+            raise UpstreamServiceException(message_key="errors.images.tooManyRedirects")
         except UpstreamServiceException:
             raise
         except httpx.HTTPError as exc:
             logger.warning("代理图片请求失败：%s（%s）", current, exc)
-            raise UpstreamServiceException("远端图片加载失败，请稍后重试") from exc
+            raise UpstreamServiceException(message_key="errors.images.remoteLoadFailed") from exc
 
     async def content_length(self, url: str, *, accept: str | None = None) -> int | None:
         """只取响应头（HEAD）问远端图片的字节数，**不下载内容**；拿不到返回 None。

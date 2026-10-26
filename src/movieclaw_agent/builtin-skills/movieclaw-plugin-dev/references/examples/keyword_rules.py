@@ -22,7 +22,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from movieclaw_api import hooks
-from movieclaw_api.domain_events import SUBSCRIPTION_DELETED, SubscriptionChanged
+from movieclaw_sdk.events import SUBSCRIPTION_DELETED, SubscriptionChanged
 from movieclaw_api.plugins.keys import PLUGIN_DATA
 from movieclaw_api.services.plugin_data import entity_scope
 from movieclaw_kernel import DURABLE_EVENTS, Context, plugin
@@ -97,4 +97,4 @@ async def keyword_rules(ctx: Context[Config]) -> None:
 
     ctx.on(hooks.CANDIDATES_FILTER, filter_candidates)
     ctx.on(hooks.SEARCH_KEYWORDS, more_keywords)
-    ctx.on(SUBSCRIPTION_DELETED, on_deleted, id="cleanup")
+    ctx.on(SUBSCRIPTION_DELETED, on_deleted, id="cleanup", durable=True)

@@ -1,0 +1,69 @@
+{
+  "plugins/netflix/movieclaw-plugin.toml": {
+    "plugin.title": {
+      "sourceHash": "92a7b9e3eb826e5748c7745d30d781e6a824911112c35c91fc9818f0a4fb5c3b"
+    },
+    "plugin.description": {
+      "sourceHash": "5e474381f1f2dd47660c423537eb7852d4da378854c94ce719bd9bbe3177c0b9"
+    },
+    "theme.description": {
+      "sourceHash": "15b1c5414d370561e7e9706d4eefdbb74219c1a00d7e4d249a52af415b316ec0"
+    }
+  },
+  "src/movieclaw_plugins/discord/movieclaw-plugin.toml": {
+    "plugin.title": {
+      "sourceHash": "0a89dd4395c970383001d3cd32d5d809609c2ee7f88f68c175610fda41b41ca4"
+    },
+    "plugin.description": {
+      "sourceHash": "aabae6cee781a711223f260a955e880d08abb9d705ba926e902a7117dcfb8afa"
+    }
+  },
+  "src/movieclaw_plugins/feishu/movieclaw-plugin.toml": {
+    "plugin.title": {
+      "sourceHash": "304be559eb379078d7a6c9e8114f90487570eb6bdba37433003f80558e8598f0"
+    },
+    "plugin.description": {
+      "sourceHash": "94d9bda98255972de55ec6549faeff701ae975a8d5fa174f1cdcb9360c5ab25a"
+    }
+  },
+  "src/movieclaw_plugins/qbittorrent/movieclaw-plugin.toml": {
+    "plugin.title": {
+      "sourceHash": "dc422d46897c4da017140bbcf95bedc87a2b6ce311befe88754ff2847ce5f6bc"
+    },
+    "plugin.description": {
+      "sourceHash": "8c5207128ea51d7381b53ede77123014d1da73d17e4198d30e311dbd5d115070"
+    }
+  },
+  "src/movieclaw_plugins/strm_prefetch/movieclaw-plugin.toml": {
+    "plugin.title": {
+      "sourceHash": "733065fb48d08be207773ae36a15ec660b0b48a52522988b59c1e039265d85bb"
+    },
+    "plugin.description": {
+      "sourceHash": "d7e7a631fb66a451b5b6f9b154b6116a5efb622e70f307fad9aa5568b3bd361f"
+    }
+  },
+  "src/movieclaw_plugins/telegram/movieclaw-plugin.toml": {
+    "plugin.title": {
+      "sourceHash": "2476532070a777df57abdd22fbf98cc3d0e4ff2dd49cb9ae61d2fd2e4aec987d"
+    },
+    "plugin.description": {
+      "sourceHash": "476f8b80100821fa695c0b91c7ebaea73d834da34fda5d5474e27cbaad9669ab"
+    }
+  },
+  "src/movieclaw_plugins/transmission/movieclaw-plugin.toml": {
+    "plugin.title": {
+      "sourceHash": "1bbe3e7df69f5cec28fb97a1221f8f594b2cc18b393cc59acd9c3f1d159fb92c"
+    },
+    "plugin.description": {
+      "sourceHash": "e21ae21c22d97d509dcc6ea013d1a031544e43e9d7cbcb56cc07f6a168a685c0"
+    }
+  },
+  "src/movieclaw_plugins/weixin/movieclaw-plugin.toml": {
+    "plugin.title": {
+      "sourceHash": "774cd2631d8ee2e3f44cce669246e2dcca0a2ce49b15f02f75199091931b7ddc"
+    },
+    "plugin.description": {
+      "sourceHash": "ac6b9a7f8d19e3d7c722acc9040c6c152315376ab606902bca3bcf4500b81eaf"
+    }
+  }
+}

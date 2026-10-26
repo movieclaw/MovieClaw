@@ -6,6 +6,8 @@ struct Permissions: Equatable {
     var canSubscribe: Bool
     var canSearch: Bool
     var canDirectDownload: Bool
+    /// 下载影片到设备（docs/design/offline-download.md §9）：旧服务器没有这个字段 = 不支持离线下载，入口不出现
+    var canDownloadVideo: Bool
     var canManageLibraries: Bool { isAdmin }
     var canManageSubscriptions: Bool { isAdmin }
     /// 订阅详情「手动选种」/ 资源结果「投给订阅」：在站点资源里挑一条种子直接投给订阅（member-permissions-v2 §3.7）。
@@ -17,6 +19,7 @@ struct Permissions: Equatable {
         canSubscribe = isAdmin || session.capabilities.allowSubscribe == true
         canSearch = isAdmin || session.capabilities.allowSearch == true
         canDirectDownload = isAdmin || session.capabilities.allowDirectDownload == true
+        canDownloadVideo = session.capabilities.allowVideoDownload == true
     }
 
     static let none = Permissions()
@@ -25,11 +28,12 @@ struct Permissions: Equatable {
         canSubscribe = false
         canSearch = false
         canDirectDownload = false
+        canDownloadVideo = false
     }
 }
 
 extension API.SessionView {
-    var roleLabel: String { role == "admin" ? "超级管理员" : "成员" }
+    var roleLabel: String { role == "admin" ? String(localized: .authRoleSuperAdmin) : String(localized: .authRoleMember) }
 
     /// 头像徽标字：中文取首字，拉丁字母取前两位大写（同 Web initialsOf）
     var initials: String {

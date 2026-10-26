@@ -1878,6 +1878,7 @@ async def get_item(
         # 单条目是全字段语义，People 恒输出；可见性先行（GUID 可枚举）
         if not await _item_visible(session, ref.entity_id, scope):
             raise not_found()
+        await _emit_viewed(session, ref, scope.member_id)
         # GUID 自带类型，装载前就知道这次只会渲染哪一个叶子：
         # 集 → 就那一集；剧/季 → 一个叶子都不渲染（Series/Season DTO 只吃
         # 单元键集合 + 季元数据 + 播放状态）；电影 → (0,0) 哨兵单元。
@@ -2133,3 +2134,19 @@ async def shows_episodes(
             )
     page = [episode_dto(ctx, bundle, s, e, options) for s, e in page_units]
     return JSONResponse(query_result(page, total, start_index))
+
+
+async def _emit_viewed(session: Any, ref: Any, member_id: int) -> None:
+    """「打开条目详情」事件（domain-events.md §8，高频）：客户端取了一个条目 / 季 / 集。"""
+    from movieclaw_api.services.playback.events import publish_viewed
+    from movieclaw_playback.events import ClientInfo
+
+    leaf = ref.kind in (EntityKind.SEASON, EntityKind.EPISODE)
+    await publish_viewed(
+        session,
+        ref.entity_id,
+        member_id=member_id,
+        season=ref.season if leaf else None,
+        episode=ref.episode if ref.kind == EntityKind.EPISODE else None,
+        client=ClientInfo(name="jellyfin"),
+    )

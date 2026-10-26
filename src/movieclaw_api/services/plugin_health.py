@@ -43,6 +43,7 @@ class HealthReporter:
 
     async def degraded(self, key: str, message: str, *, action_href: str | None = None) -> None:
         if action_href is not None and not action_href.startswith("/"):
+            # i18n-ignore: developer error
             raise ValueError("action_href 只能是站内路径（以 / 开头）")
         await self._service._report(self.entry_id, self._title, key, False, message, action_href)
 
@@ -111,7 +112,8 @@ class PluginHealthService:
                     dedupe_key=_notice_key(entry_id, key),
                     severity=NoticeSeverity.WARNING,
                     source="plugin",
-                    title=f"插件「{title}」运行异常",
+                    title_key="notify.pluginUnhealthy.title",
+                    message_params={"title": title},
                     message=message,
                     payload={"entry_id": entry_id, "key": key, "action_href": action_href},
                 )

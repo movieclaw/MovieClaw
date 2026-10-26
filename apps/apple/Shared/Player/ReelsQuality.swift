@@ -18,11 +18,11 @@ enum ReelsQuality {
 
     /// 片段页的画质菜单：正片的档位，「自动」在这里就是原画（直出原文件）
     static let options: [QualityOption] = QualityOption.all.map { option in
-        option.maxHeight == nil ? QualityOption(maxHeight: nil, label: "原画", hint: "直接放原文件，最快") : option
+        option.maxHeight == nil ? QualityOption(maxHeight: nil, label: String(localized: .playerQualityOriginal), hint: String(localized: .playerQualityReelsHint)) : option
     }
 
     static func label(_ maxHeight: Int?) -> String {
-        options.first { $0.maxHeight == maxHeight }?.label ?? maxHeight.map { "\($0)p" } ?? "原画"
+        options.first { $0.maxHeight == maxHeight }?.label ?? maxHeight.map { "\($0)p" } ?? String(localized: .playerQualityOriginal)
     }
 
     /// 当前网络环境下的画质

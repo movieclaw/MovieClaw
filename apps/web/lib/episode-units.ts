@@ -1,3 +1,6 @@
+import { appTranslator } from "./i18n/translate.ts";
+import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
+
 export interface EpisodeUnit {
   season_number: number;
   episode_number: number;
@@ -51,7 +54,7 @@ function rangeEpisodeCount(range: EpisodeRange): number {
  * 把相邻的区间重新按季拼接。季号只在每季开头出现一次，既保留 SxxEyy
  * 的熟悉格式，也避免长列表反复占用横向空间。
  */
-function formatRanges(ranges: EpisodeRange[]): string {
+function formatRanges(ranges: EpisodeRange[], locale: AppLocale): string {
   const seasons: { seasonNumber: number; labels: string[] }[] = [];
   for (const range of ranges) {
     let season = seasons[seasons.length - 1];
@@ -66,7 +69,7 @@ function formatRanges(ranges: EpisodeRange[]): string {
     );
   }
   return seasons
-    .map((season) => `S${pad(season.seasonNumber)}${season.labels.join("、")}`)
+    .map((season) => `S${pad(season.seasonNumber)}${season.labels.join(locale === "zh-Hans" ? "、" : ", ")}`)
     .join(" · ");
 }
 
@@ -74,13 +77,14 @@ function formatRanges(ranges: EpisodeRange[]): string {
  * 下载任务的季集摘要。连续集号压成区间；过于零散时只保留前两个区间，
  * 同时明确标出隐藏了多少集，完整列表交给任务卡的展开区域展示。
  */
-export function summarizeEpisodeUnits(units: EpisodeUnit[]): EpisodeUnitsSummary | null {
+export function summarizeEpisodeUnits(units: EpisodeUnit[], locale: AppLocale = requestLocale() ?? "zh-Hans"): EpisodeUnitsSummary | null {
+  const t = appTranslator(locale);
   if (units.length === 0) return null;
   if (units.some((unit) => unit.season_number === 0 && unit.episode_number === 0)) {
     return {
       kind: "movie",
-      label: "正片",
-      fullLabel: "正片",
+      label: t("media.kind.feature"),
+      fullLabel: t("media.kind.feature"),
       episodeCount: 0,
       hiddenEpisodeCount: 0,
       seasons: [],
@@ -106,7 +110,7 @@ export function summarizeEpisodeUnits(units: EpisodeUnit[]): EpisodeUnitsSummary
   }
 
   const ranges = seasons.flatMap(buildRanges);
-  const fullLabel = formatRanges(ranges);
+  const fullLabel = formatRanges(ranges, locale);
   if (ranges.length <= MAX_VISIBLE_RANGES) {
     return {
       kind: "episodes",
@@ -124,7 +128,7 @@ export function summarizeEpisodeUnits(units: EpisodeUnit[]): EpisodeUnitsSummary
     .reduce((total, range) => total + rangeEpisodeCount(range), 0);
   return {
     kind: "episodes",
-    label: `${formatRanges(visibleRanges)} · 另 ${hiddenEpisodeCount} 集`,
+    label: t("activity.tasks.moreEpisodes", { ranges: formatRanges(visibleRanges, locale), count: hiddenEpisodeCount }),
     fullLabel,
     episodeCount: sortedUnits.length,
     hiddenEpisodeCount,

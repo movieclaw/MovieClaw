@@ -1,3 +1,5 @@
+import { appTranslator } from "./i18n/translate.ts";
+
 /**
  * 媒体库管理页（/library/manage）的纯函数：状态归类、摘要、筛选、换位。
  *
@@ -20,6 +22,7 @@ export type LibraryStatusKind =
   | "organize"
   | "refresh"
   | "chapters"
+  | "upload"
   | "importing"
   | "missing"
   | "unidentified"
@@ -55,32 +58,34 @@ function percentOf(processed: number, total: number): number | null {
  * 几个缺失；都没有就明说「无新文件」，手动停过的也如实标出。
  */
 function lastScanDetail(library: MediaLibrary, ctx: LibraryStatusContext): string {
+  const t = appTranslator();
   const scan = library.last_scan;
-  if (!scan) return "尚未扫描";
-  const parts = [`最近扫描 ${ctx.relativeTime(scan.finished_at)}`];
-  if (scan.cancelled) parts.push("手动停止");
-  if (scan.scanned > 0) parts.push(`新增 ${scan.scanned} 个文件`);
-  if (scan.marked_missing > 0) parts.push(`标记缺失 ${scan.marked_missing}`);
-  if (!scan.cancelled && scan.scanned === 0 && scan.marked_missing === 0) parts.push("无新文件");
+  if (!scan) return t("library.status.unscanned");
+  const parts = [t("library.status.lastScan", { time: ctx.relativeTime(scan.finished_at) })];
+  if (scan.cancelled) parts.push(t("library.status.stopped"));
+  if (scan.scanned > 0) parts.push(t("library.status.added", { count: scan.scanned }));
+  if (scan.marked_missing > 0) parts.push(t("library.status.markedMissing", { count: scan.marked_missing }));
+  if (!scan.cancelled && scan.scanned === 0 && scan.marked_missing === 0) parts.push(t("library.status.noNewFiles"));
   return parts.join(" · ");
 }
 
 /**
  * 一行库的状态归类。优先级自上而下取第一个命中（§2.2 状态表）：
- * 扫描 → 整理 → 刷新元数据 → 生成章节 → 入库中 → 有缺失 → 有待识别 → 空闲。
+ * 扫描 → 整理 → 刷新元数据 → 生成章节 → 上传到网盘 → 入库中 → 有缺失 → 有待识别 → 空闲。
  * 前三种长任务互斥（共用一把库级锁），所以先后顺序只是兜底；生成章节是
  * 低优先级后台作业，常排在它们后面，排在第四位正好表达"等前面的跑完"。
  */
 export function libraryStatus(library: MediaLibrary, ctx: LibraryStatusContext): LibraryStatus {
+  const t = appTranslator();
   if (library.scanning) {
     const p = library.scan_progress;
     const percent = p ? percentOf(p.processed, p.total) : null;
-    const label = p ? ctx.phaseLabels[p.phase] ?? "正在扫描" : "正在扫描";
+    const label = p ? ctx.phaseLabels[p.phase] ?? t("library.status.scanning") : t("library.status.scanning");
     return {
       tone: "busy",
       kind: "scan",
       title: percent === null ? label : `${label} ${percent}%`,
-      detail: p && p.total > 0 ? `${p.processed} / ${p.total}` : "正在统计待处理的文件数",
+      detail: p && p.total > 0 ? `${p.processed} / ${p.total}` : t("library.status.counting"),
       percent,
     };
   }
@@ -90,7 +95,7 @@ export function libraryStatus(library: MediaLibrary, ctx: LibraryStatusContext):
     return {
       tone: "busy",
       kind: "organize",
-      title: percent === null ? "正在整理文件名" : `正在整理文件名 ${percent}%`,
+      title: percent === null ? t("library.status.organizing") : t("library.status.organizeProgress", { percent }),
       detail: p && p.total > 0 ? `${p.processed} / ${p.total}` : "",
       percent,
     };
@@ -103,12 +108,12 @@ export function libraryStatus(library: MediaLibrary, ctx: LibraryStatusContext):
       tone: "busy",
       kind: "refresh",
       title: refresh.stopping
-        ? "正在停止刷新"
+        ? t("library.status.stoppingRefresh")
         : percent === null
-          ? "刷新元数据"
-          : `刷新元数据 ${percent}%`,
+          ? t("library.status.refreshing")
+          : t("library.status.refreshProgress", { percent }),
       detail: active
-        ? `正在处理「${active.title}」· ${active.phase}`
+        ? t("library.status.active", { title: active.title, phase: active.phase })
         : `${refresh.processed} / ${refresh.total}`,
       percent,
     };
@@ -122,11 +127,40 @@ export function libraryStatus(library: MediaLibrary, ctx: LibraryStatusContext):
       kind: "chapters",
       title: chapterJobLabel(chapters),
       detail: !running
-        ? "等前面的任务跑完再开始"
+        ? t("library.status.queued")
         : chapters.total > 0
-          ? `${chapters.processed} / ${chapters.total}${chapters.failed > 0 ? ` · ${chapters.failed} 个失败` : ""}`
-          : "正在统计待处理的文件数",
+          ? t("library.status.chapterProgress", { processed: chapters.processed, total: chapters.total, failed: chapters.failed > 0 ? t("library.status.failedSuffix", { count: chapters.failed }) : "" })
+          : t("library.status.counting"),
       percent,
+    };
+  }
+  const upload = library.cloud_upload;
+  if (upload) {
+    // 主根在网盘的库往网盘传（cloud-storage.md §5）：长任务，进度写在这一格，不弹窗打扰
+    const target =
+      (library.cloud_folders ?? []).find((f) => f.is_primary)?.backend_title ?? t("library.status.cloud");
+    if (upload.status === "blocked") {
+      return {
+        tone: "pending",
+        kind: "upload",
+        title: t("library.status.uploadPaused", { target }),
+        detail: upload.message,
+        percent: null,
+      };
+    }
+    const waiting = upload.status === "queued" || upload.total === 0;
+    return {
+      tone: "busy",
+      kind: "upload",
+      title: waiting
+        ? t("library.status.uploadWaiting", { target })
+        : t("library.status.uploadProgress", { target, processed: upload.processed, total: upload.total }),
+      detail: waiting
+        ? t("library.status.queued")
+        : [upload.message, upload.rapid > 0 ? t("library.status.rapid", { count: upload.rapid }) : ""]
+            .filter(Boolean)
+            .join(" · "),
+      percent: waiting ? null : percentOf(upload.processed, upload.total),
     };
   }
   const deferred = library.last_scan?.deferred ?? 0;
@@ -134,8 +168,8 @@ export function libraryStatus(library: MediaLibrary, ctx: LibraryStatusContext):
     return {
       tone: "busy",
       kind: "importing",
-      title: `${deferred} 个新文件入库中`,
-      detail: "等文件写完自动补扫",
+      title: t("library.status.importing", { count: deferred }),
+      detail: t("library.status.waitForWrite"),
       percent: null,
     };
   }
@@ -145,7 +179,7 @@ export function libraryStatus(library: MediaLibrary, ctx: LibraryStatusContext):
       tone: "missing",
       kind: "missing",
       title:
-        unidentified > 0 ? `${unidentified} 个待识别 · ${missing} 个缺失` : `${missing} 个缺失`,
+        unidentified > 0 ? t("library.status.pendingMissing", { unidentified, missing }) : t("library.status.missing", { count: missing }),
       detail: lastScanDetail(library, ctx),
       percent: null,
     };
@@ -154,7 +188,7 @@ export function libraryStatus(library: MediaLibrary, ctx: LibraryStatusContext):
     return {
       tone: "pending",
       kind: "unidentified",
-      title: `${unidentified} 个待识别`,
+      title: t("library.status.unidentified", { count: unidentified }),
       detail: lastScanDetail(library, ctx),
       percent: null,
     };
@@ -164,7 +198,7 @@ export function libraryStatus(library: MediaLibrary, ctx: LibraryStatusContext):
   return {
     tone: "idle",
     kind: "idle",
-    title: "空闲",
+    title: t("library.status.idle"),
     detail: lastScanDetail(library, ctx),
     percent: null,
   };
@@ -179,11 +213,12 @@ function chapterJobRunning(job: ChapterJobProgress): boolean {
  * 说到哪了——点了菜单后作业常要排在扫描/刷新后面，只写"生成章节"用户会以为没反应。
  */
 export function chapterJobLabel(job: ChapterJobProgress | null | undefined): string {
-  if (!job) return "生成章节";
-  if (job.stopping) return "正在停止生成章节";
-  if (!chapterJobRunning(job)) return "生成章节排队中";
+  const t = appTranslator();
+  if (!job) return t("library.status.generateChapters");
+  if (job.stopping) return t("library.status.stoppingChapters");
+  if (!chapterJobRunning(job)) return t("library.status.chaptersQueued");
   const percent = percentOf(job.processed, job.total);
-  return percent === null ? "正在生成章节" : `正在生成章节 ${percent}%`;
+  return percent === null ? t("library.status.chaptersRunning") : t("library.status.chapterPercent", { percent });
 }
 
 /** 是否有长任务在跑（摘要行「N 个在跑任务」与筛选用）。 */
@@ -192,7 +227,8 @@ export function libraryIsBusy(library: MediaLibrary): boolean {
     library.scanning ||
     library.organizing ||
     Boolean(library.metadata_refresh?.refreshing) ||
-    library.chapter_job !== null
+    library.chapter_job !== null ||
+    Boolean(library.cloud_upload)
   );
 }
 
@@ -219,11 +255,12 @@ export interface LibrarySummary {
 }
 
 export function summarizeLibraries(libraries: MediaLibrary[]): LibrarySummary {
+  const t = appTranslator();
   const items = libraries.reduce((sum, l) => sum + l.stats.item_count, 0);
   const bytes = libraries.reduce((sum, l) => sum + l.stats.total_size_bytes, 0);
   const needing = libraries.filter(libraryNeedsAttention);
   return {
-    facts: `${libraries.length} 个媒体库 · ${items} 个条目 · ${formatBytes(bytes)}`,
+    facts: t("library.status.summary", { libraries: libraries.length, items, size: formatBytes(bytes) }),
     busy: libraries.filter(libraryIsBusy).length,
     attention: needing.length,
     missing: needing.some((l) => l.stats.missing_count > 0),
@@ -279,10 +316,11 @@ export function moveInList<T>(list: readonly T[], from: number, to: number): rea
  *  「你本人在不在浏览范围内」是另一个维度，由行内的锁图标表达，不混进这段文字——
  *  否则超管把自己摘出某个库后，管理页只剩「仅管理」三个字，看不出成员到底能不能看。 */
 export function accessLabel(library: MediaLibrary): string {
-  if (library.access_mode === "everyone") return "全部成员";
+  const t = appTranslator();
+  if (library.access_mode === "everyone") return t("library.status.everyone");
   const n = library.member_ids.length;
-  if (n > 0) return `指定成员 ${n}`;
-  return library.admin_visible ? "仅自己" : "无人可见";
+  if (n > 0) return t("library.status.members", { count: n });
+  return library.admin_visible ? t("library.status.onlyMe") : t("library.status.nobody");
 }
 
 /**
@@ -301,17 +339,18 @@ export function accessRestricted(library: MediaLibrary): boolean {
  * - 「在首页展示」「实时监控开」是默认，不说；关了才说。
  */
 export function configNotes(library: MediaLibrary): string[] {
+  const t = appTranslator();
   const notes: string[] = [];
-  if (library.exclude_from_home) notes.push("从首页排除");
-  if (!library.realtime_watch) notes.push("实时监控关");
+  if (library.exclude_from_home) notes.push(t("library.actions.excludeHome"));
+  if (!library.realtime_watch) notes.push(t("library.status.watchOff"));
   return notes;
 }
 
 /** 库存列的文案：影视库按「部」、图片库按「张」、其他库按「条目」。 */
 export function inventoryLabel(library: MediaLibrary): { primary: string; secondary: string } {
-  const unit = library.kind === "photo" ? "张" : library.kind === "video" ? "个条目" : "部";
+  const t = appTranslator();
   return {
-    primary: `${library.stats.item_count} ${unit}`,
-    secondary: `${library.stats.file_count} 个文件`,
+    primary: library.kind === "photo" ? t("library.status.photoCount", { count: library.stats.item_count }) : library.kind === "video" ? t("library.status.itemCount", { count: library.stats.item_count }) : t("library.status.titleCount", { count: library.stats.item_count }),
+    secondary: t("library.status.fileCount", { count: library.stats.file_count }),
   };
 }

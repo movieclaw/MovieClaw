@@ -1,5 +1,7 @@
 import type { MetadataRoute } from "next";
 
+import { getLocale, getTranslations } from "next-intl/server";
+
 import { publicEnv } from "@/lib/env";
 
 /**
@@ -9,11 +11,15 @@ import { publicEnv } from "@/lib/env";
  * 的过渡帧不会闪白。图标为不透明满幅方图（iOS 自己裁圆角），maskable
  * 版本同一张图——字标只占画布 58%，留白天然满足安全区要求。
  */
-export default function manifest(): MetadataRoute.Manifest {
+export const dynamic = "force-dynamic";
+
+export default async function manifest(): Promise<MetadataRoute.Manifest> {
+  const t = await getTranslations("home.metadata");
   return {
+    lang: await getLocale(),
     name: publicEnv.appName,
     short_name: publicEnv.appName,
-    description: "液态玻璃风格的影视追踪工作台",
+    description: t("manifestDescription"),
     start_url: "/",
     display: "standalone",
     background_color: "#000000",

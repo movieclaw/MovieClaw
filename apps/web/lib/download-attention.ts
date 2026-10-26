@@ -6,6 +6,9 @@
  * 出现角标数与页面对不上的自相矛盾。这里不碰 React、不发请求，可以直接单测。
  */
 
+import { appTranslator } from "./i18n/translate.ts";
+import { requestLocale, type AppLocale } from "./i18n/negotiate.ts";
+
 import type { DownloadTask } from "@/lib/api/downloaders";
 import type { JobView } from "@/lib/api/jobs";
 // 值导入必须带 .ts 后缀的相对路径：本模块要进 node --test（见 tsconfig 注释）
@@ -50,14 +53,14 @@ export function groupDownloadTasks(tasks: DownloadTask[]): DownloadTaskGroup[] {
  * 这些集已经退回重新寻找资源，等这个种子永远等不到——不能再按"其余等待下载
  * 完成"讲，否则会出现「下载完成 7.59 GB」和「等待下载完成」同框的自相矛盾。
  */
-export function contentMissingLabel(task: DownloadTask): string | null {
+export function contentMissingLabel(task: DownloadTask, locale: AppLocale = requestLocale() ?? "zh-Hans"): string | null {
   const units = (task.subscriptions[0]?.units ?? []).filter((unit) => unit.content_missing);
   if (units.length === 0) return null;
   const first = units[0];
   const label = `S${String(first.season_number).padStart(2, "0")}E${String(
     first.episode_number,
   ).padStart(2, "0")}`;
-  return units.length === 1 ? label : `${label} 等 ${units.length} 集`;
+  return units.length === 1 ? label : appTranslator(locale)("activity.tasks.missingUnits", { label, count: units.length });
 }
 
 /**

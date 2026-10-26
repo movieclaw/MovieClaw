@@ -2,7 +2,7 @@ package io.movieclaw.androidtv.core.session
 
 import android.content.Context
 import android.net.ConnectivityManager
-import io.movieclaw.androidtv.core.network.ServerAddress
+import io.movieclaw.core.network.ServerAddress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -10,7 +10,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
@@ -26,13 +29,15 @@ import java.util.concurrent.TimeUnit
 /**
  * 局域网自动发现 MovieClaw 服务器（逐项对齐 Apple 端 `Shared/Core/Networking/ServerDiscovery.swift`）。
  *
- * 协议：后端实现了 Jellyfin 的局域网发现（`src/movieclaw_jellyfin/udp.py`）——监听 UDP 7359，收到
- * 「who is JellyfinServer?」就向发送方单播回 `{"Address","Name","Id"}`。服务器不主动广播。
+ * 协议（docs/design/lan-discovery.md）：后端监听 UDP 7359，收到「who is MovieClawServer?」就向发送方单播回
+ * `{"type": "movieclaw.discovery", "name", "addresses": [按可信度排好的候选地址]}`。每个地址同时再问一句
+ * 「who is JellyfinServer?」：v0.40.0 及更早的服务器只认这一句，回 `{"Address","Name","Id"}`。
+ * 同一台服务器的两条应答合并成一份候选。服务器不主动广播。
  *
  * 逐个单播、不发广播：Docker 桥接部署时广播进不了容器，发给宿主 IP 的单播却能经端口映射转进去。
  * 所以对电视所在网段（最多一个 /24）逐个问一遍，再收集应答。
  *
- * 应答里的地址不一定能直接用（容器内网 IP、公网域名），于是按「应答地址 → 来源 IP + 应答端口 → 来源 IP + 3000」
+ * 应答里的地址不一定能直接用（容器内网 IP、公网域名），于是按「应答地址 → 来源 IP + 应答里出现过的端口 → 来源 IP + 3000」
  * 依次试 `/api/v1/health`，第一个确认是 MovieClaw 的才算数——顺带排除局域网里真正的 Jellyfin。
  *
  * 与 Apple 端的差别：Apple 只取第一台；这里一轮里所有应答都探测，找到几台列几台。
@@ -40,12 +45,15 @@ import java.util.concurrent.TimeUnit
 object ServerDiscovery {
     data class Found(val address: ServerAddress, val name: String)
 
-    /** 一条发现应答：JSON 里的 Address、Name，加上报文的来源 IP */
-    data class Reply(val address: String, val name: String, val source: String)
+    /**
+     * 一条发现应答（或同一来源的几条合并后的结果）：自家应答的 addresses 或 Jellyfin 应答的 Address、名字、
+     * 报文的来源 IP；[native] = 自家协议的应答（合并时排在 Jellyfin 应答前面）
+     */
+    data class Reply(val addresses: List<String>, val name: String, val source: String, val native: Boolean = false)
 
     const val PORT = 7359
-    /** 与 Jellyfin 客户端发的询问一字不差（后端按大小写不敏感的包含关系匹配） */
-    const val QUERY = "who is JellyfinServer?"
+    /** 自家询问在前；Jellyfin 的询问与 Jellyfin 客户端发的一字不差（后端按大小写不敏感的包含关系匹配） */
+    val QUERIES = listOf("who is MovieClawServer?", "who is JellyfinServer?")
     /** 后端对外端口的默认值（docker-compose 的 3000:3000） */
     const val DEFAULT_PORT = 3000
     /** 最多问多少个地址 */
@@ -71,7 +79,7 @@ object ServerDiscovery {
         val found = mutableListOf<Found>()
         for (round in 0 until rounds) {
             val replies = withContext(Dispatchers.IO) { sweep(hosts, listenMs = 1_200) }
-            for (reply in replies) {
+            for (reply in merged(replies)) {
                 val address = firstMovieClaw(probe, candidates(reply)) ?: continue
                 if (found.none { it.address == address }) {
                     found += Found(address, reply.name)
@@ -93,11 +101,36 @@ object ServerDiscovery {
             val address = ServerAddress.parse(raw) ?: return
             if (address !in list) list += address
         }
-        add(reply.address)
-        val port = explicitPort(reply.address) ?: DEFAULT_PORT
-        add("http://${reply.source}:$port")
-        add("http://${reply.source}:$DEFAULT_PORT")
+        reply.addresses.forEach(::add)
+        for (port in reply.addresses.mapNotNull(::explicitPort) + DEFAULT_PORT) add("http://${reply.source}:$port")
         return list
+    }
+
+    /** 同一来源 IP 的应答合并成一条（自家应答的地址与名字在前），按首次出现的顺序 */
+    fun merged(replies: List<Reply>): List<Reply> =
+        replies.groupBy { it.source }.map { (source, group) ->
+            val ordered = group.sortedByDescending { it.native }
+            Reply(ordered.flatMap { it.addresses }.distinct(), ordered.first().name, source, ordered.first().native)
+        }
+
+    /**
+     * 手动输入的地址只写了主机（没写协议也没写端口，如 `192.168.1.10`）时要试的地址：`http://主机:3000`、`http://主机`、
+     * `https://主机`；写了协议或端口时只有它自己
+     */
+    fun manualAlternatives(input: String): List<ServerAddress> {
+        val address = ServerAddress.parse(input) ?: return emptyList()
+        val text = input.trim()
+        if ("://" in text || explicitPort(text) != null) return listOf(address)
+        val host = address.origin.host.let { if (':' in it) "[$it]" else it }
+        return listOf("http://$host:$DEFAULT_PORT", "http://$host", "https://$host").mapNotNull(ServerAddress::parse)
+    }
+
+    /** 按 [manualAlternatives] 依次做健康检查，用第一个确认是 MovieClaw 的；都不是就用输入原样解析的，让登录那步报原因 */
+    suspend fun settle(http: OkHttpClient, input: String): ServerAddress? {
+        val alternatives = manualAlternatives(input)
+        if (alternatives.size <= 1) return alternatives.firstOrNull()
+        val probe = http.newBuilder().callTimeout(2_500, TimeUnit.MILLISECONDS).build()
+        return firstMovieClaw(probe, alternatives) ?: ServerAddress.parse(input)
     }
 
     /** 地址里写明的端口（同 URLComponents.port：没写就是 null，不按协议补默认端口） */
@@ -108,14 +141,19 @@ object ServerDiscovery {
         return hostPort.substringAfter(':', "").toIntOrNull()
     }
 
-    /** 解析应答报文；不是合法的发现应答（不是 JSON、没有 Address）返回 null */
+    /**
+     * 解析应答报文；不是合法的发现应答（不是 JSON、Jellyfin 应答没有 Address）返回 null。
+     * 自家应答的地址列表可以为空：桥接部署又没学到宿主地址时，只能靠来源 IP 拼
+     */
     fun parse(data: ByteArray, source: String): Reply? {
         val obj = runCatching { json.parseToJsonElement(data.decodeToString()) as? JsonObject }.getOrNull() ?: return null
-        val address = obj["Address"]?.let { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }
-            ?.takeIf { it.isNotEmpty() } ?: return null
-        val name = obj["Name"]?.let { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }
-            ?.takeIf { it.isNotEmpty() } ?: "MovieClaw"
-        return Reply(address, name, source)
+        fun text(element: JsonElement?) = element?.let { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }?.takeIf { it.isNotEmpty() }
+        if (text(obj["type"]) == "movieclaw.discovery") {
+            val addresses = (obj["addresses"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.let(::text) }
+            return Reply(addresses, text(obj["name"]) ?: "MovieClaw", source, native = true)
+        }
+        val address = text(obj["Address"]) ?: return null
+        return Reply(listOf(address), text(obj["Name"]) ?: "MovieClaw", source)
     }
 
     /**
@@ -176,11 +214,12 @@ object ServerDiscovery {
         socket.use {
             // 收包超时 150 毫秒：没有应答时按时返回，好检查截止时间
             it.soTimeout = 150
-            val message = QUERY.encodeToByteArray()
+            val messages = QUERIES.map(String::encodeToByteArray)
             hosts.forEachIndexed { index, host ->
-                runCatching { it.send(DatagramPacket(message, message.size, InetAddress.getByName(dotted(host)), PORT)) }
-                // 每 32 个包歇 2 毫秒：一口气灌几百个包，网卡发送队列满了会丢包
-                if (index % 32 == 31) Thread.sleep(2)
+                val target = InetAddress.getByName(dotted(host))
+                for (message in messages) runCatching { it.send(DatagramPacket(message, message.size, target, PORT)) }
+                // 每 16 个地址（32 个包）歇 2 毫秒：一口气灌几百个包，网卡发送队列满了会丢包
+                if (index % 16 == 15) Thread.sleep(2)
             }
             val replies = mutableListOf<Reply>()
             val buffer = ByteArray(4096)

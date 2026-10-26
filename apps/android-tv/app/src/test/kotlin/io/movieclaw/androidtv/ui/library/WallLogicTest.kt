@@ -33,11 +33,20 @@ class WallLogicTest {
     fun libraryWallQuery() {
         assertEquals(
             WallQuery(WallQuery.Endpoint.Library, id = 3, sort = "added_at"),
-            WallLogic.libraryQuery(3, WallSort("added_at"), unwatched = false),
+            WallLogic.libraryQuery(3, WallSort("added_at")),
         )
         assertEquals(
             WallQuery(WallQuery.Endpoint.Library, id = 3, sort = "title", order = "desc", w = "unwatched"),
-            WallLogic.libraryQuery(3, WallSort("title", reversed = true), unwatched = true),
+            WallLogic.libraryQuery(3, WallSort("title", reversed = true), WallFilters.of(WallPicks(), unwatched = true)),
+        )
+        // 类型 / 年代 / 画质：画质里的 HDR 是 hdr=true，其余是分辨率
+        assertEquals(
+            WallQuery(WallQuery.Endpoint.Library, id = 3, sort = "rating", g = "37", d = "1990s", res = "2160p"),
+            WallLogic.libraryQuery(3, WallSort("rating"), WallFilters.of(WallPicks(37, "1990s", "2160p"), unwatched = false)),
+        )
+        assertEquals(
+            WallQuery(WallQuery.Endpoint.Library, id = 3, sort = "rating", hdr = true),
+            WallLogic.libraryQuery(3, WallSort("rating"), WallFilters.of(WallPicks(quality = WallPicks.HDR), unwatched = false)),
         )
     }
 
@@ -88,8 +97,8 @@ class WallLogicTest {
 
     @Test
     fun labels() {
-        assertEquals("最近添加", WallLogic.sortButtonLabel("added_at", false))
-        assertEquals("评分最高 · 未看", WallLogic.sortButtonLabel("rating", true))
+        assertEquals("排序与筛选 · 最近添加", WallLogic.sortButtonLabel("added_at"))
+        assertEquals("排序与筛选 · A–Z", WallLogic.sortButtonLabel("title"))
         assertEquals(listOf("最近添加", "最近上映", "评分最高", "A–Z"), WallLogic.LIBRARY_SORTS.map { WallLogic.shortLabel(it) })
         assertEquals("Z–A", WallLogic.shortLabel("title", true))
     }
@@ -104,6 +113,21 @@ class WallLogicTest {
         // 电视上不提供的档位退回默认
         assertEquals(WallSort("added_at"), WallLogic.decodeSort(WallLogic.encodeSort(WallSort("random"))))
         assertEquals(WallSort("title"), WallLogic.decodeSort("""{"sort":"title"}"""))
+    }
+
+    @Test
+    fun collectionSort() {
+        // 「合集顺序」不传排序，由服务端按合集自己的顺序给
+        assertEquals(WallQuery(WallQuery.Endpoint.Collection, id = 4), WallLogic.collectionQuery(4, WallSort(WallLogic.COLLECTION_ORDER)))
+        assertEquals(
+            WallQuery(WallQuery.Endpoint.Collection, id = 4, sort = "release_date", order = "asc"),
+            WallLogic.collectionQuery(4, WallSort("release_date", reversed = true)),
+        )
+        assertEquals(listOf("合集顺序", "最近添加", "最近上映", "评分最高", "A–Z"), WallLogic.COLLECTION_SORTS.map(WallLogic::collectionLabel))
+        assertEquals("movieclaw.tv.collection-sort.4", WallLogic.collectionSortKey(4))
+        val fallback = WallSort(WallLogic.COLLECTION_ORDER)
+        assertEquals(fallback, WallLogic.decodeSort(null, WallLogic.COLLECTION_SORTS, fallback))
+        assertEquals(WallSort("title"), WallLogic.decodeSort("""{"sort":"title"}""", WallLogic.COLLECTION_SORTS, fallback))
     }
 
     @Test

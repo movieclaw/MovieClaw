@@ -190,10 +190,12 @@ def is_demo_mode() -> bool:
 
 def ensure_app_pairing_allowed(client_type: str) -> None:
     """公开演示站仅允许原生 App 扫码登录，其他配对凭据继续拒绝。"""
-    if is_demo_mode() and client_type not in {"tvos", "macos", "androidtv"}:
+    from movieclaw_api.services.login_devices import APP_KINDS
+
+    if is_demo_mode() and client_type not in APP_KINDS:
         raise AppException(
             code=DEMO_READ_ONLY_CODE,
-            message="演示站仅支持 Apple TV、Android TV 和 Mac 扫码登录，不开放命令行或转码器配对",
+            message="演示站仅支持原生 App 扫码登录，不开放命令行或转码器配对",
             status_code=403,
         )
 

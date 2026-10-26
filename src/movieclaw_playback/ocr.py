@@ -39,6 +39,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from .credits import DARK_LUMA
+
 logger = logging.getLogger("movieclaw_playback.ocr")
 
 DET_MODEL = "ch_PP-OCRv4_det_infer.onnx"
@@ -62,6 +64,33 @@ class TextLine:
     text: str
     score: float
     box: tuple[float, float, float, float]  # x0, y0, x1, y1
+
+
+def frame_luma(img: np.ndarray, lines: list[TextLine]) -> float:
+    """密集白字会抬高黑底名单的均值；文字确实贡献了主要亮度时才改看背景。
+
+    至少六行字，只遮掉中位亮度仍为暗底的文字框；不能遮掉白纸上的黑字。
+    遮掉文字后仍保留 35% 画面，背景亮度降至原来的 60% 以下才修正。
+    少量姓名叠在暗剧情上导致的轻微下降不能把剧情变成黑底名单。
+    """
+    mean = float(img.mean())
+    if mean < DARK_LUMA or len(lines) < 6:
+        return mean
+    h, w = img.shape[:2]
+    mask = np.ones((h, w), dtype=bool)
+    for line in lines:
+        x0, y0, x1, y1 = line.box
+        region = (
+            slice(max(0, int(y0 * h) - 2), min(h, int(y1 * h) + 3)),
+            slice(max(0, int(x0 * w) - 2), min(w, int(x1 * w) + 3)),
+        )
+        if np.median(img[region]) >= DARK_LUMA:
+            continue
+        mask[region] = False
+    if mask.mean() < 0.35:
+        return mean
+    background = float(img[mask].mean())
+    return background if background < DARK_LUMA and background <= mean * 0.6 else mean
 
 
 class OcrEngine:
@@ -246,9 +275,10 @@ def _main() -> None:
             break  # 父进程走了
         try:
             img = np.frombuffer(data, dtype=np.uint8).reshape(h, w, 3)
+            lines = engine.read(img)
             reply = {
-                "luma": float(img.mean()),
-                "lines": [[x.text, *x.box] for x in engine.read(img)],
+                "luma": frame_luma(img, lines),
+                "lines": [[x.text, *x.box] for x in lines],
                 "corners": engine.read_corners(img) if request.get("corners") else None,
             }
         except Exception as exc:  # noqa: BLE001 —— 一帧出错只影响这一帧，由调用方退回声音结果

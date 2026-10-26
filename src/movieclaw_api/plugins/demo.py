@@ -35,7 +35,11 @@ async def demo_site(ctx: Context) -> None:
     # 按种子目录给演示资源站生成 .torrent 与目录清单（文件没变的跳过，首次约十几秒）
     if not ctx.settings.demo_mode:
         return
+    from movieclaw_downloader.clients.demo import ADAPTER
+    from movieclaw_downloader.registry import DOWNLOADER_ADAPTERS
     from movieclaw_tracker.sites.custom.demo import build_catalog
+
+    ctx.contribute(DOWNLOADER_ADAPTERS, "demo", ADAPTER)
 
     # 演示资源站与演示下载器在领域库里，不认识应用配置：按 data 目录补上默认位置
     data_dir = Path(ctx.settings.data_dir)

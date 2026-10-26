@@ -63,6 +63,11 @@ class Job(TimestampMixin, table=True):
     id: str = Field(primary_key=True, description="稳定任务 ID（job_<uuid>）")
     job_type: str = Field(index=True, description="任务类型，对应代码注册的处理器")
     subject: str | None = Field(default=None, description="用户可读的任务对象名称")
+    subject_ref: dict | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description="带固定措辞的任务名的文案引用（按读者语言渲染）；NULL=subject 就是数据本身",
+    )
     definition_version: int = Field(default=1, description="任务输入定义版本")
     handler_revision: str = Field(default="1", description="执行逻辑修订号")
     prompt_revision: str | None = Field(default=None, description="AI 提示词修订号")

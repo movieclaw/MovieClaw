@@ -42,16 +42,18 @@ def browse_directory(
     # 磁盘 IO 是阻塞调用，路由声明为同步函数让 FastAPI 丢进线程池执行
     target = Path(path or "/").expanduser()
     if not target.is_absolute():
-        raise BadRequestException(f"请输入绝对路径（以 / 开头）：{target}")
+        raise BadRequestException(
+            message_key="errors.fs.absolutePathRequired", params={"path": target}
+        )
     # POSIX 的 normpath 会保留开头的双斜杠（"//a" 有特殊语义），这里统一归到单斜杠
     normalized = os.path.normpath(str(target))
     if normalized.startswith("//"):
         normalized = "/" + normalized.lstrip("/")
     target = Path(normalized)
     if not target.exists():
-        raise BadRequestException(f"目录不存在：{target}")
+        raise BadRequestException(message_key="errors.fs.directoryMissing", params={"path": target})
     if not target.is_dir():
-        raise BadRequestException(f"不是目录：{target}")
+        raise BadRequestException(message_key="errors.fs.notDirectory", params={"path": target})
 
     entries: list[FsEntry] = []
     try:
@@ -66,7 +68,9 @@ def browse_directory(
                     # 个别条目 stat 失败（断链、无权限）直接跳过，不影响整页
                     continue
     except PermissionError as exc:
-        raise BadRequestException(f"没有权限读取该目录：{target}") from exc
+        raise BadRequestException(
+            message_key="errors.fs.directoryForbidden", params={"path": target}
+        ) from exc
 
     entries.sort(key=lambda e: e.name.casefold())
     parent = None if target == target.parent else str(target.parent)

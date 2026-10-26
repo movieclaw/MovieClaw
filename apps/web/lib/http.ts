@@ -1,3 +1,7 @@
+import { requestLocale } from "@/lib/i18n/negotiate";
+import { createTranslator } from "next-intl";
+import { messagesFor } from "@/lib/i18n/messages";
+
 import { publicEnv } from "@/lib/env";
 import { clearBackdropCache } from "@/lib/backdrop-cache";
 import { clearUiPrefsCache } from "@/lib/ui-prefs-cache";
@@ -41,6 +45,11 @@ export function resolveRequestUrl(path: string): string {
 function buildHeaders(initHeaders?: HeadersInit, body?: BodyInit | null): HeadersInit {
   const headers = new Headers(initHeaders);
   headers.set("Accept", "application/json");
+  const locale = requestLocale();
+  if (locale && !headers.has("Accept-Language")) headers.set("Accept-Language", locale);
+  if (locale && !headers.has("X-MovieClaw-Timezone")) {
+    headers.set("X-MovieClaw-Timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
+  }
 
   // FormData（文件上传）必须由浏览器自动带上含 boundary 的 multipart Content-Type，
   // 这里绝不能手动设 application/json，否则后端无法解析上传体。
@@ -78,8 +87,10 @@ export function redirectToLoginOn401(status: number): void {
  * 原样甩给用户等于让他对着一句英文猜是文件坏了还是网断了（issue #432 里
  * iPhone Safari 就是这样显示的）。这里统一换成能行动的中文。
  */
-const NETWORK_ERROR_MESSAGE = "网络中断或请求被浏览器放弃，请检查连接后重试";
-const TIMEOUT_ERROR_MESSAGE = "服务器响应太慢，请求已取消——请稍后重试";
+function networkMessage(key: "networkInterrupted" | "networkTimeout"): string {
+  const locale = requestLocale() ?? "zh-Hans";
+  return createTranslator({ locale, messages: messagesFor(locale), namespace: "common" })(key);
+}
 
 export interface RequestOptions {
   /**
@@ -162,12 +173,12 @@ export async function request<T>(
     // 不写 instanceof DOMException——各运行时（浏览器 / undici）实现不一。
     if ((error as { name?: string } | null)?.name === "AbortError") {
       if (timeout?.timedOut()) {
-        throw new HttpError(TIMEOUT_ERROR_MESSAGE, 0, null);
+        throw new HttpError(networkMessage("networkTimeout"), 0, null);
       }
       throw error;
     }
     if (error instanceof TypeError) {
-      throw new HttpError(NETWORK_ERROR_MESSAGE, 0, null);
+      throw new HttpError(networkMessage("networkInterrupted"), 0, null);
     }
     throw error;
   } finally {

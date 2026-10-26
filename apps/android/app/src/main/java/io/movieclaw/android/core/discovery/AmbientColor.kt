@@ -130,7 +130,11 @@ object AmbientColor {
         }
         val hue = ((hDeg / 360f) + 1f) % 1f
         val sat = (s * 1.1f).coerceAtMost(1f)
-        val bri = v.coerceAtMost(0.34f)
+        // 亮度上限照 iOS（≤0.34），但**加一个下限**：剧照底边本身已被压暗，
+        // 纯按 iOS 的 clamp 算出来 v 常低到 0.05——色相全被压没了，翻几个条目底色看着
+        // 都是「近黑」，实机反馈「是不是只有那几种颜色」。抬到 0.20 让色相透出来，
+        // 仍远低于白字可读性的阈值（下方内容页是浅色字，0.20 对比足够）
+        val bri = v.coerceIn(0.20f, 0.34f)
         return hsbToRgb(hue, sat, bri)
     }
 

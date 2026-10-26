@@ -4,8 +4,8 @@ import SwiftUI
 enum ProfileSettingsValidation {
     static func nickname(_ value: String) -> String? {
         let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.isEmpty { return "昵称不能为空" }
-        return text.unicodeScalars.count > 32 ? "昵称最多 32 个字符" : nil
+        if text.isEmpty { return String(localized: .settingsProfileNicknameEmpty) }
+        return text.unicodeScalars.count > 32 ? String(localized: .settingsProfileEditNicknameTooLong) : nil
     }
 }
 
@@ -17,9 +17,9 @@ struct ProfilePasswordDraft: Equatable {
 
     var changed: Bool { self != Self() }
     var validation: String? {
-        if current.unicodeScalars.count > 128 { return "当前密码最多 128 个字符" }
-        if !new.isEmpty, !(8...128).contains(new.unicodeScalars.count) { return "新密码需为 8–128 个字符" }
-        if !confirmation.isEmpty, confirmation != new { return "两次输入的新密码不一致" }
+        if current.unicodeScalars.count > 128 { return String(localized: .settingsProfileEditCurrentTooLong) }
+        if !new.isEmpty, !(8...128).contains(new.unicodeScalars.count) { return String(localized: .settingsProfileEditNewLength) }
+        if !confirmation.isEmpty, confirmation != new { return String(localized: .settingsProfilePasswordMismatch) }
         return nil
     }
     var valid: Bool { !current.isEmpty && !new.isEmpty && !confirmation.isEmpty && validation == nil }
@@ -45,24 +45,24 @@ struct ProfileNicknameSheet: View {
     private var validation: String? { ProfileSettingsValidation.nickname(draft) }
 
     var body: some View {
-        SubsSheetScaffold(title: "修改昵称", onClose: cancel,
-            confirm: SubsSheetConfirm(title: "保存", enabled: changed && validation == nil,
+        SubsSheetScaffold(title: String(localized: .settingsProfileEditNicknameTitle), onClose: cancel,
+            confirm: SubsSheetConfirm(title: String(localized: .commonSave), enabled: changed && validation == nil,
                                       busy: busy, identifier: "profile-nickname-save", action: save)) {
             SettingsFormSection {
-                TextField("昵称", text: $draft)
+                TextField(String(localized: .settingsProfileNickname), text: $draft)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                     .submitLabel(.done).onSubmit(save)
                     .accessibilityIdentifier("profile-nickname-field")
-            } footer: { Text("昵称用于展示，最多 32 个字符。登录用户名保持不变。") }
+            } footer: { Text(String(localized: .settingsProfileEditNicknameHint)) }
             if let message = error ?? (changed ? validation : nil) {
                 SettingsFormSection { Text(message).foregroundStyle(Theme.danger).accessibilityIdentifier("profile-nickname-error") }
             }
         }
         .disabled(busy)
         .interactiveDismissDisabled(busy || changed)
-        .alert("放弃未保存的修改？", isPresented: $discarding) {
-            Button("继续编辑", role: .cancel) { }
-            Button("放弃修改", role: .destructive) { dismiss() }
+        .alert(String(localized: .settingsFormDiscardTitle), isPresented: $discarding) {
+            Button(String(localized: .settingsFormKeepEditing), role: .cancel) { }
+            Button(String(localized: .settingsScrapeDiscardChanges), role: .destructive) { dismiss() }
         }
     }
 
@@ -94,35 +94,35 @@ struct ProfilePasswordSheet: View {
     @State private var discarding = false
 
     var body: some View {
-        SubsSheetScaffold(title: "修改密码", onClose: cancel,
-            confirm: SubsSheetConfirm(title: "保存", enabled: draft.valid, busy: busy,
+        SubsSheetScaffold(title: String(localized: .settingsProfileChangePassword), onClose: cancel,
+            confirm: SubsSheetConfirm(title: String(localized: .commonSave), enabled: draft.valid, busy: busy,
                                       identifier: "profile-change-password", action: save)) {
             SettingsFormSection {
-                LabeledContent("当前密码") {
-                    SecureField("输入当前密码", text: $draft.current)
+                LabeledContent(String(localized: .settingsProfileCurrentPassword)) {
+                    SecureField(String(localized: .settingsProfileEditCurrent), text: $draft.current)
                         .textContentType(.password)
                         .accessibilityIdentifier("profile-old-password")
                 }
-                LabeledContent("新密码") {
-                    SecureField("8–128 个字符", text: $draft.new)
+                LabeledContent(String(localized: .settingsProfileNewPassword)) {
+                    SecureField(String(localized: .settingsProfileEditNewPlaceholder), text: $draft.new)
                         .textContentType(.newPassword)
                         .accessibilityIdentifier("profile-new-password")
                 }
-                LabeledContent("确认密码") {
-                    SecureField("再次输入新密码", text: $draft.confirmation)
+                LabeledContent(String(localized: .setupAccountConfirmPassword)) {
+                    SecureField(String(localized: .settingsProfileEditConfirm), text: $draft.confirmation)
                         .textContentType(.newPassword)
                         .submitLabel(.done).onSubmit(save)
                         .accessibilityIdentifier("profile-confirm-password")
                 }
             } footer: {
-                Text("修改成功后，其他使用密码登录的设备会下线，本机保持登录。")
+                Text(String(localized: .settingsProfileEditPasswordHint))
             }
             if pairedCount != 0 {
                 SettingsFormSection {
-                    Toggle("同时注销配对设备", isOn: $draft.signOutPaired)
+                    Toggle(String(localized: .settingsProfileEditSignOutPaired), isOn: $draft.signOutPaired)
                         .accessibilityIdentifier("profile-sign-out-paired")
                 } footer: {
-                    Text("\(pairedCount.map { "当前有 \($0) 台。" } ?? "")包括命令行、转码器和手工令牌。默认保留这些设备的连接。")
+                    Text((pairedCount.map { String(localized: .settingsProfileEditPairedCount($0)) } ?? "") + String(localized: .settingsProfileEditPairedHint))
                 }
             }
             if let message = error ?? draft.validation {
@@ -135,9 +135,9 @@ struct ProfilePasswordSheet: View {
         .task {
             if let devices = try? await api.authDevicesList() { pairedCount = devices.filter { $0.family == "paired" }.count }
         }
-        .alert("放弃未保存的修改？", isPresented: $discarding) {
-            Button("继续编辑", role: .cancel) { }
-            Button("放弃修改", role: .destructive) { dismiss() }
+        .alert(String(localized: .settingsFormDiscardTitle), isPresented: $discarding) {
+            Button(String(localized: .settingsFormKeepEditing), role: .cancel) { }
+            Button(String(localized: .settingsScrapeDiscardChanges), role: .destructive) { dismiss() }
         }
     }
 

@@ -13,8 +13,6 @@ import androidx.compose.material.icons.rounded.ClosedCaption
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,7 +22,6 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import io.movieclaw.android.core.designsystem.MovieClawTheme
-import io.movieclaw.android.core.designsystem.McType
 import java.io.File
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
@@ -57,8 +54,6 @@ class PlayerControlsLayoutTest {
                         PlayerBottomControls(series, true, {}, {}, tracks = {
                             IconButton(onClick = {}) { Icon(Icons.Rounded.GraphicEq, "音轨", tint = Color.White) }
                             IconButton(onClick = {}) { Icon(Icons.Rounded.ClosedCaption, "字幕", tint = Color.White) }
-                        }, speed = {
-                            TextButton(onClick = {}) { Text("1.0×", style = McType.caption, color = Color.White) }
                         })
                     }
                 }

@@ -9,40 +9,55 @@
  */
 
 import { useEffect, useState } from "react";
+import { useLocale } from "next-intl";
 
 import { listFeatures, type PluginFeature } from "@/lib/api/plugins";
+import { requestLocale, type AppLocale } from "@/lib/i18n/negotiate";
 
-let cache: PluginFeature[] | null = null;
-let inflight: Promise<PluginFeature[]> | null = null;
-const listeners = new Set<(features: PluginFeature[]) => void>();
+const cache = new Map<AppLocale, PluginFeature[]>();
+const inflight = new Map<AppLocale, Promise<PluginFeature[]>>();
+const listeners = new Set<(locale: AppLocale, features: PluginFeature[]) => void>();
 
-function load(): Promise<PluginFeature[]> {
-  inflight ??= listFeatures()
+function load(locale: AppLocale): Promise<PluginFeature[]> {
+  const pending = inflight.get(locale);
+  if (pending) return pending;
+  const request = listFeatures(locale)
     .catch(() => [] as PluginFeature[])
     .then((features) => {
-      cache = features;
-      inflight = null;
-      listeners.forEach((listener) => listener(features));
+      if (inflight.get(locale) === request) {
+        cache.set(locale, features);
+        inflight.delete(locale);
+        listeners.forEach((listener) => listener(locale, features));
+      }
       return features;
     });
-  return inflight;
+  inflight.set(locale, request);
+  return request;
 }
 
 /** 重新拉一次（切换开关之后） */
-export function refreshFeatures(): Promise<PluginFeature[]> {
-  inflight = null;
-  return load();
+export function refreshFeatures(locale: AppLocale = requestLocale() ?? "zh-Hans"): Promise<PluginFeature[]> {
+  cache.clear();
+  inflight.clear();
+  return load(locale);
 }
 
 /** 某个功能的开关状态；还没拿到或旧服务端没有这个功能时为 null */
 export function useFeature(key: string): PluginFeature | null {
-  const [features, setFeatures] = useState<PluginFeature[] | null>(cache);
+  const locale = useLocale();
+  const [snapshot, setSnapshot] = useState(() => ({
+    locale, features: cache.get(locale) ?? null,
+  }));
   useEffect(() => {
-    listeners.add(setFeatures);
-    if (cache === null) void load();
-    return () => {
-      listeners.delete(setFeatures);
+    const accept = (forLocale: AppLocale, features: PluginFeature[]) => {
+      if (forLocale === locale) setSnapshot({ locale, features });
     };
-  }, []);
-  return features?.find((f) => f.key === key) ?? null;
+    listeners.add(accept);
+    setSnapshot({ locale, features: cache.get(locale) ?? null });
+    if (!cache.has(locale)) void load(locale);
+    return () => {
+      listeners.delete(accept);
+    };
+  }, [locale]);
+  return snapshot.locale === locale ? snapshot.features?.find((f) => f.key === key) ?? null : null;
 }

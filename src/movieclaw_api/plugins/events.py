@@ -4,6 +4,9 @@
 监听器。本插件停用时那些插件因缺依赖进入等待；业务侧照常写事件行（名单由库里的消费者行决定），恢复后补投。
 
 ``kernel.host-ops`` 提供 ``HOST_OPS``：插件以自己的身份调用本进程的 OpenAPI 操作。
+
+``kernel.plugin-jobs`` 提供 ``PLUGIN_JOBS``：插件建自己的后台任务
+（docs/design/plugin-strm-prefetch.md §2）。
 """
 
 from __future__ import annotations
@@ -18,10 +21,13 @@ from movieclaw_api.plugins.keys import (
     PLUGIN_ROUTES,
 )
 from movieclaw_kernel import DURABLE_EVENTS, Context, plugin
+from movieclaw_sdk.events import PLUGIN_EVENTS
+from movieclaw_sdk.jobs import JOB_HANDLERS, PLUGIN_JOBS
 
 
 @plugin(
     "kernel.durable-events",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="可靠事件投递",
     inject=(DB,),
     provides=(DURABLE_EVENTS,),
@@ -29,6 +35,7 @@ from movieclaw_kernel import DURABLE_EVENTS, Context, plugin
     reloadable=True,
 )
 async def durable_events(ctx: Context) -> None:
+    """把系统事件（如删除影片）可靠地送达订阅它的插件：先存库再投递，插件停用恢复后补投。"""
     from movieclaw_api.services.durable_events import DurableEvents
 
     store = DurableEvents(ctx.use(DB))
@@ -38,17 +45,36 @@ async def durable_events(ctx: Context) -> None:
 
 
 @plugin(
+    "kernel.plugin-events",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
+    title="插件事件",
+    provides=(PLUGIN_EVENTS,),
+    disableable=True,
+    reloadable=True,
+)
+async def plugin_events(ctx: Context) -> None:
+    """让插件登记并发出自己的事件：别的插件、Webhook 能订；插件声明了通知、经你批准的，
+    会推到手机和 IM。"""
+    from movieclaw_api.services.plugin_events import PluginEvents
+
+    ctx.provide(PLUGIN_EVENTS, PluginEvents())
+
+
+@plugin(
     "kernel.host-ops",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="宿主操作",
     provides=(HOST_OPS,),
     disableable=True,
     reloadable=True,
 )
 async def host_ops(ctx: Context) -> None:
+    """让插件在用户批准的权限范围内调用系统功能，例如搜索影片、创建订阅。"""
     from movieclaw_api.plugins.local import configure_host_ops
     from movieclaw_api.services import host_ops as service
 
     if service._app is None:
+        # i18n-ignore: source default of plugins.builtins.* or programming invariant
         raise RuntimeError("应用尚未绑定（宿主操作只能在运行中的应用里提供）")
     host = service.HostOps(service._app)
     # 用户在 plugins.yaml 里给本地插件的批准（grants、act_as）
@@ -62,6 +88,7 @@ async def host_ops(ctx: Context) -> None:
 
 @plugin(
     "kernel.plugin-data",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="插件数据",
     inject=(DB,),
     provides=(PLUGIN_DATA,),
@@ -69,13 +96,31 @@ async def host_ops(ctx: Context) -> None:
     reloadable=True,
 )
 async def plugin_data(ctx: Context) -> None:
+    """为每个插件提供独立的数据存储，插件只能读写自己的数据，敏感值可加密保存。"""
     from movieclaw_api.services.plugin_data import PluginDataService
 
     ctx.provide(PLUGIN_DATA, PluginDataService(ctx.use(DB)))
 
 
 @plugin(
+    "kernel.plugin-jobs",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
+    title="插件任务",
+    inject=(DB,),
+    provides=(PLUGIN_JOBS,),
+    disableable=True,
+    reloadable=True,
+)
+async def plugin_jobs(ctx: Context) -> None:
+    """让插件把耗时的活交给后台任务：排队、进度、断点续跑、取消都由任务中心统一管理。"""
+    from movieclaw_api.services.plugin_jobs import PluginJobsService
+
+    ctx.provide(PLUGIN_JOBS, PluginJobsService(ctx.registry(JOB_HANDLERS)))
+
+
+@plugin(
     "kernel.plugin-health",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="插件健康",
     inject=(DB,),
     provides=(PLUGIN_HEALTH,),
@@ -83,6 +128,7 @@ async def plugin_data(ctx: Context) -> None:
     reloadable=True,
 )
 async def plugin_health(ctx: Context) -> None:
+    """让插件上报自身状态（如令牌过期、外部服务连不上），异常时生成系统通知，恢复后自动消除。"""
     from movieclaw_api.services.plugin_health import PluginHealthService
 
     ctx.provide(PLUGIN_HEALTH, PluginHealthService(ctx.use(DB)))
@@ -90,6 +136,7 @@ async def plugin_health(ctx: Context) -> None:
 
 @plugin(
     "kernel.plugin-routes",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="插件路由",
     inject=(DB,),
     provides=(PLUGIN_ROUTES,),
@@ -97,11 +144,13 @@ async def plugin_health(ctx: Context) -> None:
     reloadable=True,
 )
 async def plugin_routes(ctx: Context) -> None:
+    """让插件提供自己的网页接口，并生成带签名的免登录链接（如 .strm 里的播放地址）。"""
     from movieclaw_api.services import host_ops
     from movieclaw_api.services.plugin_data import PluginStore
     from movieclaw_api.services.plugin_routes import PluginRoutes
 
     if host_ops._app is None:
+        # i18n-ignore: source default of plugins.builtins.* or programming invariant
         raise RuntimeError("应用尚未绑定（插件路由只能挂在运行中的应用上）")
     db = ctx.use(DB)
     ctx.provide(
@@ -111,6 +160,7 @@ async def plugin_routes(ctx: Context) -> None:
 
 @plugin(
     "kernel.plugin-callbacks",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="插件回调端点",
     inject=(DB,),
     provides=(PLUGIN_CALLBACKS,),
@@ -118,6 +168,7 @@ async def plugin_routes(ctx: Context) -> None:
     reloadable=True,
 )
 async def plugin_callbacks(ctx: Context) -> None:
+    """为插件开设供外部平台回调的地址（如聊天平台推送消息），每个地址带独立密钥，可单独作废。"""
     from movieclaw_api.services import plugin_callbacks as callbacks
 
     service = callbacks.PluginCallbacks(ctx.settings, ctx.use(DB))
@@ -128,6 +179,7 @@ async def plugin_callbacks(ctx: Context) -> None:
 
 @plugin(
     "kernel.plugin-files",
+    # i18n-ignore: source default of plugins.builtins.* or programming invariant
     title="插件文件",
     inject=(DB,),
     provides=(PLUGIN_FILES,),
@@ -135,6 +187,7 @@ async def plugin_callbacks(ctx: Context) -> None:
     reloadable=True,
 )
 async def plugin_files(ctx: Context) -> None:
+    """让插件在用户批准的目录范围内读写文件（如媒体库、导入目录），越界访问一律拒绝。"""
     from movieclaw_api.plugins import packages
     from movieclaw_api.plugins.local import local_specs
     from movieclaw_api.services.plugin_files import PluginFilesService, parse_grants

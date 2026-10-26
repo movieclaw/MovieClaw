@@ -43,8 +43,8 @@ nonisolated struct DiscoverPosterItem: Identifiable, Hashable, Sendable, Codable
 
     var typeLabel: String? {
         switch mediaType {
-        case "movie": "电影"
-        case "tv": "剧集"
+        case "movie": String(localized: .mediaKindMovie)
+        case "tv": String(localized: .mediaKindTv)
         default: nil
         }
     }

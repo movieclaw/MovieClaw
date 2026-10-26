@@ -21,12 +21,22 @@ data/ 下的每一个目录都在 ``DATA_DIRS`` 里有且仅有一条登记：�
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
 from movieclaw_api.core.config import Settings, get_settings
+from movieclaw_api.i18n import messages, t
+
+
+def directory_text(key: str, field: str, default: str) -> str:
+    """Translate registered display fields at read time; preserve unknown registrations."""
+    identity = "".join(part.title() for part in re.split(r"[._-]", key))
+    name = identity[:1].lower() + identity[1:] + field.title()
+    message_key = f"settings.storage.directories.{name}"
+    return t(message_key) if message_key in messages("zh-Hans") else default
 
 
 class Group(StrEnum):
@@ -194,9 +204,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     # ---- 派生物缓存：随时可删，按需重建 -------------------------------------
     DataDir(
         key="cache.images",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="图片缓存",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="远程图片的本地副本与缩略图",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "海报、剧照、站点图片等远程图片的本地副本与缩略图（含 Jellyfin 客户端的"
             "缩放变体）。超过容量上限会自动淘汰最久未访问的条目；清空后下次访问重新"
             "从外网下载。"
@@ -209,9 +222,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="cache.playback_subs",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="内封字幕缓存",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="从视频内封轨抽出来的字幕与字体",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "从视频内封轨抽取出来的字幕与字体文件，网页播放器、字幕预览与 AI 字幕"
             "生成共用同一份（抽一次谁都能用）。清空后下次播放或预览会重新抽取，"
             "大文件要重新通读整个容器，需要等一会儿。"
@@ -226,9 +242,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="cache.audio_fingerprints",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="片头片尾指纹",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="剧集每一集开头与结尾的声音指纹，用来认出片头片尾",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "识别片头片尾时，每集开头 10 分钟、结尾 7 分钟的声音会被算成一份很小的指纹"
             "（一集约 33 KB），同一季的指纹互相比对就能认出片头片尾。清空后已经认出的片头片尾"
             "不受影响，播放照常给「跳过片头」；但之后这一季再来新集时，要把旧集重新读一遍"
@@ -244,10 +263,50 @@ DATA_DIRS: tuple[DataDir, ...] = (
         busy=_staging_dirs,
     ),
     DataDir(
+        key="cache.reels-clips",
+        # i18n-ignore: source default of settings.storage.directories.*
+        title="预切片段",
+        # i18n-ignore: source default of settings.storage.directories.*
+        summary="预告与刷片放的 1080p 小片段",
+        description=(
+            # i18n-ignore: source default of settings.storage.directories.*
+            "开了「设置 → 播放 → 片段预切」后，后台为每部片挑好的那一段切成的 1080p 小文件，"
+            "电视大图预告与刷片直接放它，一段十几到二十几 MB。清空后预告先显示剧照、"
+            "刷片暂时没有可刷的；开关开着时后台会重新切"
+            "（全库要在空闲时跑很久，有人观看时自动暂停）。"
+        ),
+        default="data/cache/reels-clips",
+        resolve=lambda s: Path(s.reels_clips_dir),
+        group=Group.CACHE,
+        rebuild_cost=RebuildCost.EXPENSIVE,
+        clearable=True,
+        orphans=_orphans_by_id("LibraryFile"),
+    ),
+    DataDir(
+        key="cache.offline-exports",
+        # i18n-ignore: source default of settings.storage.directories.*
+        title="离线下载转码",
+        # i18n-ignore: source default of settings.storage.directories.*
+        summary="App 按 1080p / 720p / 480p 下载时转出的整片",
+        description=(
+            # i18n-ignore: source default of settings.storage.directories.*
+            "在 iPhone 上选了较小画质下载影片时，服务器先把整片转成对应画质的 MP4，"
+            "手机边转边下。下载完成或 72 小时没人取会自动回收。清空后正在进行的下载会从头重转。"
+        ),
+        default="data/cache/offline-exports",
+        resolve=lambda s: Path(s.offline_exports_dir),
+        group=Group.CACHE,
+        rebuild_cost=RebuildCost.EXPENSIVE,
+        clearable=True,
+    ),
+    DataDir(
         key="cache.reels",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="刷片挑点",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="刷片为每个文件挑出的片段位置",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "刷片（媒体库顶部的竖滑看片段）为每个文件挑出的片段起止位置与预取范围，"
             "一个文件一份很小的记录。清空后下次刷到这部片会重新读一遍文件索引，"
             "一部片零点几秒，几乎无感。片段封面图随条目图片存放，不在这里。"
@@ -261,9 +320,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="cache.playback_cues",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="MKV 精简索引",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="MKV 片子只含视频关键帧的索引，让手机起播时少下一段数据",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "字幕轨多的 MKV 片子，文件尾的索引可能有一两 MB，外网慢时起播要先把它下完。"
             "服务端从中挑出视频关键帧，存成几 KB 到几十 KB 的精简版，播放时随会话一起发给手机。"
             "一个文件一份。清空后播放照常，只是再次播放这部片时会在后台重新生成一次（零点几秒）。"
@@ -277,9 +339,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="cache.subtitle_gen",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="AI 字幕中间品",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="AI 字幕生成的图片字幕识别结果与翻译断点",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "AI 字幕生成过程中的图片字幕（PGS）识别结果与翻译断点（内封轨的抽取产物，"
             "包括 PGS 图片，都在「内封字幕缓存」里，与播放器共用）。正在运行的字幕任务"
             "所属文件会被跳过；已完成任务的中间品可放心清理。"
@@ -294,9 +359,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="cache.trickplay",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="进度条预览图",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="播放器拖动进度条的缩略图",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "网页播放器拖动进度条时显示的缩略图。重新生成需要通读整部影片抽帧，"
             "建议只清理媒体库里已不存在的文件对应的孤儿目录。"
         ),
@@ -310,9 +378,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="transcodes",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="转码分片",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="网页播放器转码产物的缓存（供续播、重看复用）",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "网页播放器转码产生的 HLS 分片。会话结束后保留供同一部片续播、重看"
             "时直接复用（不再重新转码），按磁盘剩余空间的四分之一自动限额、"
             "24 小时未用自动淘汰。清空后再次播放需要重新转码，正在播放的会话"
@@ -327,8 +398,11 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="metadata.covers",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="媒体库封面",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="服务端渲染的媒体库封面拼贴",
+        # i18n-ignore: source default of settings.storage.directories.*
         description="服务端渲染的媒体库封面拼贴，清空后下次访问自动重新渲染。",
         default="data/metadata/library-covers",
         resolve=lambda s: Path(s.metadata_dir) / "library-covers",
@@ -338,9 +412,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="metadata.images",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="刮削图片资产",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="刮削下载的海报、背景、片名 Logo，以及本地抽帧的章节图",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "刮削下载的海报、背景、片名 Logo 与剧照，是媒体库展示的事实源；每个条目目录下的 "
             "chapters/ 是本地抽帧生成的视频章节图（一部片 8～12 张，约 1MB；「生成章节」"
             "默认关闭，只有在编辑库里打开的库才会产生）。整体重建等于整库刷新元数据（大量外网"
@@ -355,9 +432,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="metadata.people",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="演职员头像",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="刮削下载的演员与导演头像（同一个人只存一份）",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "详情页、影人页、Jellyfin 人物图用的演职员头像，按 TMDB 头像路径去重，同一个人在"
             "多少部片里出现都只存一份；断网时头像照样显示。按画质档位分层存放，换了头像档位后"
             "旧档位那一层不再使用，可作为孤儿清理。整体重建要重新从外网下载，因此不提供清空。"
@@ -372,25 +452,34 @@ DATA_DIRS: tuple[DataDir, ...] = (
     # ---- 用户数据与系统状态：只展示占用，面板不提供删除 -----------------------
     DataDir(
         key="database",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="数据库",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="SQLite 主库与 WAL 日志",
+        # i18n-ignore: source default of settings.storage.directories.*
         description="SQLite 主库（含 WAL 日志），所有配置、媒体库台账与观看记录。",
         default="data/movieclaw.db",
         resolve=lambda s: _sqlite_path(s),
     ),
     DataDir(
         key="logs",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="运行日志",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="按天写入的后端日志，30 天自动轮转",
+        # i18n-ignore: source default of settings.storage.directories.*
         description="按天写入的后端日志，超过保留天数自动删除（LOG_RETENTION_DAYS，默认 30 天）。",
         default="data/logs",
         resolve=lambda s: Path(s.log_dir),
     ),
     DataDir(
         key="uploads",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="上传文件",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="成员头像、首页背景图与媒体库自定义封面",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "成员头像、首页背景图库，以及媒体库的自定义封面（library-covers/，"
             "删库时随库清理）。用户上传的图片，无法重建。"
         ),
@@ -399,9 +488,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="updates",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="应用更新",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="应用内更新的版本代码与数据库备份",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "应用内更新下载的版本代码、启动状态标记与更新前的数据库自动备份。"
             "版本数量在「版本与更新」标签的「本地保留版本数」里调整；备份是回退时"
             "恢复数据的来源，不提供删除。"
@@ -411,9 +503,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="models",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="模型文件",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="NER 模型、语音检测与画面文字识别模型",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "种子命名识别（NER）模型与字幕同步用的语音检测模型，由应用内更新维护；"
             "本地开发时片头片尾识别用的画面文字识别（PP-OCR）模型也放在这里（镜像里已内置）。"
         ),
@@ -422,9 +517,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="plugins.patch",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="插件补丁",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="禁用内置插件、开启本地插件的开关",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "插件补丁（plugins.yaml）：可禁用允许关闭的内置子系统，也是开启本地受信插件、"
             "批准它调用哪些操作的地方；改动在重启后生效，删除即恢复全部默认。"
         ),
@@ -433,9 +531,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="plugins.local",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="本地插件",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="用户自己写的插件代码",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "本地受信插件的 Python 代码（docs/design/plugin-phase2a.md §6）。只有在 plugins.yaml "
             "里写了 local: true 的才会加载。packages/ 是安装的第三方插件包（含安装记录），"
             "data/ 是各插件自己的文件目录（plugin-phase3.md §3、§6）。"
@@ -445,9 +546,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="plugins.boot",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="插件启动记录",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="插件安全模式用的启动记录",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "记录上一次启动加载了哪些本地 / 第三方插件、有没有稳定运行（plugin-phase3.md §5）；"
             "据此判断是否进入插件安全模式。删除等于忘掉上次启动的情况，不影响数据。"
         ),
@@ -456,9 +560,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="plugins.features",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="功能开关",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="在「设置 → 插件」停用了哪些功能",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "只记停用了的功能（谁、什么时候）；重启后保持（docs/design/plugin-page-tiers.md §6）。"
             "删除等于把可停用的功能全部重新开启。"
         ),
@@ -467,9 +574,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="plugins.safe_mode",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="安全模式开关",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="放一个 SAFE_MODE 文件即以插件安全模式启动",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "存在时本次启动跳过全部本地 / 第三方插件；在「设置 → 插件」退出安全模式会删掉它。"
         ),
         default="data/SAFE_MODE",
@@ -477,9 +587,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="demo.review_sessions",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="审核账号凭证",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="公开演示站：审核账号登录签发的凭证摘要",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "只在公开演示站（MOVIECLAW_DEMO_MODE）出现：审核账号每次登录签发的凭证 sha256，"
             "守卫据此放行审核员的操作（docs/design/demo-site.md §9）。删除后审核员重新登录即可。"
         ),
@@ -488,9 +601,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="demo.site",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="演示资源站",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="公开演示站：演示资源站的种子与目录清单",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "只在公开演示站出现：启动时按种子目录生成的 .torrent 与目录清单"
             "（docs/design/demo-site.md §10）。删除后下次启动自动重建。"
         ),
@@ -499,9 +615,12 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="demo.downloader",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="演示下载器",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="公开演示站：演示下载器的任务状态",
         description=(
+            # i18n-ignore: source default of settings.storage.directories.*
             "只在公开演示站出现：演示下载器的任务清单与进度（docs/design/demo-site.md §10）。"
             "删除等于清空演示下载器里的全部任务。"
         ),
@@ -510,48 +629,66 @@ DATA_DIRS: tuple[DataDir, ...] = (
     ),
     DataDir(
         key="site_configs",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="站点配置",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="用户自行适配的站点 YAML",
+        # i18n-ignore: source default of settings.storage.directories.*
         description="用户自行适配的站点 YAML，无法重建。",
         default="data/site-configs",
         resolve=lambda s: Path(s.site_configs_dir),
     ),
     DataDir(
         key="agent.workspace",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="Agent 工作区",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="Agent 文件操作的工作目录",
+        # i18n-ignore: source default of settings.storage.directories.*
         description="Agent 执行文件操作的工作目录，可能包含它替你生成的文件。",
         default="data/agent-workspace",
         resolve=lambda s: Path(s.agent_workspace_dir),
     ),
     DataDir(
         key="agent.sessions",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="Agent 会话记录",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="Agent 对话转录与附件",
+        # i18n-ignore: source default of settings.storage.directories.*
         description="Agent 对话转录与附件，是会话历史的事实源，删除即丢失对话。",
         default="data/agent-sessions",
         resolve=lambda s: Path(s.agent_sessions_dir),
     ),
     DataDir(
         key="agent.skills",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="Agent 技能",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="管理员放入的自定义技能",
+        # i18n-ignore: source default of settings.storage.directories.*
         description="管理员放入的自定义 Agent 技能。",
         default="data/agent-skills",
         resolve=lambda s: Path(s.agent_skills_dir),
     ),
     DataDir(
         key="config",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="应用配置文件",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="对外端口等数据库之外的设置文件",
+        # i18n-ignore: source default of settings.storage.directories.*
         description="对外端口等需要在数据库之外读取的设置文件。",
         default="data/config",
         resolve=lambda s: Path(s.web_port_file).parent,
     ),
     DataDir(
         key="secret_key",
+        # i18n-ignore: source default of settings.storage.directories.*
         title="配置加密主密钥",
+        # i18n-ignore: source default of settings.storage.directories.*
         summary="保护敏感配置的主密钥",
+        # i18n-ignore: source default of settings.storage.directories.*
         description="保护站点凭据等敏感配置的主密钥，删除后所有密文永久无法恢复。",
         default="data/.secret_key",
         resolve=lambda s: Path(s.secret_key_file),

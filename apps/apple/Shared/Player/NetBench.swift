@@ -14,7 +14,7 @@ enum NetBench {
         let session = URLSession(configuration: config)
         defer { session.invalidateAndCancel() }
         guard let size = await totalSize(url, session: session), size > 1 << 30 else {
-            log("拿不到文件总长或文件小于 1 GB，跳过")
+            log("拿不到文件总长或文件小于 1 GB，跳过") // i18n-ignore: developer diagnostics
             return
         }
         let total: Int64 = 128 << 20
@@ -33,7 +33,7 @@ enum NetBench {
             }
             let seconds = Date().timeIntervalSince(started)
             let mbps = Int(Double(bytes) * 8 / seconds / 1e6)
-            log("\(connections) 条连接共读 \(bytes >> 20) MB：\(mbps) Mbit/s（\(String(format: "%.2f", seconds)) 秒）")
+            log("\(connections) 条连接共读 \(bytes >> 20) MB：\(mbps) Mbit/s（\(String(format: "%.2f", seconds)) 秒）") // i18n-ignore: developer diagnostics
         }
     }
 

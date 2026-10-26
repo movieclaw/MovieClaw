@@ -8,6 +8,7 @@ import SwiftUI
 /// 不能用「列表第一张」推断（策略升级前刮的条目、锁定的条目都会对不上）。
 /// 已锁定时给「恢复自动选图」（`file_path: null` = 解锁）。
 struct ArtworkPickerSheet: View {
+    @Environment(\.cardMetrics) private var cards
     let libraryId: Int
     let mediaItemId: Int
     /// 选定 / 恢复后回调：调用方重拉详情呈现新图
@@ -29,13 +30,13 @@ struct ArtworkPickerSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("选中即生效，并同步写入媒体目录；此后刷新元数据不会覆盖你选的图")
+                    Text(String(localized: .libraryArtworkIntro))
                         .font(.subheadline)
                         .foregroundStyle(Theme.textMuted)
 
-                    Picker("图片类型", selection: $tab) {
-                        Text("背景").tag(ArtworkTab.backdrop)
-                        Text("海报").tag(ArtworkTab.poster)
+                    Picker(String(localized: .libraryArtworkTypePicker), selection: $tab) {
+                        Text(String(localized: .libraryArtworkBackdrop)).tag(ArtworkTab.backdrop)
+                        Text(String(localized: .libraryDetailPosterMode)).tag(ArtworkTab.poster)
                     }
                     .pickerStyle(.segmented)
 
@@ -45,17 +46,17 @@ struct ArtworkPickerSheet: View {
 
                     content
                 }
-                .padding(Theme.pagePadding)
+                .padding(cards.edge)
             }
-            .navigationTitle("更换图片")
+            .navigationTitle(String(localized: .libraryArtworkTitle))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }.disabled(applying != nil)
+                    Button(String(localized: .commonDone)) { dismiss() }.disabled(applying != nil)
                 }
             }
         }
-        .presentationDetents([.large])
+        .adaptiveDetents([.large])
         .interactiveDismissDisabled(applying != nil)
         .task { await load() }
     }
@@ -74,11 +75,11 @@ struct ArtworkPickerSheet: View {
 
     private var lockedBanner: some View {
         HStack(spacing: 12) {
-            Text("当前\(tab == .poster ? "海报" : "背景")由你手动选定，刷新元数据不会覆盖")
+            Text(tab == .poster ? String(localized: .libraryArtworkManualPoster) : String(localized: .libraryArtworkManualBackdrop))
                 .font(.subheadline)
                 .foregroundStyle(Theme.info)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Button("恢复自动选图") { Task { await apply(nil) } }
+            Button(String(localized: .libraryArtworkRestore)) { Task { await apply(nil) } }
                 .font(.subheadline.weight(.medium))
                 .disabled(applying != nil)
         }
@@ -99,9 +100,9 @@ struct ArtworkPickerSheet: View {
         if failed {
             // 候选图拉取失败：网格已有（选图后的静默刷新失败）时照留，提示挂在上方（同 Web）
             VStack(spacing: 10) {
-                Text("候选图加载失败（TMDB 可能不可达）")
+                Text(String(localized: .libraryArtworkLoadFailedShort))
                     .foregroundStyle(Theme.danger)
-                Button("重试") { Task { await load(reset: data == nil) } }
+                Button(String(localized: .commonRetry)) { Task { await load(reset: data == nil) } }
                     .buttonStyle(.glass)
             }
             .frame(maxWidth: .infinity)
@@ -111,13 +112,13 @@ struct ArtworkPickerSheet: View {
             if !failed {
                 HStack(spacing: 8) {
                     ProgressView()
-                    Text("正在拉取候选图…").foregroundStyle(Theme.textMuted)
+                    Text(String(localized: .libraryArtworkLoading)).foregroundStyle(Theme.textMuted)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 56)
             }
         } else if candidates.isEmpty {
-            Text("TMDB 上没有这个条目的\(tab == .poster ? "海报" : "背景图")")
+            Text(tab == .poster ? String(localized: .libraryArtworkNoPosters) : String(localized: .libraryArtworkNoBackdrops))
                 .foregroundStyle(Theme.textMuted)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 56)
@@ -146,12 +147,12 @@ struct ArtworkPickerSheet: View {
                 .overlay(alignment: .topLeading) {
                     // 标出正在用的那张，消除「我现在用的是哪张」的疑问
                     if isCurrent {
-                        badge("当前", foreground: .black.opacity(0.85), background: Theme.accent)
+                        badge(String(localized: .libraryArtworkCurrent), foreground: .black.opacity(0.85), background: Theme.accent)
                     }
                 }
                 .overlay(alignment: .topTrailing) {
                     if tab == .backdrop, c.language == nil {
-                        badge("无文字", foreground: .white.opacity(0.85), background: .black.opacity(0.7))
+                        badge(String(localized: .libraryArtworkNoText), foreground: .white.opacity(0.85), background: .black.opacity(0.7))
                     }
                 }
                 .overlay(alignment: .bottom) {
@@ -222,7 +223,7 @@ struct ArtworkPickerSheet: View {
         } catch is CancellationError {
         } catch {
             let reason = error.localizedDescription
-            saveError = reason.isEmpty ? "保存失败，请稍后重试" : "保存失败：\(reason)"
+            saveError = reason.isEmpty ? String(localized: .libraryArtworkSaveFailed) : String(localized: .libraryArtworkSaveFailedReason(reason))
         }
     }
 }

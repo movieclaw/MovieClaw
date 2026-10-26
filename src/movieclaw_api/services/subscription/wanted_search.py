@@ -14,18 +14,22 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.i18n.stored import reference, stored_fields
 from movieclaw_api.schemas.search import TorrentHit
 from movieclaw_api.services.subscription.matching import (
+    FUTURE_GRACE,
     SEARCH_FAILURE_RETRY,
     SEARCH_REQUESTS_PER_TICK,
     SEARCH_TICK_SECONDS,
     backoff_delay,
     evaluate_and_dispatch,
+    publish_calendar_date,
 )
 from movieclaw_api.services.subscription.release_forecast import refresh_release_forecasts
 from movieclaw_db.engine import get_database
@@ -103,15 +107,6 @@ def recall_keywords(item: MediaItem) -> list[str]:
     return picked
 
 
-def _keyword_text(per_keyword: list[tuple[str, int]]) -> str:
-    """逐词结果数的活动文案："关键词「A」12 条 /「B」70 条"。
-
-    合并去重之后单看总数看不出是哪个词召回的。"为什么没搜到正片"这个问题
-    只有逐词结果数能回答，它是本模块最该留给用户的一条线索。
-    """
-    return "关键词" + " / ".join(f"「{word}」{count} 条" for word, count in per_keyword)
-
-
 # tick 互斥：除定时任务外，订阅域写操作产生"立刻可搜"的工单后也会立即踢一次
 # tick（首班车不用等最多 5 分钟）。并发进入时串行执行即可——前一轮已把搜过的
 # 组按退避排期，后一轮查不到到期项自然空转，不会对站点重复搜索。
@@ -150,12 +145,14 @@ def kick_search_soon() -> None:
 @register_task(
     "search_wanted",
     title="订阅缺口搜索",
+    title_key="settings.scheduledTasks.catalog.searchWantedTitle",
     trigger_type=TriggerType.INTERVAL,
     interval_seconds=SEARCH_TICK_SECONDS,
     description=(
         "从订阅缺口队列取到期项，按媒体条目分组做跨站搜索（补旧专用；追新工单"
         "由被动匹配为主，到期才进入本队列兜底）。搜索结果沉淀进种子索引。"
     ),
+    description_key="settings.scheduledTasks.catalog.searchWantedDescription",
 )
 async def search_wanted() -> None:
     """tick 任务体：取到期条目组，逐组搜索→评估→记账，用满本轮搜索预算为止。
@@ -318,7 +315,7 @@ async def _search_one_media(media_id: int, budget: _SearchBudget) -> None:
 
     hits_by_key: dict[tuple[str, str], TorrentHit] = {}
     per_keyword: list[tuple[str, int]] = []
-    site_errors: list[str] = []
+    site_errors: dict[str, dict] = {}
     sites_ok = 0
     categories = _SEARCH_CATEGORIES.get(item.kind)
     for keyword in keywords:
@@ -331,7 +328,20 @@ async def _search_one_media(media_id: int, budget: _SearchBudget) -> None:
         # 前面几个词的有效结果一起判成"搜索本身失败"（与换源搜索同口径，
         # 见 replacement.py 的跨站搜索）
         sites_ok = max(sites_ok, sum(1 for s in response.sites if s.error is None))
-        site_errors.extend(f"{s.site_name}：{s.error}" for s in response.sites if s.error)
+        for site in response.sites:
+            if site.error:
+                site_errors.setdefault(
+                    f"{site.site_name}：{site.error}",
+                    reference(
+                        "activity.subscription.searchSiteError",
+                        site=site.site_name,
+                        reason=(
+                            reference(site.error_key, **(site.error_params or {}))
+                            if site.error_key
+                            else site.error
+                        ),
+                    ),
+                )
         # 按 (站点, 种子ID) 合并去重：同一个种子被多个召回词搜到只评估一次
         for hit in response.items:
             hits_by_key[(hit.site_id, hit.torrent_id)] = hit
@@ -347,8 +357,14 @@ async def _search_one_media(media_id: int, budget: _SearchBudget) -> None:
         if sites_ok == 0:
             # 搜索本身失败（无可用站点/全站报错）：短冷却重试，不计入退避档
             # site_errors 跨关键词会重复（同一个站点每个词都报一次），保序去重
-            deduped = list(dict.fromkeys(site_errors))
-            reason = "；".join(deduped) if deduped else "当前没有可用的已验证站点"
+            reason = (
+                {
+                    "message_list": list(site_errors.values()),
+                    "separator_key": "common.list.issueSeparator",
+                }
+                if site_errors
+                else reference("activity.subscription.noVerifiedSites")
+            )
             await _postpone_open_wanted(
                 session, media_id, delay=SEARCH_FAILURE_RETRY, count_attempt=False
             )
@@ -359,17 +375,20 @@ async def _search_one_media(media_id: int, budget: _SearchBudget) -> None:
                 SubscriptionActivity(
                     subscription_id=subscription.id,
                     type=ActivityType.SEARCHED,
-                    message=(
-                        f"搜索《{item.title}》未能执行：{reason}；"
-                        f"约 {int(SEARCH_FAILURE_RETRY.total_seconds() // 60)} 分钟后重试"
-                    ),
                     payload={"keywords": keywords, "failed": True},
+                    **stored_fields(
+                        "activity.subscription.searchRetry",
+                        title=item.title,
+                        reason=reason,
+                        minutes=int(SEARCH_FAILURE_RETRY.total_seconds() // 60),
+                    ),
                 )
             )
             return
 
         # 结果沉淀进公共缓存（source=SEARCH），再回读 ORM 行进共享管道
         persisted = await _persist_hits(session, hits)
+        # i18n-ignore: audit source label for logs and activity payload
         summary = await evaluate_and_dispatch(session, persisted, source="主动搜索")
         # 搜索回填的历史单集也属于有效发布时间观测，可帮助同剧后续集从 E2
         # 开始形成预测；限定当前条目，避免一次主动搜索触发无关全量重算。
@@ -386,16 +405,28 @@ async def _search_one_media(media_id: int, budget: _SearchBudget) -> None:
             SubscriptionActivity(
                 subscription_id=subscription.id,
                 type=ActivityType.SEARCHED,
-                message=(
-                    f"搜索《{item.title}》（{_keyword_text(per_keyword)}）："
-                    f"{sites_ok} 个站点返回 {len(hits)} 个结果，"
-                    f"身份命中 {summary.identity_hits}，规则拒绝 {summary.rejected}，"
-                    f"投递覆盖 {summary.dispatched_units} 个单元"
-                    + (
-                        f"；剩余 {postponed} 个缺口按退避曲线排期"
-                        if postponed
-                        else "；本组缺口已全部安排"
-                    )
+                **stored_fields(
+                    "activity.subscription.searchCompleted",
+                    title=item.title,
+                    keywords=reference(
+                        "activity.subscription.searchKeywords",
+                        entries={
+                            "message_list": [
+                                reference(
+                                    "activity.subscription.searchKeyword", word=word, count=count
+                                )
+                                for word, count in per_keyword
+                            ],
+                            "separator_key": "common.list.slashSeparator",
+                        },
+                    ),
+                    sites=sites_ok,
+                    results=len(hits),
+                    hits=summary.identity_hits,
+                    rejected=summary.rejected,
+                    dispatched=summary.dispatched_units,
+                    hasRemaining="yes" if postponed else "no",
+                    remaining=postponed,
                 ),
                 payload={
                     "keywords": [
@@ -486,6 +517,7 @@ async def _postpone_open_wanted(
     返回被顺延的工单数。
     """
     now = utcnow()
+    today = publish_calendar_date(now)
     result = await session.execute(
         select(WantedItem).where(
             WantedItem.media_item_id == media_id,
@@ -506,6 +538,13 @@ async def _postpone_open_wanted(
                     next_at = None  # 未定档：回到等待定档，不再空搜
                 elif plan_at > next_at:
                     next_at = plan_at  # 上映宽限未到：退避不早于原定档期
+            elif wanted.air_date is not None and wanted.air_date > today:
+                # 尚未到记录播出日的剧集（只会是用户对"提前首发"的集立即搜索，
+                # issue #1044）：搜不到就回到"播出 + 宽限"的原定档期，不按退避
+                # 曲线在播出前反复空搜；资源一上站点仍由 RSS 被动匹配接住
+                planned = datetime.combine(wanted.air_date, datetime.min.time()) + FUTURE_GRACE
+                if planned > next_at:
+                    next_at = planned
             values = {
                 "next_search_at": next_at,
                 "search_attempts": wanted.search_attempts + 1,
