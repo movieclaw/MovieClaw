@@ -11,7 +11,7 @@ import { MediaTrackSection } from './MediaTrackSection';
 import { ReidentifySheet } from './ReidentifySheet';
 import { Permissions } from '../common/Permissions';
 import { DirectorView, ShareCreateRequest, ShareView } from '../api/Models';
-import { PlayerParams } from '../player/PlayerPage';
+import { PlayerParams } from '../player/PlayerParams';
 import { AppModel } from '../common/AppModel';
 import { RemoteImage } from '../common/RemoteImage';
 import { ImmersiveHeroBackdrop } from '../common/ImmersiveHero';

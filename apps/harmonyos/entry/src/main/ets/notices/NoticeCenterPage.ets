@@ -5,7 +5,7 @@ import { Formatters } from '../common/Formatters';
 import { ApiError } from '../api/ApiClient';
 import { jsonStringValue, jsonIntValue } from '../api/JsonValue';
 import { HandoffCenter, runHandoff, handoffMessage } from '../settings/HandoffCenter';
-import { ChatParams } from '../agent/ChatPage';
+import { ChatParams } from '../agent/ChatParams';
 import { SubscriptionParams } from '../subscriptions/SubscriptionDetailPage';
 import { SectionParams } from '../settings/SettingsIndexPage';
 import { MovieClawApi } from '../api/Endpoints';

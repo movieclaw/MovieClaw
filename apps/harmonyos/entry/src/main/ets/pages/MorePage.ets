@@ -10,7 +10,7 @@ import { noticeVisible } from '../notices/NoticeCenterPage';
 import { NoticeView } from '../api/Models';
 import { MovieClawApi } from '../api/Endpoints';
 import { SessionSummary, SessionTranscriptView } from '../api/Models';
-import { ChatParams } from '../agent/ChatPage';
+import { ChatParams } from '../agent/ChatParams';
 import { AGENT_QUICK_CONTENT_EXTRA, AgentQuickInput } from '../agent/AgentQuickInput';
 import { AgentSessionsSignal } from '../agent/AgentSessionsSignal';
 import { OfflineStore } from '../offline/OfflineStore';

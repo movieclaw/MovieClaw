@@ -6,7 +6,7 @@ import { RemoteImage } from '../common/RemoteImage';
 import { ImageUrls, ImageVariant } from '../common/ImageUrls';
 import { MovieClawApi } from '../api/Endpoints';
 import { UpNextItemView } from '../api/Models';
-import { PlayerParams } from '../player/PlayerPage';
+import { PlayerParams } from '../player/PlayerParams';
 import { ItemRouteParams } from '../library/LibraryItemDetailPage';
 import { episodeCode } from '../library/LibraryShared';
 

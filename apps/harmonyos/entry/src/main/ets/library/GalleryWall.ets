@@ -6,7 +6,7 @@ import { ImageUrls, ImageVariant } from '../common/ImageUrls';
 import { MovieClawApi } from '../api/Endpoints';
 import { ApiError } from '../api/ApiClient';
 import { LibraryGalleryGroupView, LibraryGalleryImageView, PlaybackMarksView } from '../api/Models';
-import { PlayerParams } from '../player/PlayerPage';
+import { PlayerParams } from '../player/PlayerParams';
 import { ItemRouteParams } from './LibraryItemDetailPage';
 
 /**

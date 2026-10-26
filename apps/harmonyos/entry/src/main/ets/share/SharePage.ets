@@ -8,7 +8,7 @@ import { SharedCollectionView, SharedCollectionItemView } from '../api/Models';
 import { RemoteImage } from '../common/RemoteImage';
 import { ImageUrls } from '../common/ImageUrls';
 import { ShareItemView } from './ShareItemView';
-import { PlayerParams } from '../player/PlayerPage';
+import { PlayerParams } from '../player/PlayerParams';
 
 /** 路由表注册用（router_map.json 的 buildFunction） */
 @Builder

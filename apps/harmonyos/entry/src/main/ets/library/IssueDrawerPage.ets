@@ -5,7 +5,7 @@ import { AppModel } from '../common/AppModel';
 import { Formatters } from '../common/Formatters';
 import { ApiError } from '../api/ApiClient';
 import { HandoffCenter, runHandoff, handoffMessage, HandoffResult } from '../settings/HandoffCenter';
-import { ChatParams } from '../agent/ChatPage';
+import { ChatParams } from '../agent/ChatParams';
 import { MovieClawApi } from '../api/Endpoints';
 import { RemoteImage } from '../common/RemoteImage';
 import { ImageUrls } from '../common/ImageUrls';
