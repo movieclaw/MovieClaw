@@ -508,6 +508,7 @@ export struct PlayerPage {
   // —— 底栏进度条可拖（iOS PlayerProgressBar；仍是「松手才跳」）——
   private barDragging: boolean = false;
   private progressBarWidth: number = 0;
+  private barLeftX: number = 0;
   private barY: number[] = [0, 0];
 
   // —— 会话心跳（iOS startPingLoop，15 秒一次）——
@@ -1905,6 +1906,7 @@ export struct PlayerPage {
         this.gestureStartY = touch.y;
         if (this.inBand(touch.y, this.barY) && this.displayDurationMs() > 0) {
           this.gestureIntent = 'barDrag';
+          this.noteUserActivity();
           this.barDragging = true;
           this.scrubBaseMs = this.positionMs;
           this.barScrubTo(touch.x);
@@ -3139,49 +3141,17 @@ export struct PlayerPage {
     return Math.round(ms * 100 / duration);
   }
 
-  // MARK: 底栏进度条（iOS PlayerProgressBar：可拖，松手才跳）
+  // MARK: 底栏进度条（iOS PlayerProgressBar）：可拖，松手才跳；触摸分发统一在 NavDestination 手势层
 
-  private onBarTouch(event: TouchEvent): void {
-    const touch: TouchObject | undefined = event.changedTouches[0];
-    if (touch === undefined) {
-      return;
-    }
-    if (event.type === TouchType.Down) {
-      if (this.displayDurationMs() <= 0) {
-        return;
-      }
-      this.noteUserActivity();
-      this.barDragging = true;
-      this.scrubBaseMs = this.positionMs;
-      this.barScrubTo(touch.x);
-      return;
-    }
-    if (!this.barDragging) {
-      return;
-    }
-    if (event.type === TouchType.Move) {
-      this.armChromeTimer();
-      this.barScrubTo(touch.x);
-      return;
-    }
-    if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
-      this.barDragging = false;
-      const target: number = this.scrubMs;
-      this.scrubMs = -1;
-      if (event.type === TouchType.Up && target >= 0) {
-        this.seekTo(target);
-      }
-    }
-  }
-
-  /** 拖动进度条：触点位置 → 时间轴时间（片段换算回原片时间轴再夹区间） */
+  /** 拖动进度条：页面坐标触点 → 时间轴时间（片段换算回原片时间轴再夹区间） */
   private barScrubTo(x: number): void {
     const duration: number = this.displayDurationMs();
     if (duration <= 0) {
       return;
     }
     const width: number = Math.max(1, this.progressBarWidth);
-    const ratio: number = Math.max(0, Math.min(1, x / width));
+    const barLocalX: number = x + this.layerOriginX - this.barLeftX;
+    const ratio: number = Math.max(0, Math.min(1, barLocalX / width));
     const timelineMs: number = Math.floor(ratio * duration);
     this.scrubMs = this.isClip() ? this.clipStartMs + timelineMs : timelineMs;
   }
@@ -3499,9 +3469,7 @@ export struct PlayerPage {
           .alignItems(HorizontalAlign.Center)
           .backgroundColor('rgba(255,255,255,0.12)')
           .borderRadius(20)
-          .onClick(() => {
-            this.navStack.pop();
-          })
+          .hitTestBehavior(HitTestMode.Transparent)
           .onAreaChange((_old: Area, newArea: Area) => {
             const x: number = this.vpOf(newArea.globalPosition?.x ?? 0);
             this.backBtnX = [x, x + this.vpOf(newArea.width)];
@@ -3528,9 +3496,7 @@ export struct PlayerPage {
             .padding({ left: 14, right: 14 })
             .backgroundColor('rgba(255,255,255,0.12)')
             .borderRadius(20)
-            .onClick(() => {
-              this.toggleLandscape();
-            })
+            .hitTestBehavior(HitTestMode.Transparent)
             .onAreaChange((_old: Area, newArea: Area) => {
               const x: number = this.vpOf(newArea.globalPosition?.x ?? 0);
               this.landscapeBtnX = [x, x + this.vpOf(newArea.width)];
@@ -3544,10 +3510,7 @@ export struct PlayerPage {
             .padding({ left: 14, right: 14 })
             .backgroundColor('rgba(255,255,255,0.12)')
             .borderRadius(20)
-            .onClick(() => {
-              this.armChromeTimer();
-              this.togglePip();
-            })
+            .hitTestBehavior(HitTestMode.Transparent)
             .onAreaChange((_old: Area, newArea: Area) => {
               const x: number = this.vpOf(newArea.globalPosition?.x ?? 0);
               this.pipBtnX = [x, x + this.vpOf(newArea.width)];
@@ -3614,10 +3577,8 @@ export struct PlayerPage {
           .justifyContent(FlexAlign.Center)
           .onAreaChange((_old: Area, newArea: Area) => {
             this.progressBarWidth = this.vpOf(newArea.width);
+            this.barLeftX = this.vpOf(newArea.globalPosition?.x ?? 0);
             this.barY = this.bandOf(newArea);
-          })
-          .onTouch((event: TouchEvent) => {
-            this.onBarTouch(event);
           })
           Row({ space: 8 }) {
             // iOS 把**当前章节名接在时间后面**（`12:34 · Part 01`），不是拉一条章节带
@@ -3634,28 +3595,10 @@ export struct PlayerPage {
           }
           .width('100%')
           Row({ space: 0 }) {
-            this.CapsuleAction('音轨', this.audioRef.length > 0, (): void => {
-              this.armChromeTimer();
-              this.sheetKind = 'audio';
-              this.showSheet = true;
-            })
-            this.CapsuleAction(this.subtitleIndex >= 0 ? '字幕 ✓' : '字幕', this.subtitleIndex >= 0,
-              (): void => {
-                this.armChromeTimer();
-                this.sheetKind = 'subtitle';
-                this.showSheet = true;
-              })
-            this.CapsuleAction(this.maxHeight > 0 ? `画质 ${this.maxHeight}p ✓` : '画质', this.maxHeight > 0,
-              (): void => {
-                this.armChromeTimer();
-                this.sheetKind = 'quality';
-                this.showSheet = true;
-              })
-            this.CapsuleAction('详情', false, (): void => {
-              this.armChromeTimer();
-              this.sheetKind = 'stats';
-              this.showSheet = true;
-            })
+            this.CapsuleAction('音轨', this.audioRef.length > 0)
+            this.CapsuleAction(this.subtitleIndex >= 0 ? '字幕 ✓' : '字幕', this.subtitleIndex >= 0)
+            this.CapsuleAction(this.maxHeight > 0 ? `画质 ${this.maxHeight}p ✓` : '画质', this.maxHeight > 0)
+            this.CapsuleAction('详情', false)
           }
           .backgroundColor('rgba(255,255,255,0.12)')
           .borderRadius(22)
@@ -3973,16 +3916,14 @@ export struct PlayerPage {
 
   /** 底部胶囊里的一颗动作键（等分胶囊宽度，两端与胶囊端头同心） */
   @Builder
-  CapsuleAction(label: string, active: boolean, onTap: () => void) {
+  CapsuleAction(label: string, active: boolean) {
     Text(label)
       .fontSize(13)
       .fontColor(active ? Theme.accentStrong : 'rgba(255,255,255,0.85)')
       .layoutWeight(1)
       .height(40)
       .textAlign(TextAlign.Center)
-      .onClick(() => {
-        onTap();
-      })
+      .hitTestBehavior(HitTestMode.Transparent)
   }
 
   /** 音轨选择：第一行是「跟随默认」，其余按后端给的序列出；insetGrouped 卡片 */
