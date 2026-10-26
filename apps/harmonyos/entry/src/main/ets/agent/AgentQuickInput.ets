@@ -13,7 +13,7 @@ import { AgentAttachment, AgentAttachments } from './AgentAttachments';
 import { AgentCatalog, AgentThinking } from './AgentCatalog';
 import { AgentSessionsSignal } from './AgentSessionsSignal';
 import { AgentSkillText } from './AgentSkills';
-import { ChatParams } from './ChatPage';
+import { ChatParams } from './ChatParams';
 
 /**
  * 「我的」页的 AI 快捷输入（对应 iOS `AgentQuickBar` + `AgentComposer` 新样式）：
@@ -62,6 +62,9 @@ export struct AgentQuickInput {
   @Local private consentProviders: string[] = [];
   @Local private keyboardInset: number = 0;
   private keyboardWindow: window.Window | null = null;
+  /** 键盘高度回调的引用：off 必须带上它——不带会把同窗口其他组件的监听一并摘掉 */
+  private keyboardCallback: ((height: number) => void) | null = null;
+  private disposed: boolean = false;
   /** 进入时记下的窗口键盘避让模式，失焦/销毁时还原（默认 OFFSET=整页上抬） */
   private avoidDefault: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET;
 
@@ -76,8 +79,10 @@ export struct AgentQuickInput {
   }
 
   aboutToDisappear(): void {
-    if (this.keyboardWindow !== null) {
-      this.keyboardWindow.off('keyboardHeightChange');
+    this.disposed = true;
+    if (this.keyboardWindow !== null && this.keyboardCallback !== null) {
+      this.keyboardWindow.off('keyboardHeightChange', this.keyboardCallback);
+      this.keyboardCallback = null;
       this.keyboardWindow = null;
     }
     this.setBarAvoid(false);
@@ -110,8 +115,12 @@ export struct AgentQuickInput {
     }
     const context: common.UIAbilityContext = hostCtx as common.UIAbilityContext;
     window.getLastWindow(context).then((win: window.Window): void => {
+      // 组件可能已在 Promise 落定前销毁：不再注册（否则监听无人解绑，还会回调已销毁组件）
+      if (this.disposed) {
+        return;
+      }
       this.keyboardWindow = win;
-      win.on('keyboardHeightChange', (height: number): void => {
+      this.keyboardCallback = (height: number): void => {
         let inset: number = 0;
         if (height > 0) {
           try {
@@ -125,7 +134,8 @@ export struct AgentQuickInput {
           this.expanded = false;
         }
         this.keyboardInset = inset;
-      });
+      };
+      win.on('keyboardHeightChange', this.keyboardCallback);
     }).catch((): void => {
     });
   }

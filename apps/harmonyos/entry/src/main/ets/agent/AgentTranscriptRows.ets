@@ -97,8 +97,41 @@ export class AgentRow {
   }
 }
 
+/** 段级 Markdown 解析缓存的一项：text 相同（同引用或同值）就复用解析结果 */
+class AgentMarkdownCacheEntry {
+  readonly text: string;
+  readonly blocks: AgentMarkdownBlock[];
+
+  constructor(text: string, blocks: AgentMarkdownBlock[]) {
+    this.text = text;
+    this.blocks = blocks;
+  }
+}
+
 /** 轮次 → 行的拆分规则（对应 iOS `enum AgentTranscriptLayout`） */
 export class AgentTranscriptLayout {
+  /**
+   * 段级 Markdown 解析缓存：流式期间每 80ms 重排一次整列，
+   * 没有它会把所有轮次所有段的 Markdown 全部重解析——只有正在长的末段才该重解析。
+   */
+  private static readonly markdownCache: Map<string, AgentMarkdownCacheEntry> = new Map();
+  private static readonly MARKDOWN_CACHE_CAP: number = 256;
+
+  /** 带缓存的段解析：`轮次 id + 段下标` 定位，text 没变直接用上次的块 */
+  private static markdownBlocks(turnId: string, index: number, text: string): AgentMarkdownBlock[] {
+    const key: string = `${turnId}#${index}`;
+    const hit: AgentMarkdownCacheEntry | undefined = AgentTranscriptLayout.markdownCache.get(key);
+    if (hit !== undefined && hit.text === text) {
+      return hit.blocks;
+    }
+    const blocks: AgentMarkdownBlock[] = AgentMarkdownParser.parse(text);
+    if (AgentTranscriptLayout.markdownCache.size >= AgentTranscriptLayout.MARKDOWN_CACHE_CAP) {
+      AgentTranscriptLayout.markdownCache.clear();
+    }
+    AgentTranscriptLayout.markdownCache.set(key, new AgentMarkdownCacheEntry(text, blocks));
+    return blocks;
+  }
+
   static rows(turns: AgentTurn[], handoff: AgentHandoff | null, running: boolean): AgentRow[] {
     const rows: AgentRow[] = [];
     if (handoff !== null) {
@@ -139,7 +172,8 @@ export class AgentTranscriptLayout {
       }
 
       if (segment.kind === 'text') {
-        const blocks: AgentMarkdownBlock[] = AgentMarkdownParser.parse(segment.text);
+        const blocks: AgentMarkdownBlock[] =
+          AgentTranscriptLayout.markdownBlocks(turn.id, index, segment.text);
         const signature: string = `${segment.text.length}`;
         for (let b = 0; b < blocks.length; b++) {
           if (b > 0) {

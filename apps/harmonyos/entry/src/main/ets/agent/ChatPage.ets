@@ -45,34 +45,12 @@ import {
   AgentTurnFooterView,
   AgentUserBubbleView
 } from './AgentTurnViews';
+import { ChatParams } from './ChatParams';
 
 /** 路由表注册用（router_map.json 的 buildMethod） */
 @Builder
 export function ChatBuilder() {
   ChatPage()
-}
-
-/** 会话页的路由参数（会序列化，不要用 instanceof） */
-export class ChatParams {
-  readonly sessionId: string;
-
-  constructor(sessionId: string) {
-    this.sessionId = sessionId;
-  }
-
-  static of(param: Object | undefined | null): ChatParams | null {
-    if (param === undefined || param === null) {
-      // 没带参数也是「新会话」
-      return new ChatParams('');
-    }
-    const raw: ChatParams = param as ChatParams;
-    const id: string = raw.sessionId;
-    // 空 id 合法：表示**新会话**（同 iOS `.newSession`）——会话在第一条消息时才由服务端建出来
-    if (id === undefined || id === null) {
-      return new ChatParams('');
-    }
-    return new ChatParams(id);
-  }
 }
 
 /** Transcript 列表的 LazyForEach 数据源（只建可视区附近的行） */
@@ -102,9 +80,34 @@ class AgentRowSource implements IDataSource {
   }
 
   setRows(rows: AgentRow[]): void {
+    // 前缀 id（LazyForEach 的 key）一致的行不动：流式刷新时只有变化的尾部需要重建。
+    // 本 SDK 的 onDataAdd/onDataDelete 只收单下标：小改动逐行精确通知（可视区里
+    // 没变的行不重挂、区外的行不重建）；大改动（初次加载/换稿）退回 onDataReloaded，
+    // 免得几百行逐行通知反而更抖
+    let shared: number = 0;
+    const limit: number = Math.min(this.rows.length, rows.length);
+    while (shared < limit && this.rows[shared].id === rows[shared].id) {
+      shared++;
+    }
+    const removedCount: number = this.rows.length - shared;
+    const addedCount: number = rows.length - shared;
     this.rows = rows;
+    if (removedCount === 0 && addedCount === 0) {
+      return;
+    }
+    if (removedCount + addedCount > 24) {
+      for (const listener of this.listeners) {
+        listener.onDataReloaded();
+      }
+      return;
+    }
     for (const listener of this.listeners) {
-      listener.onDataReloaded();
+      for (let i = 0; i < removedCount; i++) {
+        listener.onDataDelete(shared);
+      }
+      for (let i = 0; i < addedCount; i++) {
+        listener.onDataAdd(shared + i);
+      }
     }
   }
 }
@@ -222,6 +225,9 @@ export struct ChatPage {
    */
   @Local private keyboardInset: number = 0;
   private keyboardWindow: window.Window | null = null;
+  /** 键盘高度回调的引用：off 必须带上它——不带会把同窗口其他组件（如「我的」页输入条）的监听一并摘掉 */
+  private keyboardCallback: ((height: number) => void) | null = null;
+  private disposed: boolean = false;
   /** 有没有动过模型/档位选择（没动过就不传，服务端沿用上一条；动过但选「默认」传 default） */
   @Local private modelTouched: boolean = false;
   @Local private modelValue: string = '';
@@ -239,25 +245,32 @@ export struct ChatPage {
   private observeKeyboard(): void {
     const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
     window.getLastWindow(context).then((win: window.Window): void => {
+      // 组件可能已在 Promise 落定前销毁：不再注册（否则监听无人解绑，还会回调已销毁组件）
+      if (this.disposed) {
+        return;
+      }
       this.keyboardWindow = win;
-      win.on('keyboardHeightChange', (height: number): void => {
+      this.keyboardCallback = (height: number): void => {
         this.keyboardInset = height > 0 ? px2vp(height) : 0;
         // 贴底跟随：键盘升降改变列表高度，意图在底部就重新贴底
         if (this.followsLatest) {
           this.pumpStick();
         }
-      });
+      };
+      win.on('keyboardHeightChange', this.keyboardCallback);
     }).catch((): void => {
     });
   }
 
   aboutToDisappear(): void {
+    this.disposed = true;
     this.chrome.pop('chat');
     this.closeStream();
     // 离开会话页：「我的」页的「最近会话」要被通知重拉（新会话 / 标题变化都在这一趟里发生）
     AgentSessionsSignal.shared.bump();
-    if (this.keyboardWindow !== null) {
-      this.keyboardWindow.off('keyboardHeightChange');
+    if (this.keyboardWindow !== null && this.keyboardCallback !== null) {
+      this.keyboardWindow.off('keyboardHeightChange', this.keyboardCallback);
+      this.keyboardCallback = null;
       this.keyboardWindow = null;
     }
     if (this.stickTimer >= 0) {
@@ -907,6 +920,20 @@ export struct ChatPage {
     // 从子页面回来（黑屏兜底）：意图在底部但位置被推离了就校正，翻历史时不动
     .onShown((reason: VisibilityChangeReason): void => {
       this.restoreIfNeeded();
+      // 被盖住时暂停过的流在这里接上：带 Last-Event-ID 续传，服务端补发漏掉的事件
+      if (this.running && this.stream === null) {
+        this.startStream();
+      }
+    })
+    // 页面被盖住（点卡片进详情页等）：流先停掉，别在盖住的页面后面持续收事件刷帧；
+    // 80ms 批缓冲里还没落进轮次的事件先 flush——游标已在收到时就推进，
+    // 不落就关会丢一段且续传不会补（Last-Event-ID 只补游标之后的）
+    .onHidden((): void => {
+      if (this.stream === null && this.retryTimer < 0) {
+        return;
+      }
+      this.flushEvents();
+      this.closeStream();
     })
     // 同意弹层挂在 NavDestination 上（模型面板的 bindSheet 挂在里面的 Column 上：
     // 同一个组件只能挂一个 bindSheet，分开挂两个都能弹出）
