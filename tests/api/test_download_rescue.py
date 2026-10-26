@@ -267,6 +267,41 @@ def test_explicit_special_episode_still_covered() -> None:
     assert len(covered) == 1
 
 
+def _dated(season: int, episode: int, air: date) -> WantedItem:
+    return WantedItem(
+        subscription_id=1,
+        media_item_id=1,
+        season_number=season,
+        episode_number=episode,
+        air_date=air,
+    )
+
+
+def test_explicit_episode_tolerates_early_release() -> None:
+    """issue #1044：标题明确写了 S01E15 的单集，比记录播出日早一两天发布照样覆盖；
+    早三天以上更像集号错配/远期集，仍剔除。"""
+    published = date(2026, 10, 26)
+    for days, expected in [(0, True), (1, True), (2, True), (3, False)]:
+        open_units = {(1, 15): _dated(1, 15, published + timedelta(days=days))}
+        covered = covered_units(
+            IdentityMatch(episodes=frozenset({(1, 15)})), open_units, published=published
+        )
+        assert bool(covered) is expected, days
+
+
+def test_season_pack_gets_no_early_release_tolerance() -> None:
+    """整季包展开不享受提前容错：不拿它批量承诺明天才播的集。"""
+    published = date(2026, 10, 26)
+    open_units = {
+        (1, 14): _dated(1, 14, published),
+        (1, 15): _dated(1, 15, published + timedelta(days=1)),
+    }
+    covered = covered_units(
+        IdentityMatch(pack_seasons=frozenset({1})), open_units, published=published
+    )
+    assert [(w.season_number, w.episode_number) for w in covered] == [(1, 14)]
+
+
 # ---------------------------------------------------------------------------
 # _rescue_group 完成分支：内容核验端到端
 # ---------------------------------------------------------------------------

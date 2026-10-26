@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import httpx
 import pytest
@@ -19,6 +19,8 @@ from movieclaw_api.services.media_library import MediaLibraryService
 from movieclaw_api.services.rule_sets import RuleSetService
 from movieclaw_api.services.subscription import SubscriptionService
 from movieclaw_api.services.subscription.manual_grab import grab_manual
+from movieclaw_api.services.subscription.matching import FUTURE_GRACE, publish_calendar_date
+from movieclaw_api.services.subscription.wanted_search import _postpone_open_wanted
 from movieclaw_api.settings.store import init_setting_store, reset_setting_store
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
@@ -207,6 +209,61 @@ async def test_search_now_rejects_paused_and_empty(db) -> None:
         await session.commit()
         with pytest.raises(BadRequestException, match="没有可立即搜索的缺口"):
             await service.search_now(sub.id)
+
+
+async def test_search_now_includes_episode_airing_within_early_tolerance(db) -> None:
+    """issue #1044：记录播出日就在一两天内的待播集，平台常已提前首发——
+    立即搜索要真搜它；远期待播集与未定档集照旧不碰。"""
+    async with db.session() as session:
+        service = _service(session)
+        sub = await service.create(MediaKind.TV, 200, selected_seasons=[2])
+        wanted = await _wanted_map(session, sub.id)
+        # E2 记录明天播出、档期排在"播出 + 宽限"；E1 已播的先推进冷却
+        tomorrow = publish_calendar_date(utcnow()) + timedelta(days=1)
+        wanted[(2, 2)].air_date = tomorrow
+        wanted[(2, 2)].next_search_at = utcnow() + timedelta(days=3)
+        session.add(wanted[(2, 2)])
+        await session.commit()
+
+        assert await service.search_now(sub.id) == 2  # E1 已播 + E2 明天播
+        wanted = await _wanted_map(session, sub.id)
+        assert wanted[(2, 2)].next_search_at <= utcnow()
+        assert wanted[(2, 3)].next_search_at is None  # 未定档：保持不可调度
+
+        # 远期集（10 天后）仍跳过
+        wanted[(2, 2)].air_date = publish_calendar_date(utcnow()) + timedelta(days=10)
+        wanted[(2, 2)].next_search_at = utcnow() + timedelta(days=12)
+        session.add(wanted[(2, 2)])
+        await session.commit()
+        assert await service.search_now(sub.id) == 1
+
+
+async def test_early_search_miss_restores_air_schedule(db) -> None:
+    """立即搜索没找到提前首发的资源时，档期回到"播出 + 宽限"，
+    不按退避曲线（15 分钟起）在播出前反复空搜。已播集照常退避。"""
+    async with db.session() as session:
+        service = _service(session)
+        sub = await service.create(MediaKind.TV, 200, selected_seasons=[2])
+        sub_id = sub.id
+        wanted = await _wanted_map(session, sub_id)
+        tomorrow = publish_calendar_date(utcnow()) + timedelta(days=1)
+        wanted[(2, 2)].air_date = tomorrow
+        media_id = wanted[(2, 2)].media_item_id
+        session.add(wanted[(2, 2)])
+        await session.commit()
+        await service.search_now(sub_id)
+        await session.commit()
+
+        postponed = await _postpone_open_wanted(session, media_id, delay=None, count_attempt=True)
+        await session.commit()
+        assert postponed == 2
+
+        session.expire_all()
+        wanted = await _wanted_map(session, sub_id)
+        planned = datetime.combine(tomorrow, datetime.min.time()) + FUTURE_GRACE
+        assert wanted[(2, 2)].next_search_at == planned
+        aired = wanted[(2, 1)].next_search_at
+        assert aired is not None and aired < utcnow() + timedelta(hours=1)  # 已播：退避
 
 
 # ---------------------------------------------------------------------------

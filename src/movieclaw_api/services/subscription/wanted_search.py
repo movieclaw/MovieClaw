@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,11 +23,13 @@ from sqlmodel import select
 from movieclaw_api.i18n.stored import reference, stored_fields
 from movieclaw_api.schemas.search import TorrentHit
 from movieclaw_api.services.subscription.matching import (
+    FUTURE_GRACE,
     SEARCH_FAILURE_RETRY,
     SEARCH_REQUESTS_PER_TICK,
     SEARCH_TICK_SECONDS,
     backoff_delay,
     evaluate_and_dispatch,
+    publish_calendar_date,
 )
 from movieclaw_api.services.subscription.release_forecast import refresh_release_forecasts
 from movieclaw_db.engine import get_database
@@ -514,6 +517,7 @@ async def _postpone_open_wanted(
     返回被顺延的工单数。
     """
     now = utcnow()
+    today = publish_calendar_date(now)
     result = await session.execute(
         select(WantedItem).where(
             WantedItem.media_item_id == media_id,
@@ -534,6 +538,13 @@ async def _postpone_open_wanted(
                     next_at = None  # 未定档：回到等待定档，不再空搜
                 elif plan_at > next_at:
                     next_at = plan_at  # 上映宽限未到：退避不早于原定档期
+            elif wanted.air_date is not None and wanted.air_date > today:
+                # 尚未到记录播出日的剧集（只会是用户对"提前首发"的集立即搜索，
+                # issue #1044）：搜不到就回到"播出 + 宽限"的原定档期，不按退避
+                # 曲线在播出前反复空搜；资源一上站点仍由 RSS 被动匹配接住
+                planned = datetime.combine(wanted.air_date, datetime.min.time()) + FUTURE_GRACE
+                if planned > next_at:
+                    next_at = planned
             values = {
                 "next_search_at": next_at,
                 "search_attempts": wanted.search_attempts + 1,

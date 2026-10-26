@@ -116,6 +116,17 @@ def upgrade_backoff_delay(attempts: int) -> timedelta:
 _SITE_CALENDAR_TIMEZONE = ZoneInfo(DEFAULT_SITE_TIMEZONE)
 
 
+# 追新工单的漏抓宽限期：air_date + 该值 = 首个真实搜索到期时刻。
+# 被动匹配通常在到点前满足工单；真到点仍缺的，worker 捞起即漏抓兜底。
+FUTURE_GRACE = timedelta(hours=48)
+
+# 明确单集的提前发布容错（issue #1044）：TMDB 记录的播出日常比站点首发晚
+# 一两天（平台抢先上线、时区与录入偏差）。标题写明季集号的单集资源，播出日
+# 不晚于"发布日 + 该值"即视为可覆盖；整季/全集包展开仍以发布日为硬上限，
+# 不拿容错去批量承诺未来集。发布时间预测（release_forecast）采样用同一口径。
+EARLY_RELEASE_TOLERANCE = timedelta(days=2)
+
+
 def publish_calendar_date(value: datetime | None) -> date:
     """把库内 UTC 发布时间换回站点业务日历日期。
 
@@ -613,8 +624,9 @@ def covered_units(
     **发布时间是覆盖范围的物理上限**（真实教训：2025-12 发布的他剧整季包曾把
     2026-06 才开播订阅的未播集标记为已投递）：
     - 整季/全集包展开只覆盖"种子发布时已播出"的集；未定档集无证据，不覆盖；
-    - 显式声明的集号（标题写明 E05）信其声明，但播出日期晚于发布时间的仍剔除
-      ——未来的集在物理上不可能已经存在于种子里。
+    - 显式声明的集号（标题写明 E05）信其声明，容许播出日比发布日晚
+      ``EARLY_RELEASE_TOLERANCE``（平台常提前一两天首发，issue #1044）；再晚的
+      仍剔除——远期集在物理上不可能已经存在于种子里。
     ``published``：种子发布日期（date）；未知时调用方传评估当日（保守可用）。
     """
 
@@ -622,6 +634,13 @@ def covered_units(
         if w.air_date is None:
             return not require_dated
         return w.air_date <= published
+
+    def _explicit_airable(w: WantedItem) -> bool:
+        # 标题明确写了这一集：容许常见的一两天提前首发（EARLY_RELEASE_TOLERANCE），
+        # 再往前就更像集号错配/远期集，仍剔除
+        if w.air_date is None:
+            return True
+        return w.air_date <= published + EARLY_RELEASE_TOLERANCE
 
     def _declared(w: WantedItem) -> bool:
         # 「全 N 集」声明兜住未定档单元（多为超出 TMDB 的占位集，issue #640）：
@@ -655,9 +674,7 @@ def covered_units(
             )
         ]
     result = [
-        w
-        for key, w in open_units.items()
-        if key in match.episodes and _airable(w, require_dated=False)
+        w for key, w in open_units.items() if key in match.episodes and _explicit_airable(w)
     ]
     if match.pack_seasons:
         single_pack = len(match.pack_seasons) == 1

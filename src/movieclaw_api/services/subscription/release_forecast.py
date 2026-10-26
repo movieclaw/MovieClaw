@@ -51,6 +51,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from sqlmodel import select
 
 from movieclaw_api.services.subscription.matching import (
+    EARLY_RELEASE_TOLERANCE,
     load_season_titles,
     publish_calendar_date,
     to_candidate,
@@ -89,7 +90,7 @@ _ROBUST_BACKTEST_EPISODES = 5
 _MAX_WINDOW = timedelta(hours=12)
 # 偏离中位超过它的样本视为播出日异常（TMDB 日期错、首播打包发），不参与预测
 _DATE_ANOMALY = timedelta(hours=12)
-_EARLY_RELEASE_TOLERANCE = timedelta(days=2)
+_EARLY_RELEASE_TOLERANCE = EARLY_RELEASE_TOLERANCE  # 与下载覆盖判定同一口径
 _LATE_RELEASE_TOLERANCE = timedelta(days=7)
 # 首选站探测。stable：相对预测点的分钟偏移，预测点前后每 5 分钟、之后逐步拉开——
 # 稳定剧集的残差是尖峰（四分位 -5～+27 分钟），探测要花在尖峰上而不是均匀铺满窗口

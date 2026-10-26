@@ -58,7 +58,11 @@ from movieclaw_api.services.subscription.episode_floor import (
     pending_hints,
     season_episode_max,
 )
-from movieclaw_api.services.subscription.matching import publish_calendar_date
+from movieclaw_api.services.subscription.matching import (
+    EARLY_RELEASE_TOLERANCE,
+    FUTURE_GRACE,
+    publish_calendar_date,
+)
 from movieclaw_api.services.subscription.release_forecast import (
     next_forecast_probe_times_by_wanted,
 )
@@ -97,9 +101,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("movieclaw_api.subscription")
 
-# 追新工单的漏抓宽限期：air_date + 该值 = 首个真实搜索到期时刻。
-# 被动匹配通常在到点前满足工单；真到点仍缺的，worker 捞起即漏抓兜底。
-FUTURE_GRACE = timedelta(hours=48)
 
 # 电影的上映宽限期：上映日 + 该值 = 首次真实搜索时刻（movie_schedule）。
 # TMDB 的电影档期通常是最早的院线上映日，院线窗口内几乎不可能有正规资源，
@@ -1130,8 +1131,9 @@ class SubscriptionService:
         """用户手动触发「立即搜索」：把可搜索的缺口工单全部重置为立刻到期。
 
         剧集只碰"本来就能搜"的工单——未定档（next_search_at 为 None）没有
-        可用的搜索时机，待播出（air_date 在未来）搜了也只会空手而归并打乱
-        "播出 + 宽限"的原定档期，两者都跳过。电影不设这层限制：未上映/未定档
+        可用的搜索时机，跳过；待播出的集只在记录播出日不晚于"今天 +
+        EARLY_RELEASE_TOLERANCE"时才搜（提前首发，issue #1044），更远的搜了
+        也只会空手而归，跳过。电影不设这层限制：未上映/未定档
         的缓搜只是系统的默认保守策略，用户主动触发就是明确的"我现在就要搜
         一次"——搜完由搜索管线按上映档期把调度恢复原状（见 wanted_search 的
         movie_plan 地板）。已在冷却退避中的工单清零到"现在"，随后踢一次
@@ -1141,7 +1143,7 @@ class SubscriptionService:
         if subscription.status == SubscriptionStatus.PAUSED:
             raise BadRequestException(message_key="errors.subscription.searchPaused")
         now = utcnow()
-        today = now.date()
+        today = publish_calendar_date(now)  # 与 air_date 同为站点业务日历
         is_movie = subscription.kind == MediaKind.MOVIE.value
         wanted = await self._repo.list_wanted(subscription_id, in_scope_only=True)
         reset = 0
@@ -1151,7 +1153,10 @@ class SubscriptionService:
             if not is_movie:
                 if w.next_search_at is None:
                     continue
-                if w.air_date is not None and w.air_date > today:
+                # 记录播出日只差一两天的待播集照样真搜（issue #1044：平台常
+                # 提前首发，资源已在站点上）；搜不到时搜索管线把档期恢复到
+                # "播出 + 宽限"，不会被退避曲线拖成反复空搜。更远的待播集跳过。
+                if w.air_date is not None and w.air_date > today + EARLY_RELEASE_TOLERANCE:
                     continue
             w.next_search_at = now
             self._session.add(w)
