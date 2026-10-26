@@ -138,6 +138,9 @@ export struct ReelsPage {
   private started: boolean = false;
   private player: media.AVPlayer | null = null;
   private surfaceController: XComponentController = new XComponentController();
+  private surfaceId: string = '';
+  /** 播放器已到 initialized、XComponent surface 还没就绪：等 onLoad 回调补挂 */
+  private waitSurface: boolean = false;
   private tick: number = -1;
 
   // —— 手势层（与播放器页 onGesture 同一状态机，阈值照搬 iOS PlayerGestureLayer）——
@@ -465,6 +468,10 @@ export struct ReelsPage {
     // 代数守卫：翻页期间本函数有 3 个 await，快滑时两次调用会重叠——
     // 旧代落定后要么放弃手里的新播放器（孤儿，立刻释放），要么整体让位
     const gen: number = ++this.playGen;
+    // 新一代起播：上一页的 surface 一律作废，等 XComponent onLoad 给新的；
+    // 否则可能把播放器绑到已销毁的旧 surface 上（401 SurfaceUtils）
+    this.surfaceId = '';
+    this.waitSurface = false;
     // 翻页就换播放器：**一个时刻只留一个**，否则滑十几页会开十几个解码器
     this.disarmHoldTimer();
     this.endHoldSpeed();
@@ -496,18 +503,10 @@ export struct ReelsPage {
         return;
       }
       this.player = player;
-      this.bind(player, item.segment.start_ms, item.segment.end_ms, isClip);
+      this.bind(player, gen, item.segment.start_ms, item.segment.end_ms, isClip);
+      // 设 url 后要等 stateChange 到 initialized 才能挂 surface、调 prepare：
+      // 抢跑调 prepare 会报 5400102——正是线上「放不了这一段（5400102）」的根因
       player.url = AppModel.origin() + url;
-      await player.prepare();
-      if (gen !== this.playGen) {
-        // prepare 期间又翻了页：同上
-        this.player = null;
-        this.discardPlayer(player);
-        return;
-      }
-      this.playing = true;
-      player.play();
-      this.startTick();
     } catch (error) {
       if (gen !== this.playGen) {
         // 已被更新的翻页接管：错误面板由新页负责
@@ -527,12 +526,35 @@ export struct ReelsPage {
   }
 
   /**
-   * 服务端给的流地址是相对路径，要拼上当前服务地址。
+   * 事件绑定。prepare 必须等 stateChange 到 initialized 才能调（设 url 后不会立刻进该状态，
+   * 抢跑报 5400102）；视频还要先挂上 XComponent 的 surface 才有渲染面。
    * clip 模式：clip 文件的时间原点就是片段起点（第 0 秒 = 原片 start_ms），
    * 直接从 0 播、到片段时长就停；seek 模式照旧按原片时间轴。
    */
-  private bind(player: media.AVPlayer, startMs: number, endMs: number, isClip: boolean): void {
+  private bind(player: media.AVPlayer, gen: number, startMs: number, endMs: number, isClip: boolean): void {
+    player.on('stateChange', (state: string): void => {
+      if (gen !== this.playGen) {
+        // 旧代播放器的事件一律不认
+        return;
+      }
+      if (state === 'initialized') {
+        if (this.surfaceId.length > 0) {
+          this.attachSurfaceAndPrepare(player);
+        } else {
+          // surface 还没就绪：等 XComponent onLoad 回调补挂
+          this.waitSurface = true;
+        }
+      } else if (state === 'prepared') {
+        this.playing = true;
+        player.play();
+        this.startTick();
+      }
+    });
     player.on('error', (error: BusinessError): void => {
+      if (gen !== this.playGen) {
+        // 旧代播放器的错误由它自己负责，别覆盖新页面板
+        return;
+      }
       this.playing = false;
       this.failed = true;
       this.errorMessage = `放不了这一段：${error.message}`;
@@ -551,6 +573,20 @@ export struct ReelsPage {
         player.pause();
         this.paused = true;
       }
+    });
+  }
+
+  /** 挂渲染面并 prepare（surfaceId 就绪后调）；prepare 走事件流，失败也落到失败面板 */
+  private attachSurfaceAndPrepare(player: media.AVPlayer): void {
+    player.surfaceId = this.surfaceId;
+    player.prepare().catch((error: BusinessError): void => {
+      if (this.player !== player) {
+        // 已被翻页接管：失败面板由新页负责
+        return;
+      }
+      this.playing = false;
+      this.failed = true;
+      this.errorMessage = `放不了这一段（${error.code ?? -1}）`;
     });
   }
 
@@ -938,6 +974,15 @@ export struct ReelsPage {
                 })
                   .width('100%')
                   .height('100%')
+                  .onLoad((): void => {
+                    this.surfaceId = this.surfaceController.getXComponentSurfaceId();
+                    // 播放器先到 initialized、surface 后就绪：补挂起播
+                    const player: media.AVPlayer | null = this.player;
+                    if (this.waitSurface && player !== null && player.state === 'initialized') {
+                      this.waitSurface = false;
+                      this.attachSurfaceAndPrepare(player);
+                    }
+                  })
                 /*
                  * **没出第一帧前用横版剧照顶着**（iOS：`没出第一帧前横带里放横版剧照`）。
                  * 不这么做的话，转码还没出片时横带就是一块纯黑——用户以为坏了。
