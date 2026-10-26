@@ -431,25 +431,34 @@ export struct MainTabsPage {
       .height(0)
   }
 
-  /** iOS 的最后一个页签是**用户头像**（没有头像时退化成 person.crop.circle 符号） */
+  /** iOS 的最后一个页签是**用户头像**；没头像时退化成 person 符号，
+   *  和其他页签一样做「描边→实心 + 强调色」切换，选中效果保持一致 */
   @Builder
   AvatarTabIcon(index: number) {
-    Stack({ alignContent: Alignment.Center }) {
-      RemoteImage({
-        url: this.avatarUrl(),
-        placeholderSymbol: $r('sys.symbol.person_crop_circle_fill')
-      })
-        .width(24)
-        .height(24)
-        .borderRadius(12)
-        .clip(true)
-      if (this.currentTab === index) {
-        Circle()
-          .width(28)
-          .height(28)
-          .fillOpacity(0)
-          .border({ width: 1.5, color: Theme.accentStrong })
+    if (this.avatarUrl().length > 0) {
+      Stack({ alignContent: Alignment.Center }) {
+        RemoteImage({
+          url: this.avatarUrl(),
+          placeholderSymbol: $r('sys.symbol.person_crop_circle_fill')
+        })
+          .width(24)
+          .height(24)
+          .borderRadius(12)
+          .clip(true)
+        if (this.currentTab === index) {
+          Circle()
+            .width(28)
+            .height(28)
+            .fillOpacity(0)
+            .border({ width: 1.5, color: Theme.accentStrong })
+        }
       }
+    } else {
+      SymbolGlyph(this.currentTab === index
+        ? $r('sys.symbol.person_fill')
+        : $r('sys.symbol.person'))
+        .fontSize(24)
+        .fontColor([this.currentTab === index ? Theme.accentStrong : Theme.textFaint])
     }
   }
 

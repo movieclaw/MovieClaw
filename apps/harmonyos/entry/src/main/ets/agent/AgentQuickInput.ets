@@ -1,9 +1,10 @@
 import { common } from '@kit.AbilityKit';
-import { window } from '@kit.ArkUI';
+import { KeyboardAvoidMode, window } from '@kit.ArkUI';
 import { Theme } from '../theme/AppTheme';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
 import { ShellChrome } from '../common/ShellChrome';
+import { WindowInsets } from '../common/WindowInsets';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
 import { LlmModelOptionView, SessionMessageAcceptedView, SessionStartPayload, SkillView } from '../api/Models';
@@ -61,10 +62,16 @@ export struct AgentQuickInput {
   @Local private consentProviders: string[] = [];
   @Local private keyboardInset: number = 0;
   private keyboardWindow: window.Window | null = null;
+  /** 进入时记下的窗口键盘避让模式，失焦/销毁时还原（默认 OFFSET=整页上抬） */
+  private avoidDefault: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET;
 
   aboutToAppear(): void {
     this.loadModels();
     this.observeKeyboard();
+    try {
+      this.avoidDefault = this.getUIContext().getKeyboardAvoidMode();
+    } catch (e) {
+    }
     AgentAIConsent.load();
   }
 
@@ -73,6 +80,7 @@ export struct AgentQuickInput {
       this.keyboardWindow.off('keyboardHeightChange');
       this.keyboardWindow = null;
     }
+    this.setBarAvoid(false);
   }
 
   /** 管理员才显示；整屏页压上来时隐藏（会话页有自己的输入框） */
@@ -120,6 +128,18 @@ export struct AgentQuickInput {
       });
     }).catch((): void => {
     });
+  }
+
+  /**
+   * 只抬输入条、不推页面：聚焦时把窗口键盘避让切成 NONE——系统不再上抬整页，
+   * 输入条只用 bottom margin 自己贴到键盘顶；失焦/销毁还原默认。
+   * bindSheet 等弹层不归这个设置管（文档：不作用于 popup），照常避让。
+   */
+  private setBarAvoid(focusIn: boolean): void {
+    try {
+      this.getUIContext().setKeyboardAvoidMode(focusIn ? KeyboardAvoidMode.NONE : this.avoidDefault);
+    } catch (e) {
+    }
   }
 
   // MARK: 动作
@@ -348,6 +368,10 @@ export struct AgentQuickInput {
             })
             .onFocus((): void => {
               this.expanded = true;
+              this.setBarAvoid(true);
+            })
+            .onBlur((): void => {
+              this.setBarAvoid(false);
             })
 
           if (this.expanded) {
@@ -381,7 +405,6 @@ export struct AgentQuickInput {
       }
       .width('100%')
       .padding(8)
-      .backgroundColor('rgba(0,255,0,0.3)')   // 🟢 debug：内容区标记绿（确认后移除）
       .bindSheet($$this.showComposerSheet, this.ComposerSheet(), {
         height: SheetSize.FIT_CONTENT,
         dragBar: true,
@@ -390,25 +413,25 @@ export struct AgentQuickInput {
       })
     }
     .width('100%')
-    .backgroundColor('rgba(255, 255, 255, 0.05)')
+    // 展开成编辑器时垫实底（同会话页输入区思路），别让列表内容从玻璃底透出来
+    // 影响阅读；折叠小药丸保持玻璃质感
+    .backgroundColor(this.expanded ? Theme.surfaceRaised : 'rgba(255, 255, 255, 0.05)')
     .borderRadius(26)
     .border({ width: 1, color: 'rgba(255, 255, 255, 0.07)' })
     /*
-     * 系统默认键盘避让是 OFFSET（上抬）模式，文档明说「只能保证输入框不被遮挡，
-     * 输入框下方的组件可能就会被软键盘挡住」：平衡点是聚焦的 TextArea 被抬到
-     * 键盘顶，而它下方的工具行（36）+ TextArea 内边距（14）+ 卡片 内边距（8）
-     * 仍被键盘盖住——即输入条下半截被盖。
-     * 系统的抬升对布局变化会重新平衡（加 margin 会被它抵消、还曾把条顶到屏幕
-     * 顶部），但 translate 是纯视觉位移、不参与布局，系统不会补偿它——所以用
-     * translate 把整条在视觉上抬到键盘上方（实测校准 59，留少量呼吸）。
+     * 键盘定位：聚焦时窗口避让已被切成 NONE（见 setBarAvoid），系统不上抬
+     * 整页，输入条只用 bottom margin 站到键盘顶。keyboardInset 是相对屏幕底
+     * 的键盘高，而这里的 margin 相对容器底（容器被 MainTabsPage 根 Stack 垫了
+     * WindowInsets.bottom 手势条内边距），所以要扣掉它，紧贴键盘；
      * 键盘收起时回到悬浮页签胶囊上方（胶囊 56 + 底距 12 + 间距 5）。
      */
     .margin({
       left: 12,
       right: 12,
-      bottom: this.keyboardInset > 0 ? 8 : BAR_LIFT
+      bottom: this.keyboardInset > 0
+        ? Math.max(0, this.keyboardInset - WindowInsets.bottom)
+        : BAR_LIFT
     })
-    .translate({ y: this.keyboardInset > 0 ? -59 : 0 })
     .visibility(this.visible() ? Visibility.Visible : Visibility.None)
     .bindSheet($$this.showConsent, this.ConsentSheet(), {
       height: SheetSize.FIT_CONTENT,
