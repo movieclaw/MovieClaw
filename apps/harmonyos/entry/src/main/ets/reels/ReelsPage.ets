@@ -175,6 +175,9 @@ export struct ReelsPage {
   private itemsSource: ReelItemsSource = new ReelItemsSource();
   @Local private index: number = 0;
   @Local private playing: boolean = false;
+  /** 视频真实宽高比：surface 是画布、播放器会把画面铺满它，
+   * 横带固定 16:9 时非 16:9 的片源会被拉变形——按真实比例在带内 letterbox/pillarbox */
+  @Local private videoAspect: number = 16 / 9;
   /** 当前这一条收藏 / 已看（点了就把状态推到服务端） */
   @Local private favorite: boolean = false;
   @Local private played: boolean = false;
@@ -550,6 +553,15 @@ export struct ReelsPage {
         this.startTick();
       }
     });
+    // 视频尺寸：拿到真实的宽高比，surface 才不会把画面拉变形（同 PlayerPage）
+    player.on('videoSizeChange', (width: number, height: number): void => {
+      if (gen !== this.playGen) {
+        return;
+      }
+      if (width > 0 && height > 0) {
+        this.videoAspect = width / height;
+      }
+    });
     player.on('error', (error: BusinessError): void => {
       if (gen !== this.playGen) {
         // 旧代播放器的错误由它自己负责，别覆盖新页面板
@@ -588,6 +600,16 @@ export struct ReelsPage {
       this.failed = true;
       this.errorMessage = `放不了这一段（${error.code ?? -1}）`;
     });
+  }
+
+  /** surface 宽（横带宽的百分比）：宽于等于 16:9 铺满带宽，窄于按带高反推 */
+  private surfaceWidthPct(): string {
+    return this.videoAspect >= 16 / 9 ? '100%' : `${(this.videoAspect * 9 / 16) * 100}%`;
+  }
+
+  /** surface 高（横带高的百分比）：宽于 16:9 按带宽反推（上下留空），否则铺满带高 */
+  private surfaceHeightPct(): string {
+    return this.videoAspect >= 16 / 9 ? `${(16 / (9 * this.videoAspect)) * 100}%` : '100%';
   }
 
   /** 进度线按片段算（同 iOS：最底下那条细线不按整部片） */
@@ -972,8 +994,9 @@ export struct ReelsPage {
                   type: XComponentType.SURFACE,
                   controller: this.surfaceController
                 })
-                  .width('100%')
-                  .height('100%')
+                  // 按视频真实比例在 16:9 横带内自适应（宽于 16:9 上下留空、窄于则左右留空）
+                  .width(this.surfaceWidthPct())
+                  .height(this.surfaceHeightPct())
                   .onLoad((): void => {
                     this.surfaceId = this.surfaceController.getXComponentSurfaceId();
                     // 播放器先到 initialized、surface 后就绪：补挂起播
