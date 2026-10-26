@@ -188,11 +188,12 @@ export class ApiClient {
   private static readonly userAgent: string =
     `MovieClaw-HarmonyOS/0.1.0 (${deviceInfo.productModel}; ${deviceInfo.osFullName}; build 1)`;
 
-  constructor(origin: string, token: string | null, timeoutMs?: number) {
+  /** 探测类请求（健康检查、启动鉴权）只收紧连接超时，读超时保持默认，慢网下大响应不受影响 */
+  constructor(origin: string, token: string | null, connectTimeoutMs?: number, readTimeoutMs?: number) {
     this.origin = origin;
     this.token = token;
-    this.connectTimeoutMs = timeoutMs ?? 15000;
-    this.readTimeoutMs = timeoutMs ?? 60000;
+    this.connectTimeoutMs = connectTimeoutMs ?? 15000;
+    this.readTimeoutMs = readTimeoutMs ?? 60000;
   }
 
   static setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {

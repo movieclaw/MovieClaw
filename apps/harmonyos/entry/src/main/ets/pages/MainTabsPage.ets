@@ -45,6 +45,12 @@ export struct MainTabsPage {
    */
   @Local private model: AppModel = AppModel.shared;
   @Local private currentTab: number = 0;
+  /**
+   * 懒挂载：页签内容**首次被选中**才建（之后常驻保活，来回切不重建）。
+   * 启动只挂第一个页签——否则五个 NavHost 全部 aboutToAppear，冷启动同时打满轮询与请求。
+   * `@Local` 让 `tabMounted` 的 if 在 push 后能重算。
+   */
+  @Local private mountedTabs: string[] = ['媒体库'];
   /** 全局订阅弹层：发现海报/详情、条目详情、搜索结果都往 SubscribeCenter 投请求，由这里弹 */
   @Local private showSubscribe: boolean = false;
   /** 长按头像页签弹出的切换账号抽屉（对应 iOS `AccountSwitcherSheet` 的长按入口） */
@@ -186,6 +192,18 @@ export struct MainTabsPage {
     return tabs;
   }
 
+  /** 该页签是否已挂载过内容（懒挂载见 `mountedTabs` 说明） */
+  private tabMounted(title: string): boolean {
+    return this.mountedTabs.indexOf(title) >= 0;
+  }
+
+  /** 首次选中某页签时挂载它的内容；已挂载的保持保活不重建 */
+  private mountTab(title: string): void {
+    if (this.mountedTabs.indexOf(title) < 0) {
+      this.mountedTabs.push(title);
+    }
+  }
+
   private libraryTab(): TabSpec {
     // iOS `play.square.stack` 的华为对应：未选中 play_square，选中 play_square_stack_fill
     return { icon: $r('sys.symbol.play_square'), activeIcon: $r('sys.symbol.play_square_stack_fill'), title: '媒体库' };
@@ -317,18 +335,20 @@ export struct MainTabsPage {
     HdsTabs({ barPosition: BarPosition.End, controller: this.tabsController }) {
       ForEach(this.visibleTabs(), (tab: TabSpec, index: number) => {
         TabContent() {
-          if (tab.title === '媒体库') {
-            LibraryNavHost()
-          } else if (tab.title === '订阅') {
-            SubscriptionsNavHost()
-          } else if (tab.title === '发现') {
-            DiscoverNavHost()
-          } else if (tab.title === '活动') {
-            ActivityNavHost()
-          } else if (tab.title === '我的') {
-            MoreNavHost()
-          } else {
-            this.PlaceholderContent(tab.title)
+          if (this.tabMounted(tab.title)) {
+            if (tab.title === '媒体库') {
+              LibraryNavHost()
+            } else if (tab.title === '订阅') {
+              SubscriptionsNavHost()
+            } else if (tab.title === '发现') {
+              DiscoverNavHost()
+            } else if (tab.title === '活动') {
+              ActivityNavHost()
+            } else if (tab.title === '我的') {
+              MoreNavHost()
+            } else {
+              this.PlaceholderContent(tab.title)
+            }
           }
         }
         .tabBar(this.chrome.immersive ? this.NoBar() : this.TabBarIcon(tab, index))
@@ -349,7 +369,9 @@ export struct MainTabsPage {
     .scrollable(false)
     .onChange((index: number) => {
       this.currentTab = index;
-      NavStacks.currentKey = this.visibleTabs()[index].title;
+      const title: string = this.visibleTabs()[index].title;
+      NavStacks.currentKey = title;
+      this.mountTab(title);
     })
     /*
      * 点「已经选中的页签」要回到该页签的根页（iOS 标准行为：在二级页面里点底部同一个页签 = 退回首页）。

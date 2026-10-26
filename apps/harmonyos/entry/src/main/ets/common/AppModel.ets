@@ -109,7 +109,9 @@ export class ClipReturn {
  *
  * 冷启动（对应 iOS `restore` + `reconnect`）：
  * 1. 本机没登录过任何服务器 → `needsServer`（欢迎页）；
- * 2. 有当前服务器 → `reconnect()`：服务器没初始化 → `needsSetup`；
+ * 2. 有当前服务器、且本机还留着上次会话的快照与令牌 → 先用快照**瞬时**进主界面
+ *    （`tryRestoreSnapshot`），`revalidate()` 随后在后台确认：401 回登录页，连不上先离线用；
+ * 3. 没有快照可走 → `reconnect()`：服务器没初始化 → `needsSetup`；
  *    本机没有当前账号的令牌 → `needsLogin`（预填快照里的用户名）；
  *    令牌失效（401）→ 删掉那枚令牌 → `needsLogin`；
  *    连不上 → `unreachable`（**不当成要重新登录**，令牌还在）。
@@ -234,7 +236,50 @@ export class AppModel {
       this.phase = AppPhase.needsServer;
       return;
     }
+    if (await this.tryRestoreSnapshot()) {
+      return;
+    }
     await this.reconnect();
+  }
+
+  /**
+   * 冷启动快速路径：上次会话的快照（`sessionJson`）还在、且对得上当前账号——
+   * 先用它瞬时进主界面，省掉「健康检查 → 初始化状态 → /auth/me」三段串行往返；
+   * `revalidate()` 随后在后台确认身份：401 由 `sessionExpired` 打回登录页，
+   * 连不上就先离线用着。快照缺失/损坏或对不上当前账号时返回 false，走完整 `reconnect()`。
+   */
+  private async tryRestoreSnapshot(): Promise<boolean> {
+    const address: ServerAddress | null = this.server;
+    if (address === null) {
+      return false;
+    }
+    const snapshot: SavedServer | null = SavedServers.find(this.savedServers, address);
+    const active: AccountView | null = snapshot === null ? null : snapshot.activeAccount();
+    if (active === null) {
+      return false;
+    }
+    const savedToken: string = await TokenVault.token(address.origin, active.username);
+    if (savedToken.length === 0) {
+      return false;
+    }
+    const raw: string = await this.readString(SessionKeys.sessionJson, '');
+    if (raw.length === 0) {
+      return false;
+    }
+    try {
+      const session: SessionView = JSON.parse(raw) as SessionView;
+      if (typeof session.username !== 'string' || session.username !== active.username) {
+        return false;
+      }
+      this.activate(address, session, savedToken);
+      // 不 await：后台确认慢或失败，都不能把已经进主界面的用户再摁回启动页
+      this.revalidate().catch((): void => {
+      });
+      return true;
+    } catch (error) {
+      // 快照坏了：当没有快照处理，走完整校验，别把用户锁在外面
+      return false;
+    }
   }
 
   /**
@@ -250,7 +295,7 @@ export class AppModel {
     }
     const address: ServerAddress = ServerAddress.trusted(origin);
     try {
-      const session: SessionView = await new MovieClawApi(new ApiClient(origin, token)).authMe();
+      const session: SessionView = await new MovieClawApi(new ApiClient(origin, token, 5000)).authMe();
       await TokenVault.save(token, origin, session.username);
       this.server = address;
       this.activate(address, session, token);
@@ -288,7 +333,8 @@ export class AppModel {
     const username: string = active === null ? '' : active.username;
     const savedToken: string = username.length > 0 ? await TokenVault.token(address.origin, username) : '';
 
-    const probeClient: ApiClient = new ApiClient(address.origin, savedToken.length > 0 ? savedToken : null);
+    const probeClient: ApiClient =
+      new ApiClient(address.origin, savedToken.length > 0 ? savedToken : null, 5000);
     const probeApi: MovieClawApi = new MovieClawApi(probeClient);
     try {
       const health: HealthResponse = await probeApi.healthCheck();

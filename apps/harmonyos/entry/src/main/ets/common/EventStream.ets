@@ -64,7 +64,25 @@ export class StreamHandle {
 }
 
 /**
- * SSE 逐行解析器（逐字节切行，对应 iOS 端 SSELineParser）。
+ * 把跨 chunk 攒下的行段拼成一整行（不含 LF）。
+ * 一行通常整个落在同一个 chunk 里，只有被 chunk 边界切断的行才需要拼。
+ */
+function concatSegments(segments: Uint8Array[]): Uint8Array {
+  let total: number = 0;
+  for (let i = 0; i < segments.length; i++) {
+    total += segments[i].length;
+  }
+  const joined: Uint8Array = new Uint8Array(total);
+  let offset: number = 0;
+  for (let i = 0; i < segments.length; i++) {
+    joined.set(segments[i], offset);
+    offset += segments[i].length;
+  }
+  return joined;
+}
+
+/**
+ * SSE 逐行解析器（按字节切行，对应 iOS 端 SSELineParser）。
  *
  * **必须按字节切行**，不能用文本行切分：
  * - 只认 LF(0x0A) 为行尾；行尾的 CR(0x0D) 剥掉；
@@ -88,16 +106,16 @@ class SSELineParser {
    * 喂入一行原始字节（不含 LF，可能带 CR）。
    * 空行（长度 0）时把凑齐的事件交出去；其余情况返回 null。
    */
-  feedLine(lineBytes: number[]): ServerEvent | null {
-    let bytes = lineBytes;
+  feedLine(lineBytes: Uint8Array): ServerEvent | null {
+    let bytes: Uint8Array = lineBytes;
     if (bytes.length > 0 && bytes[bytes.length - 1] === 0x0D) {
-      bytes = bytes.slice(0, bytes.length - 1);
+      bytes = bytes.subarray(0, bytes.length - 1);
     }
     if (bytes.length === 0) {
       return this.flush();
     }
     // 整行才解码：跨 chunk 的多字节 UTF-8 在这里已经是完整一行，不会乱码
-    const line: string = this.decoder.decodeToString(new Uint8Array(bytes));
+    const line: string = this.decoder.decodeToString(bytes);
     if (line.startsWith(':')) {
       return null;
     }
@@ -189,7 +207,7 @@ export class EventStream {
   open(path: string, options: StreamOptions, callbacks: StreamCallbacks): StreamHandle {
     const httpRequest: http.HttpRequest = http.createHttp();
     const parser: SSELineParser = new SSELineParser();
-    let pending: number[] = [];
+    let pending: Uint8Array[] = [];
     let head: number[] = [];
     let closed: boolean = false;
     let settled: boolean = false;
@@ -218,20 +236,37 @@ export class EventStream {
         return;
       }
       const bytes: Uint8Array = new Uint8Array(data);
-      for (let i = 0; i < bytes.length; i++) {
-        const b: number = bytes[i];
-        if (head.length < EventStream.HEAD_CAP) {
-          head.push(b);
+      // 错误体截留（只在非 2xx 时才用得上）：封顶 64KB，只在没满时拷
+      if (head.length < EventStream.HEAD_CAP) {
+        const room: number = EventStream.HEAD_CAP - head.length;
+        const take: number = Math.min(room, bytes.length);
+        for (let i = 0; i < take; i++) {
+          head.push(bytes[i]);
         }
-        if (b === 0x0A) {
-          const ev: ServerEvent | null = parser.feedLine(pending);
-          pending = [];
+      }
+      // 整段扫 LF 切行：一行基本都落在同一个 chunk 里，只有被 chunk 边界
+      // 切断的行才进 pending 拼接——比原来逐字节 push 进 number[] 快一个量级
+      let start: number = 0;
+      for (let i = 0; i < bytes.length; i++) {
+        if (bytes[i] === 0x0A) {
+          const tailSeg: Uint8Array = bytes.subarray(start, i);
+          let line: Uint8Array;
+          if (pending.length > 0) {
+            pending.push(tailSeg);
+            line = concatSegments(pending);
+            pending = [];
+          } else {
+            line = tailSeg;
+          }
+          const ev: ServerEvent | null = parser.feedLine(line);
           if (ev !== null && !closed) {
             callbacks.onEvent(ev);
           }
-        } else {
-          pending.push(b);
+          start = i + 1;
         }
+      }
+      if (start < bytes.length) {
+        pending.push(bytes.subarray(start));
       }
     });
 
@@ -255,8 +290,9 @@ export class EventStream {
       if (status >= 200 && status < 300) {
         // 没有尾随空行的最后一行先喂进去，再 flush 出最后一条事件
         if (pending.length > 0) {
-          const ev: ServerEvent | null = parser.feedLine(pending);
+          const lastLine: Uint8Array = concatSegments(pending);
           pending = [];
+          const ev: ServerEvent | null = parser.feedLine(lastLine);
           if (ev !== null) {
             callbacks.onEvent(ev);
           }
