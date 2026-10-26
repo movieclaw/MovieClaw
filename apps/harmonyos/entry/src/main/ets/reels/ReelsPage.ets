@@ -20,7 +20,7 @@ import {
   ShareView
 } from '../api/Models';
 import { SharePanel, shareMessage } from '../library/ShareSheet';
-import { PlayerParams } from '../player/PlayerPage';
+import { PlayerParams } from '../player/PlayerParams';
 import { ItemRouteParams } from '../library/LibraryItemDetailPage';
 import { PersonParams } from '../discover/PersonDetailPage';
 
@@ -186,6 +186,10 @@ export struct ReelsPage {
   /** 因路由压栈被自动暂停的（回来要接着放）；用户自己按停的不算 */
   private routePaused: boolean = false;
   @Local private positionMs: number = 0;
+  /** timeUpdate 的 500ms 节流桶：直写 @Local 会拖整页进度线高频重渲染 */
+  private timeBucket: number = -1;
+  /** 播放代数：快速连滑时旧代 await 之后的结果全部作废，防止两个 AVPlayer 并发出声、解码器泄漏 */
+  private playGen: number = 0;
   /** 服务端开了「片段预切」时的进度（nil = 没开预切，刷的是原片）：空态与刷到底的提示读它 */
   @Local private clips: ReelClipProgressView | null = null;
   /** 刷到底了（这一页 has_more=false）：末尾追加「没有更多了」页 */
@@ -458,13 +462,20 @@ export struct ReelsPage {
     if (item === null) {
       return;
     }
+    // 代数守卫：翻页期间本函数有 3 个 await，快滑时两次调用会重叠——
+    // 旧代落定后要么放弃手里的新播放器（孤儿，立刻释放），要么整体让位
+    const gen: number = ++this.playGen;
     // 翻页就换播放器：**一个时刻只留一个**，否则滑十几页会开十几个解码器
     this.disarmHoldTimer();
     this.endHoldSpeed();
     await this.releasePlayer();
+    if (gen !== this.playGen) {
+      return;
+    }
     this.stopTick();
     this.paused = false;
     this.positionMs = 0;
+    this.timeBucket = -1;
 
     // 预切片段（play.mode == "clip"）：服务端切好的 1080p 小文件，第 0 秒就是原片的片段起点
     const isClip: boolean = item.play.mode === 'clip';
@@ -479,19 +490,40 @@ export struct ReelsPage {
     this.failed = false;
     try {
       const player: media.AVPlayer = await media.createAVPlayer();
+      if (gen !== this.playGen) {
+        // 创建期间又翻了页：这就是孤儿播放器，别接上，直接收掉
+        this.discardPlayer(player);
+        return;
+      }
       this.player = player;
       this.bind(player, item.segment.start_ms, item.segment.end_ms, isClip);
       player.url = AppModel.origin() + url;
       await player.prepare();
+      if (gen !== this.playGen) {
+        // prepare 期间又翻了页：同上
+        this.player = null;
+        this.discardPlayer(player);
+        return;
+      }
       this.playing = true;
       player.play();
       this.startTick();
     } catch (error) {
+      if (gen !== this.playGen) {
+        // 已被更新的翻页接管：错误面板由新页负责
+        return;
+      }
       const e = error as BusinessError;
       this.playing = false;
       this.failed = true;
       this.errorMessage = `放不了这一段（${e.code ?? -1}）`;
     }
+  }
+
+  /** 放弃一个没接上班的播放器：异步释放，已释放过的失败忽略 */
+  private discardPlayer(player: media.AVPlayer): void {
+    player.release().catch((): void => {
+    });
   }
 
   /**
@@ -500,18 +532,18 @@ export struct ReelsPage {
    * 直接从 0 播、到片段时长就停；seek 模式照旧按原片时间轴。
    */
   private bind(player: media.AVPlayer, startMs: number, endMs: number, isClip: boolean): void {
-    player.on('stateChange', (state: string): void => {
-      if (state === 'initialized') {
-        player.prepare();
-      }
-    });
     player.on('error', (error: BusinessError): void => {
       this.playing = false;
       this.failed = true;
       this.errorMessage = `放不了这一段：${error.message}`;
     });
     player.on('timeUpdate', (time: number): void => {
-      this.positionMs = isClip ? time : time - startMs;
+      // 高频回调：按 500ms 桶节流写 @Local，进度线 2Hz 足够顺（0.5s 一跳肉眼无感）
+      const bucket: number = Math.floor(time / 500);
+      if (bucket !== this.timeBucket) {
+        this.timeBucket = bucket;
+        this.positionMs = isClip ? time : time - startMs;
+      }
       // **到片段终点就停**——片段是「从整片里切出来的一段」，不是整片
       // （clip 的 time 本身就是片段内位置，与「片段时长」同轴；seek 的 time 是原片位置，与 endMs 同轴）
       const endAt: number = isClip ? endMs - startMs : endMs;

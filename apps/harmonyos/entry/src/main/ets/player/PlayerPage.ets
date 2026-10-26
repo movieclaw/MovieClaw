@@ -44,57 +44,12 @@ import {
   VideoSupportIn, PlaybackSegmentView, PlaybackProgressRequest,
   PlaybackDiagnosticsView, PlaybackPolicyView, PlaybackArtifactUploadView } from '../api/Models';
 import { JsonValue, jsonBoolValue } from '../api/JsonValue';
+import { PlayerParams } from './PlayerParams';
 
 /** 路由表注册用（router_map.json 的 buildMethod） */
 @Builder
 export function PlayerBuilder() {
   PlayerPage()
-}
-
-/** 播放器页的路由参数（会序列化，不要用 instanceof） */
-export class PlayerParams {
-  readonly mediaItemId: number;
-  readonly fileId: number;
-  readonly seasonNumber: number;
-  readonly episodeNumber: number;
-  readonly startMs: number;
-  /** 分享访客播放：走 /share/{slug}/playback 接口族，进度只存本机；空 = 站内播放 */
-  readonly shareSlug: string;
-  /** 片段播放（刷片页「全屏观看」，iOS `PlaybackClip`）：时间轴只算这段，不报观看进度 */
-  readonly clipStartMs: number;
-  readonly clipEndMs: number;
-
-  constructor(mediaItemId: number, fileId: number = 0, seasonNumber: number = 0,
-    episodeNumber: number = 0, startMs: number = 0, shareSlug: string = '',
-    clipStartMs: number = 0, clipEndMs: number = 0) {
-    this.mediaItemId = mediaItemId;
-    this.fileId = fileId;
-    this.seasonNumber = seasonNumber;
-    this.episodeNumber = episodeNumber;
-    this.startMs = startMs;
-    this.shareSlug = shareSlug;
-    this.clipStartMs = clipStartMs;
-    this.clipEndMs = clipEndMs;
-  }
-
-  static of(param: Object | undefined | null): PlayerParams | null {
-    if (param === undefined || param === null) {
-      return null;
-    }
-    const raw: PlayerParams = param as PlayerParams;
-    const id: number = raw.mediaItemId;
-    if (!Number.isFinite(id) || id <= 0) {
-      return null;
-    }
-    return new PlayerParams(Math.floor(id),
-      Number.isFinite(raw.fileId) ? Math.floor(raw.fileId) : 0,
-      Number.isFinite(raw.seasonNumber) ? Math.floor(raw.seasonNumber) : 0,
-      Number.isFinite(raw.episodeNumber) ? Math.floor(raw.episodeNumber) : 0,
-      Number.isFinite(raw.startMs) ? Math.floor(raw.startMs) : 0,
-      raw.shareSlug !== undefined && raw.shareSlug !== null ? raw.shareSlug : '',
-      Number.isFinite(raw.clipStartMs) ? Math.floor(raw.clipStartMs) : 0,
-      Number.isFinite(raw.clipEndMs) ? Math.floor(raw.clipEndMs) : 0);
-  }
 }
 
 /** `ClientCapabilityIn` 有必填字段但其余可选，仍用类构造以便阅读 */
@@ -250,6 +205,15 @@ class TrickplayTiles {
     this.index = index;
     this.sheets.clear();
     this.loading.clear();
+    this.releaseTiles();
+  }
+
+  /** 原生位图必须显式 release：只丢引用会等 GC 终结器，几十张格子的原生内存峰值明显 */
+  private releaseTiles(): void {
+    this.tiles.forEach((tile: image.PixelMap): void => {
+      tile.release().catch((): void => {
+      });
+    });
     this.tiles.clear();
   }
 
@@ -285,7 +249,7 @@ class TrickplayTiles {
       source.createPixelMap({ desiredRegion: region }).then((tile: image.PixelMap): void => {
         source.release();
         if (this.tiles.size >= 60) {
-          this.tiles.clear();
+          this.releaseTiles();
         }
         this.tiles.set(ordinal, tile);
         if (this.onSheetLoaded !== null) {
@@ -366,6 +330,8 @@ export struct PlayerPage {
   @Local private playing: boolean = false;
   @Local private durationMs: number = 0;
   @Local private positionMs: number = 0;
+  /** timeUpdate 的 500ms 节流桶：播放全程约 100ms 一报，直写 @Local 会拖整层控制条高频重算 */
+  private timeBucket: number = -1;
   @Local private title: string = '';
 
   private mediaItemId: number = 0;
@@ -594,6 +560,8 @@ export struct PlayerPage {
       this.reportProgressEvent('stop');
     }
     this.stopReport();
+    // 缩略图缓存里的原生 PixelMap 显式释放（顺带清掉雪碧图缓冲）
+    this.trickplay.setIndex(null);
     this.releasePlayer();
     this.stopSession();
   }
@@ -1059,7 +1027,13 @@ export struct PlayerPage {
       }
     });
     player.on('timeUpdate', (time: number): void => {
-      this.positionMs = time;
+      // 高频回调（约 100ms 一次）：按 500ms 桶节流写 @Local，状态刷新从 ~10Hz 降到 2Hz，
+      // 进度 0.5s 一跳肉眼无感；seek 后的直写不受影响
+      const bucket: number = Math.floor(time / 500);
+      if (bucket !== this.timeBucket) {
+        this.timeBucket = bucket;
+        this.positionMs = time;
+      }
       // 本机播放的秒级计时（观看时长只在播放中的墙钟时间里累计）
       const recorder: OfflineViewingRecorder | null = this.viewingRecorder;
       if (recorder !== null) {
@@ -1185,6 +1159,7 @@ export struct PlayerPage {
     }
     player.seek(target, media.SeekMode.SEEK_CLOSEST);
     this.positionMs = target;
+    this.timeBucket = Math.floor(target / 500);
   }
 
   /** 片段播放（刷片页「全屏观看」）：时间轴只算这一段，不报观看进度、不给画中画与「即将播放」 */
